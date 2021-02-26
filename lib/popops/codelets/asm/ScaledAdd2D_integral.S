@@ -19,11 +19,11 @@
 .globl VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false)
 .type VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false), @function
 
-.globl VERTEX_SUBTRACT(int_false)
-.type VERTEX_SUBTRACT(int_false), @function
+.globl VERTEX_SUBTRACT(int_int_false)
+.type VERTEX_SUBTRACT(int_int_false), @function
 
-.globl VERTEX_SUBTRACT(unsigned_int_false)
-.type VERTEX_SUBTRACT(unsigned_int_false), @function
+.globl VERTEX_SUBTRACT(unsigned_int_unsigned_int_false)
+.type VERTEX_SUBTRACT(unsigned_int_unsigned_int_false), @function
 
 // constants
 #define VERTEX_DATA_A_OFFSET 0
@@ -57,14 +57,14 @@ VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false):
 
 .align 4
 
-VERTEX_SUBTRACT(int_false):
-VERTEX_SUBTRACT(unsigned_int_false):
+VERTEX_SUBTRACT(int_int_false):
+VERTEX_SUBTRACT(unsigned_int_unsigned_int_false):
   // load vertex state specific to the case where we multiply by a tensor, factor
   ld32 $k, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0
   mul  $k, $k, -1
   bri  VERTEX_COMMON
-.size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int_false)
+.size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int_int_false)
 
 
 DEF_STACK_USAGE 0 .text.VERTEX_COMMON

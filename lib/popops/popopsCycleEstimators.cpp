@@ -563,7 +563,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledAddSupervisor)(
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledSubtractSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
-    const Type &BType, const bool memConstrained) {
+    const Type &BType, const Type &ScaleType, const bool memConstrained) {
   return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType, BType,
                                                  false, memConstrained,
                                                  ScaledArithmeticOp::SUBTRACT);
@@ -582,11 +582,18 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXPlusbYSupervisor)(
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXMinusbYSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, const Type &AType,
-    const bool isConstant, const bool memConstrained) {
-  return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType, AType,
-                                                 isConstant, memConstrained,
-                                                 ScaledArithmeticOp::AXMINUSBY);
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &DataType, const Type &ScaleType, const bool isConstant,
+    const bool memConstrained) {
+  if (DataType == HALF && ScaleType == FLOAT)
+    // Other than for the minus, the plus and minus mixed supervisors are the
+    // same.
+    return aXPlusbYMixedSupervisorCycleEstimate(vertex, target, isConstant,
+                                                memConstrained);
+  else
+    return scaledArithmeticSupervisorCycleEstimate(
+        vertex, target, DataType, ScaleType, isConstant, memConstrained,
+        ScaledArithmeticOp::AXMINUSBY);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(XMinusaXPlusbYSupervisor)(
@@ -702,9 +709,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledAdd2D)(
                                          isConstant, ScaledArithmeticOp::ADD);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledSubtract2D)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type,
-    const bool memConstrained) {
-  return ScaledArithmetic2DCycleEstimate(vertex, target, type, false,
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &DataType, const Type &ScaleType, const bool memConstrained) {
+  return ScaledArithmetic2DCycleEstimate(vertex, target, DataType, false,
                                          memConstrained,
                                          ScaledArithmeticOp::SUBTRACT);
 }
@@ -722,11 +729,17 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXPlusbY2D)(
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXMinusbY2D)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type,
-    const bool isConstant, const bool memConstrained) {
-  return ScaledArithmetic2DCycleEstimate(vertex, target, type, memConstrained,
-                                         isConstant,
-                                         ScaledArithmeticOp::AXMINUSBY);
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &DataType, const Type &ScaleType, const bool isConstant,
+    const bool memConstrained) {
+  if (DataType == HALF && ScaleType == FLOAT)
+    // Other than for the minus, the plus and minus workers are the same.
+    return aXPlusbYMixed2DCycleEstimate(vertex, target, isConstant,
+                                        memConstrained);
+  else
+    return ScaledArithmetic2DCycleEstimate(vertex, target, DataType,
+                                           memConstrained, isConstant,
+                                           ScaledArithmeticOp::AXMINUSBY);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(XMinusaXPlusbY2D)(
@@ -3059,27 +3072,36 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, INT, INT, false, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, FLOAT, FLOAT,
+                            FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, HALF, HALF,
                             true),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, HALF, true),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, FLOAT, FLOAT,
+                            FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, HALF, HALF,
                             false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, HALF,
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, HALF, FLOAT,
                             false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, UNSIGNED_INT,
-                            UNSIGNED_INT, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, INT, INT, false),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, HALF, FLOAT,
                             true),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, UNSIGNED_INT,
+                            UNSIGNED_INT, UNSIGNED_INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, INT, INT, INT,
                             false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, FLOAT, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, HALF, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, FLOAT, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, HALF, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, UNSIGNED_INT, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, FLOAT, HALF,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, HALF, FLOAT, HALF,
+                            false),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, FLOAT, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, HALF, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, HALF, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, HALF, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, FLOAT, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, HALF, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, UNSIGNED_INT,
+                            UNSIGNED_INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, INT, INT, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, true, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, false,
@@ -3105,10 +3127,17 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, false, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, false, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, false, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, false, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, HALF, false,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, HALF, false,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, FLOAT, false,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, FLOAT, false,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, false, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, false, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true, true),
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true,

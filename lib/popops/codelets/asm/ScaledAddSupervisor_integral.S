@@ -19,11 +19,11 @@
 .globl VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false)
 .type VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false), @function
 
-.globl VERTEX_SUBTRACT(int_int_false)
-.type VERTEX_SUBTRACT(int_int_false), @function
+.globl VERTEX_SUBTRACT(int_int_int_false)
+.type VERTEX_SUBTRACT(int_int_int_false), @function
 
-.globl VERTEX_SUBTRACT(unsigned_int_unsigned_int_false)
-.type VERTEX_SUBTRACT(unsigned_int_unsigned_int_false), @function
+.globl VERTEX_SUBTRACT(unsigned_int_unsigned_int_unsigned_int_false)
+.type VERTEX_SUBTRACT(unsigned_int_unsigned_int_unsigned_int_false), @function
 
 // constants
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -102,11 +102,11 @@ VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false):
   bri  VERTEX(int_common) //6 cycles
 .size VERTEX(int_true), .-VERTEX(int_int_int_true_false)
 
-DEF_STACK_USAGE STACK_SIZE .text.VERTEX_SUBTRACT(int_int_false_false)
-.section .text.VERTEX_SUBTRACT(int_int_false_false)
+DEF_STACK_USAGE STACK_SIZE .text.VERTEX_SUBTRACT(int_int_int_false_false)
+.section .text.VERTEX_SUBTRACT(int_int_int_false_false)
 .align 4
-VERTEX_SUBTRACT(int_int_false):
-VERTEX_SUBTRACT(unsigned_int_unsigned_int_false):
+VERTEX_SUBTRACT(int_int_int_false):
+VERTEX_SUBTRACT(unsigned_int_unsigned_int_unsigned_int_false):
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -STACK_SIZE
 
@@ -118,7 +118,7 @@ VERTEX_SUBTRACT(unsigned_int_unsigned_int_false):
 #endif
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX_SUBTRACT(int_common)// 6 cycles
-.size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int_int_false)
+.size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int_int_int_false)
 
 .section .text.VERTEX(int_common)
 .align 4

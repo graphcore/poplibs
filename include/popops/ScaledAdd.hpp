@@ -253,7 +253,7 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
 /** Scale the elements of one tensor and subtract the scaled elements of another
  *  tensor to it. The two scaling factors are (scalar) tensors.
  *
- *  Performs the calculations \p A = s\p caleA * \p A - \p scaleB * \p B
+ *  Performs the calculations \p A = \p scaleA * \p A - \p scaleB * \p B
  *
  *  The operation is performed after casting \p scaleA, \p scaleB and \p B to
  *  the type of \p A.

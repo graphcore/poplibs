@@ -430,7 +430,8 @@ template class ScaledAdd2D<unsigned, unsigned, unsigned, true, false>;
 template class ScaledAdd2D<int, int, int, false, false>;
 template class ScaledAdd2D<unsigned, unsigned, unsigned, false, false>;
 
-template <typename AType, typename BType, bool memConstraints>
+template <typename AType, typename BType, typename ScaleType,
+          bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] ScaledSubtractSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
@@ -439,7 +440,7 @@ public:
   InOut<Vector<AType, PTR_ALIGN64, 8>> A;
   unsigned short size;
   Input<Vector<BType, PTR_ALIGN64, 8>> B;
-  InputScaleType<AType> scaleB;
+  InputScaleType<ScaleType> scaleB;
 
   bool compute() {
     unsigned limI = size;
@@ -451,7 +452,7 @@ public:
 };
 
 template <typename AType, typename BType>
-class ScaledSubtractSupervisor<AType, BType, false>
+class ScaledSubtractSupervisor<AType, BType, AType, false>
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   IS_EXTERNAL_CODELET(true);
@@ -469,28 +470,65 @@ public:
     return true;
   }
 };
-template class ScaledSubtractSupervisor<float, float, true>;
-template class ScaledSubtractSupervisor<half, half, true>;
-template class ScaledSubtractSupervisor<half, float, true>;
 
-template class ScaledSubtractSupervisor<float, float, false>;
-template class ScaledSubtractSupervisor<half, half, false>;
-template class ScaledSubtractSupervisor<half, float, false>;
+#define DEF_SCALED_SUB_FLOAT_SCALE_SUPER_VERTEX(CONSTRAINTS, IS_CONSTRAINED)   \
+  template <>                                                                  \
+  class CONSTRAINTS                                                            \
+      ScaledSubtractSupervisor<half, half, float, IS_CONSTRAINED>              \
+      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+  public:                                                                      \
+    ScaledSubtractSupervisor();                                                \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOut<Vector<half, PTR_ALIGN64, 8>> A;                                     \
+    unsigned short size;                                                       \
+    Input<Vector<half, PTR_ALIGN64, 8>> B;                                     \
+    InputScaleType<float> scaleB;                                              \
+    const float tolerance;                                                     \
+                                                                               \
+    bool compute() {                                                           \
+      unsigned limI = size;                                                    \
+      if (CheckAccuracyWhenCast<float, half>::computeImpl(scaleB[0],           \
+                                                          tolerance)) {        \
+        const auto halfScale = static_cast<half>(scaleB[0]);                   \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          A[i] -= halfScale * B[i];                                            \
+        }                                                                      \
+      } else {                                                                 \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          A[i] -= static_cast<half>(scaleB[0] * static_cast<float>(B[i]));     \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_SCALED_SUB_FLOAT_SCALE_SUPER_VERTEX(
+    [[poplar::constraint("elem(*A) != elem(*B)")]], true)
+DEF_SCALED_SUB_FLOAT_SCALE_SUPER_VERTEX(, false)
+
+template class ScaledSubtractSupervisor<float, float, float, true>;
+template class ScaledSubtractSupervisor<half, half, half, true>;
+template class ScaledSubtractSupervisor<half, float, half, true>;
+
+template class ScaledSubtractSupervisor<float, float, float, false>;
+template class ScaledSubtractSupervisor<half, half, half, false>;
+template class ScaledSubtractSupervisor<half, float, half, false>;
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it
-template class ScaledSubtractSupervisor<int, int, false>;
-template class ScaledSubtractSupervisor<unsigned, unsigned, false>;
+template class ScaledSubtractSupervisor<int, int, int, false>;
+template class ScaledSubtractSupervisor<unsigned, unsigned, unsigned, false>;
 
-template <typename InType, bool memConstraints>
+template <typename DataType, typename ScaleType, bool memConstraints>
 class [[poplar::constraint("elem(**A) != elem(**B)")]] ScaledSubtract2D
     : public Vertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  InOutAType2D<InType> A;
-  InputBType2D<InType> B;
-  Input<InType> scaleB;
+  InOutAType2D<DataType> A;
+  InputBType2D<DataType> B;
+  Input<ScaleType> scaleB;
 
   bool compute() {
     unsigned limI = A.size();
@@ -506,14 +544,14 @@ public:
   }
 };
 
-template <typename InType>
-class ScaledSubtract2D<InType, false> : public Vertex {
+template <typename DataType>
+class ScaledSubtract2D<DataType, DataType, false> : public Vertex {
 public:
   IS_EXTERNAL_CODELET(true);
 
-  InOutAType2D<InType> A;
-  InputBType2D<InType> B;
-  Input<InType> scaleB;
+  InOutAType2D<DataType> A;
+  InputBType2D<DataType> B;
+  Input<DataType> scaleB;
 
   bool compute() {
     unsigned limI = A.size();
@@ -529,15 +567,61 @@ public:
   }
 };
 
-template class ScaledSubtract2D<float, true>;
-template class ScaledSubtract2D<half, true>;
-template class ScaledSubtract2D<float, false>;
-template class ScaledSubtract2D<half, false>;
+// Specialisation for the mixed case for half tensor with float scales.
+#define DEF_SCALED_SUB_FLOAT_SCALE_2D_VERTEX(CONSTRAINTS, IS_CONSTRAINED)      \
+  template <>                                                                  \
+  class CONSTRAINTS ScaledSubtract2D<half, float, IS_CONSTRAINED>              \
+      : public Vertex {                                                        \
+  public:                                                                      \
+    ScaledSubtract2D();                                                        \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOutAType2D<half> A;                                                      \
+    InputBType2D<half> B;                                                      \
+    Input<float> scaleB;                                                       \
+    const float tolerance;                                                     \
+                                                                               \
+    bool compute() {                                                           \
+      unsigned limI = A.size();                                                \
+      if (CheckAccuracyWhenCast<float, half>::computeImpl(scaleB,              \
+                                                          tolerance)) {        \
+        const auto halfScale = static_cast<half>(*scaleB);                     \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          unsigned limJ = A[i].size();                                         \
+          auto const &refIn = B[i];                                            \
+          auto &refOut = A[i];                                                 \
+          for (unsigned j = 0; j < limJ; ++j) {                                \
+            refOut[j] -= halfScale * refIn[j];                                 \
+          }                                                                    \
+        }                                                                      \
+      } else {                                                                 \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          unsigned limJ = A[i].size();                                         \
+          auto const &refIn = B[i];                                            \
+          auto &refOut = A[i];                                                 \
+          for (unsigned j = 0; j < limJ; ++j) {                                \
+            refOut[j] -=                                                       \
+                static_cast<half>(*scaleB * static_cast<float>(refIn[j]));     \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_SCALED_SUB_FLOAT_SCALE_2D_VERTEX(, false)
+DEF_SCALED_SUB_FLOAT_SCALE_2D_VERTEX(
+    [[poplar::constraint("elem(**A) != elem(**B)")]], true)
+
+template class ScaledSubtract2D<float, float, true>;
+template class ScaledSubtract2D<half, half, true>;
+template class ScaledSubtract2D<float, float, false>;
+template class ScaledSubtract2D<half, half, false>;
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it
-template class ScaledSubtract2D<int, false>;
-template class ScaledSubtract2D<unsigned, false>;
+template class ScaledSubtract2D<int, int, false>;
+template class ScaledSubtract2D<unsigned, unsigned, false>;
 
 template <typename DataType, typename ScaleType, bool isConstant,
           bool memConstraints>
@@ -786,18 +870,19 @@ public:
   }
 };
 
-template <typename InType, bool isConstant, bool memConstraints>
+template <typename DataType, typename ScaleType, bool isConstant,
+          bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] aXMinusbYSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   aXMinusbYSupervisor();
   IS_EXTERNAL_CODELET(true);
 
-  InOut<Vector<InType, PTR_ALIGN64, 8>> A;
+  InOut<Vector<DataType, PTR_ALIGN64, 8>> A;
   unsigned short size;
-  Input<Vector<InType, PTR_ALIGN64, 8>> B;
-  const InType scaleA;
-  const InType scaleB;
+  Input<Vector<DataType, PTR_ALIGN64, 8>> B;
+  const ScaleType scaleA;
+  const ScaleType scaleB;
 
   bool compute() {
     unsigned limI = size;
@@ -810,16 +895,17 @@ public:
 
 #define DEF_AXMINUSBY_SUPER_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS, IS_CONSTANT,  \
                                    IS_CONSTRAINED)                             \
-  template <typename InType>                                                   \
-  class CONSTRAINTS aXMinusbYSupervisor<InType, IS_CONSTANT, IS_CONSTRAINED>   \
+  template <typename DataType>                                                 \
+  class CONSTRAINTS                                                            \
+      aXMinusbYSupervisor<DataType, DataType, IS_CONSTANT, IS_CONSTRAINED>     \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
   public:                                                                      \
     aXMinusbYSupervisor();                                                     \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<InType, PTR_ALIGN64, 8>> A;                                   \
+    InOut<Vector<DataType, PTR_ALIGN64, 8>> A;                                 \
     unsigned short size;                                                       \
-    Input<Vector<InType, PTR_ALIGN64, 8>> B;                                   \
+    Input<Vector<DataType, PTR_ALIGN64, 8>> B;                                 \
     SCALE_TYPE scaleA;                                                         \
     SCALE_TYPE scaleB;                                                         \
                                                                                \
@@ -832,25 +918,69 @@ public:
     }                                                                          \
   };
 
-DEF_AXMINUSBY_SUPER_VERTEX(InputScaleType<InType>, [0],
+DEF_AXMINUSBY_SUPER_VERTEX(InputScaleType<DataType>, [0],
                            [[poplar::constraint("elem(*A) != elem(*B)")]],
                            false, true)
-DEF_AXMINUSBY_SUPER_VERTEX(InputScaleType<InType>, [0], , false, false)
+DEF_AXMINUSBY_SUPER_VERTEX(InputScaleType<DataType>, [0], , false, false)
 
-template class aXMinusbYSupervisor<half, false, true>;
-template class aXMinusbYSupervisor<half, false, false>;
+template class aXMinusbYSupervisor<half, half, false, true>;
+template class aXMinusbYSupervisor<half, half, false, false>;
 
-template <typename InType, bool isConstant, bool memConstraints>
+#define DEF_AXMINUSBY_MIXED_SUPER_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS,         \
+                                         IS_CONSTANT, IS_CONSTRAINED)          \
+  template <>                                                                  \
+  class CONSTRAINTS                                                            \
+      aXMinusbYSupervisor<half, float, IS_CONSTANT, IS_CONSTRAINED>            \
+      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+  public:                                                                      \
+    aXMinusbYSupervisor();                                                     \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOut<Vector<half, PTR_ALIGN64, 8>> A;                                     \
+    unsigned short size;                                                       \
+    Input<Vector<half, PTR_ALIGN64, 8>> B;                                     \
+    SCALE_TYPE scaleA;                                                         \
+    SCALE_TYPE scaleB;                                                         \
+    float tolerance;                                                           \
+                                                                               \
+    bool compute() {                                                           \
+      bool castScalesToHalf =                                                  \
+          !IS_CONSTANT && !checkAccuracyWhenCastFloatV2ToHalf(                 \
+                              scaleA PTR, scaleB PTR, tolerance);              \
+                                                                               \
+      unsigned limI = size;                                                    \
+      if (castScalesToHalf) {                                                  \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          A[i] = static_cast<half>(scaleA PTR) * A[i] -                        \
+                 static_cast<half>(scaleB PTR) * B[i];                         \
+        }                                                                      \
+      } else {                                                                 \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          A[i] = scaleA PTR * static_cast<float>(A[i]) -                       \
+                 scaleB PTR * static_cast<float>(B[i]);                        \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_AXMINUSBY_MIXED_SUPER_VERTEX(InputScaleType<float>, [0],
+                                 [[poplar::constraint("elem(*A) != elem(*B)")]],
+                                 false, true)
+DEF_AXMINUSBY_MIXED_SUPER_VERTEX(InputScaleType<float>, [0], , false, false)
+
+template <typename DataType, typename ScaleType, bool isConstant,
+          bool memConstraints>
 class [[poplar::constraint("elem(**A) != elem(**B)")]] aXMinusbY2D
     : public Vertex {
 public:
   aXMinusbY2D();
   IS_EXTERNAL_CODELET(true);
 
-  InOutAType2D<InType> A;
-  InputBType2D<InType> B;
-  const InType scaleA;
-  const InType scaleB;
+  InOutAType2D<DataType> A;
+  InputBType2D<DataType> B;
+  const ScaleType scaleA;
+  const ScaleType scaleB;
 
   bool compute() {
     unsigned limI = A.size();
@@ -867,15 +997,16 @@ public:
 };
 #define DEF_AXMINUSBY_2D_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS, IS_CONSTANT,     \
                                 IS_CONSTRAINED)                                \
-  template <typename InType>                                                   \
-  class CONSTRAINTS aXMinusbY2D<InType, IS_CONSTANT, IS_CONSTRAINED>           \
+  template <typename DataType>                                                 \
+  class CONSTRAINTS                                                            \
+      aXMinusbY2D<DataType, DataType, IS_CONSTANT, IS_CONSTRAINED>             \
       : public Vertex {                                                        \
   public:                                                                      \
     aXMinusbY2D();                                                             \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOutAType2D<InType> A;                                                    \
-    InputBType2D<InType> B;                                                    \
+    InOutAType2D<DataType> A;                                                  \
+    InputBType2D<DataType> B;                                                  \
     SCALE_TYPE scaleA;                                                         \
     SCALE_TYPE scaleB;                                                         \
                                                                                \
@@ -893,13 +1024,61 @@ public:
     }                                                                          \
   };
 
-DEF_AXMINUSBY_2D_VERTEX(Input<InType>, *,
+DEF_AXMINUSBY_2D_VERTEX(Input<DataType>, *,
                         [[poplar::constraint("elem(**A) != elem(**B)")]], false,
                         true)
-DEF_AXMINUSBY_2D_VERTEX(Input<InType>, *, , false, false)
+DEF_AXMINUSBY_2D_VERTEX(Input<DataType>, *, , false, false)
 
-template class aXMinusbY2D<half, false, true>;
-template class aXMinusbY2D<half, false, false>;
+template class aXMinusbY2D<half, half, false, true>;
+template class aXMinusbY2D<half, half, false, false>;
+
+// This is for the vertex having data=HALF; scale values=FLOAT. This vertex
+// has an extra 'tolerance' field, and extra code to check the accuracy of
+// the scale values.
+#define DEF_AXMINUSBY_2D_MIXED_VERTEX(SCALE_DEF, PTR, CONSTRAINTS,             \
+                                      IS_CONSTANT, IS_CONSTRAINED)             \
+  template <>                                                                  \
+  class CONSTRAINTS aXMinusbY2D<half, float, IS_CONSTANT, IS_CONSTRAINED>      \
+      : public Vertex {                                                        \
+  public:                                                                      \
+    aXMinusbY2D();                                                             \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOutAType2D<half> A;                                                      \
+    InputBType2D<half> B;                                                      \
+    SCALE_DEF scaleA;                                                          \
+    SCALE_DEF scaleB;                                                          \
+    float tolerance;                                                           \
+                                                                               \
+    bool compute() {                                                           \
+      bool castScalesToHalf =                                                  \
+          !IS_CONSTANT && !checkAccuracyWhenCastFloatV2ToHalf(                 \
+                              PTR scaleA, PTR scaleB, tolerance);              \
+      unsigned limI = A.size();                                                \
+      for (unsigned i = 0; i < limI; ++i) {                                    \
+        unsigned limJ = A[i].size();                                           \
+        auto const &refIn = B[i];                                              \
+        auto &refOut = A[i];                                                   \
+        if (castScalesToHalf) {                                                \
+          for (unsigned j = 0; j < limJ; ++j) {                                \
+            refOut[j] = static_cast<half>(PTR scaleA) * refOut[j] -            \
+                        static_cast<half>(PTR scaleB) * refIn[j];              \
+          }                                                                    \
+        } else {                                                               \
+          for (unsigned j = 0; j < limJ; ++j) {                                \
+            refOut[j] = PTR scaleA * static_cast<float>(refOut[j]) -           \
+                        PTR scaleB * static_cast<float>(refIn[j]);             \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_AXMINUSBY_2D_MIXED_VERTEX(Input<float>, *,
+                              [[poplar::constraint("elem(**A) != elem(**B)")]],
+                              false, true)
+DEF_AXMINUSBY_2D_MIXED_VERTEX(Input<float>, *, , false, false)
 
 template <typename InType, bool isConstant, bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] XMinusaXPlusbYSupervisor

@@ -48,6 +48,10 @@
 #define VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXPlusbY2D___half_float_false_true
 #define VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST __runCodelet_popops__aXPlusbY2D___half_float_true_false
 
+#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS __runCodelet_popops__aXMinusbYSupervisor___half_float_false_false
+#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXMinusbYSupervisor___half_float_false_true
+#define VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS __runCodelet_popops__aXMinusbY2D___half_float_false_false
+#define VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXMinusbY2D___half_float_false_true
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   #define SCALED_PTR64_SHIFTS       3
@@ -265,6 +269,8 @@ Constant or tensor scaleA & scaleB values:
 #define isAccurate       m3
 #define tolerance        m5
 
+#define mscratch m8
+
 .supervisor
 
 // ---------------------------------------------------------------
@@ -293,20 +299,8 @@ ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 
 // ---------------------------------------------------------------
-// Supervisor entry point (tensor scale values) with and without
-// memory constraints.
-// Load parameters and jumps to the worker partitioning function.
-// Instructions are moved around and nops added to avoid pipeline stalls
-DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
-ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
-  setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
-  bri     1f
-FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
-
-DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
-ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
-  setzi   $sv_memConstraints, 0
-1:
+// Common setup code used by both the AXMinusBY and AXPlusBY supervisors.
+.macro AXBY_MIXED_SUPERVISOR_SETUP
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16   $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_TENS_OFFSET/2
   ldz16   $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_TENS_OFFSET/2
@@ -328,6 +322,63 @@ ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
   ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
   setzi   $memBase, TMEM_REGION0_BASE_ADDR
 #endif
+.endm
+
+// ---------------------------------------------------------------
+// aXMinusbY Supervisor entry point (tensor scale values) with and without
+// memory constraints. These just negate the scaleB value and then lets the
+// aXPlusbY Supervisor do the rest.
+DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+ENTRY_POINT  VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+  setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
+  bri     1f
+FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+
+DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS
+ENTRY_POINT  VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS
+  setzi   $sv_memConstraints, 0
+1:
+  AXBY_MIXED_SUPERVISOR_SETUP
+
+  or      $mscratch, $mzero, NEGATE_FLOAT_BY_XOR
+  ld32    $scaleB, $mzero, $scaleB, 0
+  ld32    $sv_scale, $mzero, $sv_scale, 0
+  setzi   $sv_workerFunction, checkAccuracyWhenCastFloatV2ToHalfWorker
+  // Need to get the worker vertex base as offset from base of memory for 'run'
+  sub     $workerVertexBase, $sp, $memBase
+
+  st32    $tolerance, $sp, $mzero, CHECK_ACCURACY_TOLERANCE_OFFSET/4
+  nop
+  // Negate scaleB
+  xor     $scaleB, $scaleB, $mscratch
+  st32    $sv_scale, $sp, $mzero, CHECK_ACCURACY_SCALE_A_OFFSET/4
+
+  nop
+  nop
+  nop
+  nop
+  st32    $scaleB, $sp, $mzero, CHECK_ACCURACY_SCALE_B_OFFSET/4
+
+  bri     VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_RUN_WORKERS
+FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS
+
+// ---------------------------------------------------------------
+// Supervisor entry point (tensor scale values) with and without
+// memory constraints.
+// Load parameters and jumps to the worker partitioning function.
+// Instructions are moved around and nops added to avoid pipeline stalls
+DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+  setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
+  bri     1f
+FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+
+DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
+ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
+  setzi   $sv_memConstraints, 0
+1:
+  AXBY_MIXED_SUPERVISOR_SETUP
+
   ld32    $sv_scale, $mzero, $sv_scale, 0
   ld32    $scaleB, $mzero, $scaleB, 0
   setzi   $sv_workerFunction, checkAccuracyWhenCastFloatV2ToHalfWorker
@@ -339,10 +390,10 @@ ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
   st32    $sv_scale, $sp, $mzero, CHECK_ACCURACY_SCALE_A_OFFSET/4
   st32    $scaleB, $sp, $mzero, CHECK_ACCURACY_SCALE_B_OFFSET/4
 
+VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_RUN_WORKERS:
   // Store the scaleB value for the structure on stack used by the worker
   // called by VERTEX(supervisor); VERTEX(supervisor) itself is not aware of it.
   st32    $scaleB, $sp, $mzero, SV_STATE_SCALEB_OFFSET/4
-
 
   run     $sv_workerFunction, $workerVertexBase, 0
   // wait for worker to terminate before checking result. We cannot do anything
@@ -378,6 +429,7 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
 #undef workerVertexBase
 #undef isAccurate
 #undef tolerance
+#undef mscratch
 
 
 // --------------------------------------------------------------------
@@ -555,21 +607,10 @@ aXplusbY_half_float_worker:
 
 
 // ---------------------------------------------------------------
-// 2D (worker) entry point: tensor scale values, WITH memory constraints
-// Note that memory constraints are not relevant to the code in this file
-// but need to be passed on if the code in ScaledAdd2D_half.S is called
-DEF_STACK_USAGE  0  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST_MEMCONSTR
-ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST_MEMCONSTR
-  setzi         $memConstraints, 1
-  bri           1f
-FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST_MEMCONSTR
-
-// ---------------------------------------------------------------
-// 2D (worker) entry point: tensor scale values, NO memory constraints
-DEF_STACK_USAGE  0  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
-ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
-  setzi         $memConstraints,0
-1:
+// Common worker code used by both AXPlusBy2D and AXMinusBy2D. The optional
+// argument is intended to allow the scale B factor to be negated when called by
+// AXMinusBy2D
+.macro VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON OPTIONAL_SCALEB_MODIFIER:vararg
   ld32          $tolerance, $mvertex_base, $mzero, VERTEX_2D_TOLERANCE_OFFSET/4
 
   // The 'a' scale will go in the special $TAS register, for the f32v2axpy instr
@@ -587,6 +628,8 @@ ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
 } // disable exceptions for the following macro
 
   CHECK_ACCURACY_FLOAT_V2_TO_HALF
+
+  \OPTIONAL_SCALEB_MODIFIER
 
   // if one (or both) not accurate enough, use the mixed code in this file
 {
@@ -608,6 +651,43 @@ ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
   bri           axplusby_half_half_common
   uput          $TAS, $value1_2_half // set by CHECK_ACCURACY_FLOAT_V2_TO_HALF
 }
+.endm
+
+// ---------------------------------------------------------------
+// 2D scaled minus (worker) entry point: tensor scale values, WITH memory constraints
+DEF_STACK_USAGE  0  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTRA
+ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTRA
+  setzi         $memConstraints, 1
+  bri           1f
+FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTRA
+
+// ---------------------------------------------------------------
+// 2D scaled minus (worker) entry point: tensor scale values, NO memory constraints
+DEF_STACK_USAGE  0  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
+ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
+  setzi   $memConstraints,0
+1:
+  VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON f32sub $b, $azero, $b
+
+FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
+
+// ---------------------------------------------------------------
+// 2D (worker) entry point: tensor scale values, WITH memory constraints
+// Note that memory constraints are not relevant to the code in this file
+// but need to be passed on if the code in ScaledAdd2D_half.S is called
+DEF_STACK_USAGE  0  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST_MEMCONSTR
+ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST_MEMCONSTR
+  setzi         $memConstraints, 1
+  bri           1f
+FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST_MEMCONSTR
+
+// ---------------------------------------------------------------
+// 2D (worker) entry point: tensor scale values, NO memory constraints
+DEF_STACK_USAGE  0  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
+ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
+  setzi         $memConstraints,0
+1:
+  VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON
 
 FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST
 

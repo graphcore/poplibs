@@ -243,9 +243,9 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(ScaledSubtract2DHalfTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DHalfTensor) {
-  testScaledAdd2D("popops::ScaledSubtract2D<half,true>", HALF, HALF, HALF,
+  testScaledAdd2D("popops::ScaledSubtract2D<half,half,true>", HALF, HALF, HALF,
                   false, 1.0, -k);
-  testScaledAdd2D("popops::ScaledSubtract2D<half,false>", HALF, HALF, HALF,
+  testScaledAdd2D("popops::ScaledSubtract2D<half,half,false>", HALF, HALF, HALF,
                   false, 1.0, -k);
 }
 
@@ -332,10 +332,34 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(ScaledSubtract2DFloatTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DFloatTensor) {
-  testScaledAdd2D("popops::ScaledSubtract2D<float,true>", FLOAT, FLOAT, FLOAT,
-                  false, 1.0, -k);
-  testScaledAdd2D("popops::ScaledSubtract2D<float,false>", FLOAT, FLOAT, FLOAT,
-                  false, 1.0, -k);
+  testScaledAdd2D("popops::ScaledSubtract2D<float,float,true>", FLOAT, FLOAT,
+                  FLOAT, false, 1.0, -k);
+  testScaledAdd2D("popops::ScaledSubtract2D<float,float,false>", FLOAT, FLOAT,
+                  FLOAT, false, 1.0, -k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubtract2DHalfHalfFloatTensorHighTol)
+
+BOOST_AUTO_TEST_CASE(ScaledSubtract2DHalfHalfFloatTensorHighTol) {
+  testScaledAdd2D("popops::ScaledSubtract2D<half,float,true>", HALF, HALF,
+                  FLOAT, false, 1.0, k, 1.0, 1.0, -1.0, false, 1e-3);
+  testScaledAdd2D("popops::ScaledSubtract2D<half,float,false>", HALF, HALF,
+                  FLOAT, false, 1.0, k, 1.0, 1.0, -1.0, false, 1e-3);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledSubract2DHalfHalfFloatTensorLowTol)
+
+BOOST_AUTO_TEST_CASE(ScaledSubtract2DHalfHalfFloatTensorLowTol) {
+  testScaledAdd2D("popops::ScaledSubtract2D<half,float,true>", HALF, HALF,
+                  FLOAT, false, 1.0, 1e-6, 6e-8, 1310.0, -1.0, false, 0.0,
+                  0.01);
+  testScaledAdd2D("popops::ScaledSubtract2D<half,float,false>", HALF, HALF,
+                  FLOAT, false, 1.0, 1e-6, 6e-8, 1310.0, -1.0, false, 0.0,
+                  0.01);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -414,10 +438,27 @@ BOOST_AUTO_TEST_SUITE(aXMinusbYHalfTensor)
 
 BOOST_AUTO_TEST_CASE(aXMinusbYHalfTensor) {
   // testSign = -1.0 to test aXMinusb
-  testScaledAdd2D("popops::aXMinusbY2D<half,false,true>", HALF, HALF, HALF,
+  testScaledAdd2D("popops::aXMinusbY2D<half,half,false,true>", HALF, HALF, HALF,
                   false, -1.0 * k, k, 1.0, 1.0, -1.0);
-  testScaledAdd2D("popops::aXMinusbY2D<half,false,false>", HALF, HALF, HALF,
-                  false, -1.0 * k, k, 1.0, 1.0, -1.0);
+  testScaledAdd2D("popops::aXMinusbY2D<half,half,false,false>", HALF, HALF,
+                  HALF, false, -1.0 * k, k, 1.0, 1.0, -1.0);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXMinusbYMixedTensor)
+
+BOOST_AUTO_TEST_CASE(aXMinusbYMixedTensorSlow) {
+  // Run with a small tolerance (0.0001%) so that at runtime we chose the
+  // slower mixed (data=HALF, scale values=FLOAT) path
+  testScaledAdd2D("popops::aXMinusbY2D<half,float,false,false>", HALF, HALF,
+                  FLOAT, false, -1.0 * k, k, 1.0, 1.0, -1.0, false, 1e-6);
+}
+BOOST_AUTO_TEST_CASE(aXMinusbYMixedTensorFast) {
+  // Run with a big tolerance (1%) so that at runtime we chose the fast
+  // path with data=HALF, scale values=HALF
+  testScaledAdd2D("popops::aXMinusbY2D<half,float,false,false>", HALF, HALF,
+                  FLOAT, false, -1.0 * k, k, 1.0, 1.0, -1.0, false, 0.01);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

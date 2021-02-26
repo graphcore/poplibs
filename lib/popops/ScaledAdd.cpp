@@ -235,15 +235,21 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   std::string codeletName2D;
   std::string codeletNameSupervisor;
   if (doSubtract && doaXPlusbY) {
-    codeletName2D =
-        templateVertex("popops::aXMinusbY2D", dataType, false, addConstraints);
-    codeletNameSupervisor = templateVertex("popops::aXMinusbYSupervisor",
-                                           dataType, false, addConstraints);
+    // The 'mixed' vertex (with 'half' data and 'float' scales) has a
+    // 'tolerance' field ...
+    vertexHasTolerance = (dataType == HALF) && (scaleType == FLOAT);
+
+    codeletName2D = templateVertex("popops::aXMinusbY2D", dataType, scaleType,
+                                   false, addConstraints);
+    codeletNameSupervisor =
+        templateVertex("popops::aXMinusbYSupervisor", dataType, scaleType,
+                       false, addConstraints);
   } else if (doSubtract && !doaXPlusbY) {
-    codeletName2D =
-        templateVertex("popops::ScaledSubtract2D", dataType, addConstraints);
-    codeletNameSupervisor = templateVertex("popops::ScaledSubtractSupervisor",
-                                           dataType, deltaType, addConstraints);
+    codeletName2D = templateVertex("popops::ScaledSubtract2D", dataType,
+                                   scaleType, addConstraints);
+    codeletNameSupervisor =
+        templateVertex("popops::ScaledSubtractSupervisor", dataType, deltaType,
+                       scaleType, addConstraints);
   } else if (!doSubtract && doaXPlusbY) {
     if (speciality == ScaledAddSpecialisation::X_MINUS_AX_PLUS_BY) {
       codeletName2D = templateVertex("popops::XMinusaXPlusbY2D", dataType,
@@ -251,7 +257,6 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
       codeletNameSupervisor = templateVertex("popops::XMinusaXPlusbYSupervisor",
                                              dataType, false, addConstraints);
     } else {
-      auto scaleType = scaleA.elementType();
       // The 'mixed' vertex (with 'half' data and 'float' scales) has a
       // 'tolerance' field ...
       vertexHasTolerance = (dataType == HALF) && (scaleType == FLOAT);
@@ -536,24 +541,33 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
   const auto targetType = A.elementType();
   const std::string layer = "scaledSub";
 
-  bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
-  if (regroupBeforeCast) {
-    B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
-                                               {di, layer + "/regroupB"});
-  }
-  const auto cs = graph.addComputeSet({di, layer + "/cast"});
-  if (B.elementType() != targetType) {
-    B = cast(graph, B, targetType, cs, {di, layer + "/B"});
-  }
-  if (scaleB.elementType() != targetType) {
-    scaleB = cast(graph, scaleB, targetType, cs, {di, layer + "/scaleB"});
-  }
-  prog.add(Execute(cs, {di}));
+  if (A.elementType() == HALF && B.elementType() == HALF &&
+      scaleB.elementType() == FLOAT) {
+    // The vertex will select float or half scale based on the accuracy of the
+    // scale, using the tolerance option
+    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
+                               ScaledAddSpecialisation::DEFAULT, prog,
+                               /* attemptRegroup */ true, {di}, opts);
+  } else {
+    bool regroupBeforeCast =
+        shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
+    if (regroupBeforeCast) {
+      B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
+                                                 {di, layer + "/regroupB"});
+    }
+    const auto cs = graph.addComputeSet({di, layer + "/cast"});
+    if (B.elementType() != targetType) {
+      B = cast(graph, B, targetType, cs, {di, layer + "/B"});
+    }
+    if (scaleB.elementType() != targetType) {
+      scaleB = cast(graph, scaleB, targetType, cs, {di, layer + "/scaleB"});
+    }
+    prog.add(Execute(cs, {di}));
 
-  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
-                             ScaledAddSpecialisation::DEFAULT, prog,
-                             !regroupBeforeCast, {di}, opts);
+    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
+                               ScaledAddSpecialisation::DEFAULT, prog,
+                               !regroupBeforeCast, {di}, opts);
+  }
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,

@@ -4,6 +4,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/ElementWise.hpp"
 #include <boost/multi_array.hpp>
+#include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 #include <cmath>
 #include <cstring>
@@ -11,11 +12,13 @@
 #include <poplar/CSRFunctions.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplar/OptionFlags.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <vector>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -1432,4 +1435,164 @@ BOOST_AUTO_TEST_CASE(
       BOOST_TEST(hOutFloatConst[i][j] == -res, "Constant float out scale test");
     }
   }
+}
+
+// Test fixture with common graph setup for testing aX - bY where
+// X and Y are half precision tensors.
+struct HalfTensorAXBYTestFixture {
+  static std::vector<poplar::OptionFlags> OptionFlags() {
+    return {{{"optimizeForSpeed", "false"}}, {{"optimizeForSpeed", "true"}}};
+  }
+
+  HalfTensorAXBYTestFixture()
+      : device_(createTestDevice(TEST_TARGET)), target_(device_.getTarget()),
+        graph_(target_),
+        rawBufSize_(target_.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE),
+        rawIn_(rawBufSize_), rawInOut_(rawBufSize_), rawOut_(rawBufSize_) {
+    popops::addCodelets(graph_);
+
+    setBinaryOpInputs(hIn_, hInOut_);
+
+    poplar::copyFloatToDeviceHalf(target_, &hIn_[0][0], rawIn_.data(),
+                                  DIM_SIZE * DIM_SIZE);
+    poplar::copyFloatToDeviceHalf(target_, &hInOut_[0][0], rawInOut_.data(),
+                                  DIM_SIZE * DIM_SIZE);
+
+    inOut_ = graph_.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "inOut");
+    in_ = graph_.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "in");
+    mapTensorLinearly(graph_, inOut_);
+    mapTensorLinearly(graph_, in_);
+
+    graph_.createHostWrite("in", in_);
+    graph_.createHostWrite("inOut", inOut_);
+    graph_.createHostRead("out", inOut_);
+  }
+
+  poplar::ProfileValue runProgram(const poplar::program::Program &program) {
+    Engine engine(graph_, program);
+    engine.enableExecutionProfiling();
+
+    device_.bind([&](const Device &d) {
+      engine.load(d);
+
+      engine.writeTensor("in", rawIn_.data(), rawIn_.data() + rawIn_.size());
+      engine.writeTensor("inOut", rawInOut_.data(),
+                         rawInOut_.data() + rawInOut_.size());
+
+      engine.run();
+
+      engine.readTensor("out", rawOut_.data(), rawOut_.data() + rawOut_.size());
+    });
+
+    poplar::copyDeviceHalfToFloat(target_, rawOut_.data(), &hOut_[0][0],
+                                  DIM_SIZE * DIM_SIZE);
+
+    return engine.getGraphProfile();
+  }
+
+  void CHECK_OUTPUT_IS_AXMINUSBY(float a, float b) {
+    for (auto i = 0U; i < DIM_SIZE; ++i) {
+      for (auto j = 0U; j < DIM_SIZE; ++j) {
+        double res = a * hInOut_[i][j] - b * hIn_[i][j];
+        BOOST_TEST(hOut_[i][j] == res, boost::test_tools::tolerance(1.0));
+      }
+    }
+  }
+
+  void CHECK_OUTPUT_IS_XMINUSBY(float b) { CHECK_OUTPUT_IS_AXMINUSBY(1, b); }
+
+  void CHECK_WAS_MIXED_PRECISION(const poplar::ProfileValue &profile) {
+    const auto graphVertices = profile["vertexTypes"]["names"].asVector();
+    for (const auto &value : graphVertices) {
+      const auto &vertex = value.asString();
+
+      const auto isCast = vertex.rfind("popops::Cast", 0) == 0;
+      BOOST_TEST(!isCast, "Profile contained cast: " << vertex);
+    }
+  }
+
+  float hInOut_[DIM_SIZE][DIM_SIZE];
+  float hIn_[DIM_SIZE][DIM_SIZE];
+  float hOut_[DIM_SIZE][DIM_SIZE];
+
+  poplibs_support::TestDevice device_;
+  poplar::Target target_;
+  poplar::Graph graph_;
+
+  unsigned long rawBufSize_;
+  std::vector<char> rawIn_;
+  std::vector<char> rawInOut_;
+  std::vector<char> rawOut_;
+
+  poplar::Tensor inOut_;
+  poplar::Tensor in_;
+};
+
+BOOST_DATA_TEST_CASE_F(HalfTensorAXBYTestFixture,
+                       StdAXMinusBy_ScaleByFloatTensor,
+                       HalfTensorAXBYTestFixture::OptionFlags(), optionFlag) {
+  const float a = 2, b = 3;
+
+  auto A = graph_.addVariable(FLOAT, {});
+  auto B = graph_.addVariable(FLOAT, {});
+  graph_.setInitialValue(A, a);
+  graph_.setInitialValue(B, b);
+  mapTensorLinearly(graph_, A);
+  mapTensorLinearly(graph_, B);
+
+  auto prog = Sequence();
+  popops::scaledSubtractFrom(graph_, inOut_, A, in_, B, prog, "debug string",
+                             optionFlag);
+  const auto profile = runProgram(prog);
+
+  CHECK_OUTPUT_IS_AXMINUSBY(a, b);
+  CHECK_WAS_MIXED_PRECISION(profile);
+}
+
+BOOST_DATA_TEST_CASE_F(HalfTensorAXBYTestFixture,
+                       StdAXMinusBy_ScaleByFloatConstant,
+                       HalfTensorAXBYTestFixture::OptionFlags(), optionFlag) {
+  const float a = 2, b = 3;
+
+  auto prog = Sequence();
+  popops::scaledSubtractFrom(graph_, inOut_, a, in_, b, prog, "debug string",
+                             optionFlag);
+  runProgram(prog);
+
+  // We dont check for casts when scaling by a constant because type handling
+  // happens in C++ in scaledSubtractFrom
+  CHECK_OUTPUT_IS_AXMINUSBY(a, b);
+}
+
+BOOST_DATA_TEST_CASE_F(HalfTensorAXBYTestFixture,
+                       StdXMinusBy_ScaleByFloatTensor,
+                       HalfTensorAXBYTestFixture::OptionFlags(), optionFlag) {
+  const float b = 3;
+
+  auto B = graph_.addVariable(FLOAT, {});
+  graph_.setInitialValue(B, b);
+  mapTensorLinearly(graph_, B);
+
+  auto prog = Sequence();
+  popops::scaledSubtractFrom(graph_, inOut_, in_, B, prog, "debug string",
+                             optionFlag);
+  const auto profile = runProgram(prog);
+
+  CHECK_OUTPUT_IS_XMINUSBY(b);
+  CHECK_WAS_MIXED_PRECISION(profile);
+}
+
+BOOST_DATA_TEST_CASE_F(HalfTensorAXBYTestFixture,
+                       StdXMinusBy_ScaleByFloatConstant,
+                       HalfTensorAXBYTestFixture::OptionFlags(), optionFlag) {
+  const float b = 3;
+
+  auto prog = Sequence();
+  popops::scaledSubtractFrom(graph_, inOut_, in_, b, prog, "debug string",
+                             optionFlag);
+  runProgram(prog);
+
+  // We dont check for casts when scaling by a constant because type handling
+  // happens in C++ in scaledSubtractFrom
+  CHECK_OUTPUT_IS_XMINUSBY(b);
 }

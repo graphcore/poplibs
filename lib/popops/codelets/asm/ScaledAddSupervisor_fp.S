@@ -12,8 +12,6 @@
 #define XMINUSAXPLUSBY_VERTEX(ty) __runCodelet_popops__XMinusaXPlusbYSupervisor___ ## ty
 #define AX_MINUS_BY_VERTEX(ty) __runCodelet_popops__aXMinusbYSupervisor___ ## ty
 
-#define NEGATE_HALF_BY_XOR 0x8000
-#define NEGATE_FLOAT_BY_XOR 0x80000000
 
 // vertex state (offsets in bytes)
 
@@ -143,19 +141,19 @@ VERTEX(float_float_float_true_true):
 .size VERTEX(float_float_float_true), .-VERTEX(float_float_float_true_false)
 
 
-.globl SUBTRACT_VERTEX(float_float_false)
-.type SUBTRACT_VERTEX(float_float_false), @function
-.globl SUBTRACT_VERTEX(float_float_true)
-.type SUBTRACT_VERTEX(float_float_true), @function
+.globl SUBTRACT_VERTEX(float_float_float_false)
+.type SUBTRACT_VERTEX(float_float_float_false), @function
+.globl SUBTRACT_VERTEX(float_float_float_true)
+.type SUBTRACT_VERTEX(float_float_float_true), @function
 
 DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(float_float)
 .section .text.SUBTRACT_VERTEX(float_float)
 .align 4
 .supervisor
-SUBTRACT_VERTEX(float_float_false):
+SUBTRACT_VERTEX(float_float_float_false):
   setzi $sv_memConstraints, 0
   bri   1f
-SUBTRACT_VERTEX(float_float_true):
+SUBTRACT_VERTEX(float_float_float_true):
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -179,7 +177,7 @@ SUBTRACT_VERTEX(float_float_true):
   xor   $sv_scale, $sv_scale, $mscratch2 // 6 cycles
 
   bri   VERTEX(supervisor)
-.size SUBTRACT_VERTEX(float_float), .-SUBTRACT_VERTEX(float_float_false)
+.size SUBTRACT_VERTEX(float_float), .-SUBTRACT_VERTEX(float_float_float_false)
 
 
 //******************************************************************************
@@ -249,19 +247,19 @@ VERTEX(half_half_half_true_true):
 .size VERTEX(half_half_half_true), .-VERTEX(half_half_half_true_false)
 
 
-.globl SUBTRACT_VERTEX(half_half_false)
-.type SUBTRACT_VERTEX(half_half_false), @function
-.globl SUBTRACT_VERTEX(half_half_true)
-.type SUBTRACT_VERTEX(half_half_true), @function
+.globl SUBTRACT_VERTEX(half_half_half_false)
+.type SUBTRACT_VERTEX(half_half_half_false), @function
+.globl SUBTRACT_VERTEX(half_half_half_true)
+.type SUBTRACT_VERTEX(half_half_half_true), @function
 
 DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_half)
 .section .text.SUBTRACT_VERTEX(half_half)
 .align 4
 .supervisor
-SUBTRACT_VERTEX(half_half_false):
+SUBTRACT_VERTEX(half_half_half_false):
   setzi $sv_memConstraints, 0
   bri   1f
-SUBTRACT_VERTEX(half_half_true):
+SUBTRACT_VERTEX(half_half_half_true):
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -283,7 +281,7 @@ SUBTRACT_VERTEX(half_half_true):
   ldz16 $sv_scale, $mzero, $mscratch, 0
   xor   $sv_scale, $mscratch, $mscratch2 // 6 cycles
   bri   VERTEX(supervisor) // 6 cycles
-.size SUBTRACT_VERTEX(half_half), .-SUBTRACT_VERTEX(half_half_false)
+.size SUBTRACT_VERTEX(half_half), .-SUBTRACT_VERTEX(half_half_half_false)
 
 // ----- Entry points for constant scale values -----
 .globl AXPLUSBY_VERTEX(half_half_true_false)
@@ -442,19 +440,19 @@ XMINUSAXPLUSBY_VERTEX(half_false_true):
 .size XMINUSAXPLUSBY_VERTEX(half_false), .-XMINUSAXPLUSBY_VERTEX(half_false_false)
 
 
-.globl AX_MINUS_BY_VERTEX(half_false_false)
-.type AX_MINUS_BY_VERTEX(half_false_false), @function
-.globl AX_MINUS_BY_VERTEX(half_false_true)
-.type AX_MINUS_BY_VERTEX(half_false_true), @function
+.globl AX_MINUS_BY_VERTEX(half_half_false_false)
+.type AX_MINUS_BY_VERTEX(half_half_false_false), @function
+.globl AX_MINUS_BY_VERTEX(half_half_false_true)
+.type AX_MINUS_BY_VERTEX(half_half_false_true), @function
 
 DEF_STACK_SIZE_OWN STACK_SIZE .text.AX_MINUS_BY_VERTEX(half_false)
 .section .text.AX_MINUS_BY_VERTEX(half_false)
 .align 4
 .supervisor
-AX_MINUS_BY_VERTEX(half_false_false):
+AX_MINUS_BY_VERTEX(half_half_false_false):
   setzi $sv_memConstraints, 0
   bri   1f
-AX_MINUS_BY_VERTEX(half_false_true):
+AX_MINUS_BY_VERTEX(half_half_false_true):
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -478,7 +476,7 @@ AX_MINUS_BY_VERTEX(half_false_true):
   // pointer to the worker code to run
   setzi $sv_workerFunction, VERTEX(axplusby_half).kernel
   bri   VERTEX(supervisor) // 6 cycles
-.size AX_MINUS_BY_VERTEX(half_false), .-AX_MINUS_BY_VERTEX(half_false_false)
+.size AX_MINUS_BY_VERTEX(half_false), .-AX_MINUS_BY_VERTEX(half_half_false_false)
 
 DEF_STACK_USAGE  STACK_SIZE  AX_MINUS_PLUS_BY_COMMON
 .supervisor
@@ -565,19 +563,19 @@ VERTEX(half_float_half_true_true):
 .size VERTEX(half_float_half_true), .-VERTEX(half_float_half_true_false)
 
 
-.globl SUBTRACT_VERTEX(half_float_false)
-.type SUBTRACT_VERTEX(half_float_false), @function
-.globl SUBTRACT_VERTEX(half_float_true)
-.type SUBTRACT_VERTEX(half_float_true), @function
+.globl SUBTRACT_VERTEX(half_float_half_false)
+.type SUBTRACT_VERTEX(half_float_half_false), @function
+.globl SUBTRACT_VERTEX(half_float_half_true)
+.type SUBTRACT_VERTEX(half_float_half_true), @function
 
 DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_float)
 .section .text.SUBTRACT_VERTEX(half_float)
 .align 4
 .supervisor
-SUBTRACT_VERTEX(half_float_false):
+SUBTRACT_VERTEX(half_float_half_false):
   setzi $sv_memConstraints, 0
   bri   1f
-SUBTRACT_VERTEX(half_float_true):
+SUBTRACT_VERTEX(half_float_half_true):
   setzi $sv_memConstraints, 1
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -600,7 +598,7 @@ SUBTRACT_VERTEX(half_float_true):
   xor   $sv_scale, $sv_scale, $mscratch2 //6 cycles
   bri   VERTEX(supervisor) // 6 cycles
 
-.size SUBTRACT_VERTEX(half_float), .-SUBTRACT_VERTEX(half_float_false)
+.size SUBTRACT_VERTEX(half_float), .-SUBTRACT_VERTEX(half_float_half_false)
 
 //*****************************************************************************
 // Common code for half, float and mixed precision, supervisor vertices

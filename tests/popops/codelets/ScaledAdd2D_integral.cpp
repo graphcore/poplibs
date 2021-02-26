@@ -225,7 +225,8 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(ScaledSubtract2DIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DIntTensor) {
-  testScaledAdd2D<int>("popops::ScaledSubtract2D<int,false>", INT, false, true);
+  testScaledAdd2D<int>("popops::ScaledSubtract2D<int,int,false>", INT, false,
+                       true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -233,8 +234,9 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(ScaledSubtract2DUnsignedIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DUnsignedIntTensor) {
-  testScaledAdd2D<unsigned>("popops::ScaledSubtract2D<unsigned int,false>",
-                            UNSIGNED_INT, false, true);
+  testScaledAdd2D<unsigned>(
+      "popops::ScaledSubtract2D<unsigned int,unsigned int,false>", UNSIGNED_INT,
+      false, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

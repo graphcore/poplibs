@@ -1,3 +1,4 @@
+// Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 #ifndef __SCALED_ADD_SUPERVISOR_INC__
 #define __SCALED_ADD_SUPERVISOR_INC__
 
@@ -68,5 +69,9 @@
 
 // Bit to force all accumulators to zero when written in FP_CLR register
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
+
+// Used when negating scale values for aXMinusbY and ScaledSubtract supervisors
+#define NEGATE_HALF_BY_XOR 0x8000
+#define NEGATE_FLOAT_BY_XOR 0x80000000
 
 #endif

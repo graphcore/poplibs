@@ -190,7 +190,7 @@ BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorIntTensor) {
   testScaledAddSupervisor<int>(
-      "popops::ScaledSubtractSupervisor<int,int,false>", INT, false, true);
+      "popops::ScaledSubtractSupervisor<int,int,int,false>", INT, false, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -198,9 +198,9 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorUnsignedIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorUnsignedIntTensor) {
-  testScaledAddSupervisor<unsigned>(
-      "popops::ScaledSubtractSupervisor<unsigned int,unsigned int,false>",
-      UNSIGNED_INT, false, true);
+  testScaledAddSupervisor<unsigned>("popops::ScaledSubtractSupervisor<unsigned "
+                                    "int,unsigned int,unsigned int,false>",
+                                    UNSIGNED_INT, false, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

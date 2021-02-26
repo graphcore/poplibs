@@ -19,6 +19,11 @@
 #define VERTEX_SV_SCALE_FLOAT_COMMON __ScaledAddSupervisor___half_half_float_common
 #define VERTEX_SV_SCALE_FLOAT_COMMON_CONST __ScaledAddSupervisor___half_half_float_common_const
 
+#define VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledSubtract2D___half_float_true
+#define VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW __runCodelet_popops__ScaledSubtract2D___half_float_false
+#define VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledSubtractSupervisor___half_half_float_true
+#define VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW __runCodelet_popops__ScaledSubtractSupervisor___half_half_float_false
+
 // The bulk of the Supervisor task processing which is common to all scaled-add
 // variants has been implemented in a different file: ScaledAddSupervisor_fp.S.
 // They use this define to produce labels
@@ -275,6 +280,21 @@ scaled_add_data_half_factor_float_scalar:
   uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $a7
 .endm
 
+// Common code used by both the plus/subtract workers. The optional argument
+// is intended to allow the scale factor argument to be negated by the subtract
+// worker.
+.macro PERFORM_VERTEX_2D_SCALE_FLOAT_TENSOR OPTIONAL_SCALE_FACTOR_MODIFIER:vararg
+  ld32  $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
+  ld32  $factor, $mzero, $dataPtr, 0
+  \OPTIONAL_SCALE_FACTOR_MODIFIER
+  
+  { brz   $C_CALL_RETURN, VERTEX_2D_SCALE_FLOAT_COMMON
+    f32tof16 $factorTmp, $factor}
+  // Otherwise cast, broadcast and branch into the "all half" version
+  { bri   __ScaledAdd2D___half_common
+    roll16 $factor, $factorTmp, $factorTmp}
+.endm
+
 DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
 .section .text.VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
 .align 4
@@ -290,14 +310,33 @@ VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST:
 
   setzi $memConstraints, 1
 1:
-  ld32  $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
-  ld32  $factor, $mzero, $dataPtr, 0
-  { brz   $C_CALL_RETURN, VERTEX_2D_SCALE_FLOAT_COMMON
-    f32tof16 $factorTmp, $factor}
-  // Otherwise cast, broadcast and branch into the "all half" version
-  { bri   __ScaledAdd2D___half_common
-    roll16 $factor, $factorTmp, $factorTmp}
+  PERFORM_VERTEX_2D_SCALE_FLOAT_TENSOR
+
 .size VERTEX_2D_SCALE_FLOAT, .-VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
+
+.globl VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+.type VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW, @function
+.globl VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST
+.type VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST, @function
+
+DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+.section .text.VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+.align 4
+VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW:
+  // Do this first as we don't need to worry as much about the calling convention
+  CALL_CHECK_ACCURACY_WHEN_CAST_2D
+  // For use when we enter the half, half, half version
+  setzi $memConstraints, 0
+  bri   1f
+VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST:
+  // Do this first as we don't need to worry as much about the calling convention
+  CALL_CHECK_ACCURACY_WHEN_CAST_2D
+
+  setzi $memConstraints, 1
+1:
+  PERFORM_VERTEX_2D_SCALE_FLOAT_TENSOR f32sub $factor, $azero, $factor
+  
+.size VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW, .-VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
 
 .globl VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
 .type VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW, @function
@@ -435,6 +474,38 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 #define SSR_REGISTER 1
 #define CR_REGISTER 2
 
+
+.globl VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+.type VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW, @function
+.globl VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST
+.type VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST, @function
+
+// ScaledSubtract Supervisor entry point. Just negates the scale value
+// and lets the ScaledAdd Supervisor do the rest.
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+.section .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+.align 4
+.supervisor
+VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW:
+   setzi $sv_memConstraints, 0
+   bri   1f
+VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST:
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
+1:
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
+  shl $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
+#else
+  ld32 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
+  ld32 $sv_scale, $mzero, $factorPtr, 0
+  or   $tmp_countD2, $mzero, NEGATE_FLOAT_BY_XOR
+  xor  $sv_scale, $sv_scale, $tmp_countD2
+ 
+  bri VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW_RUN_WORKERS
+.size VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW, .-VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+
+
 .globl VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 .type VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW, @function
 .globl VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST
@@ -451,6 +522,15 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW:
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
+  shl $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
+#else
+  ld32 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
+#endif
+  ld32 $sv_scale, $mzero, $factorPtr, 0
+
+VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW_RUN_WORKERS:
   // Use a worker to test if the float scale is accurate enough to use when cast
   // to a half. Don't stress too much about pipe hits as we would only pad it with
   // code from after the `run` which runs for free while the worker runs anyhow.
@@ -472,13 +552,7 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   setzi $tmp_countD2, LC_SET
   put CR_REGISTER, $tmp_countD2
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  shl $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
-#else
-  ld32 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
-#endif
-  ld32  $sv_scale, $mzero, $factorPtr, 0
+
   // Based on the returned isHalfAccurate flag being zero, we could select the
   // path that casts everything to float or casts scale to half.
   // Load scale - the same in both cases
