@@ -14,37 +14,55 @@ namespace poplin {
 VertexPerfEstimate
 MAKE_PERF_ESTIMATOR_NAME(TriangularInverse)(const VertexIntrospector &vertex,
                                             const Target &target,
-                                            const Type &floatType, bool lower) {
+                                            const Type &type, bool lower) {
   CODELET_SCALAR_VAL(dim, unsigned);
 
-  std::uint64_t n_i_loop = dim;
-  std::uint64_t n_j_loop = dim * (dim - 1) / 2;
-  std::uint64_t n_k_loop = (dim + 1) * dim * (dim - 1) / 6;
+  std::uint64_t iLoop = dim;
+  std::uint64_t jLoop = dim * (dim - 1) / 2;
+  std::uint64_t kLoop = (dim + 1) * dim * (dim - 1) / 6;
 
-  std::uint64_t flops = n_i_loop * flopsForDiv() +
-                        n_j_loop * flopsForMultiply() +
-                        n_k_loop * flopsForMAC();
-  std::uint64_t cycles = 28 + n_i_loop * 63 + n_j_loop * 17 + n_k_loop * 6;
+  std::uint64_t flops = iLoop * flopsForDiv() + jLoop * flopsForMultiply() +
+                        kLoop * flopsForMAC();
 
-  return {cycles, convertToTypeFlops(flops, floatType)};
+  bool half = type == poplar::HALF;
+  std::uint64_t cycles;
+  if (half) {
+    cycles = lower ? 7 * dim * dim * dim + 387 * dim * dim / 2 + 272 * dim - 120
+                   : 7261 * dim * dim * dim / 1024 + 14163 * dim * dim / 128 +
+                         2099 * dim / 4 - 1326;
+  } else {
+    cycles = lower ? 6 * dim * dim * dim + 264 * dim * dim + 78 * dim - 120
+                   : 6 * dim * dim * dim + 51 * dim * dim + 213 * dim + 12;
+  }
+
+  return {cycles, convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate
 MAKE_PERF_ESTIMATOR_NAME(Cholesky)(const VertexIntrospector &vertex,
-                                   const Target &target, const Type &floatType,
+                                   const Target &target, const Type &type,
                                    bool lower) {
   CODELET_SCALAR_VAL(dim, unsigned);
 
-  std::uint64_t n_i_loop = dim;
-  std::uint64_t n_k_loop = (dim + 1) * dim / 2;
-  std::uint64_t n_j_loop = (dim + 1) * dim * (dim - 1) / 6;
+  std::uint64_t iLoop = dim;
+  std::uint64_t kLoop = (dim + 1) * dim / 2;
+  std::uint64_t jLoop = (dim + 1) * dim * (dim - 1) / 6;
 
-  std::uint64_t flops = n_i_loop * flopsForSqrt() +
-                        n_k_loop * (flopsForAdd() + flopsForDiv()) +
-                        n_j_loop * flopsForMAC();
-  std::uint64_t cycles = 1 + n_i_loop * 11 + n_k_loop * 18 + n_j_loop * 5;
+  std::uint64_t flops = iLoop * flopsForSqrt() +
+                        kLoop * (flopsForAdd() + flopsForDiv()) +
+                        jLoop * flopsForMAC();
 
-  return {cycles, convertToTypeFlops(flops, floatType)};
+  bool half = type == poplar::HALF;
+  std::uint64_t cycles;
+  if (half) {
+    cycles = lower ? 311 * dim * dim * dim / 64 + 1059 * dim * dim / 8 +
+                         43 * dim + 648
+                   : 6 * dim * dim * dim + 249 * dim * dim / 2 + 165 * dim + 72;
+  } else {
+    cycles = lower ? 4 * dim * dim * dim + 72 * dim * dim + 140 * dim + 84
+                   : 5 * dim * dim * dim + 66 * dim * dim + 97 * dim + 48;
+  }
+  return {cycles, convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialnx1)(
@@ -594,13 +612,14 @@ MAKE_PERF_ESTIMATOR_NAME(TriangularSolve)(const VertexIntrospector &vertex,
   CODELET_FIELD(x);
   CODELET_SCALAR_VAL(an, unsigned short);
 
-  std::uint64_t cycles =
-      0x22 /*prologue*/ + 4 * an /* before dot product */ +
-      (8 - 2) * (an - 1) * an /
-          2 /*dot loop 1..an, minus 2 co-issued instruction*/
-      + (26 - 1) * an /*outer loop epilogue, minus 1 co-issued instruction*/ +
-      7 /*epilogue*/
-      ;
+  bool half = type == poplar::HALF;
+  std::uint64_t cycles;
+  if (half) {
+    cycles =
+        lower ? 15 * an * an + 144 * an + 12 : 24 * an * an + 153 * an + 60;
+  } else {
+    cycles = lower ? 12 * an * (an + 5) : 21 * an * an + 69 * an + 90;
+  }
   std::uint64_t flops =
       static_cast<std::uint64_t>(an * (an - 1) / 2) * flopsForMultiply() +
       an * flopsForAdd();
