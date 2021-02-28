@@ -1237,20 +1237,22 @@ std::uint64_t vectorInnerSupervisorMulCycles(unsigned numWorkerContexts,
   return numCycles + maxWorkerCycles * numWorkerContexts;
 }
 
-static std::uint64_t flopsForBinaryOp2D(const std::vector<unsigned> &bLen,
-                                        const Type &type, BinaryOpType op) {
-  const auto totalElems = std::accumulate(bLen.begin(), bLen.end(), 0);
-  return convertToTypeFlops(static_cast<std::uint64_t>(totalElems) *
-                                flopsPerBinaryOpElement(op),
-                            type);
+static std::uint64_t blockLengthFromPacked(unsigned packedBlockLength,
+                                           unsigned numWorkers) {
+  unsigned quotient = packedBlockLength >> 3;
+  unsigned remainder = packedBlockLength & 0x3;
+  return static_cast<std::uint64_t>(quotient) * numWorkers + remainder;
 }
 
-static std::uint64_t flopsForUnaryOp2D(const std::vector<unsigned> &aLen,
-                                       const Type &type, UnaryOpType op) {
-  const auto totalElems = std::accumulate(aLen.begin(), aLen.end(), 0);
-  return convertToTypeFlops(static_cast<std::uint64_t>(totalElems) *
-                                flopsPerUnaryOpElement(op),
-                            type);
+static std::uint64_t flopsForBinaryOp2D(unsigned numElems, const Type &type,
+                                        BinaryOpType op) {
+  return convertToTypeFlops(numElems * flopsPerBinaryOpElement(op), type);
+}
+
+static std::uint64_t flopsForUnaryOp2D(unsigned numElems, const Type &type,
+                                       UnaryOpType op) {
+  return convertToTypeFlops(
+      static_cast<std::uint64_t>(numElems) * flopsPerUnaryOpElement(op), type);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
@@ -1262,7 +1264,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
   uint32_t BLen = B.size();
   unsigned numWorkerContexts = target.getNumWorkerContexts();
   unsigned vectorWidth = target.getVectorWidth(type);
-  auto flops = flopsForBinaryOp2D({BLen}, type, op);
+  auto flops = flopsForBinaryOp2D(
+      BLen * blockLengthFromPacked(dataBlockCountPacked, numWorkerContexts),
+      type, op);
   // Additional branch in the supervisor, and preamble instructions in the
   // worker part.
   switch (op) {
@@ -1312,7 +1316,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
   uint32_t BLen = B.size();
   const unsigned numWorkerContexts = target.getNumWorkerContexts();
   const unsigned vectorWidth = target.getVectorWidth(type);
-  auto flops = flopsForBinaryOp2D({BLen}, type, op);
+  auto flops = flopsForBinaryOp2D(
+      BLen * blockLengthFromPacked(dataBlockCountPacked, numWorkerContexts),
+      type, op);
 
   switch (op) {
   case BinaryOpType::ADD: {
@@ -1359,7 +1365,22 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2D)(
   CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
   const unsigned vectorWidth = target.getVectorWidth(type);
-  auto flops = flopsForBinaryOp2D(BLen, type, op);
+  if (BLen.size() != dataBlockCount.size()) {
+    throw poputil::poplibs_error("n (" + std::to_string(n) +
+                                 ") does not "
+                                 "match BLen or dataBlockCount "
+                                 "length (" +
+                                 std::to_string(BLen.size()) + " & " +
+                                 std::to_string(dataBlockCount.size()) +
+                                 " respectively) in Broadcast vertex");
+  }
+  std::uint64_t totalElems = 0;
+  for (unsigned i = 0; i != BLen.size(); ++i) {
+    totalElems +=
+        BLen[i] *
+        blockLengthFromPacked(dataBlockCount[i], target.getNumWorkerContexts());
+  }
+  auto flops = flopsForBinaryOp2D(totalElems, type, op);
 
   switch (op) {
   case BinaryOpType::SUBTRACT:
@@ -1392,7 +1413,22 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
   CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
   const unsigned vectorWidth = target.getVectorWidth(type);
-  auto flops = flopsForBinaryOp2D(BLen, type, op);
+  if (BLen.size() != dataBlockCount.size()) {
+    throw poputil::poplibs_error("n (" + std::to_string(n) +
+                                 ") does not "
+                                 "match BLen or dataBlockCount "
+                                 "length (" +
+                                 std::to_string(BLen.size()) + " & " +
+                                 std::to_string(dataBlockCount.size()) +
+                                 " respectively) in Broadcast vertex");
+  }
+  std::uint64_t totalElems = 0;
+  for (unsigned i = 0; i != BLen.size(); ++i) {
+    totalElems +=
+        BLen[i] *
+        blockLengthFromPacked(dataBlockCount[i], target.getNumWorkerContexts());
+  }
+  auto flops = flopsForBinaryOp2D(totalElems, type, op);
 
   switch (op) {
   case BinaryOpType::SUBTRACT:
@@ -1434,7 +1470,7 @@ MAKE_PERF_ESTIMATOR_NAME(HadamardProd)(const VertexIntrospector &vertex,
     cycles += 5 + (1 + numVectors * 2);
     totalElems += numElem;
   }
-  auto flops = flopsForBinaryOp2D({totalElems}, type, BinaryOpType::MULTIPLY);
+  auto flops = flopsForBinaryOp2D(totalElems, type, BinaryOpType::MULTIPLY);
   return {cycles, flops};
 }
 
@@ -1775,7 +1811,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2D)(
     cycles += unaryOpInnerLoopCycles(target, type, info, in[i].size());
     totalElems += in[i].size();
   }
-  return {cycles, flopsForUnaryOp2D({totalElems}, type, op)};
+  return {cycles, flopsForUnaryOp2D(totalElems, type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
@@ -1793,7 +1829,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
   // Unary op is a supervisor vertex
   uint64_t cycles = workerCycles * numWorkers + 9;
   return {cycles + superviserOverhead,
-          flopsForUnaryOp2D({static_cast<unsigned>(in.size())}, type, op)};
+          flopsForUnaryOp2D(static_cast<unsigned>(in.size()), type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2DInPlace)(
@@ -1807,7 +1843,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2DInPlace)(
     cycles += unaryOpInnerLoopCycles(target, type, info, inOut[i].size());
     totalElems += inOut[i].size();
   }
-  return {cycles, flopsForUnaryOp2D({totalElems}, type, op)};
+  return {cycles, flopsForUnaryOp2D(totalElems, type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
@@ -1823,7 +1859,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
   // UnaryOpInPlace is a supervisor vertex
   uint64_t cycles = workerCycles * numWorkers + 9;
   return {cycles + superviserOverhead,
-          flopsForUnaryOp2D({static_cast<unsigned>(inOut.size())}, type, op)};
+          flopsForUnaryOp2D(static_cast<unsigned>(inOut.size()), type, op)};
 }
 
 VertexPerfEstimate
@@ -1846,7 +1882,7 @@ MAKE_PERF_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
     cycles += binaryOpInnerLoopCycles(target, op, type, info, in1[i].size());
     totalElems += in1[i].size();
   }
-  return {cycles, flopsForBinaryOp2D({totalElems}, type, op)};
+  return {cycles, flopsForBinaryOp2D(totalElems, type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
@@ -1865,7 +1901,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
   unsigned numElems = iceil(in1.size(), numWorkers);
   workerCycles += binaryOpInnerLoopCycles(target, op, type, info, numElems);
   return {numWorkers * workerCycles + supervisorOverhead,
-          flopsForBinaryOp2D({static_cast<unsigned>(in1.size())}, type, op)};
+          flopsForBinaryOp2D(static_cast<unsigned>(in1.size()), type, op)};
 }
 
 VertexPerfEstimate
@@ -1884,7 +1920,7 @@ MAKE_PERF_ESTIMATOR_NAME(BinaryOp2DInPlace)(const VertexIntrospector &vertex,
         binaryOpInnerLoopCycles(target, op, type, info, in1Out[i].size(), true);
     totalElems += in1Out[i].size();
   }
-  return {cycles, flopsForBinaryOp2D({totalElems}, type, op)};
+  return {cycles, flopsForBinaryOp2D(totalElems, type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
@@ -1895,7 +1931,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
   assert(in1Out.size() == in2.size());
   return {
       getBinaryOp1DInPlaceSupervisorEstimate(target, type, op, in1Out.size()),
-      flopsForBinaryOp2D({static_cast<unsigned>(in1Out.size())}, type, op)};
+      flopsForBinaryOp2D(static_cast<unsigned>(in1Out.size()), type, op)};
 }
 
 static std::uint64_t selectCycles(const Target &target, const Type &type,
