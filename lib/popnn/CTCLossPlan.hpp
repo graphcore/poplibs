@@ -10,6 +10,16 @@
 namespace popnn {
 namespace ctc {
 
+struct CtcPlannerParams {
+  poplar::Type inType;
+  poplar::Type partialsType;
+  poplar::Type outType;
+  unsigned batchSize;
+  unsigned maxTime;
+  unsigned maxLabelLength;
+  unsigned numClasses;
+};
+
 // An input consists of:
 // prob[maxT, B, A] of type half or float
 // labels[B, maxL] of type unsigned short
@@ -222,9 +232,9 @@ class Plan::Impl {
   }
 
 public:
+  CtcPlannerParams params;
   SerialPartition<unsigned> serial;
   ParallelPartition<unsigned, bool> parallel;
-  poplar::Type partialsType;
 
   unsigned getLabelPartitionTiles(void) const {
     return parallel.label + (parallel.lastBlankOnSeparateTile ? 1 : 0);

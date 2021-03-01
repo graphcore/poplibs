@@ -32,18 +32,10 @@ struct PlanVariables {
   SerialPartition<popsolver::Variable> serial;
 };
 
-struct CtcParams {
-  poplar::Type inType;
-  poplar::Type outType;
-  unsigned batchSize;
-  unsigned maxTime;
-  unsigned maxLabelLength;
-  unsigned numClasses;
-};
-
-std::ostream &operator<<(std::ostream &o, const CtcParams &p) {
+std::ostream &operator<<(std::ostream &o, const CtcPlannerParams &p) {
   o << "CTCLoss params:\n";
   o << "  inType                       " << p.inType << "\n";
+  o << "  partialsType                 " << p.partialsType << "\n";
   o << "  outType                      " << p.outType << "\n";
   o << "  batchSize                    " << p.batchSize << "\n";
   o << "  maxTime                      " << p.maxTime << "\n";
@@ -148,22 +140,25 @@ struct EstimateCache {
 };
 
 std::ostream &operator<<(std::ostream &o, const Plan::Impl &p) {
+  o << p.params;
   o << "CTCLoss plan:\n";
+  /* Unsupported
   o << "  Serial Partition:\n";
   o << "    batch                      " << p.serial.batch << "\n";
   o << "    time                       " << p.serial.time << "\n";
   o << "    label                      " << p.serial.label << "\n";
+  */
   o << "  Parallel Partition:\n";
   o << "    batch                      " << p.parallel.batch << "\n";
   o << "    time                       " << p.parallel.time << "\n";
   o << "    label                      " << p.parallel.label << "\n";
-  o << "    sliceIntoOutput            "
-    << (p.parallel.sliceIntoOutput ? "true" : "false") << "\n";
+  // o << "    sliceIntoOutput            "
+  //   << (p.parallel.sliceIntoOutput ? "true" : "false") << "\n";
   o << "    lastBlankOnSeparateTile    "
     << (p.parallel.lastBlankOnSeparateTile ? "true" : "false") << "\n";
-  o << "    alphabet                   " << p.parallel.alphabet << "\n";
-  o << "    sliceFromInput             "
-    << (p.parallel.sliceFromInput ? "true" : "false") << "\n";
+  // o << "    alphabet                   " << p.parallel.alphabet << "\n";
+  // o << "    sliceFromInput             "
+  //   << (p.parallel.sliceFromInput ? "true" : "false") << "\n";
   o << "  Total:\n";
   o << "    tiles                      " << p.numTiles() << "\n";
   return o;
@@ -228,12 +223,12 @@ El-+-----+
       just as valid to choose beta. It's worth noting that if t was even, we
       wouldn't encounter this, it's only when the length of t is odd.
 */
-CycleEstimate estimateCycles(const CtcParams &params, const Plan::Impl &plan,
+CycleEstimate estimateCycles(const Plan::Impl &plan,
                              const poplar::Target &target,
                              EstimateCache &cache) {
   auto timePartitionCount = plan.parallel.time;
   auto maxTimeStepsPerPartition =
-      poplibs_support::ceildiv(params.maxTime, plan.parallel.time);
+      poplibs_support::ceildiv(plan.params.maxTime, plan.parallel.time);
   auto partitionSteps = timePartitionCount;
   if (plan.parallel.time & 1) {
     // When we have an odd number of time partitions, to avoid a clash in the
@@ -247,7 +242,7 @@ CycleEstimate estimateCycles(const CtcParams &params, const Plan::Impl &plan,
   assert((partitionSteps & 1) == 0); // Implicit from above logic
 
   auto maxBatchPerTile =
-      poplibs_support::ceildiv(params.batchSize, plan.parallel.batch);
+      poplibs_support::ceildiv(plan.params.batchSize, plan.parallel.batch);
 
   // Currently we use 1 worker per batch, noting this is only valid while using
   // worker and not supervisor vertices.  A "serial vertex execution" accounts
@@ -261,10 +256,11 @@ CycleEstimate estimateCycles(const CtcParams &params, const Plan::Impl &plan,
       (maxTimeStepsPerPartition * partitionSteps) / 2;
 
   auto maxLabelElementsPerPartition =
-      poplibs_support::ceildiv(params.maxLabelLength, plan.parallel.label);
+      poplibs_support::ceildiv(plan.params.maxLabelLength, plan.parallel.label);
 
-  auto balancedLabelPartitions = maxLabelElementsPerPartition ==
-                                 params.maxLabelLength / plan.parallel.label;
+  auto balancedLabelPartitions =
+      maxLabelElementsPerPartition ==
+      plan.params.maxLabelLength / plan.parallel.label;
   auto partitionSlowedByExtraBlank =
       (balancedLabelPartitions && !plan.parallel.lastBlankOnSeparateTile);
 
@@ -319,11 +315,12 @@ CycleEstimate estimateCycles(const CtcParams &params, const Plan::Impl &plan,
 
   const auto alphaBetaExchangeCost =
       fixedOverheadExchangeCycles +
-      (alphaBetaExchangeElements * target.getTypeSize(plan.partialsType)) /
+      (alphaBetaExchangeElements *
+       target.getTypeSize(plan.params.partialsType)) /
           exchangeBytesPerCycle;
   const auto gradExchangeCost =
       fixedOverheadExchangeCycles +
-      (gradExchangeElements * target.getTypeSize(plan.partialsType)) /
+      (gradExchangeElements * target.getTypeSize(plan.params.partialsType)) /
           exchangeBytesPerCycle;
 
   // We also sync prior to each exchange which has approximately the same cost
@@ -356,13 +353,13 @@ std::ostream &operator<<(std::ostream &o, const MemoryEstimate &e) {
   return o;
 }
 
-MemoryEstimate estimateMaxTileTempMemory(const CtcParams &params,
-                                         const Plan::Impl &plan,
+MemoryEstimate estimateMaxTileTempMemory(const Plan::Impl &plan,
                                          const poplar::Target &target,
                                          EstimateCache &cache) {
   const auto labelType = poplar::UNSIGNED_SHORT;
-  const uint64_t inTypeBytes = target.getTypeSize(params.inType);
-  const uint64_t partialsTypeBytes = target.getTypeSize(plan.partialsType);
+  const uint64_t inTypeBytes = target.getTypeSize(plan.params.inType);
+  const uint64_t partialsTypeBytes =
+      target.getTypeSize(plan.params.partialsType);
   const uint64_t labelTypeBytes = target.getTypeSize(labelType);
 
   // For estimating max memory cost, we only consider the part where we are
@@ -370,19 +367,19 @@ MemoryEstimate estimateMaxTileTempMemory(const CtcParams &params,
   // memory than the part before where we are calculating just alpha or beta.
 
   const uint64_t batchPerPartition =
-      poplibs_support::ceildiv(params.batchSize, plan.parallel.batch);
+      poplibs_support::ceildiv(plan.params.batchSize, plan.parallel.batch);
   const uint64_t timePerPartition =
-      poplibs_support::ceildiv(params.maxTime, plan.parallel.time);
+      poplibs_support::ceildiv(plan.params.maxTime, plan.parallel.time);
   const uint64_t maxLabelLengthPerPartition =
-      poplibs_support::ceildiv(params.maxLabelLength, plan.parallel.label);
+      poplibs_support::ceildiv(plan.params.maxLabelLength, plan.parallel.label);
   uint64_t maxExtendedLabelLengthPerPartition = maxLabelLengthPerPartition * 2;
   if (maxLabelLengthPerPartition * plan.parallel.label ==
-      params.maxLabelLength) {
+      plan.params.maxLabelLength) {
     // Divided out labels equally, so last partition has an extra blank
     maxExtendedLabelLengthPerPartition += 1;
   }
   const uint64_t alphabetPerPartition =
-      poplibs_support::ceildiv(params.numClasses, plan.parallel.alphabet);
+      poplibs_support::ceildiv(plan.params.numClasses, plan.parallel.alphabet);
   assert(plan.parallel.alphabet == 1); // Not yet accounted for
 
   const uint64_t dataPerTileBytes = [&]() {
@@ -439,22 +436,23 @@ MemoryEstimate estimateMaxTileTempMemory(const CtcParams &params,
 //
 // The cost model ought to avoid this but it is not always clear exactly how
 // this is going to always be the case.
-bool checkForEmptyPartitions(const CtcParams &params, const Plan::Impl &plan) {
+bool checkForEmptyPartitions(const Plan::Impl &plan) {
   const auto timePartitionSize =
-      poplibs_support::ceildiv(params.maxTime, plan.parallel.time);
+      poplibs_support::ceildiv(plan.params.maxTime, plan.parallel.time);
   const bool lastTimePartitionEmpty =
-      params.maxTime <= (timePartitionSize * (plan.parallel.time - 1));
+      plan.params.maxTime <= (timePartitionSize * (plan.parallel.time - 1));
 
   const auto labelPartitionSize =
-      poplibs_support::ceildiv(params.maxLabelLength, plan.parallel.label);
+      poplibs_support::ceildiv(plan.params.maxLabelLength, plan.parallel.label);
   const bool lastLabelPartitionEmpty =
-      params.maxLabelLength <= (labelPartitionSize * (plan.parallel.label - 1));
+      plan.params.maxLabelLength <=
+      (labelPartitionSize * (plan.parallel.label - 1));
   return lastTimePartitionEmpty || lastLabelPartitionEmpty;
 }
 
 // Returns tuple of {Cycle estimate, Max temp memory estimate, Tiles used}
 static std::tuple<popsolver::Variable, popsolver::Variable, popsolver::Variable>
-constructModel(popsolver::Model &m, const CtcParams &params,
+constructModel(popsolver::Model &m, const CtcPlannerParams &params,
                const CtcOpts &opts, PlanVariables &vars,
                const poplar::Target &target, EstimateCache &cache) {
   vars.serial.batch = m.addVariable("serialBatch");
@@ -515,32 +513,30 @@ constructModel(popsolver::Model &m, const CtcParams &params,
       vars.parallel.sliceFromInput};
 
   const auto toPlanStruct =
-      [&opts](const std::vector<unsigned> &values) -> Plan::Impl {
-    return {{values[0], values[1], values[2]},
-            {values[3], values[4], values[5], static_cast<bool>(values[6]),
-             static_cast<bool>(values[7]), values[8],
-             static_cast<bool>(values[9])},
-            opts.partialsType};
+      [&params](const std::vector<unsigned> &values) -> Plan::Impl {
+    return {
+        params,
+        {values[0], values[1], values[2]},
+        {values[3], values[4], values[5], static_cast<bool>(values[6]),
+         static_cast<bool>(values[7]), values[8], static_cast<bool>(values[9])},
+    };
   };
 
   auto cycles = m.call<unsigned>(
       planVariablesArray,
-      [&params, &target, &cache,
-       toPlanStruct](const std::vector<unsigned> &values)
+      [&target, &cache, toPlanStruct](const std::vector<unsigned> &values)
           -> boost::optional<popsolver::DataType> {
         const Plan::Impl plan = toPlanStruct(values);
-        return popsolver::DataType{
-            estimateCycles(params, plan, target, cache).total()};
+        return popsolver::DataType{estimateCycles(plan, target, cache).total()};
       });
 
   auto maxTileTempMemory = m.call<unsigned>(
       planVariablesArray,
-      [&params, &target, &cache,
-       toPlanStruct](const std::vector<unsigned> &values)
+      [&target, &cache, toPlanStruct](const std::vector<unsigned> &values)
           -> boost::optional<popsolver::DataType> {
         const Plan::Impl plan = toPlanStruct(values);
         return popsolver::DataType{
-            estimateMaxTileTempMemory(params, plan, target, cache).total()};
+            estimateMaxTileTempMemory(plan, target, cache).total()};
       });
 
   m.lessOrEqual(
@@ -552,7 +548,7 @@ constructModel(popsolver::Model &m, const CtcParams &params,
       [&params, toPlanStruct](const std::vector<unsigned> &values)
           -> boost::optional<popsolver::DataType> {
         const Plan::Impl plan = toPlanStruct(values);
-        return popsolver::DataType{checkForEmptyPartitions(params, plan)};
+        return popsolver::DataType{checkForEmptyPartitions(plan)};
       });
   m.equal(emptyPartitions, m.zero());
 
@@ -587,11 +583,12 @@ applyPlanConstraints(popsolver::Model &m,
   constrainUnsignedVar("serial.label", vars.serial.label);
 }
 
-static Plan::Impl planFromSolutionAndOpts(const popsolver::Solution &solution,
-                                          const PlanVariables &vars,
-                                          const poplar::Type partialsType) {
+static Plan::Impl planFromSolution(const CtcPlannerParams &params,
+                                   const popsolver::Solution &solution,
+                                   const PlanVariables &vars) {
   Plan::Impl plan;
 
+  plan.params = params;
   plan.serial.batch = solution[vars.serial.batch].getAs<unsigned>();
   plan.serial.time = solution[vars.serial.time].getAs<unsigned>();
   plan.serial.label = solution[vars.serial.label].getAs<unsigned>();
@@ -605,7 +602,6 @@ static Plan::Impl planFromSolutionAndOpts(const popsolver::Solution &solution,
   plan.parallel.alphabet = solution[vars.parallel.alphabet].getAs<unsigned>();
   plan.parallel.sliceFromInput =
       solution[vars.parallel.sliceFromInput].getAs<bool>();
-  plan.partialsType = partialsType;
 
   return plan;
 }
@@ -614,9 +610,9 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
           const poplar::Type &outType, const unsigned batchSize,
           const unsigned maxTime, const unsigned maxLabelLength,
           const unsigned numClasses, const poplar::OptionFlags &options) {
-  CtcParams params{inType,  outType,        batchSize,
-                   maxTime, maxLabelLength, numClasses};
   CtcOpts opts = parseOptions(options);
+  CtcPlannerParams params{inType,  opts.partialsType, outType,   batchSize,
+                          maxTime, maxLabelLength,    numClasses};
   popsolver::Model m;
   PlanVariables vars;
   EstimateCache cache;
@@ -631,13 +627,12 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   if (!s.validSolution()) {
     throw poputil::poplibs_error("No ctc loss plan found");
   }
-  const Plan::Impl plan = planFromSolutionAndOpts(s, vars, opts.partialsType);
+  const Plan::Impl plan = planFromSolution(params, s, vars);
 
   poplibs_support::logging::popnn::debug("Found plan\n{}", plan);
   poplibs_support::logging::popnn::debug(
-      "Plan cost\n{}\n{}",
-      estimateCycles(params, plan, graph.getTarget(), cache),
-      estimateMaxTileTempMemory(params, plan, graph.getTarget(), cache));
+      "Plan cost\n{}\n{}", estimateCycles(plan, graph.getTarget(), cache),
+      estimateMaxTileTempMemory(plan, graph.getTarget(), cache));
   return std::make_unique<Plan::Impl>(std::move(plan));
 }
 
@@ -674,6 +669,13 @@ namespace poputil {
 template <>
 poplar::ProfileValue toProfileValue(const popnn::ctc::Plan::Impl &p) {
   poplar::ProfileValue::Map v;
+  v.insert({"params.inType", toProfileValue(p.params.inType)});
+  v.insert({"params.partialsType", toProfileValue(p.params.partialsType)});
+  v.insert({"params.outType", toProfileValue(p.params.outType)});
+  v.insert({"params.batchSize", toProfileValue(p.params.batchSize)});
+  v.insert({"params.maxTime", toProfileValue(p.params.maxTime)});
+  v.insert({"params.maxLabelLength", toProfileValue(p.params.maxLabelLength)});
+  v.insert({"params.numClasses", toProfileValue(p.params.numClasses)});
   v.insert({"serial.batch", toProfileValue(p.serial.batch)});
   v.insert({"serial.time", toProfileValue(p.serial.time)});
   v.insert({"serial.label", toProfileValue(p.serial.label)});
@@ -687,7 +689,6 @@ poplar::ProfileValue toProfileValue(const popnn::ctc::Plan::Impl &p) {
   v.insert({"parallel.alphabet", toProfileValue(p.parallel.alphabet)});
   v.insert(
       {"parallel.sliceFromInput", toProfileValue(p.parallel.sliceFromInput)});
-  v.insert({"partialsType", toProfileValue(p.partialsType)});
 
   return v;
 }

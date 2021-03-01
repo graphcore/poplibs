@@ -1108,7 +1108,7 @@ calcLossAndGradientLogProbabilitiesImpl(
     const Plan::Impl &plan, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options) {
   const auto opts = parseCalcLossAndGradLogProbOptions(options);
-  const auto partialsType = plan.partialsType;
+  const auto partialsType = plan.params.partialsType;
   validateTensorTypes(data, labels, dataLengths, labelLengths, partialsType,
                       outType);
   poputil::PoplibsOpDebugInfo di({debugContext, "CTCGradient"},
@@ -1123,7 +1123,7 @@ calcLossAndGradientLogProbabilitiesImpl(
   auto fpCSRToRestore =
       poplar::getAndModifyFloatingPointBehaviour(graph, prog, clear, set, di);
 
-  logging::popnn::debug("Creating CTCLoss using {}", plan);
+  logging::popnn::debug("Creating CTCLoss using\n{}Options: {}", plan, options);
   const auto maxT = data.dim(0);
   const auto batchSize = data.dim(1);
   const auto numClasses = data.dim(2);
@@ -1311,6 +1311,20 @@ calcLossAndGradientLogProbabilitiesImpl(
   return {lossOut, gradOut};
 }
 
+void printOp(std::string name, const poplar::Type &partialsType,
+             const poplar::Type &outType, const poplar::Tensor &data,
+             const poplar::Tensor &labels, const poplar::Tensor &dataLengths,
+             const poplar::Tensor &labelLengths, const unsigned blankClass,
+             const poplar::DebugContext &debugContext) {
+  const auto inType = data.elementType();
+  logging::popnn::info("{} data={}, labels={}, dataLengths={}, "
+                       "labelLengths={}, blankClass={}, inType={}, "
+                       "partialsType={}, outType={}, name={}",
+                       name, data.shape(), labels.shape(), dataLengths.shape(),
+                       labelLengths.shape(), blankClass, inType, partialsType,
+                       outType, debugContext.getPathName());
+}
+
 std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
     poplar::Graph &graph, const poplar::Type &outType,
     const poplar::Tensor &logProbs, const poplar::Tensor &labels,
@@ -1318,6 +1332,10 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
     poplar::program::Sequence &prog, const unsigned blankClass,
     const Plan &plan, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options) {
+  const auto partialsType = plan.getImpl().params.partialsType;
+  printOp("CTCLossAndGradientLogProbs", partialsType, outType, logProbs, labels,
+          dataLengths, labelLengths, blankClass, debugContext);
+
   return calcLossAndGradientLogProbabilitiesImpl(
       graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
       blankClass, plan.getImpl(), {debugContext, "CTCLossAndGradientLogProbs"},
@@ -1331,9 +1349,11 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
     poplar::program::Sequence &prog, const unsigned blankClass,
     const Plan &plan, const poplar::DebugContext &parentDebugContext,
     const poplar::OptionFlags &options) {
+  const auto partialsType = plan.getImpl().params.partialsType;
+  printOp("CTCLossAndGradientLogits", partialsType, outType, logits, labels,
+          dataLengths, labelLengths, blankClass, parentDebugContext);
   poplar::DebugContext debugContext{parentDebugContext,
                                     "CTCLossAndGradientLogits"};
-
   // Ensure we preserve mapping of the result to fit in with the plan
   auto logProbs = graph.clone(logits, debugContext);
   prog.add(Copy(logits, logProbs, false, debugContext));
