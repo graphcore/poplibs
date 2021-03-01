@@ -146,69 +146,47 @@ template <typename FPType> struct InputSequence {
 };
 
 template <typename FPType>
-void testTraining(const InputSequence<FPType> &test, bool useLogArithmetic,
-                  bool normalise, bool verbose) {
+void testTraining(const InputSequence<FPType> &test, bool normalise,
+                  bool verbose) {
   auto blankClass = test.blankClass;
   auto paddedSequence = test.idx;
   auto validTimesteps = test.input.shape()[1];
 
   std::cout << "\n";
 
-  if (useLogArithmetic) {
-    // This can be used to copy into python/pytorch implementation for
-    // comparison
-    print("Log Softmax in", test.input, blankClass);
-    boost::multi_array<FPType, 2> logSequence(
-        boost::extents[paddedSequence.size()][test.input.shape()[1]]);
-    poplibs_test::embedding::multiSlice(test.input, paddedSequence,
-                                        logSequence);
-    print("Sequence(log)", logSequence, paddedSequence, blankClass, verbose);
+  // This can be used to copy into python/pytorch implementation for
+  // comparison
+  print("Log Softmax in", test.input, blankClass);
+  boost::multi_array<FPType, 2> logSequence(
+      boost::extents[paddedSequence.size()][test.input.shape()[1]]);
+  poplibs_test::embedding::multiSlice(test.input, paddedSequence, logSequence);
+  print("Sequence(log)", logSequence, paddedSequence, blankClass, verbose);
 
-    auto alphaLog = alpha(logSequence, paddedSequence, blankClass,
-                          validTimesteps, useLogArithmetic);
-    print("Alphas(log)", alphaLog, paddedSequence, blankClass, verbose);
-    print("Alphas", log::exp(alphaLog), paddedSequence, blankClass, verbose);
-    auto lastTimeIndex = alphaLog.shape()[1] - 1;
-    auto prodSum = log::add(alphaLog[alphaLog.size() - 1][lastTimeIndex],
-                            alphaLog[alphaLog.size() - 2][lastTimeIndex]);
+  auto alphaLog =
+      alpha(logSequence, paddedSequence, blankClass, validTimesteps);
+  print("Alphas(log)", alphaLog, paddedSequence, blankClass, verbose);
+  print("Alphas", log::exp(alphaLog), paddedSequence, blankClass, verbose);
+  auto lastTimeIndex = alphaLog.shape()[1] - 1;
+  auto prodSum = log::add(alphaLog[alphaLog.size() - 1][lastTimeIndex],
+                          alphaLog[alphaLog.size() - 2][lastTimeIndex]);
 
-    auto loss = -prodSum;
-    if (normalise) {
-      loss = loss / test.idx.size();
-    }
-    std::cout << std::setprecision(6) << "\nP(sequence)=" << std::exp(prodSum)
-              << "\nloss:" << loss << "\n";
-
-    auto betaLog = beta(logSequence, paddedSequence, blankClass, validTimesteps,
-                        useLogArithmetic);
-    print("Betas(log)", betaLog, paddedSequence, blankClass, verbose);
-    print("Betas", log::exp(betaLog), paddedSequence, blankClass, verbose);
-    auto gradient = grad(logSequence, test.input, alphaLog, betaLog,
-                         paddedSequence, test.input.shape()[0], blankClass,
-                         validTimesteps, useLogArithmetic, false);
-    print("Gradient(log)", gradient, verbose);
-    print("Gradient",
-          toLinear(gradient, static_cast<FPType>(1 / std::exp(prodSum))),
-          blankClass);
-  } else {
-    boost::multi_array<FPType, 2> sequence(
-        boost::extents[paddedSequence.size()][test.input.shape()[1]]);
-    poplibs_test::embedding::multiSlice(test.input, paddedSequence, sequence);
-    print("Sequence", sequence, paddedSequence, blankClass);
-    auto alphaLinear = alpha(sequence, paddedSequence, blankClass,
-                             validTimesteps, useLogArithmetic);
-    print("Alphas", alphaLinear, paddedSequence, blankClass, verbose);
-    auto lastTimeIndex = alphaLinear.shape()[1] - 1;
-    auto prodSum = alphaLinear[alphaLinear.size() - 1][lastTimeIndex] +
-                   alphaLinear[alphaLinear.size() - 2][lastTimeIndex];
-    auto betaLinear = beta(sequence, paddedSequence, blankClass, validTimesteps,
-                           useLogArithmetic);
-    print("Betas", betaLinear, paddedSequence, blankClass, verbose);
-    auto gradient = grad(sequence, test.input, alphaLinear, betaLinear,
-                         paddedSequence, test.input.shape()[0], blankClass,
-                         validTimesteps, useLogArithmetic, false);
-    print("Gradient", scale(gradient, 1 / prodSum), blankClass);
+  auto loss = -prodSum;
+  if (normalise) {
+    loss = loss / test.idx.size();
   }
+  std::cout << std::setprecision(6) << "\nP(sequence)=" << std::exp(prodSum)
+            << "\nloss:" << loss << "\n";
+
+  auto betaLog = beta(logSequence, paddedSequence, blankClass, validTimesteps);
+  print("Betas(log)", betaLog, paddedSequence, blankClass, verbose);
+  print("Betas", log::exp(betaLog), paddedSequence, blankClass, verbose);
+  auto gradient =
+      grad(logSequence, test.input, alphaLog, betaLog, paddedSequence,
+           test.input.shape()[0], blankClass, validTimesteps, false);
+  print("Gradient(log)", gradient, verbose);
+  print("Gradient",
+        toLinear(gradient, static_cast<FPType>(1 / std::exp(prodSum))),
+        blankClass);
   std::cout << "\n";
 }
 
@@ -429,6 +407,10 @@ int main(int argc, char **argv) {
   // Needed to set default arguments.
   po::notify(vm);
 
+  if (useLogArithmetic && !inference) {
+    throw std::logic_error("Log arithmetic only supported with inference");
+  }
+
   if (useDoubles) {
     const auto test = [&]() {
       auto result = input.val.empty()
@@ -465,7 +447,7 @@ int main(int argc, char **argv) {
             expectedLogProb, verbose);
       }
     } else {
-      testTraining<double>(test, useLogArithmetic, normalise, verbose);
+      testTraining<double>(test, normalise, verbose);
     }
   } else {
     const auto test = [&]() {
@@ -503,7 +485,7 @@ int main(int argc, char **argv) {
             expectedLogProb, verbose);
       }
     } else {
-      testTraining<float>(test, useLogArithmetic, normalise, verbose);
+      testTraining<float>(test, normalise, verbose);
     }
   }
 

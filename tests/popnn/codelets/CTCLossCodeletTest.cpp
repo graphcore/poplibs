@@ -227,27 +227,26 @@ gradReference(const InputSequence<FPType> &test, unsigned blankClass,
   print("Reference sequence", logSequence, paddedSequence, blankClass, verbose);
 
   auto alphaLog =
-      alpha(logSequence, paddedSequence, blankClass, validTimesteps, true);
+      alpha(logSequence, paddedSequence, blankClass, validTimesteps);
   if (vertexToTest == TestType::ALPHA) {
     print("Reference alphas", alphaLog, paddedSequence, blankClass, verbose);
     return alphaLog;
   }
 
-  auto betaLog =
-      beta(logSequence, paddedSequence, blankClass, validTimesteps, true);
+  auto betaLog = beta(logSequence, paddedSequence, blankClass, validTimesteps);
   if (vertexToTest == TestType::BETA) {
     print("Reference betas", betaLog, paddedSequence, blankClass, verbose);
     return betaLog;
   }
   auto expandedGradient =
       expandedGrad(logSequence, alphaLog, betaLog, paddedSequence, blankClass,
-                   validTimesteps, true);
+                   validTimesteps);
   print("Expanded Reference gradient", expandedGradient, paddedSequence,
         blankClass, verbose);
 
   auto gradient =
       ctcGrad(logSequence, alphaLog, betaLog, paddedSequence,
-              test.alphabetSizeIncBlank, blankClass, validTimesteps, true);
+              test.alphabetSizeIncBlank, blankClass, validTimesteps);
   print("Reference gradient", gradient, blankClass, verbose);
 
   std::cout << "\n";

@@ -304,17 +304,17 @@ gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
   poplibs_test::embedding::multiSlice(in, paddedSequence, logSequence);
 
   auto alphaLog =
-      alpha(logSequence, paddedSequence, blankClass, test.inputLength, true);
+      alpha(logSequence, paddedSequence, blankClass, test.inputLength);
   auto betaLog =
-      beta(logSequence, paddedSequence, blankClass, test.inputLength, true);
+      beta(logSequence, paddedSequence, blankClass, test.inputLength);
   auto expandedGradient =
       expandedGrad(logSequence, alphaLog, betaLog, paddedSequence, blankClass,
-                   test.inputLength, true);
+                   test.inputLength);
   auto negLogLoss =
-      loss(logSequence, paddedSequence, blankClass, test.inputLength, true);
+      loss(logSequence, paddedSequence, blankClass, test.inputLength);
   auto gradient =
       grad(logSequence, in, alphaLog, betaLog, paddedSequence, numClasses,
-           blankClass, test.inputLength, true, testReducedCodeletGradient);
+           blankClass, test.inputLength, testReducedCodeletGradient);
 
   return {negLogLoss, transpose(gradient)};
 }

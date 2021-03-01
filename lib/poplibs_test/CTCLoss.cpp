@@ -82,7 +82,7 @@ template <typename FPType>
 boost::multi_array<FPType, 2>
 alpha(const boost::multi_array<FPType, 2> &sequence,
       const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-      unsigned validTimesteps, bool logValues) {
+      unsigned validTimesteps) {
   boost::multi_array<FPType, 2> alphas(
       boost::extents[sequence.size()][sequence[0].size()]);
 
@@ -90,33 +90,25 @@ alpha(const boost::multi_array<FPType, 2> &sequence,
   alphas[0][0] = sequence[0][0];
   alphas[1][0] = sequence[1][0];
   for (unsigned j = 2; j < sequence.size(); j++) {
-    alphas[j][0] = logValues ? log::probabilityZero : 0;
+    alphas[j][0] = log::probabilityZero;
   }
 
   // Iterate per column, starting with the second
   for (unsigned t = 1; t < validTimesteps; t++) {
     for (unsigned j = 0; j < sequence.size(); j++) {
       auto numParents = numberOfParents(paddedSequence, j, blankIndex, true);
-      FPType sum = logValues ? log::probabilityZero : 0;
+      FPType sum = log::probabilityZero;
       for (unsigned k = 0; k < numParents; k++) {
         const unsigned parent = j - k;
-        if (logValues) {
-          sum = log::add(sum, alphas[parent][t - 1]);
-        } else {
-          sum += alphas[parent][t - 1];
-        }
+        sum = log::add(sum, alphas[parent][t - 1]);
       }
-      if (logValues) {
-        // Note that we are defining alpha as stored below, i.e:
-        // alpha = sum(parentProbabilities) * probability
-        // But if calculating gradient we could say that given:
-        // grad = alpha * beta / probability
-        // grad = sum(parentProbabilities) * beta
-        // So we avoid the divide
-        alphas[j][t] = log::mul(sum, sequence[j][t]);
-      } else {
-        alphas[j][t] = sum * sequence[j][t];
-      }
+      // Note that we are defining alpha as stored below, i.e:
+      // alpha = sum(parentProbabilities) * probability
+      // But if calculating gradient we could say that given:
+      // grad = alpha * beta / probability
+      // grad = sum(parentProbabilities) * beta
+      // So we avoid the divide
+      alphas[j][t] = log::mul(sum, sequence[j][t]);
     }
   }
   return alphas;
@@ -128,7 +120,7 @@ template <typename FPType>
 boost::multi_array<FPType, 2>
 beta(const boost::multi_array<FPType, 2> &sequence,
      const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-     unsigned validTimesteps, bool logValues) {
+     unsigned validTimesteps) {
   boost::multi_array<FPType, 2> betas(
       boost::extents[sequence.size()][sequence[0].size()]);
 
@@ -138,7 +130,7 @@ beta(const boost::multi_array<FPType, 2> &sequence,
   betas[lastL][lastT] = sequence[lastL][lastT];
   betas[lastL - 1][lastT] = sequence[lastL - 1][lastT];
   for (unsigned j = 0; j < lastL - 1; j++) {
-    betas[j][lastT] = logValues ? log::probabilityZero : 0;
+    betas[j][lastT] = log::probabilityZero;
   }
 
   // Iterate per column, starting with the second to last
@@ -146,26 +138,18 @@ beta(const boost::multi_array<FPType, 2> &sequence,
     auto t = validTimesteps - 1 - i;
     for (unsigned j = 0; j < sequence.size(); j++) {
       auto numParents = numberOfParents(paddedSequence, j, blankIndex, false);
-      FPType sum = logValues ? log::probabilityZero : 0;
+      FPType sum = log::probabilityZero;
       for (unsigned k = 0; k < numParents; k++) {
         const auto parent = j + k;
-        if (logValues) {
-          sum = log::add(sum, betas[parent][t + 1]);
-        } else {
-          sum += betas[parent][t + 1];
-        }
+        sum = log::add(sum, betas[parent][t + 1]);
       }
-      if (logValues) {
-        // Note that we are defining beta as stored below, i.e:
-        // beta = sum(cparentProbabilities) * probability
-        // But if calculating gradient we could say that given:
-        // grad = alpha * beta / probability
-        // grad = sum(parentProbabilities) * alpha
-        // So we avoid the divide
-        betas[j][t] = log::mul(sum, sequence[j][t]);
-      } else {
-        betas[j][t] = sum * sequence[j][t];
-      }
+      // Note that we are defining beta as stored below, i.e:
+      // beta = sum(cparentProbabilities) * probability
+      // But if calculating gradient we could say that given:
+      // grad = alpha * beta / probability
+      // grad = sum(parentProbabilities) * alpha
+      // So we avoid the divide
+      betas[j][t] = log::mul(sum, sequence[j][t]);
     }
   }
   return betas;
@@ -174,19 +158,14 @@ beta(const boost::multi_array<FPType, 2> &sequence,
 template <typename FPType>
 FPType loss(const boost::multi_array<FPType, 2> &sequence,
             const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-            unsigned validTimesteps, bool logValues) {
-  auto alphas =
-      alpha(sequence, paddedSequence, blankIndex, validTimesteps, logValues);
+            unsigned validTimesteps) {
+  auto alphas = alpha(sequence, paddedSequence, blankIndex, validTimesteps);
 
   // alpha[labels][time]
   const auto finalSymbol = alphas[alphas.size() - 2][validTimesteps - 1];
   const auto finalBlank = alphas[alphas.size() - 1][validTimesteps - 1];
 
-  if (logValues) {
-    return -log::add(finalSymbol, finalBlank);
-  } else {
-    return -(finalSymbol + finalBlank);
-  }
+  return -log::add(finalSymbol, finalBlank);
 }
 
 // Note - not an accumulated gradient, the full input shape
@@ -196,7 +175,7 @@ expandedGrad(const boost::multi_array<FPType, 2> &sequence,
              const boost::multi_array<FPType, 2> &alpha,
              const boost::multi_array<FPType, 2> &beta,
              const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-             unsigned validTimesteps, bool logValues) {
+             unsigned validTimesteps) {
 
   // Result is the same shape as sequence, alphas and betas
   boost::multi_array<FPType, 2> gradient(
@@ -204,14 +183,8 @@ expandedGrad(const boost::multi_array<FPType, 2> &sequence,
 
   for (unsigned t = 0; t < validTimesteps; t++) {
     for (unsigned i = 0; i < sequence.shape()[0]; i++) {
-      if (logValues) {
-        auto alphaBeta = log::mul(alpha[i][t], beta[i][t]);
-        gradient[i][t] = log::div(alphaBeta, sequence[i][t]);
-      } else {
-        auto alphaBeta = alpha[i][t] * beta[i][t];
-        // To avoid numeric error
-        gradient[i][t] = alphaBeta / (sequence[i][t] + 1e-50);
-      }
+      auto alphaBeta = log::mul(alpha[i][t], beta[i][t]);
+      gradient[i][t] = log::div(alphaBeta, sequence[i][t]);
     }
   }
   return gradient;
@@ -223,27 +196,21 @@ ctcGrad(const boost::multi_array<FPType, 2> &sequence,
         const boost::multi_array<FPType, 2> &alpha,
         const boost::multi_array<FPType, 2> &beta,
         const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-        unsigned blankIndex, unsigned validTimesteps, bool logValues) {
+        unsigned blankIndex, unsigned validTimesteps) {
 
   // A result: 1 row per valid symbol, 1 column per timestep
   // Initialise to zero as some symbols may be unused.
   boost::multi_array<FPType, 2> gradient(
       boost::extents[symbolsIncBlank][sequence.shape()[1]]);
   std::fill(gradient.data(), gradient.data() + gradient.num_elements(),
-            logValues ? log::probabilityZero : 0);
+            log::probabilityZero);
 
   for (unsigned t = 0; t < validTimesteps; t++) {
     for (unsigned i = 0; i < sequence.shape()[0]; i++) {
-      if (logValues) {
-        auto alphaBeta = log::mul(alpha[i][t], beta[i][t]);
-        alphaBeta = log::div(alphaBeta, sequence[i][t]);
-        gradient[paddedSequence[i]][t] =
-            log::add(gradient[paddedSequence[i]][t], alphaBeta);
-      } else {
-        auto alphaBeta = alpha[i][t] * beta[i][t];
-        // To avoid numeric error
-        gradient[paddedSequence[i]][t] += alphaBeta / (sequence[i][t] + 1e-50);
-      }
+      auto alphaBeta = log::mul(alpha[i][t], beta[i][t]);
+      alphaBeta = log::div(alphaBeta, sequence[i][t]);
+      gradient[paddedSequence[i]][t] =
+          log::add(gradient[paddedSequence[i]][t], alphaBeta);
     }
   }
 
@@ -258,12 +225,11 @@ grad(const boost::multi_array<FPType, 2> &sequence,
      const boost::multi_array<FPType, 2> &alpha,
      const boost::multi_array<FPType, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, unsigned validTimesteps, bool logValues,
+     unsigned blankIndex, unsigned validTimesteps,
      bool testReducedCodeletGradient) {
 
-  auto gradient =
-      ctcGrad(sequence, alpha, beta, paddedSequence, symbolsIncBlank,
-              blankIndex, validTimesteps, logValues);
+  auto gradient = ctcGrad(sequence, alpha, beta, paddedSequence,
+                          symbolsIncBlank, blankIndex, validTimesteps);
 
   if (!testReducedCodeletGradient) {
     const auto finalSymbol = alpha[alpha.size() - 2][validTimesteps - 1];
@@ -276,70 +242,64 @@ grad(const boost::multi_array<FPType, 2> &sequence,
       }
     }
   }
-  if (!logValues) {
-    throw poputil::poplibs_error(
-        "Unsupported linear values for ctc loss reference grad");
-  }
   return gradient;
 }
 
 template boost::multi_array<float, 2>
 alpha(const boost::multi_array<float, 2> &sequence,
       const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-      unsigned validTimesteps, bool logValues);
+      unsigned validTimesteps);
 
 template boost::multi_array<double, 2>
 alpha(const boost::multi_array<double, 2> &sequence,
       const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-      unsigned validTimesteps, bool logValues);
+      unsigned validTimesteps);
 
 template boost::multi_array<float, 2>
 beta(const boost::multi_array<float, 2> &sequence,
      const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-     unsigned validTimesteps, bool logValues);
+     unsigned validTimesteps);
 
 template boost::multi_array<double, 2>
 beta(const boost::multi_array<double, 2> &sequence,
      const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-     unsigned validTimesteps, bool logValues);
+     unsigned validTimesteps);
 
 template float loss(const boost::multi_array<float, 2> &sequence,
                     const std::vector<unsigned> &paddedSequence,
-                    unsigned blankIndex, unsigned validTimesteps,
-                    bool logValues);
+                    unsigned blankIndex, unsigned validTimesteps);
 
 template double loss(const boost::multi_array<double, 2> &sequence,
                      const std::vector<unsigned> &paddedSequence,
-                     unsigned blankIndex, unsigned validTimesteps,
-                     bool logValues);
+                     unsigned blankIndex, unsigned validTimesteps);
 
 template boost::multi_array<float, 2>
 expandedGrad(const boost::multi_array<float, 2> &sequence,
              const boost::multi_array<float, 2> &alpha,
              const boost::multi_array<float, 2> &beta,
              const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-             unsigned validTimesteps, bool logValues);
+             unsigned validTimesteps);
 
 template boost::multi_array<double, 2>
 expandedGrad(const boost::multi_array<double, 2> &sequence,
              const boost::multi_array<double, 2> &alpha,
              const boost::multi_array<double, 2> &beta,
              const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-             unsigned validTimesteps, bool logValues);
+             unsigned validTimesteps);
 
 template boost::multi_array<float, 2>
 ctcGrad(const boost::multi_array<float, 2> &sequence,
         const boost::multi_array<float, 2> &alpha,
         const boost::multi_array<float, 2> &beta,
         const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-        unsigned blankIndex, unsigned validTimesteps, bool logValues);
+        unsigned blankIndex, unsigned validTimesteps);
 
 template boost::multi_array<double, 2>
 ctcGrad(const boost::multi_array<double, 2> &sequence,
         const boost::multi_array<double, 2> &alpha,
         const boost::multi_array<double, 2> &beta,
         const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-        unsigned blankIndex, unsigned validTimesteps, bool logValues);
+        unsigned blankIndex, unsigned validTimesteps);
 
 template boost::multi_array<float, 2>
 grad(const boost::multi_array<float, 2> &sequence,
@@ -347,7 +307,7 @@ grad(const boost::multi_array<float, 2> &sequence,
      const boost::multi_array<float, 2> &alpha,
      const boost::multi_array<float, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, unsigned validTimesteps, bool logValues,
+     unsigned blankIndex, unsigned validTimesteps,
      bool testReducedCodeletGradient);
 
 template boost::multi_array<double, 2>
@@ -356,7 +316,7 @@ grad(const boost::multi_array<double, 2> &sequence,
      const boost::multi_array<double, 2> &alpha,
      const boost::multi_array<double, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, unsigned validTimesteps, bool logValues,
+     unsigned blankIndex, unsigned validTimesteps,
      bool testReducedCodeletGradient);
 
 } // namespace ctc
