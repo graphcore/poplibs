@@ -104,8 +104,8 @@ reduce(const poplibs_support::MultiArray<T> &input,
           output[outIndices] += input[indices] * input[indices];
           break;
         case popops::Operation::LOG_ADD:
-          output[outIndices] = poplibs_support::log::add<double>(
-              output[outIndices], input[indices]);
+          output[outIndices] =
+              poplibs_support::log::add<T>(output[outIndices], input[indices]);
           break;
         case popops::Operation::MUL:
           output[outIndices] *= input[indices];

@@ -332,11 +332,13 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
   // operation.  Although the vertices are also in C this gives some sort of
   // approximation to the cycles taken
   const auto opIsLogAdd = operation == Operation::LOG_ADD;
+  const auto logAddHasAssembler =
+      specialisation == ReductionSpecialisation::STRIDED_REDUCE;
 
   const auto opVectorWidth = opIsLogAdd ? 1 : accVectorWidth;
   const auto partialsPer64Bits = partialsTypeSize / 8;
   const auto dataPathWidth = target.getDataPathWidth() / (partialsTypeSize * 8);
-  const auto cyclesPerOp = opIsLogAdd ? 50u : 1u;
+  const auto cyclesPerOp = opIsLogAdd ? (logAddHasAssembler ? 9u : 50u) : 1u;
 
   std::vector<unsigned> numPartialEdges;
   std::vector<size_t> partialsPerEdge;

@@ -35,7 +35,10 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   Graph graph(target);
   popops::addCodelets(graph);
 
-  const float initialValue = 1.0;
+  // Using negative initial value is important for log-add operations and using
+  // integers (in float type variables) is helpful for exact comparison
+  // for other operations
+  const float initialValue = -1.0;
   const auto partialsGrainSize = partialsType == poplar::HALF ? 4 : 2;
 
   // Check constraints:
@@ -68,9 +71,12 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   std::vector<float> nums(innerDim * outerDim);
   std::vector<int> intData(innerDim * outerDim);
 
+  // Using negative input data is important for log-add operations and using
+  // integers (in float type variables) is helpful for exact comparison
+  // for other operations
   for (unsigned i = 0; i < outerDim; ++i) {
     for (unsigned j = 0; j < innerDim; ++j) {
-      nums[(i * innerDim) + j] = i + j;
+      nums[(i * innerDim) + j] = -1.0 * (i + j);
       intData[(i * innerDim + j)] = i + j;
     }
   }
@@ -89,8 +95,10 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   Tensor out;
   out = graph.addVariable(outType, {outputDim});
 
+  bool useScale = (op == popops::Operation::LOG_ADD && scale != 0.0f) ||
+                  (op != popops::Operation::LOG_ADD && scale != 1.0f);
   const auto vertexClass =
-      templateVertex(scale == 1.0f ? "popops::Reduce" : "popops::ScaledReduce",
+      templateVertex(useScale ? "popops::ScaledReduce" : "popops::Reduce",
                      "popops::" + getReductionVertexOpName(op), partialsType,
                      outType, isUpdate, specialisation);
 
@@ -108,7 +116,7 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   auto scaleTensor = graph.addVariable(FLOAT, {});
   graph.setTileMapping(scaleTensor, 0);
   graph.setInitialValue(scaleTensor, scale);
-  if (scale != 1.0f) {
+  if (useScale) {
     graph.connect(v1["k"], scaleTensor.reshape({1}));
   }
   graph.setTileMapping(v1, 0);
@@ -164,21 +172,40 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   auto result = reduce(input, {0}, op);
 
   std::vector<float> correct_answer(outputDim, initialValue);
-  for (unsigned i = 0; i < outputDim; i++) {
-    if (isUpdate) {
-      correct_answer[i] += result[i] * scale;
-    } else {
-      correct_answer[i] = result[i] * scale;
+  if (op == popops::Operation::LOG_ADD) {
+    for (unsigned i = 0; i < outputDim; i++) {
+
+      const auto scaledResult = log::mul<float>(result[i], scale);
+      if (isUpdate) {
+        correct_answer[i] = log::add(scaledResult, correct_answer[i]);
+      } else {
+        correct_answer[i] = scaledResult;
+      }
+    }
+  } else {
+    for (unsigned i = 0; i < outputDim; i++) {
+      if (isUpdate) {
+        correct_answer[i] += result[i] * scale;
+      } else {
+        correct_answer[i] = result[i] * scale;
+      }
     }
   }
 
   bool success = true;
-
   if (outType == FLOAT || outType == HALF) {
+    // When using half data the log-add result is slightly inaccurate
+    // Other operations should be exact with integer value float/half inputs
+    const double tolerance = (op == popops::Operation::LOG_ADD &&
+                              (outType == HALF || partialsType == HALF))
+                                 ? 0.001
+                                 : 0.0;
     for (unsigned i = 0; i < outputDim; ++i) {
-      std::cout << answers[i] << ", ";
-      CHECK_IF(success, correct_answer[i] == answers[i]);
+      success = checkIsClose(correct_answer[i], answers[i], tolerance);
       answers[i] = 0; // zero for next iteration
+    }
+    if (!success) {
+      std::cerr << "Errors in result\n";
     }
   } else if (outType == INT) {
     for (unsigned i = 0; i < outputDim; ++i) {
@@ -220,7 +247,7 @@ int main(int argc, char **argv) {
      "Output type")
     ("operation",
      po::value(&op),
-     "operation:ADD SQUARE_ADD MAX MIN MUL LOGICAL_OR or LOGICAL_AND")
+     "operation:ADD SQUARE_ADD LOG_ADD MAX MIN MUL LOGICAL_OR or LOGICAL_AND")
     ("update",
      po::value<bool>(&isUpdate)->default_value(isUpdate),
      "reduce with update")

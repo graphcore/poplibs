@@ -345,7 +345,7 @@ endforeach()
 
 foreach(PARTIALS_TYPE half float)
   foreach(OUT_TYPE half float)
-    foreach(OPERATION ADD SQUARE_ADD)
+    foreach(OPERATION ADD SQUARE_ADD LOG_ADD)
       foreach(UPDATE true false)
         set(VARIANT_NAME "ReduceSpecial3_${PARTIALS_TYPE}_${OUT_TYPE}_${OPERATION}_${UPDATE}")
         set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")

@@ -74,6 +74,11 @@ private:
            (std::is_same<OutType, float>::value ||
             std::is_same<OutType, half>::value);
   }
+  constexpr static bool opIsLogAddWithAssembler() {
+    return std::is_same<ReduceOp, ReduceLogAdd>::value &&
+           (std::is_same<OutType, half>::value ||
+            std::is_same<OutType, float>::value);
+  }
   constexpr static bool opIsLogAdd =
       std::is_same<ReduceOp, ReduceLogAdd>::value;
 
@@ -82,7 +87,8 @@ public:
   using AccType = AccType<PartialsType, ReduceOp>;
 
   constexpr static bool isExternal() {
-    return (opIsMaxMinWithAssembler() || opIsAddSquareAddWithAssembler());
+    return (opIsMaxMinWithAssembler() || opIsAddSquareAddWithAssembler() ||
+            opIsLogAddWithAssembler());
   }
   // External codelets require the partials to be a multiple of
   // 64bits to give aligned memory accesses, outputs must be 32 bit aligned
