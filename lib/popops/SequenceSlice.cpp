@@ -140,8 +140,14 @@ static void generateSequenceSliceVertices(
   // group of at least 4 halves is requested.
   if (!baseIsSrc && target.getTypeSize(type) <= 4) {
     auto preferredGrouping = 8 / target.getTypeSize(type);
-    tSrc = rearrange::regroupIfBeneficial(graph, tSrc, preferredGrouping, prog,
-                                          {dnai, "groupIfBeneficial-4"});
+    if ((tSrc.numElements() / tSrc.dim(0)) % preferredGrouping == 0) {
+      tSrc = rearrange::regroupIfBeneficial(
+          graph, tSrc, preferredGrouping, prog, {dnai, "groupIfBeneficial-4"});
+    } else {
+      logging::popops::warn("sequence slice NOT regrouping src as sliced "
+                            "dimension not a multiple of {} elements",
+                            preferredGrouping);
+    }
   }
   auto &base = baseIsSrc ? tSrc : tDst;
   logging::popops::debug("baseIsSrc {} ({} > 2*{})", baseIsSrc,
