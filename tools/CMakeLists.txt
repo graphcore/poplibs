@@ -100,8 +100,13 @@ target_link_libraries(norm_layer
                       poplibs_support poplibs_test
                       Boost::program_options)
 
-add_tool(ctc_validate ctc_validate.cpp)
-target_link_libraries(ctc_validate
+add_tool(ctc_loss ctc_loss.cpp)
+target_link_libraries(ctc_loss
+                      poplibs_support poplibs_test
+                      Boost::program_options)
+
+add_tool(ctc_model_validate ctc_model_validate.cpp)
+target_link_libraries(ctc_model_validate
                       poplibs_support poplibs_test
                       Boost::program_options)
 

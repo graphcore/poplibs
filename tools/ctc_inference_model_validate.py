@@ -103,7 +103,7 @@ def main():
 
     parser.add_argument('--print-input', default=False,
                         help='Whether to print input softmax activations')
-    parser.add_argument('--binary', default='ctc_validate',
+    parser.add_argument('--binary', default='ctc_model_validate',
                         help='ctc inference binary to run')
     parser.add_argument('--seed', default=42, type=int,
                         help='Random number seed')

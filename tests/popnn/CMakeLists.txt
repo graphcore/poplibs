@@ -959,13 +959,12 @@ add_unit_test(NormStatisticsTest
               VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS}
               LABELS T28462)
 
-add_multi_target_test_executable(CTCLossTest CTCLossTest.cpp)
 add_unit_test(CTCLossPlanTest CTCLossPlanTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 
 # Sanity check that LogProbs API works as expected
 add_multitarget_test(
-      NAME CTCLossTest_LogProbs_santity
-      COMMAND CTCLossTest
+      NAME CTC_Loss_LogProbs_santity
+      COMMAND ctc_loss
               --logit-inputs=false
       VARIANTS ${IPUMODEL_VARIANTS})
 
@@ -975,8 +974,8 @@ foreach(last_blank_separate 0 1)
   foreach(time 25 28 32)
     foreach(labels 2 3 6 8 12)
       add_multitarget_test(
-        NAME CTCLossTest1_Time_${time}_Labels_${labels}_${last_blank_separate}
-        COMMAND CTCLossTest
+        NAME CTC_Loss_1_Time_${time}_Labels_${labels}_${last_blank_separate}
+        COMMAND ctc_loss
                 --batch=1
                 --max-time=32
                 --max-label-length=12
@@ -992,8 +991,8 @@ foreach(last_blank_separate 0 1)
   foreach(time 12 15 16)
     foreach(labels 3 5)
       add_multitarget_test(
-        NAME CTCLossTest2_Time_${time}_Labels_${labels}_${last_blank_separate}
-        COMMAND CTCLossTest
+        NAME CTC_Loss_2_Time_${time}_Labels_${labels}_${last_blank_separate}
+        COMMAND ctc_loss
                 --batch=1
                 --max-time=32
                 --max-label-length=12
@@ -1009,8 +1008,8 @@ endforeach()
 # float in, float out)
 foreach(out_type half float)
     add_multitarget_test(
-      NAME CTCLossTest2BatchAnd_TypeTime_${out_type}
-      COMMAND CTCLossTest
+      NAME CTC_Loss_2_Batch_And_Type_Time_${out_type}
+      COMMAND ctc_loss
               --batch=4
               --max-time=32
               --min-time=3
@@ -1023,8 +1022,8 @@ endforeach()
 
 foreach(partials_type half float)
     add_multitarget_test(
-      NAME CTCLossTest_in_half_partials_${partials_type}_out_half
-      COMMAND CTCLossTest
+      NAME CTC_Loss_in_half_partials_${partials_type}_out_half
+      COMMAND ctc_loss
               --in-type=half
               --partials-type=${partials_type}
               --out-type=half
@@ -1033,8 +1032,8 @@ endforeach()
 
 foreach(blank_class 0 4 10)
   add_multitarget_test(
-    NAME CTCLossTest_Blank_${blank_class}
-    COMMAND CTCLossTest
+    NAME CTC_Loss_Blank_${blank_class}
+    COMMAND ctc_loss
             --num-classes=11
             --batch=1
             --max-time=32
@@ -1047,8 +1046,8 @@ endforeach()
 
 # Specific test asking the grad-given-alpha codelet to do more work
 add_multitarget_test(
-  NAME CTCLossTest_One_Time_Partition_Codelet
-  COMMAND CTCLossTest
+  NAME CTC_Loss_One_Time_Partition_Codelet
+  COMMAND ctc_loss
           --batch=1
           --max-time=16
           --time=16
@@ -1061,8 +1060,8 @@ add_multitarget_test(
 foreach(time_partitions 1 2 3)
   foreach(label_partitions 1 2 3)
     add_multitarget_test(
-      NAME CTCLossTestPartitions_t${time_partitions}_l${label_partitions}
-      COMMAND CTCLossTest
+      NAME CTC_Loss_Partitions_t${time_partitions}_l${label_partitions}
+      COMMAND ctc_loss
               --batch=1
               --max-time=32
               --max-label-length=12
@@ -1074,7 +1073,7 @@ foreach(time_partitions 1 2 3)
 endforeach()
 
 add_multitarget_test(
-  NAME CTCLossTest_Codelet_Result_only
-  COMMAND CTCLossTest
+  NAME CTC_Loss_Codelet_Result_only
+  COMMAND ctc_loss
           --test-reduced-codelet-result=1
   VARIANTS ${IPUMODEL_VARIANTS})
