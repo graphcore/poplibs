@@ -205,33 +205,47 @@ getRandomSize(const boost::optional<unsigned> &minT,
               const boost::optional<unsigned> &fixedT, unsigned maxT,
               const boost::optional<unsigned> &minLabelLength,
               const boost::optional<unsigned> &fixedLabelLength,
-              unsigned maxLabelLength,
+              unsigned maxLabelLength, bool disableAlwaysSatisfiableError,
               const std::function<unsigned(unsigned, unsigned)> &randRange) {
   auto checkSatisfiable = [&](unsigned t, unsigned labelLength) -> void {
-    if (!(t >= labelLength * 2 - 1)) {
+    if (t < labelLength) {
       throw poputil::poplibs_error(
           std::string{"Length of t ("} + std::to_string(t) +
-          std::string{") is too short to always be able to represent a label "
+          std::string{") is too short to be able to represent a label "
                       "(of length "} +
           std::to_string(labelLength) + std::string{")"});
+    }
+    if (!disableAlwaysSatisfiableError) {
+      if (t < labelLength * 2 - 1) {
+        throw poputil::poplibs_error(
+            std::string{"Length of t ("} + std::to_string(t) +
+            std::string{") is too short to always be able to represent a label "
+                        "(of length "} +
+            std::to_string(labelLength) +
+            std::string{"). This is an overly cautious error, which considers "
+                        "the worst case of all duplicate classes (requiring t "
+                        ">= labelLength * 2 - 1). This error can be disabled "
+                        "with --disable-always-satisfiable-error"});
+      }
     }
   };
 
   if (fixedT && fixedLabelLength) {
     auto t = *fixedT;
     auto labelLength = *fixedLabelLength;
+    checkSatisfiable(t, labelLength);
     return {t, labelLength};
   } else if (fixedT || fixedLabelLength) {
     if (fixedT) {
       auto t = *fixedT;
-      auto maxLabelLengthForT = (t + 1) / 2;
+      auto maxLabelLengthForT = t;
       auto upperBound = std::min(maxLabelLengthForT, maxLabelLength);
       auto labelLength = randRange(*minLabelLength, upperBound);
       checkSatisfiable(t, labelLength);
       return {t, labelLength};
     } else {
       auto labelLength = *fixedLabelLength;
-      auto minTForLabelLength = labelLength * 2 - 1;
+      auto minTForLabelLength = labelLength;
       auto lowerBound = std::max(minTForLabelLength, *minT);
       auto t = randRange(lowerBound, maxT);
       checkSatisfiable(t, labelLength);
@@ -483,9 +497,7 @@ void validateTimeAndLabelBounds(
   auto minLabelLengthGenerated =
       minRandomLabelLength ? *minRandomLabelLength : *fixedLabelLength;
 
-  if (!(maxTimestepsGenerated >= 2 * minLabelLengthGenerated - 1)) {
-    // Worst case is duplicate characters `aaa` -> `a-a-a`
-    // Such that: t >= 2*l-1
+  if (maxTimestepsGenerated < minLabelLengthGenerated) {
     throw poputil::poplibs_error(
         "Combination of time and label-length cannot create valid sequences. "
         "Either increase `max-time`/`time` or decrease "
@@ -559,6 +571,14 @@ int main(int argc, char **argv) {
             default_value(testReducedCodeletGradient),
      "Test the reduced result: alpha * beta / probability, omitting any further"
      " processing")
+    ("disable-always-satisfiable-error", "Disable the check when validating time"
+    " and labelLength before generating random labels. This check ensures that the"
+    " label is always representable for given t and labelLength."
+    "\nThe length of t required to represent a given label depends on the number"
+    " of duplicate classes in the label, this check assumes the worst case where"
+    " every class is a duplicate."
+    "\nSpecifically:"
+    "\n  2 * t - 1 >= labelLength")
     ("plan-only", "Only plan the requested passes, don't build or run a graph")
     ("verbose", "Provide debug printout");
   // clang-format on
@@ -580,6 +600,8 @@ int main(int argc, char **argv) {
   const bool verbose = vm.count("verbose");
   const bool ignoreData = vm.count("ignore-data");
   const bool planOnly = vm.count("plan-only");
+  const bool disableAlwaysSatisfiableError =
+      vm.count("disable-always-satisfiable-error");
 
   // Needed to set default arguments.
   po::notify(vm);
@@ -627,6 +649,10 @@ int main(int argc, char **argv) {
   gen.seed(1234);
 
   const auto randRange = [&](unsigned min, unsigned max) -> unsigned {
+    if (max < min) {
+      poputil::poplibs_error(
+          "max must be greater than min when specifying random range");
+    }
     std::uniform_int_distribution<> range(min, max);
     return range(gen);
   };
@@ -637,7 +663,8 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < batchSize; i++) {
     const auto [t, labelLength] =
         getRandomSize(minRandomTime, fixedTime, maxTime, minRandomLabelLength,
-                      fixedLabelLength, maxLabelLength, randRange);
+                      fixedLabelLength, maxLabelLength,
+                      disableAlwaysSatisfiableError, randRange);
     tests.push_back(getRandomTestInput(t, maxTime, labelLength, maxLabelLength,
                                        numClasses, blankClass, isLogits,
                                        randRange));
