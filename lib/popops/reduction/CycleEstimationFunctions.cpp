@@ -328,18 +328,45 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
   const auto accVectorWidth = partialsType == poplar::HALF    ? 8
                               : partialsType == poplar::FLOAT ? 4
                                                               : 1;
-  // The LOG_ADD operation is implemented as a scalar, with multiple cyles per
-  // operation.  Although the vertices are also in C this gives some sort of
-  // approximation to the cycles taken
   const auto opIsLogAdd = operation == Operation::LOG_ADD;
   const auto logAddHasAssembler =
       specialisation == ReductionSpecialisation::STRIDED_REDUCE;
 
-  const auto opVectorWidth = opIsLogAdd ? 1 : accVectorWidth;
+  const auto opVectorWidth = [&]() {
+    if (!opIsLogAdd) {
+      return accVectorWidth;
+    }
+    if (logAddHasAssembler) {
+      return partialsType == poplar::HALF ? 4 : 2;
+    }
+    // C++ log-add is scalar
+    return 1;
+  }();
+
+  const auto cyclesPerOp = [&]() {
+    // Most operations take a single cycle and are implemented in assembler.
+    if (!opIsLogAdd) {
+      return 1;
+    }
+    // Log-add in assembler:
+    // f32v2: 3 cycles (min,max,sub)
+    //      + 3 * 2 (2 of f32exp)
+    //      + 1 (add 1)
+    //      + 6 * 2 (2 of f32log)
+    //      + 1 add
+    // Total: 23
+    // For the f16v4 variant the exp, log instructions take 2 cycles each,
+    // Total = 3 + (2*2) + 1 + (2*2) + 1 = 12
+    if (logAddHasAssembler) {
+      return partialsType == poplar::HALF ? 12 : 23;
+    }
+    // Approx result in C++ log-add by comparing to Sim execution time
+    // (This is for a scalar as per opVectorWidth)
+    return 20;
+  }();
+
   const auto partialsPer64Bits = partialsTypeSize / 8;
   const auto dataPathWidth = target.getDataPathWidth() / (partialsTypeSize * 8);
-  const auto cyclesPerOp = opIsLogAdd ? (logAddHasAssembler ? 9u : 50u) : 1u;
-
   std::vector<unsigned> numPartialEdges;
   std::vector<size_t> partialsPerEdge;
   CODELET_FIELD(out);
