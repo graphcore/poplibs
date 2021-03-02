@@ -1,4 +1,5 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+#include <cmath>
 #include <poplibs_support/logging.hpp>
 #include <popnn/Lstm.hpp>
 #include <popops/Cast.hpp>
@@ -158,7 +159,8 @@ struct LstmOpts {
   poplar::Type accumulatorsType;
   LstmRecomputationMode recomputationMode;
   boost::optional<double> availableMemoryProportion;
-  std::size_t numShards;
+  boost::optional<std::size_t> numShards;
+  boost::optional<bool> rnnCodeReuse;
 };
 
 std::map<std::string, poplar::Type> partialsTypeMap{{"half", poplar::HALF},
@@ -180,6 +182,14 @@ static OptionFlags getMMOpts(const LstmOpts &lstmOpts) {
   return mmOpts;
 }
 
+static OptionFlags getRnnOpts(const LstmOpts &lstmOpts) {
+  OptionFlags rnnOpts;
+  if (lstmOpts.rnnCodeReuse) {
+    rnnOpts.set("codeReuse", std::to_string(lstmOpts.rnnCodeReuse.get()));
+  }
+  return rnnOpts;
+}
+
 static LstmOpts parseOptions(const OptionFlags &options,
                              const poplar::Type defaultAccType) {
 
@@ -190,7 +200,8 @@ static LstmOpts parseOptions(const OptionFlags &options,
   lstmOpts.accumulatorsType =
       defaultAccType; // this will default to float in future
   lstmOpts.recomputationMode = LstmRecomputationMode::None;
-  lstmOpts.numShards = 1;
+  lstmOpts.numShards = boost::none;
+  lstmOpts.rnnCodeReuse = boost::none;
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec lstmSpec{
@@ -208,6 +219,7 @@ static LstmOpts parseOptions(const OptionFlags &options,
       {"availableMemoryProportion",
        OptionHandler::createWithDouble(lstmOpts.availableMemoryProportion)},
       {"numShards", OptionHandler::createWithInteger(lstmOpts.numShards)},
+      {"rnnCodeReuse", OptionHandler::createWithBool(lstmOpts.rnnCodeReuse)},
   };
   for (const auto &entry : options) {
     lstmSpec.parse(entry.first, entry.second);
@@ -255,6 +267,80 @@ getMatMulPrePlanParameters(LstmParams params, poplar::OptionFlags opts) {
   return matmuls;
 }
 
+unsigned getNumFwdIntermediatesToSave(const LstmOpts &options) {
+  if (options.recomputationMode == LstmRecomputationMode::None) {
+    return 6;
+  } else if (options.recomputationMode == LstmRecomputationMode::CellAndTanh) {
+    return 4;
+  }
+  throw poputil::poplibs_error("Unhandled recomputation type");
+  return 0;
+}
+
+// Sharding is relevant for LSTM/GRU models which use significantly fewer
+// tiles for storage of sequences than are available on the target. The total
+// memory required to store the input and output dimensions is directly
+// proportional to the LSTM sequence size. For large sequence sizes the tiles
+// on which the sequences have been mapped would run out of memory, even with
+// the availability of spare memory on the unmapped tiles on the same IPU.
+// Sharding alleviates this problem by mapping the sequences to disjoint
+// sets of tiles. The ratio of the total number of tiles on the target to the
+// number of tiles that the sequences would be mapped to without sharding
+// determines the maximum number of shards. However sharding involves code
+// duplication and memory overheads due to additional exchanges. These memory
+// usage overheads could become prohibitive when excessive sharding is applied.
+// Likewise sharding also adds execution time overheads.
+//
+// For reasonably sized batch/feature dimensions the maximum number of shards
+// is a small enough number which can be used to directly determine the number
+// of shards. However this approach does not work well for smaller sized LSTM
+// models. For very small input and output layer sizes and small batch sizes
+// the maximum number of shards could run into the hundreds or thousands.
+//
+// To limit sharding when batch/feature dimensions are small, we allow operands
+// to occupy up to 10% of total tile memory before sharding further. Layers
+// with reasonably large batch/feature dimensions typically utilise enough tiles
+// that the maximum shards calculated is small even if memory usage per-tile for
+// operands is high. Hence this only really applies to the small cases.
+//
+// All LSTM passes - Fwd, Bwd & WU passes - must use the same number of shards.
+// Hence, operand memory is calculated based on the Fwd pass since it can
+// be used as a reasonable approximation for all the passes.
+static std::size_t getNumShards(const Graph &graph, const LstmParams &params,
+                                const LstmOpts &opt,
+                                const DebugNameAndId &dnai) {
+  auto target = graph.getTarget();
+  auto tileMemory = target.getBytesPerTile();
+  auto maxShards = params.rnn.getMaxShards(graph);
+  auto inputSize = params.rnn.getInputBytesPerTile(graph);
+  auto outputSize = params.rnn.getOutputBytesPerTile(graph);
+  auto numIntermediates = getNumFwdIntermediatesToSave(opt);
+  auto operandSingleIteration =
+      inputSize + (outputSize * (1 + numIntermediates));
+  auto operandSize = operandSingleIteration * params.rnn.timeSteps;
+
+  // Fraction of total tile memory that is nominally designated for operands
+  double operandFraction = 0.1;
+
+  double availableOperandMemory = tileMemory * operandFraction;
+  std::size_t estShards = std::ceil(operandSize / availableOperandMemory);
+  auto numShards = std::min(estShards, maxShards);
+  if (opt.numShards) {
+    if ((*opt.numShards < 1) || (*opt.numShards > maxShards)) {
+      throw poputil::poplibs_error("LSTM numShards must be within "
+                                   "interval [1," +
+                                   std::to_string(maxShards) + "]");
+    }
+    numShards = *opt.numShards;
+  }
+  logging::popnn::debug(
+      "'{}': inputSize={} outputSize={} operandSize={} numInter={} "
+      "available={} maxShards={} estimated-shards={} numShards={}",
+      dnai.getPathName(), inputSize, outputSize, operandSize, numIntermediates,
+      availableOperandMemory, maxShards, estShards, numShards);
+  return numShards;
+}
+
 static Tensor createInput(Graph &graph, const LstmParams &params,
                           const DebugNameAndId &dnai, const LstmOpts &opt,
                           matmul::PlanningCache *cache) {
@@ -274,7 +360,8 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
         {fcInputSize, fcOutputSize}, {dnai}, mmOpt, cache);
     return in.reshape({params.rnn.timeSteps, params.rnn.batchSize, inputSize});
   } else {
-    return rnn::createInputTensor(graph, params.rnn, opt.numShards,
+    auto numShards = getNumShards(graph, params, opt, {dnai, "numShards"});
+    return rnn::createInputTensor(graph, params.rnn, numShards,
                                   {dnai, "input"});
   }
 }
@@ -296,8 +383,9 @@ Tensor createInitialOutput(Graph &graph, const LstmParams &params,
                            matmul::PlanningCache *cache) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   auto opt = parseOptions(options, params.rnn.dataType);
-  auto output = rnn::createInitialState(graph, params.rnn, true, 1,
-                                        opt.numShards, {di, "initialOutput"})
+  auto numShards = getNumShards(graph, params, opt, {di, "numShards"});
+  auto output = rnn::createInitialState(graph, params.rnn, true, 1, numShards,
+                                        {di, "initialOutput"})
                     .squeeze({0});
   di.addOutput(output);
   return output;
@@ -309,8 +397,9 @@ Tensor createInitialCellState(Graph &graph, const LstmParams &params,
                               matmul::PlanningCache *cache) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   auto opt = parseOptions(options, params.rnn.dataType);
-  auto output = rnn::createInitialState(graph, params.rnn, true, 1,
-                                        opt.numShards, {di, "initialCellState"})
+  auto numShards = getNumShards(graph, params, opt, {di, "numShards"});
+  auto output = rnn::createInitialState(graph, params.rnn, true, 1, numShards,
+                                        {di, "initialCellState"})
                     .squeeze({0});
   di.addOutput(output);
   return output;
@@ -323,12 +412,12 @@ LstmState createInitialState(Graph &graph, const LstmParams &params,
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   auto opt = parseOptions(options, params.rnn.dataType);
 
-  auto initialOutput =
-      rnn::createInitialState(graph, params.rnn, true, 1, opt.numShards,
-                              {di, "initialOutput"})
-          .squeeze({0});
+  auto numShards = getNumShards(graph, params, opt, {di, "numShards"});
+  auto initialOutput = rnn::createInitialState(graph, params.rnn, true, 1,
+                                               numShards, {di, "initialOutput"})
+                           .squeeze({0});
   auto initialCellState =
-      rnn::createInitialState(graph, params.rnn, true, 1, opt.numShards,
+      rnn::createInitialState(graph, params.rnn, true, 1, numShards,
                               {di, "initialCellState"})
           .squeeze({0});
   LstmState outputs = {initialOutput, initialCellState};
@@ -663,16 +752,6 @@ static void basicLstmCellForwardPassInPlace(
              {dnai, baseStr + "/CalcNextOutput"});
 }
 
-unsigned getNumFwdIntermediatesToSave(const LstmOpts &options) {
-  if (options.recomputationMode == LstmRecomputationMode::None) {
-    return 6;
-  } else if (options.recomputationMode == LstmRecomputationMode::CellAndTanh) {
-    return 4;
-  }
-  throw poputil::poplibs_error("Unhandled recomputation type");
-  return 0;
-}
-
 static Tensor getFwdIntermediatesToSave(const LstmState &state,
                                         const LstmState &newState,
                                         const LstmInternalState &internalState,
@@ -795,40 +874,40 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
   }
   std::vector<Tensor> initState = {fwdStateInit.output.expand({0}),
                                    fwdStateInit.cellState.expand({0})};
-  auto shardingLoop = [&graph, &weights, &params, &opt, &cache](
-                          unsigned shardIndex, std::vector<Tensor> &fwdState,
-                          const std::vector<Tensor> &inputs,
-                          const Tensor &seqIdx, const Tensor &interimIn,
-                          Tensor &interimOut, std::vector<Tensor> &outputs,
-                          program::Sequence &initProg,
-                          const DebugNameAndId &dnai) {
-    auto loop = Sequence({}, {dnai});
-    auto &fwdInput = inputs[0];
-    LstmState state = {fwdState[0].squeeze({0}), fwdState[1].squeeze({0})};
-    bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
-    const Tensor *inputWeightsPtr =
-        useWeightedIn ? nullptr : &weights.inputWeights;
-    if (interimOut.valid()) {
-      LstmState newState;
-      LstmInternalState internalState;
-      std::tie(newState, internalState) = basicLstmCellForwardPass(
-          graph, fwdInput, weights.biases, state, inputWeightsPtr,
-          weights.outputWeights, loop, opt, opt.inferenceOnly, params.cellOrder,
-          {dnai}, cache);
-      auto fwdIntermediates = getFwdIntermediatesToSave(
-          state, newState, internalState, opt, params);
-      loop.add(Copy(fwdIntermediates, interimOut, false, {dnai}));
-      auto newStateTensor = newState.getAsTensor();
-      auto stateTensor = concat(fwdState);
-      loop.add(Copy(newStateTensor, stateTensor, false, {dnai}));
-    } else {
-      basicLstmCellForwardPassInPlace(graph, fwdInput, weights.biases, state,
-                                      inputWeightsPtr, weights.outputWeights,
-                                      loop, opt, opt.inferenceOnly,
-                                      params.cellOrder, {dnai}, cache);
-    }
-    return loop;
-  };
+  auto shardingLoop =
+      [&weights, &params, &opt,
+       &cache](Graph &graph, const Tensor &shardIdx, const Tensor &seqIdx,
+               std::vector<Tensor> &fwdState, const std::vector<Tensor> &inputs,
+               const Tensor &interimIn, Tensor &interimOut,
+               std::vector<Tensor> &outputs, std::vector<Tensor> &created,
+               program::Sequence *initProg, const DebugNameAndId &dnai) {
+        auto loop = Sequence({}, {dnai});
+        auto &fwdInput = inputs[0];
+        LstmState state = {fwdState[0].squeeze({0}), fwdState[1].squeeze({0})};
+        bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
+        const Tensor *inputWeightsPtr =
+            useWeightedIn ? nullptr : &weights.inputWeights;
+        if (interimOut.valid()) {
+          LstmState newState;
+          LstmInternalState internalState;
+          std::tie(newState, internalState) = basicLstmCellForwardPass(
+              graph, fwdInput, weights.biases, state, inputWeightsPtr,
+              weights.outputWeights, loop, opt, opt.inferenceOnly,
+              params.cellOrder, {dnai}, cache);
+          auto fwdIntermediates = getFwdIntermediatesToSave(
+              state, newState, internalState, opt, params);
+          loop.add(Copy(fwdIntermediates, interimOut, false, {dnai}));
+          auto newStateTensor = newState.getAsTensor();
+          auto stateTensor = concat(fwdState);
+          loop.add(Copy(newStateTensor, stateTensor, false, {dnai}));
+        } else {
+          basicLstmCellForwardPassInPlace(
+              graph, fwdInput, weights.biases, state, inputWeightsPtr,
+              weights.outputWeights, loop, opt, opt.inferenceOnly,
+              params.cellOrder, {dnai}, cache);
+        }
+        return loop;
+      };
   bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
 
   // make a copy of the activations so that they are sliced efficiently
@@ -840,24 +919,26 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
   auto numIntermediates =
       intermediatesSeq ? getNumFwdIntermediatesToSave(opt) : 0;
   rnn::StateSequence stateSequence;
+  auto numShards = getNumShards(graph, params, opt, {di, "numShards"});
   if (params.outputFullSequence) {
     stateSequence = rnn::StateSequence{
-        rnn::createOutputTensor(graph, params.rnn, opt.numShards,
-                                {di, "output"}),
+        rnn::createOutputTensor(graph, params.rnn, numShards, {di, "output"}),
         0};
   }
   if (intermediatesSeq) {
     *intermediatesSeq =
-        rnn::createOutputTensor(graph, params.rnn, numIntermediates,
-                                opt.numShards, {di, "fwdIntermediatesSeq"})
+        rnn::createOutputTensor(graph, params.rnn, numIntermediates, numShards,
+                                {di, "fwdIntermediatesSeq"})
             .reshapePartial(0, 1, {params.rnn.timeSteps, numIntermediates});
     fwdProg.add(WriteUndef(*intermediatesSeq, {di}));
   }
   std::vector<Tensor> dummyOutputs;
+  std::vector<Tensor> dummyCreated;
+  auto rnnOptions = getRnnOpts(opt);
   auto updatedState =
       rnn::Rnn(graph, params.rnn, false, initState, stateSequence, {input},
-               nullptr, intermediatesSeq, dummyOutputs, fwdProg, shardingLoop,
-               opt.numShards, {di, "rnn"});
+               nullptr, intermediatesSeq, dummyOutputs, dummyCreated, fwdProg,
+               shardingLoop, numShards, rnnOptions, {di, "rnn"});
   updatedState[0] = params.outputFullSequence ? stateSequence.output
                                               : updatedState[0].squeeze({0});
   std::pair<Tensor, Tensor> outputs = {updatedState[0],
@@ -865,11 +946,36 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
   return outputs;
 }
 
+static Tensor lstmBwdRearrangeWeights(Graph &graph, const LstmParams &params,
+                                      const Tensor *weightsInput,
+                                      const Tensor &weightsOutput,
+                                      Sequence &initProg, const LstmOpts &opt,
+                                      const DebugNameAndId &dnai,
+                                      matmul::PlanningCache *cache) {
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
+  mmOpt.set("inputRHSIsPreArranged", "true");
+
+  std::vector<std::size_t> gradsShape{
+      params.rnn.batchSize, params.cellOrder.size() * params.rnn.layerSizes[1]};
+  Tensor weightsTransposed;
+  if (weightsInput == nullptr) {
+    weightsTransposed = flattenUnits(weightsOutput).transpose();
+  } else {
+    weightsTransposed =
+        flattenUnits(concat(*weightsInput, weightsOutput, 1)).transpose();
+  }
+
+  weightsTransposed = preArrangeMatMulInputRHS(
+      graph, gradsShape, weightsTransposed, initProg, dnai, mmOpt, cache);
+  return weightsTransposed;
+}
+
 static std::tuple<LstmState, Tensor, Tensor>
 backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
                  const Tensor &fwdIntermediates, const LstmState &stateGrad,
-                 const Tensor *weightsInput, const Tensor &weightsOutput,
-                 Sequence &initProg, Sequence &prog, const LstmOpts &opt,
+                 bool inputGradSupplied, const Tensor weights, Sequence &prog,
+                 const LstmOpts &opt,
                  const std::vector<BasicLstmCellUnit> &cellOrder,
                  const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   const std::string fPrefix = "LstmBwd";
@@ -954,30 +1060,23 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
   mmOpt.set("inputRHSIsPreArranged", "true");
 
   auto grads = flattenUnits(gradUnits);
-  Tensor weightsTransposed;
-  if (weightsInput == nullptr) {
-    weightsTransposed = flattenUnits(weightsOutput).transpose();
-  } else {
-    weightsTransposed =
-        flattenUnits(concat(*weightsInput, weightsOutput, 1)).transpose();
-  }
-
-  weightsTransposed = preArrangeMatMulInputRHS(
-      graph, grads.shape(), weightsTransposed, initProg,
-      {dnai, fPrefix + "/PreArrangeWeights"}, mmOpt, cache);
-
   Tensor gradientIn, gradientPrevStep;
-  if (weightsInput) {
-    auto inputSize = weightsInput->dim(1);
-    auto outputSize = weightsOutput.dim(1);
-    auto out = matMul(graph, grads, weightsTransposed, prog,
+  if (inputGradSupplied) {
+    auto outputSize = gradCellState.dim(1);
+    auto inputSize = weights.dim(1) - outputSize;
+    logging::popnn::info(
+        "LstmBackwardStep inputSize={} outputSize={} weights={} "
+        "grads={} gradCellState={}",
+        inputSize, outputSize, weights.shape(), grads.shape(),
+        gradCellState.shape());
+    auto out = matMul(graph, grads, weights, prog,
                       {dnai, fPrefix + "/{Prev + Input}Grad"}, mmOpt, cache);
     out = tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer, prog,
                                      {dnai, fPrefix});
     gradientIn = out.slice(0, inputSize, 1);
     gradientPrevStep = out.slice(inputSize, inputSize + outputSize, 1);
   } else {
-    gradientPrevStep = matMul(graph, grads, weightsTransposed, prog,
+    gradientPrevStep = matMul(graph, grads, weights, prog,
                               {dnai, fPrefix + "/PrevStepGrad"}, mmOpt, cache);
     gradientPrevStep = tryGroupedPartialTranspose(
         graph, gradientPrevStep, detectInnermostGrouping(graph, outputGrad),
@@ -990,27 +1089,13 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
 
 std::tuple<LstmState, Tensor, Tensor> basicLstmBackwardStep(
     Graph &graph, const Tensor *gradNextLayer, const Tensor &fwdIntermediates,
-    const LstmState &stateGrad, const Tensor &weightsInput,
-    const Tensor &weightsOutput, Sequence &initProg, Sequence &prog,
-    const LstmOpts &opt, const std::vector<BasicLstmCellUnit> &cellOrder,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
-  return backwardStepImpl(graph, gradNextLayer, fwdIntermediates, stateGrad,
-                          &weightsInput, weightsOutput, initProg, prog, opt,
-                          cellOrder, {dnai}, cache);
-}
-
-std::pair<LstmState, Tensor> basicLstmBackwardStep(
-    Graph &graph, const Tensor *gradNextLayer, const Tensor &fwdIntermediates,
-    const LstmState &stateGrad, const Tensor &weightsOutput, Sequence &initProg,
+    const LstmState &stateGrad, bool inputGradSupplied, const Tensor &weights,
     Sequence &prog, const LstmOpts &opt,
     const std::vector<BasicLstmCellUnit> &cellOrder, const DebugNameAndId &dnai,
     matmul::PlanningCache *cache) {
-  LstmState prevStateGrad;
-  Tensor bwdIntermediates;
-  std::tie(prevStateGrad, std::ignore, bwdIntermediates) = backwardStepImpl(
-      graph, gradNextLayer, fwdIntermediates, stateGrad, nullptr, weightsOutput,
-      initProg, prog, opt, cellOrder, {dnai}, cache);
-  return std::make_pair(prevStateGrad, bwdIntermediates);
+  return backwardStepImpl(graph, gradNextLayer, fwdIntermediates, stateGrad,
+                          inputGradSupplied, weights, prog, opt, cellOrder,
+                          {dnai}, cache);
 }
 
 /// Add the partial weight gradients from this timestep to the accumulated
@@ -1157,12 +1242,14 @@ static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
                                        const Tensor &fwdIntermediatesSeq,
                                        program::Sequence &prog,
                                        const DebugNameAndId &dnai) {
-  auto shardingLoop = [&graph, &params, &options](
-                          unsigned shardIndex, std::vector<Tensor> &shardState,
+  auto shardingLoop = [&params, &options](
+                          Graph &graph, const Tensor &shardIdx,
+                          const Tensor &seqIdx, std::vector<Tensor> &shardState,
                           const std::vector<Tensor> &inputs,
-                          const Tensor &seqIdx, const Tensor &interimIn,
-                          Tensor &interimOut, std::vector<Tensor> &outputs,
-                          program::Sequence &initProg,
+                          const Tensor &interimIn, Tensor &interimOut,
+                          std::vector<Tensor> &outputs,
+                          std::vector<Tensor> &created,
+                          program::Sequence *initProg,
                           const DebugNameAndId &dnai) {
     auto loop = Sequence({}, {dnai});
     auto prevCellState = shardState[0].squeeze({0});
@@ -1197,15 +1284,18 @@ static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
     return loop;
   };
 
+  auto numShards = getNumShards(graph, params, options, {dnai, "numShards"});
   std::size_t numToRecompute =
       LSTM_FWD_INTERMEDIATE_OUTPUT - LSTM_FWD_INTERMEDIATE_OUTPUT_TANH;
-  std::vector<Tensor> recomputedIntermediatesSeq{rnn::createOutputTensor(
-      graph, params.rnn, numToRecompute, options.numShards,
-      {dnai, "recomputedIntermediates"})};
+  std::vector<Tensor> recomputedIntermediatesSeq{
+      rnn::createOutputTensor(graph, params.rnn, numToRecompute, numShards,
+                              {dnai, "recomputedIntermediates"})};
   std::vector<Tensor> initState = {fwdStateInit.cellState.expand({0})};
+  std::vector<Tensor> dummyCreated;
+  auto rnnOptions = getRnnOpts(options);
   rnn::Rnn(graph, params.rnn, false, initState, {}, {}, &fwdIntermediatesSeq,
-           nullptr, recomputedIntermediatesSeq, prog, shardingLoop,
-           options.numShards, {dnai, "rnn"});
+           nullptr, recomputedIntermediatesSeq, dummyCreated, prog,
+           shardingLoop, numShards, rnnOptions, {dnai, "rnn"});
   return recomputedIntermediatesSeq[0].reshapePartial(
       0, 1, {params.rnn.timeSteps, numToRecompute});
 }
@@ -1250,59 +1340,64 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
             Tensor *bwdIntermediatesPtr, LstmWeights *weightsGrad,
             const DebugNameAndId &dnai, const LstmOpts &options,
             poplin::matmul::PlanningCache *cache) {
-  auto loopBwdWithWU = [&graph, &params, &options, &inputGradSeq, &cache](
-                           LstmWeights &weights, LstmWeights *weightsGrad,
-                           unsigned shardIndex, std::vector<Tensor> &shardState,
-                           const std::vector<Tensor> &bwdInput,
-                           const Tensor &seqIdx, const Tensor &fwdIntermediates,
-                           Tensor &interimOut, std::vector<Tensor> &outputs,
-                           program::Sequence &initProg,
-                           const DebugNameAndId &dnai) {
-    auto loop = Sequence({}, {dnai});
-    auto &weightsInput = weights.inputWeights;
-    auto &weightsOutput = weights.outputWeights;
-    auto &gradLayerNext = bwdInput[0];
-    Tensor inputGrad =
-        shardState[0].valid() ? shardState[0].squeeze({0}) : Tensor{};
-    LstmState stateGrads = {shardState[1].squeeze({0}),
-                            shardState[2].squeeze({0})};
-    LstmState newStateGrads;
-    Tensor bwdIntermediates;
-    if (inputGradSeq) {
-      Tensor nextInputGrad;
-      std::tie(newStateGrads, nextInputGrad, bwdIntermediates) =
-          popnn::lstm::basicLstmBackwardStep(
-              graph, &gradLayerNext, fwdIntermediates, stateGrads, weightsInput,
-              weightsOutput, initProg, loop, options, params.cellOrder, {dnai},
-              cache);
-      if (inputGrad.valid()) {
-        loop.add(Copy(nextInputGrad, inputGrad, false, {dnai}));
-      }
-    } else {
-      std::tie(newStateGrads, bwdIntermediates) = basicLstmBackwardStep(
-          graph, &gradLayerNext, fwdIntermediates, stateGrads, weightsOutput,
-          initProg, loop, options, params.cellOrder, {dnai}, cache);
-    }
-    if (interimOut.valid()) {
-      loop.add(Copy(bwdIntermediates, interimOut, false, {dnai}));
-    }
-    loop.add(Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor(), false,
-                  {dnai}));
-    if (weightsGrad) {
-      auto &prevLayerOut = bwdInput[1];
-      auto &prevStepOut = bwdInput[2];
-      if (shardIndex == options.numShards - 1) {
-        *weightsGrad = createWeightAccumulators(
-            graph, weights, bwdIntermediates, options, {dnai, "weightsGrad"});
-        zeroWeightAccumulators(graph, initProg, *weightsGrad, options,
-                               {dnai, "zeroWeightAcc"});
-      }
-      basicLstmParamUpdate(graph, prevLayerOut, prevStepOut, bwdIntermediates,
-                           *weightsGrad, loop, options,
-                           {dnai, "basicLstmParamUpdate"}, cache);
-    }
-    return loop;
-  };
+  auto numShards = getNumShards(graph, params, options, {dnai, "numShards"});
+  auto weightsRearranged = lstmBwdRearrangeWeights(
+      graph, params, inputGradSeq ? &weights.inputWeights : nullptr,
+      weights.outputWeights, prog, options, {dnai, "/PreArrangeWeights"},
+      cache);
+  auto loopBwdWithWU =
+      [&params, &options, &inputGradSeq, &cache, numShards, &weightsRearranged](
+          LstmWeights &weights, LstmWeights *weightsGrad, Graph &graph,
+          const Tensor &shardIdx, const Tensor &seqIdx,
+          std::vector<Tensor> &shardState, const std::vector<Tensor> &bwdInput,
+          const Tensor &fwdIntermediates, Tensor &interimOut,
+          std::vector<Tensor> &outputs, std::vector<Tensor> &created,
+          program::Sequence *initProg, const DebugNameAndId &dnai) {
+        auto loop = Sequence({}, {dnai});
+        auto &gradLayerNext = bwdInput[0];
+        Tensor inputGrad =
+            shardState[0].valid() ? shardState[0].squeeze({0}) : Tensor{};
+        LstmState stateGrads = {shardState[1].squeeze({0}),
+                                shardState[2].squeeze({0})};
+        LstmState newStateGrads;
+        Tensor bwdIntermediates;
+        if (inputGradSeq) {
+          Tensor nextInputGrad;
+          std::tie(newStateGrads, nextInputGrad, bwdIntermediates) =
+              popnn::lstm::basicLstmBackwardStep(
+                  graph, &gradLayerNext, fwdIntermediates, stateGrads, true,
+                  weightsRearranged, loop, options, params.cellOrder, {dnai},
+                  cache);
+          if (inputGrad.valid()) {
+            loop.add(Copy(nextInputGrad, inputGrad, false, {dnai}));
+          }
+        } else {
+          std::tie(newStateGrads, std::ignore, bwdIntermediates) =
+              basicLstmBackwardStep(graph, &gradLayerNext, fwdIntermediates,
+                                    stateGrads, false, weightsRearranged, loop,
+                                    options, params.cellOrder, {dnai}, cache);
+        }
+        if (interimOut.valid()) {
+          loop.add(Copy(bwdIntermediates, interimOut, false, {dnai}));
+        }
+        loop.add(Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor(),
+                      false, {dnai}));
+        if (weightsGrad) {
+          auto &prevLayerOut = bwdInput[1];
+          auto &prevStepOut = bwdInput[2];
+          if (initProg != nullptr) {
+            *weightsGrad =
+                createWeightAccumulators(graph, weights, bwdIntermediates,
+                                         options, {dnai, "weightsGrad"});
+            zeroWeightAccumulators(graph, *initProg, *weightsGrad, options,
+                                   {dnai, "zeroWeightAcc"});
+          }
+          basicLstmParamUpdate(graph, prevLayerOut, prevStepOut,
+                               bwdIntermediates, *weightsGrad, loop, options,
+                               {dnai, "basicLstmParamUpdate"}, cache);
+        }
+        return loop;
+      };
 
   Tensor recomputedIntermediatesSeq = recomputeFwdIntermediates(
       graph, fwdStateInit, fwdIntermediatesSeq, params, options, prog,
@@ -1310,15 +1405,14 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   Tensor fwdIntermediates = reconstructIntermediatesFromRecomputed(
       fwdIntermediatesSeq, recomputedIntermediatesSeq, params, options);
   auto lastOutGradInit = rnn::createInitialState(
-      graph, params.rnn, true, 1, options.numShards, {dnai, "lastOutGradInit"});
+      graph, params.rnn, true, 1, numShards, {dnai, "lastOutGradInit"});
   if (params.outputFullSequence) {
     zero(graph, lastOutGradInit, prog, {dnai, "zeroLastOutGrad"});
   } else {
     prog.add(Copy(gradLayerNext, lastOutGradInit, false, {dnai}));
   }
-  auto lastCellStateGradInit =
-      rnn::createInitialState(graph, params.rnn, true, 1, options.numShards,
-                              {dnai, "lastCellStateGradInit"});
+  auto lastCellStateGradInit = rnn::createInitialState(
+      graph, params.rnn, true, 1, numShards, {dnai, "lastCellStateGradInit"});
   if (lastCellStateGradPtr) {
     prog.add(Copy(*lastCellStateGradPtr, lastCellStateGradInit, false,
                   {dnai, "initLastOutGrad"}));
@@ -1327,19 +1421,17 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   }
   Tensor gradLayerNextRearranged;
   if (params.outputFullSequence) {
-    gradLayerNextRearranged =
-        rnn::createOutputTensor(graph, params.rnn, options.numShards,
-                                {dnai, "gradLayerNextRearranged"});
+    gradLayerNextRearranged = rnn::createOutputTensor(
+        graph, params.rnn, numShards, {dnai, "gradLayerNextRearranged"});
     prog.add(Copy(gradLayerNext, gradLayerNextRearranged, false,
                   {dnai, "initGradLayerNextRearranged"}));
   }
   Tensor inputGradInit;
   rnn::StateSequence inputGrad;
   if (inputGradSeq) {
-    inputGradInit =
-        rnn::createInitialState(graph, params.rnn, false, 1, options.numShards,
-                                {dnai, "inputGradInit"});
-    *inputGradSeq = rnn::createInputTensor(graph, params.rnn, options.numShards,
+    inputGradInit = rnn::createInitialState(graph, params.rnn, false, 1,
+                                            numShards, {dnai, "inputGradInit"});
+    *inputGradSeq = rnn::createInputTensor(graph, params.rnn, numShards,
                                            {dnai, "inputGrad"});
     inputGrad = rnn::StateSequence{*inputGradSeq, 0};
   }
@@ -1348,7 +1440,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   if (bwdIntermediatesPtr) {
     *bwdIntermediatesPtr =
         rnn::createOutputTensor(graph, params.rnn, BASIC_LSTM_CELL_NUM_UNITS,
-                                options.numShards, {dnai, "bwdIntermediates"})
+                                numShards, {dnai, "bwdIntermediates"})
             .reshapePartial(0, 1,
                             {params.rnn.timeSteps, BASIC_LSTM_CELL_NUM_UNITS});
     prog.add(WriteUndef(*bwdIntermediatesPtr, {dnai}));
@@ -1356,26 +1448,28 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   Tensor prevLayerOut, prevStepOut;
   if (weightsGrad) {
     // make a copy of the activations so that they are sliced efficiently
-    prevLayerOut = createInputTensor(graph, params.rnn, options.numShards,
-                                     {dnai, "prevLayerOut"});
+    prevLayerOut =
+        createInputTensor(graph, params.rnn, numShards, {dnai, "prevLayerOut"});
     prog.add(Copy(fwdInputSeq, prevLayerOut, false, {dnai}));
     auto fwdOut = (params.outputFullSequence)
                       ? fwdOutput
                       : fwdIntermediates[LSTM_FWD_INTERMEDIATE_OUTPUT];
     prevStepOut =
         rnn::shiftRnnTensor(graph, params.rnn, fwdOut, fwdStateInit.output,
-                            prog, options.numShards, {dnai, "fwdOutShifted"});
+                            prog, numShards, {dnai, "fwdOutShifted"});
   }
   std::vector<Tensor> bwdAndWuInputs = {gradLayerNextRearranged, prevLayerOut,
                                         prevStepOut};
   using namespace std::placeholders;
   const auto shardingLoop = std::bind(loopBwdWithWU, weights, weightsGrad, _1,
-                                      _2, _3, _4, _5, _6, _7, _8, _9);
+                                      _2, _3, _4, _5, _6, _7, _8, _9, _10, _11);
   std::vector<Tensor> dummyOutputs;
-  auto updatedState =
-      rnn::Rnn(graph, params.rnn, true, bwdStateInit, inputGrad, bwdAndWuInputs,
-               &fwdIntermediates, bwdIntermediatesPtr, dummyOutputs, prog,
-               shardingLoop, options.numShards, {dnai, "updatedState"});
+  std::vector<Tensor> dummyCreated;
+  auto rnnOptions = getRnnOpts(options);
+  auto updatedState = rnn::Rnn(
+      graph, params.rnn, true, bwdStateInit, inputGrad, bwdAndWuInputs,
+      &fwdIntermediates, bwdIntermediatesPtr, dummyOutputs, dummyCreated, prog,
+      shardingLoop, numShards, rnnOptions, {dnai, "updatedState"});
   if (weightsGrad) {
     *weightsGrad =
         basicLstmParamUpdateFinal(graph, weights, *weightsGrad, prog,
@@ -1430,12 +1524,13 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   LstmWeights weightGrads = createWeightAccumulators(
       graph, weights, bwdIntermediatesSeq[0], options, {dnai});
   zeroWeightAccumulators(graph, prog, weightGrads, options, {dnai});
-  auto loopWU = [&graph, &options, &planningCache](
-                    LstmWeights &weightGrads, unsigned shardIndex,
+  auto loopWU = [&options, &planningCache](
+                    LstmWeights &weightGrads, Graph &graph,
+                    const Tensor &shardIdx, const Tensor &seqIdx,
                     std::vector<Tensor> &shardState,
-                    const std::vector<Tensor> &wuInput, const Tensor &seqIdx,
-                    const Tensor &interimIn, Tensor &interimOut,
-                    std::vector<Tensor> &output, program::Sequence &initProg,
+                    const std::vector<Tensor> &wuInput, const Tensor &interimIn,
+                    Tensor &interimOut, std::vector<Tensor> &output,
+                    std::vector<Tensor> &created, program::Sequence *initProg,
                     const DebugNameAndId &dnai) {
     auto loop = Sequence({}, {dnai});
     auto &prevLayerOut = wuInput[0];
@@ -1447,21 +1542,24 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   };
 
   // make a copy of the activations so that they are sliced efficiently
-  Tensor inputCopy = createInputTensor(graph, params.rnn, options.numShards,
-                                       {dnai, "inputCopy"});
+  auto numShards = getNumShards(graph, params, options, {dnai, "numShards"});
+  Tensor inputCopy =
+      createInputTensor(graph, params.rnn, numShards, {dnai, "inputCopy"});
   prog.add(Copy(input, inputCopy, false, {dnai}));
   auto fwdOut = (params.outputFullSequence) ? output : fwdIntermediatesSeq;
   Tensor prevStepOut =
       rnn::shiftRnnTensor(graph, params.rnn, fwdOut, fwdStateInit.output, prog,
-                          options.numShards, {dnai, "fwdOutshifted"});
+                          numShards, {dnai, "fwdOutshifted"});
   std::vector<Tensor> wuInputs = {inputCopy, prevStepOut, bwdIntermediatesSeq};
   using namespace std::placeholders;
-  const auto shardingLoop =
-      std::bind(loopWU, weightGrads, _1, _2, _3, _4, _5, _6, _7, _8, 9);
+  const auto shardingLoop = std::bind(loopWU, weightGrads, _1, _2, _3, _4, _5,
+                                      _6, _7, _8, _9, _10, _11);
   std::vector<Tensor> dummyOutputs;
-  auto updatedState = rnn::Rnn(graph, params.rnn, true, {}, {}, wuInputs,
-                               nullptr, nullptr, dummyOutputs, prog,
-                               shardingLoop, options.numShards, {dnai, "rnn"});
+  std::vector<Tensor> dummyCreated;
+  auto rnnOptions = getRnnOpts(options);
+  auto updatedState = rnn::Rnn(
+      graph, params.rnn, true, {}, {}, wuInputs, nullptr, nullptr, dummyOutputs,
+      dummyCreated, prog, shardingLoop, numShards, rnnOptions, {dnai, "rnn"});
   weightGrads =
       basicLstmParamUpdateFinal(graph, weights, weightGrads, prog, {dnai});
   return weightGrads;

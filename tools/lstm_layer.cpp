@@ -117,6 +117,7 @@ int main(int argc, char **argv) {
   unsigned sequenceSize, inputSize, outputSize;
   unsigned batchSize = 1;
   unsigned numShards = 1;
+  bool codeReuse = false;
 
   Type dataType;
   Type partialsType;
@@ -158,8 +159,11 @@ int main(int argc, char **argv) {
      "Profile formats: v1 | experimental | unstable")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
-    ("shards", po::value<unsigned>(&numShards)->required(),
+    ("shards", po::value<unsigned>(&numShards),
      "The number of shards")
+    ("code-reuse",
+     po::value<bool>(&codeReuse),
+     "Force LSTM code reuse")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
      "Number of inputs in each element in the sequence")
     ("output-size", po::value<unsigned>(&outputSize)->required(),
@@ -280,8 +284,13 @@ int main(int argc, char **argv) {
   }
   poplar::OptionFlags options = {
       {"inferenceOnly", fwdOnly ? "true" : "false"},
-      {"numShards", std::to_string(numShards)},
   };
+  if (!vm["shards"].empty()) {
+    options.set("numShards", std::to_string(numShards));
+  }
+  if (!vm["code-reuse"].empty()) {
+    options.set("rnnCodeReuse", codeReuse ? "true" : "false");
+  }
   if (!vm["available-memory-proportion"].empty()) {
     options.set("availableMemoryProportion",
                 std::to_string(availableMemoryProportion));

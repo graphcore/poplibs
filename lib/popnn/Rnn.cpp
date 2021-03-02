@@ -8,6 +8,7 @@
 #include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/Rnn.hpp>
+#include <poputil/GraphFunction.hpp>
 
 using namespace poplar;
 using namespace poplibs_support;
@@ -31,10 +32,38 @@ poplar::ProfileValue toProfileValue(const popnn::rnn::RnnParams &t) {
 namespace popnn {
 namespace rnn {
 
+struct RnnOpts {
+  boost::optional<std::size_t> codeReuse;
+};
+
+static RnnOpts parseOptions(const OptionFlags &options) {
+  RnnOpts rnnOpts;
+  rnnOpts.codeReuse = boost::none;
+  using poplibs::OptionHandler;
+  using poplibs::OptionSpec;
+  const OptionSpec rnnSpec{
+      {"codeReuse", OptionHandler::createWithInteger(rnnOpts.codeReuse)},
+  };
+  for (const auto &entry : options) {
+    rnnSpec.parse(entry.first, entry.second);
+  }
+  return rnnOpts;
+}
+
 static std::pair<std::size_t, std::size_t> getNumGrains(std::size_t size) {
   auto grainSize = gcd(16UL, size);
   auto numGrains = size / grainSize;
   return {grainSize, numGrains};
+}
+
+static std::size_t calculatedBytesPerTile(unsigned numTiles,
+                                          std::size_t batchSize,
+                                          std::size_t size,
+                                          std::size_t typeSize) {
+  auto [grainSize, numGrains] = getNumGrains(size);
+  numGrains *= batchSize;
+  auto grainsPerTile = ceildiv(numGrains, numTiles);
+  return grainsPerTile * grainSize * typeSize;
 }
 
 static std::size_t
@@ -49,8 +78,8 @@ calculateTileUsage(bool output, unsigned numTiles, const std::size_t batchSize,
   return usedTiles;
 }
 
-static std::size_t getTilesPerShard(Graph &graph, const RnnParams &params,
-                                    unsigned numShards) {
+static std::size_t getTilesPerShard(const Graph &graph,
+                                    const RnnParams &params) {
   auto numTiles = graph.getTarget().getNumTiles();
   std::vector<std::size_t> tilesUsed;
   for (unsigned i = 0; i < params.layerSizes.size(); ++i) {
@@ -59,8 +88,6 @@ static std::size_t getTilesPerShard(Graph &graph, const RnnParams &params,
     tilesUsed.push_back(numTilesUsed);
   }
   std::size_t tilesPerShard = std::max(tilesUsed[0], tilesUsed[1]);
-  assert(numShards <= numTiles / tilesPerShard);
-  assert(numShards <= params.timeSteps);
   return tilesPerShard;
 }
 
@@ -240,14 +267,17 @@ public:
   const Interval &interval() const { return currInterval; };
   unsigned index() const { return currIndex; };
   unsigned sequenceLength() const { return currInterval.size(); };
+  const Tensor &indexTensor() const { return shardSeqIdx[currIndex]; };
   const Tensor &counterTensor() const { return seqIdx; };
   unsigned operator()() const { return count; };
+  bool first() { return count == numShards; };
   void next();
   program::Sequence initCounter();
   program::Sequence updateCounter();
 
 private:
   Graph &graph;
+  std::vector<Tensor> shardSeqIdx;
   Tensor one;
   Tensor seqIdx;
   Tensor startExclLastShard;
@@ -271,8 +301,8 @@ RnnParams::RnnParams(poplar::Type dataType, std::size_t batchSize,
 
 RnnState::RnnState(Graph &graph, unsigned seqLen, unsigned numShards,
                    bool reverse, poputil::PoplibsOpDebugInfo &dnai)
-    : graph(graph), fullSequenceLen(seqLen), numShards(numShards),
-      count(numShards), reverse(reverse), dnai(dnai) {
+    : graph(graph), shardSeqIdx(numShards), fullSequenceLen(seqLen),
+      numShards(numShards), count(numShards), reverse(reverse), dnai(dnai) {
 
   // loop counter
   seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {dnai, "seqIdx"});
@@ -281,6 +311,13 @@ RnnState::RnnState(Graph &graph, unsigned seqLen, unsigned numShards,
   graph.setTileMapping(seqIdx, 0);
 
   seqLengthExclLast = ceildiv(seqLen, numShards);
+  for (unsigned i = 0; i < numShards; ++i) {
+    shardSeqIdx[i] =
+        graph.addConstant(UNSIGNED_INT, {1}, (i * seqLengthExclLast),
+                          {dnai, "shardSeqIdx/" + std::to_string(i)});
+    graph.setTileMapping(shardSeqIdx[i], 0);
+  }
+
   if (reverse) {
     startExclLastShard = graph.addConstant(
         UNSIGNED_INT, {1}, seqLengthExclLast - 1, {dnai, "start"});
@@ -300,6 +337,32 @@ RnnState::RnnState(Graph &graph, unsigned seqLen, unsigned numShards,
   unsigned intervalBegin = currIndex * seqLengthExclLast;
   unsigned intervalEnd = reverse ? fullSequenceLen : seqLengthExclLast;
   currInterval = Interval{intervalBegin, intervalEnd};
+}
+
+std::size_t RnnParams::getMaxShards(const poplar::Graph &graph) const {
+  auto numTiles = graph.getTarget().getNumTiles();
+  auto tilesPerShard = getTilesPerShard(graph, *this);
+  auto maxShards = numTiles / tilesPerShard;
+  auto nTimeStepsPerShard = ceildiv(timeSteps, maxShards);
+  return ceildiv(timeSteps, nTimeStepsPerShard);
+}
+
+std::size_t RnnParams::getInputBytesPerTile(const Graph &graph) const {
+  auto target = graph.getTarget();
+  auto numTiles = target.getNumTiles();
+  auto typeSize = target.getTypeSize(dataType);
+  auto bytes =
+      calculatedBytesPerTile(numTiles, batchSize, layerSizes[0], typeSize);
+  return bytes;
+}
+
+std::size_t RnnParams::getOutputBytesPerTile(const Graph &graph) const {
+  auto target = graph.getTarget();
+  auto numTiles = target.getNumTiles();
+  auto typeSize = target.getTypeSize(dataType);
+  auto bytes =
+      calculatedBytesPerTile(numTiles, batchSize, layerSizes[1], typeSize);
+  return bytes;
 }
 
 void RnnState::next() {
@@ -407,12 +470,12 @@ static void updateTensor(Graph &graph, const RnnParams &params, const Tensor &t,
                         {dnai, "updateTensor"});
 }
 
-static program::Sequence
-updateShard(Graph &graph, const RnnParams &params, const RnnState &shard,
-            Tensor &interimOutSlice, const Tensor *interimOut,
-            const Tensor &stateSlice, const Tensor &stateSequence,
-            const std::vector<Tensor> &outputSlice,
-            const std::vector<Tensor> &outputs, const DebugNameAndId &dnai) {
+static program::Sequence updateShard(
+    Graph &graph, const RnnParams &params, const RnnState &shard,
+    Tensor &interimOutSlice, const Tensor *interimOut, const Tensor &stateSlice,
+    const Tensor &stateSequence, const std::vector<Tensor> &outputSlice,
+    const std::vector<Tensor> &outputs, const std::vector<Tensor> &createdSlice,
+    const std::vector<Tensor> &created, const DebugNameAndId &dnai) {
   auto loop = Sequence({}, {dnai, "updateShard"});
   if (interimOut) {
     updateTensor(graph, params, *interimOut, interimOutSlice, shard, loop,
@@ -426,6 +489,10 @@ updateShard(Graph &graph, const RnnParams &params, const RnnState &shard,
     updateTensor(graph, params, outputs[i], outputSlice[i], shard, loop,
                  {dnai, "updateOutputSlice/" + std::to_string(i)});
   }
+  for (unsigned i = 0; i < created.size(); ++i) {
+    updateTensor(graph, params, created[i], createdSlice[i], shard, loop,
+                 {dnai, "updateCreatedSlice/" + std::to_string(i)});
+  }
   return loop;
 }
 
@@ -434,7 +501,7 @@ Tensor createInitialState(Graph &graph, const RnnParams &params, bool isOutput,
                           const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(params, isOutput, multiple, numShards));
-  const auto tilesPerShard = getTilesPerShard(graph, params, numShards);
+  const auto tilesPerShard = getTilesPerShard(graph, params);
   auto innermostDim = params.layerSizes[isOutput];
   auto state = createTensorShard(graph, params, tilesPerShard, innermostDim,
                                  multiple, 0, numShards, {di, "initState"});
@@ -446,7 +513,7 @@ Tensor createRecurrentTensor(Graph &graph, const RnnParams &params,
                              const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(params, size, numShards));
-  const auto tilesPerShard = getTilesPerShard(graph, params, numShards);
+  const auto tilesPerShard = getTilesPerShard(graph, params);
   return createRnnTensor(graph, params, tilesPerShard, size, numShards,
                          {di, "recurrent"});
 }
@@ -455,7 +522,7 @@ Tensor createInputTensor(Graph &graph, const RnnParams &params,
                          unsigned numShards,
                          const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, numShards));
-  const auto tilesPerShard = getTilesPerShard(graph, params, numShards);
+  const auto tilesPerShard = getTilesPerShard(graph, params);
   auto inputSize = params.layerSizes[0];
   return createRnnTensor(graph, params, tilesPerShard, inputSize, numShards,
                          {di});
@@ -465,7 +532,7 @@ Tensor createOutputTensor(Graph &graph, const RnnParams &params,
                           unsigned numShards,
                           const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, numShards));
-  const auto tilesPerShard = getTilesPerShard(graph, params, numShards);
+  const auto tilesPerShard = getTilesPerShard(graph, params);
   auto outputSize = params.layerSizes[1];
   return createRnnTensor(graph, params, tilesPerShard, outputSize, numShards,
                          {di});
@@ -476,7 +543,7 @@ Tensor createOutputTensor(Graph &graph, const RnnParams &params,
                           const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(params, multiple, numShards));
-  const auto tilesPerShard = getTilesPerShard(graph, params, numShards);
+  const auto tilesPerShard = getTilesPerShard(graph, params);
   auto outputSize = params.layerSizes[1];
   return createRnnTensor(graph, params, tilesPerShard, outputSize, multiple,
                          numShards, {di});
@@ -488,10 +555,11 @@ Tensor shiftRnnTensor(Graph &graph, const RnnParams &params,
                       const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(params, tBase, tSingle, prog, numShards));
-  const auto tilesPerShard = getTilesPerShard(graph, params, numShards);
+  const auto tilesPerShard = getTilesPerShard(graph, params);
   unsigned rank = tBase.rank();
   unsigned multiple = tBase.dim(0) / params.timeSteps;
   unsigned innermostDim = tBase.dim(rank - 1);
+  auto timeStepsPerShard = ceildiv(params.timeSteps, numShards);
   std::vector<Tensor> sequence;
   Tensor tLast = tSingle;
   for (unsigned shardOffset = 0; shardOffset < numShards; ++shardOffset) {
@@ -502,11 +570,12 @@ Tensor shiftRnnTensor(Graph &graph, const RnnParams &params,
     sequence.push_back(tFirst);
 
     // Retain all tensors in shard except the last
-    unsigned begin = shardOffset * multiple;
-    unsigned end =
-        (shardOffset < numShards - 1) ? begin + multiple : params.timeSteps;
-    if (begin < end - 1) {
-      auto tExclLast = tBase.slice(begin, end - 1);
+    unsigned begin = shardOffset * multiple * timeStepsPerShard;
+    unsigned end = (shardOffset < numShards - 1)
+                       ? begin + (multiple * timeStepsPerShard)
+                       : params.timeSteps;
+    if (begin < end - multiple) {
+      auto tExclLast = tBase.slice(begin, end - multiple);
       sequence.push_back(tExclLast);
     }
 
@@ -514,7 +583,7 @@ Tensor shiftRnnTensor(Graph &graph, const RnnParams &params,
     // of the previous shard to the first tensor of the current shard
     prog.add(Copy(tLast, tFirst, false,
                   {di, "shiftToRnnShard/" + std::to_string(shardOffset)}));
-    tLast = tBase.slice(end - 1, end);
+    tLast = tBase.slice(end - multiple, end);
   }
   auto out = concat(sequence);
   return out;
@@ -525,14 +594,27 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
     const std::vector<Tensor> &initState, const StateSequence &stateSequence,
     const std::vector<Tensor> &inputs, const Tensor *interimIn,
     Tensor *interimOut, std::vector<Tensor> &outputs,
-    program::Sequence &initProg, const LoopBodyType &loopFn, unsigned numShards,
-    const poplar::DebugContext &debugContext) {
+    std::vector<Tensor> &created, program::Sequence &initProg,
+    const LoopBodyType &loopFn, unsigned numShards,
+    poplar::OptionFlags &options, const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(params, reverse, initState, inputs, interimIn,
-                            interimOut, outputs, numShards));
-  const auto tilesPerShard = getTilesPerShard(graph, params, numShards);
+                            interimOut, outputs, numShards, options));
+
+  const auto opt = parseOptions(options);
+
+  // Use VoidFunction for code-reuse if too many shards are used.
+  unsigned limitShardingWithoutCodeReuse = 15;
+  bool codeReuse = (numShards > limitShardingWithoutCodeReuse) ? true : false;
+  if (opt.codeReuse) {
+    codeReuse = *opt.codeReuse;
+  }
+  logging::popnn::debug("'{}': numShards={} code-reuse={} reverse={}",
+                        debugContext.getPathName(), numShards, codeReuse,
+                        reverse);
 
   // Create a state tensor in every shard.
+  const auto tilesPerShard = getTilesPerShard(graph, params);
   auto state = createState(graph, params, tilesPerShard, initState, numShards,
                            {di, "RnnState"});
 
@@ -544,9 +626,106 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
                                             outputs[i], numShards,
                                             {di, "RnnOutputState"}));
   }
+
   RnnState shard(graph, params.timeSteps, numShards, reverse, di);
+
+  // create the forward convolution as a tensor function as we may be able to
+  // reuse it for the backwards pass.
+  using namespace poputil;
+  auto createRnnFunc =
+      [&graph, &shard, &initProg, &loopFn](
+          const std::vector<poplar::Tensor> &state,
+          const std::vector<poplar::Tensor> &inputs,
+          const poplar::Tensor &interimIn, const poplar::Tensor &interimOut,
+          std::vector<poplar::Tensor> &outputs,
+          const std::vector<poplar::Tensor> &created,
+          const poplar::DebugNameAndId &dnai) -> graphfn::VoidFunction {
+    using graphfn::inout;
+    using graphfn::input;
+    using graphfn::output;
+    const auto recurrence = [&](std::vector<Tensor> &args, Sequence &prog) {
+      auto sliceTensors = [](const std::vector<Tensor> &similarTensors,
+                             std::vector<Tensor>::iterator &it) {
+        std::vector<Tensor> tensors;
+        for (auto &s : similarTensors) {
+          auto t = s.valid() ? *it++ : s;
+          tensors.push_back(t);
+        }
+        return tensors;
+      };
+      auto it = args.begin();
+      auto index = sliceTensors({shard.indexTensor()}, it)[0];
+      auto counter = sliceTensors({shard.counterTensor()}, it)[0];
+      auto stateShard = sliceTensors(state, it);
+      auto inputSlices = sliceTensors(inputs, it);
+      auto interimInSlice = sliceTensors({interimIn}, it)[0];
+      auto interimOutSlice = sliceTensors({interimOut}, it)[0];
+      auto outputSlices = sliceTensors(outputs, it);
+      auto createdSlices = sliceTensors(created, it);
+      auto process =
+          loopFn(graph, index, counter, stateShard, inputSlices, interimInSlice,
+                 interimOutSlice, outputSlices, createdSlices, &initProg, dnai);
+      std::copy(createdSlices.begin(), createdSlices.end(),
+                args.end() - created.size());
+      prog.add(process);
+    };
+
+    graphfn::Signature edges;
+    auto appendToSignature = [](const std::vector<Tensor> &src,
+                                graphfn::ArgType type, graphfn::Signature &sig,
+                                const std::string &name) {
+      for (auto &s : src) {
+        if (s.valid()) {
+          auto t = (type == graphfn::ArgType::CreatedArg) ? Tensor() : s;
+          sig.emplace_back(graphfn::ArgSig(type, t, name));
+        }
+      }
+    };
+
+    appendToSignature({shard.indexTensor()}, graphfn::InputArg, edges,
+                      "shardIndex");
+    appendToSignature({shard.counterTensor()}, graphfn::InputArg, edges,
+                      "shardCounter");
+    appendToSignature(state, graphfn::InOutArg, edges, "state");
+    appendToSignature(inputs, graphfn::InputArg, edges, "input");
+    appendToSignature({interimIn}, graphfn::InputArg, edges, "interimIn");
+    appendToSignature({interimOut}, graphfn::OutputArg, edges, "interimOut");
+    appendToSignature(outputs, graphfn::OutputArg, edges, "output");
+    appendToSignature(created, graphfn::CreatedArg, edges, "created");
+    return {graph, edges, recurrence};
+  };
+
+  auto gatherEdges = [&shard](const std::vector<Tensor> &state,
+                              const std::vector<Tensor> &inputs,
+                              const Tensor &interimIn, const Tensor &interimOut,
+                              const std::vector<Tensor> &outputs,
+                              std::vector<poplar::Tensor> &created) {
+    std::vector<Tensor> edges;
+    auto appendTensors = [](const std::vector<Tensor> &src,
+                            std::vector<Tensor> &dst, bool created = false) {
+      if (created) {
+        dst.resize(dst.size() + src.size());
+      } else {
+        std::copy_if(src.begin(), src.end(), std::back_inserter(dst),
+                     [](const auto &t) { return t.valid(); });
+      }
+    };
+    appendTensors({shard.indexTensor()}, edges);
+    appendTensors({shard.counterTensor()}, edges);
+    appendTensors(state, edges);
+    appendTensors(inputs, edges);
+    appendTensors({interimIn}, edges);
+    appendTensors({interimOut}, edges);
+    appendTensors(outputs, edges);
+    appendTensors(created, edges, true);
+    return edges;
+  };
+
   std::vector<Tensor> stateShard;
   std::vector<Tensor> prevStateShard = initState;
+
+  std::optional<graphfn::VoidFunction> rnnFunc;
+
   while (shard()) {
     auto shardIndex = shard.index();
 
@@ -561,12 +740,38 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
         sliceShard(graph, params, tilesPerShard, shard, inputs, interimIn,
                    interimOut, outputState, numShards, {di, "sliceShard"});
 
+    initProg.add(initCounter);
+    auto loop = Sequence({}, {di});
+    loop.add(slicer);
+
     // Call loop builder
     auto counter = shard.counterTensor();
-    auto process =
-        loopFn(shardIndex, stateShard, inputSlices, counter, interimInSlice,
-               interimOutSlice, outputSlice, initProg,
-               {di, "shard/" + std::to_string(shardIndex)});
+    Sequence process;
+
+    std::vector<poplar::Tensor> createdSlices(created.size());
+    if (codeReuse) {
+      if (shard.first()) {
+        // Create graphfn::VoidFunction only for the first shard. Reuse
+        // this function on subsequent shards.
+        rnnFunc.emplace(std::move(createRnnFunc(
+            stateShard, inputSlices, interimInSlice, interimOutSlice,
+            outputSlice, created, {di, "rnnFunction"})));
+      }
+      auto edges = gatherEdges(stateShard, inputSlices, interimInSlice,
+                               interimOutSlice, outputSlice, createdSlices);
+      rnnFunc.value()(edges, loop);
+      std::copy(edges.end() - createdSlices.size(), edges.end(),
+                createdSlices.begin());
+    } else {
+      // Replicate custom RNN model on every shard.
+      auto counter = shard.counterTensor();
+      auto index = shard.indexTensor();
+      process = loopFn(graph, index, counter, stateShard, inputSlices,
+                       interimInSlice, interimOutSlice, outputSlice,
+                       createdSlices, (shard.first() ? &initProg : nullptr),
+                       {di, "shard/" + std::to_string(shardIndex)});
+      loop.add(process);
+    }
 
     Tensor stateSlice, stateSeqOutput;
     if (stateSequence.output.valid()) {
@@ -575,16 +780,13 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
     }
 
     // Dynamically Update slice of current output shards
-    auto updater = updateShard(graph, params, shard, interimOutSlice,
-                               interimOut, stateSlice, stateSeqOutput,
-                               outputSlice, outputs, {di, "updateShard"});
+    auto updater =
+        updateShard(graph, params, shard, interimOutSlice, interimOut,
+                    stateSlice, stateSeqOutput, outputSlice, outputs,
+                    createdSlices, created, {di, "updateShard"});
 
     auto updateCounter = shard.updateCounter();
 
-    initProg.add(initCounter);
-    auto loop = Sequence({}, {di});
-    loop.add(slicer);
-    loop.add(process);
     loop.add(updater);
     loop.add(updateCounter);
     initProg.add(Repeat(shard.sequenceLength(), loop, {di}));

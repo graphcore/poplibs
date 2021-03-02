@@ -34,6 +34,15 @@ struct RnnParams {
 
   RnnParams(poplar::Type dataType, std::size_t batchSize, std::size_t timeSteps,
             std::vector<std::size_t> layerSizes);
+
+  // Return the maximum number of shards
+  std::size_t getMaxShards(const poplar::Graph &graph) const;
+
+  // Return the number of bytes of the input per tile
+  std::size_t getInputBytesPerTile(const poplar::Graph &graph) const;
+
+  // Return the number of bytes of the output per tile
+  std::size_t getOutputBytesPerTile(const poplar::Graph &graph) const;
 };
 
 /** Create state tensor to be used in all recurrences of the RNN. The tensor
@@ -144,23 +153,30 @@ poplar::Tensor shiftRnnTensor(poplar::Graph &graph, const RnnParams &params,
 
 /** Loop body function wrapper with the following arguments:
  *
- * \param shardIndex         Shard index
- * \param state              State tensors
+ * \param graph              Graph Object
+ * \param shardIdx           Tensor that specifies the starting sequence index
+ *                           for the current shard.
+ * \param seqIdx             Tensor that iterates over the range of input
+ *                           sequences that are mapped on the current shard,
+ *                           beginning from 0.
+ * \param state              state tensors
  * \param inputs             Input tensors
- * \param seqIdx             loop counter tensor
  * \param interimIn          Collated interim input tensors
  * \param interimOut         Collated interim outputs tensors
- * \param output             Output tensor
+ * \param output             Pre-defined output tensors
+ * \param created            Output tensors which are created by this function.
  * \param prog               Program initialization sequence
+ * \param dnai               Debug name and Id
  *
  * \return  Program for the given shard
  *
  */
 using LoopBodyType = std::function<poplar::program::Sequence(
-    unsigned shardIndex, std::vector<poplar::Tensor> &,
-    const std::vector<poplar::Tensor> &, const poplar::Tensor &,
+    poplar::Graph &graph, const poplar::Tensor &, const poplar::Tensor &,
+    std::vector<poplar::Tensor> &, const std::vector<poplar::Tensor> &,
     const poplar::Tensor &, poplar::Tensor &, std::vector<poplar::Tensor> &,
-    poplar::program::Sequence &, const poplar::DebugNameAndId &)>;
+    std::vector<poplar::Tensor> &, poplar::program::Sequence *,
+    const poplar::DebugNameAndId &)>;
 
 /**
  * Structure that associates a particular state tensor with a user defined
@@ -178,6 +194,14 @@ struct StateSequence {
 
 /** Run custom Recurrent Neural Net cell implementation recurrently.
  *
+ * **RNN options**
+ *
+ *    * `codeReuse` (true, false) [=false]
+ *
+ *      If true, the custom RNN implementation defined by the loopFn parameter
+ *      will be reused by every shard. If false the RNN code is duplicated
+ *      for every shard.
+ *
  * \param graph              Graph to which the RNN cell belongs.
  * \param params             The parameters of the RNN.
  * \param reverse            Process tensors in reverse, i.e., beginning from
@@ -190,11 +214,15 @@ struct StateSequence {
  * \param *interimIn         Pointer to intermediate inputs to Cell computation.
  * \param *interimOut        Pointer to intermediate outputs from Cell
  *                           computation.
- * \param output             Output tensor for each recurrence
+ * \param output             Output tensor for each recurrence. Each tensor
+ *                           must be defined prior to calling  the Rnn function.
+ * \param created            Output tensor that is allocated by the custom
+ *                           implementation defined in the loopFn parameter.
  * \param prog               Program sequence.
  * \param loopFn             Function for RNN cell computation which is
  *                           invoked for every shard.
  * \param numShards          The number of shards to be used.
+ * \param options            RNN implementation options. See createInput().
  * \param debugContext       Optional debug information.
  *
  */
@@ -204,8 +232,10 @@ Rnn(poplar::Graph &graph, const RnnParams &params, bool reverse,
     const StateSequence &stateSequence,
     const std::vector<poplar::Tensor> &inputs, const poplar::Tensor *interimIn,
     poplar::Tensor *interimOut, std::vector<poplar::Tensor> &outputs,
-    poplar::program::Sequence &prog, const LoopBodyType &loopFn,
-    unsigned numShards, const poplar::DebugContext &debugContext = {});
+    std::vector<poplar::Tensor> &created, poplar::program::Sequence &prog,
+    const LoopBodyType &loopFn, unsigned numShards,
+    poplar::OptionFlags &options,
+    const poplar::DebugContext &debugContext = {});
 
 } // namespace rnn
 } // namespace popnn

@@ -8,6 +8,8 @@ using namespace poplar::program;
 namespace poputil {
 namespace graphfn {
 
+VoidFunction::VoidFunction(VoidFunction &&) = default;
+
 VoidFunction::VoidFunction(
     Graph &graph, Signature sig_,
     std::function<void(std::vector<Tensor> &, Sequence &)> f, bool inlined,

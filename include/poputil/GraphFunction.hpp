@@ -60,6 +60,7 @@ class VoidFunction {
   std::vector<poplar::Tensor> params;
 
 public:
+  VoidFunction(VoidFunction &&fn);
   VoidFunction(poplar::Graph &graph, Signature sig,
                std::function<void(std::vector<poplar::Tensor> &,
                                   poplar::program::Sequence &)>
