@@ -191,6 +191,10 @@ int main(int argc, char **argv) {
     ("phase",
      po::value<poplibs_test::Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
+
+    // This option can be used to exercise certain alternate Bwd-pass APIs
+    ("ignore-input-gradient",
+     "Don't provide a tensor for input gradients to bwd pass")
     ("ignore-data",
      "Don't perform host-to-device or vice versa transfers (no validation)")
     ("runs", po::value<unsigned>(&runs)->default_value(runs),
@@ -237,6 +241,8 @@ int main(int argc, char **argv) {
     }
   }
 
+  bool ignoreInputGradient = vm.count("ignore-input-gradient");
+
   bool ignoreData = vm.count("ignore-data");
   if (vm.count("use-unstable-format")) {
     throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
@@ -270,6 +276,9 @@ int main(int argc, char **argv) {
     params.cellOrder = getCellOrder(cellOrder.val);
   }
   params.resetAfter = resetAfter;
+  if (ignoreInputGradient) {
+    params.calcInputGradients = false;
+  }
 
   poplar::OptionFlags options = {
       {"inferenceOnly", fwdOnly ? "true" : "false"},
@@ -334,6 +343,7 @@ int main(int argc, char **argv) {
 
   Tensor attScoresGrads;
   Tensor prevLayerGrads;
+  Tensor *inputGrad = ignoreInputGradient ? nullptr : &prevLayerGrads;
   gru::GruWeights weightGrads =
       gru::createWeights(graph, params, "weightGrad", options, &cache);
   if (doBwdPass || doWuPass) {
@@ -342,23 +352,22 @@ int main(int argc, char **argv) {
         if ((!withAttention) && (!withRealTimeSteps)) {
           gru::gruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
                             weights, input, fwdOutputSeq, nextLayerGrads,
-                            &prevLayerGrads, weightGrads, "bwd", options,
-                            &cache);
+                            inputGrad, weightGrads, "bwd", options, &cache);
         } else if ((!withAttention) && withRealTimeSteps) {
           gru::gruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
                             weights, input, realTimeSteps, fwdOutputSeq,
-                            nextLayerGrads, &prevLayerGrads, weightGrads, "bwd",
+                            nextLayerGrads, inputGrad, weightGrads, "bwd",
                             options, &cache);
         } else if (withAttention && (!withRealTimeSteps)) {
           gru::auGruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
                               weights, input, fwdOutputSeq, nextLayerGrads,
-                              &prevLayerGrads, weightGrads, attScores,
+                              inputGrad, weightGrads, attScores,
                               &attScoresGrads, "bwd", options, &cache);
         } else if (withAttention && withRealTimeSteps) {
-          gru::auGruBwdWithWU(
-              graph, params, prog, outputInit, fwdIntermediates, weights, input,
-              realTimeSteps, fwdOutputSeq, nextLayerGrads, &prevLayerGrads,
-              weightGrads, attScores, &attScoresGrads, "bwd", options, &cache);
+          gru::auGruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
+                              weights, input, realTimeSteps, fwdOutputSeq,
+                              nextLayerGrads, inputGrad, weightGrads, attScores,
+                              &attScoresGrads, "bwd", options, &cache);
         }
       } else {
         // If only output the last cell, nextLayerGrads only contains the
@@ -366,12 +375,11 @@ int main(int argc, char **argv) {
         if ((!withAttention) && (!withRealTimeSteps)) {
           gru::gruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
                             weights, input, fwdOutputSeq, nextLayerGrads[0],
-                            &prevLayerGrads, weightGrads, "bwd", options,
-                            &cache);
+                            inputGrad, weightGrads, "bwd", options, &cache);
         } else if (withAttention && (!withRealTimeSteps)) {
           gru::auGruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
                               weights, input, fwdOutputSeq, nextLayerGrads[0],
-                              &prevLayerGrads, weightGrads, attScores,
+                              inputGrad, weightGrads, attScores,
                               &attScoresGrads, "bwd", options, &cache);
         }
       }
@@ -379,22 +387,22 @@ int main(int argc, char **argv) {
       if (params.outputFullSequence) {
         if ((!withAttention) && (!withRealTimeSteps)) {
           gru::gruBwd(graph, params, prog, outputInit, fwdIntermediates,
-                      weights, input, fwdOutputSeq, nextLayerGrads,
-                      &prevLayerGrads, nullptr, "bwd", options, &cache);
+                      weights, input, fwdOutputSeq, nextLayerGrads, inputGrad,
+                      nullptr, "bwd", options, &cache);
         } else if ((!withAttention) && withRealTimeSteps) {
           gru::gruBwd(graph, params, prog, outputInit, fwdIntermediates,
                       weights, input, realTimeSteps, fwdOutputSeq,
-                      nextLayerGrads, &prevLayerGrads, nullptr, "bwd", options,
+                      nextLayerGrads, inputGrad, nullptr, "bwd", options,
                       &cache);
         } else if (withAttention && (!withRealTimeSteps)) {
           gru::auGruBwd(graph, params, prog, outputInit, fwdIntermediates,
-                        weights, input, fwdOutputSeq, nextLayerGrads,
-                        &prevLayerGrads, nullptr, attScores, &attScoresGrads,
-                        "bwd", options, &cache);
+                        weights, input, fwdOutputSeq, nextLayerGrads, inputGrad,
+                        nullptr, attScores, &attScoresGrads, "bwd", options,
+                        &cache);
         } else if (withAttention && withRealTimeSteps) {
           gru::auGruBwd(graph, params, prog, outputInit, fwdIntermediates,
                         weights, input, realTimeSteps, fwdOutputSeq,
-                        nextLayerGrads, &prevLayerGrads, nullptr, attScores,
+                        nextLayerGrads, inputGrad, nullptr, attScores,
                         &attScoresGrads, "bwd", options, &cache);
         }
       }
@@ -403,12 +411,12 @@ int main(int argc, char **argv) {
         if ((!withAttention) && (!withRealTimeSteps)) {
           gru::gruBwd(graph, params, prog, outputInit, fwdIntermediates,
                       weights, input, fwdOutputSeq, nextLayerGrads[0],
-                      &prevLayerGrads, nullptr, "bwd", options, &cache);
+                      inputGrad, nullptr, "bwd", options, &cache);
         } else if (withAttention && (!withRealTimeSteps)) {
           gru::auGruBwd(graph, params, prog, outputInit, fwdIntermediates,
                         weights, input, fwdOutputSeq, nextLayerGrads[0],
-                        &prevLayerGrads, nullptr, attScores, &attScoresGrads,
-                        "bwd", options, &cache);
+                        inputGrad, nullptr, attScores, &attScoresGrads, "bwd",
+                        options, &cache);
         }
       }
     }
@@ -460,10 +468,11 @@ int main(int argc, char **argv) {
       rawHostNextLayerGrads =
           allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
                                       uploadProg, downloadProg, tmap);
-      rawHostPrevLayerGrads =
-          allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
-                                      uploadProg, downloadProg, tmap);
-
+      if (!ignoreInputGradient) {
+        rawHostPrevLayerGrads =
+            allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
+                                        uploadProg, downloadProg, tmap);
+      }
       if (withAttention) {
         rawHostAttGrads =
             allocateHostMemoryForTensor(attScoresGrads, "attScoresGrads", graph,
@@ -713,11 +722,12 @@ int main(int argc, char **argv) {
     }
 
     if (doBwdPass) {
-      copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
-
-      matchesModel &= checkIsClose("prevLayerGrads", hostPrevLayerGrads,
-                                   modelPrevLayerGrads, relativeTolerance,
-                                   absoluteTolerance);
+      if (!ignoreInputGradient) {
+        copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
+        matchesModel &= checkIsClose("prevLayerGrads", hostPrevLayerGrads,
+                                     modelPrevLayerGrads, relativeTolerance,
+                                     absoluteTolerance);
+      }
       if (withAttention) {
         copy(target, dataType, rawHostAttGrads.get(), hostAttScoresGrads);
         matchesModel &= checkIsClose("attScoresGrads", hostAttScoresGrads,

@@ -1128,9 +1128,8 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
 
   Tensor w_ru, w_c;
   if (weightsInput == nullptr) {
-    w_ru =
-        flattenUnits(concat(weightsOutput[0], weightsOutput[1], 1)).transpose();
-    w_c = flattenUnits(weightsOutput[2]).transpose();
+    w_ru = concat(weightsOutput[0], weightsOutput[1], 1).transpose();
+    w_c = weightsOutput[2].transpose();
   } else {
     w_ru = concat(concat((*weightsInput)[0], weightsOutput[0], 0),
                   concat((*weightsInput)[1], weightsOutput[1], 0), 1)
@@ -1142,7 +1141,7 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
                                  mmOpt, cache);
 
   Tensor d_x2, d_hr, d_x2_hr;
-  int inputSize = weightsInput->dim(1);
+  int inputSize = weightsInput ? weightsInput->dim(1) : 0;
   int outputSize = weightsOutput.dim(1);
   if (weightsInput) {
     auto out = matMul(graph, d_c, w_c, prog,
@@ -1309,10 +1308,10 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
 
   Tensor w_out, w_in;
   if (weightsInput == nullptr) {
-    w_out = flattenUnits(concat({weightsOutput[BASIC_GRU_CELL_RESET_GATE],
-                                 weightsOutput[BASIC_GRU_CELL_UPDATE_GATE],
-                                 weightsOutput[BASIC_GRU_CELL_CANDIDATE]},
-                                1))
+    w_out = concat({weightsOutput[BASIC_GRU_CELL_RESET_GATE],
+                    weightsOutput[BASIC_GRU_CELL_UPDATE_GATE],
+                    weightsOutput[BASIC_GRU_CELL_CANDIDATE]},
+                   1)
                 .transpose();
   } else {
     w_out = concat({weightsOutput[BASIC_GRU_CELL_RESET_GATE],

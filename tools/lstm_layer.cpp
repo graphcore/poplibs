@@ -196,6 +196,10 @@ int main(int argc, char **argv) {
     ("recomputation-mode",
      po::value<std::string>(&recompMode),
      "Recomputation mode none | cellAndTanh")
+
+    // This option can be used to exercise certain alternate Bwd-pass APIs
+    ("ignore-input-gradient",
+     "Don't provide a tensor for input gradients to bwd pass")
     ("ignore-data",
      "Don't perform host-to-device or vice versa transfers (no validation)")
     ("runs", po::value<unsigned>(&runs)->default_value(runs),
@@ -239,6 +243,8 @@ int main(int argc, char **argv) {
     }
   }
 
+  bool ignoreInputGradient = vm.count("ignore-input-gradient");
+
   bool ignoreData = vm.count("ignore-data");
   if (vm.count("use-unstable-format")) {
     throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
@@ -268,6 +274,9 @@ int main(int argc, char **argv) {
                           {inputSize, outputSize});
   if (!cellOrder.val.empty()) {
     params.cellOrder = getCellOrder(cellOrder.val);
+  }
+  if (ignoreInputGradient) {
+    params.calcInputGradients = false;
   }
   poplar::OptionFlags options = {
       {"inferenceOnly", fwdOnly ? "true" : "false"},
@@ -313,19 +322,20 @@ int main(int argc, char **argv) {
   mapTensorLinearly(graph, nextLayerGrads);
 
   Tensor prevLayerGrads;
+  Tensor *inputGrad = ignoreInputGradient ? nullptr : &prevLayerGrads;
   lstm::LstmWeights weightGrads;
   if (doBwdPass || doWuPass) {
     const Tensor *lastCellStateGradPtr = nullptr;
     if (doWuPass) {
       lstm::lstmBwdWithWU(graph, params, prog, fwdStateInit, fwdIntermediates,
                           weights, input, fwdOutputSeq, nextLayerGrads,
-                          lastCellStateGradPtr, &prevLayerGrads, weightGrads,
-                          "bwd", options, &cache);
+                          lastCellStateGradPtr, inputGrad, weightGrads, "bwd",
+                          options, &cache);
     } else {
       lstm::lstmBwd(graph, params, prog, fwdStateInit, fwdIntermediates,
                     weights, input, fwdOutputSeq, nextLayerGrads,
-                    lastCellStateGradPtr, &prevLayerGrads, nullptr, "bwd",
-                    options, &cache);
+                    lastCellStateGradPtr, inputGrad, nullptr, "bwd", options,
+                    &cache);
     }
   }
 
@@ -363,9 +373,11 @@ int main(int argc, char **argv) {
       rawHostNextLayerGrads =
           allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
                                       uploadProg, downloadProg, tmap);
-      rawHostPrevLayerGrads =
-          allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
-                                      uploadProg, downloadProg, tmap);
+      if (!ignoreInputGradient) {
+        rawHostPrevLayerGrads =
+            allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
+                                        uploadProg, downloadProg, tmap);
+      }
     }
     if (doWuPass) {
       rawHostWeightsInputDeltas = allocateHostMemoryForTensor(
@@ -513,7 +525,7 @@ int main(int argc, char **argv) {
                                    relativeTolerance, absoluteTolerance);
     }
 
-    if (doBwdPass) {
+    if (doBwdPass && !ignoreInputGradient) {
       copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
 
       matchesModel &= checkIsClose("prevLayerGrads", hostPrevLayerGrads,

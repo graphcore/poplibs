@@ -188,6 +188,10 @@ static std::vector<Tensor> createState(Graph &graph, const RnnParams &params,
                                        const DebugNameAndId &dnai) {
   std::vector<Tensor> state;
   for (unsigned i = 0; i < init.size(); ++i) {
+    if (!init[i].valid()) {
+      state.push_back(init[i]);
+      continue;
+    }
     unsigned rank = init[i].rank();
     unsigned multiple = init[i].dim(0);
     unsigned innermostDim = init[i].dim(rank - 1);
@@ -217,6 +221,10 @@ static std::vector<Tensor> copyStateShard(std::vector<Tensor> &prevStateShard,
                                           const DebugNameAndId &dnai) {
   std::vector<Tensor> newShard;
   for (unsigned i = 0; i < state.size(); ++i) {
+    if (!state[i].valid()) {
+      newShard.push_back(state[i]);
+      continue;
+    }
     unsigned multiple = prevStateShard[i].dim(0);
     auto shard = state[i].slice(index * multiple, (index + 1) * multiple);
     prog.add(Copy(prevStateShard[i], shard, false, {dnai, "copyState"}));

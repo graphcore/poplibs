@@ -865,11 +865,41 @@ foreach(NUM_SHARDS 3 5)
                                                 VARIANTS "Hw")
                         endforeach()
                 endforeach()
+                add_multitarget_test(
+                        NAME lstm_16x2x32_seq_601_shards_${NUM_SHARDS}_partials_${PARTIALS_TYPE}_ignore_input_gradient
+                        COMMAND lstm_layer
+                                --input-size 16
+                                --batch-size=2
+                                --output-size 32
+                                --tiles-per-ipu=20
+                                --phase all
+                                --sequence-size 601
+                                --partials-type=${PARTIALS_TYPE}
+                                --accumulators-type=${PARTIALS_TYPE}
+                                --shards=${NUM_SHARDS}
+                                --ignore-input-gradient
+                                VARIANTS "Hw")
 
                 # Test GRU sharding
-                foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
+                foreach(RESET_AFTER 0 1)
+                        foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
+                                add_multitarget_test(
+                                        NAME gru_16x2x32_seq_200_shards_${NUM_SHARDS}_data_${PARTIALS_TYPE}_reset_after_${RESET_AFTER}_order_${CELL_ORDER}
+                                        COMMAND gru_layer
+                                                --input-size 16
+                                                --batch-size=2
+                                                --output-size 8
+                                                --tiles-per-ipu=20
+                                                --phase all
+                                                --data-type=${PARTIALS_TYPE}
+                                                --sequence-size 200
+                                                --cell-order=${CELL_ORDER}
+                                                --reset-after=${RESET_AFTER}
+                                                --shards=${NUM_SHARDS}
+                                                VARIANTS "Hw")
+                        endforeach()
                         add_multitarget_test(
-                                NAME gru_16x2x32_seq_200_shards_${NUM_SHARDS}_data_${PARTIALS_TYPE}_order_${CELL_ORDER}
+                                NAME gru_16x2x32_seq_200_shards_${NUM_SHARDS}_data_${PARTIALS_TYPE}_reset_after_${RESET_AFTER}_ignore_input_gradient
                                 COMMAND gru_layer
                                         --input-size 16
                                         --batch-size=2
@@ -878,15 +908,32 @@ foreach(NUM_SHARDS 3 5)
                                         --phase all
                                         --data-type=${PARTIALS_TYPE}
                                         --sequence-size 200
-                                        --cell-order=${CELL_ORDER}
-                                        --reset-after=false
+                                        --reset-after=${RESET_AFTER}
                                         --shards=${NUM_SHARDS}
+                                        --ignore-input-gradient
                                         VARIANTS "Hw")
-
-                        foreach(ATTENTION false true)
-                                foreach(REAL_TIME_STEPS false true)
+                        foreach(REAL_TIME_STEPS false true)
+                                foreach(ATTENTION false true)
+                                        foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
+                                                add_multitarget_test(
+                                                        NAME augru_16x2x32_seq_102_shards_${NUM_SHARDS}_reset_after_${RESET_AFTER}_attention_${ATTENTION}_real_time_steps_${REAL_TIME_STEPS}_data_${PARTIALS_TYPE}_order_${CELL_ORDER}
+                                                        COMMAND gru_layer
+                                                                --input-size 16
+                                                                --batch-size=2
+                                                                --with-attention ${ATTENTION}
+                                                                --with-real-time-steps ${REAL_TIME_STEPS}
+                                                                --output-size 8
+                                                                --tiles-per-ipu=20
+                                                                --phase all
+                                                                --data-type=${PARTIALS_TYPE}
+                                                                --sequence-size 102
+                                                                --cell-order=${CELL_ORDER}
+                                                                --reset-after=${RESET_AFTER}
+                                                                --shards=${NUM_SHARDS}
+                                                                VARIANTS "Hw")
+                                        endforeach()
                                         add_multitarget_test(
-                                                NAME augru_16x2x32_seq_102_shards_${NUM_SHARDS}_attention_${ATTENTION}_real_time_steps_${REAL_TIME_STEPS}_data_${PARTIALS_TYPE}_order_${CELL_ORDER}
+                                                NAME augru_16x2x32_seq_102_shards_${NUM_SHARDS}_reset_after_${RESET_AFTER}_attention_${ATTENTION}_real_time_steps_${REAL_TIME_STEPS}_data_${PARTIALS_TYPE}_ignore_input_gradient
                                                 COMMAND gru_layer
                                                         --input-size 16
                                                         --batch-size=2
@@ -897,8 +944,9 @@ foreach(NUM_SHARDS 3 5)
                                                         --phase all
                                                         --data-type=${PARTIALS_TYPE}
                                                         --sequence-size 102
-                                                        --cell-order=${CELL_ORDER}
+                                                        --reset-after=${RESET_AFTER}
                                                         --shards=${NUM_SHARDS}
+                                                        --ignore-input-gradient
                                                         VARIANTS "Hw")
                                 endforeach()
                         endforeach()
