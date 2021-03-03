@@ -332,20 +332,13 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
     if (!params.solver) {
       // Create nicely layed out tensors for function input, so clone won't
       // expand padding.
-      poplar::Tensor inputA =
-          graph.addVariable(a.elementType(), a.shape(), "inputA");
-      poputil::mapTensorLinearly(graph, inputA);
-      poplar::Tensor inputB = graph.addVariable(
-          b.elementType(), {b.dim(0), b.dim(1), params.solverSize}, "inputB");
-      poputil::mapTensorLinearly(graph, inputB);
-      poplar::Tensor inputX = graph.addVariable(
-          b.elementType(), {b.dim(0), b.dim(1), params.solverSize}, "inputX");
-      poputil::mapTensorLinearly(graph, inputX);
-      inputX = inputX.dimShuffle({0, 2, 1}).reshape(inputX.shape());
+
       params.solver.reset(new poputil::graphfn::VoidFunction(
           graph,
-          {poputil::graphfn::input(inputA), poputil::graphfn::input(inputB),
-           poputil::graphfn::inout(inputX)},
+          {poputil::graphfn::input(a), poputil::graphfn::input(b),
+           poputil::graphfn::inout(
+               params.x.slice({0, bTopPos, bLeftPos},
+                              {totalBatches, bTopPos + an, bLeftPos + bn}))},
           [&graph, &params, &dnai](std::vector<poplar::Tensor> &args,
                                    poplar::program::Sequence &prog) {
             auto a = args.at(0), b = args.at(1), x = args.at(2);
