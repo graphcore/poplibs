@@ -1,10 +1,4 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include <iomanip>
-#include <random>
-
-#include <poplar/Engine.hpp>
-#include <poplar/Graph.hpp>
-#include <poplar/IPUModel.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCLoss.hpp>
@@ -16,10 +10,18 @@
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
+#include <poplar/Engine.hpp>
+#include <poplar/Graph.hpp>
+#include <poplar/IPUModel.hpp>
+
 #include <boost/multi_array.hpp>
 #include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
+
+#include <fstream>
+#include <iomanip>
+#include <random>
 
 namespace po = boost::program_options;
 
@@ -338,7 +340,9 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
         unsigned blankSymbol, std::size_t numClasses, Type inType, Type outType,
         OptionFlags planOpts, OptionFlags debugOpts,
         const DeviceType &deviceType, boost::optional<unsigned> tiles,
-        bool ignoreData, bool profile) {
+        bool ignoreData, bool profile,
+        const boost::optional<std::string> &profileFormat,
+        const boost::optional<std::string> &jsonProfileOut) {
 
   auto device = createTestDevice(deviceType, 1, tiles);
   const auto &target = device.getTarget();
@@ -415,21 +419,37 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   // Create handles for reading the result
   std::vector<std::unique_ptr<char[]>> rawLossResult(batchSize);
   std::vector<std::unique_ptr<char[]>> rawGradResult(batchSize);
-  for (unsigned i = 0; i < batchSize; i++) {
-    rawLossResult[i] = allocateHostMemoryForTensor(
-        lossResult.slice(i, i + 1, 0), "result_loss_" + std::to_string(i),
-        graph, uploadProg, downloadProg, tmap);
-    rawGradResult[i] = allocateHostMemoryForTensor(
-        gradResult.slice(i, i + 1, 1), "result_grad_" + std::to_string(i),
-        graph, uploadProg, downloadProg, tmap);
+  if (!ignoreData) {
+    for (unsigned i = 0; i < batchSize; i++) {
+      rawLossResult[i] = allocateHostMemoryForTensor(
+          lossResult.slice(i, i + 1, 0), "result_loss_" + std::to_string(i),
+          graph, uploadProg, downloadProg, tmap);
+      rawGradResult[i] = allocateHostMemoryForTensor(
+          gradResult.slice(i, i + 1, 1), "result_grad_" + std::to_string(i),
+          graph, uploadProg, downloadProg, tmap);
+    }
   }
 
   // Run input, gradient, output
   OptionFlags engineOptions;
   if (profile) {
     engineOptions.set("debug.instrumentCompute", "true");
+    if (profileFormat) {
+      engineOptions.set("profiler.format", *profileFormat);
+    }
   }
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+
+  Sequence s = [&]() {
+    if (ignoreData) {
+      // Because the input data has constraints of what is valid, we can't
+      // ignore the uploadProg without reasonable likelihood of encountering an
+      // exception or unexpected behaviour.
+      return Sequence(uploadProg, prog);
+    } else {
+      return Sequence(uploadProg, prog, downloadProg);
+    }
+  }();
+  Engine engine(graph, s, engineOptions);
   attachStreams(engine, tmap);
   device.bind([&](const Device &d) {
     engine.load(d);
@@ -445,6 +465,13 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
       output[i].second.resize(boost::extents[maxT][numClasses]);
       copy(target, outType, rawGradResult[i].get(), output[i].second);
     }
+  }
+
+  if (jsonProfileOut) {
+    const auto pr = engine.getProfile();
+
+    std::ofstream os(*jsonProfileOut);
+    poplar::serializeToJSON(os, pr);
   }
 
   if (profile && deviceType != DeviceType::Cpu) {
@@ -508,6 +535,8 @@ void validateTimeAndLabelBounds(
 int main(int argc, char **argv) {
   // Default input parameters.
   DeviceType deviceType = DeviceType::IpuModel2;
+  boost::optional<std::string> jsonProfileOut;
+  boost::optional<std::string> profileFormat;
   boost::optional<std::string> planConstraints;
   boost::optional<unsigned> minRandomTime = boost::none;
   boost::optional<unsigned> fixedTime = boost::none;
@@ -535,6 +564,14 @@ int main(int argc, char **argv) {
     ("tiles-per-ipu",po::value<boost::optional<unsigned>>(&tiles),
       "Number of tiles per IPU")
     ("profile", "Show profile report")
+    ("profile-format",
+     po::value<decltype(profileFormat)>(&profileFormat)
+      ->default_value(boost::none),
+     "Profile formats: v1 | experimental | unstable")
+    ("profile-json",
+     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+      ->default_value(boost::none),
+     "Write the profile report as JSON to the specified file.")
     ("plan-constraints", po::value(&planConstraints),
      "JSON constraints for planner, e.g. {\"parallel\": {\"batch\": 1}}")
     ("in-type", po::value(&inType)->default_value(inType),
@@ -683,18 +720,20 @@ int main(int argc, char **argv) {
     } else {
       print("Log Softmax in", tests[i].input, blankClass, verbose);
     }
-    references.push_back(gradReference<double>(
-        tests[i], blankClass, numClasses, testReducedCodeletGradient, verbose));
-    references.back().second =
-        maskResults(references.back().second, tests[i].inputLength);
-    if (verbose) {
-      std::cout << "Reference loss = " << references.back().first << "\n";
+    if (!ignoreData) {
+      references.push_back(
+          gradReference<double>(tests[i], blankClass, numClasses,
+                                testReducedCodeletGradient, verbose));
+      references.back().second =
+          maskResults(references.back().second, tests[i].inputLength);
+      if (verbose) {
+        std::cout << "Reference loss = " << references.back().first << "\n";
+      }
     }
-    print("Reference gradient", references.back().second, blankClass, verbose);
   }
-  auto outputs =
-      gradIPU(tests, maxLabelLength, blankClass, numClasses, inType, outType,
-              planOpts, debugOpts, deviceType, tiles, ignoreData, profile);
+  auto outputs = gradIPU(tests, maxLabelLength, blankClass, numClasses, inType,
+                         outType, planOpts, debugOpts, deviceType, tiles,
+                         ignoreData, profile, profileFormat, jsonProfileOut);
 
   for (unsigned i = 0; i < batchSize; i++) {
     outputs[i].second = maskResults(outputs[i].second, tests[i].inputLength);

@@ -509,7 +509,15 @@ function(add_cholesky_benchmark)
       endforeach(bl)
     endforeach(r)
   endforeach(b)
+endfunction()
 
+function(add_ctc_loss_benchmark)
+  cmake_parse_arguments(CTC_LOSS_BENCHMARK "" "NAME" "PARAMS" "${ARGN}" )
+
+  add_benchmark(
+      NAME ${CTC_LOSS_BENCHMARK_NAME}
+      BINARY $<TARGET_FILE:ctc_loss>
+      PARAMS ${CTC_LOSS_BENCHMARK_PARAMS})
 endfunction()
 
 # Make an alias for IpuModel that can be used to denote tests that specifically
@@ -1752,6 +1760,49 @@ add_cholesky_benchmark(
   RANK 16 32 64
   LOWER true false
   TYPE float half)
+
+
+add_ctc_loss_benchmark(NAME ctc_loss_t_375_l_200_c_36_bs_1_float_float
+PARAMS --max-time 375
+       --max-label-length 200
+       --num-classes 36
+       --logit-inputs true
+       --in-type float
+       --out-type float
+       --batch 1
+       --disable-always-satisfiable-error
+)
+
+add_ctc_loss_benchmark(NAME ctc_loss_t_375_l_200_c_36_bs_4_float_float
+PARAMS --max-time 375
+       --max-label-length 200
+       --num-classes 36
+       --logit-inputs true
+       --in-type float
+       --out-type float
+       --batch 4
+       --disable-always-satisfiable-error
+)
+
+add_ctc_loss_benchmark(NAME ctc_loss_t_1200_l_480_c_5_bs_1_float_float
+PARAMS --max-time 1200
+       --max-label-length 480
+       --num-classes 5
+       --logit-inputs true
+       --in-type float
+       --out-type float
+       --batch 1
+)
+
+add_ctc_loss_benchmark(NAME ctc_loss_t_1200_l_480_c_5_bs_4_float_float
+PARAMS --max-time 1200
+       --max-label-length 480
+       --num-classes 5
+       --logit-inputs true
+       --in-type float
+       --out-type float
+       --batch 4
+)
 
 else()
   message(WARNING "Python 3 could not be found so several tests and benchmarks will not be run.")

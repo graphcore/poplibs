@@ -66,6 +66,10 @@ IpuModel1,default,cholesky_batch_2_dim_64_block_16_lower_false_type_half,320564,
 IpuModel1,default,cholesky_batch_2_dim_64_block_16_lower_true_type_float,290186,0.0,4166612,0.0,49240,0.0
 IpuModel1,default,cholesky_batch_2_dim_64_block_16_lower_true_type_half,288566,0.2,1896386,-0.0,131112,0.0
 IpuModel1,default,conv_5x200_1_in_100_out_bs1440,306719,-0.0,192431354,0.0,203832,0.0
+IpuModel1,default,ctc_loss_t_1200_l_480_c_5_bs_1_float_float,855154,-2.2,31713856,-0.2,29692,-0.4
+IpuModel1,default,ctc_loss_t_1200_l_480_c_5_bs_4_float_float,1067078,-6.6,124079634,-0.1,150072,0.0
+IpuModel1,default,ctc_loss_t_375_l_200_c_36_bs_1_float_float,449327,-7.6,31127770,-0.2,56568,-0.5
+IpuModel1,default,ctc_loss_t_375_l_200_c_36_bs_4_float_float,675685,-17.9,111444596,-0.1,126452,-0.1
 IpuModel1,default,embedding_small,204003,0.0,49118290,0.0,63108,0.0
 IpuModel1,default,embedding_vlarge,154767,0.0,57547254,0.0,77080,0.0
 IpuModel1,default,embedding_vlarge_large_indices,1154069,0.0,164355622,0.0,161452,0.0
@@ -340,6 +344,10 @@ IpuModel2,default,cholesky_batch_2_dim_64_block_16_lower_false_type_half,320497,
 IpuModel2,default,cholesky_batch_2_dim_64_block_16_lower_true_type_float,290917,0.0,6978208,0.0,213080,0.0
 IpuModel2,default,cholesky_batch_2_dim_64_block_16_lower_true_type_half,288280,0.2,1905302,-0.0,213032,0.0
 IpuModel2,default,conv_5x200_1_in_100_out_bs1440,276203,0.0,176959146,0.0,248216,0.0
+IpuModel2,default,ctc_loss_t_1200_l_480_c_5_bs_1_float_float,864241,-1.8,33986060,-0.1,29752,-0.4
+IpuModel2,default,ctc_loss_t_1200_l_480_c_5_bs_4_float_float,987707,-6.0,132533234,-0.1,131128,-0.1
+IpuModel2,default,ctc_loss_t_375_l_200_c_36_bs_1_float_float,444219,-6.5,32909348,-0.2,56616,-0.5
+IpuModel2,default,ctc_loss_t_375_l_200_c_36_bs_4_float_float,643797,-16.0,117750170,-0.1,126072,-0.1
 IpuModel2,default,embedding_small,177759,0.0,51567406,0.0,59600,0.0
 IpuModel2,default,embedding_vlarge,155289,0.0,60339282,0.0,71448,0.0
 IpuModel2,default,embedding_vlarge_large_indices,1151828,0.0,183632850,0.0,145112,0.0
