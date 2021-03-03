@@ -280,10 +280,29 @@ void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
   const unsigned timeSize = tensor.dim(2);
   const auto numClasses = tensor.dim(3);
 
-  auto numNonBatchPartitions =
+  const auto numNonBatchPartitions =
       plan.parallel.time * plan.getLabelPartitionTiles();
-  auto remappedTimePartitions = std::min(numNonBatchPartitions, timeSize);
-  auto timePartitionSize = ceildiv(timeSize, remappedTimePartitions);
+  const auto remappedTimePartitions = std::min(numNonBatchPartitions, timeSize);
+  const auto typeSize = graph.getTarget().getTypeSize(tensor.elementType());
+
+  const auto timePartitionSize = [&]() {
+    // Minimum result to map all the time slices onto the tiles within the plan
+    // without splitting the innermost dimension
+    auto minTimePartitionSize = ceildiv(timeSize, remappedTimePartitions);
+    // Ensure that there are always a multiple of 4 bytes per tile to avoid
+    // costly exchange.
+    // Trialling timePartitionSize+0, +1, +2, +3 must produce a result divisible
+    // by 4, as we will hit timePartitionSize+N as a multiple of 4 itself.
+    for (unsigned i = 0; i < 4; i++) {
+      const auto remainder = (typeSize * numClasses * minTimePartitionSize) % 4;
+      if (remainder == 0) {
+        break;
+      }
+      minTimePartitionSize++;
+    }
+    return minTimePartitionSize;
+  }();
+  assert((typeSize * timePartitionSize * numClasses) % 4 == 0);
 
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     for (unsigned time = 0; time < remappedTimePartitions; time++) {
