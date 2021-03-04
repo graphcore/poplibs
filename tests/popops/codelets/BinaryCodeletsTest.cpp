@@ -35,12 +35,7 @@
 
 #include "../lib/popops/ExprOpUtil.hpp"
 #include <poplibs_test/Util.hpp>
-#include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
-
-#include <boost/format.hpp>
-#include <boost/optional.hpp>
-#include <boost/optional/optional_io.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -51,18 +46,21 @@
 #include <type_traits>
 
 using namespace poplar;
-using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 using namespace poplibs_support;
-using boost::format;
-using popops::expr::BinaryOpType;
-using std::to_string;
 
-// The name of the compute set where we run the vertex under test.
-const static std::string computeSetName = "vertexComputeSet";
+static const unsigned TARGET_DATAPATH_WIDTH = 64;
+static const unsigned HALF_VECTOR_ELEMS = TARGET_DATAPATH_WIDTH / 16;
+static const unsigned FLOAT_VECTOR_ELEMS = TARGET_DATAPATH_WIDTH / 32;
 
+// Align 'n' to the next multiple of 'align'. For instance: roundUp(21, 8) => 24
+unsigned roundUp(unsigned n, unsigned align) {
+  return ((n + align - 1) / align) * align;
+}
+
+// All vertices that can be tested by this code
 const std::vector<std::string> verticesNames = {
     "BinaryOp1DSupervisor",
     "BinaryOp1DInPlaceSupervisor",
@@ -87,88 +85,6 @@ const std::vector<std::string> verticesNames = {
     "BroadcastVectorOuterByRowInPlaceSupervisor",
     "BroadcastVectorOuterByColumnSupervisor",
     "BroadcastVectorOuterByColumnInPlaceSupervisor",
-};
-
-// Returns a string with all vertices names, comma separated. Used for the help
-// message
-const std::string allVerticesStr() {
-  std::string result;
-  for (auto &n : verticesNames) {
-    if (!result.empty()) // add a comma between names
-      result += ", ";
-    result += n;
-  }
-  return result;
-}
-
-//*************************************************************************
-// This contains the vertex names and various flags that characterise the
-// vertex, used in different places during the test.
-struct VertexDesc {
-  std::string name;
-
-  std::string vClass;      // full name with template params foer addVertex()
-  std::string vClassShort; // vClass, abbreviated for display
-
-  // Names of the two operand fields in the vertex
-  std::string in1Name;
-  std::string in2Name;
-
-  bool isBinaryOp;
-  bool is2D;
-  bool inPlace;
-  bool isVectorInner;
-  bool isVectorInner2D;
-  bool isVectorOuter;
-  bool is2Types; // is the vertex a special one with different types?
-  bool isBroadcastScalar;
-  bool isBroadcastScalar2D;
-  bool op2isSingleElem; // must the second operand have a single element?
-
-  bool allowMisaligned = true; // For VectorOuter vertices
-
-  VertexDesc(const std::string &vertexName) {
-    name = vertexName;
-
-    // Extract the flags by looking at the name
-    isBinaryOp = vertexName.find("BinaryOp") != std::string::npos;
-    is2D = vertexName.find("2D") != std::string::npos;
-    inPlace = vertexName.find("InPlace") != std::string::npos;
-    isVectorInner = vertexName.find("VectorInner") != std::string::npos;
-    isVectorInner2D = isVectorInner && is2D;
-    isVectorOuter = vertexName.find("VectorOuter") != std::string::npos;
-    is2Types = vertexName.find("2Types") != std::string::npos;
-    isBroadcastScalar = vertexName.find("BroadcastScalar") != std::string::npos;
-    isBroadcastScalar2D = (vertexName == "BroadcastScalar2D" ||
-                           vertexName == "BroadcastScalar2DInPlace");
-    op2isSingleElem = isBroadcastScalar && !isBroadcastScalar2D;
-
-    if (isBinaryOp) {
-      in1Name = inPlace ? "in1Out" : "in1";
-      in2Name = "in2";
-    } else {
-      in1Name = "data";
-      in2Name = "B";
-    }
-  }
-
-  void setVertexClass(const BinaryOpType op, const Type &dataType,
-                      const Type &outputType) {
-    // Get the vertex class
-    std::string vName = "popops::" + name;
-    if (isVectorOuter) {
-      vClass = templateVertex(vName, op, dataType, allowMisaligned);
-    } else if (is2Types) {
-      vClass = templateVertex(vName, op, dataType, outputType);
-    } else {
-      vClass = templateVertex(vName, op, dataType);
-    }
-
-    // Shorten the name for display, removing namespaces
-    vClassShort = vClass;
-    boost::erase_all(vClassShort, "popops::");
-    boost::erase_all(vClassShort, "expr::BinaryOpType::");
-  }
 };
 
 // Maps specifying valid (operation, dataType) pairs for the generic binary
@@ -205,10 +121,307 @@ const static std::map<expr::BinaryOpType, const std::set<Type>>
          {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, SHORT, UNSIGNED_SHORT}},
 };
 
-// Return true if the combination of vertex, operation and data type is valid
-bool isValidCombination(const VertexDesc &vertex, const BinaryOpType op,
-                        const Type &type) {
+//*************************************************************************
+// This contains the name of the vertex under test and various flags that
+// characterise it, used in different places during the test.
+struct VertexDesc {
+  std::string name;
 
+  BinaryOpType op;
+  Type dataType;
+  Type outputType;
+
+  std::optional<bool> allowMisaligned; // For VectorOuter vertices only
+
+  std::string vClass;    // Full name with template params for addVertex()
+  std::string vClassFmt; // vClass, formatted for display
+
+  // Names of the two operand fields in the vertex
+  std::string in1Name;
+  std::string in2Name;
+
+  bool isBinaryOp;
+  bool is2D;
+  bool inPlace;
+  bool isVectorInner;
+  bool isVectorInner2D;
+  bool isVectorOuter;
+  bool is2Types; // is the vertex a special one with different types?
+  bool isBroadcastScalar;
+  bool isBroadcastScalar2D;
+  bool op2isSingleElem; // must the second operand have a single element?
+
+  VertexDesc(const std::string &vertexName, BinaryOpType &op,
+             const Type &dataType, std::optional<bool> allowMisaligned)
+      : name(vertexName), op(op), dataType(dataType),
+        allowMisaligned(allowMisaligned) {
+
+    // Extract the flags by looking at the name
+    isBinaryOp = vertexName.find("BinaryOp") != std::string::npos;
+    is2D = vertexName.find("2D") != std::string::npos;
+    inPlace = vertexName.find("InPlace") != std::string::npos;
+    isVectorInner = vertexName.find("VectorInner") != std::string::npos;
+    isVectorInner2D = isVectorInner && is2D;
+    isVectorOuter = vertexIsVectorOuter(vertexName);
+    is2Types = vertexName.find("2Types") != std::string::npos;
+    isBroadcastScalar = vertexName.find("BroadcastScalar") != std::string::npos;
+    isBroadcastScalar2D = (vertexName == "BroadcastScalar2D" ||
+                           vertexName == "BroadcastScalar2DInPlace");
+    op2isSingleElem = isBroadcastScalar && !isBroadcastScalar2D;
+
+    outputType = dataType;
+    if (isBoolOp(op)) {
+      outputType = BOOL;
+    } else if (is2Types) {
+      outputType = (dataType == HALF) ? FLOAT : HALF;
+    }
+
+    if (isBinaryOp) {
+      in1Name = inPlace ? "in1Out" : "in1";
+      in2Name = "in2";
+    } else {
+      in1Name = "data";
+      in2Name = "B";
+    }
+
+    // Get the vertex class
+    std::string vName = "popops::" + name;
+    if (isVectorOuter) {
+      vClass = templateVertex(vName, op, dataType, *allowMisaligned);
+    } else if (is2Types) {
+      vClass = templateVertex(vName, op, dataType, outputType);
+    } else {
+      vClass = templateVertex(vName, op, dataType);
+    }
+
+    // Shorten the name for display, removing namespaces
+    vClassFmt = vClass;
+    boost::erase_all(vClassFmt, "popops::");
+    boost::erase_all(vClassFmt, "expr::BinaryOpType::");
+    const unsigned FMT_LEN = 70;
+    unsigned len = vClassFmt.size();
+    unsigned padLen = (len < FMT_LEN) ? (FMT_LEN - len) : 1;
+    vClassFmt += std::string(padLen, ' '); // pad for display
+  }
+  // We have a separate static function for this, because it is called also
+  // before instantiating a VertexDesc
+  static bool vertexIsVectorOuter(const std::string &vertexName) {
+    return vertexName.find("VectorOuter") != std::string::npos;
+  }
+};
+
+//*************************************************************************
+// Describes the sizes of the two operands (and the output) for a specific
+// vertex. The individual fields are used for different vertex types.
+struct TensorSizes {
+  // For 2D vertices: size of each row
+  // For 1D vertices: the first element is size of whole 1st operand
+  std::vector<unsigned> rowSizes;
+
+  // For BroadcastVectorInner2D vertices: size of each row for 2nd operand
+  // Each element must be an exact divisor of corresponding row of rowSizes
+  std::vector<unsigned> op2RowSizes;
+
+  unsigned rows = 0;    // Only for "VectorOuter" vertices, or 2D vertices
+  unsigned columns = 0; // Only for "VectorOuter" vertices
+
+  // Total number of elements in first operand ("in1") and output. For 2D
+  // vertices is the sum of all 'rowSizes'. For 1D vertices is the same as
+  // 'rowSizes[0]'
+  // For "VectorOuter" vertices is rows x columns
+  unsigned nElems1 = 0;
+
+  // Total number of elements in second operand ("in2")
+  unsigned nElems2 = 0;
+
+  // A string that describes the sizes of the operands, for display
+  std::string operandStr;
+
+  // The constructor is given the vertex to test and the sizes specified on the
+  // command line. It will try very hard to make sense of those sizes for the
+  // specified vertex
+  TensorSizes(const VertexDesc &vertex, const SizeDesc size,
+              const std::optional<SizeDesc> size2) {
+    std::string op1Str, op2Str; // text descriptions of size of operands
+
+    // Convert a vector to a string
+    auto vector2str = [](std::vector<unsigned> v) {
+      std::string s;
+      if (v.size() > 0) {
+        s += to_string(v[0]);
+        for (unsigned i = 1; i < v.size(); i++)
+          s += "," + to_string(v[i]);
+      }
+      return s;
+    };
+
+    // =========== First Operand ===========
+    if (vertex.isVectorOuter) {
+      // -------- Vector Outer --------
+      if (size.isRowsByCols) {
+        rows = size.val[0];
+        columns = size.val[1];
+      } else {
+        rows = findDivisor(size.val[0]);
+        columns = size.val[0] / rows;
+      }
+      // If allowMisaligned is false, each row must contain a multiple of atoms
+      unsigned atomSize =
+          (vertex.dataType == HALF) ? HALF_VECTOR_ELEMS : FLOAT_VECTOR_ELEMS;
+      if (vertex.allowMisaligned == false && (columns % atomSize) != 0) {
+        columns = roundUp(columns, atomSize);
+      }
+      rowSizes.resize(rows, columns);
+      nElems1 = rows * columns;
+      op1Str = to_string(rows) + "x" + to_string(columns);
+    } else {
+      // -------- VectorInner, BroadcastScalar, BinaryOp --------
+      if (vertex.is2D) {
+        if (size.isRowsByCols) {
+          rows = size.val[0];
+          rowSizes.resize(rows, size.val[1]);
+          nElems1 = rows * size.val[1];
+          op1Str = to_string(rows) + "x" + to_string(size.val[1]);
+        } else {
+          rows = size.val.size();
+          rowSizes = size.val;
+          nElems1 = std::accumulate(rowSizes.begin(), rowSizes.end(), 0);
+          op1Str = vector2str(rowSizes);
+        }
+      } else {
+        if (size.isRowsByCols) {
+          rowSizes.resize(size.val[0], size.val[1]);
+          nElems1 = size.val[0] * size.val[1];
+        } else {
+          rowSizes = {size.val[0]};
+          nElems1 = size.val[0];
+        }
+      }
+    }
+
+    // =========== Second Operand ===========
+    if (vertex.isVectorOuter) {
+      // -------- Vector Outer --------
+      nElems2 = size2 ? size2->val[0] : ((rows == 1) ? 1 : rows - 1);
+      op2RowSizes = {nElems2};
+    } else if (vertex.isVectorInner) {
+      if (vertex.is2D) {
+        // -------- Vector Inner 2D --------
+        if (size2) {
+          if (size2->isRowsByCols) {
+            op2RowSizes.resize(size2->val[0], size2->val[1]);
+          } else {
+            op2RowSizes = size2->val;
+          }
+        }
+        // if wrong number of rows for second operand, adjust it
+        if (op2RowSizes.size() != rows) {
+          op2RowSizes.resize(rows);
+          for (unsigned i = 0; i < rows; i++) {
+            op2RowSizes[i] = findDivisor(rowSizes[i]);
+          }
+        }
+        // Verify row by row: is length of second operand a divisor of first?
+        for (unsigned i = 0; i < rows; i++) {
+          if ((rowSizes[i] % op2RowSizes[i]) != 0) {
+            throw std::runtime_error(
+                (format("%s's second operand sizes for row %u is %u but"
+                        " it must be an exact divisor of the size of "
+                        "the corresponding row of first operand (%u)") %
+                 vertex.name % i % op2RowSizes[i] % rowSizes[i])
+                    .str());
+          }
+        }
+        nElems2 = std::accumulate(op2RowSizes.begin(), op2RowSizes.end(), 0);
+        op2Str = vector2str(op2RowSizes);
+      } else {
+        // === Vector Inner Supervisor ===
+        if (size2) {
+          if (size2->isRowsByCols) {
+            nElems2 = size2->val[0] * size2->val[1];
+          } else {
+            nElems2 = size2->val[0];
+          }
+        } else {
+          nElems2 = findDivisor(nElems1);
+        }
+        op2RowSizes = {nElems2};
+        // Is length of second operand a divisor of first?
+        if ((nElems1 % nElems2) != 0) {
+          throw std::runtime_error(
+              (format("%s's second operand size is %u but it must be an"
+                      " exact divisor of the first operand size (%u)") %
+               vertex.name % nElems2 % nElems1)
+                  .str());
+        }
+      }
+    } else if (vertex.isBroadcastScalar2D) {
+      op2RowSizes = {rows};
+      nElems2 = rows;
+    } else if (vertex.isBroadcastScalar) {
+      op2RowSizes = {1};
+      nElems2 = 1;
+    } else {
+      op2RowSizes = rowSizes;
+      nElems2 = nElems1;
+      if (vertex.is2D) {
+        op2Str = vector2str(op2RowSizes);
+      }
+    }
+
+    if (op1Str.empty()) {
+      op1Str = to_string(nElems1);
+    }
+    if (op2Str.empty()) {
+      op2Str = to_string(nElems2);
+    }
+    operandStr = vertex.in1Name + ": [" + op1Str + "];  " + vertex.in2Name +
+                 ": [" + op2Str + "]";
+  }
+};
+
+//*************************************************************************
+// Contains information relative to the test for one single vertex
+struct TestRecord {
+  TensorSizes sizes;
+  std::unique_ptr<VertexDesc> vertex;
+
+  // If not empty, offset in bytes in the device memory between the START of 1st
+  // and the 2nd operand; if '0', it means place the two operands back-to-back.
+  boost::optional<unsigned> operandOffset;
+
+  std::unique_ptr<char[]> hostRawBuf1;
+  std::unique_ptr<char[]> hostRawBuf2;
+  std::unique_ptr<char[]> hostOutBuf;
+
+  // Stream names used to transfer the host data, for the two operands and the
+  // output. Must be different for each test run in the same graph.
+  std::string writeName1;
+  std::string writeName2;
+  std::string readName;
+
+  /// \param[in] v      The vertex (with operation and data type) to test.
+  /// \param[in] seq    A sequential index, different for each test
+  /// \param[in] tSizes Describes generically the sizes to use for the test,
+  ///                   needs to be adjusted for this specific vertex.
+  TestRecord(std::unique_ptr<VertexDesc> v, unsigned seq,
+             const TensorSizes &tSizes, boost::optional<unsigned> operandOffset)
+      : sizes(tSizes), vertex(std::move(v)), operandOffset(operandOffset) {
+    writeName1 = vertex->in1Name + "_" + to_string(seq);
+    writeName2 = vertex->in2Name + "_" + to_string(seq);
+    readName = "out_" + to_string(seq);
+  };
+  TestRecord(TestRecord &&) = default;
+
+  std::string toString() { return vertex->vClassFmt + sizes.operandStr; }
+};
+
+//*************************************************************************
+// Return true if the information in vertex (vertex name, operation and data
+// type) is valid.
+bool isValidCombination(const VertexDesc &vertex) {
+  const BinaryOpType &op = vertex.op;
+  const Type &type = vertex.dataType;
   // The "2Types" vertices and the STD_DEV <=> VARIANCE operators are special
   if (vertex.is2Types && (op != BinaryOpType::INV_STD_DEV_TO_VARIANCE) &&
       (op != BinaryOpType::VARIANCE_TO_INV_STD_DEV))
@@ -247,160 +460,44 @@ bool isValidCombination(const VertexDesc &vertex, const BinaryOpType op,
 }
 
 //*************************************************************************
-// Describes the sizes of two operands (and the output).
-// The fields that are used for different vertex types.
-struct TensorSizes {
-  // For 2D vertices: size of each row
-  // For 1D vertices: the first element is size of whole 1st operand
-  std::vector<unsigned> rowSizes;
-
-  // For BroadcastVectorInner2D vertices: size of each row for 2nd operand
-  // Each element must be an exact divisor of corresponding row of rowSizes
-  std::vector<unsigned> op2RowSizes;
-
-  // Only for "VectorOuter" vertices
-  unsigned rows, columns;
-
-  // Total number of elements in first operand ("in1") and output. For 2D
-  // vertices is the sum of all 'rowSizes'. For 1D vertices is the same as
-  // 'rowSizes[0]'
-  // For "VectorOuter" vertices is rows x columns
-  unsigned nElems1;
-
-  // Total number of elements in second operand ("in2")
-  unsigned nElems2;
-
-  // A string that describes the sizes of the operands
-  std::string operandStr;
-
-  TensorSizes()
-      : rowSizes({25, 12, 21}), op2RowSizes({5, 3, 7}), rows(10), columns(23),
-        nElems1(0), nElems2(0){};
-
-  // Given a vertex, adjust the field as required by that vertex
-  void adjustForVertex(const VertexDesc &vertex) {
-    std::string op1Str, op2Str;
-
-    // Convert a vector to a string
-    auto vector2str = [](std::vector<unsigned> v) {
-      std::string s;
-      for (auto e : v)
-        s += "[" + to_string(e) + "] ";
-      s.erase(s.size() - 1); // remove last space
-      return s;
-    };
-
-    // Adjust size for first operand
-    if (vertex.isVectorOuter) {
-      if (rows == 0 || columns == 0) {
-        throw std::runtime_error(vertex.name +
-                                 " must have nonzero rows and columns");
-      }
-      nElems1 = rows * columns;
-    } else {
-      if (rowSizes.size() == 0) {
-        throw std::runtime_error(vertex.name +
-                                 " must have at least one row size specified");
-      }
-      if (vertex.is2D) {
-        nElems1 = std::accumulate(rowSizes.begin(), rowSizes.end(), 0);
-        rows = rowSizes.size();
-        op1Str = vector2str(rowSizes);
-      } else {
-        nElems1 = rowSizes[0];
-      }
-    }
-
-    // Adjust size for second operand
-    if (vertex.isBinaryOp) {
-      nElems2 = nElems1;
-      if (vertex.is2D) {
-        op2RowSizes = rowSizes;
-        op2Str = op1Str;
-      }
-    } else {
-      if (vertex.op2isSingleElem) {
-        nElems2 = 1;
-        op2Str = to_string(nElems2);
-      } else if (vertex.isBroadcastScalar2D) {
-        nElems2 = rows;
-        op2Str = to_string(nElems2);
-      } else if (vertex.isVectorInner) {
-        if (vertex.is2D) {
-          // if too many rows for second operand, just trim it
-          if (op2RowSizes.size() > rows) {
-            op2RowSizes = std::vector<unsigned>(op2RowSizes.begin(),
-                                                op2RowSizes.begin() + rows);
-          }
-          op2Str = vector2str(op2RowSizes);
-          nElems2 = std::accumulate(op2RowSizes.begin(), op2RowSizes.end(), 0);
-          for (unsigned i = 0; i < rows; i++) {
-            if ((rowSizes[i] % op2RowSizes[i]) != 0) {
-              throw std::runtime_error(
-                  (format("%s's second operand sizes for row %u is %u but"
-                          " it must be an exact divisor of the size of "
-                          "the corresponding row of first operand (%u)") %
-                   vertex.name % i % op2RowSizes[i] % rowSizes[i])
-                      .str());
-            }
-          }
-        } else {
-          nElems2 = op2RowSizes[0] > 0 ? op2RowSizes[0] : 1;
-          if ((nElems1 % nElems2) != 0) {
-            throw std::runtime_error(
-                (format("%s's second operand size is %u but it must be an"
-                        " exact divisor of the first operand size (%u)") %
-                 vertex.name % nElems2 % nElems1)
-                    .str());
-          }
-        }
-      } else if (vertex.isVectorOuter) {
-        if (op2RowSizes.size() != 0) {
-          nElems2 = op2RowSizes[0];
-        }
-        if (nElems2 == 0 || (rows % nElems2) != 0) {
-          throw std::runtime_error(
-              (format("%s's second operand size is %u but it must be an"
-                      " exact divisor of of the number of rows of the first "
-                      "operand (%u)") %
-               vertex.name % nElems2 % nElems1)
-                  .str());
-        }
-      }
-    }
-
-    if (op1Str.empty())
-      op1Str = to_string(nElems1);
-    if (op2Str.empty())
-      op2Str = to_string(nElems2);
-    operandStr = vertex.in1Name + ": [" + op1Str + "];  " + vertex.in2Name +
-                 ": [" + op2Str + "]";
-  }
-};
-
-//*************************************************************************
-/// Verifies if the results of the operation performed on the device match
-/// with the one the host
+/// Verifies the results of the test.
+/// Input data and device results are stored in 'test'.
 ///
-/// \param isIpuModel          Is IpuModel or IpuModel2?.
-/// \param dataType            The data type used (float, half).
-/// \param dataType            The data type used (float, half).
-/// \param in1Host             Data buffer for the first operand.
-/// \param in2Host             Data for second operand.
-/// \param outHost             Data for result, obtained from
-///                            device and converted to host types.
-/// \param operation           Operation performed on device.
-template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
-static bool verifyResult(const bool isIpuModel, const VertexDesc &vertex,
-                         const BinaryOpType op, const Type &dataType,
-                         const std::vector<HOST_DATA_TYPE> &in1Host,
-                         const std::vector<HOST_DATA_TYPE> &in2Host,
-                         const std::vector<HOST_OUT_TYPE> &outHost,
-                         const TensorSizes sizes) {
+/// \tparam HostDataType Type used on the host for dataType1, datatType2.
+/// \tparam HostOutType  Type used on the host for outputType.
+/// \param[in]    target     Which target.
+/// \param[in]    isIpuModel Was the device and IpuModel?
+/// \param[in]    test       Describes the test to setup.
+///
+/// \return true if the values returned by the device match (with appropriate
+///         tolerances) the one computed on the host
+///
+template <typename HostDataType, typename HostOutType>
+bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
+                const MiscOptions &options) {
+  const VertexDesc &vertex = *test.vertex;
+  const TensorSizes &sizes = test.sizes;
+  const BinaryOpType &op = vertex.op;
+
+  // Convert the device data in host format. Also convert back the input data
+  // in host format.
+  std::vector<HostDataType> in1Host(sizes.nElems1);
+  std::vector<HostDataType> in2Host(sizes.nElems1);
+  std::vector<HostOutType> outHost(sizes.nElems1);
+  copy(target, vertex.dataType, test.hostRawBuf1.get(), in1Host.data(),
+       in1Host.size());
+  copy(target, vertex.dataType, test.hostRawBuf2.get(), in2Host.data(),
+       in2Host.size());
+  copy(target, vertex.outputType, test.hostOutBuf.get(), outHost.data(),
+       outHost.size());
+  if (options.printBuffers) {
+    printBuffer("out", outHost, vertex.outputType, sizes.rowSizes);
+  }
   unsigned errCount = 0; // how many mismatched elements we find
 
   // For 2D vertices, running partial sums of elements for the rows we have
-  // already done, needed for the broadcasting. For 1st and 2nd operand
+  // already done, to keep track of which row we are processing (both for 1st
+  // and 2nd operand
   unsigned rowOffs = 0;
   unsigned rowOffs2 = 0;
 
@@ -412,17 +509,22 @@ static bool verifyResult(const bool isIpuModel, const VertexDesc &vertex,
   unsigned i = 0; // linear index into 1st operand buffer
   unsigned j = 0; // linear index into 2nd operand buffer
   do {
-    HOST_DATA_TYPE val1 = in1Host[i]; // operands
-    HOST_DATA_TYPE val2 = in2Host[j];
+    HostDataType val1 = in1Host[i]; // operands
+    HostDataType val2 = in2Host[j];
 
-    HOST_OUT_TYPE actual = outHost[i]; // result from device
+    HostOutType actual = outHost[i]; // result from device
 
-    HOST_OUT_TYPE expected = 0; // result for verification
+    HostOutType expected = 0; // result for verification
     performOp(op, val1, val2, expected);
 
-    if (!equalValues(isIpuModel, op, dataType, expected, actual)) {
-      std::cerr << format("out[%u] = %s %s %s  =>  expected:%s;  actual:%s\n") %
-                       i % convertToString(val1) % binaryOpToString.at(op) %
+    if (!equalValues(isIpuModel, op, vertex.outputType, expected, actual)) {
+      // If its is 2D, we want to show row and column where it failed, not
+      // just the linear index.
+      unsigned col = i - rowOffs;
+      std::cerr << format("out[%s] = %s %s %s  =>  expected:%s;  actual:%s\n") %
+                       (vertex.is2D ? to_string(row) + "][" + to_string(col)
+                                    : to_string(i)) %
+                       convertToString(val1) % binaryOpToString.at(op) %
                        convertToString(val2) % convertToString(expected) %
                        convertToString(actual);
       errCount++;
@@ -465,29 +567,35 @@ static bool verifyResult(const bool isIpuModel, const VertexDesc &vertex,
 }
 
 //*************************************************************************
-/// Run one vertex test.
+/// Setup one vertex test.
 ///
-/// \tparam HOST_DATA_TYPE   Type to use on the host for dataType1, datatType2.
-/// \tparam HOST_OUT_TYPE    Type to use on the host for outputType.
-/// \param  deviceType       The device used.
-/// \param  vertex           Which vertex.
-/// \param  op               Operation to perform
-/// \param  dataType         The data type used for operands.
-/// \param  outputType       The type for the result of the operation.
-/// \param  sizes            Describes the sizes of the operands.
-/// \param  randomSeed       Random seed (0 = don't use random values).
-/// \param  ignoreData       Do not verify results.
-/// \param  doReport         Print poplar report on stdout.
-/// \param  cycles           If non-empty, will be populated with the cycles
-///                          used by the compute set that runs the vertex.
+/// \tparam HostDataType  Type to use on the host for dataType1, datatType2.
+/// \tparam HostOutType   Type to use on the host for outputType.
+/// \param[in]    target    Which target.
+/// \param[inout] graph     The graph.
+/// \param[inout] upload    A Sequence where we will add the uploading of the
+//                          data for this vertex (from the host to the device)
+/// \param[inout] cs        The compute set to add the vertex to.
+/// \param[inout] download  A Sequence where we will add the downloading of the
+///                         result data (from device to host)
+/// \param[inout] streamMap Used to pass the appropriate streams for upload/
+///                         download when running on the device.
+/// \param[inout] test      Describes the test to setup. Pointers to data and
+///                         output buffers are setup here.
+/// \param[in]    tile      Which tile to run this test on.
+/// \param[in]    options  Global options.
 ///
-/// \return true if the results from the device passed verification
-template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
-static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
-                   const BinaryOpType op, const Type &dataType,
-                   const Type &outputType, const TensorSizes &sizes,
-                   const unsigned randomSeed, const bool ignoreData,
-                   const bool doReport, std::optional<uint64_t> &cycles) {
+template <typename HostDataType, typename HostOutType>
+static void setupTest(const Target &target, Graph &graph, Sequence &upload,
+                      ComputeSet &cs, Sequence &download, StreamMap &streamMap,
+                      TestRecord &test, unsigned tile,
+                      const MiscOptions &options) {
+  const VertexDesc &vertex = *test.vertex;
+  const TensorSizes &sizes = test.sizes;
+  const Type &dataType = vertex.dataType;
+  const Type &outputType = vertex.outputType;
+
+  assert(TARGET_DATAPATH_WIDTH == target.getDataPathWidth());
 
   // Check for various possible inconsistencies in the combinations of
   // parameters
@@ -495,9 +603,9 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
   if (std::find(std::begin(verticesNames), std::end(verticesNames),
                 vertex.name) == std::end(verticesNames)) {
     throw std::runtime_error(vertex.name +
-                             " is not a valid vertex name for this test. Maybe "
-                             "you wanted to use the --vertexRE option for a "
-                             "regular expression?");
+                             " is not a valid vertex name. Maybe you wanted "
+                             "to use the --vertexRE option for a regular "
+                             "expression?");
   }
 
   if (vertex.inPlace && (outputType != dataType)) {
@@ -507,45 +615,128 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
                              outputType.toString() + ")");
   }
 
-  if (isIntOp(op) &&
-      (dataType == HALF || dataType == FLOAT || dataType == BOOL)) {
-    throw std::runtime_error(binaryOpToString.at(op) +
+  if (isIntOp(vertex.op) &&
+      (vertex.dataType == HALF || dataType == FLOAT || dataType == BOOL)) {
+    throw std::runtime_error(binaryOpToString.at(vertex.op) +
                              " requires data "
                              "of integer type (specified  data type=" +
                              dataType.toString() + ")");
   }
 
-  TestDevice device = createTestDevice(deviceType, 1, 1);
-  Target target = device.getTarget();
-  Graph graph(target);
-  popops::addCodelets(graph);
-
   // === Allocate and initialise host buffers with appropriate values.
-  std::vector<HOST_DATA_TYPE> in1Host(sizes.nElems1);
-  std::vector<HOST_DATA_TYPE> in2Host(sizes.nElems2);
-  fillHostBuffers(op, dataType, randomSeed, in1Host, in2Host);
+  std::vector<HostDataType> in1Host(sizes.nElems1);
+  std::vector<HostDataType> in2Host(sizes.nElems2);
+  fillHostBuffers(vertex.op, dataType, options.randomSeed, in1Host, in2Host);
+  // If requested, print the buffers, selecting the correct sizes
+  if (options.printBuffers) {
+    printBuffer(vertex.in1Name, in1Host, dataType, sizes.rowSizes);
+    printBuffer(vertex.in2Name, in2Host, dataType, sizes.op2RowSizes);
+  }
 
   // === Create graph variables.
-  Tensor in1, in2, out;
-  in1 = graph.addVariable(dataType, {sizes.nElems1}, vertex.in1Name);
-  graph.setTileMapping(in1, 0);
+  // The two operands can be created in two ways, based on the value of
+  // operandOffs:
+  //
+  // 1. If operandOffs contains a value (is not 'none') a single graph variable
+  //    will be created, that is then sliced in two, one slice for each operand.
+  //    This allows controlling the offset in device memory between the two
+  //    operands, as required by some tests (as long as poplar doesn't do
+  //    rearrangements!).
+  //    Doing this can slow down significantly the execution when running tests
+  //    in groups.
+  //    If the offset is specified as 0, the two slices will be placed back-to-
+  //    back (no padding, apart from a possible 8 byte alignment).
+  //    If the offset (in bytes) is > 0, it must be a multiple of 8 bytes and
+  //    we will add padding between the two slices, so that the distance between
+  //    the START of first operand and the START of the second is equal to the
+  //    specified offset (so it must be greater than the size of the first
+  //    operand).
+  //
+  // 2. If operandOffs is empty ('none') the operands will be created as two
+  //    separate graph variables. This let poplar place the operands in memory
+  //    as it sees fit and it is much faster.
+
+  const static unsigned ALIGN = 8; // align sizes/offsets on this byte multiple
+  const unsigned dataTypeSize = target.getTypeSize(dataType);
+  assert((ALIGN % dataTypeSize) == 0);
+  const unsigned nBytes1 = sizes.nElems1 * dataTypeSize; // Operand1 size bytes
+  const unsigned nBytes1Aligned = roundUp(nBytes1, ALIGN);
+
+  Tensor in1, in2;
+
+  if (!test.operandOffset) {
+    // Optional not specified ('none'), let poplar place the operands in memory
+    in1 = graph.addVariable(dataType, {sizes.nElems1}, vertex.in1Name);
+    graph.setTileMapping(in1, tile);
+    in2 = graph.addVariable(dataType, {sizes.nElems2}, vertex.in2Name);
+    graph.setTileMapping(in2, tile);
+  } else {
+    // Offset optional specified, check it's ok (must be aligned and big enough)
+    unsigned offs = *test.operandOffset;
+    if ((offs % ALIGN) != 0) {
+      throw std::runtime_error("The specified --offset-operands (" +
+                               to_string(offs) + ") should be multiple of " +
+                               to_string(ALIGN));
+    } else if (offs == 0) {
+      // '0' means "no padding" between operands, just make sure op2 is aligned
+      offs = nBytes1Aligned;
+    } else if (offs < nBytes1) {
+      // offset is the distance between the START of the two operands, so cannot
+      // be smaller than the size of the first one.
+      throw std::runtime_error("The specified --offset-operands (" +
+                               to_string(offs) +
+                               ") is smaller than the size of the first "
+                               "operand (" +
+                               to_string(nBytes1) + ")");
+    }
+
+    // Create one single tensor to be sliced in two
+    unsigned offsIn2 = std::max(nBytes1Aligned, offs); // Where operand 2 starts
+    unsigned offsIn2Elems = offsIn2 / dataTypeSize; // Now in elems, not bytes
+    unsigned totSize = offsIn2Elems + sizes.nElems2;
+    Tensor in = graph.addVariable(dataType, {totSize}, vertex.in1Name);
+    graph.setTileMapping(in, tile);
+
+    in1 = in.slice(0, sizes.nElems1);
+    in2 = in.slice(offsIn2Elems, offsIn2Elems + sizes.nElems2);
+  }
+  Tensor out;
   if (vertex.inPlace) {
     out = in1;
   } else {
-    out = graph.addVariable(outputType, {sizes.nElems1}, vertex.in1Name);
-    graph.setTileMapping(out, 0);
+    out = graph.addVariable(vertex.outputType, {sizes.nElems1}, vertex.in1Name);
+    graph.setTileMapping(out, tile);
   }
-  in2 = graph.addVariable(dataType, {sizes.nElems2}, vertex.in2Name);
-  graph.setTileMapping(in2, 0);
 
-  // === Make a program to run the vertex
-  Sequence prog;
-
-  ComputeSet cs = graph.addComputeSet(computeSetName);
-
+  // === Create the vertex
   auto v = graph.addVertex(cs, vertex.vClass);
-  graph.setTileMapping(v, 0);
-  prog.add(Execute(cs));
+  graph.setTileMapping(v, tile);
+
+  if (vertex.inPlace) {
+    // In the inPlace case we copy the data in the 'hostOutBuf' from where it
+    // would be both written to the device and read back with the result.
+    // But we also copy it in the 'hostRawBuf1' to be used later for the
+    // verification.
+    test.hostRawBuf1 =
+        allocateHostMemoryForTensor(target, out, graph.getReplicationFactor());
+    test.hostOutBuf = allocateHostMemoryForTensor(out, test.writeName1, graph,
+                                                  upload, download, streamMap);
+    copy(target, in1Host.data(), in1Host.size(), dataType,
+         test.hostRawBuf1.get());
+    copy(target, in1Host.data(), in1Host.size(), outputType,
+         test.hostOutBuf.get());
+  } else {
+    test.hostRawBuf1 = allocateHostMemoryForTensor(
+        in1, test.writeName1, graph, upload, boost::none, streamMap);
+    test.hostOutBuf = allocateHostMemoryForTensor(
+        out, test.readName, graph, boost::none, download, streamMap);
+    copy(target, in1Host.data(), in1Host.size(), dataType,
+         test.hostRawBuf1.get());
+  }
+  test.hostRawBuf2 = allocateHostMemoryForTensor(
+      in2, test.writeName2, graph, upload, boost::none, streamMap);
+  copy(target, in2Host.data(), in2Host.size(), dataType,
+       test.hostRawBuf2.get());
 
   // === Connect the edges appropriately, depending on the vertex variant
   auto connectOperand2D = [&](const std::string &name,
@@ -602,192 +793,65 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
       graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
     }
   }
+}
 
-  // === Create host 'transfer' buffers with the right size for the device type
-  std::vector<std::pair<std::string, char *>> tmap;
-  Sequence uploadProg, downloadProg;
-  std::unique_ptr<char[]> in1HostRaw;
-  std::unique_ptr<char[]> in2HostRaw;
-  std::unique_ptr<char[]> outHostRaw;
-  char *outHostRawPtr = nullptr;
-  in1HostRaw = allocateHostMemoryForTensor(in1, vertex.in1Name, graph,
-                                           uploadProg, downloadProg, tmap);
-  in2HostRaw = allocateHostMemoryForTensor(in2, vertex.in2Name, graph,
-                                           uploadProg, downloadProg, tmap);
-  if (!vertex.inPlace) {
-    outHostRaw = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
-                                             downloadProg, tmap);
-    outHostRawPtr = outHostRaw.get();
-  } else {
-    outHostRawPtr = in1HostRaw.get();
+// A macro to match the device data and output types with the types used
+// on the host. This is used in doSetupTest and doVerifyTest
+#define SELECT_BY_TYPES()                                                      \
+  /* Note that for both HALF and FLOAT the host buffers are 'float' */         \
+  SELECT_ONE(BOOL, BOOL, unsigned char, unsigned char)                         \
+  SELECT_ONE(SHORT, BOOL, short, unsigned char)                                \
+  SELECT_ONE(SHORT, SHORT, short, short)                                       \
+  SELECT_ONE(UNSIGNED_SHORT, BOOL, unsigned short, unsigned char)              \
+  SELECT_ONE(UNSIGNED_SHORT, UNSIGNED_SHORT, unsigned short, unsigned short)   \
+  SELECT_ONE(HALF, BOOL, float, unsigned char)                                 \
+  SELECT_ONE(HALF, HALF, float, float)                                         \
+  SELECT_ONE(HALF, FLOAT, float, float)                                        \
+  SELECT_ONE(FLOAT, BOOL, float, unsigned char)                                \
+  SELECT_ONE(FLOAT, HALF, float, float)                                        \
+  SELECT_ONE(FLOAT, FLOAT, float, float)                                       \
+  SELECT_ONE(INT, BOOL, int, unsigned char)                                    \
+  SELECT_ONE(INT, INT, int, int)                                               \
+  SELECT_ONE(UNSIGNED_INT, BOOL, unsigned, unsigned char)                      \
+  SELECT_ONE(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)                   \
+  /* The combination of 'dataType'+'outputType' was not specified above */     \
+  throw invalid_types(vertex.dataType, vertex.outputType);
+
+//*************************************************************************
+// Calls the appropriate version of setupTest using the template parameters
+// relevant to the data/output types.
+// See 'setupTest()' for parameters
+static void doSetupTest(const Target &target, Graph &graph, Sequence &upload,
+                        ComputeSet &cs, Sequence &download,
+                        StreamMap &streamMap, TestRecord &test, unsigned tile,
+                        const MiscOptions &options) {
+  VertexDesc &vertex = *test.vertex;
+  // Call the appropriate instantiation of the templated function
+#define SELECT_ONE(IPU_DATA_TYPE, IPU_OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE) \
+  if (vertex.dataType == IPU_DATA_TYPE && vertex.outputType == IPU_OUT_TYPE) { \
+    setupTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                                  \
+        target, graph, upload, cs, download, streamMap, test, tile, options);  \
+    return;                                                                    \
   }
-
-  // === Copy and convert the data from the initialised buffers to the transfer
-  // === buffers (still on host)
-  auto copyBuffer = [&](Type type, std::vector<HOST_DATA_TYPE> &buf,
-                        std::unique_ptr<char[]> &rawBuf) {
-    copy(target, buf.data(), buf.size(), type, rawBuf.get());
-    // For HALF, we copy and convert back into the (float) host buffers so
-    // that the host buffers contain the exact HALF values (which are exactly
-    // representable in float). This helps with the validation for the
-    // comparison operators
-    if (type == HALF)
-      copy(target, type, rawBuf.get(), buf.data(), buf.size());
-  };
-  copyBuffer(dataType, in1Host, in1HostRaw);
-  copyBuffer(dataType, in2Host, in2HostRaw);
-
-  // === Run the program
-  OptionFlags engOpts;
-  if (doReport || cycles) {
-    engOpts.set("debug.instrumentCompute", "true");
-  }
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engOpts);
-  attachStreams(engine, tmap);
-
-  device.bind([&](const Device &d) {
-    engine.load(d);
-    engine.run();
-
-    if (doReport) {
-      OptionFlags opt;
-      opt.set("showExecutionSteps", "true");
-      engine.printProfileSummary(std::cout, opt);
-    }
-    if (cycles) {
-      // Get the cycles by searching the "simulation"/"steps" vector for an
-      // "OnTileExecute" element having the compute set name we used.
-      poplar::ProfileValue execProfile = engine.getExecutionProfile();
-      for (auto s : execProfile["simulation"]["steps"].asVector()) {
-        if (s["type"] == "OnTileExecute" && s["name"] == computeSetName) {
-          cycles = s["cycles"].asUint();
-        }
-      }
-    }
-  });
-
-  // === Check the result
-  if (ignoreData) {
-    std::cout << "Result not checked for correctness\n";
-  } else {
-    // Get the result out of the device
-    std::vector<HOST_OUT_TYPE> outHost(sizes.nElems1);
-    copy(target, outputType, outHostRawPtr, outHost.data(), outHost.size());
-
-    return verifyResult<HOST_DATA_TYPE, HOST_OUT_TYPE>(
-        isIpuModel(deviceType), vertex, op, outputType, in1Host, in2Host,
-        outHost, sizes);
-  }
-  return true;
+  SELECT_BY_TYPES()
+#undef SELECT_ONE
 }
 
 //*************************************************************************
-// Calls doTest with the appropriate template parameters for the
-// data/output types.
-// See 'doTest()' for parameters
-static bool doVertexTest(const DeviceType &deviceType, VertexDesc &vertex,
-                         const BinaryOpType op, const Type &dataType,
-                         const TensorSizes &sizes, const unsigned randomSeed,
-                         const bool verbose, const bool ignoreData,
-                         const bool doReport, std::optional<uint64_t> &cycles) {
-  // Get right output type for vertex, operator and data type
-  Type outputType = dataType;
-  if (isBoolOp(op))
-    outputType = BOOL;
-  else if (vertex.is2Types) {
-    outputType = (dataType == HALF) ? FLOAT : HALF;
+// Calls the appropriate version of verifyTest using the template parameters
+// relevant to the data/output types.
+// See 'verifyTest()' for parameters
+bool doVerifyTest(const Target &target, bool isIpuModel, TestRecord &test,
+                  const MiscOptions &options) {
+  VertexDesc &vertex = *test.vertex;
+
+#define SELECT_ONE(IPU_DATA_TYPE, IPU_OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE) \
+  if (vertex.dataType == IPU_DATA_TYPE && vertex.outputType == IPU_OUT_TYPE) { \
+    return verifyTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(target, isIpuModel, test, \
+                                                     options);                 \
   }
-
-  // Adjust the operand sizes for vertex
-  TensorSizes sizesAdj = sizes;
-  sizesAdj.adjustForVertex(vertex);
-
-  vertex.setVertexClass(op, dataType, outputType);
-
-  if (verbose) {
-    std::cout << format("%-70s %s\n") % vertex.vClassShort %
-                     sizesAdj.operandStr;
-  }
-
-  // Call the appropriate instantiation of the templated function
-#define DO_TEST(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)            \
-  if (dataType == DATA_TYPE && outputType == OUT_TYPE) {                       \
-    return doTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                              \
-               deviceType, vertex, op, dataType, outputType, sizesAdj,         \
-               randomSeed, ignoreData, doReport, cycles)                       \
-               ? true                                                          \
-               : false;                                                        \
-  }
-
-  // Note that for both HALF and FLOAT the host buffers are 'float'
-  DO_TEST(BOOL, BOOL, unsigned char, unsigned char)
-
-  DO_TEST(HALF, HALF, float, float)
-  DO_TEST(HALF, BOOL, float, unsigned char)
-
-  DO_TEST(FLOAT, FLOAT, float, float)
-  DO_TEST(FLOAT, BOOL, float, unsigned char)
-
-  DO_TEST(HALF, FLOAT, float, float)
-  DO_TEST(FLOAT, HALF, float, float)
-
-  DO_TEST(INT, INT, int, int)
-  DO_TEST(INT, BOOL, int, unsigned char)
-
-  DO_TEST(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
-  DO_TEST(UNSIGNED_INT, BOOL, unsigned, unsigned char)
-
-  DO_TEST(SHORT, SHORT, short, short)
-  DO_TEST(UNSIGNED_SHORT, UNSIGNED_SHORT, unsigned short, unsigned short)
-
-  DO_TEST(SHORT, BOOL, short, unsigned char)
-  DO_TEST(UNSIGNED_SHORT, BOOL, unsigned short, unsigned char)
-
-  // Reaching here means the combination of 'dataType' and 'outputType' was
-  // invalid.
-  throw std::runtime_error("Combination of data type and operator not "
-                           "supported");
-  return false;
-}
-
-/// Compare cycles obtained by running the vertex with the two specified
-/// devices. Prints result on standard output.
-///
-/// \return true   if both run returned successfully and the difference is less
-///                than 'compareThreshold' % of the run with the first device.
-static bool compareCycles(const std::array<DeviceType, 2> devPair,
-                          VertexDesc &vertex, const BinaryOpType op,
-                          const Type &dataType, const TensorSizes &sizes,
-                          const unsigned randomSeed,
-                          const unsigned compareThreshold) {
-  std::stringstream devName[2]; // To get strings with the name of selected dev
-  bool ok[2];
-  uint64_t cycles[2];
-  // Run with the two devices and get the cycles
-  for (unsigned i = 0; i < 2; i++) {
-    devName[i] << devPair[i];
-    std::optional<uint64_t> cyclesOpt = uint64_t(0);
-    ok[i] = doVertexTest(devPair[i], vertex, op, dataType, sizes, randomSeed,
-                         false, false, false, cyclesOpt);
-    cycles[i] = *cyclesOpt;
-  }
-
-  float diffPerc = 0;
-  bool compareOk = false;
-  if (ok[0] && ok[1]) {
-    float diff = static_cast<float>(cycles[1]) - static_cast<float>(cycles[0]);
-    diffPerc = diff / cycles[0] * 100;
-    compareOk = abs(diffPerc) < compareThreshold;
-    std::cout << format("%-70s - %s:%8u;  %s:%8u;   diff = %u  %7.2f%%%s\n") %
-                     vertex.vClassShort % devName[0].str() % cycles[0] %
-                     devName[1].str() % cycles[1] % diff % diffPerc %
-                     (compareOk ? "" : " <<== FAIL");
-
-  } else {
-    std::cout << format("%-74s - Failed\n") % vertex.vClassShort;
-  }
-  return ok[0] && ok[1] && compareOk;
-  ;
+  SELECT_BY_TYPES()
+#undef SELECT_ONE
 }
 
 //*************************************************************************
@@ -797,16 +861,18 @@ int main(int argc, char **argv) {
   DeviceType deviceType;
   std::vector<Type> dataTypes;
 
-  TensorSizes sizes;
+  std::vector<SizeDesc> sizes = {{false, {25, 12, 21}}};
+  std::vector<SizeDesc> sizes2;
 
   std::vector<std::string> operationStr;
+  std::vector<bool> allowMisaligned;
   std::vector<std::string> vertices;
   std::string vertexRE; // regular expression for vertex name
-  bool doReport = false;
-  bool ignoreData = false;
-  unsigned randomSeed = 1; // we use '0' to mean 'not random'
+  unsigned groupTests = 1;
   boost::optional<std::string> cycleCompareDevice;
-  unsigned cycleCompareThreshold = 10; // percent
+
+  boost::optional<unsigned> operandOffset;
+  MiscOptions options;
 
   // clang-format off
   const static std::string description =
@@ -862,69 +928,54 @@ int main(int argc, char **argv) {
 
   po::options_description poDesc(description);
 
+  // Get a string with all vertices names, comma separated
+  std::string allVerticesStr;
+  for (auto &n : verticesNames)
+    allVerticesStr += (allVerticesStr.empty()? "" : ", ") + n;
+
   poDesc.add_options()
-    ("help", "Print help")
-    ("device-type",
-     po::value<DeviceType>(&deviceType)->default_value(DeviceType::Sim2),
-     "Device type")
     ("vertex",
      po::value<std::vector<std::string>>(&vertices)->multitoken(),
-     ("Vertices to test, one or more of: " + allVerticesStr()).c_str())
+     ("Vertices to test, one or more of: " + allVerticesStr).c_str())
     ("vertexRE",
      po::value<std::string>(&vertexRE),
      "Regular expression to specify vertex names (alternative to --vertex)")
     ("operation",
      po::value<std::vector<std::string>>(&operationStr)->multitoken(),
      ("Operation(s) to perform, one or more of: " + allOpsStr()).c_str())
-    ("data-type",
-     po::value<std::vector<Type>>(&dataTypes)->multitoken(),
-     "Data type: one or more of half, float, int, uint, short, ushort, bool")
     ("size",
-     po::value<std::vector<unsigned>>(&sizes.rowSizes)->multitoken(),
+     po::value<std::vector<SizeDesc>>(&sizes)->multitoken(),
      "Size(s) for rows of first operand. Single value for a 1D vertex, "
      "multiple values for a 2D vertex")
     ("size2",
-     po::value<std::vector<unsigned>>(&sizes.op2RowSizes)->multitoken(),
+     po::value<std::vector<SizeDesc>>(&sizes2)->multitoken(),
      "Size(s) for rows of seconds operand. Single or multiple values depending "
      "on vertex variant")
-    ("rows",
-     po::value<unsigned>(&sizes.rows)->default_value(sizes.rows),
-     "Only for VectorOuter vertices: number of rows")
-    ("columns",
-     po::value<unsigned>(&sizes.columns)->default_value(sizes.columns),
-     "Only for VectorOuter vertices: number of columns")
-    ("compare-cycles",
-     po::value<boost::optional<std::string>>(&cycleCompareDevice)->
-                                         implicit_value(std::string("default")),
-     "For each specified vertex, compare the cycles reported by the device ("
-     "--device-type option) and another device specified by this option")
-    ("cycle-threshold",
-     po::value<unsigned>(&cycleCompareThreshold)->
-                                          default_value(cycleCompareThreshold),
-     "Percent threshold when running the --compare-cycle option. An (absolute) "
-     "cycle difference greater than this threshold will make the test fail.")
-    ("report",
-     po::value<bool>(&doReport)->implicit_value(true),
-     "Provide a poplar report")
-    ("options-file",
-     po::value<std::string>(),
-     "A file containing options, with the same syntax as the command line; "
-     "can be also specified with '@options_file_name'")
-    ("random-seed",
-     po::value<unsigned>(&randomSeed)->implicit_value(randomSeed),
-     "Seed for random data. Value of 0 means 'no random data'")
-    ("ignore-data",
-     po::value<bool>(&ignoreData)->implicit_value(true),
-     "Do not check correctness of result, useful for benchmarking without "
-     "overhead of host-side computation")
+    ("allow-misaligned",
+     po::value<std::vector<bool>>(&allowMisaligned)->multitoken(),
+     "For VectorOuter vertices only, value(s) for the 'allowMisaligned "
+     "template parameters")
+    ("offset-operands",
+     po::value<boost::optional<unsigned>>(&operandOffset)->implicit_value(0),
+     "The 2nd operand will be placed in memory so that its start is at the "
+     "specified number of bytes from the start of the 1st operand. If 0, the "
+     "two operands will be allocated back-to-back. If not present, placement "
+     "in memory will be left to poplar")
     ;
   // clang-format on
+  addCommonOptions(poDesc, deviceType, cycleCompareDevice, dataTypes,
+                   groupTests, options);
+
   parseOptions(argc, argv, poDesc);
 
   // === Some parameter checks
   if (!vertexRE.empty() && !vertices.empty()) {
     throw std::runtime_error(
         "Cannot specify both --vertexRE and --vertex option");
+  }
+  if (cycleCompareDevice && (groupTests > 1)) {
+    std::cout << "When running with --compare-cycle option, the --group-tests "
+                 "option is ignored\n";
   }
 
   // === If no vertices specified, test 'em all
@@ -947,62 +998,66 @@ int main(int argc, char **argv) {
     dataTypes = {HALF, FLOAT, INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT, BOOL};
   }
 
-  std::regex vertexRegEx(vertexRE);
-
-  // If we are comparing cycles, create an array with the 2 devices. If the
-  // specific type of device to compare was unspecified ("default") we try to
-  // match Sim1 with IpuModel1 or Sim2 with IpuModel2, otherwise we just use
-  // the specified device.
-  std::array<DeviceType, 2> devPair;
-  if (cycleCompareDevice) {
-    std::optional<DeviceType> compDev;
-    if (*cycleCompareDevice == "default") {
-      if (deviceType == DeviceType::Sim1) {
-        compDev = DeviceType::IpuModel1;
-      } else if (deviceType == DeviceType::Sim2) {
-        compDev = DeviceType::IpuModel2;
-      }
-    }
-    if (!compDev) {
-      std::istringstream is(*cycleCompareDevice);
-      is >> *compDev;
-    }
-    devPair = {deviceType, *compDev};
+  // === If allowMisaligned not specified, test both (only for VectorOuter)
+  if (allowMisaligned.empty()) {
+    allowMisaligned = {false, true};
   }
 
+  std::regex vertexRegEx(vertexRE);
+
+  // If we are comparing cycles, we need a vector with the 2 devices to compare
+  std::vector<DeviceType> devices = {deviceType};
+  if (cycleCompareDevice) {
+    devices.push_back(getCycleCompareDevice(deviceType, *cycleCompareDevice));
+  }
+
+  std::optional<std::vector<std::shared_ptr<TestRecord>>> tests;
+  if (!cycleCompareDevice && groupTests > 1) {
+    tests.emplace();
+  }
+  unsigned numTests = 0;
+  unsigned errCount = 0;
+  unsigned nSizes = sizes.size();
+  unsigned nSizes2 = sizes2.size();
   // Loop over all vertices, operations, data types
-  bool allOk = true;
-  unsigned count = 0, errCount = 0;
-  std::optional<uint64_t> cycles =
-      std::nullopt; // not interested in cycles here
   for (std::string vertexName : vertices) {
     // If a regex was specified, see if it matches
     if (vertexRE.empty() || std::regex_search(vertexName, vertexRegEx)) {
-      VertexDesc vertex(vertexName);
       for (auto op : operations) {
         for (auto type : dataTypes) {
-          if (isValidCombination(vertex, op, type)) {
-            bool ok = cycleCompareDevice
-                          ? compareCycles(devPair, vertex, op, type, sizes,
-                                          randomSeed, cycleCompareThreshold)
-                          : doVertexTest(deviceType, vertex, op, type, sizes,
-                                         randomSeed, true, ignoreData, doReport,
-                                         cycles);
-            allOk = allOk & ok;
-            count++;
-            errCount += ok ? 0 : 1;
+          for (unsigned i = 0; i < nSizes; i++) {
+            // For VectorOuter we have to select the right 'allowMisaligned'
+            // template parameter value(s) (false, true or both). If not
+            // VectorOuter, we just ignore it (set it to 'nullopt')
+            std::vector<std::optional<bool>> misalignedList;
+            if (VertexDesc::vertexIsVectorOuter(vertexName)) {
+              for (auto m : allowMisaligned)
+                misalignedList.push_back(m);
+            } else {
+              misalignedList.push_back(std::nullopt);
+            }
+            for (auto &misaligned : misalignedList) {
+              auto vertex = std::make_unique<VertexDesc>(vertexName, op, type,
+                                                         misaligned);
+              if (isValidCombination(*vertex)) {
+                numTests++;
+                std::optional<SizeDesc> sz2;
+                if (i < nSizes2) {
+                  sz2 = sizes2[i];
+                }
+                auto testRec = std::make_shared<TestRecord>(
+                    std::move(vertex), numTests,
+                    TensorSizes(*vertex, sizes[i], sz2), operandOffset);
+                addOneTest<TestRecord, VertexDesc>(tests, testRec, devices,
+                                                   errCount, options);
+              }
+            }
           }
         }
       }
     }
   }
-  if (count == 0) {
-    throw std::runtime_error("The specified vertex, operand(s) and data "
-                             "type(s) do not match any valid combination");
-  } else if (count > 1) {
-    std::cout << "UnaryCodeletsTest: " << count << " tests run in total; "
-              << ((errCount == 0) ? "All passed"
-                                  : to_string(errCount) + " failed");
-  }
-  return allOk ? 0 : 1; // returning 1 means an error.
+  runAllTests<TestRecord>(tests, numTests, groupTests, deviceType, errCount,
+                          options);
+  return (errCount == 0) ? 0 : 1; // returning 1 means an error.
 }

@@ -97,7 +97,7 @@ void setAllOps(std::vector<UnaryOpType> &ops) {
   }
 }
 
-// Returns a string with allUnaryOpType operations, comma separated. Used for
+// Returns a string with all UnaryOpType operations, comma separated. Used for
 // the help message
 const std::string allOpsStr() {
   std::vector<std::string> ops;
@@ -249,8 +249,8 @@ void performOp(UnaryOpType op, T a, unsigned char &result) {
   if constexpr (std::is_floating_point<T>::value) {
     ONE_OP(IS_FINITE, std::isfinite(a))
     ONE_OP(IS_INF, std::isinf(a))
+    ONE_OP(IS_NAN, a != a)
   }
-  ONE_OP(IS_NAN, a != a)
   ONE_OP(LOGICAL_NOT, !a);
   throw std::logic_error(std::to_string(unsigned(op)) +
                          " is not a boolean operator");
@@ -399,6 +399,9 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
       if (unaryOp == UnaryOpType::TAN) {
         min = -1.2;
         max = 1.2;
+      } else if (unaryOp == UnaryOpType::SIN || unaryOp == UnaryOpType::COS) {
+        min = -M_PI;
+        max = M_PI;
       } else if (unaryOp == UnaryOpType::TANH) {
         min = (dataType == FLOAT) ? 0.02 : -20.0;
         max = (dataType == FLOAT) ? 8 : 20.0;
@@ -423,6 +426,9 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
       } else if (unaryOp == UnaryOpType::ASIN) {
         min = -1;
         max = 1;
+      } else if (unaryOp == UnaryOpType::SQUARE) {
+        if (dataType == HALF)
+          min = 0.01;
       }
     } else {
       // Non floating point case (INT, UNSIGNED, BOOL).
@@ -500,15 +506,5 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
   SELECT_BY_SRC_TYPE(CHAR, char)                                               \
   SELECT_BY_SRC_TYPE(SIGNED_CHAR, signed char)                                 \
   SELECT_BY_SRC_TYPE(UNSIGNED_CHAR, unsigned char)
-
-// Just a way to have a common message when none of the above SELECT_ONE
-// matches, for all different places that use that macro.
-class invalid_types : public std::runtime_error {
-public:
-  invalid_types(const Type &src, const Type &dst)
-      : std::runtime_error("Combination of source type (" + src.toString() +
-                           ") and destination type (" + dst.toString() +
-                           ") not supported") {}
-};
 
 #endif // popops_UnaryCodeletsTest_hpp

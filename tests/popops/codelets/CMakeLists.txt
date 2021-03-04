@@ -1,34 +1,228 @@
-# Excercise the "TEST_IPUMODEL" option to force IpuModel, IpuModel2 tests
+#-----------------------------------------------------------------------------
+# Unary/BinaryOp, BroadcastScalar, BroadcastVectorInner, BroadcastVectorOuter:
 
-add_multi_target_test_executable(BroadcastOpTest BroadcastOpTest.cpp)
-add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_b_length_small"
-  COMMAND BroadcastOpTest
-    --data-type half
-    --rows=80
-    --columns=8
-    --operation=ADD
-    --supervisor=true
-    --b-length=2
-    --in-place=true
-    LABELS codelet
-    TEST_IPUMODEL "true")
+# Test executables for all UnaryOp, BinaryOp, BroadcastScalar,
+# BroadcastVectorInner and BroadcastVectorOuter vertices.
+add_multi_target_test_executable(UnaryCodeletsTest UnaryCodeletsTest.cpp)
+add_multi_target_test_executable(BinaryCodeletsTest BinaryCodeletsTest.cpp)
 
-# Excercise the "TEST_IPUMODEL" option to force IpuModel, IpuModel2 tests
+# Basic test to verify that all expected vertices are instantiated, using the
+# smallest possible data sizes. This is done for IpuModelX as well.
+add_multitarget_test(NAME "UnaryOpCodeletsTests_all"
+                     COMMAND UnaryCodeletsTest
+                             --group-tests
+                             --size 1
+                             --disable-fp-exceptions true
+                     LABELS codelet
+                     TEST_IPUMODEL "true")
+add_multitarget_test(NAME "BinaryOpCodeletsTests_all"
+                     COMMAND BinaryCodeletsTest
+                             --group-tests
+                             --size 1
+                     LABELS codelet
+                     TEST_IPUMODEL "true")
 
-add_unit_test(AddToChannel
-              AddToChannel.cpp
-              LABELS codelet
-              TEST_IPUMODEL "true")
+# Run some tests with big sizes, only on IpuModels
+add_multitarget_test(NAME "UnaryOpCodeletsTests_NoSim"
+                     COMMAND UnaryCodeletsTest
+                             --group-tests
+                             --size 480 168 24565 8176 8208
+                             --disable-fp-exceptions true
+                     LABELS codelet
+                     VARIANTS IpuModel1 IpuModel2)
+add_multitarget_test(NAME "BinaryOpCodeletsTests_NoSim"
+                     COMMAND BinaryCodeletsTest
+                             --group-tests
+                             --size 480 168 24565 8176 8192
+                             --size2  8   8     1 2044 2048
+                     LABELS codelet
+                     VARIANTS IpuModel1 IpuModel2)
 
-add_unit_test(AddToChannel2D
-              AddToChannel2D.cpp
-              LABELS codelet)
-add_unit_test(ChannelMul
-              ChannelMul.cpp
-              LABELS codelet)
-add_unit_test(ChannelMul2D
-              ChannelMul2D.cpp
-              LABELS codelet)
+# The operations below (trigonometric, power, remainder and integer division),
+# implemented with a software library, are extremely slow on the Sim devices, so
+# we test them separately, with fewer elements.
+# Also, because the vertices themselves are implemented in C++, they should need
+# less testing on various different sizes for the inputs
+add_multitarget_test(NAME "UnaryOpCodeletsTests_slow"
+                     COMMAND UnaryCodeletsTest
+                             --operation ASIN COS SIN TAN
+                             --size [5,2,25]
+                             --group-tests
+                     LABELS codelet)
+add_multitarget_test(NAME "BinaryOpCodeletsTests_slow_floating_point"
+                     COMMAND BinaryCodeletsTest
+                             --operation ATAN2 POWER REMAINDER
+                             --size [5,2,25]
+                             --group-tests
+                     LABELS codelet)
+add_multitarget_test(NAME "BinaryOpCodeletsTests_slow_integer"
+                     COMMAND BinaryCodeletsTest
+                             --operation DIVIDE
+                             --data-type int uint
+                             --size [5,2,25]
+                             --group-tests
+                     LABELS codelet)
+
+# Main function to test the majority of vertices. Called specifying "Supervisor"
+# or "2D" and different sizes for the operands
+#   TEST_TAG  Just a tag to distinguish various invocation of this function
+#   TYPE      Will be "Supervisor" or "2D"
+#   SIZE      Specify the operand sizes, passed to the test executables.
+#             Look at their help to understand the details of the specification
+#             of sizes for the various vertices.
+#
+# Note that where --data-type option is NOT specified in a command, the test is
+# run for all valid data types for the specified operator(s).
+function(test_elementwise TEST_TAG TYPE SIZE)
+  add_multitarget_test(NAME "UnaryOpCodeletsTests_${TEST_TAG}"
+                       COMMAND UnaryCodeletsTest
+                               --vertexRE ${TYPE}
+                               --operation ABSOLUTE BITWISE_NOT CEIL
+                                           COUNT_LEADING_ZEROS EXPONENT
+                                           EXPONENT_MINUS_ONE FLOOR INVERSE
+                                           IS_NAN LOGARITHM LOGARITHM_ONE_PLUS
+                                           LOGICAL_NOT NEGATE POPCOUNT RELU
+                                           SIGNUM TANH ROUND SQRT SQUARE SIGMOID
+                                           RSQRT
+                               --size ${SIZE}
+                               --group-tests
+                       LABELS codelet)
+
+  add_multitarget_test(NAME "BinaryOpCodeletsTests_${TEST_TAG}"
+                       COMMAND BinaryCodeletsTest
+                               --vertexRE ${TYPE}
+                               --operation ADD BITWISE_AND BITWISE_OR
+                                           BITWISE_XOR BITWISE_XNOR EQUAL
+                                           GREATER_THAN_EQUAL GREATER_THAN
+                                           INV_STD_DEV_TO_VARIANCE
+                                           LESS_THAN_EQUAL LOGICAL_AND LOGICAL_OR
+                                           LESS_THAN MAXIMUM MINIMUM MULTIPLY
+                                           NOT_EQUAL SHIFT_LEFT SHIFT_RIGHT
+                                           SHIFT_RIGHT_SIGN_EXTEND SUBTRACT
+                                           VARIANCE_TO_INV_STD_DEV
+                               --size ${SIZE}
+                               --group-tests
+                       LABELS codelet)
+endfunction()
+
+# Run ALL the Supervisor elementwise test with various sizes of the operands
+# We call test_elementwise multiple times to avoid taking too long and
+# timing out.
+# Note that the strings with semicolons are part of CMake syntax for function
+# parameters, so that inside the function they are space-separated lists, while
+# the comma-separated, square-bracket arrays are passed directly to the test
+# executables
+test_elementwise(S1  Supervisor   "2;3;4;8")
+test_elementwise(S2  Supervisor   "12;16;24")
+test_elementwise(S3  Supervisor   "25;26;27")
+test_elementwise(S4  Supervisor   "28;44;50")
+# Run ALL the 2D elementwise test once with a 2D vectors containing many
+# different sizes.
+test_elementwise(2D_1 2D "[1,2,3,4,8,9,12,22,24]"  1)
+test_elementwise(2D_2 2D "[25,26,27,28]"  1)
+
+# These two operations will generate FP exceptions in debug builds
+add_multitarget_test(NAME "UnaryOpCodeletsTests_no_fp_except"
+                      COMMAND UnaryCodeletsTest
+                              --operation IS_FINITE IS_INF
+                              --disable-fp-exceptions true
+                              --size "2;3;4;8;12;16;24;25;26;27;28;44;50"
+                              --group-tests
+                      LABELS codelet)
+
+# DIVIDE is handled separately here for half and float because for int, uint
+# it is handled in the "BinaryOpCodeletsTests_slow_integer" test outside of
+# this function.
+add_multitarget_test(NAME "BinaryOpCodeletsTests_div_float"
+COMMAND BinaryCodeletsTest
+        --operation DIVIDE
+        --data-type half float
+        --size 2 3 4 5 6 8 9 24 25 26 27 28
+        --group-tests
+LABELS codelet)
+
+# Vector Inner vertices are exercised with these sizes as well
+add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorInner"
+COMMAND BinaryCodeletsTest
+        --vertexRE VectorInner
+        --size   8 16 32 15  [15,12,32,15]
+        --size2  1  4  8  5      [1,4,8,5]
+        --group-tests
+LABELS codelet)
+
+# Vector Outer vertices are exercised with these sizes as well.
+# When 'allowMisaligned' is false, the rows must be a multiple of atom size
+add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorOuter_misalign"
+COMMAND BinaryCodeletsTest
+        --vertexRE VectorOuter
+        --allow-misaligned true
+        --size  1x4 1x5 1x20 1x28 3x4 3x5 3x20 3x28 8x4 8x5 8x20 8x28 3x9 4x8 80x8 80x11 80x32 80x33 80x8 80x11 80x32 80x33
+        --size2   7   7    7   7    7   7    7    7   7   7    7    7   3   4    7     7     7     7    2     2     2     2
+        --group-test
+LABELS codelet)
+
+add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorOuter_align"
+COMMAND BinaryCodeletsTest
+        --vertexRE VectorOuter
+        --allow-misaligned false
+        --size  1x4 1x20 1x28 3x4 3x20 3x28 8x4 8x20 8x28 4x8 80x8 80x11 80x32 80x8 80x32
+        --size2   7    7   7    7    7    7   7    7    7   4    7     7     7    2     2
+        --group-test
+LABELS codelet)
+
+
+# Some Binary/Broadcast codelets use different code paths depending if the two
+# operands are located close to each other or 32 Kbytes (and a bit) away in
+# memory.
+function(runFastSlowPathBinaryTests TEST_TAG OPS DATA_TYPES)
+  foreach(OFFS 0 32824)
+    add_multitarget_test(NAME "BinaryOpCodeletsTests_${TEST_TAG}_offset_${OFFS}"
+                         COMMAND BinaryCodeletsTest
+                                 --vertexRE BinaryOp|BroadcastScalar
+                                 --operation ${OPS}
+                                 --data-type ${DATA_TYPES}
+                                 --offset-operands ${OFFS}
+                                 --size [511,511]
+                                 --group-tests
+                         LABELS codelet)
+  endforeach()
+endfunction()
+runFastSlowPathBinaryTests(float "ADD;SUBTRACT;MULTIPLY" "float;half")
+runFastSlowPathBinaryTests(short "BITWISE_AND;BITWISE_OR" "short;ushort")
+#-----------------------------------------------------------------------------
+
+
+# Test cycle counters for a subset of Unary and Binary operators/types. These
+# combinations are run by C++ vertices, and the compiler generates RPT loops
+# for them. This test verifies if this is the case by checking that the cycles
+# taken when run by Sim are the same as the cycle estimators. For details of
+# the test, see the --compare-cycles option of UnaryCodeletsTest/
+# BinaryCodeletsTest
+# Note how ${CMD} is run wrapped by a python script instead of being called
+# directly. Read the description in the script for details.
+find_package(Python3 3.6 REQUIRED COMPONENTS Interpreter)
+function(runRptLoopCycleTest TEST_TAG CMD VERTEX OPS DATA_TYPES)
+  add_multitarget_test(
+    NAME "RptLoopCycleTest_${TEST_TAG}"
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/runRptLoopTest.py
+            ./${CMD}
+            --vertex ${VERTEX}
+            --operation ${OPS}
+            --data-type ${DATA_TYPES}
+            --size 1800
+            --compare-cycles
+            --cycle-threshold 3
+    VARIANTS Sim1 Sim2)
+endfunction()
+runRptLoopCycleTest("unary_float" UnaryCodeletsTest "UnaryOp1DSupervisor"
+                    "inverse;rsqrt;sqrt" float)
+runRptLoopCycleTest("unary_float_half" UnaryCodeletsTest "UnaryOp1DSupervisor"
+                    "exponent;logarithm;negate;square" "float;half")
+runRptLoopCycleTest("binary_float_half" BinaryCodeletsTest "BinaryOp1DSupervisor"
+                    "maximum;minimum" "float;half")
+
+
+
 add_unit_test(ScaledAdd2D_fp
               ScaledAdd2D_fp.cpp
               SUITES ScaledAdd2DHalfConst ScaledAdd2DHalfTensor ScaledSubtract2DHalfTensor
@@ -502,334 +696,6 @@ add_multitarget_test(NAME ${VARIANT_NAME}
                       --k=150
                       --activation-type=float
                       LABELS codelet)
-
-#Binary / Unary Operations
-add_multi_target_test_executable(StdOpTest StdOpTest.cpp)
-  foreach(ROWS 1 2 )
-    foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
-      foreach(TYPE half float int unsigned)
-        foreach(IN_PLACE 0 1)
-          if("${TYPE}" STREQUAL "int")
-            set(OPERATIONS NEGATE ADD SIGNUM GREATER_THAN)
-          elseif("${TYPE}" STREQUAL "unsigned")
-            set(OPERATIONS GREATER_THAN MULTIPLY SQUARE)
-          else()
-            set(OPERATIONS NEGATE ADD SIGNUM GREATER_THAN TAN IS_FINITE IS_INF IS_NAN INVERSE)
-          endif()
-          foreach(OPERATION ${OPERATIONS})
-            set(TEST_OK 1)
-            if(IN_PLACE STREQUAL 1 )
-              if(OPERATION STREQUAL GREATER_THAN)
-                set(TEST_OK 0)
-              endif()
-              if(OPERATION STREQUAL IS_FINITE OR OPERATION STREQUAL IS_INF OR OPERATION STREQUAL IS_NAN)
-                set(TEST_OK 0)
-              endif()
-            endif()
-            if(TEST_OK STREQUAL 1)
-              set(VARIANT_NAME "StdOpTest_${TYPE}_${ROWS}_${COLUMNS}_${IN_PLACE}_${OPERATION}")
-              add_multitarget_test(NAME ${VARIANT_NAME}
-                              COMMAND StdOpTest
-                                  --data-type=${TYPE}
-                                  --rows=${ROWS}
-                                  --columns=${COLUMNS}
-                                  --operation=${OPERATION}
-                                  --in-place=${IN_PLACE}
-                                  LABELS codelet)
-            endif()
-          endforeach()
-        endforeach()
-      endforeach()
-    endforeach()
-  endforeach()
-
-#Verify operation of the binary ops fast path
-foreach(ROWS 1 2)
-  foreach(TYPE half float)
-    foreach(IN_PLACE 0 1)
-      foreach(IN1_OFFSET 0 16416)
-        set(VARIANT_NAME "StdOpTestBinaryFastPath_${ROWS}_${TYPE}_${IN_PLACE}_${IN1_OFFSET}")
-          add_multitarget_test(NAME ${VARIANT_NAME}
-                              COMMAND StdOpTest
-                                --data-type=${TYPE}
-                                --rows=${ROWS}
-                                --columns=511
-                                --operation=SUBTRACT
-                                --in1-offset=${IN1_OFFSET}
-                                --in-place=${IN_PLACE}
-                                LABELS codelet)
-        endforeach()
-      endforeach()
-    endforeach()
-  endforeach()
-
-#Broadcasting Operations
-foreach(ROWS 1 2)
-  foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
-    foreach(TYPE half float)
-      foreach(OPERATION INV_STD_DEV_TO_VARIANCE VARIANCE_TO_INV_STD_DEV)
-        set(VARIANT_NAME "BroadcastOpTest_inplace_${TYPE}_${ROWS}_${COLUMNS}_${OPERATION}")
-        add_multitarget_test(NAME ${VARIANT_NAME}
-            COMMAND BroadcastOpTest
-              --data-type=${TYPE}
-              --rows=${ROWS}
-              --columns=${COLUMNS}
-              --operation=${OPERATION}
-              --in-place=true
-              LABELS codelet)
-      endforeach()
-    endforeach()
-  endforeach()
-endforeach()
-
-foreach(SUPERVISOR true false)
-  foreach(INPLACE true false)
-    foreach(TYPE half float)
-      foreach(OPERATION INV_STD_DEV_TO_VARIANCE VARIANCE_TO_INV_STD_DEV)
-        set(VARIANT_NAME "BroadcastOpTest_checkAllExist${TYPE}_${SUPERVISOR}_${INPLACE}_${OPERATION}")
-        add_multitarget_test(NAME ${VARIANT_NAME}
-            COMMAND BroadcastOpTest
-              --data-type=${TYPE}
-              --rows=2
-              --columns=8
-              --operation=${OPERATION}
-              --in-place=${INPLACE}
-              --supervisor=${SUPERVISOR}
-              LABELS codelet)
-      endforeach()
-    endforeach()
-  endforeach()
-endforeach()
-
-#Verify operation of the broadcast ops fast path
-foreach(ROWS 1 2)
-  foreach(TYPE half float)
-    foreach(IN_PLACE 0 1)
-      foreach(IN1_OFFSET 0 16416)
-        set(VARIANT_NAME "BroadcastTestFastPath_${ROWS}_${TYPE}_${IN_PLACE}_${IN1_OFFSET}")
-        add_multitarget_test(NAME ${VARIANT_NAME}
-          COMMAND BroadcastOpTest
-            --data-type=${TYPE}
-            --rows=${ROWS}
-            --columns=511
-            --operation=SUBTRACT
-            --in1-offset=${IN1_OFFSET}
-            --in-place=${IN_PLACE}
-            LABELS codelet)
-      endforeach()
-    endforeach()
-  endforeach()
-endforeach()
-
-foreach(SUPER 0 1)
-  foreach(TYPE half float)
-    foreach(IN1_OFFSET 0 16416)
-      set(VARIANT_NAME "BroadcastTestFastPathShort_${SUPER}_${TYPE}_${IN1_OFFSET}")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-          COMMAND BroadcastOpTest
-            --data-type=${TYPE}
-            --rows=1
-            --columns=8
-            --operation=MULTIPLY
-            --in1-offset=${IN1_OFFSET}
-            --in-place=0
-            --supervisor=${SUPER}
-            LABELS codelet)
-    endforeach()
-  endforeach()
-endforeach()
-
-#Broadcasting Operations
-foreach(INPLACE true false)
-  foreach(ROWS 1 3 8)
-    foreach(COLUMNS  4 5 20 28)
-      foreach(TYPE float half)
-        foreach(BY_ROW true false)
-          set(VARIANT_NAME "BroadcastOpTest_${TYPE}_${ROWS}_${COLUMNS}_${BY_ROW}_${INPLACE}")
-          add_multitarget_test(NAME ${VARIANT_NAME}
-              COMMAND BroadcastOpTest
-                --b-length=7
-                --data-type=${TYPE}
-                --rows=${ROWS}
-                --columns=${COLUMNS}
-                --supervisor=1
-                --operation=ADD
-                --divide-by-row=${BY_ROW}
-                --in-place=${INPLACE}
-                LABELS codelet)
-        endforeach()
-      endforeach()
-    endforeach()
-  endforeach()
-endforeach()
-
-
-foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
-  foreach(TYPE half float)
-    foreach(OPERATION VARIANCE_TO_INV_STD_DEV INV_STD_DEV_TO_VARIANCE)
-      set(VARIANT_NAME "BroadcastOpTest_scalar_lengths_${TYPE}_${COLUMNS}_${OPERATION}")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-          COMMAND BroadcastOpTest
-            --data-type=${TYPE}
-            --rows=1
-            --b-length=1
-            --columns=${COLUMNS}
-            --operation=${OPERATION}
-            --supervisor=false
-            --in-place=false
-            LABELS codelet)
-    endforeach()
-  endforeach()
-endforeach()
-
-foreach(SUPERVISOR false true)
-  foreach(B_LENGTH 1 3)
-    set(VARIANT_NAME "BroadcastOpTest_${SUPERVISOR}_${B_LENGTH}")
-    add_multitarget_test(NAME ${VARIANT_NAME}
-        COMMAND BroadcastOpTest
-          --data-type=float
-          --rows=3
-          --columns=9
-          --operation=ADD
-          --supervisor=${SUPERVISOR}
-          --b-length=${B_LENGTH}
-          --in-place=false
-          LABELS codelet)
-  endforeach()
-endforeach()
-
-add_multitarget_test(NAME  "BroadcastOpTest_multiply_vector_operand"
-  COMMAND BroadcastOpTest
-    --data-type half
-    --rows=4
-    --columns=8
-    --operation=MULTIPLY
-    --supervisor=false
-    --b-length=4
-    --in-place=true
-    LABELS codelet)
-
-add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_operand"
-  COMMAND BroadcastOpTest
-    --data-type half
-    --rows=4
-    --columns=8
-    --operation=ADD
-    --supervisor=true
-    --b-length=4
-    --in-place=true
-    LABELS codelet)
-
-foreach(B_LENGTH 7 2)
-  foreach(TYPE half float)
-    foreach(COLUMNS 8 11 32 33)
-      add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_${B_LENGTH}_${TYPE}_${COLUMNS}"
-        COMMAND BroadcastOpTest
-          --data-type=${TYPE}
-          --rows=80
-          --columns=${COLUMNS}
-          --operation=ADD
-          --supervisor=true
-          --b-length=${B_LENGTH}
-          --in-place=false
-          LABELS codelet)
-    endforeach()
-  endforeach()
-endforeach()
-
-foreach(SUPER true false)
-  foreach(COLUMNS 1 2 3 4 22 25 )
-    foreach(ROWS 1 2)
-      add_multitarget_test(NAME  "InvStdDevToVarianceTestCasting_${SUPER}_${COLUMNS}_${ROWS}"
-        COMMAND BroadcastOpTest
-          --data-type=half
-          --rows=${ROWS}
-          --columns=${COLUMNS}
-          --operation=INV_STD_DEV_TO_VARIANCE
-          --supervisor=${SUPER}
-          --b-length=1
-          --in-place=false
-          --cast-out=true
-          LABELS codelet)
-    endforeach()
-  endforeach()
-endforeach()
-
-foreach(SUPER true false)
-  foreach(COLUMNS 1 2 3 4 22 25 )
-    foreach(ROWS 1 2)
-      add_multitarget_test(NAME  "VarianceToInvStdDevTestCasting_${SUPER}_${COLUMNS}_${ROWS}"
-        COMMAND BroadcastOpTest
-          --data-type=float
-          --rows=${ROWS}
-          --columns=${COLUMNS}
-          --operation=VARIANCE_TO_INV_STD_DEV
-          --supervisor=${SUPER}
-          --b-length=1
-          --in-place=false
-          --cast-out=true
-          LABELS codelet)
-    endforeach()
-  endforeach()
-endforeach()
-
-add_multi_target_test_executable(UnaryCodeletsTest UnaryCodeletsTest.cpp)
-add_multitarget_test(NAME  "Bitwise16BitUnaryOp"
-        COMMAND UnaryCodeletsTest --data-type short ushort --operation BITWISE_NOT)
-
-# Test all the BroadcastScalar codelets with all possible operations and
-# data types.
-# This is run with 6 different commands to avoid timeouts when running.
-# For details of the possible parameters of 'BinaryCodeletsTest' and usage
-# examples, run it with the --help parameter:
-#   BinaryCodeletsTest --help
-add_multi_target_test_executable(BinaryCodeletsTest BinaryCodeletsTest.cpp)
-add_multitarget_test(NAME  "BroadcastScalar1DSupervisor"
-        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar.*1DSupervisor)
-add_multitarget_test(NAME  "BroadcastScalar1DInPlaceSupervisor"
-        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar.*1DInPlaceSupervisor)
-add_multitarget_test(NAME  "BroadcastScalar2DData"
-        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar.*2DData$)
-add_multitarget_test(NAME  "BroadcastScalar2DDataInPlace"
-        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar.*2DDataInPlace)
-add_multitarget_test(NAME  "BroadcastScalar2D"
-        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar2D$)
-add_multitarget_test(NAME  "BroadcastScalar2DInPlace"
-        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar2DInPlace)
-
-# Test all Binary and BroadcastScalar with short and ushoprt types
-add_multitarget_test(NAME  "ShortBinaryBroadcastOp"
-        COMMAND BinaryCodeletsTest --data-type short ushort)
-
-
-# Test cycle counters for a subset of Unary and Binary operators/types. These
-# combinations are run by C++ vertices, and the compiler generates RPT loops
-# for them. This test verifies if this is the case by checking that the cycles
-# taken when run by Sim are the same as the cycle estimators. For details of
-# the test, see the --compare-cycles option of UnaryCodeletsTest/
-# BinaryCodeletsTest
-# Note how ${CMD} is run wrapped by a python script instead of being called
-# directly. Read the description in the script for details.
-find_package(Python3 3.6 REQUIRED COMPONENTS Interpreter)
-function(runRptLoopCycleTest TEST_TAG CMD VERTEX OPS DATA_TYPES)
-  add_multitarget_test(
-    NAME "RptLoopCycleTest_${TEST_TAG}"
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/runRptLoopTest.py
-            ./${CMD}
-            --vertex ${VERTEX}
-            --operation ${OPS}
-            --data-type ${DATA_TYPES}
-            --size 1800
-            --compare-cycles
-            --cycle-threshold 3
-    VARIANTS Sim1 Sim2)
-endfunction()
-runRptLoopCycleTest("unary_float" UnaryCodeletsTest "UnaryOp1DSupervisor"
-                    "inverse;rsqrt;sqrt" float)
-runRptLoopCycleTest("unary_float_half" UnaryCodeletsTest "UnaryOp1DSupervisor"
-                    "exponent;logarithm;negate;square" "float;half")
-runRptLoopCycleTest("binary_float_half" BinaryCodeletsTest "BinaryOp1DSupervisor"
-                    "maximum;minimum" "float;half")
 
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)

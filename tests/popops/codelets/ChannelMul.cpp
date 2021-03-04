@@ -1,4 +1,8 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+
+// Legacy code to test some BroadcastVectorInner vertices.
+// This code is no longer used.
+
 #define BOOST_TEST_MODULE ChannelMul
 
 #include "../lib/popops/ExprOpUtil.hpp"

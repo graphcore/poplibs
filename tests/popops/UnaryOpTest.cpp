@@ -15,7 +15,6 @@
 #include <popnn/codelets.hpp>
 #include <popops/Cast.hpp>
 #include <popops/codelets.hpp>
-#include <poputil/TileMapping.hpp>
 
 #include "codelets/UnaryCodeletsTest.hpp"
 #include <algorithm>
@@ -44,48 +43,6 @@ std::optional<popnn::NonLinearityType> popnnNLType(UnaryOpType op) {
   default:
     return std::nullopt;
   }
-}
-
-const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
-
-// A descriptor to keep information about which tile to store a slice of
-// a tensor on
-struct MappingDesc {
-  bool isConst = false;
-  unsigned tile;
-  std::vector<size_t> slice;
-};
-
-// This extends to rank 'n' a given tensor shape.
-// Returns a shape having rank 'n', obtained by prepending '1's at the left
-// ('n' must be >= shape.size()).
-// I.e. if shape is {6,1} and 'n' is 4, it returns {1,1,6,1}.
-static std::vector<size_t> extendShape(const std::vector<size_t> &shape,
-                                       unsigned n) {
-  unsigned m = shape.size();
-  assert(n >= m);
-  std::vector<size_t> shapeExt(n, 1);
-  for (unsigned k = 0; k < m; k++) {
-    shapeExt[n - m + k] = shape[k];
-  }
-  return shapeExt;
-}
-
-// Given a linear array 'data' (one of the host buffers) which represent a
-// tensor with specified shape, get the element with indices specified by
-// 'i[]', using broadcasting rules.
-// Basically this returns:  data[ i[0], i[1], ... ].
-template <typename T>
-T get(const T data[], const std::vector<size_t> shape,
-      const std::vector<unsigned> i) {
-  unsigned offs = 0;
-  for (unsigned k = 0; k < i.size(); k++) {
-    // Need to keep into account broadcasting rules: if a certain
-    // dimension is 1, then the corresponding index does not matter (i.e.
-    // the effective index to use is 0)
-    offs = offs * shape[k] + ((shape[k] == 1) ? 0 : i[k]);
-  }
-  return data[offs];
 }
 
 //*************************************************************************
@@ -181,13 +138,6 @@ verifyResult(const DeviceType &deviceType, const Type &dataType,
   return errCount == 0;
 }
 
-// This collects together information about the operand
-struct OperandDescriptor {
-  std::vector<size_t> shape;    // Shape, as defined on command line.
-  std::vector<size_t> shapeExt; // Shape, rank-extended.
-  std::vector<MappingDesc> map; // Indicates where to map this operand
-};
-
 //*************************************************************************
 /// Do a unary operation, where the operand is described by 'desc1'.
 ///
@@ -251,31 +201,9 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
   Graph graph(target);
   popops::addCodelets(graph);
 
-  // Map operands on tiles. First it is mapped linearly on all tiles,
-  // then the mappings specified by --mapX are applied.
-  // Note that each mapping can/will override the previous. This makes easier
-  // to obtain arbitrary mappings.
-  auto mapTensor = [&](const Tensor &t,
-                       const std::vector<MappingDesc> &mapping) {
-    if (mapLinearly || (mapping.size() == 0)) {
-      mapTensorLinearly(graph, t);
-    }
-    for (auto m : mapping) {
-      if (m.slice.size() == 0) {
-        graph.setTileMapping(t, m.tile);
-      } else {
-        std::vector<size_t> ends;
-        for (auto i : m.slice) {
-          ends.push_back(i + 1);
-        }
-        graph.setTileMapping(t.slice(m.slice, ends), m.tile);
-      }
-    }
-  };
-
   std::vector<poplar::Tensor> tensors;
   Tensor in = graph.addVariable(dataType, desc.shape, "in");
-  mapTensor(in, desc.map);
+  mapTensor(graph, in, mapLinearly, desc.map);
 
   // Make a program sequence to run the operation
   Sequence prog;
@@ -341,7 +269,11 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
   }
 
   // Run sequences
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
+  OptionFlags engOpts;
+  if (doReport) {
+    engOpts.set("debug.instrumentCompute", "true");
+  }
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engOpts);
   attachStreams(engine, tmap);
 
   device.bind([&](const Device &d) {
@@ -484,35 +416,4 @@ int main(int argc, char **argv) {
   } // nonzero value = error
   SELECT_BY_TYPES()
   throw invalid_types(dataType, outputType);
-}
-
-// Utility function to read a MappingDesc from a stream
-std::istream &operator>>(std::istream &in, MappingDesc &md) {
-  char c = in.peek();
-  if (c == 'c') {
-    in >> c; // flush the peeked char
-    md.isConst = true;
-  } else {
-    in >> md.tile;
-    in >> c;
-    if (c != ':') {
-      throw std::runtime_error("Invalid shape; expected ':'after tile number'");
-    }
-    ShapeOption<size_t> slice;
-    in >> slice;
-    md.slice = slice.val;
-  }
-  return in;
-}
-
-// Utility function to write a MappingDesc to a stream
-std::ostream &operator<<(std::ostream &os, const MappingDesc &md) {
-  if (md.isConst) {
-    return os << "const";
-  } else {
-    os << md.tile << ":{";
-    for (auto x : md.slice)
-      os << x << ",";
-    return os << "}";
-  }
 }

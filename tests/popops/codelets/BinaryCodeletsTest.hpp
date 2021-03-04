@@ -259,8 +259,12 @@ bool equalValues(const bool isIpuModel, const BinaryOpType op,
 
       tolerance = 0.003;
 
-      if (op == BinaryOpType::DIVIDE && expected < 1e-4) {
-        tolerance = 0.01;
+      if (op == BinaryOpType::DIVIDE || op == BinaryOpType::ATAN2) {
+        if (std::abs(expected) < 1e-5) {
+          tolerance = 0.02;
+        } else if (std::abs(expected) < 1e-4) {
+          tolerance = 0.01;
+        }
       } else if (op == BinaryOpType::POWER) {
         // POWER in half is not very precise
         tolerance = 0.012;
@@ -290,10 +294,10 @@ bool equalValues(const bool isIpuModel, const BinaryOpType op,
 //*************************************************************************
 /// Fills the host buffers with values appropriate to the data type and the
 /// operation being performed.
-template <typename HOST_DATA_TYPE>
+template <typename HostDataType>
 void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
-                     std::vector<HOST_DATA_TYPE> &buf1,
-                     std::vector<HOST_DATA_TYPE> &buf2) {
+                     std::vector<HostDataType> &buf1,
+                     std::vector<HostDataType> &buf2) {
   bool nonZero = false;
 
   // Using a specific random generator means that we get the same random values
@@ -304,13 +308,13 @@ void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
 
   // For integer types we generate values in the closed interval [min, max]
   // For floating point types we generate values in the open interval [min, max)
-  HOST_DATA_TYPE min1 = 0, max1 = 0;
-  HOST_DATA_TYPE min2 = 0, max2 = 0;
+  HostDataType min1 = 0, max1 = 0;
+  HostDataType min2 = 0, max2 = 0;
 
-  if constexpr (std::is_floating_point<HOST_DATA_TYPE>::value) {
+  if constexpr (std::is_floating_point<HostDataType>::value) {
 
     // For floating point, we limit the range
-    HOST_DATA_TYPE absMax;
+    HostDataType absMax;
     absMax = (dataType == HALF) ? 200.0 : 32000.0;
     min1 = min2 = -absMax;
     max1 = max2 = absMax;
@@ -332,10 +336,13 @@ void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
       } else if (op == BinaryOpType::SUBTRACT) {
         min1 = max2 = 0;
       } else if (op == BinaryOpType::DIVIDE) {
+        min1 = 0.01;
         // In case of HALF,DIVIDE we must avoid overflow, so we choose a
         // limited range for the divisor
         min2 = 0.7;
         max2 = 600;
+      } else if (op == BinaryOpType::ATAN2) {
+        min1 = 0.01;
       }
     }
 
@@ -346,8 +353,8 @@ void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
     }
   } else {
     // Non floating point case (INT, UNSIGNED)./ For BOOL these are ignored
-    min1 = min2 = std::numeric_limits<HOST_DATA_TYPE>::min();
-    max1 = max2 = std::numeric_limits<HOST_DATA_TYPE>::max();
+    min1 = min2 = std::numeric_limits<HostDataType>::min();
+    max1 = max2 = std::numeric_limits<HostDataType>::max();
   }
 
   // Shifting more than 31 can give different results on different platforms
@@ -360,8 +367,8 @@ void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
   // If we are dealing with integer divide, we limit the size of the second
   // operand, just to avoid having a lot of zeros in the results (note that this
   // influences heavily the timing!)
-  if (std::is_same<HOST_DATA_TYPE, int>::value ||
-      std::is_same<HOST_DATA_TYPE, unsigned>::value) {
+  if (std::is_same<HostDataType, int>::value ||
+      std::is_same<HostDataType, unsigned>::value) {
     if (op == BinaryOpType::DIVIDE || op == BinaryOpType::REMAINDER) {
       min2 = (dataType == UNSIGNED_INT) ? 0 : -32767;
       max2 = 32767;

@@ -11,7 +11,6 @@
 #include "../lib/popops/ExprOpUtil.hpp"
 #include <poplibs_test/Util.hpp>
 #include <popops/codelets.hpp>
-#include <poputil/TileMapping.hpp>
 
 #include <boost/format.hpp>
 
@@ -28,46 +27,6 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 
-// A descriptor to keep information about which tile to store a slice of
-// a tensor on
-struct MappingDesc {
-  bool isConst = false;
-  unsigned tile;
-  std::vector<size_t> slice;
-};
-
-// This extends to rank 'n' a given tensor shape.
-// Returns a shape having rank 'n', obtained by prepending '1's at the left
-// ('n' must be >= shape.size()).
-// I.e. if shape is {6,1} and 'n' is 4, it returns {1,1,6,1}.
-static std::vector<size_t> extendShape(const std::vector<size_t> &shape,
-                                       unsigned n) {
-  unsigned m = shape.size();
-  assert(n >= m);
-  std::vector<size_t> shapeExt(n, 1);
-  for (unsigned k = 0; k < m; k++) {
-    shapeExt[n - m + k] = shape[k];
-  }
-  return shapeExt;
-}
-
-// Given a linear array 'data' (one of the host buffers) which represent a
-// tensor with specified shape, get the element with indices specified by
-// 'i[]', using broadcasting rules.
-// Basically this returns:  data[ i[0], i[1], ... ].
-template <typename T>
-T get(const T data[], const std::vector<size_t> shape,
-      const std::vector<unsigned> i) {
-  unsigned offs = 0;
-  for (unsigned k = 0; k < i.size(); k++) {
-    // Need to keep into account broadcasting rules: if a certain
-    // dimension is 1, then the corresponding index does not matter (i.e.
-    // the effective index to use is 0)
-    offs = offs * shape[k] + ((shape[k] == 1) ? 0 : i[k]);
-  }
-  return data[offs];
-}
-
 //*************************************************************************
 /// Verifies if the results of the operation performed on the device match
 /// with the one the host
@@ -80,13 +39,13 @@ T get(const T data[], const std::vector<size_t> shape,
 /// \param outHost, outShape   Data (and shape) for result, obtained from
 ///                            device and converted to host types.
 /// \param operation           Operation performed on device.
-template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
+template <typename HostDataType, typename HostOutType>
 static bool verifyResult(const bool isIpuModel, const Type &dataType,
-                         const std::vector<HOST_DATA_TYPE> &in1Host,
+                         const std::vector<HostDataType> &in1Host,
                          const std::vector<size_t> &shape1Ext,
-                         const std::vector<HOST_DATA_TYPE> &in2Host,
+                         const std::vector<HostDataType> &in2Host,
                          const std::vector<size_t> &shape2Ext,
-                         const std::vector<HOST_OUT_TYPE> &outHost,
+                         const std::vector<HostOutType> &outHost,
                          const std::vector<size_t> &shapeOut,
                          const BinaryOpType op) {
   unsigned errCount = 0; // how many mismatched elements we find
@@ -110,12 +69,12 @@ static bool verifyResult(const bool isIpuModel, const Type &dataType,
         //                in1[ i[0], i[1],... ] *OP*  in2[ i[0], i[1],... ]
         // and compare with the actual value from the device
 
-        HOST_OUT_TYPE actual = get(outHost.data(), shapeOut, i); // from device
+        HostOutType actual = get(outHost.data(), shapeOut, i); // from device
 
-        HOST_DATA_TYPE val1 = get(in1Host.data(), shape1Ext, i);
-        HOST_DATA_TYPE val2 = get(in2Host.data(), shape2Ext, i);
+        HostDataType val1 = get(in1Host.data(), shape1Ext, i);
+        HostDataType val2 = get(in2Host.data(), shape2Ext, i);
 
-        HOST_OUT_TYPE expected = 0;
+        HostOutType expected = 0;
 
         performOp(op, val1, val2, expected);
 
@@ -142,13 +101,6 @@ static bool verifyResult(const bool isIpuModel, const Type &dataType,
   return errCount == 0;
 }
 
-// This collects together information about each one of the two operands
-struct OperandDescriptor {
-  std::vector<size_t> shape;    // Shape, as defined on command line.
-  std::vector<size_t> shapeExt; // Shape, rank-extended.
-  std::vector<MappingDesc> map; // Indicates where to map this operand
-};
-
 //*************************************************************************
 /// Do a binary operation, where the two operands are described by 'desc1' and
 /// 'desc2'. The shape that the output will have has already been computed
@@ -169,7 +121,7 @@ struct OperandDescriptor {
 /// \param doPrintTensors        Print the tensors (for verification).
 /// \param ignoreData            Do not verify results.
 /// \param enableOptimisations   Enable broadcasted vector op optimisations.
-template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
+template <typename HostDataType, typename HostOutType>
 static bool doBinaryOpTest(
     const DeviceType &deviceType, const Type &dataType, const Type &outputType,
     const OperandDescriptor &desc1, const OperandDescriptor &desc2,
@@ -227,8 +179,8 @@ static bool doBinaryOpTest(
                       std::multiplies<std::size_t>());
 
   // Allocate and initialise host buffers with appropriate values.
-  std::vector<HOST_DATA_TYPE> in1Host(nElems1);
-  std::vector<HOST_DATA_TYPE> in2Host(nElems2);
+  std::vector<HostDataType> in1Host(nElems1);
+  std::vector<HostDataType> in2Host(nElems2);
   fillHostBuffers(operation, dataType, randomSeed, in1Host, in2Host);
 
   // Create Graph object, target and device
@@ -237,46 +189,24 @@ static bool doBinaryOpTest(
   Graph graph(target);
   popops::addCodelets(graph);
 
-  // Map operands on tiles. First it is mapped linearly on all tiles,
-  // then the mappings specified by --mapX are applied.
-  // Note that each mapping can/will override the previous. This makes easier
-  // to obtain arbitrary mappings.
-  auto mapTensor = [&](const Tensor &t,
-                       const std::vector<MappingDesc> &mapping) {
-    if (mapLinearly || (mapping.size() == 0)) {
-      mapTensorLinearly(graph, t);
-    }
-    for (auto m : mapping) {
-      if (m.slice.size() == 0) {
-        graph.setTileMapping(t, m.tile);
-      } else {
-        std::vector<size_t> ends;
-        for (auto i : m.slice) {
-          ends.push_back(i + 1);
-        }
-        graph.setTileMapping(t.slice(m.slice, ends), m.tile);
-      }
-    }
-  };
-
   Tensor in1, in2;
   std::vector<poplar::Tensor> tensors;
   expr::BinaryOp binOp = [&]() {
     if (in1IsConst) {
       in2 = graph.addVariable(dataType, desc2.shape, "in2");
-      mapTensor(in2, desc2.map);
+      mapTensor(graph, in2, mapLinearly, desc2.map);
       tensors = {in2};
       return expr::BinaryOp(operation, expr::Const(in1Host[0]), expr::_1);
     } else if (in2IsConst) {
       in1 = graph.addVariable(dataType, desc1.shape, "in1");
-      mapTensor(in1, desc1.map);
+      mapTensor(graph, in1, mapLinearly, desc1.map);
       tensors = {in1};
       return expr::BinaryOp(operation, expr::_1, expr::Const(in2Host[0]));
     } else {
       in1 = graph.addVariable(dataType, desc1.shape, "in1");
       in2 = graph.addVariable(dataType, desc2.shape, "in2");
-      mapTensor(in1, desc1.map);
-      mapTensor(in2, desc2.map);
+      mapTensor(graph, in1, mapLinearly, desc1.map);
+      mapTensor(graph, in2, mapLinearly, desc2.map);
       tensors = {in1, in2};
       return expr::BinaryOp(operation, expr::_1, expr::_2);
     }
@@ -318,7 +248,7 @@ static bool doBinaryOpTest(
 
   // Copy and convert the data from the initialised buffers to the transfer
   // buffers (still on host)
-  auto copyBuffer = [&](std::vector<HOST_DATA_TYPE> &buf,
+  auto copyBuffer = [&](std::vector<HostDataType> &buf,
                         std::unique_ptr<char[]> &rawBuf) {
     copy(target, buf.data(), buf.size(), dataType, rawBuf.get());
     // For HALF, we copy and convert back into the (float) host buffers so
@@ -366,9 +296,9 @@ static bool doBinaryOpTest(
     std::cout << "Result not checked for correctness\n";
   } else {
     // Get the result out of the device
-    std::vector<HOST_OUT_TYPE> outHost(nElemsOut);
+    std::vector<HostOutType> outHost(nElemsOut);
     copy(target, outputType, outHostRawPtr, outHost.data(), outHost.size());
-    return verifyResult<HOST_DATA_TYPE, HOST_OUT_TYPE>(
+    return verifyResult<HostDataType, HostOutType>(
         isIpuModel(deviceType), dataType, in1Host, desc1.shapeExt, in2Host,
         desc2.shapeExt, outHost, shapeOut, operation);
   }
@@ -507,7 +437,7 @@ int main(int argc, char **argv) {
 
   Type outputType = isBoolOp(opType) ? BOOL : dataType;
 
-#define DO_TEST(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)            \
+#define SELECT_ONE(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)         \
   if (dataType == DATA_TYPE && outputType == OUT_TYPE) {                       \
     return doBinaryOpTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                      \
                deviceType, dataType, outputType, desc1, desc2, shapeOut,       \
@@ -517,60 +447,22 @@ int main(int argc, char **argv) {
                : 1;                                                            \
   } // nonzero value = error
 
-  // Note that for HALF and FLOAT the host buffers are 'float'
-  DO_TEST(BOOL, BOOL, unsigned char, unsigned char)
-
-  DO_TEST(HALF, HALF, float, float)
-  DO_TEST(HALF, BOOL, float, unsigned char)
-
-  DO_TEST(FLOAT, FLOAT, float, float)
-  DO_TEST(FLOAT, BOOL, float, unsigned char)
-
-  DO_TEST(INT, INT, int, int)
-  DO_TEST(INT, BOOL, int, unsigned char)
-
-  DO_TEST(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
-  DO_TEST(UNSIGNED_INT, BOOL, unsigned, unsigned char)
-
-  DO_TEST(SHORT, BOOL, short, unsigned char)
-  DO_TEST(UNSIGNED_SHORT, BOOL, unsigned short, unsigned char)
-
-  DO_TEST(SHORT, SHORT, short, short)
-  DO_TEST(UNSIGNED_SHORT, UNSIGNED_SHORT, unsigned short, unsigned short)
-
+  SELECT_ONE(BOOL, BOOL, unsigned char, unsigned char)
+  SELECT_ONE(SHORT, BOOL, short, unsigned char)
+  SELECT_ONE(SHORT, SHORT, short, short)
+  SELECT_ONE(UNSIGNED_SHORT, BOOL, unsigned short, unsigned char)
+  SELECT_ONE(UNSIGNED_SHORT, UNSIGNED_SHORT, unsigned short, unsigned short)
+  SELECT_ONE(HALF, BOOL, float, unsigned char)
+  SELECT_ONE(HALF, HALF, float, float)
+  SELECT_ONE(HALF, FLOAT, float, float)
+  SELECT_ONE(FLOAT, BOOL, float, unsigned char)
+  SELECT_ONE(FLOAT, HALF, float, float)
+  SELECT_ONE(FLOAT, FLOAT, float, float)
+  SELECT_ONE(INT, BOOL, int, unsigned char)
+  SELECT_ONE(INT, INT, int, int)
+  SELECT_ONE(UNSIGNED_INT, BOOL, unsigned, unsigned char)
+  SELECT_ONE(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
   // Reaching here means the combination of 'dataType' and 'outputType' was
   // invalid.
-  std::cerr << "Combination of data type and operator not supported\n";
-  return 1;
-}
-
-// Utility function to read a MappingDesc from a stream
-std::istream &operator>>(std::istream &in, MappingDesc &md) {
-  char c = in.peek();
-  if (c == 'c') {
-    in >> c; // flush the peeked char
-    md.isConst = true;
-  } else {
-    in >> md.tile;
-    in >> c;
-    if (c != ':') {
-      throw std::runtime_error("Invalid shape; expected ':'after tile number'");
-    }
-    ShapeOption<size_t> slice;
-    in >> slice;
-    md.slice = slice.val;
-  }
-  return in;
-}
-
-// Utility function to write a MappingDesc to a stream
-std::ostream &operator<<(std::ostream &os, const MappingDesc &md) {
-  if (md.isConst) {
-    return os << "const";
-  } else {
-    os << md.tile << ":{";
-    for (auto x : md.slice)
-      os << x << ",";
-    return os << "}";
-  }
+  throw invalid_types(dataType, outputType);
 }

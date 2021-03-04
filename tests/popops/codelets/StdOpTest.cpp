@@ -1,5 +1,10 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+
+// Legacy code to test some UnaryOp and BinaryOp vertices.
+// This code is no longer used.
+
 #define BOOST_TEST_MODULE StdOpTest
+
 // Test for the elementwise vertex operations.
 // Used to verify aspects of implementation that
 // aren't simply to correctness of arithmetic on a single item. Also
