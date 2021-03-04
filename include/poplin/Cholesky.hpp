@@ -1,7 +1,7 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 /** \file
  *
- * Solving factorize a positive definite matrix using Cholesky factorization.
+ * Factorise a positive definite matrix using Cholesky decomposition.
  *
  */
 
@@ -18,17 +18,23 @@ class PlanningCache;
 }
 
 /**
- * Plan matrix multiplication for the cholesky solver
+ * Plan matrix multiplication for the Cholesky factoriser.
+ *
+ * Supported options:
+ *
+ * * `blockSize`
+ *
+ *   A hint for the size of block to be used.
+ *
+ * See matMul() for additional options.
+ *
  *
  * \param type       The data type of the input tensor.
  * \param shape      The shape of the input tensor.
  * \param lower      Lower triangular matrix if true, else upper triangular.
  * \param options    A structure describing options on how the
  *                   decomposition should be implemented.
- *                   Supported options:
- *                      'blockSize' - blockSize hint
- *                   See matMul() for additional options.
- * \returns          Matmul preplan parameters.
+ * \returns          Preplan parameters for matMul().
  */
 std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
 getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
@@ -36,10 +42,18 @@ getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
                                    bool lower, poplar::OptionFlags options);
 
 /**
- * Create a tensor that is used as the input for the cholesky solver.
+ * Create a tensor that is used as the input for the Cholesky factoriser.
+ *
+ * Supported options:
+ *
+ * * `blockSize`
+ *
+ *   A hint for the size of block to be used.
+ *
+ * See matMul() for additional options.
  *
  * This will create a 2D/3D tensor in the graph. The ordering and tile mapping
- * of the tensor will be set to make a triangular solver with this
+ * of the tensor will be set to make a triangular factoriser with this
  * tensor as the left argument efficient.
  *
  * \param graph           The Poplar graph.
@@ -48,9 +62,6 @@ getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
  * \param debugContext    Debug information.
  * \param options         A structure describing options on how the
  *                        decomposition should be implemented.
- *                        Supported options:
- *                          'blockSize' - blockSize hint
- *                        See matMul() for additional options.
  * \param cache           Optional pointer to a planning cache to use.
  *
  * \returns               A matrix of type \p type and shape \p shape. The
@@ -65,7 +76,15 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
                                    matmul::PlanningCache *cache = nullptr);
 
 /**
- * Computes cholesky factor for a symmetric positive definite matrix.
+ * Computes Cholesky factor for a symmetric positive definite matrix.
+ *
+ * Supported options:
+ *
+ * * `blockSize`
+ *
+ *   A hint for the size of block to be used.
+ *
+ * See matMul() for additional options.
  *
  *  \param graph          The Poplar graph.
  *  \param a              Tensor of floating-point type with shape [..., N,N].
@@ -77,9 +96,6 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
  *  \param debugContext   Optional debug information.
  *  \param options        A structure describing options on how the
  *                        decomposition should be implemented.
- *                        Supported options:
- *                          'blockSize' - blockSize hint
- *                        See matMul() for additional options.
  *  \param cache          Optional pointer to a planning cache to use.
  *  \returns              A tensor with the same shape as \p a with a
  *                        triangular factor.
@@ -91,7 +107,15 @@ poplar::Tensor cholesky(poplar::Graph &graph, const poplar::Tensor &a,
                         matmul::PlanningCache *cache = nullptr);
 
 /**
- * Computes cholesky factor in place for a symmetric positive definite matrix.
+ * Computes Cholesky factor in place for a symmetric positive definite matrix.
+ *
+ * Supported options:
+ *
+ * * `blockSize`
+ *
+ *   A hint for the size of block to be used.
+ *
+ * See matMul() for additional options.
  *
  *  \param graph          The Poplar graph.
  *  \param a              Tensor of floating-point type with shape [..., N,N].
@@ -103,9 +127,6 @@ poplar::Tensor cholesky(poplar::Graph &graph, const poplar::Tensor &a,
  *  \param debugContext   Optional debug information.
  *  \param options        A structure describing options on how the
  *                        decomposition should be implemented.
- *                        Supported options:
- *                          'blockSize' - blockSize hint
- *                        See matMul() for additional options.
  *  \param cache          Optional pointer to a planning cache to use.
  *  \returns              None
  */
