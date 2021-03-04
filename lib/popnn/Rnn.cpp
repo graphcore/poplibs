@@ -753,9 +753,9 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
       if (shard.first()) {
         // Create graphfn::VoidFunction only for the first shard. Reuse
         // this function on subsequent shards.
-        rnnFunc.emplace(std::move(createRnnFunc(
-            stateShard, inputSlices, interimInSlice, interimOutSlice,
-            outputSlice, created, {di, "rnnFunction"})));
+        rnnFunc.emplace(createRnnFunc(stateShard, inputSlices, interimInSlice,
+                                      interimOutSlice, outputSlice, created,
+                                      {di, "rnnFunction"}));
       }
       auto edges = gatherEdges(stateShard, inputSlices, interimInSlice,
                                interimOutSlice, outputSlice, createdSlices);

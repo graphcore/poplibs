@@ -51,7 +51,6 @@ struct GruParams {
   /// weights and biases.
   bool resetAfter = false;
 
-  GruParams() = default;
   GruParams(poplar::Type dataType, std::size_t batchSize, std::size_t timeSteps,
             std::vector<std::size_t> layerSizes);
   GruParams(const GruParams &other);

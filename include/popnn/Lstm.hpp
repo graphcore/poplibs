@@ -54,7 +54,6 @@ struct LstmParams {
   /// [Forget gate, Input gate, Candidate, Output Gate].
   std::vector<BasicLstmCellUnit> cellOrder = getDefaultBasicLstmCellOrder();
 
-  LstmParams() = default;
   LstmParams(poplar::Type dataType, std::size_t batchSize,
              std::size_t timeSteps, std::vector<std::size_t> layerSizes);
 };

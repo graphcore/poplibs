@@ -1346,7 +1346,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
       weights.outputWeights, prog, options, {dnai, "/PreArrangeWeights"},
       cache);
   auto loopBwdWithWU =
-      [&params, &options, &inputGradSeq, &cache, numShards, &weightsRearranged](
+      [&params, &options, &inputGradSeq, &cache, &weightsRearranged](
           LstmWeights &weights, LstmWeights *weightsGrad, Graph &graph,
           const Tensor &shardIdx, const Tensor &seqIdx,
           std::vector<Tensor> &shardState, const std::vector<Tensor> &bwdInput,

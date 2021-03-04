@@ -68,6 +68,8 @@ inline std::istream &operator>>(std::istream &is, API &api) {
   return is;
 }
 
+namespace popops {
+
 inline std::istream &operator>>(std::istream &is, popops::SortOrder &o) {
   std::string token;
   is >> token;
@@ -82,6 +84,8 @@ inline std::istream &operator>>(std::istream &is, popops::SortOrder &o) {
   }
   return is;
 }
+
+} // namespace popops
 
 int main(int argc, char **argv) try {
 

@@ -310,7 +310,7 @@ inline uint64_t alphaFlops(unsigned t, unsigned l, const poplar::Type &type,
   auto flopsLastBlank = poplibs_support::flopsForLogAdd() +
                         poplibs_support::flopsForLogMultiply();
   return poplibs_support::convertToTypeFlops(
-      flopsPerInputElement * t * l + extraBlank ? flopsLastBlank : 0, type);
+      flopsPerInputElement * t * l + (extraBlank ? flopsLastBlank : 0), type);
 }
 
 inline uint64_t betaFlops(unsigned t, unsigned l, const poplar::Type &type,
@@ -324,9 +324,9 @@ inline uint64_t gradGivenAlphaFlops(unsigned t, unsigned l,
                                        poplibs_support::flopsForLogAdd());
   auto gradFlopsLastBlank = 2 * (poplibs_support::flopsForLogAdd() +
                                  poplibs_support::flopsForLogMultiply());
-  auto flops =
-      betaFlops(t, l, type, extraBlank) +
-      (t * l * gradFlopsPerInputElement + extraBlank ? gradFlopsLastBlank : 0);
+  auto flops = betaFlops(t, l, type, extraBlank) +
+               (t * l * gradFlopsPerInputElement +
+                (extraBlank ? gradFlopsLastBlank : 0));
   return poplibs_support::convertToTypeFlops(flops, type);
 }
 

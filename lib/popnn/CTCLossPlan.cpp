@@ -545,7 +545,7 @@ constructModel(popsolver::Model &m, const CtcPlannerParams &params,
 
   auto emptyPartitions = m.call<unsigned>(
       planVariablesArray,
-      [&params, toPlanStruct](const std::vector<unsigned> &values)
+      [toPlanStruct](const std::vector<unsigned> &values)
           -> boost::optional<popsolver::DataType> {
         const Plan::Impl plan = toPlanStruct(values);
         return popsolver::DataType{checkForEmptyPartitions(plan)};
