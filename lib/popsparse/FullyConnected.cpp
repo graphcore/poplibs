@@ -410,10 +410,6 @@ public:
             graph, expr::Sub(endIndicesProductExpr, startingIndexFlatExpr),
             placeholders, progs.back(), {dnai, "totalRemaining"});
       }();
-      Sequence checkTotalRemainingIsNotZero;
-      const auto totalRemainingIsNotZero =
-          popops::neq(graph, totalRemaining, zero, checkTotalRemainingIsNotZero,
-                      {dnai, "totalRemainingIsNotZero"});
 
       progs.emplace_back();
       progs.back().add(prePropagation);
@@ -454,7 +450,6 @@ public:
       popops::subInPlace(graph, totalRemaining,
                          increments[dimsToIterate.back()], progs.back(),
                          {dnai, "decrementTotalRemaining"});
-      progs.back().add(checkTotalRemainingIsNotZero);
       for (auto dimIt = dimsToIterate.rbegin(); dimIt != dimsToIterate.rend();
            ++dimIt) {
         // If this is the outer-most loop, we have extra information that
@@ -521,7 +516,7 @@ public:
 
           auto prog = std::move(progs.back());
           progs.pop_back();
-          progs.back().add(If(totalRemainingIsNotZero, std::move(prog),
+          progs.back().add(If(totalRemaining, std::move(prog),
                               Sequence({}, {dnai}), {dnai}));
         }
 
@@ -530,9 +525,9 @@ public:
 
         Sequence condBody;
         const auto dimIsNotFinished = popops::map(
-            graph, expr::_1 && (expr::_2 < expr::_3),
-            {totalRemainingIsNotZero, indices[*dimIt], endIndices[*dimIt]},
-            condBody, {dnai, "isDim" + dimNames[*dimIt] + "Finished"});
+            graph, (expr::_1 != expr::Const(0)) && (expr::_2 < expr::_3),
+            {totalRemaining, indices[*dimIt], endIndices[*dimIt]}, condBody,
+            {dnai, "isDim" + dimNames[*dimIt] + "Finished"});
         progs.back().add(RepeatWhileTrue(std::move(condBody), dimIsNotFinished,
                                          std::move(prog), {dnai}));
       }
@@ -592,9 +587,8 @@ public:
       {
         auto prog = std::move(progs.back());
         progs.pop_back();
-        progs.back().add(checkTotalRemainingIsNotZero);
-        progs.back().add(If(totalRemainingIsNotZero, std::move(prog),
-                            Sequence({}, {dnai}), {dnai}));
+        progs.back().add(
+            If(totalRemaining, std::move(prog), Sequence({}, {dnai}), {dnai}));
       }
 
       assert(progs.size() == 1);
