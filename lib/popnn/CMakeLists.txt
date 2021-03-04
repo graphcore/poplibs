@@ -13,6 +13,7 @@ add_library(popnn SHARED
   Lstm.cpp
   Rnn.cpp
   Gru.cpp
+  HardSigmoid.cpp
   Norms.cpp
   NormsInternal.cpp
   NormsInternal.hpp

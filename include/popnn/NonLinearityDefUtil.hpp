@@ -15,6 +15,8 @@ inline const char *asString(const popnn::NonLinearityType &type) {
     return "relu";
   case popnn::NonLinearityType::SIGMOID:
     return "sigmoid";
+  case popnn::NonLinearityType::HARD_SIGMOID:
+    return "hard sigmoid";
   case popnn::NonLinearityType::TANH:
     return "tanh";
   case popnn::NonLinearityType::GELU:
@@ -43,6 +45,8 @@ inline std::istream &operator>>(std::istream &in,
     type = popnn::NonLinearityType::RELU;
   else if (token == "sigmoid")
     type = popnn::NonLinearityType::SIGMOID;
+  else if (token == "hard_sigmoid")
+    type = popnn::NonLinearityType::HARD_SIGMOID;
   else if (token == "tanh")
     type = popnn::NonLinearityType::TANH;
   else if (token == "gelu")
@@ -75,6 +79,7 @@ template <> struct VertexTemplateToString<popnn::NonLinearityType> {
       return "popnn::NonLinearityType::TANH";
     case popnn::NonLinearityType::GELU:
       return "popnn::NonLinearityType::GELU";
+    case popnn::NonLinearityType::HARD_SIGMOID:
     case popnn::NonLinearityType::SOFTMAX:
     case popnn::NonLinearityType::SOFTMAX_STABLE:
     case popnn::NonLinearityType::SOFTMAX_SCALED:

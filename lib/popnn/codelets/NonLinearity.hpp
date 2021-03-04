@@ -91,6 +91,7 @@ static float nonlinearity(popnn::NonLinearityType t, float x) {
     return tanh(x);
   case popnn::NonLinearityType::GELU:
     return 0.5f * x * (1 + cdfFactorForNormalDist(x));
+  case popnn::NonLinearityType::HARD_SIGMOID:
   case popnn::NonLinearityType::SOFTMAX:
   case popnn::NonLinearityType::SOFTMAX_STABLE:
   case popnn::NonLinearityType::SOFTMAX_SCALED:
@@ -110,6 +111,7 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
     return tanh_derivative(activation);
   case popnn::NonLinearityType::GELU:
     return gelu_gradient(activation);
+  case popnn::NonLinearityType::HARD_SIGMOID:
   case popnn::NonLinearityType::SOFTMAX:
   case popnn::NonLinearityType::SOFTMAX_STABLE:
   case popnn::NonLinearityType::SOFTMAX_SCALED:

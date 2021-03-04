@@ -55,6 +55,8 @@ const char *asString(const popnn::NonLinearityType &type) {
     return "relu";
   case popnn::NonLinearityType::SIGMOID:
     return "sigmoid";
+  case popnn::NonLinearityType::HARD_SIGMOID:
+    return "hard sigmoid";
   case popnn::NonLinearityType::TANH:
     return "tanh";
   case popnn::NonLinearityType::SOFTMAX:

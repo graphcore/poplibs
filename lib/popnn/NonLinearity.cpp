@@ -1,6 +1,7 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "popnn/NonLinearity.hpp"
 #include "../popops/ExprOpUtil.hpp"
+#include "HardSigmoid.hpp"
 #include "NonLinearityInternal.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/MatMul.hpp"
@@ -26,6 +27,8 @@ poplar::ProfileValue toProfileValue(const popnn::NonLinearityType &t) {
   switch (t) {
   case popnn::NonLinearityType::SIGMOID:
     return poplar::ProfileValue("SIGMOID");
+  case popnn::NonLinearityType::HARD_SIGMOID:
+    return poplar::ProfileValue("HARD_SIGMOID");
   case popnn::NonLinearityType::RELU:
     return poplar::ProfileValue("RELU");
   case popnn::NonLinearityType::TANH:
@@ -177,6 +180,32 @@ Tensor softmaxInputGradientImpl(Graph &graph, const Tensor &out,
   return inGradient;
 }
 
+// Build up the given program so that it performs max(0, min(1, 0.2*x + 0.5))
+// with the given tensor
+void hardSigmoidImpl(Graph &graph, Tensor t, Sequence &prog,
+                     const DebugNameAndId &dnai) {
+  const auto layerPrefix = "hardSigmoidActivation";
+  logging::popnn::info("hardSigmoid t={}, name={}", t.shape(),
+                       dnai.getPathName() + "/" + layerPrefix);
+
+  auto activation = popnn::HardSigmoidExpr::activation();
+  mapInPlace(graph, *activation, {t}, prog, {dnai, layerPrefix});
+}
+
+// Build up the given program so that it peforms
+//
+//   outGradient*0.2 when elements of out are within the range[-2.5, +2.5]
+//   outGradient*0 when elements of out are outside of the above range.
+Tensor hardSigmoidGradImpl(Graph &graph, Tensor out, const Tensor &outGradient,
+                           Sequence &prog, const DebugNameAndId &dnai) {
+  const auto layerPrefix = "HardSigmoidGradient";
+  logging::popnn::info(
+      "hardSigmoidInputGradient out={}, outGradient={}, name={}", out.shape(),
+      outGradient.shape(), dnai.getPathName() + "/" + layerPrefix);
+
+  auto gradient = popnn::HardSigmoidExpr::gradient(out.elementType());
+  return map(graph, *gradient, {out, outGradient}, prog, {dnai, layerPrefix});
+}
 } // end anonymous namespace
 
 namespace popnn {
@@ -297,7 +326,10 @@ Tensor nonLinearityInputGradient(Graph &graph,
 
   if (isSoftMax(nonLinearityType)) {
     return softmaxInputGradientImpl(graph, out, outGradient, prog, {di});
+  } else if (nonLinearityType == NonLinearityType::HARD_SIGMOID) {
+    return hardSigmoidGradImpl(graph, out, outGradient, prog, {di});
   }
+
   auto cs = graph.addComputeSet({di, "NonLinearityGrad"});
   auto t = nonLinearityInputGradient(graph, nonLinearityType, out, outGradient,
                                      cs, {di});
@@ -416,14 +448,18 @@ void nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, nonLinearityType));
 
   const std::string fnPrefix = "Nonlinearity";
+  const auto implDebugContext = DebugNameAndId(di, fnPrefix);
+
   if (isSoftMax(nonLinearityType)) {
     softmaxImpl(graph, t, isStableAlgorithm(nonLinearityType), true,
-                isScaled(nonLinearityType), prog, {di, fnPrefix});
-    return;
+                isScaled(nonLinearityType), prog, implDebugContext);
+  } else if (nonLinearityType == NonLinearityType::HARD_SIGMOID) {
+    hardSigmoidImpl(graph, t, prog, implDebugContext);
+  } else {
+    ComputeSet cs = graph.addComputeSet(implDebugContext);
+    nonLinearityInPlace(graph, nonLinearityType, t, cs, implDebugContext);
+    prog.add(Execute(cs, {di}));
   }
-  ComputeSet cs = graph.addComputeSet({di, fnPrefix});
-  nonLinearityInPlace(graph, nonLinearityType, t, cs, {di, fnPrefix});
-  prog.add(Execute(cs, {di}));
 }
 
 Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType, Tensor t,
@@ -431,14 +467,23 @@ Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType, Tensor t,
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, nonLinearityType));
 
   const std::string fnPrefix = "Nonlinearity";
+  const auto implDebugContext = DebugNameAndId(di, fnPrefix);
+
   if (isSoftMax(nonLinearityType)) {
     return softmaxImpl(graph, t, isStableAlgorithm(nonLinearityType), false,
-                       isScaled(nonLinearityType), prog, {di, fnPrefix});
+                       isScaled(nonLinearityType), prog, implDebugContext);
+  } else if (nonLinearityType == NonLinearityType::HARD_SIGMOID) {
+    auto copy = graph.clone(t);
+    prog.add(Copy(t, copy));
+    hardSigmoidImpl(graph, copy, prog, implDebugContext);
+
+    return copy;
   }
-  ComputeSet cs = graph.addComputeSet({di, fnPrefix});
+
+  ComputeSet cs = graph.addComputeSet(implDebugContext);
   auto out = createOutputForElementWiseOp(graph, {t}, t.elementType(),
                                           {di, fnPrefix + "/out"});
-  nonLinearityInPlace(graph, nonLinearityType, out, cs, {di, fnPrefix});
+  nonLinearityInPlace(graph, nonLinearityType, out, cs, implDebugContext);
 
   prog.add(Copy(t, out, false, {di}));
   prog.add(Execute(cs, {di}));

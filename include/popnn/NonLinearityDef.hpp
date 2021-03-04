@@ -9,6 +9,9 @@ enum class NonLinearityType {
   /// Sigmoid:
   ///  * y = 1 / (1 + e^(-x))
   SIGMOID,
+  /// Hard Sigmoid:
+  ///  * y = max(0, min(1, 0.2*x + 0.5)
+  HARD_SIGMOID,
   /// Rectified Linear Unit:
   ///  * x >= 0 -> y = x
   ///  * x < 0 -> y = 0

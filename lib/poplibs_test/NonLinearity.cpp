@@ -10,6 +10,9 @@
 using namespace popnn;
 
 static double sigmoid(double x) { return (1.0 / (1.0 + exp(-x))); }
+static double hardSigmoid(double x) {
+  return (std::max(0.0, std::min(1.0, (x * 0.2 + 0.5))));
+}
 
 // Approximation used for CDF(x) for a normal distribution
 // 0.5 * (1 + tanh(x * alphaPhi * (1 + betaPhi * x * x))
@@ -23,6 +26,8 @@ static double nonLinearity(NonLinearityType nonLinearityType, double x) {
   switch (nonLinearityType) {
   case NonLinearityType::SIGMOID:
     return sigmoid(x);
+  case NonLinearityType::HARD_SIGMOID:
+    return hardSigmoid(x);
   case NonLinearityType::RELU:
     return std::max(0.0, x);
   case NonLinearityType::TANH:
@@ -128,6 +133,10 @@ static double nonLinearityDerivative(NonLinearityType nonLinearityType,
   switch (nonLinearityType) {
   case NonLinearityType::SIGMOID:
     return act * (1.0 - act);
+  case NonLinearityType::HARD_SIGMOID: {
+    const auto clipped = act < -2.5 || act > 2.5;
+    return clipped ? 0 : 0.2;
+  }
   case NonLinearityType::RELU:
     return (act > 0) ? 1 : 0;
   case NonLinearityType::TANH:

@@ -134,6 +134,7 @@ BOOST_AUTO_TEST_CASE(
   for (auto n : {
            NonLinearityType::RELU,
            NonLinearityType::SIGMOID,
+           NonLinearityType::HARD_SIGMOID,
            NonLinearityType::TANH,
            NonLinearityType::GELU,
        }) {
@@ -423,5 +424,162 @@ BOOST_AUTO_TEST_CASE(
         checkIsClose("deltaOutF", hDeltaOutF, hRefDeltaOut, TOL, FLOAT_ATOL));
     BOOST_TEST(
         checkIsClose("deltaOutH", hDeltaOutH, hRefDeltaOut, TOL, HALF_ATOL));
+  }
+}
+
+// Test fixture with common graph setup for testing the hard sigmoid activation
+// function.
+struct NonLinearityHardSigmoidTest {
+  NonLinearityHardSigmoidTest()
+      : device_(createTestDevice(TEST_TARGET)), graph_(device_.getTarget()) {
+    popnn::addCodelets(graph_);
+    popops::addCodelets(graph_);
+  }
+
+  std::vector<float> runProgram(Program &program, Tensor &inputTensor,
+                                Tensor &outputTensor,
+                                const std::vector<float> &inputData) {
+    graph_.createHostWrite("in", inputTensor);
+    graph_.createHostRead("out", outputTensor);
+
+    std::vector<float> output(inputData.size());
+
+    Engine engine(graph_, program);
+    device_.bind([&](const Device &d) {
+      engine.load(d);
+      engine.writeTensor("in", inputData.data(),
+                         inputData.data() + inputData.size());
+      engine.run();
+      engine.readTensor("out", output.data(), output.data() + output.size());
+    });
+
+    return output;
+  }
+
+  poplibs_support::TestDevice device_;
+  Graph graph_;
+
+  Sequence program_;
+  VariableMappingMethod variableMappingMethod_ = VariableMappingMethod::LINEAR;
+};
+
+BOOST_FIXTURE_TEST_CASE(HardSigmoid_ValuesBelowRangeAreClampedTo0,
+                        NonLinearityHardSigmoidTest) {
+  const std::vector<float> inputData = {-10, -5, -3, -2.7, -2.6, -2.55};
+
+  auto inputTensor = graph_.addVariable(FLOAT, {inputData.size()},
+                                        variableMappingMethod_, "activation");
+
+  auto outputTensor = nonLinearity(graph_, NonLinearityType::HARD_SIGMOID,
+                                   inputTensor, program_);
+
+  const auto output =
+      runProgram(program_, inputTensor, outputTensor, inputData);
+  for (auto value : output) {
+    BOOST_TEST(value == 0);
+  }
+}
+
+BOOST_FIXTURE_TEST_CASE(HardSigmoid_ValuesAboveRangeAreClampedTo1,
+                        NonLinearityHardSigmoidTest) {
+  const std::vector<float> inputData = {10, 5, 3, 2.7, 2.6, 2.55};
+  auto inputTensor = graph_.addVariable(FLOAT, {inputData.size()},
+                                        variableMappingMethod_, "activation");
+
+  auto outputTensor = nonLinearity(graph_, NonLinearityType::HARD_SIGMOID,
+                                   inputTensor, program_);
+
+  const auto output =
+      runProgram(program_, inputTensor, outputTensor, inputData);
+  for (auto value : output) {
+    BOOST_TEST(value == 1);
+  }
+}
+
+BOOST_FIXTURE_TEST_CASE(HardSigmoid_OutputIsBetween01ForValuesWithinRange,
+                        NonLinearityHardSigmoidTest) {
+  // Valid range is [-2.5, +2.5]
+  const std::vector<float> inputData = {-2.5, -2.4, -2, -1,  -0.5,
+                                        0.5,  1,    2,  2.4, 2.5};
+  auto inputTensor = graph_.addVariable(FLOAT, {inputData.size()},
+                                        variableMappingMethod_, "activation");
+
+  auto outputTensor = nonLinearity(graph_, NonLinearityType::HARD_SIGMOID,
+                                   inputTensor, program_);
+
+  const auto output =
+      runProgram(program_, inputTensor, outputTensor, inputData);
+  for (auto value : output) {
+    BOOST_TEST(value <= 1);
+    BOOST_TEST(value >= 0);
+  }
+}
+
+struct NonLinearityInputGradientHardSigmoidTest : NonLinearityHardSigmoidTest {
+  std::vector<float> runProgram(Program &program, Tensor &inputTensor,
+                                Tensor &gradientTensor, Tensor &outputTensor,
+                                const std::vector<float> &inputData,
+                                const std::vector<float> &gradientData) {
+    graph_.createHostWrite("in", inputTensor);
+    graph_.createHostWrite("grad", gradientTensor);
+    graph_.createHostRead("out", outputTensor);
+
+    std::vector<float> output(inputData.size());
+
+    Engine engine(graph_, program_);
+    device_.bind([&](const Device &d) {
+      engine.load(d);
+      engine.writeTensor("in", inputData.data(),
+                         inputData.data() + inputData.size());
+      engine.writeTensor("grad", gradientData.data(),
+                         gradientData.data() + gradientData.size());
+      engine.run();
+      engine.readTensor("out", output.data(), output.data() + output.size());
+    });
+
+    return output;
+  }
+};
+
+BOOST_FIXTURE_TEST_CASE(HardSigmoid_GradientIs0ForValuesOutsideValidRange,
+                        NonLinearityInputGradientHardSigmoidTest) {
+  const std::vector<float> inputData = {-2.6, -2.55, -3, -5, 2.55, 2.6, 10, 3};
+  const std::vector<float> gradientData(inputData.size(), 1);
+
+  auto inputTensor = graph_.addVariable(FLOAT, {inputData.size()},
+                                        variableMappingMethod_, "activation");
+  auto gradientTensor = graph_.addVariable(FLOAT, {gradientData.size()},
+                                           variableMappingMethod_, "gradient");
+
+  auto outputTensor =
+      nonLinearityInputGradient(graph_, NonLinearityType::HARD_SIGMOID,
+                                inputTensor, gradientTensor, program_);
+
+  const auto output = runProgram(program_, inputTensor, gradientTensor,
+                                 outputTensor, inputData, gradientData);
+  for (auto value : output) {
+    BOOST_CHECK(value == 0);
+  }
+}
+
+BOOST_FIXTURE_TEST_CASE(HardSigmoid_GradientIs0_2ForValuesInsideValidRange,
+                        NonLinearityInputGradientHardSigmoidTest) {
+  const std::vector<float> inputData = {-2.5, -2.4, -2, -1,  -0.5,
+                                        0.5,  1,    2,  2.4, 2.5};
+  const std::vector<float> gradientData(inputData.size(), 1);
+
+  auto inputTensor = graph_.addVariable(FLOAT, {inputData.size()},
+                                        variableMappingMethod_, "activation");
+  auto gradientTensor = graph_.addVariable(FLOAT, {gradientData.size()},
+                                           variableMappingMethod_, "gradient");
+
+  auto outputTensor =
+      nonLinearityInputGradient(graph_, NonLinearityType::HARD_SIGMOID,
+                                inputTensor, gradientTensor, program_);
+
+  const auto output = runProgram(program_, inputTensor, gradientTensor,
+                                 outputTensor, inputData, gradientData);
+  for (auto value : output) {
+    BOOST_CHECK(value == 0.2f);
   }
 }
