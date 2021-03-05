@@ -63,6 +63,8 @@ struct ConvProgramTree {
   ConvProgramTree(poplar::Graph &graph, const Plan &plan,
                   const poplar::DebugNameAndId &dnai);
 
+  ConvProgramTree(poplar::Graph &graph, const poplar::DebugNameAndId &dnai);
+
   // lower the program tree as has been built up into the sequence passed in.
   void lower(poplar::Graph &graph, poplar::program::Sequence &prog,
              bool insertTransformsCycleCountProgs,

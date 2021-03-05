@@ -3272,6 +3272,22 @@ add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
                  --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":true,\"expandDims\":[1]}}}
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
+# Test Fwd/Bwd symmetric convolution with code reuse
+add_multitarget_test(NAME conv8x6_8_in_8_out_reuse
+         COMMAND single_conv_layer
+                 --input-channels=8
+                 --output-channels=8
+                 --field={8,6}
+                 --padding-lower={1,2}
+                 --padding-upper={1,2}
+                 --kernel-size={3,5}
+                 --batch-size=8
+                 --data-type=half
+                 --tiles-per-ipu=16
+                 --enable-convolution-reuse 1
+                 --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":false,\"expandDims\":[1]}}}
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+
 # Test the --use-create-input option
 foreach(USE_CREATE_INPUT "0" "1")
     add_multitarget_test(
@@ -3717,6 +3733,7 @@ endforeach()
 
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/json/depthwise_conv_half.json DEPTHWISE_CONV)
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/json/pointwise_conv_float.json POINTWISE_CONV)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/json/pointwise_reusable_conv_float.json POINTWISE_REUSABLE_CONV)
 add_multitarget_test(
          NAME multi_conv_different_types
          COMMAND multi_conv_layer
@@ -3731,6 +3748,26 @@ add_multitarget_test(
                  --tiles-per-ipu 1
                  --conv ${DEPTHWISE_CONV}
                  --conv ${DEPTHWISE_CONV}
+         VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME multi_conv_different_types_bwd
+         COMMAND multi_conv_layer
+         	 --tiles-per-ipu 128
+                 --conv ${DEPTHWISE_CONV}
+                 --conv ${POINTWISE_REUSABLE_CONV}
+         	 --bwd 1
+         	 --enable-convolution-reuse 0
+         VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME multi_conv_different_types_bwd_reuse
+         COMMAND multi_conv_layer
+         	 --tiles-per-ipu 128
+                 --conv ${DEPTHWISE_CONV}
+                 --conv ${POINTWISE_REUSABLE_CONV}
+         	 --bwd 1
+         	 --enable-convolution-reuse 1
          VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(

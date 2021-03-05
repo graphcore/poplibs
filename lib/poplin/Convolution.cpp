@@ -1967,6 +1967,13 @@ ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
   }
 }
 
+ConvProgramTree::ConvProgramTree(Graph &graph,
+                                 const poplar::DebugNameAndId &dnai)
+    : weightsTranspose(graph, {dnai, "WeightsTranspose"}), transformPre(),
+      transformPost(), transformPreSerial(graph, {dnai, "PreTranspose"}),
+      transformPostSerial(graph, {dnai, "CastSerialOut"}), loopCount(1),
+      convolveCSGroup(graph.addComputeSet({dnai, "Convolve"})) {}
+
 template <typename T>
 static void lowerAndAddCycleCount(Graph &graph, Sequence &prog,
                                   const bool insertCycleCount, T &tpp,
@@ -1992,7 +1999,6 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
 
   assert(transformPre.size() == transformPost.size());
   const unsigned numLevels = transformPre.size();
-  assert(numLevels > 1);
   assert(numLevels == reduceOrCastComputeSets.size());
 
   Sequence body{{dnai}};
@@ -2588,9 +2594,7 @@ convolutionInternal(Graph &graph, const poplar::Tensor &in_,
     auto bwdWeights = createWeights(graph, plan, params.getParams(),
                                     {dnai, "bwdWeights"}, options);
     if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
-      auto &prog = cpt.weightsTranspose;
-      weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog.preTranspose,
-                                  prog.transposeCS, prog.postTranspose, {dnai});
+      weightsTransposeChansFlipXY(graph, weights, bwdWeights, cpt, {dnai});
     }
     weights = bwdWeights;
   }
@@ -2722,17 +2726,14 @@ double getWuPerfectCycleCount(const Graph &graph, const ConvParams &params) {
   return getPerfectCycleCount(graph, params);
 }
 
-void weightsTransposeChansFlipXY(
-    Graph &graph, const Tensor &weightsInUnGrouped,
-    const Tensor &weightsOutUnGrouped,
-    std::vector<poplar::program::Copy> &preTranspose,
-    poplar::ComputeSet transposeCS,
-    std::vector<poplar::program::Copy> &postTranspose,
-    const poplar::DebugContext &debugContext) {
+void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
+                                 const Tensor &weightsOutUnGrouped,
+                                 ConvProgramTree &cpt,
+                                 const poplar::DebugNameAndId &dnai) {
+  auto &preTranspose = cpt.weightsTranspose.preTranspose;
+  auto &transposeCS = cpt.weightsTranspose.transposeCS;
+  auto &postTranspose = cpt.weightsTranspose.postTranspose;
   assert(weightsInUnGrouped.rank() >= 3);
-  poputil::PoplibsOpDebugInfo di(
-      debugContext, DI_ARGS(weightsInUnGrouped, weightsOutUnGrouped,
-                            preTranspose, transposeCS, postTranspose));
 
   const auto numFieldDims = weightsInUnGrouped.rank() - 3;
 
@@ -2777,7 +2778,7 @@ void weightsTransposeChansFlipXY(
     // [GC1][O/G1][I/G2]...[GC2][G1/G5][G5][G2]
     //    -> [GC1][O/G1][I/G2]...[GC2][G1/G5][G2][G5]
     partiallyTransposed = popops::rearrange::partialTranspose(
-        graph, partiallyTransposed, transposeCS, {di});
+        graph, partiallyTransposed, transposeCS, {dnai});
   }
 
   auto flipped = partiallyTransposed;
@@ -2824,29 +2825,30 @@ void weightsTransposeChansFlipXY(
   // a partial transpose is done, then the regrouping will not be done.
   auto maybeRegroupedFlipped = popops::rearrange::regroupIfBeneficial(
       graph, flipped, weightsOutUnGrouped, preTranspose, transposeCS,
-      {di, "attemptRegroup"});
+      {dnai, "attemptRegroup"});
   postTranspose.emplace_back(maybeRegroupedFlipped, weightsOutUnGrouped, false,
-                             di);
+                             dnai);
 }
 
 void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
                                  const Tensor &weightsOutUnGrouped,
                                  Sequence &prog,
-                                 const poplar::DebugContext &debugContext) {
+                                 const poplar::DebugContext &debugContext,
+                                 const poplar::OptionFlags &options_) {
   const auto debugPrefix = debugContext.getPathName();
-  trace(graph, {"poplin::weightsTransposeChansFlipXY", debugPrefix}, [&] {
-    poputil::PoplibsOpDebugInfo di(
-        debugContext, DI_ARGS(weightsInUnGrouped, weightsOutUnGrouped));
+  return trace(
+      graph, {"poplin::weightsTransposeChansFlipXY", debugPrefix}, [&] {
+        poputil::PoplibsOpDebugInfo di(
+            debugContext,
+            DI_ARGS(weightsInUnGrouped, weightsOutUnGrouped, options_),
+            "weightsTransposeChansFlipXY");
 
-    std::vector<Copy> preTranspose, postTranspose;
-    auto transposeCS = graph.addComputeSet({di, "WeightTranspose"});
-    weightsTransposeChansFlipXY(graph, weightsInUnGrouped, weightsOutUnGrouped,
-                                preTranspose, transposeCS, postTranspose, {di});
-
-    add(prog, preTranspose);
-    prog.add(Execute(transposeCS, {di}));
-    add(prog, postTranspose);
-  });
+        const ConvOptions options(options_);
+        ConvProgramTree cpt(graph, {di, "WeightsTranspose"});
+        weightsTransposeChansFlipXY(graph, weightsInUnGrouped,
+                                    weightsOutUnGrouped, cpt, {di});
+        cpt.lower(graph, prog, options.insertTransformsCycleCountProgs, {di});
+      });
 }
 
 ConvParams getWeightUpdateParams(const ConvParams &fwdParams_) {

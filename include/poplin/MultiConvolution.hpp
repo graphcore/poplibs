@@ -110,6 +110,32 @@ struct ConvolutionArgs {
   poplar::OptionFlags options;
 };
 
+/** For each element in the multi-convolution set, copy the corresponding
+ * \p weightsIn element into the convolution weight input such that each
+ * element of the kernel is transposed with respect to the input and
+ * output channels and each spatial dimension of the kernel is flipped.
+ *
+ * See Convolution.hpp for more information.
+ *
+ * \param graph       The graph that the operations will be added to.
+ * \param args        Collection of inputs, weights, and convolution parameters
+ *                    specifying each convolution in the multiconvolution.
+ * \param weightsIn   Collection of weights tensor to copy from, the arrangement
+ *                    of which must correspond with the arrangement of the
+ *                    collection of convolution parameters.
+ * \param prog        Poplar program sequence to append the operations onto.
+ * \param options     Options controlling the implementation.
+ * \param debugContext Optional debug information.
+ * \param cache       Optional pointer to a planning cache to use.
+ */
+void weightsTransposeChansFlipXY(poplar::Graph &graph,
+                                 std::vector<ConvolutionArgs> &args,
+                                 const std::vector<poplar::Tensor> &weightsIn,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::OptionFlags &options,
+                                 const poplar::DebugContext &debugContext,
+                                 poplin::PlanningCache *cache);
+
 /** Convolve a set of inputs with a set of weights.
  *
  * See Convolution.hpp for more information.

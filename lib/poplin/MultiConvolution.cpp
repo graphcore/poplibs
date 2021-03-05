@@ -123,7 +123,7 @@ static void applyMultiPlan(poplar::Graph &graph, const SerialPlan &serial,
     const auto name = std::to_string(i);
     ConvProgramTree cpt(graph, plan, {dnai, name});
 
-    fn(plan, arg, cpt, {dnai, name});
+    fn(plan, arg, cpt, i, {dnai, name});
 
     const ConvOptions options(arg.options);
     cpt.lower(graph, prog, options.insertTransformsCycleCountProgs, {dnai});
@@ -158,7 +158,7 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
 
     const auto name = std::to_string(i);
 
-    fn(plan, arg, cpt, {dnai, name});
+    fn(plan, arg, cpt, i, {dnai, name});
 
     const ConvOptions optionsNextPlan(arg.options);
     if (insertCycleCounts != optionsNextPlan.insertTransformsCycleCountProgs) {
@@ -211,6 +211,33 @@ poplar::Tensor createInput(poplar::Graph &graph,
   return boost::apply_visitor(visitor, multiPlan);
 }
 
+void weightsTransposeChansFlipXY(poplar::Graph &graph,
+                                 std::vector<ConvolutionArgs> &args,
+                                 const std::vector<poplar::Tensor> &weightsIn,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::OptionFlags &options,
+                                 const poplar::DebugContext &debugContext,
+                                 poplin::PlanningCache *cache) {
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(args, weightsIn, options));
+
+  const auto visitor =
+      poplibs_support::make_visitor<void>([&](const auto &multiPlan) {
+        logging::poplin::info("multiconv::weightsTransposeChansFlipXY");
+        applyMultiPlan(
+            graph, multiPlan, args, prog, {di, "weightsTranspose"},
+            [&](const Plan &plan, const auto &arg, ConvProgramTree &cpt,
+                unsigned index, const poplar::DebugNameAndId &dnai) {
+              poplin::weightsTransposeChansFlipXY(graph, weightsIn[index],
+                                                  arg.weights, cpt, {dnai});
+            });
+      });
+
+  const auto &target = graph.getTarget();
+  const auto multiPlan = getMultiPlan(target, args, cache, options);
+  boost::apply_visitor(visitor, multiPlan);
+}
+
 std::vector<poplar::Tensor>
 convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
             const bool transposeAndFlipWeights, poplar::program::Sequence &prog,
@@ -235,7 +262,7 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
         applyMultiPlan(
             graph, multiPlan, args, prog, {di, layerName},
             [&](const Plan &plan, const auto &arg, ConvProgramTree &cpt,
-                const poplar::DebugNameAndId &dnai) {
+                unsigned index, const poplar::DebugNameAndId &dnai) {
               outs.push_back(poplin::convolution(
                   graph, arg.inputs, arg.weights, plan, arg.params,
                   transposeAndFlipWeights, cpt, {dnai}, arg.options));
@@ -279,7 +306,7 @@ std::vector<poplar::Tensor> calculateWeightDeltas(
 
         applyMultiPlan(graph, multiPlan, args, prog, {di, layerName},
                        [&](const Plan &plan, const auto &arg,
-                           ConvProgramTree &cpt,
+                           ConvProgramTree &cpt, unsigned index,
                            const poplar::DebugNameAndId &dnai) {
                          weightDeltas.push_back(poplin::calculateWeightDeltas(
                              graph, arg.zDeltas, arg.activations, plan,
@@ -315,7 +342,7 @@ void convolutionWeightUpdateImpl(poplar::Graph &graph,
         applyMultiPlan(
             graph, multiPlan, args, prog, {dnai, layerName},
             [&](const Plan &plan, const auto &arg, ConvProgramTree &cpt,
-                const poplar::DebugNameAndId &dnai) {
+                unsigned index, const poplar::DebugNameAndId &dnai) {
               // TODO: convolutionWeightUpdate expects inputType == outputType,
               // handle when that is not the case.
               if (arg.params->inputType != arg.params->outputType) {

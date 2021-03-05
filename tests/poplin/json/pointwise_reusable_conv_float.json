@@ -1,0 +1,9 @@
+{
+  "dataType": "float",
+  "batchSize": 2,
+  "numConvGroups": 1,
+  "inputFieldShape": [17,32],
+  "kernelShape": [1,1],
+  "inputChannelsPerConvGroup": 16,
+  "outputChannelsPerConvGroup": 16
+}

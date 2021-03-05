@@ -324,12 +324,15 @@ void preplanConvolutions(poplar::Graph &graph,
  * \param weightsOut    The output weights tensor.
  * \param prog          Poplar program sequence to append the operation onto.
  * \param debugContext  Optional debug information.
+ * \param options       Options controlling the implementation.
+ *                      See createWeights().
  */
 void weightsTransposeChansFlipXY(poplar::Graph &graph,
                                  const poplar::Tensor &weightsIn,
                                  const poplar::Tensor &weightsOut,
                                  poplar::program::Sequence &prog,
-                                 const poplar::DebugContext &debugContext = {});
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {});
 
 /** Append an operation to a poplar::Program to generate the tensor of
  *  weight deltas.
