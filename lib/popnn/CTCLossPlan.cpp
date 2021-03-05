@@ -1,6 +1,7 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 
 #include "CTCLossPlan.hpp"
+#include "CTCPlanInternal.hpp"
 
 #include "PerformanceEstimation.hpp"
 
@@ -14,16 +15,16 @@
 namespace popnn {
 namespace ctc {
 
-static auto getTupleOfMembers(const Plan::Impl &p) {
+static auto getTupleOfMembers(const LossPlan &p) {
   return std::tie(p.serial.batch, p.serial.time, p.serial.label,
                   p.parallel.alphabet, p.parallel.batch, p.parallel.label,
                   p.parallel.sliceFromInput, p.parallel.sliceIntoOutput,
                   p.parallel.time);
 }
-bool operator<(const Plan::Impl &a, const Plan::Impl &b) noexcept {
+bool operator<(const LossPlan &a, const LossPlan &b) noexcept {
   return getTupleOfMembers(a) < getTupleOfMembers(b);
 }
-bool operator==(const Plan::Impl &a, const Plan::Impl &b) noexcept {
+bool operator==(const LossPlan &a, const LossPlan &b) noexcept {
   return getTupleOfMembers(a) == getTupleOfMembers(b);
 }
 
@@ -32,7 +33,7 @@ struct PlanVariables {
   SerialPartition<popsolver::Variable> serial;
 };
 
-std::ostream &operator<<(std::ostream &o, const CtcPlannerParams &p) {
+std::ostream &operator<<(std::ostream &o, const CtcLossPlannerParams &p) {
   o << "CTCLoss params:\n";
   o << "  inType                       " << p.inType << "\n";
   o << "  partialsType                 " << p.partialsType << "\n";
@@ -139,7 +140,7 @@ struct EstimateCache {
         mGradGivenBetaCycles(gradGivenBetaCycles) {}
 };
 
-std::ostream &operator<<(std::ostream &o, const Plan::Impl &p) {
+std::ostream &operator<<(std::ostream &o, const LossPlan &p) {
   o << p.params;
   o << "CTCLoss plan:\n";
   /* Unsupported
@@ -223,8 +224,7 @@ El-+-----+
       just as valid to choose beta. It's worth noting that if t was even, we
       wouldn't encounter this, it's only when the length of t is odd.
 */
-CycleEstimate estimateCycles(const Plan::Impl &plan,
-                             const poplar::Target &target,
+CycleEstimate estimateCycles(const LossPlan &plan, const poplar::Target &target,
                              EstimateCache &cache) {
   auto timePartitionCount = plan.parallel.time;
   auto maxTimeStepsPerPartition =
@@ -353,7 +353,7 @@ std::ostream &operator<<(std::ostream &o, const MemoryEstimate &e) {
   return o;
 }
 
-MemoryEstimate estimateMaxTileTempMemory(const Plan::Impl &plan,
+MemoryEstimate estimateMaxTileTempMemory(const LossPlan &plan,
                                          const poplar::Target &target,
                                          EstimateCache &cache) {
   const auto labelType = poplar::UNSIGNED_SHORT;
@@ -436,7 +436,7 @@ MemoryEstimate estimateMaxTileTempMemory(const Plan::Impl &plan,
 //
 // The cost model ought to avoid this but it is not always clear exactly how
 // this is going to always be the case.
-bool checkForEmptyPartitions(const Plan::Impl &plan) {
+bool checkForEmptyPartitions(const LossPlan &plan) {
   const auto timePartitionSize =
       poplibs_support::ceildiv(plan.params.maxTime, plan.parallel.time);
   const bool lastTimePartitionEmpty =
@@ -452,7 +452,7 @@ bool checkForEmptyPartitions(const Plan::Impl &plan) {
 
 // Returns tuple of {Cycle estimate, Max temp memory estimate, Tiles used}
 static std::tuple<popsolver::Variable, popsolver::Variable, popsolver::Variable>
-constructModel(popsolver::Model &m, const CtcPlannerParams &params,
+constructModel(popsolver::Model &m, const CtcLossPlannerParams &params,
                const CtcOpts &opts, PlanVariables &vars,
                const poplar::Target &target, EstimateCache &cache) {
   vars.serial.batch = m.addVariable("serialBatch");
@@ -513,7 +513,7 @@ constructModel(popsolver::Model &m, const CtcPlannerParams &params,
       vars.parallel.sliceFromInput};
 
   const auto toPlanStruct =
-      [&params](const std::vector<unsigned> &values) -> Plan::Impl {
+      [&params](const std::vector<unsigned> &values) -> LossPlan {
     return {
         params,
         {values[0], values[1], values[2]},
@@ -526,7 +526,7 @@ constructModel(popsolver::Model &m, const CtcPlannerParams &params,
       planVariablesArray,
       [&target, &cache, toPlanStruct](const std::vector<unsigned> &values)
           -> boost::optional<popsolver::DataType> {
-        const Plan::Impl plan = toPlanStruct(values);
+        const LossPlan plan = toPlanStruct(values);
         return popsolver::DataType{estimateCycles(plan, target, cache).total()};
       });
 
@@ -534,7 +534,7 @@ constructModel(popsolver::Model &m, const CtcPlannerParams &params,
       planVariablesArray,
       [&target, &cache, toPlanStruct](const std::vector<unsigned> &values)
           -> boost::optional<popsolver::DataType> {
-        const Plan::Impl plan = toPlanStruct(values);
+        const LossPlan plan = toPlanStruct(values);
         return popsolver::DataType{
             estimateMaxTileTempMemory(plan, target, cache).total()};
       });
@@ -547,7 +547,7 @@ constructModel(popsolver::Model &m, const CtcPlannerParams &params,
       planVariablesArray,
       [toPlanStruct](const std::vector<unsigned> &values)
           -> boost::optional<popsolver::DataType> {
-        const Plan::Impl plan = toPlanStruct(values);
+        const LossPlan plan = toPlanStruct(values);
         return popsolver::DataType{checkForEmptyPartitions(plan)};
       });
   m.equal(emptyPartitions, m.zero());
@@ -583,10 +583,10 @@ applyPlanConstraints(popsolver::Model &m,
   constrainUnsignedVar("serial.label", vars.serial.label);
 }
 
-static Plan::Impl planFromSolution(const CtcPlannerParams &params,
-                                   const popsolver::Solution &solution,
-                                   const PlanVariables &vars) {
-  Plan::Impl plan;
+static LossPlan planFromSolution(const CtcLossPlannerParams &params,
+                                 const popsolver::Solution &solution,
+                                 const PlanVariables &vars) {
+  LossPlan plan;
 
   plan.params = params;
   plan.serial.batch = solution[vars.serial.batch].getAs<unsigned>();
@@ -611,8 +611,8 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
           const unsigned maxTime, const unsigned maxLabelLength,
           const unsigned numClasses, const poplar::OptionFlags &options) {
   CtcOpts opts = parseOptions(options);
-  CtcPlannerParams params{inType,  opts.partialsType, outType,   batchSize,
-                          maxTime, maxLabelLength,    numClasses};
+  CtcLossPlannerParams params{inType,  opts.partialsType, outType,   batchSize,
+                              maxTime, maxLabelLength,    numClasses};
   popsolver::Model m;
   PlanVariables vars;
   EstimateCache cache;
@@ -627,47 +627,20 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   if (!s.validSolution()) {
     throw poputil::poplibs_error("No ctc loss plan found");
   }
-  const Plan::Impl plan = planFromSolution(params, s, vars);
+  const auto plan = planFromSolution(params, s, vars);
 
   poplibs_support::logging::popnn::debug("Found plan\n{}", plan);
   poplibs_support::logging::popnn::debug(
       "Plan cost\n{}\n{}", estimateCycles(plan, graph.getTarget(), cache),
       estimateMaxTileTempMemory(plan, graph.getTarget(), cache));
-  return std::make_unique<Plan::Impl>(std::move(plan));
-}
-
-// Complete the definition of the Plan class
-Plan::Plan() : impl(std::make_unique<Plan::Impl>()) {}
-Plan::Plan(std::unique_ptr<Plan::Impl> impl) : impl(std::move(impl)) {}
-Plan::~Plan() = default;
-
-Plan::Plan(const Plan &other) { impl = other.impl->clone(); }
-Plan::Plan(Plan &&other) = default;
-Plan &Plan::operator=(const Plan &other) {
-  impl = other.impl->clone();
-  return *this;
-}
-Plan &Plan::operator=(Plan &&other) = default;
-
-bool operator<(const Plan &a, const Plan &b) noexcept {
-  return *a.impl < *b.impl;
-}
-bool operator==(const Plan &a, const Plan &b) noexcept {
-  return *a.impl == *b.impl;
-}
-bool operator!=(const Plan &a, const Plan &b) noexcept { return !(a == b); }
-
-std::ostream &operator<<(std::ostream &o, const Plan &p) {
-  o << *p.impl;
-  return o;
+  return std::make_unique<Plan::Impl>(Plan::Impl{std::move(plan)});
 }
 
 } // namespace ctc
 } // namespace popnn
 
 namespace poputil {
-template <>
-poplar::ProfileValue toProfileValue(const popnn::ctc::Plan::Impl &p) {
+template <> poplar::ProfileValue toProfileValue(const popnn::ctc::LossPlan &p) {
   poplar::ProfileValue::Map v;
   v.insert({"params.inType", toProfileValue(p.params.inType)});
   v.insert({"params.partialsType", toProfileValue(p.params.partialsType)});
@@ -693,7 +666,4 @@ poplar::ProfileValue toProfileValue(const popnn::ctc::Plan::Impl &p) {
   return v;
 }
 
-template <> poplar::ProfileValue toProfileValue(const popnn::ctc::Plan &p) {
-  return toProfileValue(p.getImpl());
-}
 } // namespace poputil

@@ -8,44 +8,14 @@
 #ifndef popnn_CTCLoss_hpp
 #define popnn_CTCLoss_hpp
 
+#include "CTCPlan.hpp"
+
 #include <poplar/Graph.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
-#include <poputil/DebugInfo.hpp>
 
 namespace popnn {
 namespace ctc {
-
-/** An object representing a plan that describes how to map tensors and
- *  implement the CTC Loss function.
- */
-class Plan {
-public:
-  Plan();
-  ~Plan();
-  Plan(const Plan &other);
-  Plan(Plan &&other);
-  Plan &operator=(const Plan &other);
-  Plan &operator=(Plan &&other);
-
-  friend bool operator<(const Plan &a, const Plan &b) noexcept;
-  friend bool operator==(const Plan &a, const Plan &b) noexcept;
-
-  friend std::ostream &operator<<(std::ostream &o, const Plan &p);
-  friend poplar::ProfileValue poputil::toProfileValue<>(const Plan &p);
-
-  // Internal implementation
-  class Impl;
-  Impl &getImpl() const { return *impl; }
-  Plan(std::unique_ptr<Impl> impl);
-
-private:
-  std::unique_ptr<Impl> impl;
-};
-
-bool operator<(const Plan &a, const Plan &b) noexcept;
-bool operator==(const Plan &a, const Plan &b) noexcept;
-bool operator!=(const Plan &a, const Plan &b) noexcept;
 
 /** Create a plan for implementing the CTC Loss (gradient) function
  *

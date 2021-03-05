@@ -4,8 +4,12 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 add_library(popnn SHARED
   codelets.cpp
   CTCLoss.cpp
+  CTCInferencePlan.cpp
+  CTCInferencePlan.hpp
   CTCLossPlan.cpp
   CTCLossPlan.hpp
+  CTCPlanInternal.cpp
+  CTCPlanInternal.hpp
   BatchNorm.cpp
   GroupNorm.cpp
   LogSoftmax.cpp
@@ -30,6 +34,8 @@ add_library(popnn SHARED
   SpatialSoftMax.cpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/BatchNorm.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/CTCPlan.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/CTCInference.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/CTCLoss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/GroupNorm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/InstanceNorm.hpp

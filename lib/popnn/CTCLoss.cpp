@@ -1,6 +1,9 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 
+#include "popnn/CTCLoss.hpp"
+
 #include "CTCLossPlan.hpp"
+#include "CTCPlanInternal.hpp"
 
 #include <poplar/CSRFunctions.hpp>
 #include <poplar/Graph.hpp>
@@ -8,7 +11,6 @@
 
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/logging.hpp>
-#include <popnn/CTCLoss.hpp>
 #include <popnn/LogSoftmax.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
@@ -243,7 +245,7 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &alphaOrBeta,
 }
 
 void mapAlphaBetaAccordingToPlan(Graph &graph, const Tensor &tensor,
-                                 const popnn::ctc::Plan::Impl &plan) {
+                                 const popnn::ctc::LossPlan &plan) {
   // Map the alpha beta tensor to tiles according to the plan. The extended
   // label dimension needs to be partitioned to match the label partitions.
   // We need every el partition to be 2x the size of the corresponding label
@@ -269,7 +271,7 @@ void mapAlphaBetaAccordingToPlan(Graph &graph, const Tensor &tensor,
 }
 
 void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
-                                 const popnn::ctc::Plan::Impl &plan) {
+                                 const popnn::ctc::LossPlan &plan) {
   // Map the data input according to the plan, but the innermost dimension
   // isn't really compatible with the plan, as it is the number of classes
   // whereas we planned for the label length.
@@ -321,7 +323,7 @@ void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
 }
 
 void mapAccordingToPlanRank4(Graph &graph, const Tensor &tensor,
-                             const popnn::ctc::Plan::Impl &plan) {
+                             const popnn::ctc::LossPlan &plan) {
   // Map any rank 4 tensors used in this process to the correct tiles according
   // to the plan
   const auto labelSize = tensor.dim(0);
@@ -347,7 +349,7 @@ void mapAccordingToPlanRank4(Graph &graph, const Tensor &tensor,
 }
 
 void mapAccordingToPlanRank3(Graph &graph, const Tensor &tensor,
-                             const popnn::ctc::Plan::Impl &plan) {
+                             const popnn::ctc::LossPlan &plan) {
   // Map any rank 3 tensors used in this process to the correct tiles according
   // to the plan.
   const auto batchSize = tensor.dim(0);
@@ -371,7 +373,7 @@ void mapAccordingToPlanRank3(Graph &graph, const Tensor &tensor,
 }
 
 void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
-                        const popnn::ctc::Plan::Impl &plan) {
+                        const popnn::ctc::LossPlan &plan) {
   assert(tensor.rank() == 3 || tensor.rank() == 4);
   if (tensor.rank() == 3) {
     mapAccordingToPlanRank3(graph, tensor, plan);
@@ -381,7 +383,7 @@ void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
 }
 
 void mapLabelsAccordingToPlan(Graph &graph, const Tensor &tensor,
-                              const popnn::ctc::Plan::Impl &plan) {
+                              const popnn::ctc::LossPlan &plan) {
   // Map the labels tensor used in this process to the correct tiles according
   // to the plan.
   const auto batchSize = tensor.dim(0);
@@ -400,7 +402,7 @@ void mapLabelsAccordingToPlan(Graph &graph, const Tensor &tensor,
 // Map to the tile where they are used to avoid any exchange between
 // compute steps.
 Tensor createTempLengths(Graph &graph, const Tensor &input,
-                         const popnn::ctc::Plan::Impl &plan, Sequence &prog,
+                         const popnn::ctc::LossPlan &plan, Sequence &prog,
                          const poplar::DebugContext &di) {
 
   const auto tilesForAllTimePartitions = plan.parallel.time;
@@ -435,7 +437,7 @@ Tensor createTempLengths(Graph &graph, const Tensor &input,
 // Each tile used over the time dimension needs a copy of this tensor to avoid
 // exchange per compute step.
 Tensor createBroadcastTempLabels(Graph &graph, const Tensor &labels,
-                                 const popnn::ctc::Plan::Impl &plan,
+                                 const popnn::ctc::LossPlan &plan,
                                  Sequence &prog,
                                  const poplar::DebugContext &di) {
 
@@ -579,8 +581,7 @@ void exchangeToNextLabelTimePartition(Sequence &prog, const Tensor &src,
 
 // Add copy programs to exchange small temporary alpha/beta result tensors
 // to the next time and label partitions
-void addLabelExchangeAlphaBeta(Sequence &prog,
-                               const popnn::ctc::Plan::Impl &plan,
+void addLabelExchangeAlphaBeta(Sequence &prog, const popnn::ctc::LossPlan &plan,
                                TempTensors &temp, unsigned alphaTimeSteps,
                                unsigned batchSize,
                                const poplar::DebugContext &di) {
@@ -614,7 +615,7 @@ void addLabelExchangeAlphaBeta(Sequence &prog,
 // Add copy programs to exchange small temporary alpha/beta result tensors
 // to the next time and label partitions
 void addLabelExchangeAlphaBetaGrad(Sequence &prog,
-                                   const popnn::ctc::Plan::Impl &plan,
+                                   const popnn::ctc::LossPlan &plan,
                                    TempTensors &temp, unsigned alphaTimeSteps,
                                    unsigned batchSize,
                                    const poplar::DebugContext &di) {
@@ -719,7 +720,7 @@ void addLabelExchangeAlphaBetaGrad(Sequence &prog,
 
 // Make a program to run in the loop which exchanges temporary tensors over
 // time and label partitions and makes an alpha or beta vertex on each tile.
-Sequence createAlphaBetaProg(Graph &graph, const popnn::ctc::Plan::Impl &plan,
+Sequence createAlphaBetaProg(Graph &graph, const popnn::ctc::LossPlan &plan,
                              const Tensor &data, const Tensor &alphaBeta,
                              const Tensor &loss, TempTensors &temp,
                              unsigned labelsLength, unsigned blankClass,
@@ -836,8 +837,7 @@ Sequence createAlphaBetaProg(Graph &graph, const popnn::ctc::Plan::Impl &plan,
 // Make a program to run in the loop which exchanges temporary tensors over
 // time and label partitions and makes an gradGivenAlpha or gradGivenBeta
 // vertex on each tile
-Sequence createAlphaBetaGradProg(Graph &graph,
-                                 const popnn::ctc::Plan::Impl &plan,
+Sequence createAlphaBetaGradProg(Graph &graph, const popnn::ctc::LossPlan &plan,
                                  const Tensor &data, const Tensor &alphaBeta,
                                  const Tensor &loss, Tensor &gradient,
                                  TempTensors &temp, unsigned labelsLength,
@@ -918,7 +918,7 @@ Sequence createAlphaBetaGradProg(Graph &graph,
 }
 
 TempTensors createAndInitialiseTemporaryTensors(
-    Graph &graph, const popnn::ctc::Plan::Impl &plan, const Tensor &dataLengths,
+    Graph &graph, const popnn::ctc::LossPlan &plan, const Tensor &dataLengths,
     const Tensor &labelLengths, const Tensor &labels, const Type &partialsType,
     Sequence &prog, const poplar::DebugContext &di) {
 
@@ -1036,6 +1036,7 @@ poplar::Tensor createDataInput(poplar::Graph &graph, const poplar::Type &type,
                                const std::size_t maxTime,
                                const std::size_t numClasses, const Plan &plan,
                                const poplar::DebugContext &debugContext) {
+  const auto &lossPlan = plan.getImpl().getAsLossPlan();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(type, batchSize, maxTime, numClasses, plan));
 
@@ -1044,7 +1045,7 @@ poplar::Tensor createDataInput(poplar::Graph &graph, const poplar::Type &type,
                         maxTime, batchSize, numClasses);
   const auto data = graph.addVariable(type, {1, batchSize, maxTime, numClasses},
                                       {di, "data"});
-  mapDataInputAccordingToPlan(graph, data, plan.getImpl());
+  mapDataInputAccordingToPlan(graph, data, lossPlan);
   di.addOutput(data);
   return toExternalShape(data.squeeze({0}));
 }
@@ -1053,6 +1054,7 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
                                  const std::size_t batchSize,
                                  const std::size_t maxLabels, const Plan &plan,
                                  const poplar::DebugContext &debugContext) {
+  const auto &lossPlan = plan.getImpl().getAsLossPlan();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(type, batchSize, maxLabels, plan));
 
@@ -1061,7 +1063,7 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
                         batchSize, maxLabels);
   const auto labels =
       graph.addVariable(type, {batchSize, maxLabels}, {di, "labels"});
-  mapLabelsAccordingToPlan(graph, labels, plan.getImpl());
+  mapLabelsAccordingToPlan(graph, labels, lossPlan);
   di.addOutput(labels);
   return labels;
 }
@@ -1124,7 +1126,7 @@ calcLossAndGradientLogProbabilitiesImpl(
     const poplar::Tensor &data, const poplar::Tensor &labels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
-    const Plan::Impl &plan, const poplar::DebugContext &debugContext,
+    const LossPlan &plan, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options) {
   const auto opts = parseCalcLossAndGradLogProbOptions(options);
   const auto partialsType = plan.params.partialsType;
@@ -1351,13 +1353,14 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
     poplar::program::Sequence &prog, const unsigned blankClass,
     const Plan &plan, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options) {
-  const auto partialsType = plan.getImpl().params.partialsType;
+  const auto &lossPlan = plan.getImpl().getAsLossPlan();
+  const auto partialsType = lossPlan.params.partialsType;
   printOp("CTCLossAndGradientLogProbs", partialsType, outType, logProbs, labels,
           dataLengths, labelLengths, blankClass, debugContext);
 
   return calcLossAndGradientLogProbabilitiesImpl(
       graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
-      blankClass, plan.getImpl(), {debugContext, "CTCLossAndGradientLogProbs"},
+      blankClass, lossPlan, {debugContext, "CTCLossAndGradientLogProbs"},
       options);
 }
 
@@ -1368,7 +1371,8 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
     poplar::program::Sequence &prog, const unsigned blankClass,
     const Plan &plan, const poplar::DebugContext &parentDebugContext,
     const poplar::OptionFlags &options) {
-  const auto partialsType = plan.getImpl().params.partialsType;
+  const auto &lossPlan = plan.getImpl().getAsLossPlan();
+  const auto partialsType = lossPlan.params.partialsType;
   printOp("CTCLossAndGradientLogits", partialsType, outType, logits, labels,
           dataLengths, labelLengths, blankClass, parentDebugContext);
   poplar::DebugContext debugContext{parentDebugContext,
@@ -1380,7 +1384,7 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
 
   return calcLossAndGradientLogProbabilitiesImpl(
       graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
-      blankClass, plan.getImpl(), debugContext, options);
+      blankClass, lossPlan, debugContext, options);
 }
 
 } // end namespace ctc

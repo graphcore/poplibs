@@ -3,14 +3,15 @@
 #ifndef popnn_CTCLossPlan_hpp
 #define popnn_CTCLossPlan_hpp
 
+#include <popnn/CTCLoss.hpp>
+
 #include <poplar/Interval.hpp>
 #include <poplibs_support/Algorithm.hpp>
-#include <popnn/CTCLoss.hpp>
 
 namespace popnn {
 namespace ctc {
 
-struct CtcPlannerParams {
+struct CtcLossPlannerParams {
   poplar::Type inType;
   poplar::Type partialsType;
   poplar::Type outType;
@@ -222,7 +223,7 @@ template <typename T> struct SerialPartition {
 };
 
 // Internal Plan implementation
-class Plan::Impl {
+class LossPlan {
   poplar::Interval partition(unsigned fullSize, unsigned partitions,
                              unsigned index) const {
     const auto partitionSize = poplibs_support::ceildiv(fullSize, partitions);
@@ -232,7 +233,7 @@ class Plan::Impl {
   }
 
 public:
-  CtcPlannerParams params;
+  CtcLossPlannerParams params;
   SerialPartition<unsigned> serial;
   ParallelPartition<unsigned, bool> parallel;
 
@@ -302,15 +303,15 @@ public:
     return parallel.batch * parallel.time *
            (parallel.label + (parallel.lastBlankOnSeparateTile ? 1 : 0));
   }
-  std::unique_ptr<Plan::Impl> clone() const {
-    return std::make_unique<Plan::Impl>(*this);
+  std::unique_ptr<LossPlan> clone() const {
+    return std::make_unique<LossPlan>(*this);
   };
 };
 
-bool operator<(const Plan::Impl &a, const Plan::Impl &b) noexcept;
-bool operator==(const Plan::Impl &a, const Plan::Impl &b) noexcept;
+bool operator<(const LossPlan &a, const LossPlan &b) noexcept;
+bool operator==(const LossPlan &a, const LossPlan &b) noexcept;
 
-std::ostream &operator<<(std::ostream &o, const Plan::Impl &p);
+std::ostream &operator<<(std::ostream &o, const LossPlan &p);
 
 struct CycleEstimate {
   uint64_t alphaBetaComputeCycles;
