@@ -117,14 +117,14 @@ BOOST_DATA_TEST_CASE(CholeskyTest,
   Engine eng(graph, prog);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("T", Tv.data());
+    eng.writeTensor("T", Tv.data(), Tv.data() + Tv.size());
     eng.run();
 
     std::vector<float> Av(Tv.size());
-    eng.readTensor("A", Av.data());
+    eng.readTensor("A", Av.data(), Av.data() + Av.size());
 
     std::vector<float> A2v(Tv.size());
-    eng.readTensor("A2", A2v.data());
+    eng.readTensor("A2", A2v.data(), A2v.data() + A2v.size());
 
     for (std::size_t i = 0; i < Av.size(); i++) {
       BOOST_REQUIRE_CLOSE(Av[i], A2v[i], 0.001f);

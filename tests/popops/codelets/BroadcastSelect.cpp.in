@@ -170,12 +170,13 @@ void BroadcastSelectTest(TEST_TYPE in1Data, TEST_TYPE in2Data,
     unsigned sizeInBytes = nElemsPlusCanaries * target.getTypeSize(TYPE);
     std::vector<unsigned char> byteBuf(sizeInBytes);
     copy(target, outBuf.data(), nElemsPlusCanaries, TYPE, byteBuf.data());
-    e.writeTensor("out", byteBuf.data());
+    e.writeTensor("out", byteBuf.data(), byteBuf.data() + byteBuf.size());
 
     // Copy 'in3' to the device. No need to convert to device type as in3Data
     // is declared as 'unsigned char' (same size as device BOOL).
     for (unsigned i = 0; i < N_DATA_ROWS; ++i) {
-      e.writeTensor("in3" + std::to_string(i), in3Data[i].data());
+      e.writeTensor("in3" + std::to_string(i), in3Data[i].data(),
+                    in3Data[i].data() + in3Data[i].size());
     }
 
     e.run();
@@ -280,7 +281,7 @@ void BroadcastSelectorSelectTest(bool inPlace) {
       writeFns.push_back([=](Engine &e) {
         std::vector<unsigned char> buf(SIZE * target.getTypeSize(TYPE));
         copy(target, in[i].data(), SIZE, TYPE, buf.data());
-        e.writeTensor(NAME, buf.data());
+        e.writeTensor(NAME, buf.data(), buf.data() + buf.size());
       });
       return inRow;
     };
@@ -308,7 +309,7 @@ void BroadcastSelectorSelectTest(bool inPlace) {
         writeFn(e);
       }
       uint8_t selectorByte = (uint8_t)selector;
-      e.writeTensor("in3", &selectorByte);
+      e.writeTensor("in3", &selectorByte, &selectorByte + 1);
 
       e.run();
       // Row by row, read output (using conversion buffer) and verify

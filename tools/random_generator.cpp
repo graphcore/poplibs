@@ -67,7 +67,7 @@ convertAndWriteTensor(const Target &target, Engine &eng,
                       const std::string &handle, const std::vector<T> &in,
                       std::size_t N,
                       typename std::enable_if<!deviceHalf, int>::type = 0) {
-  eng.writeTensor(handle, in.data());
+  eng.writeTensor(handle, in.data(), &*in.end());
 }
 
 template <typename T, bool deviceHalf = false>
@@ -78,7 +78,7 @@ static void convertAndWriteTensor(
                             int>::type = 0) {
   std::vector<char> buf(target.getTypeSize(HALF) * N);
   copyFloatToDeviceHalf(target, in.data(), buf.data(), N);
-  eng.writeTensor(handle, buf.data());
+  eng.writeTensor(handle, buf.data(), &*buf.end());
 }
 
 template <typename T>
@@ -531,7 +531,7 @@ int main(int argc, char **argv) {
 
   const bool defaultSeed = vm["seed"].defaulted();
 
-  uint32_t hSeed[2];
+  std::array<uint32_t, 2> hSeed;
   hSeed[0] = seed;
   hSeed[1] = ~seed;
 
@@ -576,11 +576,11 @@ int main(int argc, char **argv) {
     Engine eng(graph, randProg, options);
     dev.bind([&](const Device &d) {
       eng.load(d);
-      eng.writeTensor("seed", hSeed);
-      eng.writeTensor("seedsWrite", &hSeedsWrite[0]);
+      eng.writeTensor("seed", &hSeed[0], &hSeed[hSeed.size()]);
+      eng.writeTensor("seedsWrite", &*hSeedsWrite.begin(), &*hSeedsWrite.end());
       eng.run();
-      eng.readTensor("seedsRead", hostSeedsRead.data(),
-                     hostSeedsRead.data() + hostSeedsRead.size());
+      eng.readTensor("seedsRead", &*hostSeedsRead.begin(),
+                     &*hostSeedsRead.end());
     });
     std::set<std::vector<unsigned>> unique_seeds;
     assert(seedsRead.rank() == 3);
@@ -693,7 +693,8 @@ int main(int argc, char **argv) {
     if (deviceHalf) {
       dev.bind([&](const Device &d) {
         engine.load(d);
-        engine.writeTensor("tSeed", hSeed);
+        engine.writeTensor("tSeed", &hSeed[0], &hSeed[hSeed.size()]);
+
         convertAndWriteTensor<float, true>(target, engine, "paddedIn", flpInput,
                                            paddedInSize);
         engine.run();
@@ -710,7 +711,8 @@ int main(int argc, char **argv) {
 
       dev.bind([&](const Device &d) {
         engine.load(d);
-        engine.writeTensor("tSeed", hSeed);
+        engine.writeTensor("tSeed", &hSeed[0], &hSeed[hSeed.size()]);
+
         convertAndWriteTensor<float, false>(target, engine, "paddedIn",
                                             flpInput, paddedInSize);
         engine.run();
@@ -781,7 +783,8 @@ int main(int argc, char **argv) {
     dev.bind([&](const Device &d) {
       engine.load(d);
       for (unsigned i = 0; i != numLoops; ++i) {
-        engine.writeTensor("tSeed", hSeed);
+        engine.writeTensor("tSeed", &hSeed[0], &hSeed[hSeed.size()]);
+
         engine.run();
         if (dType == poplar::INT) {
           readAndConvertTensor<int, false>(graph.getTarget(), engine, "out",

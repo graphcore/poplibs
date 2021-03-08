@@ -549,14 +549,14 @@ int main(int argc, char **argv) try {
     engine.loadAndRun(d);
     if (reportTotalCycleCounts) {
       std::uint64_t cyclesBuffer;
-      engine.readTensor("fwdCycles", &cyclesBuffer);
+      engine.readTensor("fwdCycles", &cyclesBuffer, &cyclesBuffer + 1);
       std::cerr << "  Forward pass cycles: " << cyclesBuffer << "\n";
       if (doBwdPass) {
-        engine.readTensor("bwdCycles", &cyclesBuffer);
+        engine.readTensor("bwdCycles", &cyclesBuffer, &cyclesBuffer + 1);
         std::cerr << "  GradA pass cycles: " << cyclesBuffer << "\n";
       }
       if (doWuPass) {
-        engine.readTensor("wuCycles", &cyclesBuffer);
+        engine.readTensor("wuCycles", &cyclesBuffer, &cyclesBuffer + 1);
         std::cerr << "  GradW pass cycles: " << cyclesBuffer << "\n";
       }
     }

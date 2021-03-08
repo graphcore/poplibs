@@ -110,19 +110,20 @@ std::vector<T> deviceUpdateScalarInRows(
       copyFloatToDeviceHalf(target,
                             rearrange ? inputRearranged.data() : in.data(),
                             rawIn.data(), tIn.numElements());
-      eng.writeTensor("in", rawIn.data());
+      eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
     } else {
-      eng.writeTensor("in", rearrange ? inputRearranged.data() : in.data());
+      auto &buf = rearrange ? inputRearranged : in;
+      eng.writeTensor("in", buf.data(), buf.data() + buf.size());
     }
-    eng.writeTensor("indices", indices.data());
+    eng.writeTensor("indices", indices.data(), indices.data() + indices.size());
     eng.run();
 
     if (inputType == HALF) {
-      eng.readTensor("out", rawOut.data());
+      eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
       copyDeviceHalfToFloat(target, rawOut.data(), out.data(),
                             tIn.numElements());
     } else {
-      eng.readTensor("out", out.data());
+      eng.readTensor("out", out.data(), out.data() + out.size());
     }
   });
 

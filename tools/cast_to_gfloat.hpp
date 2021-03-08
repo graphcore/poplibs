@@ -82,7 +82,7 @@ static void
 readAndConvertTensor(const poplar::Target &target, poplar::Engine &eng,
                      const std::string &handle, T *out, std::size_t N,
                      typename std::enable_if<!deviceHalf, int>::type = 0) {
-  eng.readTensor(handle, out);
+  eng.readTensor(handle, out, &out[N]);
 }
 
 template <typename T, bool deviceHalf = false>
@@ -92,7 +92,7 @@ static void readAndConvertTensor(
     typename std::enable_if<std::is_same<T, float>::value && deviceHalf,
                             int>::type = 0) {
   std::vector<char> buf(target.getTypeSize(poplar::HALF) * N);
-  eng.readTensor(handle, buf.data());
+  eng.readTensor(handle, buf.data(), &*buf.end());
   copyDeviceHalfToFloat(target, buf.data(), out, N);
 }
 
@@ -101,7 +101,7 @@ static void
 convertAndWriteTensor(const poplar::Target &target, poplar::Engine &eng,
                       const std::string &handle, T *in, std::size_t N,
                       typename std::enable_if<!deviceHalf, int>::type = 0) {
-  eng.writeTensor(handle, in);
+  eng.writeTensor(handle, in, &in[N]);
 }
 
 template <typename T, bool deviceHalf = false>
@@ -112,6 +112,6 @@ static void convertAndWriteTensor(
                             int>::type = 0) {
   std::vector<char> buf(target.getTypeSize(poplar::HALF) * N);
   copyFloatToDeviceHalf(target, in, buf.data(), N);
-  eng.writeTensor(handle, buf.data());
+  eng.writeTensor(handle, buf.data(), &*buf.end());
 }
 #endif

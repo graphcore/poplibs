@@ -1,13 +1,14 @@
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "poplar/Engine.hpp"
 #include "poplar/Target.hpp"
 // clang-format off
 #define BOOST_TEST_MODULE Select_@DATA_TYPE@
 // clang-format on
-#include <poplibs_support/TestDevice.hpp>
 #include "poplibs_test/Util.hpp"
 #include "popops/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include <memory>
+#include <poplibs_support/TestDevice.hpp>
 // codelets
 #include "popops/ElementWise.hpp"
 
@@ -60,14 +61,14 @@ BOOST_AUTO_TEST_CASE(SELECT_TEST_NAME) {
 
     for (unsigned j = 0; j < IN_NAMES.size(); ++j) {
       auto t = graph.addVariable((j == 2 ? BOOL : TYPE), {SIZE});
+      auto nBytes = SIZE * target.getTypeSize((j == 2 ? BOOL : TYPE));
       graph.setTileMapping(t, 0);
       graph.connect(v[IN_NAMES[j]][i], t);
       const std::string NAME = IN_NAMES[j] + std::to_string(i);
       graph.createHostWrite(NAME, t);
 
-      writeFns.push_back([NAME, i, j, SIZE, &target](Engine &e) {
-        std::unique_ptr<char[]> dst(
-            new char[SIZE * target.getTypeSize((j == 2 ? BOOL : TYPE))]);
+      writeFns.push_back([NAME, i, j, SIZE, &target, nBytes](Engine &e) {
+        std::unique_ptr<char[]> dst(new char[nBytes]);
 
         switch (j) {
         case 0:
@@ -86,7 +87,7 @@ BOOST_AUTO_TEST_CASE(SELECT_TEST_NAME) {
         }
         }
 
-        e.writeTensor(NAME, dst.get());
+        e.writeTensor(NAME, dst.get(), dst.get() + nBytes);
       });
     }
 

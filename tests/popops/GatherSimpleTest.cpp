@@ -49,11 +49,11 @@ std::vector<T> deviceGather(const std::vector<T> &in,
   std::vector<T> out(tOut.numElements());
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", in.data());
-    eng.writeTensor("indices", indices.data());
+    eng.writeTensor("in", in.data(), in.data() + in.size());
+    eng.writeTensor("indices", indices.data(), indices.data() + indices.size());
     eng.run();
 
-    eng.readTensor("out", out.data());
+    eng.readTensor("out", out.data(), out.data() + out.size());
     eng.printProfileSummary(std::cout);
   });
 

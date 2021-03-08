@@ -239,12 +239,12 @@ BOOST_AUTO_TEST_CASE(AttentionSlice) {
     unsigned hOffset[maxSequencesPerBatch] = {10, 0, 0, 0};
     unsigned hLength[maxSequencesPerBatch] = {5, 0, 10, 0};
     std::vector<float> hTokens(maxTokensPerBatch * nFeatures);
-    engine.writeTensor("offset", hOffset);
-    engine.writeTensor("length", hLength);
-    engine.writeTensor("tokensToIpu", hTokens.data());
-    std::cerr << "Before run\n";
+    engine.writeTensor("offset", hOffset, &hOffset[maxSequencesPerBatch]);
+    engine.writeTensor("length", hLength, &hLength[maxSequencesPerBatch]);
+    engine.writeTensor("tokensToIpu", hTokens.data(),
+                       hTokens.data() + hTokens.size());
     engine.run();
-    std::cerr << "After run\n";
-    engine.readTensor("tokensFromIpu", hTokens.data());
+    engine.readTensor("tokensFromIpu", hTokens.data(),
+                      hTokens.data() + hTokens.size());
   });
 }

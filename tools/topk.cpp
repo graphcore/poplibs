@@ -358,7 +358,7 @@ int main(int argc, char **argv) try {
     engine.loadAndRun(d);
     if (reportTotalCycles) {
       std::uint64_t cycleCount;
-      engine.readTensor("totalCycleCount", &cycleCount);
+      engine.readTensor("totalCycleCount", &cycleCount, &cycleCount + 1);
       std::cout << "Total cycles for top-k program were " << cycleCount << "\n";
     }
   });
