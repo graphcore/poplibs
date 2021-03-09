@@ -139,6 +139,7 @@ cast_half_\SIGNEDNESS\()_char_core:
   f16tof32    $a0, $a0
   f32clamp    $a0, $a0, $CLAMP_LIMITS
   \F32TOINT   $a0, $a0
+  and         $a0, $a0, 0xff
   atom        $SCRATCH, $a0
   sort4x16lo  $ACCUM, $ACCUM, $SCRATCH
   // Isolate the lone element in MEM_WORD (top byte)
@@ -155,6 +156,7 @@ cast_half_\SIGNEDNESS\()_char_core:
   f16tof32    $a0, $a0
   f32clamp    $a0, $a0, $CLAMP_LIMITS
   \F32TOINT   $a0, $a0
+  and         $a0, $a0, 0xff
   atom        $ACCUM, $a0
   andc        $MEM_WORD, $MEM_WORD, 0xff
   or          $MEM_WORD, $MEM_WORD, $ACCUM
@@ -274,6 +276,7 @@ cast_float_\SIGNEDNESS\()_char_core:
   ld32        $a0, $mzero, $IN_PTR, 0
   f32clamp    $a0, $a0, $CLAMP_LIMITS
   \F32TOINT   $a0, $a0
+  and         $a0, $a0, 0xff
   atom        $m6, $a0
   sort4x16lo  $ACCUM, $ACCUM, $m6
   // Isolate the lone element in MEM_WORD (top byte)
@@ -289,6 +292,7 @@ cast_float_\SIGNEDNESS\()_char_core:
   ld32        $a0, $mzero, $IN_PTR, 0
   f32clamp    $a0, $a0, $CLAMP_LIMITS
   \F32TOINT   $a0, $a0
+  and         $a0, $a0, 0xff
   atom        $ACCUM, $a0
   andc        $MEM_WORD, $MEM_WORD, 0xff
   or          $MEM_WORD, $MEM_WORD, $ACCUM
