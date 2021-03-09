@@ -34,6 +34,8 @@ static double nonLinearity(NonLinearityType nonLinearityType, double x) {
     return tanh(x);
   case NonLinearityType::GELU:
     return 0.5 * x * (1 + cdfFactorForNormalDist(x));
+  case NonLinearityType::SWISH:
+    return sigmoid(x) * x;
   case NonLinearityType::SOFTMAX:
   case NonLinearityType::SOFTMAX_STABLE:
   case NonLinearityType::SOFTMAX_SCALED:
@@ -128,6 +130,11 @@ static double geluGradient(double x) {
   return 0.5 * g;
 }
 
+static double swishGradient(double x) {
+  auto sigm = sigmoid(x);
+  return sigm * (1 + x * (1 - sigm));
+}
+
 static double nonLinearityDerivative(NonLinearityType nonLinearityType,
                                      double act) {
   switch (nonLinearityType) {
@@ -143,6 +150,8 @@ static double nonLinearityDerivative(NonLinearityType nonLinearityType,
     return 1 - act * act;
   case NonLinearityType::GELU:
     return geluGradient(act);
+  case NonLinearityType::SWISH:
+    return swishGradient(act);
   case NonLinearityType::SOFTMAX:
   case NonLinearityType::SOFTMAX_STABLE:
   case NonLinearityType::SOFTMAX_SCALED:

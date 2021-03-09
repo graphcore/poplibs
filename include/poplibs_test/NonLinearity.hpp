@@ -20,13 +20,14 @@ void nonLinearity(popnn::NonLinearityType nonLinearityType,
 void nonLinearity(popnn::NonLinearityType nonLinearityType,
                   boost::multi_array<double, 4> &array);
 
+// For computing the gradient of non-linearity types SWISH and GELU
+// `activations` refers to the the input to the activation function rather than
+// the output.
 void bwdNonLinearity(popnn::NonLinearityType nonLinearityType,
                      const double *activations, double *deltas, std::size_t n);
-
 void bwdNonLinearity(popnn::NonLinearityType nonLinearityType,
                      const boost::multi_array<double, 4> &activations,
                      boost::multi_array<double, 4> &deltas);
-
 void bwdNonLinearity(popnn::NonLinearityType nonLinearityType,
                      const boost::multi_array<double, 2> &activations,
                      boost::multi_array<double, 2> &deltas);

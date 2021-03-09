@@ -20,7 +20,9 @@ using namespace poplibs_support;
 // Macro to create entries in cycle estimator table
 #define INSTANTIATE_NL_CYCLE_ESTIMATOR(v)                                      \
   CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::GELU),       \
-      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::GELU)
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::GELU),    \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::SWISH),  \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::SWISH)
 
 #define INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(v)                                 \
   CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::SIGMOID),    \
@@ -30,18 +32,28 @@ using namespace poplibs_support;
       CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::TANH),   \
       CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::TANH),    \
       CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::GELU),   \
-      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::GELU)
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::GELU),    \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::SWISH),  \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::SWISH)
+
 namespace popnn {
 
 static std::uint64_t nonlinearityFlops(const NonLinearityType &nlType) {
   // assume single flop for all non-linearities other than GELU
-  return nlType == NonLinearityType::GELU ? 8 : 1;
+  if (nlType == NonLinearityType::GELU) {
+    return 8;
+  } else if (nlType == NonLinearityType::SWISH) {
+    return 2;
+  }
+  return 1;
 }
 
 static std::uint64_t nonlinearityGradFlops(const NonLinearityType &nlType) {
   switch (nlType) {
   case NonLinearityType::GELU:
     return 15;
+  case NonLinearityType::SWISH:
+    return 5;
   case NonLinearityType::RELU:
     return 1;
   case NonLinearityType::SIGMOID:
@@ -69,9 +81,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearitySupervisor)(
   // we take the longest worker hence rounded up.
   const auto vectorsPerWorker = (numVectors + numWorkers - 1) / numWorkers;
 
-  // We do 2 ops per vector.
-  const auto opCycles = getNonLinearityOpCycles(nlType, isFloat);
-  const auto vectorLoopCycles = opCycles * 2;
+  const auto opCycles = getNonLinearityOpCycles(nlType, isFloat, false);
+  const auto vectorLoopCycles = getNonLinearityOpCycles(nlType, isFloat, true);
 
   // These cycle estimates follow the aligned path. Slightly optimistic.
   // The cost of misalignment is ~9 cycles for half, less for float.
@@ -134,6 +145,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
   const auto numVectors = n / vectorWidth;
   const auto remainder = n % vectorWidth;
   const auto vectorsPerWorker = (numVectors + numWorkers - 1) / numWorkers;
+  const auto opCycles = getNonLinearityGradOpCycles(nlType, isFloat, false);
+  const auto vectorCycles = getNonLinearityGradOpCycles(nlType, isFloat, true);
 
   std::uint64_t cycles = 9; // Supervisor vertex overhead
   std::uint64_t workerCycles =
@@ -144,9 +157,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
       3 + // Offset pointers to data
       3 + // Pre-load inputs, and generate ones if needed
       1 + // Branch if no vectors
-      (vectorsPerWorker ? 1 : 0) *
-          (4 +                              // Warm up the pipeline
-           (vectorsPerWorker - 1) * 3 + 1); // Store remaining element
+      (vectorsPerWorker ? 1 : 0) * (4 + // Warm up the pipeline
+                                    (vectorsPerWorker - 1) * vectorCycles +
+                                    1); // Store remaining element
 
   // get real pointers from scaled pointers
   if (inGradLayout == layout::Vector::ScaledPtr64) {
@@ -156,13 +169,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
   if (isFloat) {
     workerCycles += 2 + // Pick a worker to handle the remainder, branch
                     2 + // Check for remainder
-                    (remainder ? 1 : 0) * 4;
+                    (remainder ? 1 : 0) * (opCycles + 1);
   } else {
     workerCycles += 2 + // Pick a worker to handle remainders, branch
                     2 + // Check for 32-bit remainder
-                    ((remainder & 2) ? 1 : 0) * 5 +
+                    ((remainder & 2) ? 1 : 0) * (opCycles + 2) +
                     2 + // Check for 16-bit remainder
-                    ((remainder & 1) ? 1 : 0) * 7;
+                    ((remainder & 1) ? 1 : 0) * (opCycles + 4);
   }
 
   return {cycles + (workerCycles * numWorkers),
@@ -181,9 +194,8 @@ MAKE_PERF_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
 
   std::uint64_t cycles = 5; // Vertex overhead
 
-  // We do 2 ops per vector.
-  const auto opCycles = getNonLinearityOpCycles(nlType, isFloat);
-  const auto vectorLoopCycles = opCycles * 2;
+  const auto opCycles = getNonLinearityOpCycles(nlType, isFloat, false);
+  const auto vectorLoopCycles = getNonLinearityOpCycles(nlType, isFloat, true);
 
   cycles += 2 + // Load base pointer, DeltaN pointer
             5 + // Unpack base pointer, n0, DeltaN pointer
@@ -244,6 +256,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad2D)(
             3 + // Calculate DeltaN pointer
             2;  // Set mask for inner loop, sub for brnzdec
 
+  const auto opCycles = getNonLinearityGradOpCycles(nlType, isFloat, false);
+  const auto vectorCycles = getNonLinearityGradOpCycles(nlType, isFloat, true);
+
   unsigned totalElements = 0;
   for (std::size_t i = 0; i < n0; ++i) {
     const auto n1 = inGrad[i].size();
@@ -252,20 +267,20 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad2D)(
     const auto numVectors = n1 / vectorWidth;
     const auto remainder = n1 % vectorWidth;
 
-    cycles +=
-        6 + // Load DeltaN, calculate inner pointer/n1, shift for n1 vecs
-        3 + // Pre-load inputs for pipeline, branch if 0
-        (numVectors ? 1 : 0) * (4 +                        // Warm up pipeline
-                                (numVectors - 1) * 3 + 1); // Store last element
+    cycles += 6 + // Load DeltaN, calculate inner pointer/n1, shift for n1 vecs
+              3 + // Pre-load inputs for pipeline, branch if 0
+              (numVectors ? 1 : 0) * (4 + // Warm up pipeline
+                                          // Store last element
+                                      (numVectors - 1) * vectorCycles + 1);
 
     if (isFloat) {
       cycles += 2 + // Check for remainder
-                (remainder ? 1 : 0) * 4;
+                (remainder ? 1 : 0) * (1 + opCycles);
     } else {
       cycles += 2 + // Check for 32-bit remainder
-                ((remainder & 2) ? 1 : 0) * 5 +
+                ((remainder & 2) ? 1 : 0) * (2 + opCycles) +
                 2 + // Check for 16-bit remainder
-                ((remainder & 1) ? 1 : 0) * 7;
+                ((remainder & 1) ? 1 : 0) * (4 + opCycles);
     }
     totalElements += n1;
     cycles += 1; // brnzdec

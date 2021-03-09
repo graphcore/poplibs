@@ -157,6 +157,7 @@ DEF_NONLINEARITY(sigmoid, NonLinearityType::SIGMOID)
 DEF_NONLINEARITY(relu, NonLinearityType::RELU)
 DEF_NONLINEARITY(tanh, NonLinearityType::TANH)
 DEF_NONLINEARITY(gelu, NonLinearityType::GELU)
+DEF_NONLINEARITY(swish, NonLinearityType::SWISH)
 DEF_NONLINEARITY(softmax, NonLinearityType::SOFTMAX)
 DEF_NONLINEARITY(softmaxStable, NonLinearityType::SOFTMAX_STABLE)
 DEF_NONLINEARITY(scaledSoftmaxStable, NonLinearityType::SOFTMAX_SCALED)
@@ -190,8 +191,8 @@ nonLinearityInputGradient(poplar::Graph &graph,
  * \param nonLinearityType  The type of non-linearity to compute the input
  *                          gradient for.
  * \param act               The output activations from the non-linearity.
- *                          For the GELU non-linearity only this is the
- *                          input to the non-linearity.
+ *                          For the GELU and SWISH non-linearity only this is
+ *                          the input to the non-linearity.
  * \param outGradient       The gradients at the output of the non-linearity.
  * \param prog              The sequence to add the operation to.
  * \param debugContext      Optional debug information.

@@ -82,11 +82,15 @@ set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceClassGather.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceClassSparse.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearity2D_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearity2DSwish.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad2D.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad2D_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad2DSwish.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearitySupervisor_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearitySupervisorSwish.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradSupervisor.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradSupervisor_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradSupervisorSwish.S
 )
 
 add_gp_library(
@@ -118,6 +122,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MinHeapView.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity.hpp
     ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearitySwishCommon.S
 )
 
 install(TARGETS popnn

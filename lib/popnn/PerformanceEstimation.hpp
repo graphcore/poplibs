@@ -16,7 +16,7 @@
 #include <vector>
 
 inline uint64_t getNonLinearityOpCycles(popnn::NonLinearityType nlType,
-                                        bool isFloat) {
+                                        bool isFloat, bool isVector) {
   // Based off the worst-case cycles from arch_man for float/half
   // transcendental ops.
   uint64_t opCycles;
@@ -25,15 +25,56 @@ inline uint64_t getNonLinearityOpCycles(popnn::NonLinearityType nlType,
     opCycles = 1;
     break;
   case popnn::NonLinearityType::SIGMOID:
-    opCycles = (isFloat ? 5 : 2);
+    opCycles = (isFloat ? 5 : 2) * (isVector ? 2 : 1);
     break;
   case popnn::NonLinearityType::TANH:
-    opCycles = (isFloat ? 5 : 1);
+    opCycles = (isFloat ? 5 : 1) * (isVector ? 2 : 1);
     break;
   case popnn::NonLinearityType::GELU:
     // TODO: T12914 These are just placeholders. Change these when the
     // nonlinearity is coded in assembly.
     opCycles = isFloat ? 10 : 5;
+    break;
+  case popnn::NonLinearityType::SWISH:
+    if (isFloat) {
+      opCycles = isVector ? 11 : 6;
+    } else {
+      opCycles = isVector ? 5 : 3;
+    }
+    break;
+  default:
+    throw poputil::poplibs_error("Unhandled non-linearity type");
+    break;
+  }
+  return opCycles;
+}
+
+inline uint64_t getNonLinearityGradOpCycles(popnn::NonLinearityType nlType,
+                                            bool isFloat, bool isVector) {
+  // Based off the worst-case cycles from arch_man for float/half
+  // transcendental ops.
+  uint64_t opCycles;
+  switch (nlType) {
+  case popnn::NonLinearityType::RELU:
+    opCycles = 3;
+    break;
+  case popnn::NonLinearityType::SIGMOID:
+    opCycles = 3;
+    break;
+  case popnn::NonLinearityType::TANH:
+    opCycles = 3;
+    break;
+  case popnn::NonLinearityType::GELU:
+    // TODO: T12914 These are just placeholders. Change these when the
+    // nonlinearity is coded in assembly.
+    opCycles = isFloat ? 10 : 5;
+    break;
+  case popnn::NonLinearityType::SWISH:
+    if (isFloat) {
+      opCycles = isVector ? 15 : 10;
+    } else {
+      opCycles = isVector ? 9 : 7;
+    }
     break;
   default:
     throw poputil::poplibs_error("Unhandled non-linearity type");

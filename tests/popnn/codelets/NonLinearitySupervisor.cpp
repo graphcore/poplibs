@@ -276,7 +276,8 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-  if (nlType != NonLinearityType::GELU && testFwd) {
+  if (nlType != NonLinearityType::GELU && nlType != NonLinearityType::SWISH &&
+      testFwd) {
     throw poputil::poplibs_error("Fwd non-linearity codelets for TANH, SIGMOID"
                                  " and RELU are implemented as unary ops. ");
   }

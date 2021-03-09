@@ -22,7 +22,9 @@ static constexpr auto DELTANELEMENTS = poplar::VectorListLayout::DELTANELEMENTS;
 // Macros to instantiate a template class for non linear operations
 #define INSTANTIATE_NL(v)                                                      \
   template class v<float, popnn::NonLinearityType::GELU>;                      \
-  template class v<half, popnn::NonLinearityType::GELU>;
+  template class v<half, popnn::NonLinearityType::GELU>;                       \
+  template class v<float, popnn::NonLinearityType::SWISH>;                     \
+  template class v<half, popnn::NonLinearityType::SWISH>;
 
 #define INSTANTIATE_NL_GRAD(v)                                                 \
   template class v<float, popnn::NonLinearityType::SIGMOID>;                   \
@@ -32,7 +34,9 @@ static constexpr auto DELTANELEMENTS = poplar::VectorListLayout::DELTANELEMENTS;
   template class v<float, popnn::NonLinearityType::TANH>;                      \
   template class v<half, popnn::NonLinearityType::TANH>;                       \
   template class v<float, popnn::NonLinearityType::GELU>;                      \
-  template class v<half, popnn::NonLinearityType::GELU>;
+  template class v<half, popnn::NonLinearityType::GELU>;                       \
+  template class v<float, popnn::NonLinearityType::SWISH>;                     \
+  template class v<half, popnn::NonLinearityType::SWISH>;
 
 namespace popnn {
 
@@ -49,6 +53,13 @@ static float relu(float x) {
   if (x > 0.0f)
     return x;
   return 0.0f;
+}
+
+static float swish(float x) { return x * sigmoid(x); }
+
+static float swish_derivative(float x) {
+  const auto sigm = sigmoid(x);
+  return sigm * (1 + x * (1 - sigm));
 }
 
 static float relu_derivative(float activation) {
@@ -91,6 +102,8 @@ static float nonlinearity(popnn::NonLinearityType t, float x) {
     return tanh(x);
   case popnn::NonLinearityType::GELU:
     return 0.5f * x * (1 + cdfFactorForNormalDist(x));
+  case popnn::NonLinearityType::SWISH:
+    return swish(x);
   case popnn::NonLinearityType::HARD_SIGMOID:
   case popnn::NonLinearityType::SOFTMAX:
   case popnn::NonLinearityType::SOFTMAX_STABLE:
@@ -111,6 +124,8 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
     return tanh_derivative(activation);
   case popnn::NonLinearityType::GELU:
     return gelu_gradient(activation);
+  case popnn::NonLinearityType::SWISH:
+    return swish_derivative(activation);
   case popnn::NonLinearityType::HARD_SIGMOID:
   case popnn::NonLinearityType::SOFTMAX:
   case popnn::NonLinearityType::SOFTMAX_STABLE:

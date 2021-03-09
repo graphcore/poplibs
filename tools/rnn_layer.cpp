@@ -67,6 +67,8 @@ const char *asString(const popnn::NonLinearityType &type) {
     return "softmax (scaled, stable)";
   case popnn::NonLinearityType::GELU:
     return "gelu";
+  case popnn::NonLinearityType::SWISH:
+    return "swish";
   }
   POPLIB_UNREACHABLE();
 }
