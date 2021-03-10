@@ -95,3 +95,27 @@ foreach (VERTEX alpha beta gradGivenAlpha gradGivenBeta)
       --test=${VERTEX}
     LABELS codelet)
 endforeach()
+
+add_multi_target_test_executable(CTCInferenceCodeletTest
+  CTCInferenceCodeletTest.cpp
+  CTCInferenceGenerateCandidates.cpp
+  CTCInferenceGenerateCandidates.hpp
+  CTCInferenceMergeCandidates.cpp
+  CTCInferenceMergeCandidates.hpp
+)
+
+foreach (SEED RANGE 1 5)
+  foreach (TIMESTEP RANGE 0 14)
+    foreach (VERTEX generate merge)
+      add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${SEED}_timestep_${TIMESTEP}_${VERTEX}"
+          COMMAND CTCInferenceCodeletTest
+            --seed=${SEED}
+            --beamwidth=2
+            --num-classes=5
+            --max-time=15
+            --timestep=${TIMESTEP}
+            --vertex-type=${VERTEX}
+          LABELS codelet)
+    endforeach()
+  endforeach()
+endforeach()

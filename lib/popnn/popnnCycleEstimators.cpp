@@ -677,6 +677,20 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenBeta)(
   return {gradGivenBetaCycles(1, label.size() - 1, false),
           gradGivenBetaFlops(1, label.size() - 1, outType, false)};
 }
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(GenerateCandidates)(
+    const VertexIntrospector &vertex, const Target &target, const Type &inType,
+    const Type &partialsType, const Type symbolType) {
+  // TODO: cycle estimator
+  return {0, 0};
+}
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(MergeCandidates)(
+    const VertexIntrospector &vertex, const Target &target, const Type &inType,
+    const Type &partialsType, const Type symbolType) {
+  // TODO: cycle estimator
+  return {0, 0};
+}
+
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
@@ -800,6 +814,15 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
                             false),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCGradGivenBeta, HALF, FLOAT, UNSIGNED_INT,
                             false),
+      CYCLE_ESTIMATOR_ENTRY(popnn, GenerateCandidates, FLOAT, FLOAT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, GenerateCandidates, HALF, FLOAT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, GenerateCandidates, HALF, HALF,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, MergeCandidates, FLOAT, FLOAT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, MergeCandidates, HALF, FLOAT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, MergeCandidates, HALF, HALF, UNSIGNED_INT),
 
       INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
       INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),

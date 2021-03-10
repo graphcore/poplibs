@@ -1,8 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include <poplibs_test/CTCInference.hpp>
 
-#include <boost/optional.hpp>
-
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -17,86 +15,45 @@ using namespace poplibs_support;
 namespace poplibs_test {
 namespace ctc {
 
-// Probabilities representing the final symbol of a beam
-template <typename FPType> struct BeamProbability {
-  FPType p;  // non blank
-  FPType pb; // blank
-};
+BeamHistory::BeamHistory(unsigned beamwidth, unsigned t)
+    : symbols(boost::extents[beamwidth][t]),
+      parents(boost::extents[beamwidth][t]) {}
 
-template <typename FPType> struct Candidate {
-  unsigned beam;   // Parent output sequence
-  unsigned addend; // Symbol to append onto beam
+std::vector<unsigned> BeamHistory::getOutputSequence(unsigned beamIndex) const {
+  std::vector<unsigned> reversedSequence;
 
-  FPType p;  // beam and non blank
-  FPType pb; // beam and blank
-};
-
-struct BeamHistory {
-  // symbols array contains the output sequences for each beam, with an entry at
-  // every timestep (so potentially "oversampled"). Traversing through this
-  // array builds up the actual output sequence by either:
-  //  - voidSymbol -> no change in output sequence
-  //  - otherwise -> appended to output sequence
-  // so traversing `a` -> `a` in the table represents the output sequence `aa`,
-  // not `a`!
-  boost::multi_array<unsigned, 2> symbols;
-  boost::multi_array<boost::optional<unsigned>, 2>
-      parents; // If unset, no parent for convenience
-
-  // This represents the position which is one beyond the end of the assigned
-  // beams (assessed with candidates)
-  unsigned nextIndexToAssign = 0;
-
-  BeamHistory(unsigned beamwidth, unsigned t)
-      : symbols(boost::extents[beamwidth][t]),
-        parents(boost::extents[beamwidth][t]) {}
-
-  std::vector<unsigned> getOutputSequence(unsigned beamIndex) const {
-    std::vector<unsigned> reversedSequence;
-
-    for (int i = nextIndexToAssign - 1; i >= 0; i--) {
-      if (symbols[beamIndex][i] != voidSymbol) {
-        reversedSequence.push_back(symbols[beamIndex][i]);
-      }
-      if (parents[beamIndex][i]) {
-        beamIndex = *parents[beamIndex][i];
-      }
+  for (int i = nextIndexToAssign - 1; i >= 0; i--) {
+    if (symbols[beamIndex][i] != voidSymbol) {
+      reversedSequence.push_back(symbols[beamIndex][i]);
     }
-    // We traversed backwards
-    std::reverse(reversedSequence.begin(), reversedSequence.end());
-    return reversedSequence;
-  }
-
-  template <typename FPType>
-  std::vector<unsigned>
-  getOutputSequence(const Candidate<FPType> &candidate) const {
-    auto output = getOutputSequence(candidate.beam);
-    if (candidate.addend != voidSymbol) {
-      output.push_back(candidate.addend);
-    }
-    return output;
-  }
-
-  // Find the last symbol in the beam output sequence
-  unsigned getLastOutput(unsigned beamIndex) const {
-    auto o = getOutputSequence(beamIndex);
-    if (o.empty()) {
-      return voidSymbol;
-    } else {
-      return o.back();
+    if (parents[beamIndex][i]) {
+      beamIndex = *parents[beamIndex][i];
     }
   }
+  // We traversed backwards
+  std::reverse(reversedSequence.begin(), reversedSequence.end());
+  return reversedSequence;
+}
 
-  void assignParent(unsigned beamIndex, unsigned parentBeamIndex) {
-    parents[beamIndex][nextIndexToAssign] = parentBeamIndex;
+// Find the last symbol in the beam output sequence
+unsigned BeamHistory::getLastOutput(unsigned beamIndex) const {
+  auto o = getOutputSequence(beamIndex);
+  if (o.empty()) {
+    return voidSymbol;
+  } else {
+    return o.back();
   }
+}
 
-  void assignSymbol(unsigned beamIndex, unsigned addend) {
-    symbols[beamIndex][nextIndexToAssign] = addend;
-  }
+void BeamHistory::assignParent(unsigned beamIndex, unsigned parentBeamIndex) {
+  parents[beamIndex][nextIndexToAssign] = parentBeamIndex;
+}
 
-  void incrementIndex() { nextIndexToAssign++; }
-};
+void BeamHistory::assignSymbol(unsigned beamIndex, unsigned addend) {
+  symbols[beamIndex][nextIndexToAssign] = addend;
+}
+
+void BeamHistory::incrementIndex() { nextIndexToAssign++; }
 
 template <typename FPType>
 void print(const std::vector<Candidate<FPType>> &candidates,
@@ -109,20 +66,21 @@ void print(const std::vector<Candidate<FPType>> &candidates,
     } else {
       std::cout << candidate.addend;
     }
-    std::cout << std::fixed << std::setprecision(4) << " [p: " << candidate.p
-              << ", pb: " << candidate.pb << "]) ";
+    std::cout << std::fixed << std::setprecision(4)
+              << " [pnb: " << candidate.pnb << ", pb: " << candidate.pb
+              << "]) ";
     print(beamHistory.getOutputSequence(candidate));
   }
 }
 
 void print(const BeamHistory &beamHistory) {
-  for (size_t c = 0; c < beamHistory.symbols.size(); c++) {
+  for (size_t b = 0; b < beamHistory.symbols.size(); b++) {
     for (size_t t = 0; t < beamHistory.nextIndexToAssign; t++) {
       const std::string parent =
-          beamHistory.parents[c][t] ? std::to_string(*beamHistory.parents[c][t])
+          beamHistory.parents[b][t] ? std::to_string(*beamHistory.parents[b][t])
                                     : std::string{" "};
-      const std::string symbol = beamHistory.symbols[c][t] != voidSymbol
-                                     ? std::to_string(beamHistory.symbols[c][t])
+      const std::string symbol = beamHistory.symbols[b][t] != voidSymbol
+                                     ? std::to_string(beamHistory.symbols[b][t])
                                      : std::string{" "};
       std::cout << "(" << parent << ", " << symbol << ") ";
     }
@@ -164,7 +122,7 @@ std::vector<Candidate<FPType>> generateCandidates(
     // By appending a blank to a beam ending in a non blank
     // e.g. beam: "a", addend: "-" -> output: "a"
     const auto prevNonBlankProb =
-        useLog ? log::mul(beam.p, blankProb) : beam.p * blankProb;
+        useLog ? log::mul(beam.pnb, blankProb) : beam.pnb * blankProb;
     const auto prob = useLog ? log::add(prevBlankProb, prevNonBlankProb)
                              : prevBlankProb + prevNonBlankProb;
     candidates.push_back({beamIdx, voidSymbol, zero, prob});
@@ -174,11 +132,11 @@ std::vector<Candidate<FPType>> generateCandidates(
     if (prevSymbol != voidSymbol) {
       const auto addendProb = input[prevSymbol][t];
       const auto nonBlankProb =
-          useLog ? log::mul(beam.p, addendProb) : beam.p * addendProb;
+          useLog ? log::mul(beam.pnb, addendProb) : beam.pnb * addendProb;
       // Note: We don't need to create a new candidate as this will have the
       // same output sequence as the previous copy beam candidate which appended
       // a blank
-      candidates.back().p = nonBlankProb;
+      candidates.back().pnb = nonBlankProb;
     }
 
     // Extend beams ---
@@ -203,15 +161,15 @@ std::vector<Candidate<FPType>> generateCandidates(
       // e.g. beam: "a", addend: "b" -> output: "ab"
       if (prevSymbol != s) {
         const auto nonBlankProb =
-            useLog ? log::mul(beam.p, addendProb) : beam.p * addendProb;
+            useLog ? log::mul(beam.pnb, addendProb) : beam.pnb * addendProb;
         // Note: We don't need to create a new candidate as this will have the
         // same output sequence as the previous extend beam candidate
         // "(extended by a different symbol)". Here we append the new
         // symbol which is different to the symbol the beam ended with to the
         // non-blank beam.
-        candidates.back().p = useLog
-                                  ? log::add(candidates.back().p, nonBlankProb)
-                                  : candidates.back().p + nonBlankProb;
+        candidates.back().pnb =
+            useLog ? log::add(candidates.back().pnb, nonBlankProb)
+                   : candidates.back().pnb + nonBlankProb;
       }
     }
     beamIdx++;
@@ -244,9 +202,8 @@ mergeEquivalentCandidates(const std::vector<Candidate<FPType>> &candidates,
       // TODO improve merge check efficiency
       if (beamHistory.getOutputSequence(lhs) ==
           beamHistory.getOutputSequence(rhs)) {
-        lhs.p = useLog ? log::add(lhs.p, rhs.p) : lhs.p + rhs.p;
+        lhs.pnb = useLog ? log::add(lhs.pnb, rhs.pnb) : lhs.pnb + rhs.pnb;
         lhs.pb = useLog ? log::add(lhs.pb, rhs.pb) : lhs.pb + rhs.pb;
-
         // It doesn't matter which we remove as they result in the same output
         // sequence since they are equivalent
         mergedCandidates.erase(mergedCandidates.begin() + i);
@@ -264,8 +221,10 @@ sortCandidates(const std::vector<Candidate<FPType>> &candidates, bool useLog) {
   std::vector<Candidate<FPType>> out = candidates;
   std::sort(out.begin(), out.end(),
             [&](const Candidate<FPType> &lhs, const Candidate<FPType> &rhs) {
-              auto lhsSum = useLog ? log::add(lhs.p, lhs.pb) : lhs.p + lhs.pb;
-              auto rhsSum = useLog ? log::add(rhs.p, rhs.pb) : rhs.p + rhs.pb;
+              auto lhsSum =
+                  useLog ? log::add(lhs.pnb, lhs.pb) : lhs.pnb + lhs.pb;
+              auto rhsSum =
+                  useLog ? log::add(rhs.pnb, rhs.pb) : rhs.pnb + rhs.pb;
               return lhsSum > rhsSum;
             });
   return out;
@@ -278,7 +237,7 @@ pruneCandidates(const std::vector<Candidate<FPType>> &candidates, size_t max,
   std::vector<Candidate<FPType>> out = candidates;
   out.resize(max);
   for (unsigned i = candidates.size(); i < out.size(); i++) {
-    out[i].p = useLog ? log::probabilityZero : 0;
+    out[i].pnb = useLog ? log::probabilityZero : 0;
     out[i].pb = useLog ? log::probabilityZero : 0;
   }
   return out;
@@ -296,7 +255,7 @@ void applyCandidates(BeamHistory &beamHistory,
   for (auto candidate : candidates) {
     beamHistory.assignParent(idx, candidate.beam);
     beamHistory.assignSymbol(idx, candidate.addend);
-    beamProbabilities.at(idx).p = candidate.p;
+    beamProbabilities.at(idx).pnb = candidate.pnb;
     beamProbabilities.at(idx).pb = candidate.pb;
     idx++;
   }
@@ -365,11 +324,12 @@ infer(const boost::multi_array<FPType, 2> &input, unsigned blankSymbol,
 
       std::cout << "Current beam outputs:" << std::endl;
       for (size_t i = 0; i < beamwidth; i++) {
-        std::cout << "[p: " << beamProbabilities[i].p
-                  << ", pb: " << beamProbabilities[i].pb << ", p + pb: "
-                  << (useLog ? log::add(beamProbabilities[i].p,
-                                        beamProbabilities[i].pb)
-                             : beamProbabilities[i].p + beamProbabilities[i].pb)
+        std::cout << "[pnb: " << beamProbabilities[i].pnb
+                  << ", pb: " << beamProbabilities[i].pb << ", pnb + pb: "
+                  << (useLog
+                          ? log::add(beamProbabilities[i].pnb,
+                                     beamProbabilities[i].pb)
+                          : beamProbabilities[i].pnb + beamProbabilities[i].pb)
                   << "] ";
         print(beamHistory.getOutputSequence(i));
       }
@@ -384,8 +344,8 @@ infer(const boost::multi_array<FPType, 2> &input, unsigned blankSymbol,
   const auto output = beamHistory.getOutputSequence(0);
 
   auto sum =
-      useLog ? log::add(beamProbabilities.at(0).p, beamProbabilities.at(0).pb)
-             : beamProbabilities.at(0).p + beamProbabilities.at(0).pb;
+      useLog ? log::add(beamProbabilities.at(0).pnb, beamProbabilities.at(0).pb)
+             : beamProbabilities.at(0).pnb + beamProbabilities.at(0).pb;
   if (verbose) {
     std::cout << "Output:" << std::endl;
   }
@@ -402,10 +362,46 @@ infer(const boost::multi_array<FPType, 2> &input, unsigned blankSymbol,
   return {sum, output};
 }
 
+template std::vector<Candidate<double>> generateCandidates(
+    const boost::multi_array<double, 2> &input, unsigned t,
+    const std::vector<BeamProbability<double>> &beamProbabilities,
+    const BeamHistory &beamHistory, unsigned blankSymbol, bool useLog);
+template std::vector<Candidate<float>>
+generateCandidates(const boost::multi_array<float, 2> &input, unsigned t,
+                   const std::vector<BeamProbability<float>> &beamProbabilities,
+                   const BeamHistory &beamHistory, unsigned blankSymbol,
+                   bool useLog);
+
+template std::vector<Candidate<double>>
+mergeEquivalentCandidates(const std::vector<Candidate<double>> &candidates,
+                          const BeamHistory &beamHistory, bool useLog);
+template std::vector<Candidate<float>>
+mergeEquivalentCandidates(const std::vector<Candidate<float>> &candidates,
+                          const BeamHistory &beamHistory, bool useLog);
+
+template std::vector<Candidate<double>>
+sortCandidates(const std::vector<Candidate<double>> &candidates, bool useLog);
+template std::vector<Candidate<float>>
+sortCandidates(const std::vector<Candidate<float>> &candidates, bool useLog);
+
+template std::vector<Candidate<double>>
+pruneCandidates(const std::vector<Candidate<double>> &candidates, size_t max,
+                bool useLog);
+template std::vector<Candidate<float>>
+pruneCandidates(const std::vector<Candidate<float>> &candidates, size_t max,
+                bool useLog);
+template void
+applyCandidates(BeamHistory &beamHistory,
+                std::vector<BeamProbability<double>> &beamProbabilities,
+                const std::vector<Candidate<double>> &candidates, bool useLog);
+template void
+applyCandidates(BeamHistory &beamHistory,
+                std::vector<BeamProbability<float>> &beamProbabilities,
+                const std::vector<Candidate<float>> &candidates, bool useLog);
+
 template std::tuple<double, std::vector<unsigned>>
 infer(const boost::multi_array<double, 2> &input, unsigned blankSymbol,
       unsigned beamwidth, bool useLog, bool verbose);
-
 template std::tuple<float, std::vector<unsigned>>
 infer(const boost::multi_array<float, 2> &input, unsigned blankSymbol,
       unsigned beamwidth, bool useLog, bool verbose);

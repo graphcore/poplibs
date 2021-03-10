@@ -100,6 +100,7 @@ add_gp_library(
   CPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CalcAccuracy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CTCLoss.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CTCInference.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossCrossEntropyTransform.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossSumSquaredTransform.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPooling.cpp
@@ -119,6 +120,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SumPooling.cpp
   HEADERS
     PerformanceEstimation.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LogOps.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MinHeapView.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity.hpp
     ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
