@@ -69,7 +69,7 @@ BOOST_AUTO_TEST_CASE(WrongPlanType) {
   poplar::Graph graph(target);
 
   // Given an inference plan
-  auto invalidPlan = popnn::ctc::plan(graph, poplar::FLOAT, 1, 10, 5, 5);
+  auto invalidPlan = popnn::ctc_infer::plan(graph, poplar::FLOAT, 1, 10, 5, 5);
 
   // When we call the CTC Loss API, Then we expect exceptions thrown
   BOOST_CHECK_THROW(

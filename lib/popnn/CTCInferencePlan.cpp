@@ -33,13 +33,16 @@ std::ostream &operator<<(std::ostream &o, const InferencePlan &p) {
   return o;
 }
 
-Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
-          unsigned batchSize, unsigned maxTime, unsigned numClasses,
-          unsigned beamwidth, const poplar::OptionFlags &options) {
-  return std::make_unique<Plan::Impl>(Plan::Impl{InferencePlan{}});
-}
-
 } // namespace ctc
+
+namespace ctc_infer {
+ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
+               unsigned batchSize, unsigned maxTime, unsigned numClasses,
+               unsigned beamwidth, const poplar::OptionFlags &options) {
+  return std::make_unique<ctc::Plan::Impl>(
+      ctc::Plan::Impl{ctc::InferencePlan{}});
+}
+} // namespace ctc_infer
 } // namespace popnn
 
 namespace poputil {
