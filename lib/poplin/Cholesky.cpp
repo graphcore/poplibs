@@ -146,12 +146,15 @@ void factorise(poplar::Graph &graph, const poplar::Tensor &a,
 
   auto cs = graph.addComputeSet({dnai, "cholesky"});
   for (std::size_t i = 0; i < g; ++i) {
-    auto aSlice = a.slice({i, 0, 0}, {i + 1, n, n}).reshape({n * n});
-    auto v =
-        graph.addVertex(cs,
-                        poputil::templateVertex("poplin::Cholesky",
-                                                a.elementType(), params.lower),
-                        {{"in", aSlice}});
+    auto aSlice = a.slice({i, 0, 0}, {i + 1, n, n});
+    if (!params.lower) {
+      aSlice = aSlice.dimShuffle({0, 2, 1});
+    }
+    // Only lower triangular Cholesky decomposition could be optimised with
+    // vectorised dot-product.
+    auto v = graph.addVertex(
+        cs, poputil::templateVertex("poplin::Cholesky", a.elementType(), true),
+        {{"in", aSlice.reshape({n * n})}});
     graph.setInitialValue(v["dim"], n);
 
     graph.setTileMapping(v, bestTile(graph, aSlice));

@@ -1,4 +1,5 @@
-// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+// Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+#include "Dot.hpp"
 #include <algorithm>
 #include <cassert>
 #include <poplar/HalfFloat.hpp>
@@ -35,41 +36,41 @@ public:
     assert(in.size() == out.size());
 
     if (lower) {
-      std::size_t base_i = 0;
-      for (std::size_t i = 0; i < dim; ++i, base_i += dim) {
-        auto d = FloatType(1) / in[base_i + i];
-        out[base_i + i] = d;
+      std::size_t iBase = 0;
+      for (std::size_t i = 0; i < dim; ++i, iBase += dim) {
+        auto d = FloatType(1) / in[iBase + i];
+        out[iBase + i] = d;
 
         for (std::size_t j = 0; j < i; ++j) {
           FloatType sum = 0;
-          std::size_t base_k = j * dim;
-          for (std::size_t k = j; k < i; ++k, base_k += dim) {
-            sum += in[base_i + k] * out[base_k + j];
+          std::size_t kBase = j * dim;
+          for (std::size_t k = j; k < i; ++k, kBase += dim) {
+            sum += in[iBase + k] * out[kBase + j];
           }
-          out[base_i + j] = -d * sum;
+          out[iBase + j] = -d * sum;
         }
         for (std::size_t j = i + 1; j < dim; ++j) {
-          out[base_i + j] = 0;
+          out[iBase + j] = 0;
         }
       }
     } else {
-      std::size_t base_i = 0;
-      for (std::size_t i = 0; i < dim; ++i, base_i += dim) {
-        auto d = FloatType(1) / in[base_i + i];
-        out[base_i + i] = d;
+      std::size_t iBase = 0;
+      for (std::size_t i = 0; i < dim; ++i, iBase += dim) {
+        auto d = FloatType(1) / in[iBase + i];
+        out[iBase + i] = d;
 
-        std::size_t base_j = 0;
-        for (std::size_t j = 0; j < i; ++j, base_j += dim) {
+        std::size_t jBase = 0;
+        for (std::size_t j = 0; j < i; ++j, jBase += dim) {
           FloatType sum = 0;
-          std::size_t base_k = j * dim;
-          for (std::size_t k = j; k < i; ++k, base_k += dim) {
-            sum += in[base_k + i] * out[base_j + k];
+          std::size_t kBase = j * dim;
+          for (std::size_t k = j; k < i; ++k, kBase += dim) {
+            sum += in[kBase + i] * out[jBase + k];
           }
-          out[base_j + i] = -d * sum;
+          out[jBase + i] = -d * sum;
         }
-        base_j += dim;
-        for (std::size_t j = i + 1; j < dim; ++j, base_j += dim) {
-          out[base_j + i] = 0;
+        jBase += dim;
+        for (std::size_t j = i + 1; j < dim; ++j, jBase += dim) {
+          out[jBase + i] = 0;
         }
       }
     }
@@ -89,39 +90,38 @@ public:
     assert(dim * dim == in.size());
 
     if (lower) {
-      std::size_t base_i = 0;
-      for (std::size_t i = 0; i < dim; ++i, base_i += dim) {
-        std::size_t base_k = 0;
-        for (std::size_t k = 0; k <= i; ++k, base_k += dim) {
-          FloatType sum = 0;
-          for (std::size_t j = 0; j < k; ++j) {
-            sum += in[base_i + j] * in[base_k + j];
-          }
+      std::size_t iBase = 0;
+      for (std::size_t i = 0; i < dim; ++i, iBase += dim) {
+        std::size_t kBase = 0;
+        for (std::size_t k = 0; k <= i; ++k, kBase += dim) {
+          const auto *sumSrc1 = &in[iBase];
+          const auto *sumSrc2 = &in[kBase];
+          FloatType sum = Dot<FloatType, false>::compute(sumSrc1, sumSrc2, k);
 
-          auto m = in[base_i + k] - sum;
+          auto m = in[iBase + k] - sum;
           if (i == k) {
-            in[base_i + i] = NAMESPACE::sqrt(m);
+            in[iBase + i] = NAMESPACE::sqrt(m);
           } else {
-            in[base_i + k] = m / in[base_k + k];
+            in[iBase + k] = m / in[kBase + k];
           }
         }
       }
     } else {
-      std::size_t base_i = 0;
-      for (std::size_t i = 0; i < dim; ++i, base_i += dim) {
-        std::size_t base_k = 0;
-        for (std::size_t k = 0; k <= i; ++k, base_k += dim) {
+      std::size_t iBase = 0;
+      for (std::size_t i = 0; i < dim; ++i, iBase += dim) {
+        std::size_t kBase = 0;
+        for (std::size_t k = 0; k <= i; ++k, kBase += dim) {
           FloatType sum = 0;
-          std::size_t base_j = 0;
-          for (std::size_t j = 0; j < k; ++j, base_j += dim) {
-            sum += in[base_j + i] * in[base_j + k];
+          std::size_t jBase = 0;
+          for (std::size_t j = 0; j < k; ++j, jBase += dim) {
+            sum += in[jBase + i] * in[jBase + k];
           }
 
-          auto m = in[base_k + i] - sum;
+          auto m = in[kBase + i] - sum;
           if (i == k) {
-            in[base_k + k] = NAMESPACE::sqrt(m);
+            in[kBase + k] = NAMESPACE::sqrt(m);
           } else {
-            in[base_k + i] = m / in[base_k + k];
+            in[kBase + i] = m / in[kBase + k];
           }
         }
       }

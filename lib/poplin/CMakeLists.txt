@@ -139,6 +139,7 @@ add_gp_library(
 
   HEADERS
     PerformanceEstimation.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Dot.hpp
 )
 
 install(TARGETS poplin

@@ -28,8 +28,7 @@ MAKE_PERF_ESTIMATOR_NAME(TriangularInverse)(const VertexIntrospector &vertex,
   std::uint64_t cycles;
   if (half) {
     cycles = lower ? 7 * dim * dim * dim + 387 * dim * dim / 2 + 272 * dim - 120
-                   : 7261 * dim * dim * dim / 1024 + 14163 * dim * dim / 128 +
-                         2099 * dim / 4 - 1326;
+                   : 7 * dim * dim * dim + 123 * dim * dim + 269 * dim - 24;
   } else {
     cycles = lower ? 6 * dim * dim * dim + 264 * dim * dim + 78 * dim - 120
                    : 6 * dim * dim * dim + 51 * dim * dim + 213 * dim + 12;
@@ -55,12 +54,9 @@ MAKE_PERF_ESTIMATOR_NAME(Cholesky)(const VertexIntrospector &vertex,
   bool half = type == poplar::HALF;
   std::uint64_t cycles;
   if (half) {
-    cycles = lower ? 311 * dim * dim * dim / 64 + 1059 * dim * dim / 8 +
-                         43 * dim + 648
-                   : 6 * dim * dim * dim + 249 * dim * dim / 2 + 165 * dim + 72;
+    cycles = dim * dim * dim / 2 + 795 * dim * dim / 4 + 191 * dim / 2 + 426;
   } else {
-    cycles = lower ? 4 * dim * dim * dim + 72 * dim * dim + 140 * dim + 84
-                   : 5 * dim * dim * dim + 66 * dim * dim + 97 * dim + 48;
+    cycles = dim * dim * dim + 102 * dim * dim + 101 * dim + 102;
   }
   return {cycles, convertToTypeFlops(flops, type)};
 }
@@ -615,10 +611,11 @@ MAKE_PERF_ESTIMATOR_NAME(TriangularSolve)(const VertexIntrospector &vertex,
   bool half = type == poplar::HALF;
   std::uint64_t cycles;
   if (half) {
-    cycles =
-        lower ? 15 * an * an + 144 * an + 12 : 24 * an * an + 153 * an + 60;
+    cycles = lower ? 3 * an * an / 4 + 318 * an - 150
+                   : 135 * an * an / 16 + 1089 * an / 4 + 12;
   } else {
-    cycles = lower ? 12 * an * (an + 5) : 21 * an * an + 69 * an + 90;
+    cycles = lower ? 3 * an * an / 2 + 180 * an - 126
+                   : 27 * an * an / 4 + 327 * an / 2 + 54;
   }
   std::uint64_t flops =
       static_cast<std::uint64_t>(an * (an - 1) / 2) * flopsForMultiply() +

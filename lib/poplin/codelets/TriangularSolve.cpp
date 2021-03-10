@@ -1,4 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+#include "Dot.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -12,14 +13,15 @@ using namespace poplar;
 
 namespace poplin {
 
-template <class FloatType, bool lower> class TriangularSolve : Vertex {
+template <class FloatType, bool lower>
+class [[poplar::constraint("elem(*a) != elem(*x)")]] TriangularSolve : Vertex {
 public:
   TriangularSolve();
 
   const unsigned an;
-  Input<Vector<FloatType>> a;
+  Input<Vector<FloatType, poplar::VectorLayout::SPAN, 8>> a;
   Input<Vector<FloatType>> b;
-  Output<Vector<FloatType>> x;
+  Output<Vector<FloatType, poplar::VectorLayout::SPAN, 8>> x;
 
   bool compute() {
     assert(an != 0);
@@ -34,29 +36,28 @@ public:
       x[last] = b[last];
     }
 
-    std::size_t base_i = lower ? an : a.size() - an - an;
-    std::size_t base_b = lower ? 1 : (an - 2);
+    std::size_t iBase = lower ? an : a.size() - an - an;
+    std::size_t bBase = lower ? 1 : (an - 2);
+    const auto *dotSrc1 = &a[iBase];
     if (lower) {
       for (std::size_t i = 1; i < an; ++i) {
-        FloatType dot = 0;
-        for (std::size_t j = 0; j < i; ++j) {
-          dot += a[base_i++] * x[j];
-        }
-        x[base_b] = b[base_b] - dot;
-        base_i += an - i;
-        ++base_b;
+
+        const auto *dotSrc2 = &x[0];
+        FloatType dot = Dot<FloatType, true>::compute(dotSrc1, dotSrc2, i);
+        dotSrc1 += an - i;
+        x[bBase] = b[bBase] - dot;
+        ++bBase;
       }
     } else {
+      dotSrc1 += an - 1;
       for (std::size_t i = 1; i < an; ++i) {
-        FloatType dot = 0;
-        auto base_j = an - i;
-        for (std::size_t j = i; j--; ++base_j) {
-          dot += a[base_i + base_j] * x[base_j];
-        }
-        x[base_b] = b[base_b] - dot;
+        auto jBase = an - i;
 
-        base_i -= an;
-        --base_b;
+        const auto *dotSrc2 = &x[jBase];
+        FloatType dot = Dot<FloatType, true>::compute(dotSrc1, dotSrc2, i);
+        dotSrc1 -= an + i + 1;
+        x[bBase] = b[bBase] - dot;
+        --bBase;
       }
     }
 
