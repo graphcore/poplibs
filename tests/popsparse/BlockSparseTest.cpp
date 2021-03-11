@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <poplar/IPUModel.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/MatrixTransforms.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
@@ -20,6 +21,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace popsparse::experimental;
 using namespace poplibs_support;
+using namespace poplibs_test::matrix;
 
 // TODO: Move to some kind of utils
 void getSparseMatrixBlocks(int rows, int cols, int rowsInBlock, int colsInBlock,
@@ -57,18 +59,6 @@ void getSparseMatrixBlocks(int rows, int cols, int rowsInBlock, int colsInBlock,
       }
     }
   }
-}
-
-boost::multi_array<float, 2> transpose(const boost::multi_array<float, 2> mat) {
-  std::size_t rows = mat.shape()[0];
-  std::size_t cols = mat.shape()[1];
-  boost::multi_array<float, 2> transposedMat(boost::extents[cols][rows]);
-  for (std::size_t r = 0; r < rows; ++r) {
-    for (std::size_t c = 0; c < cols; ++c) {
-      transposedMat[c][r] = mat[r][c];
-    }
-  }
-  return transposedMat;
 }
 
 #define USE_RANDOM_VALUES 1

@@ -3,6 +3,7 @@
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCLoss.hpp>
 #include <poplibs_test/Embedding.hpp>
+#include <poplibs_test/MatrixTransforms.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/CTCLoss.hpp>
 #include <popnn/codelets.hpp>
@@ -29,6 +30,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::ctc;
 using namespace poplibs_test;
+using namespace poplibs_test::matrix;
 using namespace poplibs_test::util;
 using namespace poplibs_support;
 using namespace poputil;
@@ -45,20 +47,6 @@ using namespace poputil;
 #define CODELET_TEST_HALF_REL_TOL 0.1
 #define CODELET_TEST_FLOAT_ABS_TOL 1e-6
 #define CODELET_TEST_HALF_ABS_TOL 1e-5
-
-template <typename FPType>
-boost::multi_array<FPType, 2>
-transpose(const boost::multi_array<FPType, 2> &in) {
-  const auto inRows = in.shape()[0];
-  const auto inColumns = in.shape()[1];
-  boost::multi_array<FPType, 2> out(boost::extents[inColumns][inRows]);
-  for (unsigned inRow = 0; inRow < inRows; inRow++) {
-    for (unsigned inColumn = 0; inColumn < inColumns; inColumn++) {
-      out[inColumn][inRow] = in[inRow][inColumn];
-    }
-  }
-  return out;
-}
 
 // Mask results that aren't valid due to the time of the batch entry
 boost::multi_array<double, 2>
@@ -114,62 +102,6 @@ void print(const std::string &prefix, const boost::multi_array<FPType, 2> &in,
   }
   std::cout << "\n\n";
 }
-// Apply an increased probability to a sequence using the input label and
-// padding it to represent a probable sequence
-boost::multi_array<double, 2>
-providePath(const boost::multi_array<double, 2> &input,
-            const std::vector<unsigned> &label, unsigned blankClass,
-            const std::function<unsigned(unsigned, unsigned)> &randRange) {
-
-  auto timeSteps = input.shape()[0];
-  std::vector<unsigned> expandedLabel;
-  expandedLabel.reserve(timeSteps);
-  // The input sequence, padding with blanks as needed for repeat
-  // symbols. This is the shortest path that could represent the input sequence
-  // Eg:
-  // Input sequence a b c c d d d e
-  // Pad with blanks: a b c - c d - d - d e
-  for (unsigned i = 0; i < label.size(); i++) {
-    if (i != 0 && label[i] == label[i - 1]) {
-      expandedLabel.push_back(blankClass);
-    }
-    expandedLabel.push_back(label[i]);
-  }
-  if (expandedLabel.size() > timeSteps) {
-    // The expanded input sequence is already bigger than timeSteps so we
-    // can't increase the probability at all points matching the sequence
-    std::cerr << "\n\nMinimum timesteps for this sequence (blank padded from "
-              << label.size() << ") is " << expandedLabel.size()
-              << " but the test has " << timeSteps << " timesteps."
-              << " Expect -inf loss and likely comparison errors.\n";
-    return input;
-  }
-  // We are able to add this many random symbols to make a expanded sequence
-  // with the same number of timeSteps as the input.  This is a random path
-  // of length timeSteps that has correlation with the input
-  auto padSymbols = timeSteps - expandedLabel.size();
-
-  // Add symbols at random points to duplicate the symbol found at that
-  // point. Eg
-  // Pad with blanks gave us: a b c - c d - d - d e
-  // Pad with 4 random symbols at the points marked ^
-  // a a b c - - - c d - d - d d e
-  //   ^       ^ ^             ^
-  for (unsigned i = 0; i < padSymbols; i++) {
-    auto insertPoint = randRange(0, expandedLabel.size() - 1);
-    auto insertValue =
-        insertPoint == 0 ? blankClass : expandedLabel[insertPoint - 1];
-    expandedLabel.insert(expandedLabel.begin() + insertPoint, insertValue);
-  }
-
-  auto output = input;
-  // Now increase the probability of the points in the path generated to provide
-  // a more realistic input with a reasonable loss
-  for (unsigned i = 0; i < timeSteps; i++) {
-    output[i][expandedLabel[i]] += 10.0;
-  }
-  return output;
-}
 
 // Struct and function to return the test inputs
 template <typename FPType> struct InputSequence {
@@ -181,25 +113,6 @@ template <typename FPType> struct InputSequence {
   std::vector<unsigned> labels;
   bool isLogits;
 };
-
-// Return a Generator for the given the input range
-std::function<unsigned()>
-getInputGen(const boost::optional<unsigned> &min,
-            const boost::optional<unsigned> &fixed, unsigned max,
-            const std::function<unsigned(unsigned, unsigned)> &randRange) {
-  if (fixed) {
-    return [=]() { return *fixed; };
-  } else {
-    return [=]() { return randRange(*min, max); };
-  }
-}
-
-// Return a Random Generator for the given the input range
-std::function<unsigned()>
-getInputGen(unsigned min, unsigned max,
-            const std::function<unsigned(unsigned, unsigned)> &randRange) {
-  return [=]() { return randRange(min, max); };
-}
 
 // {T, LabelLength}
 std::pair<unsigned, unsigned>
@@ -274,34 +187,17 @@ InputSequence<double> getRandomTestInput(
     unsigned t, unsigned maxT, unsigned labelLength, unsigned maxLabelLength,
     unsigned numClasses, unsigned blankClass, bool isLogits,
     const std::function<unsigned(unsigned, unsigned)> &randRange) {
-  boost::multi_array<double, 2> input(boost::extents[maxT][numClasses]);
 
-  auto randClass =
-      getInputGen(0U, static_cast<unsigned>(numClasses - 2), randRange);
-  auto randInput = getInputGen(0U, 10U, randRange);
-
-  std::vector<unsigned> labels(labelLength);
-
-  // Random label sequence of the right length
-  for (size_t i = 0; i < labelLength; i++) {
-    const unsigned random = randClass();
-    labels[i] = static_cast<unsigned>(random >= blankClass) + random;
-  }
-
-  // Input sequence of max length
-  for (size_t i = 0; i < numClasses; i++) {
-    for (size_t j = 0; j < maxT; j++) {
-      input[j][i] = randInput();
-    }
-  }
-  // If the input sequence is a compatible length, increase its probability to
-  // stop the loss getting very small (important in large tests)
-  input = providePath(input, labels, blankClass, randRange);
+  // Create an input sequence of random data, and if the input sequence is a
+  // compatible length, increase its probability to stop the loss getting very
+  // small (important in large tests)
+  auto [input, label] = provideInputWithPath<double>(
+      labelLength, t, maxT, numClasses, blankClass, randRange);
   if (!isLogits) { // Convert to log probs
     input = log::log(transpose(log::softMax(transpose(input))));
   }
 
-  return {input, t, labels, isLogits};
+  return {input, t, label, isLogits};
 }
 
 template <typename FPType>

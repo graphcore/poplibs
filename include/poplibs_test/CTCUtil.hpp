@@ -3,6 +3,7 @@
 #ifndef poplibs_test_ctc_util_hpp
 #define poplibs_test_ctc_util_hpp
 
+#include <boost/multi_array.hpp>
 #include <vector>
 
 namespace poplibs_test {
@@ -19,6 +20,17 @@ std::vector<unsigned> extendedLabels(const std::vector<unsigned> &input,
 void print(const std::vector<unsigned> &sequence);
 void print(const std::vector<unsigned> &sequence, unsigned blank);
 
+template <typename FPType>
+std::pair<boost::multi_array<FPType, 2>, std::vector<unsigned>>
+provideInputWithPath(
+    unsigned labelLength, unsigned timeSteps, unsigned maxT,
+    unsigned numClasses, unsigned blankClass,
+    const std::function<unsigned(unsigned, unsigned)> &randRange);
+
+template <typename FPType>
+std::pair<boost::multi_array<FPType, 2>, std::vector<unsigned>>
+provideInputWithPath(unsigned labelLength, unsigned timesteps, unsigned maxT,
+                     unsigned numClasses, unsigned blankClass, unsigned seed);
 } // namespace ctc
 } // namespace poplibs_test
 

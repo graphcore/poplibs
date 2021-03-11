@@ -10,6 +10,7 @@
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCLoss.hpp>
 #include <poplibs_test/Embedding.hpp>
+#include <poplibs_test/MatrixTransforms.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/codelets.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -25,6 +26,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::ctc;
 using namespace poplibs_test;
+using namespace poplibs_test::matrix;
 using namespace poplibs_test::util;
 using namespace poplibs_support;
 using namespace poputil;
@@ -61,20 +63,6 @@ std::istream &operator>>(std::istream &is, TestType &test) {
   else
     throw poputil::poplibs_error("Unknown test type");
   return is;
-}
-
-template <typename FPType>
-boost::multi_array<FPType, 2>
-transpose(const boost::multi_array<FPType, 2> &in) {
-  const auto inRows = in.shape()[0];
-  const auto inColumns = in.shape()[1];
-  boost::multi_array<FPType, 2> out(boost::extents[inColumns][inRows]);
-  for (unsigned inRow = 0; inRow < inRows; inRow++) {
-    for (unsigned inColumn = 0; inColumn < inColumns; inColumn++) {
-      out[inColumn][inRow] = in[inRow][inColumn];
-    }
-  }
-  return out;
 }
 
 boost::multi_array<double, 2>
@@ -186,29 +174,12 @@ template <typename FPType> struct InputSequence {
 };
 
 InputSequence<double> getRandomTestInput(size_t timesteps, size_t testSymbols,
-                                         unsigned alphabetSizeIncBlank,
+                                         unsigned numClasses,
                                          unsigned blankClass) {
-  std::mt19937 gen;
-  const unsigned seed = 1;
-  gen.seed(seed);
+  auto [input, label] = provideInputWithPath<double>(
+      testSymbols, timesteps, timesteps, numClasses, blankClass, 1);
 
-  std::uniform_int_distribution<> rand(0, alphabetSizeIncBlank - 2);
-  std::vector<unsigned> idx;
-  for (size_t i = 0; i < testSymbols; i++) {
-    const unsigned random = rand(gen);
-    unsigned symbol = static_cast<unsigned>(blankClass >= random) + random;
-    idx.push_back(symbol);
-  }
-
-  std::uniform_int_distribution<> randInput(0, 10);
-  boost::multi_array<double, 2> input(
-      boost::extents[alphabetSizeIncBlank][timesteps]);
-  for (unsigned i = 0; i < input.shape()[0]; i++) {
-    for (unsigned j = 0; j < input.shape()[1]; j++) {
-      input[i][j] = randInput(gen);
-    }
-  }
-  return {log::softMax(input), idx, alphabetSizeIncBlank};
+  return {log::softMax(transpose(input)), label, numClasses};
 }
 
 template <typename FPType>

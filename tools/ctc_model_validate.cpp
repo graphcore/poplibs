@@ -7,11 +7,15 @@
 #include <iomanip>
 #include <random>
 
+#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_test/CTCInference.hpp>
 #include <poplibs_test/CTCLoss.hpp>
+#include <poplibs_test/CTCUtil.hpp>
 #include <poplibs_test/Embedding.hpp>
+#include <poplibs_test/MatrixTransforms.hpp>
 #include <poplibs_test/Util.hpp>
+#include <poputil/exceptions.hpp>
 
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
@@ -275,13 +279,11 @@ void testBeamSearchInference(
   }
 }
 template <typename FPType>
-struct InputSequence<FPType> getRandomTestInput(size_t timesteps,
-                                                unsigned numClassesIncBlank,
-                                                unsigned seed) {
+struct InputSequence<FPType>
+getRandomTestInput(unsigned timesteps, unsigned baseSequenceLength,
+                   unsigned numClassesIncBlank, unsigned seed) {
 
   unsigned blankClass = numClassesIncBlank - 1;
-  std::vector<unsigned> idx;
-
   std::mt19937 gen;
 
   if (seed) {
@@ -295,31 +297,13 @@ struct InputSequence<FPType> getRandomTestInput(size_t timesteps,
     std::cout << "Generated seed:" << randSeed << "\n";
     gen.seed(randSeed);
   }
-  std::uniform_int_distribution<> rand(0, numClassesIncBlank - 1);
-
-  for (size_t i = 0; i < timesteps; i++) {
-    unsigned symbol = rand(gen);
-    idx.push_back(symbol);
-  }
-  const FPType pathInput = 2;
-  FPType nonPathInput = 0;
-  boost::multi_array<FPType, 2>
-      input(boost::extents[numClassesIncBlank][idx.size()]);
-  for (size_t s = 0; s < idx.size(); s++) {
-    auto activeSymbolIdx = idx[s];
-    for (size_t c = 0; c < numClassesIncBlank; c++) {
-      if (activeSymbolIdx == c) {
-        input[c][s] = pathInput;
-      } else {
-        input[c][s] = nonPathInput;
-        nonPathInput -= 0.1;
-      }
-    }
-  }
+  auto [input, idx] =
+      provideInputWithPath<FPType>(baseSequenceLength, timesteps, timesteps,
+                                   numClassesIncBlank, blankClass, seed);
   std::cout << "Input sequence: ";
   print(idx, blankClass);
-  return {log::softMax(input), extendedLabels(idx, blankClass, true),
-          blankClass};
+  return {log::softMax(matrix::transpose(input)),
+          extendedLabels(idx, blankClass, true), blankClass};
 }
 
 template <typename FPType>
@@ -350,6 +334,7 @@ int main(int argc, char **argv) {
   unsigned randomTestLength = 15;
   unsigned numClassesIncBlank = 4;
   unsigned seed = 0;
+  boost::optional<unsigned> baseSequenceLength = boost::none;
 
   VectorOption<double> input;
   ShapeOption<unsigned> inputShape;
@@ -376,6 +361,9 @@ int main(int argc, char **argv) {
      "If random data provide a seed, if not one is chosen and displayed")
     ("test-length", po::value(&randomTestLength)->default_value(randomTestLength),
      "Test length (t) for random test sequences")
+    ("sequence-length", po::value(&baseSequenceLength),
+     "Sequence length for which to increase probability for random test input"
+     " Defaults to --test-length/2")
     ("num-classes", po::value(&numClassesIncBlank)->default_value(numClassesIncBlank),
      "Number of classes (including blank) to use for random test sequences")
     ("test", po::value(&testNumber)->default_value(testNumber),
@@ -406,6 +394,9 @@ int main(int argc, char **argv) {
   }
   // Needed to set default arguments.
   po::notify(vm);
+  if (!baseSequenceLength) {
+    baseSequenceLength = ceildiv(randomTestLength, 2u);
+  }
 
   if (useLogArithmetic && !inference) {
     throw std::logic_error("Log arithmetic only supported with inference");
@@ -415,6 +406,7 @@ int main(int argc, char **argv) {
     const auto test = [&]() {
       auto result = input.val.empty()
                         ? getRandomTestInput<double>(randomTestLength,
+                                                     *baseSequenceLength,
                                                      numClassesIncBlank, seed)
                         : parseInput<double>(input.val, inputShape);
 
@@ -451,10 +443,11 @@ int main(int argc, char **argv) {
     }
   } else {
     const auto test = [&]() {
-      auto result = input.val.empty()
-                        ? getRandomTestInput<float>(randomTestLength,
-                                                    numClassesIncBlank, seed)
-                        : parseInput<float>(input.val, inputShape);
+      auto result =
+          input.val.empty()
+              ? getRandomTestInput<float>(randomTestLength, *baseSequenceLength,
+                                          numClassesIncBlank, seed)
+              : parseInput<float>(input.val, inputShape);
 
       if (useLogArithmetic) {
         result.input = log::log(result.input);

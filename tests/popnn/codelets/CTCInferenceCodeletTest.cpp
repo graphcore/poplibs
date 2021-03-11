@@ -8,10 +8,13 @@
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplar/Type.hpp>
+#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCInference.hpp>
+#include <poplibs_test/CTCUtil.hpp>
 #include <poplibs_test/Embedding.hpp>
+#include <poplibs_test/MatrixTransforms.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/codelets.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -30,6 +33,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::ctc;
 using namespace poplibs_test;
+using namespace poplibs_test::matrix;
 using namespace poplibs_test::util;
 using namespace poplibs_support;
 using namespace poputil;
@@ -144,33 +148,15 @@ bool candidatesAreClose(const std::vector<Candidate<ActualFPType>> &actual,
   return isClose;
 }
 
-// TODO Unnecessary/ move to common
 template <typename FPType>
-boost::multi_array<FPType, 2>
-transpose(const boost::multi_array<FPType, 2> &in) {
-  const auto inRows = in.shape()[0];
-  const auto inColumns = in.shape()[1];
-  boost::multi_array<FPType, 2> out(boost::extents[inColumns][inRows]);
-  for (unsigned inRow = 0; inRow < inRows; inRow++) {
-    for (unsigned inColumn = 0; inColumn < inColumns; inColumn++) {
-      out[inColumn][inRow] = in[inRow][inColumn];
-    }
-  }
-  return out;
-}
+std::pair<boost::multi_array<FPType, 2>, std::vector<unsigned>>
+getRandomTestInput(unsigned maxT, unsigned baseSequenceLength,
+                   unsigned numClassesIncBlank, unsigned blankClass,
+                   unsigned seed) {
+  auto [input, label] = provideInputWithPath<FPType>(
+      baseSequenceLength, maxT, maxT, numClassesIncBlank, blankClass, seed);
 
-// TODO get from common
-template <typename FPType, typename RandFn>
-boost::multi_array<FPType, 2> getRandomTestInput(unsigned maxT,
-                                                 unsigned numClassesIncBlank,
-                                                 const RandFn &rand) {
-  boost::multi_array<FPType, 2> input(boost::extents[maxT][numClassesIncBlank]);
-  for (unsigned i = 0; i < input.shape()[0]; i++) {
-    for (unsigned j = 0; j < input.shape()[1]; j++) {
-      input[i][j] = rand();
-    }
-  }
-  return log::log(transpose(log::softMax(transpose(input))));
+  return {log::log(transpose(log::softMax(transpose(input)))), label};
 }
 
 int main(int argc, char **argv) {
@@ -185,6 +171,7 @@ int main(int argc, char **argv) {
   unsigned beamwidth = 2;
   unsigned blankClass = 0;
   unsigned timestep = 0;
+  boost::optional<unsigned> baseSequenceLength = boost::none;
 
   po::options_description desc("Options");
   // clang-format off
@@ -205,6 +192,9 @@ int main(int argc, char **argv) {
      "Vertex output data type")
     ("max-time", po::value(&maxT)->default_value(maxT),
      "Maximum length of time that is planned for the op")
+    ("sequence-length", po::value(&baseSequenceLength),
+     "Sequence length for which to increase probability for random test input"
+     " Defaults to --max-time/2")
     ("num-classes", po::value(&numClassesIncBlank)->default_value(numClassesIncBlank),
      "Classes in the alphabet including blank")
     ("beamwidth", po::value(&beamwidth)->default_value(beamwidth),
@@ -230,6 +220,9 @@ int main(int argc, char **argv) {
     return 1;
   }
   po::notify(vm);
+  if (!baseSequenceLength) {
+    baseSequenceLength = ceildiv(maxT, 2u);
+  }
   const bool profile = vm.count("profile");
   const bool verbose = vm.count("verbose");
 
@@ -238,21 +231,11 @@ int main(int argc, char **argv) {
 
   std::mt19937 gen;
   gen.seed(seed);
-
-  // TODO make util and stop duplicating
-  const auto randRange = [&](unsigned min, unsigned max) -> unsigned {
-    if (max < min) {
-      poputil::poplibs_error(
-          "max must be greater than min when specifying random range");
-    }
-    std::uniform_int_distribution<> range(min, max);
-    return range(gen);
-  };
-
-  auto logProbs = getRandomTestInput<float>(maxT, numClassesIncBlank,
-                                            [&]() { return randRange(0, 10); });
-
+  auto [logProbs, label] = getRandomTestInput<float>(
+      maxT, *baseSequenceLength, numClassesIncBlank, blankClass, seed);
   if (verbose) {
+    std::cout << "\nLabel:\n";
+    print(label, blankClass);
     std::cout << "\nInput:\n";
     print(logProbs, blankClass);
   }
