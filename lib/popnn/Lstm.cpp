@@ -65,7 +65,7 @@ fusedNonLinearityMulInPlaceExpr(NonLinearityType nonLinearityType) {
     return _1 * Max(Const(0), Min(Const(1), Const(0.2f) * _2 + Const(0.5f)));
 
   case NonLinearityType::RELU:
-    return _1 * Select(Gte(_2, Const(0)), _2, Const(0));
+    return _1 * Max(_2, Const(0));
 
   case NonLinearityType::TANH:
     return _1 * Tanh(_2);
@@ -92,7 +92,7 @@ void fusedNonLinearityMulInPlace(poplar::Graph &graph,
   default: {
     auto nonlin = popnn::nonLinearity(graph, nonLinearityType, t2, prog,
                                       {dnai, "nonLinearity"});
-    popops::mulInPlace(graph, t1, t2, prog, {dnai, "mulInPlace"});
+    popops::mulInPlace(graph, t1, nonlin, prog, {dnai, "mulInPlace"});
   } break;
   }
 }
