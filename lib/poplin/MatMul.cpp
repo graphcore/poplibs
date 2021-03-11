@@ -1,10 +1,13 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poplin/MatMul.hpp"
 #include "ConvOptions.hpp"
+#include "ConvPlan.hpp"
 #include "MatMulInternal.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/StructHelper.hpp"
+#include "poplibs_support/Trace.hpp"
 #include "poplibs_support/logging.hpp"
+#include "poplin/ConvPreplan.hpp"
 #include "poplin/Convolution.hpp"
 #include "popops/Rearrange.hpp"
 #include "popops/ScaledAdd.hpp"
@@ -36,14 +39,12 @@ bool operator<(const MatMulParams &a, const MatMulParams &b) {
 
 namespace matmul {
 
-class PlanningCacheImpl : public poplin::PlanningCache {};
-
-PlanningCache::PlanningCache() : impl(std::make_unique<PlanningCacheImpl>()) {}
+PlanningCache::PlanningCache() {}
 PlanningCache::~PlanningCache() = default;
 
-std::size_t PlanningCache::size() const { return impl->size(); }
+std::size_t PlanningCache::size() const { return impl.size(); }
 
-PlanningCacheImpl &PlanningCache::getImpl() { return *impl; }
+poplin::PlanningCache &PlanningCache::getImpl() { return impl; }
 
 } // namespace matmul
 
@@ -344,13 +345,10 @@ getConvOptionFlags(const poplar::OptionFlags &options) {
   return getConvOptionFlags(matMulOptions);
 }
 
-void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
-                    matmul::PlanningCache &cache) {
-  if (matmuls.empty())
-    return;
-
-  std::unordered_map<const OptionFlags *, OptionFlags> matmulOptsPtrToConvOpts;
-  std::set<ConvPlanParams> convs;
+std::set<ConvPlanParams>
+matMulGetConvPlanParams(const std::set<MatMulPlanParams> &matmuls,
+                        MatMulToConvOptions &matmulOptsPtrToConvOpts) {
+  std::set<ConvPlanParams> matmulConvs;
 
   // Convert all the options to conv options first for lookup
   for (auto &matmul : matmuls) {
@@ -366,10 +364,9 @@ void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
     const auto convParams = getConvParams(matMulParams);
     // Safe to take pointer to the new option flags in the unordered_map as
     // future insertions don't invalidate this.
-    convs.emplace(target, convParams, &res.first->second);
+    matmulConvs.emplace(target, convParams, &res.first->second);
   }
-
-  preplanConvolutions(convs, *getLinCache(&cache));
+  return matmulConvs;
 }
 
 static poplar::Tensor

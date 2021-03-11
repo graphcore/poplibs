@@ -283,7 +283,9 @@ poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
 
 using ConvPlanParams = std::tuple<const poplar::Target *, const ConvParams,
                                   const poplar::OptionFlags *>;
-/**
+/** \deprecated
+ *  **deprecated** Use poplin::preplan() instead.
+ *
  * Plan the specified convolutions.
  *
  * \param convs   A set of tuples of:
@@ -297,7 +299,9 @@ using ConvPlanParams = std::tuple<const poplar::Target *, const ConvParams,
 void preplanConvolutions(const std::set<ConvPlanParams> &convs,
                          PlanningCache &cache);
 
-/**
+/** \deprecated
+ *  **deprecated** Use poplin::preplan() instead.
+ *
  * Plan the specified convolutions.
  *
  * \param graph   The graph the convolutions will belong to

@@ -10,6 +10,7 @@
 #include <poplibs_test/NonLinearity.hpp>
 #include <poplibs_test/Pass.hpp>
 #include <poplibs_test/Util.hpp>
+#include <poplin/ConvPreplan.hpp>
 #include <poplin/ConvUtil.hpp>
 #include <poplin/Convolution.hpp>
 #include <poplin/codelets.hpp>
@@ -567,7 +568,7 @@ int main(int argc, char **argv) try {
           std::make_tuple(&replicatedTarget, std::move(wuParams), &wuOptions));
     }
 
-    poplin::preplanConvolutions(graph, convs, cache);
+    poplin::preplan(convs, {}, cache);
   }
 
   if (reportPlan) {

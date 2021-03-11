@@ -7,6 +7,7 @@
 
 #ifndef poplin_MatMul_hpp
 #define poplin_MatMul_hpp
+#include "poplin/Convolution.hpp"
 #include <iosfwd>
 #include <map>
 #include <poplar/Graph.hpp>
@@ -14,6 +15,7 @@
 #include <poplar/Program.hpp>
 #include <set>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace poplin {
@@ -539,6 +541,29 @@ using MatMulPlanParams = std::tuple<const poplar::Target *, const MatMulParams,
                                     const poplar::OptionFlags *>;
 
 /**
+ * Mapping of pointers to matrix multiplication option flags to the
+ * corresponding convolution option flags.
+ */
+using MatMulToConvOptions =
+    std::unordered_map<const poplar::OptionFlags *, poplar::OptionFlags>;
+
+/**
+ * Obtain the set of convolution parameters corresponding to the user supplied
+ * set of parameters for matrix multiplication.
+ *
+ *  \param matmuls        Set of Matrix multiplication parameter tuples
+ *  \param matmulToConvOpts Convolution options corresponding to every matrix
+ *                        multiplication options.
+ *
+ *  \returns              Set of Convolution parameters
+ */
+std::set<ConvPlanParams>
+matMulGetConvPlanParams(const std::set<MatMulPlanParams> &matmuls,
+                        MatMulToConvOptions &matmulToConvOpts);
+
+/** \deprecated
+ *  **deprecated** Use poplin::preplan() instead.
+ *
  * Plan the specified matrix multiplications.
  * \param matmuls   A set of parameters to preplan matmuls
  * \param cache     The planning cache to update
@@ -548,15 +573,8 @@ void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
 
 namespace matmul {
 
-class PlanningCacheImpl;
-
-/** Class used to cache the calculation of plans for implementing matrix
- *  multiplication operations.
- *
- *  When training a fully connected layer an efficient program is generated
- *  by settting the options to indicate the appropriate pass and passing the
- *  weights as the RHS.
- */
+/** \deprecated
+ *  **deprecated** Use poplin::PlanningCache instead */
 class PlanningCache {
 public:
   PlanningCache();
@@ -565,10 +583,10 @@ public:
   /** Returns the number of entries currently stored in the cache. */
   std::size_t size() const;
 
-  PlanningCacheImpl &getImpl();
+  poplin::PlanningCache &getImpl();
 
 private:
-  std::unique_ptr<PlanningCacheImpl> impl;
+  poplin::PlanningCache impl;
 };
 
 } // namespace matmul

@@ -15,6 +15,7 @@ add_library(poplin SHARED
   ConvPlan.cpp
   ConvPlan.hpp
   ConvPlanTypes.hpp
+  ConvPreplan.cpp
   ConvReduce.cpp
   ConvReduce.hpp
   ConvReducePlan.cpp
@@ -49,6 +50,7 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/Cholesky.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/Convolution.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplin/ConvPreplan.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/ConvUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/FullyConnected.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp

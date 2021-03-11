@@ -1,5 +1,6 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "poplin/Convolution.hpp"
+#include "poplin/ConvPreplan.hpp"
 
 #include "CanonicalConvParams.hpp"
 #include "ConvOptions.hpp"
@@ -2513,27 +2514,6 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
     level--;
   }
   return level;
-}
-
-void preplanConvolutions(Graph &graph, const std::set<ConvPlanParams> &convs,
-                         PlanningCache &cache) {
-  trace(graph, "poplin::preplanConvolutions",
-        [&] { preplanConvolutions(convs, cache); });
-}
-
-void preplanConvolutions(const std::set<ConvPlanParams> &convs,
-                         PlanningCache &cache) {
-  std::set<ConvPlanKey> convsImpl;
-
-  if (convs.empty())
-    return;
-
-  for (auto &conv : convs) {
-    const ConvOptions options(*std::get<2>(conv));
-    convsImpl.emplace(std::get<1>(conv), options);
-  }
-  auto &commonTarget = *std::get<0>(*convs.cbegin());
-  preplanConvolutionsImpl(commonTarget, convsImpl, cache);
 }
 
 static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
