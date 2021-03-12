@@ -2,7 +2,7 @@
 #ifdef __IPU__
 
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX(type) __runCodelet_popops__MultiUpdateAdd___##type##_false

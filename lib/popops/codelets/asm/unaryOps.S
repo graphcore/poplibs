@@ -8,7 +8,7 @@
 // completely individual operation stub functions.  When we implement more than
 // one the framework can be evolved to suit this requirement
 /* -------------------------------------------------------------------------- */
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // Registers for each of the passed parameters

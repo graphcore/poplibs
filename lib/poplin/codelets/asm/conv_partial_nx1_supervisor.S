@@ -9,7 +9,7 @@
 #define __CONV_PARTIAL_NX1_SUPERVISOR_S__
 
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "conv_partial_zero_output_stack.h"
 

@@ -10,7 +10,7 @@
 //    aligned. (This constrains half vertices to have an even number of columns)
 
 #include "SparseDenseMatMulStructs.h.S"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 
@@ -106,7 +106,7 @@
   // For n with 0 <= n <= 65533 this does a division by 6 with the remainder
   // split amongst workers.
   ld32          $w_offsetLoops, $mvertex_base, WOFF_OFFSET_SIZE/4
-  add           $w_offsetLoops, $w_offsetLoops, NUM_WORKERS
+  add           $w_offsetLoops, $w_offsetLoops, CTXT_WORKERS
   sub           $w_offsetLoops, $w_offsetLoops, $w_id
   mul           $w_offsetLoops, $w_offsetLoops, 21845
   shr           $w_offsetLoops, $w_offsetLoops, 17
@@ -162,7 +162,7 @@ meta_info_row_loopH:
 
   ld32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
 offsets_loopH:
-  ld32step      $w_temp, $mzero, $w_offsetPtr+=,NUM_WORKERS
+  ld32step      $w_temp, $mzero, $w_offsetPtr+=,CTXT_WORKERS
   cmpeq         $w_temp, $w_temp, $w_metaRow
   brz           $w_temp, next_offsetH
   // Found a row, read data and populate. Use temp ptrs as we may have to do this
@@ -287,7 +287,7 @@ meta_info_row_loopF:
 
 offsets_loopF:
   // Load the next offset and compare to the row found in the metaData
-  ld32step      $w_temp, $mzero, $w_offsetPtr+=, NUM_WORKERS
+  ld32step      $w_temp, $mzero, $w_offsetPtr+=, CTXT_WORKERS
   cmpeq         $w_temp, $w_temp, $w_metaRow
   brz           $w_temp, next_offsetF
   // Found a match, read data and populate. Use temp ptrs as we may have to do this
@@ -386,7 +386,7 @@ DEF_STACK_USAGE  (STACK_SIZE)  \NAME
   st32      $lr, $sp, WOFF_SUPER_LR_STORE/4
 
   st32      $s_subTColumns, $sp, WOFF_SUBT_COLUMNS/4
-  mul       $s_subTColumns, $s_subTColumns, NUM_WORKERS
+  mul       $s_subTColumns, $s_subTColumns, CTXT_WORKERS
 
   st32      $fp, $sp, WOFF_SUPER_FP_STORE/4
 

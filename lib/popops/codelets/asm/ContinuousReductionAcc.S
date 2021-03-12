@@ -32,7 +32,7 @@
 // before/after a main loop. The inner loop deals with 64 bits (2 floats, 4 halves)
 // in 1 cycle in all cases that have assembler.
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 

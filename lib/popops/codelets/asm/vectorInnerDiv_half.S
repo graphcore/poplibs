@@ -21,7 +21,7 @@
 // The 2D Vertices repeat the above process for all the sub-vectors of the
 // 2D 'data' and 'B'
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // This macro defines a label as global, function

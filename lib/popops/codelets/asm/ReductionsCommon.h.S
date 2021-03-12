@@ -4,7 +4,7 @@
 // Functions used in Reduction.S and Reductions_4_vectorised.S
 //******************************************************************************
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)

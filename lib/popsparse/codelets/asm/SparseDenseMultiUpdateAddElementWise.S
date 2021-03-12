@@ -4,7 +4,7 @@
 // Assembly implementation of  SparseDenseMultiUpdateAdd vertex template variations.
 
 #include "SparseDenseMatMulStructs.h.S"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 

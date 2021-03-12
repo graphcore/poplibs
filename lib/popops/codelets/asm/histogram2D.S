@@ -18,7 +18,7 @@
 // into a library function we may decide to cast to unsigned on the output of this
 // vertex or cast using existing poplibs functions.  A reduction will follow...
 /* -------------------------------------------------------------------------- */
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "histogramCommon.S"

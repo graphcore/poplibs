@@ -1,6 +1,6 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 #include <cassert>
 #include <cmath>
 #include <poplar/HalfFloat.hpp>
@@ -8,7 +8,7 @@
 #include <print.h>
 #include <type_traits>
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 
 using namespace poplar;
 

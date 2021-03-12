@@ -6,7 +6,7 @@
 // Half, float, inPlace and non-inplace versions
 /* -------------------------------------------------------------------------- */
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // Registers for each of the passed parameters
@@ -242,7 +242,7 @@ divide_work_by_row_float:
   setzi $mscratch, 0xAAAB
   mul $mscratch, $rows, $mscratch
   shr $mscratch, $mscratch, 18
-  mul $remainder, $mscratch, NUM_WORKERS
+  mul $remainder, $mscratch, CTXT_WORKERS
 
   // Compare remainder to total number of items to process
   sub $remainder, $rows, $remainder
@@ -251,7 +251,7 @@ divide_work_by_row_float:
   add $rows, $mscratch, $rows
 
  // Our initial row = workerIdM1 * rowLength
-  mul $stride, $mloops, NUM_WORKERS-1
+  mul $stride, $mloops, CTXT_WORKERS-1
   mul $workerOffset, $mloops, $workerIdM1
   // Dummy load to setup worker offsets.
   ld64step $a0:1, $mzero, $outPtr+=, $workerOffset
@@ -260,7 +260,7 @@ divide_work_by_row_float:
   add $mloops, $mloops, -1
   // Strides so the inner loop code can be shared
   setzi $inOutStride, 1
-  setzi $in2Stride, NUM_WORKERS
+  setzi $in2Stride, CTXT_WORKERS
   // Stride for use as a ptr increment in the last store
   add $stride2, $stride, 1
   shl $stride, $stride, 3
@@ -288,7 +288,7 @@ divide_work_by_column_float:
   // Total shift of 20 (for half results in divide by 24)
   // or 19 (for float results in divide by 12)
   shr $mscratch, $mscratch, 18
-  mul $remainder, $mscratch, NUM_WORKERS
+  mul $remainder, $mscratch, CTXT_WORKERS
 
   // Unadjusted mloops used in the stride calculation below
   mov $stride, $mloops
@@ -307,15 +307,15 @@ divide_work_by_column_float:
   // Compute a Stride to move to the next row.  Calculation based on reverting the strides
   // through the loop and adding 1 row length to adjust the pointer
   // to the next row.
-  // 8 * (unadjusted mloops - NUM_WORKERS * $mloops)
-  mul $mscratch, $mloops, -NUM_WORKERS
+  // 8 * (unadjusted mloops - CTXT_WORKERS * $mloops)
+  mul $mscratch, $mloops, -CTXT_WORKERS
   add $stride, $stride, $mscratch
   // Stride for use as a ptr increment in the last store
-  add $stride2, $stride, NUM_WORKERS
+  add $stride2, $stride, CTXT_WORKERS
   shl $stride, $stride, 3
 
   // Strides so the inner loop code can be shared
-  setzi $inOutStride, NUM_WORKERS
+  setzi $inOutStride, CTXT_WORKERS
   setzi $in2Stride, 1
    // Repurposed as the in2 Index
   setzi $workerIdM1, 0

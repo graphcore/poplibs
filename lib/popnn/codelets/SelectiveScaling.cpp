@@ -1,6 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 #include <poplar/HalfFloat.hpp>
 #include <poplar/VectorTypes.hpp>
 #include <poplar/Vertex.hpp>
@@ -23,7 +23,7 @@ public:
 
   bool compute() {
     // Scale output
-    for (unsigned ctxt = 0; ctxt != NUM_WORKERS; ++ctxt) {
+    for (unsigned ctxt = 0; ctxt != CTXT_WORKERS; ++ctxt) {
       for (unsigned w = 0; w != scaleWorklist[ctxt].size(); w += 3) {
         for (unsigned f = 0; f != scaleWorklist[ctxt][w + 1]; ++f) {
           for (unsigned cg = 0; cg != numChanGroups; ++cg) {

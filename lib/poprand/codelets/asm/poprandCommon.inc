@@ -3,7 +3,7 @@
 #ifndef POPRAND_CONST_H
 #define POPRAND_CONST_H
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 

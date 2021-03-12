@@ -9,7 +9,7 @@
 
 #include "elementwiseCodelets.hpp"
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "popops/ExprOp.hpp"
 
 #ifdef VECTOR_AVAIL_SHORT_SPAN
@@ -696,7 +696,7 @@ public:
   Input<Vector<InType, SPAN>> data;
   // There will be `limits` +1 histogram entries
   Input<Vector<InType, PTR_ALIGN32, 4>> limits;
-  // When splitByLimits==false, this array must be histogramCount * NUM_WORKERS
+  // When splitByLimits==false, this array must be histogramCount * CTXT_WORKERS
   // in size
   Output<Vector<float, PTR_ALIGN32, 4>> histogram;
   unsigned short histogramCount;
@@ -709,8 +709,8 @@ public:
     };
 
     // Structured like the assembler (when split by limits)
-    for (unsigned wkrId = 0; wkrId < NUM_WORKERS; wkrId++) {
-      for (unsigned i = wkrId; i < histogramCount; i += NUM_WORKERS) {
+    for (unsigned wkrId = 0; wkrId < CTXT_WORKERS; wkrId++) {
+      for (unsigned i = wkrId; i < histogramCount; i += CTXT_WORKERS) {
         float lessThanCount = 0;
         for (unsigned j = 0; j < data.size(); j++) {
           lessThanCount += condAbs(data[j]) < limits[i];

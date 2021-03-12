@@ -6,8 +6,8 @@
 #include <poplar/Vertex.hpp>
 #include <type_traits>
 
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 
@@ -60,7 +60,7 @@ public:
       (hasAssembly<FPType, AccumType, useLimitedVer, convGroupsPerGroup>()));
 
   bool compute() {
-    const unsigned numWorkers = NUM_WORKERS;
+    const unsigned numWorkers = CTXT_WORKERS;
     const auto usedContexts = worklists.size();
     const unsigned numConvGroups = numConvGroupsM1 + 1;
 

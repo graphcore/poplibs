@@ -25,7 +25,7 @@
 // multiplied with every other.
 /* -------------------------------------------------------------------------- */
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // Register aliases

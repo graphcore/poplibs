@@ -4,7 +4,7 @@
 #define POPFLOAT_COMMON_H
 
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 
 // supervisor variables
 #define mWorkerEntry              m6

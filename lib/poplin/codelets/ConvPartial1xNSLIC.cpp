@@ -3,8 +3,8 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 #include <type_traits>
 
@@ -110,8 +110,8 @@ public:
       for (unsigned kg = 0; kg < numSubKernels; ++kg) {
         const auto &w = weights[cg * numSubKernels + kg];
 
-        for (unsigned context = 0; context < NUM_WORKERS; ++context) {
-          const auto &wl = worklists[kg * NUM_WORKERS + context];
+        for (unsigned context = 0; context < CTXT_WORKERS; ++context) {
+          const auto &wl = worklists[kg * CTXT_WORKERS + context];
           unsigned wi = 0;
           while (wi < wl.size()) {
             const auto inOffset = wl[wi + 0];

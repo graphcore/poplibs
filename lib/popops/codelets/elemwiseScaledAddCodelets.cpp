@@ -8,7 +8,7 @@
 
 #include "elementwiseCodelets.hpp"
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "popops/ExprOp.hpp"
 
 #ifdef VECTOR_AVAIL_SHORT_SPAN

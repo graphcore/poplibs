@@ -6,8 +6,8 @@
 #include <poplar/Vertex.hpp>
 #include <type_traits>
 
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 
@@ -69,7 +69,7 @@ public:
   IS_EXTERNAL_CODELET((hasAssembly<FPType, AccumType, useLimitedVer>()));
 
   bool compute() {
-    const unsigned numWorkers = NUM_WORKERS;
+    const unsigned numWorkers = CTXT_WORKERS;
     const unsigned kernelSize = kernelSizeM1 + 1;
     const auto usedContexts = worklists.size() / kernelSize;
     const unsigned numOutGroups = numOutGroupsM1 + 1;

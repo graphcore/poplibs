@@ -6,8 +6,8 @@
 #include <poplar/Vertex.hpp>
 #include <type_traits>
 
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 
@@ -76,7 +76,7 @@ public:
     const unsigned convInputLoadElems = std::is_same<FPType, float>::value
                                             ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
                                             : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
-    const auto usedContexts = NUM_WORKERS;
+    const auto usedContexts = CTXT_WORKERS;
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned numOutGroups = numOutGroupsM1 + 1;

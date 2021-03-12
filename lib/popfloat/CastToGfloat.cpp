@@ -13,8 +13,6 @@
 #include <popfloat/experimental/GfloatExprUtil.hpp>
 #include <popops/Cast.hpp>
 
-#include "poplibs_support/TileConstants.hpp"
-
 #include <cassert>
 #include <cmath>
 #include <unordered_set>
@@ -41,9 +39,10 @@ namespace popfloat {
 namespace experimental {
 
 static std::tuple<unsigned, unsigned>
-getInterleavedWorkSplit(const unsigned nElements, const unsigned grainSize) {
-  const auto elementsPerWorker = (nElements / grainSize) / CTXT_WORKERS;
-  auto remainder = nElements - (grainSize * CTXT_WORKERS * elementsPerWorker);
+getInterleavedWorkSplit(const unsigned nElements, const unsigned grainSize,
+                        const unsigned numWorkers) {
+  const auto elementsPerWorker = (nElements / grainSize) / numWorkers;
+  auto remainder = nElements - (grainSize * numWorkers * elementsPerWorker);
   const auto lastWorker = remainder / grainSize;
   remainder = remainder % grainSize;
   return std::make_tuple(elementsPerWorker, (lastWorker + (remainder << 8)));
@@ -937,6 +936,8 @@ Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
 
   unsigned grainSize = (gfCastCfg.getCalculationType() == FLOAT) ? 2 : 4;
 
+  const auto numWorkers = graph.getTarget().getNumWorkerContexts();
+
   auto castParam = gfCastCfg.getCastParams();
   for (auto tile = 0U; tile != numTiles; ++tile) {
     if (mapping[tile].empty())
@@ -951,8 +952,8 @@ Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
     auto outputSlice = concat(outFlat.slices(intervals));
 
     unsigned elementsPerWorker, lastWorkerParams;
-    std::tie(elementsPerWorker, lastWorkerParams) =
-        getInterleavedWorkSplit(inputSlice.numElements(), grainSize);
+    std::tie(elementsPerWorker, lastWorkerParams) = getInterleavedWorkSplit(
+        inputSlice.numElements(), grainSize, numWorkers);
 
     auto v = graph.addVertex(
         cs, vertexTemplate,
@@ -989,6 +990,7 @@ static Tensor castGfloatAsInteger(Graph &graph, Tensor input,
       gfCastCfg.getFormatType());
 
   unsigned grainSize = (gfCastCfg.getStorageType() == CHAR) ? 4 : 2;
+  const auto numWorkers = graph.getTarget().getNumWorkerContexts();
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     if (mapping[tile].empty())
@@ -1002,8 +1004,8 @@ static Tensor castGfloatAsInteger(Graph &graph, Tensor input,
     auto outputSlice = concat(outFlat.slices(intervals));
 
     unsigned elementsPerWorker, lastWorkerParams;
-    std::tie(elementsPerWorker, lastWorkerParams) =
-        getInterleavedWorkSplit(inputSlice.numElements(), grainSize);
+    std::tie(elementsPerWorker, lastWorkerParams) = getInterleavedWorkSplit(
+        inputSlice.numElements(), grainSize, numWorkers);
 
     auto v = graph.addVertex(
         cs, vertexTemplate,
@@ -1084,6 +1086,7 @@ void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
       gfCastCfg, input.elementType(), input.elementType(), true);
 
   unsigned grainSize = (gfCastCfg.getCalculationType() == FLOAT) ? 2 : 4;
+  const auto numWorkers = graph.getTarget().getNumWorkerContexts();
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     if (mapping[tile].empty())
@@ -1096,8 +1099,8 @@ void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
     auto inputSlice = concat(inFlat.slices(intervals));
 
     unsigned elementsPerWorker, lastWorkerParams;
-    std::tie(elementsPerWorker, lastWorkerParams) =
-        getInterleavedWorkSplit(inputSlice.numElements(), grainSize);
+    std::tie(elementsPerWorker, lastWorkerParams) = getInterleavedWorkSplit(
+        inputSlice.numElements(), grainSize, numWorkers);
 
     auto v = graph.addVertex(cs, vertexTemplate,
                              {{"param", param}, {"inOut", inputSlice}});
@@ -1160,6 +1163,7 @@ Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
       gfloatToNativeVertexName(gfCastCfg.getCalculationType(),
                                input.elementType(), gfCastCfg.getFormatType());
   unsigned grainSize = (gfCastCfg.getCalculationType() == FLOAT) ? 2 : 4;
+  const auto numWorkers = graph.getTarget().getNumWorkerContexts();
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     if (mapping[tile].empty())
@@ -1174,8 +1178,8 @@ Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
     auto outputSlice = concat(outFlat.slices(intervals));
 
     unsigned elementsPerWorker, lastWorkerParams;
-    std::tie(elementsPerWorker, lastWorkerParams) =
-        getInterleavedWorkSplit(inputSlice.numElements(), grainSize);
+    std::tie(elementsPerWorker, lastWorkerParams) = getInterleavedWorkSplit(
+        inputSlice.numElements(), grainSize, numWorkers);
 
     auto v = graph.addVertex(
         cs, vertexTemplate,

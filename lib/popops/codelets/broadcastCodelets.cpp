@@ -6,8 +6,8 @@
 #include <cmath>
 
 #include "elemwiseBinaryOps.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 using namespace popops;
@@ -324,8 +324,8 @@ broadcastShort2_Supervisor(unsigned size, unsigned worker,
                            __attribute__((align_value(4))) T *out, const T K) {
   const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
 
-  broadcastShort2Bulk<op, T, NUM_WORKERS>(loopCount, in + 2 * worker,
-                                          out + 2 * worker, K);
+  broadcastShort2Bulk<op, T, CTXT_WORKERS>(loopCount, in + 2 * worker,
+                                           out + 2 * worker, K);
 
   // To process the trailing elements (if any) use the last worker as it is
   // most likely to have less to do than the others.
@@ -608,7 +608,7 @@ public:
         // the trailing elements to avoid read-modify-write conflicts in
         // dealing with the odd single element. Pick the last worker as it
         // is most likely to have less to do than the others.
-        if (worker == NUM_WORKERS - 1) {
+        if (worker == CTXT_WORKERS - 1) {
           const half2 *h2In = reinterpret_cast<const half2 *>(
               reinterpret_cast<std::uintptr_t>(in) & ~std::uintptr_t(0x3));
           half2 *h2Out = reinterpret_cast<half2 *>(
@@ -626,7 +626,7 @@ public:
         size -= 1;
       }
       if (size >= 2 && reinterpret_cast<std::uintptr_t>(out) & 0x7) {
-        if (worker == NUM_WORKERS - 1) {
+        if (worker == CTXT_WORKERS - 1) {
           half2 K2 = {K, K};
           const half2 *h2In = reinterpret_cast<const half2 *>(in);
           half2 *h2Out = reinterpret_cast<half2 *>(out);
@@ -659,7 +659,7 @@ public:
     // the trailing elements to avoid read-modify-write conflicts in
     // dealing with the odd single element
     if (allowRemainder) {
-      if (worker == NUM_WORKERS - 1) {
+      if (worker == CTXT_WORKERS - 1) {
         const half2 *h2In =
             reinterpret_cast<const half2 *>(&in[size & ~unsigned(3)]);
         half2 *h2Out = reinterpret_cast<half2 *>(&out[size & ~unsigned(3)]);

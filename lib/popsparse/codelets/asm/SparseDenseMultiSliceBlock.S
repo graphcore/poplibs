@@ -10,7 +10,7 @@
 //    aligned. (This constrains half vertices to have an even number of columns)
 
 #include "BlockSparseMatMulStructs.h.S"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 
@@ -114,7 +114,7 @@
   // For n with 0 <= n <= 65533 this does a division by 6 with the remainder
   // split amongst workers.
   ld32          $w_offsetLoops, $mvertex_base, WOFF_OFFSET_SIZE/4
-  add           $w_offsetLoops, $w_offsetLoops, NUM_WORKERS
+  add           $w_offsetLoops, $w_offsetLoops, CTXT_WORKERS
   sub           $w_offsetLoops, $w_offsetLoops, $w_id
   mul           $w_offsetLoops, $w_offsetLoops, 21845
   shr           $w_offsetLoops, $w_offsetLoops, 17
@@ -275,7 +275,7 @@ offsets_loop\@:
   // Load the next offset and compare to the rows spanned by the block found in
   // the metaData.  Doing this using subtract not compare means we can retrieve
   // the result later from the w_temp register
-  ld32step      $w_temp, $mzero, $w_offsetPtr+=, NUM_WORKERS
+  ld32step      $w_temp, $mzero, $w_offsetPtr+=, CTXT_WORKERS
   sub           $w_temp, $w_temp, $w_metaRowStart
   brneg         $w_temp, next_offset\@
   sub           $w_temp, $w_temp, $w_metaRowsInBlock
@@ -401,7 +401,7 @@ VERTEX_NAME:
   ldz16     $s_offsetSize, $s_base, VOFF_OFFSET_SIZE/2
 
   st32      $s_subTColumns, $sp, WOFF_SUBT_COLUMNS/4
-  mul       $s_subTColumns, $s_subTColumns, NUM_WORKERS
+  mul       $s_subTColumns, $s_subTColumns, CTXT_WORKERS
 
   st32      $fp, $sp, WOFF_SUPER_FP_STORE/4
   st32      $lr, $sp, WOFF_SUPER_LR_STORE/4

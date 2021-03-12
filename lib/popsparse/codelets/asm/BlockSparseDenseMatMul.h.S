@@ -6,7 +6,7 @@
 #define _BlockSparseDenseMatMul_h_
 
 #include "BlockSparseMatMulStructs.h.S"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 .extern zeroDenseOutput64

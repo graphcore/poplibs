@@ -9,9 +9,9 @@
 #include <cmath>
 #include <type_traits>
 
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/LogArithmetic.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 using namespace poplibs_support;

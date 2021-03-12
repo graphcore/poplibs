@@ -33,7 +33,7 @@
 //
 // Currently this fast path is not implemented.
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // This macro defines a label as global, function

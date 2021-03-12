@@ -59,7 +59,7 @@
 #define WOFF_ELEMENTS_DEC 1
 
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 #define DSS_FLOAT_FUNC __runCodelet_popops__DynamicSlice1d___float

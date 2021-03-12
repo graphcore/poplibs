@@ -6,7 +6,7 @@
 //
 #ifdef __IPU__
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 #define CODELET_SYMBOL_ENTRY(partials_type, stride, conv_chains) \

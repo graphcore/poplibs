@@ -8,7 +8,7 @@
 // completely individual operation stub functions.  When we implement more than
 // one the framework can be evolved to suit this requirement
 /* -------------------------------------------------------------------------- */
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // Registers for each of the passed parameters
@@ -128,7 +128,7 @@ unary_op_worker_4x16bit_framework:
   br $mloopFn
 
 inner_loop_4x16bit_return_1D:
-  st64step $a2:3, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a2:3, $mzero, $outPtr+=, CTXT_WORKERS
 2:
   // Here we have done all groups of 3 halves for every worker, no overread.
   // Use the worker which is pointing to the next half to process the last 3
@@ -185,9 +185,9 @@ UNARY_OP_DIVIDE_WORK 20 24 LOG2_HALF_ATOM_SIZE
 //******************************************************************************
 
 // Signum specific
-INSTANTIATE_UNARY_OP_HALF_PROCESSING_SIGNUM SIGNUM 1D NUM_WORKERS
+INSTANTIATE_UNARY_OP_HALF_PROCESSING_SIGNUM SIGNUM 1D CTXT_WORKERS
 
 // General - just NOT at the momnent, supporting short and unsigned_short
-INSTANTIATE_UNARY_OP_4x16bit_PROCESSING BITWISE___NOT not64 1D NUM_WORKERS
+INSTANTIATE_UNARY_OP_4x16bit_PROCESSING BITWISE___NOT not64 1D CTXT_WORKERS
 #endif
 /* -------------------------------------------------------------------------- */

@@ -7,7 +7,7 @@
 #ifdef __IPU__
 
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "conv_partial_nx1_supervisor.S"
 

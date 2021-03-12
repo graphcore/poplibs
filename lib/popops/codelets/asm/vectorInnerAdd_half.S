@@ -118,7 +118,7 @@
 // required to use the pipeline. Also this processes more data in one loop
 // so the overhead tends to be slightly lower.
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // This macro defines a label as global, function

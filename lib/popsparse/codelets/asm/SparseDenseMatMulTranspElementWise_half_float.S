@@ -12,7 +12,7 @@
 #include "SparseDenseMatMulStructs.h.S"
 #include "SparseDenseMatMulTranspElementWise.h.S"
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 #define LOG2_SIZEOF_OUT_ATOM 2

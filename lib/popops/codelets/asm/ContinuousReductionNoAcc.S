@@ -3,7 +3,7 @@
 
 // See ContinuousReductionAcc.S for more information
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "MathConstants.S"
 #include "poplar/StackSizeDefs.hpp"

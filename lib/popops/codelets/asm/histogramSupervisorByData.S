@@ -35,7 +35,7 @@
 // faster or very close to faster than the other workers.
 //
 /* -------------------------------------------------------------------------- */
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "histogramCommon.S"
@@ -138,7 +138,7 @@ MANGLE_STR(half_\IS_ABS\()_false):
 limit_loop\@:
   brneg $mloops, extract\@
 
-  ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
+  ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
 
   RPT_ALIGNED_TO MANGLE_STR(worker_half_\IS_ABS\()_false) $mloops
 1:
@@ -147,7 +147,7 @@ limit_loop\@:
    f16v4cmpgt $a0:1, $upper:BL, $a0:1} //(upper > data) == (data < upper)
   {nop
    and64 $a0:1, $a0:1, $one01}
-  {ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
+  {ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
    f16v4acc $a0:1}
 2:
   CONDITIONAL_ABSv4HALF \IS_ABS
@@ -246,7 +246,7 @@ data_loop_continue_w0\@:
   //  acc the misaligned entries
   {brneg $mloops, check_two_w0\@
    f16v4acc $a6:7}
-  ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
+  ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
 
   RPT_ALIGNED_TO worker0\@ $mloops
 1:
@@ -255,7 +255,7 @@ data_loop_continue_w0\@:
    f16v4cmpgt $a0:1, $upper:BL, $a0:1} //(upper > data) == (data < upper)
   {nop
    and64 $a0:1, $a0:1, $one01}
-  {ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
+  {ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
    f16v4acc $a0:1}
 2:
   CONDITIONAL_ABSv4HALF \IS_ABS
@@ -367,7 +367,7 @@ MANGLE_STR(worker_float_\IS_ABS\()_false):
 limit_loop\@:
   {brneg $mloops, extract\@
    mov $acc01, $azeros}
-  ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
+  ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
   RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS\()_false) $mloops
 1:
   CONDITIONAL_ABSv2FLOAT_BUNDLE \IS_ABS
@@ -375,7 +375,7 @@ limit_loop\@:
    f32v2cmpgt $a0:1, $upper:B, $a0:1} //(upper > data) == (data < upper)
   {nop
    and64 $a0:1, $a0:1, $one01}
-  {ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
+  {ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
    f32v2add $acc01,$acc01, $a0:1}
 2:
   CONDITIONAL_ABSv2FLOAT \IS_ABS
@@ -450,7 +450,7 @@ limit_loop_w0\@:
 1:
   {brneg $mloops, check_one_w0\@
    f32add $acc0, $acc0, $a0}
-  ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
+  ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
   RPT_ALIGNED_TO worker0\@ $mloops
 1:
   CONDITIONAL_ABSv2FLOAT_BUNDLE \IS_ABS
@@ -458,7 +458,7 @@ limit_loop_w0\@:
    f32v2cmpgt $a0:1, $upper:B, $a0:1} //(upper > data) == (data < upper)
   {nop
    and64 $a0:1, $a0:1, $one01}
-  {ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
+  {ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
    f32v2add $acc01,$acc01, $a0:1}
 2:
   CONDITIONAL_ABSv2FLOAT \IS_ABS

@@ -6,8 +6,8 @@
 #include <type_traits>
 
 #include "elemwiseBinaryOps.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 #include "popops/ExprOp.hpp"
 
 using namespace poplar;

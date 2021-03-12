@@ -11,7 +11,7 @@
 #include "BlockSparseMatMulGradW.h.S"
 #include "BlockSparseMatMulStructs.h.S"
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // =============================================================================

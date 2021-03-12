@@ -1,6 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 #include <cassert>
 #include <cmath>
 #include <poplar/HalfFloat.hpp>
@@ -42,7 +42,7 @@ public:
   IS_EXTERNAL_CODELET(!isBool<InType>());
 
   bool compute() {
-    const unsigned numWorkers = NUM_WORKERS;
+    const unsigned numWorkers = CTXT_WORKERS;
     unsigned elementsPerWorker = (regionSize + numWorkers - 1) / numWorkers;
 
     for (unsigned worker = 0; worker != numWorkers; ++worker) {

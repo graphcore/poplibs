@@ -10,7 +10,7 @@
 #include "SparseDenseMatMulGradWElementWise.h.S"
 #include "SparseDenseMatMulStructs.h.S"
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // =============================================================================

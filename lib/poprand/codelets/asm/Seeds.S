@@ -2,7 +2,7 @@
 #ifdef __IPU__
 // poprand::SetSeedSupervisor
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 #define poprandSvSetSeed     __runCodelet_poprand__SetSeedSupervisor

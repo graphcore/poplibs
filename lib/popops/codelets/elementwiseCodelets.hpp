@@ -7,8 +7,8 @@
  *
  */
 
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 #ifdef __IPU__
 #include <ipu_memory_intrinsics>

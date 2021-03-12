@@ -1,6 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 #include <cassert>
 #include <cmath>
 #include <poplar/HalfFloat.hpp>

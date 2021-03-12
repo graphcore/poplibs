@@ -4,7 +4,7 @@
 // Contains functions to fill vectors using fill and fill2d vertices.
 // Supports half, float, int and unsigned int types
 /* -------------------------------------------------------------------------- */
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 // Register aliases
 #define mSCRATCH         m0

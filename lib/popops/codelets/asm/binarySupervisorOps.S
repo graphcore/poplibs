@@ -4,7 +4,7 @@
 /* -------------------------------------------------------------------------- */
 // Supervisor vertex code for Binary and Scalar broadcast ops
 /* -------------------------------------------------------------------------- */
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // Registers for each of the passed parameters
@@ -408,38 +408,38 @@ process_1_4x16bit_return:
 // Loop for binary variant
 binary_op_loop_float_\OPERATION\():
  // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-  ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
+  ld64step $a2:3, $mzero, $in2Ptr+=, CTXT_WORKERS
 
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  {ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
    \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
    fnop}
-  {ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
+  {ld64step $a2:3, $mzero, $in2Ptr+=, CTXT_WORKERS
    fnop}
 2:
   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
   bri inner_loop_float_return
 
 //******************************************************
 // Loop for binary variant
 binary_op_loop_float_fast_\OPERATION\():
   // Pre load so we can pipeline the loop
-  setzi $mscratch, NUM_WORKERS
+  setzi $mscratch, CTXT_WORKERS
   ld2x64pace $a0:1, $a2:3, $in12Ptr+=, $mscratch, 0b0101
 
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld2x64pace $a0:1, $a2:3, $in12Ptr+=, $mscratch, 0b0101
    \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
    fnop}
 2:
   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
   bri inner_loop_float_return
 .size MANGLE_STR_COMMON(float_loop1), . -binary_op_loop_float_\OPERATION\()
 
@@ -449,17 +449,17 @@ binary_op_loop_float_fast_\OPERATION\():
 // Loop for broadcast scalar variant
 broadcast_op_loop_float_\OPERATION\():
   // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
 
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  {ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
    \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
    fnop}
 2:
   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
   bri inner_loop_float_return
 
 //******************************************************
@@ -472,9 +472,9 @@ broadcast_op_loop_float_fast_\OPERATION\():
   // Revert back to the slower path if this is a problem
   brneg $mloopFn, broadcast_op_loop_float_\OPERATION\()
   // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-  setzi $mscratch, NUM_WORKERS
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
+  setzi $mscratch, CTXT_WORKERS
+  {ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
    \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
   tapack $in12Ptr, $in1Ptr, $mzero, $outPtr
 
@@ -513,38 +513,38 @@ broadcast_op_process_1_float_\OPERATION\():
   nop // Repeat body alignment
 binary_op_loop_\TYPE\()_\OPERATION\():
  // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-  ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
+  ld64step $a2:3, $mzero, $in2Ptr+=, CTXT_WORKERS
 
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  {ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
    \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
    fnop}
-  {ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
+  {ld64step $a2:3, $mzero, $in2Ptr+=, CTXT_WORKERS
    fnop}
 2:
   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
   bri inner_loop_4x16bit_return
 
 
 //******************************************************
 binary_op_loop_\TYPE\()_fast_\OPERATION\():
   // Pre load so we can pipeline the loop
-  setzi $mscratch, NUM_WORKERS
+  setzi $mscratch, CTXT_WORKERS
   ld2x64pace $a0:1, $a2:3, $in12Ptr+=, $mscratch, 0b0101
 
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld2x64pace $a0:1, $a2:3, $in12Ptr+=, $mscratch, 0b0101
    \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
    fnop}
 2:
   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
   bri inner_loop_4x16bit_return
 
 .size MANGLE_STR_COMMON(\@), . -binary_op_loop__\TYPE\()_\OPERATION\()
@@ -554,17 +554,17 @@ binary_op_loop_\TYPE\()_fast_\OPERATION\():
 .align 8
 broadcast_op_loop_\TYPE\()_\OPERATION\():
  // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
   rpt $mloops, (2f - 1f ) /8 - 1
 
 1:
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  {ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
    \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
-  {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  {st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
    fnop}
 2:
   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3
-  st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
+  st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
   bri inner_loop_4x16bit_return
 //******************************************************
 .align 8
@@ -574,9 +574,9 @@ broadcast_op_loop_\TYPE\()_fast_\OPERATION\():
   // Revert back to the slower path if this is a problem
   brneg $mloopFn, broadcast_op_loop_\TYPE\()_\OPERATION\()
   // Pre load so we can pipeline the loop
-  ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-  setzi $mscratch, NUM_WORKERS
-  {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
+  ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
+  setzi $mscratch, CTXT_WORKERS
+  {ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
    \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
   tapack $in12Ptr, $in1Ptr, $mzero, $outPtr
 

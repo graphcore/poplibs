@@ -1,6 +1,6 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // Supervisor registers

@@ -36,7 +36,7 @@
 
 #ifdef __IPU__
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 #include "ScaledAddSupervisor.inc"

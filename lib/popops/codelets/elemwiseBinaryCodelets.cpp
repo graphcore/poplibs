@@ -254,8 +254,8 @@ binaryShort2_Supervisor(unsigned size, unsigned worker,
                         __attribute__((align_value(4))) T *out) {
   const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
 
-  binaryShort2Bulk<op, T, NUM_WORKERS>(loopCount, in1 + 2 * worker,
-                                       in2 + 2 * worker, out + 2 * worker);
+  binaryShort2Bulk<op, T, CTXT_WORKERS>(loopCount, in1 + 2 * worker,
+                                        in2 + 2 * worker, out + 2 * worker);
 
   // To process the trailing elements (if any) use the last worker as it is
   // most likely to have less to do than the others.

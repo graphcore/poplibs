@@ -8,7 +8,7 @@
 //  * All input/output regions 8-byte aligned.
 //  * Load up to 64-bits past the end of outGrad and out regions without exceptions.
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 

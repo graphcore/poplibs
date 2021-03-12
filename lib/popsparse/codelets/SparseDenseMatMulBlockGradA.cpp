@@ -8,8 +8,8 @@
 #include <poplar/Vertex.hpp>
 
 #include "SparseMetaInfo.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 
@@ -135,7 +135,7 @@ public:
                 reinterpret_cast<const MetaInfo::InputEntry *>(outputEntry + 1);
             for (std::size_t yBlock = 0; yBlock < outputEntry->numYm1 + 1;
                  ++yBlock) {
-              for (unsigned wid = 0; wid < NUM_WORKERS; ++wid) {
+              for (unsigned wid = 0; wid < CTXT_WORKERS; ++wid) {
                 const auto offsetZ = offsetAndNumZByWorker[wid * 2];
                 const auto numZ = offsetAndNumZByWorker[wid * 2 + 1];
                 workerCompute(wid, zStrideInQ, zStrideInS, offsetZ, numZ,

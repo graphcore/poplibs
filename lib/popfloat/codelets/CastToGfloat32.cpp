@@ -9,7 +9,7 @@
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 
 static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 

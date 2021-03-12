@@ -9,7 +9,7 @@
 // TODO: T12903 Much of the inner portion of this code is identical to
 // ReduceMaxClassGather. There is an opportunity to reuse code here.
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX(FP_TYPE, LABEL_TYPE) \

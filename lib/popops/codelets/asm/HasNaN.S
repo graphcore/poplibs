@@ -3,7 +3,7 @@
 
 #ifdef __IPU__
 #include "poplar/StackSizeDefs.hpp"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 
 // -----------------------------------------------------------------------------
 
@@ -77,7 +77,7 @@ cmpeq           $w_tmp, $w_wkrId, $w_lastWorker
 brz             $w_tmp, LLoopStart1D_\TYPE\()_\CHECK_INF\()
 add             $w_numValues, $w_numValues, $w_addRem
 LLoopStart1D_\TYPE\()_\CHECK_INF\():
-setzi           $w_stride, NUM_WORKERS
+setzi           $w_stride, CTXT_WORKERS
 ld64step        $azeros, $mzero, $w_inPtr+=, $w_wkrId
 .endm
 

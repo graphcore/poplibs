@@ -58,7 +58,7 @@
 // depending on word alignment.
 // Or 7 cycles for 4 floats, regardless of word alignment
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "MathConstants.S"
 #include "poplar/StackSizeDefs.hpp"

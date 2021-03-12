@@ -1,7 +1,6 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE StdArithmeticTests
 
-#include "poplibs_support/TileConstants.hpp"
 #include "popops/ElementWise.hpp"
 #include <boost/multi_array.hpp>
 #include <boost/test/data/test_case.hpp>
@@ -530,6 +529,17 @@ BOOST_AUTO_TEST_CASE(
   }
 }
 
+static std::size_t getMaxMemoryElementBytes(const Target &target) {
+  std::size_t max = 0;
+  const auto &elementOffsets = target.getMemoryElementOffsets();
+  std::size_t lastOffset = target.getBytesPerTile();
+  for (auto it = elementOffsets.rbegin(); it != elementOffsets.rend(); ++it) {
+    max = std::max(max, lastOffset - *it);
+    lastOffset = *it;
+  }
+  return max;
+}
+
 BOOST_AUTO_TEST_CASE(
     StdAddTo_float_runtime_fast_path,
     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.01)) *
@@ -544,8 +554,7 @@ BOOST_AUTO_TEST_CASE(
   float k = 2;
   // Creating a larger tensor to force a gap between allocations of the two
   // operands will result in the fast path being chosen at runtime.
-  // Note TMEM_ELEMSIZE is in bytes
-  const unsigned padSize = 16 + (TMEM_ELEMSIZE * 2) / 4;
+  const unsigned padSize = 16 + getMaxMemoryElementBytes(graph.getTarget()) / 4;
   const unsigned regionSize = 2 * DIM_SIZE * DIM_SIZE + padSize;
   auto in = graph.addVariable(FLOAT, {regionSize}, "Whole input");
   graph.setTileMapping(in, 0);

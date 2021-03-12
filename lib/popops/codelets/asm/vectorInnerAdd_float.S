@@ -37,7 +37,7 @@
 // alignment for 'data'/'out' and also them being allocated in different memory
 // regions or in interleaved memory (for inplace operations).
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // This macro defines a label as global, function

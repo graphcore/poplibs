@@ -6,8 +6,8 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 

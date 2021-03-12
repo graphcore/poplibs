@@ -6,8 +6,8 @@
 #include <poplar/Vertex.hpp>
 #include <type_traits>
 
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 
@@ -85,7 +85,7 @@ public:
       (hasAssembly<FPType, AccumType, useLimitedVer, numConvUnits>()));
 
   bool compute() {
-    const unsigned numWorkers = NUM_WORKERS;
+    const unsigned numWorkers = CTXT_WORKERS;
     const unsigned convInputLoadElems = std::is_same<FPType, float>::value
                                             ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
                                             : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;

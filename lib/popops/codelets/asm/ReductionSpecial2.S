@@ -20,7 +20,7 @@
 // accumulating in the inner loop.
 // This results in an inner loop that takes 2 cycles per 128 bits processed (4 floats or 8 halves).
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 

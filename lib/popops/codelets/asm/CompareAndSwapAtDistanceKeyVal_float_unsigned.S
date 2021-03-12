@@ -3,7 +3,7 @@
 #ifdef __IPU__
 
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 #define CODELET_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_unsigned_int

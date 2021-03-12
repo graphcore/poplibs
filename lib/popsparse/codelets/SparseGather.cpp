@@ -3,8 +3,8 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 
@@ -44,7 +44,7 @@ public:
       numExcess += (z & 0x1);
     }
     const auto sizeAtom = 8 / vectorSize;
-    const auto n = (numIndices / vectorSize) * (vectorSize * NUM_WORKERS) +
+    const auto n = (numIndices / vectorSize) * (vectorSize * CTXT_WORKERS) +
                    (numIndices % vectorSize) + (vectorSize * numExcess);
     for (unsigned i = 0; i != n; ++i) {
       rOut[i] = rIn[indices[i] / sizeAtom];

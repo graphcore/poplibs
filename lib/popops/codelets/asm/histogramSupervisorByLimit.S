@@ -18,7 +18,7 @@
 // into a library function we may decide to cast to unsigned on the output of this
 // vertex or cast using existing poplibs functions.  A reduction will follow...
 /* -------------------------------------------------------------------------- */
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "histogramCommon.S"
@@ -105,7 +105,7 @@ MANGLE_STR(half_\IS_ABS\()_true):
    sort4x16lo $one0, $one0, $one0}
 
   // Load limit
-  {ldb16step $upper, $base, $limPtr+=, NUM_WORKERS
+  {ldb16step $upper, $base, $limPtr+=, CTXT_WORKERS
    mov $one1, $one0}
 
 limit_loop\@:
@@ -197,11 +197,11 @@ extract\@:
   {ld32 $dataPtr, $mzero, $mvertex_base, VERTEX_DATA_PTR_OFFSET/4
    f32v2gina $a0:1, $azeros, 0}
    f32v2gina $a2:3, $azeros, 0
-  {ldb16step $upper, $base, $limPtr+=, NUM_WORKERS
+  {ldb16step $upper, $base, $limPtr+=, CTXT_WORKERS
    f32v2add $a6:7, $a0:1, $a2:3}
   {ld32 $dataCount, $mzero, $mvertex_base, VERTEX_DATA_COUNT_OFFSET/4
    f32add $a6, $a6, $a7}
-  st32step $a6, $base, $histPtr+=,NUM_WORKERS
+  st32step $a6, $base, $histPtr+=,CTXT_WORKERS
   brnzdec $mloops, limit_loop\@
 
   brz $workerIdM1, MANGLE_STR(worker_postprocess)
@@ -239,7 +239,7 @@ MANGLE_STR(worker_float_\IS_ABS\()_true):
   {ld32step $a0,$base, $limPtr+=, $workerIdM1
    mov $one1, $one0}
 
-  ld32step $upper, $base, $limPtr+=, NUM_WORKERS
+  ld32step $upper, $base, $limPtr+=, CTXT_WORKERS
 limit_loop\@:
   {ld32 $dataCount, $mzero, $mvertex_base, VERTEX_DATA_COUNT_OFFSET/4
    mov $acc01, $azeros}
@@ -295,9 +295,9 @@ extract\@:
   // The result from the last one is in $a1, if applicable, 0 otherwise
   {ld32 $dataPtr, $mzero, $mvertex_base, VERTEX_DATA_PTR_OFFSET/4
    f32add $acc0, $acc0, $a1}
-  {ld32step $upper, $base, $limPtr+=, NUM_WORKERS
+  {ld32step $upper, $base, $limPtr+=, CTXT_WORKERS
    f32add $acc0, $acc0, $acc1}
-  st32step $acc0, $base, $histPtr+=,NUM_WORKERS
+  st32step $acc0, $base, $histPtr+=,CTXT_WORKERS
   brnzdec $mloops, limit_loop\@
 
   brz $workerIdM1, MANGLE_STR(worker_postprocess)
@@ -323,11 +323,11 @@ MANGLE_STR(state_divide_work6):
   get $workerIdM1, $WSR
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
 
-  // Loops for this worker: divide by NUM_WORKERS find remainder
+  // Loops for this worker: divide by CTXT_WORKERS find remainder
   setzi $mscratch, 0xAAAB
   mul $mscratch, $limCount, $mscratch
   shr $mscratch, $mscratch, 18
-  mul $remainder, $mscratch, NUM_WORKERS
+  mul $remainder, $mscratch, CTXT_WORKERS
 
   // Compare remainder to total number of items to process
   sub $remainder, $limCount, $remainder

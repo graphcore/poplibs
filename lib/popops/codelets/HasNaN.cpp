@@ -1,6 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
@@ -55,7 +55,7 @@ public:
   unsigned char remWorkerId;
   unsigned char remWorkerExtras;
   bool compute() {
-    unsigned size = sizeIn8BytesPerWorker * NUM_WORKERS + remWorkerId;
+    unsigned size = sizeIn8BytesPerWorker * CTXT_WORKERS + remWorkerId;
     size = size * (std::is_same<FPType, half>() ? 4 : 2) + remWorkerExtras;
     constexpr bool checkNaNAndInf = nanOrInf;
     for (unsigned i = 0; i < size; ++i) {

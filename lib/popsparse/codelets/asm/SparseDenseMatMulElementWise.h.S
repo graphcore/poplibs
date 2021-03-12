@@ -6,7 +6,7 @@
 #define _SparseDenseMatMulElementWise_h_
 
 #include "SparseDenseMatMulStructs.h.S"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)

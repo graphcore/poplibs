@@ -1,7 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplar/AvailableVTypes.h"
+#include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include "poplibs_support/TileConstants.hpp"
 #include "popnn/PoolingDef.hpp"
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
@@ -88,7 +88,7 @@ public:
     }
 
     // do pooling operation
-    for (unsigned ctxtM1 = 0; ctxtM1 != NUM_WORKERS; ++ctxtM1) {
+    for (unsigned ctxtM1 = 0; ctxtM1 != CTXT_WORKERS; ++ctxtM1) {
       const unsigned numRows =
           ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
       const unsigned sPos = ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];

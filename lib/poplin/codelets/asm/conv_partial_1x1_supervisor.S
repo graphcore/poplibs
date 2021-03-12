@@ -14,7 +14,7 @@
 #define __CONV_PARTIAL_1X1_SUPERVISOR_S__
 
 #include "poplar/AvailableVTypes.h"
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
 // =============================================================================
