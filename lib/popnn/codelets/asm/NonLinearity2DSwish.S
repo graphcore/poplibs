@@ -7,7 +7,7 @@
 //
 //  * Vertex state aligned to at least 4 bytes.
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 #include "NonLinearitySwishCommon.S"

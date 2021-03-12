@@ -5,7 +5,7 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 
 namespace poplin {
 namespace {

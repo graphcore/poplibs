@@ -7,7 +7,7 @@
 //
 //  * At least 32-bit aligned source/destination address.
 
-#include "poplibs_support/TileConstants.hpp"
+#include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 #include "NonLinearitySwishCommon.S"
