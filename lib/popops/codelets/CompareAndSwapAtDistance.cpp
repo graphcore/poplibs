@@ -102,9 +102,7 @@ template <typename KeyType> struct KeyImpl {
 };
 
 template <typename KeyType>
-class CompareAndSwapAtDistance
-    : public SupervisorVertexIf<hasAssemblyVersion<KeyType>() &&
-                                ASM_CODELETS_ENABLED> {
+class CompareAndSwapAtDistance : public MultiVertex {
 public:
   InOut<Vector<KeyType, ONE_PTR>> keys;
 
@@ -117,10 +115,10 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssemblyVersion<KeyType>()));
 
-  bool compute() {
+  bool compute(unsigned wid) {
     const auto numWorkers = worklists.size();
     KeyImpl<KeyType> impl = {&keys[0]};
-    for (unsigned wid = 0; wid < numWorkers; ++wid) {
+    if (wid < numWorkers) {
       const WorklistType *worklist = &worklists[wid][0];
       workerCompute(wid, impl, worklist, distanceToChangeOrder);
     }
@@ -151,10 +149,7 @@ template <typename KeyType, typename ValueType> struct KeyValImpl {
 };
 
 template <typename KeyType, typename ValueType>
-class CompareAndSwapAtDistanceKeyVal
-    : public SupervisorVertexIf<
-          hasAssemblyVersionKeyVal<KeyType, ValueType>() &&
-          ASM_CODELETS_ENABLED> {
+class CompareAndSwapAtDistanceKeyVal : public MultiVertex {
 public:
   InOut<Vector<KeyType, ONE_PTR>> keys;
   InOut<Vector<ValueType, ONE_PTR>> values;
@@ -168,10 +163,10 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssemblyVersionKeyVal<KeyType, ValueType>()));
 
-  bool compute() {
+  bool compute(unsigned wid) {
     const auto numWorkers = worklists.size();
     KeyValImpl<KeyType, ValueType> impl = {&keys[0], &values[0]};
-    for (unsigned wid = 0; wid < numWorkers; ++wid) {
+    if (wid < numWorkers) {
       const WorklistType *worklist = &worklists[wid][0];
       workerCompute(wid, impl, worklist, distanceToChangeOrder);
     }

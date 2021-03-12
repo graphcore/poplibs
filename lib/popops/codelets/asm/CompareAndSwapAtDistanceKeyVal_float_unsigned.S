@@ -15,9 +15,11 @@
 #define STATE_OFFSET_distanceToChangeOrder 16
 
 .section .text.CODELET_SYMBOL, "ax"
+DEF_STACK_USAGE 0 CODELET_SYMBOL
+.globl CODELET_SYMBOL, @function
 .align 8
 .worker
-.Lfloat_unsigned_worker:
+CODELET_SYMBOL:
 //=================
 #define w_id m0
 #define w_numWorkers m1
@@ -189,22 +191,5 @@
     brnzdec $w_numEntriesM1, .LnumEntriesLoopBegin
 .LnumEntriesLoopExit:
   exitz $mzero
-
-//======================================
-// Supervisor
-//======================================
-
-DEF_STACK_USAGE 0 CODELET_SYMBOL
-.globl CODELET_SYMBOL, @function
-.supervisor
-CODELET_SYMBOL:
-//=================
-#define s_vertexBase m0
-#define s_workerEntry m1
-//=================
-  setzi $s_workerEntry, .Lfloat_unsigned_worker
-  runall $s_workerEntry, $s_vertexBase, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
 
 #endif // __IPU__
