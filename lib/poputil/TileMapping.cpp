@@ -6,8 +6,10 @@
 #include "poputil/exceptions.hpp"
 #include <boost/functional/hash.hpp>
 #include <boost/icl/interval_map.hpp>
+#include <boost/icl/interval_set.hpp>
 #include <boost/integer/common_factor.hpp>
 #include <set>
+#include <tbb/parallel_for.h>
 
 namespace poputil {
 
@@ -232,28 +234,47 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
   const auto numDimElems = fullTensor.dim(dim);
   auto out = graph.addVariable(type, {numDimElems}, {di});
 
-  TensorUseTracker useTracker(target.getNumTiles());
-
-  // Find regions of activations or gradients tensors
+  const auto numTiles = target.getNumTiles();
+  TensorUseTracker useTracker(numTiles);
   const auto mapping = graph.getTileMapping(t);
-  for (unsigned tile = 0; tile != mapping.size(); ++tile) {
+
+  tbb::parallel_for(std::size_t(0), mapping.size(), [&](std::size_t tile) {
+    boost::icl::interval_set<std::size_t> outRegions;
     for (const auto &region : mapping[tile]) {
       if (region.begin() != region.end()) {
         auto rBegin = region.begin() % numDimElems;
         auto rEnd = region.end() % numDimElems;
         if (region.size() >= numDimElems) {
-          useTracker.add(graph, tile, out.slice(0, numDimElems));
+          // A single region with all elements in a tile
+          outRegions +=
+              boost::icl::interval<size_t>::right_open(0, numDimElems);
+          break;
         } else {
           if (rBegin < rEnd) {
-            useTracker.add(graph, tile, out.slice(rBegin, rEnd));
+            outRegions +=
+                boost::icl::interval<size_t>::right_open(rBegin, rEnd);
           } else {
-            useTracker.add(graph, tile, out.slice(rBegin, numDimElems));
-            useTracker.add(graph, tile, out.slice(0, rEnd));
+            outRegions +=
+                boost::icl::interval<size_t>::right_open(rBegin, numDimElems);
+            outRegions += boost::icl::interval<size_t>::right_open(0, rEnd);
           }
         }
       }
+      // All elements of the output are covered
+      if (outRegions.size() == numDimElems) {
+        break;
+      }
     }
-  }
+    // convert to poplar intervals
+    std::vector<poplar::Interval> intervals;
+    intervals.reserve(outRegions.iterative_size());
+    for (const auto &it : outRegions) {
+      intervals.emplace_back(it.lower(), it.upper());
+    }
+    if (!intervals.empty()) {
+      useTracker.add(graph, tile, concat(out.slices(intervals)));
+    }
+  });
 
   if (useTracker.empty()) {
     mapTensorLinearly(graph, out);

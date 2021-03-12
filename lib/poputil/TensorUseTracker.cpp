@@ -6,6 +6,7 @@
 
 #include <boost/icl/interval_map.hpp>
 #include <iterator>
+#include <tbb/concurrent_unordered_map.h>
 #include <unordered_map>
 
 namespace poputil {
@@ -13,7 +14,9 @@ namespace poputil {
 class TensorUseTrackerState {
 public:
   using TileUsage = std::vector<boost::icl::interval_set<unsigned>>;
-  std::unordered_map<poplar::VariableRef, TileUsage> usage;
+  tbb::concurrent_unordered_map<poplar::VariableRef, TileUsage,
+                                std::hash<poplar::VariableRef>>
+      usage;
   unsigned numTiles;
   TensorUseTrackerState(unsigned numTiles) : numTiles(numTiles) {}
   TensorUseTrackerState(const TensorUseTrackerState &other) = default;
