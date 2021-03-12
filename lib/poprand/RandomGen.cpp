@@ -5,6 +5,7 @@
 #include "poplar/RandomSeed.hpp"
 #include "poplar/Tensor.hpp"
 #include "poplar/exceptions.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
@@ -231,6 +232,7 @@ Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                const Tensor &reference, const Type &outType, double minVal,
                double maxVal, Sequence &prog,
                const poplar::DebugContext &debugContext) {
+  POPRAND_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(masterSeed, reference, seedModifier, outType, minVal, maxVal));
@@ -295,6 +297,7 @@ Tensor logUniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                   const Tensor &reference, const Type &outType, double minVal,
                   double maxVal, Sequence &prog, double base,
                   const poplar::DebugContext &debugContext) {
+  POPRAND_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(masterSeed, reference, seedModifier,
                                          outType, minVal, maxVal, base));
@@ -378,6 +381,7 @@ Tensor logUniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
 Tensor bernoulli(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                  const Tensor &reference, const Type &outType, double prob,
                  Sequence &prog, const poplar::DebugContext &debugContext) {
+  POPRAND_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(masterSeed, reference, seedModifier, outType, prob));
@@ -420,6 +424,7 @@ Tensor normal(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
               const Tensor &reference, const Type &outType, double mean,
               double stdDev, Sequence &prog,
               const poplar::DebugContext &debugContext) {
+  POPRAND_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(masterSeed, reference, seedModifier, outType, mean, stdDev));
@@ -460,6 +465,7 @@ Tensor truncatedNormal(Graph &graph, const Tensor *masterSeed,
                        const Type &outType, double mean, double stdDev,
                        double alpha, Sequence &prog,
                        const poplar::DebugContext &debugContext) {
+  POPRAND_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(masterSeed, reference, seedModifier,
                                          outType, mean, stdDev, alpha));
@@ -504,6 +510,7 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
                const uint32_t seedModifier, const Tensor &in,
                const Tensor &reference, double keepProbability, double scale,
                Sequence &prog, const poplar::DebugContext &debugContext) {
+  POPRAND_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(masterSeed, in, reference, seedModifier, keepProbability, scale));
@@ -576,6 +583,7 @@ Tensor shapedDropout(Graph &graph, const Tensor *masterSeed,
                      const Tensor &reference, double keepProbability,
                      double scale, Sequence &prog,
                      const poplar::DebugContext &debugContext) {
+  POPRAND_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(masterSeed, in, reference, seedModifier, keepProbability, scale));
@@ -612,6 +620,7 @@ Tensor shapedDropout(Graph &graph, const Tensor *masterSeed,
 void setSeed(poplar::Graph &graph, const poplar::Tensor &masterSeed,
              uint32_t seedModifier, poplar::program::Sequence &prog,
              const poplar::DebugContext &debugContext) {
+  POPRAND_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(masterSeed, seedModifier));
   seedTensorChecks(&masterSeed);

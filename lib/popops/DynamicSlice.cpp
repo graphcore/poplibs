@@ -8,6 +8,7 @@
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "poplibs_support/PlanConstraints.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
@@ -1329,6 +1330,7 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
                              const std::vector<std::size_t> &sizes,
                              std::size_t minGrainSize,
                              const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(type, shape, dims, sizes, minGrainSize));
 
@@ -1355,6 +1357,7 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
                              const std::vector<std::size_t> &sizes,
                              const SlicePlan &plan, const OptionFlags &options,
                              const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(type, shape, dims, sizes, plan, options));
 
@@ -1495,6 +1498,7 @@ Tensor createSliceTensor(Graph &graph, const Type &type,
                          const std::size_t numIndices, const SlicePlan &plan,
                          const OptionFlags &options,
                          const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(type, shape, dims, sizes, numIndices, plan, options));
@@ -1522,6 +1526,7 @@ Tensor createSliceTensor(Graph &graph, const Tensor &t,
                          const std::vector<std::size_t> &sizes,
                          const std::size_t numIndices,
                          const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, dims, sizes, numIndices));
 
@@ -1554,6 +1559,7 @@ poplar::Tensor createIndicesTensor(Graph &graph,
                                    const SlicePlan & /* plan */,
                                    const OptionFlags & /* options */,
                                    const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(dims, numIndices));
 
   logging::popops::info("createIndicesTensor for {} / {}", numIndices, dims);
@@ -1584,6 +1590,7 @@ createSliceableTensorFromSlice(Graph &graph, const Tensor &s,
                                const std::vector<std::size_t> &dims,
                                const std::vector<std::size_t> &numSlices,
                                const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(s, dims, numSlices));
 
   validateParams("createSliceableTensorFromSlice", {}, {}, s.shape(),
@@ -1680,6 +1687,7 @@ Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                     const std::vector<std::size_t> &sizes,
                     poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, offset, dims, sizes));
   auto output = dynamicSliceImpl(graph, t, offset, dims, sizes, prog, {di});
   di.addOutput(output);
@@ -1700,6 +1708,7 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
                    const std::vector<std::size_t> &sizes,
                    poplar::program::Sequence &prog,
                    const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, s, offset, dims, sizes));
   logging::popops::info(
@@ -2012,6 +2021,7 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                   const std::vector<std::size_t> &sizes, Sequence &prog,
                   const SlicePlan &plan, const OptionFlags &options,
                   const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, offset, dims, sizes, plan, options));
 
@@ -2106,6 +2116,7 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
                  const std::vector<std::size_t> &sizes, Sequence &prog,
                  const SlicePlan &plan, const OptionFlags &options,
                  const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
 
@@ -2177,6 +2188,7 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
                     const std::vector<std::size_t> &sizes, Sequence &prog,
                     const SlicePlan &plan, const OptionFlags &options,
                     const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(t, sMulti, offset, scale, dims, sizes, plan, options));

@@ -2,6 +2,7 @@
 #include "poplin/FullyConnected.hpp"
 
 #include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 
 namespace poplin {
 namespace fc {
@@ -68,6 +69,8 @@ std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
 getMatMulPrePlanParameters(FullyConnectedParams params,
                            poplar::OptionFlags matmulOptions, poplar::Type type,
                            bool inferenceOnly) {
+  POPLIN_TRACEPOINT();
+
   std::vector<std::pair<MatMulParams, poplar::OptionFlags>> matmuls;
   matmuls.reserve(1 + (inferenceOnly ? 0 : 2));
 

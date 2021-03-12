@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef popops_TriangularSolve_hpp
-#define popops_TriangularSolve_hpp
+#ifndef poplin_TriangularSolve_hpp
+#define poplin_TriangularSolve_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <poplin/MatMul.hpp>

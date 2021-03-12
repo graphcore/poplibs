@@ -1,5 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "ExprOpUtil.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/ExprOp.hpp"
 #include "poputil/DebugInfo.hpp"
@@ -87,6 +88,7 @@ Tensor varianceToInvStdDev(Graph &graph, const Tensor &src,
                            const Tensor &epsilon, Sequence &prog,
                            const Type dstType,
                            const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, epsilon, dstType));
 
   auto srcType = src.elementType();
@@ -106,6 +108,7 @@ Tensor invStdDevToVariance(Graph &graph, const Tensor &src,
                            const Tensor &epsilon, Sequence &prog,
                            const Type dstType,
                            const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, epsilon, dstType));
 
   auto srcType = src.elementType();
@@ -124,6 +127,7 @@ Tensor invStdDevToVariance(Graph &graph, const Tensor &src,
 Tensor varianceToInvStdDev(Graph &graph, const Tensor &src, const float epsilon,
                            Sequence &prog, const Type dstType,
                            const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, epsilon, dstType));
 
   auto eps = graph.addConstant(src.elementType(), {}, epsilon, {di});
@@ -136,6 +140,7 @@ Tensor varianceToInvStdDev(Graph &graph, const Tensor &src, const float epsilon,
 Tensor invStdDevToVariance(Graph &graph, const Tensor &src, const float epsilon,
                            Sequence &prog, const Type dstType,
                            const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, epsilon, dstType));
 
   auto eps = graph.addConstant(src.elementType(), {}, epsilon, {di});

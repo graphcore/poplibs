@@ -3,6 +3,7 @@
 #include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
 #include "poplibs_support/Trace.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/Convolution.hpp"
 #include "poplin/MatMul.hpp"
@@ -17,6 +18,7 @@ namespace poplin {
 
 void preplan(const std::set<ConvPlanParams> &convs,
              const std::set<MatMulPlanParams> &matmuls, PlanningCache &cache) {
+  POPLIN_TRACEPOINT();
   if (convs.empty() && matmuls.empty())
     return;
 

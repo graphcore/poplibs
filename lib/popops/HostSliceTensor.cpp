@@ -1,4 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+#include "poplibs_support/Tracepoint.hpp"
 #include <algorithm>
 #include <boost/container/flat_map.hpp>
 #include <poplar/Graph.hpp>
@@ -210,6 +211,7 @@ IndicesAndTensor
 createHostSliceableTensor(poplar::Graph &graph, const poplar::Type &type,
                           const std::vector<size_t> &shape, const bool isRead,
                           const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(type, shape, isRead));
 
   logging::popops::info("createHostSliceableTensor begin");
@@ -242,6 +244,7 @@ poplar::Tensor
 createHostTransferableTensor(poplar::Graph &graph, const poplar::Type &type,
                              const std::vector<size_t> &shape, bool isRead,
                              const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(type, shape, isRead));
 
   size_t flattenedSize = std::accumulate(shape.begin(), shape.end(), 1U,

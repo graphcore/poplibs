@@ -31,6 +31,7 @@
 
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
 
@@ -2565,6 +2566,7 @@ SparseTensor createFullyConnectedWeights(
     Graph &graph, const Type &inputType, const FullyConnectedParams &params,
     const poplar::DebugContext &debugContext, const OptionFlags &optionFlags,
     PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(inputType, params, optionFlags, cache));
 
@@ -2640,6 +2642,7 @@ Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
                                  const poplar::DebugContext &debugContext,
                                  const OptionFlags &optionFlags,
                                  PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(inputType, params, optionFlags, cache));
   const auto &options = parseOptionFlags(optionFlags);
@@ -2725,6 +2728,7 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
                          const FullyConnectedParams &params, Sequence &prog,
                          const poplar::DebugContext &debugContext,
                          const OptionFlags &optionFlags, PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(weights, activations, params, optionFlags, cache));
   // TODO: Parameter validation - shapes/sizes match given params etc.
@@ -2806,6 +2810,7 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
                            const poplar::DebugContext &debugContext,
                            const OptionFlags &optionFlags,
                            PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(weights, activations, params, optionFlags, cache));
   const auto &target = graph.getTarget();
@@ -2884,6 +2889,7 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
                                  PlanningCache *cache) {
   // TODO: Should this take meta-data for sparse tensor for validation?
   // Validation is the only purpose this serves right now.
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(sparsityMetaInfo, gradA, activations,
                                          params, optionFlags, cache));

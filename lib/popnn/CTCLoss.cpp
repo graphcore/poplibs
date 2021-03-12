@@ -10,6 +10,7 @@
 #include <poplar/Tensor.hpp>
 
 #include <poplibs_support/LogArithmetic.hpp>
+#include <poplibs_support/Tracepoint.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/LogSoftmax.hpp>
 #include <popops/Cast.hpp>
@@ -1037,6 +1038,7 @@ poplar::Tensor createDataInput(poplar::Graph &graph, const poplar::Type &type,
                                const std::size_t numClasses, const Plan &plan,
                                const poplar::DebugContext &debugContext) {
   const auto &lossPlan = plan.getImpl().getAsLossPlan();
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(type, batchSize, maxTime, numClasses, plan));
 
@@ -1055,6 +1057,7 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
                                  const std::size_t maxLabels, const Plan &plan,
                                  const poplar::DebugContext &debugContext) {
   const auto &lossPlan = plan.getImpl().getAsLossPlan();
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(type, batchSize, maxLabels, plan));
 
@@ -1132,6 +1135,7 @@ calcLossAndGradientLogProbabilitiesImpl(
   const auto partialsType = plan.params.partialsType;
   validateTensorTypes(data, labels, dataLengths, labelLengths, partialsType,
                       outType);
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di({debugContext, "CTCGradient"},
                                  DI_ARGS(outType, data, labels, dataLengths,
                                          labelLengths, blankClass, plan,

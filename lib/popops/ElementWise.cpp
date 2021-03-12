@@ -3,6 +3,7 @@
 #include "ElementWiseUtilInternal.hpp"
 #include "ExprOpUtil.hpp"
 #include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
@@ -2501,6 +2502,7 @@ ExprAndType optimise(const expr::Expr &expr,
 Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
            program::Sequence &prog, const poplar::DebugContext &debugContext,
            const OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, expr, options));
 
   auto opts = parseOptionFlags(options);
@@ -2536,6 +2538,7 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const std::vector<Tensor> &ts, program::Sequence &prog,
                 const poplar::DebugContext &debugContext,
                 const OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, expr, options));
 
   auto opts = parseOptionFlags(options);

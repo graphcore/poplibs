@@ -5,6 +5,7 @@
 #include "poplar/Tensor.hpp"
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/DynamicSlice.hpp"
 #include "popops/Rearrange.hpp"
@@ -297,6 +298,7 @@ void sequenceSlice(poplar::Graph &graph, const poplar::Tensor &tSrc,
                    const poplar::Tensor &tDstOffset, bool zeroUnused,
                    poplar::program::Sequence &prog,
                    const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(tSrc, tDst, tN, tSrcOffset, tDstOffset));
 

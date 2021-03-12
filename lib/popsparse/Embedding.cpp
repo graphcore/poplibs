@@ -6,6 +6,7 @@
 #include "FullyConnectedUtils.hpp"
 #include "FullyConnectedVector.hpp"
 #include "SparseCodeletMetaInfoScale.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
@@ -678,6 +679,7 @@ Tensor createIndicesTensor(Graph &graph, const FullyConnectedParams &params,
                            const std::size_t numIndices,
                            const OptionFlags &optionFlags,
                            const poplar::DebugContext &debugContext) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, numIndices));
 
   logging::popsparse::info("createIndicesTensor with {} indices", numIndices);
@@ -715,6 +717,7 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
                       const FullyConnectedParams &params,
                       const poplar::DebugContext &debugContext,
                       const OptionFlags &options, PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(baseT, offsets, params, options, cache));
   const auto inputType = baseT.getNzValuesTensor().elementType();
@@ -903,6 +906,7 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
                         const FullyConnectedParams &params,
                         const poplar::DebugContext &debugContext,
                         const OptionFlags &options, PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(baseT, slices_, offsets_, scale, params, options, cache));
@@ -1129,6 +1133,7 @@ Tensor createSliceTensor(Graph &graph, const Type &dataType,
                          std::size_t numIndices,
                          const poplar::DebugContext &debugContext,
                          const OptionFlags &options, PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(dataType, params, numIndices, options, cache));
   const auto plan =

@@ -1,6 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "popops/Scatter.hpp"
 
+#include "poplibs_support/Tracepoint.hpp"
 #include "popops/DynamicSlice.hpp"
 #include "popops/ElementWise.hpp"
 #include "poputil/Loop.hpp"
@@ -394,6 +395,7 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              std::vector<unsigned> scatterDimsToOperandDims,
              poplar::program::Sequence &prog,
              const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(operand, indices, updates, indexVectorDim, updateWindowDims,
@@ -412,6 +414,7 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              UpdateComputationFunc &updateComputation,
              poplar::program::Sequence &prog,
              const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(operand, indices, updates, indexVectorDim, updateWindowDims,

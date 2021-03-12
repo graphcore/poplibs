@@ -14,6 +14,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/Trace.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
@@ -1514,6 +1515,8 @@ runPlanner(const ConvDescription &conv,
            std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
                *additionalPlansToCache,
            poplar::ProfileValue::Map *pv = nullptr) {
+  POPLIN_TRACEPOINT();
+
   // we first attempt to find the fastest plan that we think will fit, if that
   // fails we replan, but minimising for memory instead. in an effort to fit in
   // memory we will apply an architecturally relevent memory limit to this first
@@ -1707,6 +1710,8 @@ void preplanConvolutionsImpl(const poplar::Target &target,
 Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
              const ConvOptions &options, PlanningCache *cache,
              poplar::ProfileValue::Map *pv) {
+  POPLIN_TRACEPOINT();
+
   if (options.pass == Pass::FC_TRAINING_WU ||
       options.pass == Pass::FC_TRAINING_BWD) {
     auto fwdParams =

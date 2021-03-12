@@ -1,4 +1,5 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+#include "poplibs_support/Tracepoint.hpp"
 #include <poputil/DebugInfo.hpp>
 #include <poputil/GraphFunction.hpp>
 
@@ -16,6 +17,7 @@ VoidFunction::VoidFunction(
     const poplar::DebugContext &debugContext)
     : graph(graph), sig(std::move(sig_)), inlined(inlined), prog(debugContext) {
 
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(/*sig_,*/ inlined));
 
   for (const auto &s : sig) {
@@ -40,6 +42,7 @@ VoidFunction::VoidFunction(Graph &graph, Signature sig_,
                            const poplar::DebugContext &debugContext)
     : graph(graph), sig(std::move(sig_)), inlined(inlined), prog(debugContext) {
 
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(/*sig_,*/ inlined));
 
   for (const auto &s : sig) {
@@ -60,6 +63,7 @@ void VoidFunction::operator()(std::vector<poplar::Tensor> &args,
                               poplar::program::Sequence &seq,
                               const poplar::DebugContext &debugContext) {
 
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args));
 
   for (unsigned i = 0; i < sig.size(); ++i) {
@@ -107,6 +111,7 @@ ProgramFunction::ProgramFunction(
 Program ProgramFunction::operator()(std::vector<poplar::Tensor> &args,
                                     const poplar::DebugContext &debugContext) {
 
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args));
 
   Sequence seq({}, {di});
@@ -148,6 +153,7 @@ Tensor TensorFunction::operator()(std::vector<poplar::Tensor> &args,
                                   Sequence &seq,
                                   const poplar::DebugContext &debugContext) {
 
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args));
 
   args.push_back(Tensor());

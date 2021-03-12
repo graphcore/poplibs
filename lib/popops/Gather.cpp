@@ -2,6 +2,7 @@
 #include "popops/Gather.hpp"
 #include "GatherInternal.hpp"
 
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/DynamicSlice.hpp"
 #include "popops/ElementWise.hpp"
@@ -254,6 +255,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
                                  const std::vector<std::size_t> &sliceSizes,
                                  std::vector<unsigned> startIndexMap,
                                  const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(type, inputShape, sliceSizes, startIndexMap));
 
@@ -300,6 +302,7 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               const std::vector<unsigned> &startIndexMap,
               program::Sequence &prog,
               const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(input, indices, indexVectorDim, offsetDims,
                             sliceSizes, collapsedSliceDims, startIndexMap));
@@ -343,6 +346,7 @@ Tensor createGatherInput(Graph &graph, const Type &type,
                          const std::vector<std::size_t> &operandShape,
                          unsigned axis, GatherParams params,
                          const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(type, operandShape, axis, params));
 
@@ -390,6 +394,7 @@ Tensor createGatherInput(Graph &graph, const Type &type,
 Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               unsigned axis, program::Sequence &prog, GatherParams params,
               const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(input, indices, axis, params));
 

@@ -2,6 +2,7 @@
 
 #include "popops/GatherStatistics.hpp"
 #include "PerformanceEstimation.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Reduce.hpp"
@@ -197,6 +198,7 @@ poplar::Tensor histogram(poplar::Graph &graph, const poplar::Tensor &input,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(input, levels, absoluteOfInput, options));
 
@@ -232,6 +234,7 @@ void histogram(poplar::Graph &graph, const poplar::Tensor &input,
                const poplar::Tensor &levels, bool absoluteOfInput,
                poplar::program::Sequence &prog,
                const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(input, output, levels, updateOutput, absoluteOfInput));

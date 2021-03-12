@@ -1,6 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "popops/Encoding.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Rearrange.hpp"
 #include "popops/Zero.hpp"
@@ -176,6 +177,7 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
 
 void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
                   Sequence &prog, const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(indices, encoded));
   // Mark "on" and "off" as null as we want to go down the default path which
   // has them hardcoded to 1 and 0 respectively.
@@ -185,6 +187,7 @@ void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
 void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
                   Sequence &prog, const Tensor &on, const Tensor &off,
                   const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(indices, encoded, on, off));
   encodeOneHotBase(graph, indices, encoded, prog, &on, &off, {di});
@@ -253,6 +256,7 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
 
 void iota(Graph &graph, const Tensor &t, unsigned startInteger, Sequence &prog,
           const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, startInteger));
 
   if (t.elementType() != UNSIGNED_INT) {
@@ -264,6 +268,7 @@ void iota(Graph &graph, const Tensor &t, unsigned startInteger, Sequence &prog,
 
 void iota(Graph &graph, const Tensor &t, int startInteger, Sequence &prog,
           const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, startInteger));
   if (t.elementType() != INT) {
     throw poputil::poplibs_error("Tensor element type doesn't match start "

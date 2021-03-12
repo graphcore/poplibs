@@ -1,6 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplin/Norms.hpp"
 #include "NormsInternal.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
@@ -27,6 +28,7 @@ static Tensor createNormParam(Graph &graph, const Tensor &acts,
 
 Tensor createNormGamma(Graph &graph, const Tensor &acts,
                        const DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
 
   const auto rank = acts.rank();
@@ -45,6 +47,7 @@ Tensor createNormGamma(Graph &graph, const Tensor &acts,
 
 Tensor createNormBeta(Graph &graph, const Tensor &acts,
                       const DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
 
   const auto rank = acts.rank();
@@ -63,6 +66,7 @@ Tensor createNormBeta(Graph &graph, const Tensor &acts,
 std::pair<Tensor, Tensor>
 createNormParams(Graph &graph, const Tensor acts,
                  const DebugContext &debugContext = {}) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
 
   Tensor gamma = createNormGamma(graph, acts, {di});

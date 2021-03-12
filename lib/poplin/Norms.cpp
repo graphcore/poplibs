@@ -1,4 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poplin/Convolution.hpp"
@@ -187,6 +188,7 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
 
 Tensor createNormGamma(Graph &graph, const Tensor &acts, const Type &type,
                        const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts, type));
   auto output =
       createBroadcastOperand(graph, acts, type, 1, true, {di, "gamma"});
@@ -196,6 +198,7 @@ Tensor createNormGamma(Graph &graph, const Tensor &acts, const Type &type,
 
 Tensor createNormGamma(Graph &graph, const Tensor &acts,
                        const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
   auto output = createNormGamma(graph, acts, acts.elementType(), {di});
   di.addOutput(output);
@@ -204,6 +207,7 @@ Tensor createNormGamma(Graph &graph, const Tensor &acts,
 
 Tensor createNormBeta(Graph &graph, const Tensor &acts, const Type &type,
                       const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts, type));
   auto output =
       createBroadcastOperand(graph, acts, type, 1, true, {di, "beta"});
@@ -222,6 +226,7 @@ Tensor createNormBeta(Graph &graph, const Tensor &acts,
 std::pair<Tensor, Tensor>
 createNormParams(Graph &graph, const Tensor &acts,
                  const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
   auto gamma = createNormGamma(graph, acts, {di});
   auto beta = createNormBeta(graph, acts, {di});
@@ -232,6 +237,7 @@ createNormParams(Graph &graph, const Tensor &acts,
 Tensor normWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
                   const Tensor &iStdDev, Sequence &prog,
                   const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts, mean, iStdDev));
 
   const std::string layer = "Whiten";
@@ -252,6 +258,7 @@ Tensor normWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
 Tensor normalise(Graph &graph, const Tensor &actsWhitened, const Tensor &gamma,
                  const Tensor &beta, Sequence &prog,
                  const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(actsWhitened, gamma, beta));
 
@@ -320,6 +327,7 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
                    const Tensor &gradsIn, Sequence &prog,
                    const Type &partialsType,
                    const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(actsWhitened, gradsIn, partialsType));
 
@@ -349,6 +357,7 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
                                Sequence &prog,
                                const Type &partialsType, // currently unused
                                const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(actsWhitened, gradsIn, invStdDev, partialsType));
 

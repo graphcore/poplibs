@@ -1,5 +1,6 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "poputil/Util.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 
@@ -307,6 +308,7 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
                          poplar::program::Sequence &p,
                          const poplar::DebugContext &debugContext,
                          poplar::TensorCloneMethod method) {
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, method));
 
   poplar::Tensor copy = graph.clone(src, {di}, method);

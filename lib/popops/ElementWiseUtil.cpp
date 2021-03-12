@@ -1,5 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "popops/ElementWiseUtil.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poputil/DebugInfo.hpp"
@@ -37,6 +38,7 @@ Tensor createOutputForElementWiseOp(Graph &graph,
                                     const Type &outputType,
                                     const poplar::DebugContext &debugContext) {
 
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(inputs, outputType));
 
   if (inputs.size() < 1) {

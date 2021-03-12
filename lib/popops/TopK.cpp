@@ -7,6 +7,7 @@
 #include <poputil/DebugInfo.hpp>
 #include <poputil/TileMapping.hpp>
 
+#include "poplibs_support/Tracepoint.hpp"
 #include <poplibs_support/logging.hpp>
 #include <poplibs_support/print.hpp>
 
@@ -47,6 +48,7 @@ Tensor createTopKInput(Graph &graph, const Type &type,
                        const DebugContext &debugContext) {
   logging::popops::info("createTopKInput(shape={}, params={}, debugPath='{}')",
                         shape, params, debugContext.getPathName());
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(shape, params),
                                  "createTopKInput");
   const auto t = bitonic::createTopKInputImpl(graph, type, shape, {di});
@@ -58,6 +60,7 @@ Tensor topK(Graph &graph, Sequence &prog, const Tensor &t,
             const TopKParams &params, const DebugContext &debugContext) {
   logging::popops::info("topK(shape={}, params={}, debugPath='{}')", t.shape(),
                         params, debugContext.getPathName());
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, params), "topK");
   const bool sorted = params.sortOrder != SortOrder::NONE;
   const bool ascending = params.sortOrder != SortOrder::DESCENDING;
@@ -74,6 +77,7 @@ std::pair<Tensor, Tensor> topKKeyValue(Graph &graph, Sequence &prog,
                                        const DebugContext &debugContext) {
   logging::popops::info("topKKeyValue(shape={}, params={}, debugPath='{}')",
                         key.shape(), params, debugContext.getPathName());
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(key, value, params),
                                  "topKKeyValue");
   const bool sorted = params.sortOrder != SortOrder::NONE;
@@ -93,6 +97,7 @@ topKWithPermutation(Graph &graph, Sequence &prog, const Tensor &t,
   logging::popops::info(
       "topKWithPermutation(shape={}, params={}, debugPath='{}')", t.shape(),
       params, debugContext.getPathName());
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, params));
   const bool sorted = params.sortOrder != SortOrder::NONE;
   const bool ascending = params.sortOrder != SortOrder::DESCENDING;

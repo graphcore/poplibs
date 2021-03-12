@@ -3,6 +3,7 @@
 #include "BSNonLinearity.hpp"
 #include "BSOps.hpp"
 #include "BSUtils.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
@@ -537,6 +538,7 @@ Tensor bsSoftmax(Graph &graph, Tensor sparseTensor,
                  SubBlockMask subBlockMaskType, unsigned numGroups,
                  program::Sequence &prog,
                  const poplar::DebugContext &debugContext) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(sparseTensor, dim, blockSize, sparsity, subBlockMaskType));
@@ -569,6 +571,7 @@ void bsSoftmaxInPlace(Graph &graph, Tensor sparseTensor,
                       poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext) {
 
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(sparseTensor, dim, blockSize, sparsity, subBlockMaskType));
@@ -597,6 +600,7 @@ Tensor bsSoftmaxGrad(Graph &graph, Tensor sparseOut, Tensor sparseOutGrad,
                      const std::vector<unsigned char> &sparsity,
                      poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(sparseOut, sparseOutGrad, dim, blockSize, sparsity));

@@ -2,6 +2,7 @@
 
 #include "popops/Sort.hpp"
 
+#include "poplibs_support/Tracepoint.hpp"
 #include <poplibs_support/Algorithms.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Reduce.hpp>
@@ -265,6 +266,7 @@ createOddExchange(poplar::Graph &graph, poplar::Tensor key,
 poplar::Tensor sort(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
                     poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, dim));
 
   poplar::Tensor result;
@@ -288,6 +290,7 @@ poplar::Tensor sort(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
 void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
                  poplar::program::Sequence &prog,
                  const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, dim));
 
   if (dim >= t.rank()) {
@@ -335,6 +338,7 @@ poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
                             const poplar::Tensor &v, unsigned dim,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(k, v, dim));
 
   auto key = k;
@@ -365,6 +369,7 @@ void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
                          const poplar::Tensor &v, unsigned dim,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(k, v, dim));
   if (k.shape() != v.shape()) {
     throw poputil::poplibs_error(

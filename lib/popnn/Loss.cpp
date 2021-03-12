@@ -4,6 +4,7 @@
 #include "poplar/Graph.hpp"
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
@@ -370,6 +371,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const Tensor &deltas, const Tensor &_deltasScale,
                  const Tensor &_modelOutputScaling, LossType lossType,
                  const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(modelOutputs, expected, loss, deltas, _deltasScale,
                             _modelOutputScaling, lossType));
@@ -384,6 +386,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const Tensor &expected, const Tensor &loss,
                  const Tensor &deltas, LossType lossType,
                  const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(modelOutputs, expected, loss, deltas, lossType));
 
@@ -692,6 +695,7 @@ static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
 Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
             bool sort, Sequence &prog,
             const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(input, indices, K, sort));
 
@@ -736,6 +740,7 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
 
 Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
               const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
 
   logging::popnn::info("argMax input={}, name={}", input.shape(),
@@ -761,6 +766,7 @@ Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
 
 Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
               const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
 
   logging::popnn::info("argMax input={}, name={}", input.shape(),
@@ -801,6 +807,7 @@ Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
 Program calcAccuracy(Graph &graph, const Tensor &modelOutputs,
                      const Tensor &expected, const Tensor &numCorrect,
                      const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(modelOutputs, expected));
 
   const std::string layerPrefix = "Accuracy";
@@ -867,6 +874,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const Tensor &deltas, const Tensor &_deltasScale,
                  const Tensor &_modelOutputScaling, const Tensor &numCorrect,
                  LossType lossType, const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(modelOutputs, expected, loss, deltas, _deltasScale,
                             _modelOutputScaling, numCorrect, lossType));
@@ -884,6 +892,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const Tensor &expected, const Tensor &loss,
                  const Tensor &deltas, const Tensor &numCorrect,
                  LossType lossType, const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(modelOutputs, expected, loss, deltas, numCorrect, lossType));

@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "poplin/TriangularSolve.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplin/MatMul.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Expr.hpp"
@@ -561,6 +562,7 @@ poplar::Tensor createTriangularSolveInputLHS(
     const std::vector<std::size_t> &bShape, bool leftSide,
     const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   validateInputs(aShape, bShape, leftSide);
   auto aGrouped = groupedShape(aShape);
 
@@ -576,6 +578,7 @@ poplar::Tensor createTriangularSolveInputRHS(
     const std::vector<std::size_t> &bShape, bool leftSide,
     const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   validateInputs(aShape, bShape, leftSide);
   auto bGrouped = groupedShape(bShape);
 
@@ -597,6 +600,7 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
                               bool lower, bool unitDiagonal,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(a, lower, unitDiagonal));
 
   validateInput(a.shape());
@@ -621,6 +625,7 @@ poplar::Tensor triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
                                const poplar::DebugContext &debugContext,
                                const poplar::OptionFlags &options,
                                matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(a, b, leftSide, lower, unitDiagonal, options, cache));
@@ -761,6 +766,7 @@ getTriangularSolveMatMulPrePlanParameters(
     const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, bool leftSide, bool lower,
     const poplar::OptionFlags &options) {
+  POPLIN_TRACEPOINT();
   std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>> matmuls;
 
   SolveOptions solveOptions(options);

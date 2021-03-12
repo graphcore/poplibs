@@ -1,4 +1,5 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+#include "poplibs_support/Tracepoint.hpp"
 #include <cmath>
 #include <poplibs_support/logging.hpp>
 #include <popnn/Lstm.hpp>
@@ -434,6 +435,7 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
 Tensor createInput(Graph &graph, const LstmParams &params,
                    const poplar::DebugContext &debugContext,
                    const OptionFlags &options, matmul::PlanningCache *cache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
 
   auto output = createInput(graph, params, {di},
@@ -446,6 +448,7 @@ Tensor createInitialOutput(Graph &graph, const LstmParams &params,
                            const poplar::DebugContext &debugContext,
                            const OptionFlags &options,
                            matmul::PlanningCache *cache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   auto opt = parseOptions(options, params.rnn.dataType);
   auto numShards = getNumShards(graph, params, opt, {di, "numShards"});
@@ -460,6 +463,7 @@ Tensor createInitialCellState(Graph &graph, const LstmParams &params,
                               const poplar::DebugContext &debugContext,
                               const OptionFlags &options,
                               matmul::PlanningCache *cache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   auto opt = parseOptions(options, params.rnn.dataType);
   auto numShards = getNumShards(graph, params, opt, {di, "numShards"});
@@ -474,6 +478,7 @@ LstmState createInitialState(Graph &graph, const LstmParams &params,
                              const poplar::DebugContext &debugContext,
                              const OptionFlags &options,
                              matmul::PlanningCache *cache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   auto opt = parseOptions(options, params.rnn.dataType);
 
@@ -492,6 +497,7 @@ LstmState createInitialState(Graph &graph, const LstmParams &params,
 
 void zeroInitialState(Graph &graph, const LstmState &state, Sequence &prog,
                       const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(state));
 
   zero(graph, concat(state.output, state.cellState), prog, {di});
@@ -502,6 +508,7 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options,
                     poplin::matmul::PlanningCache *cache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
 
   validateParams(params);
@@ -555,6 +562,7 @@ poplar::Tensor createWeightsBiases(poplar::Graph &graph,
                                    const poplar::DebugContext &debugContext,
                                    const OptionFlags &,
                                    poplin::matmul::PlanningCache *) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params));
 
   validateParams(params);
@@ -571,6 +579,7 @@ LstmWeights createWeights(Graph &graph, const LstmParams &params,
                           const poplar::DebugContext &debugContext,
                           const OptionFlags &options,
                           poplin::matmul::PlanningCache *cache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
 
   LstmWeights lstmWeights;
@@ -918,6 +927,7 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
         Tensor *intermediatesSeq, program::Sequence &fwdProg,
         const poplar::DebugContext &debugContext, const OptionFlags &options,
         poplin::matmul::PlanningCache *cache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(prevLayerActs, weights, intermediatesSeq,
                             fwdStateInit, params, options, cache));
@@ -1584,6 +1594,7 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
                   const poplar::DebugContext &debugContext,
                   const OptionFlags &options_,
                   poplin::matmul::PlanningCache *planningCache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(fwdIntermediatesSeq, weights, fwdInputSeq, fwdOutput,
@@ -1667,6 +1678,7 @@ LstmWeights lstmWU(Graph &graph, const LstmParams &params,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_,
                    poplin::matmul::PlanningCache *planningCache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(fwdIntermediates, bwdIntermediates,
                                          weights, input, output, fwdStateInit,
@@ -1694,6 +1706,7 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options_,
                         poplin::matmul::PlanningCache *planningCache) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(fwdIntermediates, weights, input,
                                          output, outputGrad, lastCellStateGrad,

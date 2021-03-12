@@ -1,5 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "NormsInternal.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplin/Norms.hpp"
 #include "popnn/BatchNorm.hpp"
 #include "popops/ElementWise.hpp"
@@ -86,6 +87,7 @@ groupNormStatistics(Graph &graph, const Tensor acts_, float eps, Sequence &prog,
                     bool stableAlgo, const Type &partialsType,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(acts_, eps, numGroups, unbiasedVarEstimate,
                             stableAlgo, partialsType, options));
@@ -117,6 +119,7 @@ Tensor groupNormWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
                        const Tensor &iStdDev, Sequence &prog,
                        const poplar::DebugContext &debugContext,
                        const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(acts, mean, iStdDev, options));
 
@@ -144,6 +147,7 @@ groupNormalise(Graph &graph, const Tensor &acts, const Tensor &gamma,
                const Tensor &beta, const Tensor &mean, const Tensor &iStdDev,
                Sequence &prog, const poplar::DebugContext &debugContext,
                const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(acts, mean, iStdDev, options));
 
@@ -171,6 +175,7 @@ groupNormParamGradients(Graph &graph, const Tensor &actsWhitened,
                         const Type &partialsType,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(actsWhitened, gradsIn, partialsType, options));
 
@@ -189,6 +194,7 @@ groupNormParamGradients(Graph &graph, const Tensor &acts, const Tensor &gradsIn,
                         Sequence &prog, const Type &partialsType,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(acts, gradsIn, mean, iStdDev, partialsType, options));
@@ -209,6 +215,7 @@ Tensor groupNormGradients(Graph &graph, const Tensor &actsWhitened_,
                           const Type &partialsType,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(actsWhitened_, gradsIn_, gamma, iStdDev, partialsType, options));
@@ -244,6 +251,7 @@ Tensor groupNormGradients(Graph &graph, const Tensor &acts_,
                           Sequence &prog, const Type &partialsType,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(acts_, gradsIn_, mean, gamma, iStdDev, partialsType, options));
@@ -262,6 +270,7 @@ void groupNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
                           Tensor &beta, Sequence &prog,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(gammaDelta, betaDelta, beta, gamma, scale, options));
@@ -276,6 +285,7 @@ void groupNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
                           Tensor &gamma, Tensor &beta, Sequence &prog,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(gammaDelta, betaDelta, scale, beta, gamma, options));

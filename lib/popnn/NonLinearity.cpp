@@ -3,6 +3,7 @@
 #include "../popops/ExprOpUtil.hpp"
 #include "HardSigmoid.hpp"
 #include "NonLinearityInternal.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/MatMul.hpp"
 #include "popnn/NonLinearityDef.hpp"
@@ -229,6 +230,7 @@ Tensor nonLinearityInputGradient(Graph &graph,
                                  NonLinearityType nonLinearityType, Tensor out,
                                  Tensor outGradient, ComputeSet &cs,
                                  const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(out, outGradient, nonLinearityType, cs));
 
@@ -321,6 +323,7 @@ Tensor nonLinearityInputGradient(Graph &graph,
                                  Tensor outGradient,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(out, outGradient, nonLinearityType));
 
@@ -342,6 +345,7 @@ void nonLinearityInPlace(poplar::Graph &graph,
                          NonLinearityType nonLinearityType, poplar::Tensor t,
                          ComputeSet &cs,
                          const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, nonLinearityType, cs));
 
@@ -445,6 +449,7 @@ void nonLinearityInPlace(poplar::Graph &graph,
 void nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
                          Tensor t, Sequence &prog,
                          const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, nonLinearityType));
 
   const std::string fnPrefix = "Nonlinearity";
@@ -464,6 +469,7 @@ void nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
 
 Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType, Tensor t,
                     Sequence &prog, const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, nonLinearityType));
 
   const std::string fnPrefix = "Nonlinearity";
@@ -496,6 +502,7 @@ Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType, Tensor t,
 void nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
                          Tensor t, float &nonLinearityScaling, Sequence &prog,
                          const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, nonLinearityType, nonLinearityScaling));
 
@@ -507,6 +514,7 @@ void nonLinearityInPlace(poplar::Graph &graph,
                          NonLinearityType nonLinearityType, poplar::Tensor t,
                          ComputeSet &cs, float &nonLinearityScaling,
                          const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, nonLinearityType, nonLinearityScaling, cs));
 
@@ -517,6 +525,7 @@ void nonLinearityInPlace(poplar::Graph &graph,
 Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType, Tensor t,
                     float &nonLinearityScaling, Sequence &prog,
                     const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, nonLinearityType, nonLinearityScaling));
 

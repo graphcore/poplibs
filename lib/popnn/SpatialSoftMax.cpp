@@ -1,4 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#include "poplibs_support/Tracepoint.hpp"
 #include <poplar/VariableMappingMethod.hpp>
 #include <poplar/exceptions.hpp>
 #include <poplin/MatMul.hpp>
@@ -15,6 +16,7 @@ spatialSoftMax2D(poplar::Graph &graph, poplar::program::Sequence &prog,
                  const poplar::Tensor &fields, float initialTemperature,
                  bool disableSoftmax,
                  const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(fields, disableSoftmax, initialTemperature));
 

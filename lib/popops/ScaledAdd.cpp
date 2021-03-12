@@ -2,6 +2,7 @@
 #include "popops/ScaledAdd.hpp"
 #include "poplar/Program.hpp"
 #include "poplibs_support/Trace.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Rearrange.hpp"
@@ -457,6 +458,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                  const poplar::OptionFlags &options) {
   const auto debugPrefix = debugContext.getPathName();
   trace(graph, {"popops::scaledAddTo(scaleB=tensor)", debugPrefix}, [&] {
+    POPOPS_TRACEPOINT();
     poputil::PoplibsOpDebugInfo di(debugContext,
                                    DI_ARGS(A, B, scaleB, options));
     const auto targetType = A.elementType();
@@ -500,6 +502,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
                  const poplar::OptionFlags &options) {
   const auto debugPrefix = debugContext.getPathName();
   trace(graph, {"popops::scaledAddTo(scaleB=float)", debugPrefix}, [&] {
+    POPOPS_TRACEPOINT();
     poputil::PoplibsOpDebugInfo di(debugContext,
                                    DI_ARGS(A, B, scaleB, options));
 
@@ -535,6 +538,7 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                         Sequence &prog,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, scaleB, options));
 
   const auto opts = parseOptionFlags(options);
@@ -575,6 +579,7 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
 
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, scaleB, options));
 
   const auto opts = parseOptionFlags(options);
@@ -609,6 +614,7 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
 void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
                  Sequence &prog, const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(A, scaleA, B, scaleB, options));
 
@@ -620,6 +626,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
                  Sequence &prog, const ScaledAddSpecialisation speciality,
                  const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(A, scaleA, B, scaleB, speciality, options));
 
@@ -630,6 +637,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
 void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B, float scaleB,
                  Sequence &prog, const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(A, B, scaleA, scaleB, options));
 
@@ -641,6 +649,7 @@ void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B, float scaleB,
                  Sequence &prog, const ScaledAddSpecialisation speciality,
                  const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(A, B, scaleA, scaleB, speciality, options));
 
@@ -653,6 +662,7 @@ void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
                         poplar::Tensor scaleB, poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(A, scaleA, B, scaleB, options));
 
@@ -665,6 +675,7 @@ void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                         poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(A, B, scaleA, scaleB, options));
 

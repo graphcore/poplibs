@@ -3,6 +3,7 @@
 
 #include <popops/UpdateScalarInRows.hpp>
 
+#include "poplibs_support/Tracepoint.hpp"
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <poplibs_support/Algorithms.hpp>
@@ -185,6 +186,7 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
 void popops::updateScalarInRows(Graph &graph, const Tensor &params,
                                 const Tensor &indices, Sequence &program,
                                 const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, indices));
 
   // Check preconditions.

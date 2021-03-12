@@ -1,6 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "popnn/BatchNorm.hpp"
 #include "NormsInternal.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplin/Norms.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Reduce.hpp"
@@ -33,6 +34,7 @@ batchNormStatistics(Graph &graph, const Tensor acts, float eps, Sequence &prog,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options) {
 
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(acts, eps, unbiasedVarEstimate,
                                          stableAlgo, partialsType, options));
@@ -51,6 +53,7 @@ Tensor batchNormWhiten(Graph &graph, const Tensor &acts_, const Tensor &mean,
                        const Tensor &iStdDev, Sequence &prog,
                        const poplar::DebugContext &debugContext,
                        const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(acts_, mean, iStdDev, options));
 
@@ -68,6 +71,7 @@ batchNormalise(Graph &graph, const Tensor &acts, const Tensor &gamma,
                const Tensor &beta, const Tensor &mean, const Tensor &iStdDev,
                Sequence &prog, const poplar::DebugContext &debugContext,
                const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(acts, mean, beta, gamma, iStdDev, options));
 
@@ -89,6 +93,7 @@ Tensor batchNormalise(Graph &graph, const Tensor &acts,
                       const Tensor &combinedMultiplicand, const Tensor &addend,
                       Sequence &prog, const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(acts, combinedMultiplicand, addend, options));
 
@@ -108,6 +113,7 @@ batchNormParamGradients(Graph &graph, const Tensor &actsWhitened,
                         const Type &partialsType,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(actsWhitened, gradsIn, partialsType, options));
 
@@ -126,6 +132,7 @@ batchNormParamGradients(Graph &graph, const Tensor &acts, const Tensor &gradsIn,
                         Sequence &prog, const Type &partialsType,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(acts, gradsIn, mean, iStdDev, partialsType, options));
@@ -146,6 +153,7 @@ Tensor batchNormGradients(Graph &graph, const Tensor &actsWhitened_,
                           const Type &partialsType,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(actsWhitened_, gradsIn_, iStdDev, gamma, partialsType, options));
@@ -169,6 +177,7 @@ Tensor batchNormGradients(Graph &graph, const Tensor &acts_,
                           Sequence &prog, const Type &partialsType,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(acts_, gradsIn_, mean, iStdDev, gamma, partialsType, options));
@@ -186,6 +195,7 @@ void batchNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
                           Tensor &beta, Sequence &prog,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(gammaDelta, betaDelta, beta, gamma, scale, options));
@@ -200,6 +210,7 @@ void batchNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
                           Tensor &gamma, Tensor &beta, Sequence &prog,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(gammaDelta, betaDelta, scale, gamma, options));
 

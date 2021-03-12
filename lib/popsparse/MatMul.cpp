@@ -7,6 +7,7 @@
 #include "MatMulUtils.hpp"
 #include "TensorMetaDataBase.hpp"
 
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/print.hpp"
 #include "poputil/DebugInfo.hpp"
@@ -27,6 +28,7 @@ SparseTensor createSparseDenseMatMulLHS(
     Graph &graph, const Type &inputType, const MatMulParams &params,
     const poplar::DebugContext &debugContext, const OptionFlags &optionFlags,
     PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(inputType, params, optionFlags, cache));
   const auto options = parseMatMulOptionFlags(optionFlags);
@@ -58,6 +60,7 @@ Tensor createSparseDenseMatMulRHS(Graph &graph, const Type &inputType,
                                   const poplar::DebugContext &debugContext,
                                   const OptionFlags &optionFlags,
                                   PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(inputType, params, optionFlags, cache));
   const auto options = parseMatMulOptionFlags(optionFlags);
@@ -121,6 +124,7 @@ poplar::Tensor sparseDenseMatMul(poplar::Graph &graph, const SparseTensor &lhs_,
                                  const poplar::DebugContext &debugContext,
                                  const OptionFlags &optionFlags,
                                  PlanningCache *cache) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(lhs_, rhs_, transposeLHS, transposeRHS, optionFlags, cache));

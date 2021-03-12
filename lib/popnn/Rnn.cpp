@@ -1,6 +1,7 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 
 #include "RnnUtil.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include <boost/optional.hpp>
 #include <cassert>
 #include <cstdint>
@@ -499,6 +500,7 @@ static program::Sequence updateShard(
 Tensor createInitialState(Graph &graph, const RnnParams &params, bool isOutput,
                           unsigned multiple, unsigned numShards,
                           const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(params, isOutput, multiple, numShards));
   const auto tilesPerShard = getTilesPerShard(graph, params);
@@ -511,6 +513,7 @@ Tensor createInitialState(Graph &graph, const RnnParams &params, bool isOutput,
 Tensor createRecurrentTensor(Graph &graph, const RnnParams &params,
                              unsigned size, unsigned numShards,
                              const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(params, size, numShards));
   const auto tilesPerShard = getTilesPerShard(graph, params);
@@ -521,6 +524,7 @@ Tensor createRecurrentTensor(Graph &graph, const RnnParams &params,
 Tensor createInputTensor(Graph &graph, const RnnParams &params,
                          unsigned numShards,
                          const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, numShards));
   const auto tilesPerShard = getTilesPerShard(graph, params);
   auto inputSize = params.layerSizes[0];
@@ -531,6 +535,7 @@ Tensor createInputTensor(Graph &graph, const RnnParams &params,
 Tensor createOutputTensor(Graph &graph, const RnnParams &params,
                           unsigned numShards,
                           const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, numShards));
   const auto tilesPerShard = getTilesPerShard(graph, params);
   auto outputSize = params.layerSizes[1];
@@ -541,6 +546,7 @@ Tensor createOutputTensor(Graph &graph, const RnnParams &params,
 Tensor createOutputTensor(Graph &graph, const RnnParams &params,
                           unsigned multiple, unsigned numShards,
                           const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(params, multiple, numShards));
   const auto tilesPerShard = getTilesPerShard(graph, params);
@@ -553,6 +559,7 @@ Tensor shiftRnnTensor(Graph &graph, const RnnParams &params,
                       const Tensor &tBase, const Tensor &tSingle,
                       program::Sequence &prog, unsigned numShards,
                       const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(params, tBase, tSingle, prog, numShards));
   const auto tilesPerShard = getTilesPerShard(graph, params);
@@ -597,6 +604,7 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
     std::vector<Tensor> &created, program::Sequence &initProg,
     const LoopBodyType &loopFn, unsigned numShards,
     poplar::OptionFlags &options, const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(params, reverse, initState, inputs, interimIn,
                             interimOut, outputs, numShards, options));

@@ -1,5 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplinCycleEstimators.hpp"
+#include <poplibs_support/Tracepoint.hpp>
 #include <poplibs_support/codelets.hpp>
 #include <poplin/codelets.hpp>
 
@@ -15,6 +17,8 @@ const std::vector<std::string> winogradCodelets = {
      "poplin::WgdConvComplete<float>", "poplin::WgdConvComplete<half>"}};
 
 void addCodelets(poplar::Graph &graph) {
+  POPLIN_TRACEPOINT();
+
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("poplin", "poplin.gp", loc));
   poplibs::registerPerfFunctions(graph, makePerfFunctionTable());

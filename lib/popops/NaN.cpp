@@ -1,6 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "popops/NaN.hpp"
 
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/ElementWise.hpp"
 #include "poputil/Util.hpp"
@@ -92,6 +93,7 @@ poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
                       const poplar::DebugContext &debugContext) {
   logging::popops::info("hasNaN src={}, name={}", src.shape(),
                         debugContext.getPathName());
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src));
   return hasNaNOrInf(graph, src, prog, false, di);
 }
@@ -101,6 +103,7 @@ poplar::Tensor hasNaNOrInf(poplar::Graph &graph, const poplar::Tensor &src,
                            const poplar::DebugContext &debugContext) {
   logging::popops::info("hasNaNOrInf src={}, name={}", src.shape(),
                         debugContext.getPathName());
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src));
   return hasNaNOrInf(graph, src, prog, true, di);
 }

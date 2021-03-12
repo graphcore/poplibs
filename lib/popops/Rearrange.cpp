@@ -1,12 +1,11 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "popops/Rearrange.hpp"
 
+#include "poplibs_support/Tracepoint.hpp"
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
-
 #include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
-
 #include <poputil/DebugInfo.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/VarStructure.hpp>
@@ -233,6 +232,7 @@ void addTransposeVertices(
 
 Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
                         const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(in, cs));
 
   const auto rank = in.rank();
@@ -384,6 +384,7 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
                      const ComputeSet &transposeCS, const GroupingInfo &from_,
                      const GroupingInfo &to_,
                      const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, copies, transposeCS, from_, to_));
 
@@ -549,6 +550,7 @@ Tensor regroupTensor(Graph &graph, const Tensor &t_,
                      const ComputeSet &transposeCS, const GroupingInfo &from_,
                      const GroupingInfo &to_,
                      const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t_, transposeCS, from_, to_));
   std::vector<Copy> copies;
@@ -565,6 +567,7 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
                            std::vector<Copy> &preTranspose,
                            ComputeSet transposeCS,
                            const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in_, ref, preTranspose, transposeCS));
 
@@ -612,6 +615,7 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
 Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
                            Sequence &prog,
                            const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(in_, ref));
 
   std::vector<Copy> preTranspose;
@@ -631,6 +635,7 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
 Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
                            std::size_t preferredGrouping_, Sequence &prog,
                            const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in_, preferredGrouping_));
   logging::popops::debug("Regroup if beneficial (preferred): debugstr={}",

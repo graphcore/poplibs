@@ -6,6 +6,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/Trace.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvPreplan.hpp"
 #include "poplin/Convolution.hpp"
@@ -443,6 +444,7 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
                const poplar::DebugContext &debugContext,
                const poplar::OptionFlags &options_,
                matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(C_, A_, B_, k, options_, cache));
 
@@ -477,6 +479,7 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_,
                const poplar::DebugContext &debugContext,
                const poplar::OptionFlags &options_,
                matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(C_, k, A_, B_, options_, cache));
 
@@ -500,6 +503,7 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
                       const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options_,
                       matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(C, k, A, B, options_, cache));
 
@@ -521,6 +525,7 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                       const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options_,
                       matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(C, A, B, k, options_, cache));
 
@@ -570,6 +575,7 @@ poplar::Tensor createMatMulInputRHS(poplar::Graph &graph, const Type &inputType,
                                     const poplar::DebugContext &debugContext,
                                     const poplar::OptionFlags &options_,
                                     matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(inputType, outputType, aShape, bShape, options_, cache));
@@ -588,6 +594,7 @@ poplar::Tensor createMatMulInputRHS(poplar::Graph &graph, const Type &dataType,
                                     const poplar::DebugContext &debugContext,
                                     const poplar::OptionFlags &options_,
                                     matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(dataType, aShape, bShape, options_, cache));
 
@@ -603,6 +610,7 @@ poplar::Tensor createMatMulGroupedInputRHS(
     const std::vector<std::size_t> &bShape,
     const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options_, matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(inputType, outputType, aShape, bShape, options_, cache));
@@ -620,6 +628,8 @@ poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &A_,
                       const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options_,
                       matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(A_, B_, outputType, options_, cache));
 
@@ -642,6 +652,8 @@ poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &A_,
                       const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options_,
                       matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(A_, B_, options_, cache));
 
@@ -673,6 +685,8 @@ poplar::Tensor matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &options_,
                              matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(A, B, outputType, options_, cache));
 
@@ -740,6 +754,7 @@ poplar::Tensor createMatMulInputLHS(poplar::Graph &graph, const Type &inputType,
                                     const poplar::DebugContext &debugContext,
                                     const poplar::OptionFlags &options_,
                                     matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(inputType, outputType, aShape, bShape, options_, cache));
@@ -758,6 +773,7 @@ poplar::Tensor createMatMulInputLHS(poplar::Graph &graph, const Type &dataType,
                                     const poplar::DebugContext &debugContext,
                                     const poplar::OptionFlags &options_,
                                     matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(dataType, aShape, bShape, options_, cache));
 
@@ -773,6 +789,7 @@ poplar::Tensor createMatMulGroupedInputLHS(
     const std::vector<std::size_t> &bShape,
     const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options_, matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(inputType, outputType, aShape, bShape, options_, cache));
@@ -817,6 +834,7 @@ poplar::Tensor preArrangeMatMulInputRHS(
     const poplar::Tensor &B_, poplar::program::Sequence &prog,
     const Type &outputType, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options_, matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(B_, aShape_, outputType, options_, cache));
 
@@ -836,6 +854,7 @@ poplar::Tensor preArrangeMatMulInputRHS(
     const poplar::Tensor &B_, poplar::program::Sequence &prog,
     const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options_, matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(B_, aShape_, options_, cache));
 
@@ -850,6 +869,7 @@ poplar::Tensor preArrangeMatMulGroupedInputRHS(
     const poplar::Tensor &B, poplar::program::Sequence &prog,
     const Type &outputType, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options_, matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(B, aShape, options_, cache));
 

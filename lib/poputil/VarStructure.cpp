@@ -2,6 +2,7 @@
 #include "poputil/VarStructure.hpp"
 
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 
@@ -91,6 +92,7 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
                                  const std::vector<std::size_t> &shape,
                                  const std::vector<std::size_t> &nPartitions,
                                  const poplar::DebugContext &debugContext) {
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(type, shape, nPartitions));
 

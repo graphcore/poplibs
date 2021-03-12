@@ -2,6 +2,7 @@
 
 #include "popops/Fill.hpp"
 
+#include "poplibs_support/Tracepoint.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -70,6 +71,7 @@ template <typename FillValueType>
 void fill(poplar::Graph &graph, const poplar::Tensor &t,
           poplar::program::Sequence &prog, FillValueType fillValue,
           const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, fillValue));
 
   auto cs = graph.addComputeSet({di, "Fill"});

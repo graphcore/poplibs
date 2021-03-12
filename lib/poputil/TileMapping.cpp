@@ -1,6 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poputil/TileMapping.hpp"
 #include "poplar/Program.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
@@ -78,6 +79,7 @@ poplar::Tensor cloneToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
                           const poplar::DebugContext &debugContext,
                           poplar::TensorCloneMethod method) {
 
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, dstIpu, method));
 
   auto tLocal = masterGraph.clone(t, {di}, method);
@@ -117,6 +119,7 @@ poplar::Tensor createIpuCopy(poplar::Graph &masterGraph,
                              poplar::Tensor &copySrc, poplar::Tensor &copyDst,
                              const poplar::DebugContext &debugContext,
                              poplar::TensorCloneMethod method) {
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, dstIpu, copySrc, copyDst, method));
 
@@ -143,6 +146,7 @@ poplar::Tensor copyToIpu(poplar::Graph &graph, const poplar::Tensor &t,
                          poplar::program::Sequence &prog, unsigned dstIpu,
                          const poplar::DebugContext &debugContext,
                          poplar::TensorCloneMethod method) {
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, dstIpu, method));
 
   poplar::Tensor tLocalForCopy, tForCopy;
@@ -225,6 +229,7 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
                        bool ditherMapping,
                        const poplar::DebugContext &debugContext) {
 
+  POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(fullTensor, type, dim, ditherMapping));
 

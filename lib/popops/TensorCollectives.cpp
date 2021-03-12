@@ -1,5 +1,6 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "popops/TensorCollectives.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Reduce.hpp"
@@ -1151,6 +1152,7 @@ Chunks reduceScatter(Graph &graph, const Tensor &toReduce,
                      popops::CollectiveOperator op, Sequence &prog,
                      const poplar::DebugContext &debugContext,
                      const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(toReduce, op, options));
 
   logging::popops::info("reduceScatter toReduce={}, op={}, name={}",
@@ -1167,6 +1169,7 @@ Chunks reduceScatter(Graph &graph, const Tensor &toReduce,
 Tensor allGather(Graph &graph, const Chunks &toGather, Sequence &prog,
                  const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(toGather, options));
   logging::popops::info("allGather toGather={}x{}, name={}",
                         toGather.chunks.size(), toGather.originalInput.shape(),
@@ -1187,6 +1190,7 @@ poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(toReduce, op, options));
 
   logging::popops::info("allReduce toReduce={}, op={}, name={}",

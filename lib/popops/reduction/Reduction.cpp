@@ -8,6 +8,7 @@
 #include "ReductionStages.hpp"
 
 #include "poplibs_support/Algorithms.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poputil/OptionParsing.hpp"
 #include <poplibs_support/Compiler.hpp>
@@ -682,6 +683,7 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
                       std::vector<ComputeSet> &css,
                       const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in, out_, dims, params, css, options));
 
@@ -697,6 +699,7 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
                       const poplar::OptionFlags &options) {
   const auto debugPrefix = debugContext.getPathName();
   trace(graph, {"popops::reduceWithOutput", debugPrefix}, [&] {
+    POPOPS_TRACEPOINT();
     poputil::PoplibsOpDebugInfo di(debugContext,
                                    DI_ARGS(in, out_, dims, params, options));
 
@@ -710,6 +713,7 @@ Tensor reduce(Graph &graph, const Tensor &in,
               const std::vector<std::size_t> &dims, ReduceParams params,
               program::Sequence &prog, const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in, dims, params, options));
 
@@ -724,6 +728,7 @@ Tensor reduce(Graph &graph, const Tensor &in,
               std::vector<ComputeSet> &css,
               const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in, dims, params, css, options));
 
@@ -738,6 +743,7 @@ Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
               std::vector<ComputeSet> &css,
               const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(in, outType, dims, params, css, options));
 
@@ -756,6 +762,7 @@ Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
               const std::vector<std::size_t> &dims, ReduceParams params,
               program::Sequence &prog, const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in, outType, dims, params, options));
 

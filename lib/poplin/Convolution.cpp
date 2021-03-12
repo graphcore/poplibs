@@ -18,6 +18,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/Trace.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
@@ -1419,6 +1420,8 @@ Tensor createInput(Graph &graph, const Plan &plan,
 Tensor createInput(Graph &graph, const ConvParams &params_,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   const auto name = debugContext.getPathName();
   return trace(graph, {"poplin::createInput", name}, [&] {
     poputil::PoplibsOpDebugInfo di(
@@ -1548,6 +1551,8 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
                      const poplar::DebugContext &debugContext,
                      const poplar::OptionFlags &options_,
                      PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   const auto name = debugContext.getPathName();
   return trace(graph, {"poplin::createWeights", name}, [&] {
     poputil::PoplibsOpDebugInfo di(
@@ -1601,6 +1606,8 @@ static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
 
 poplar::Tensor createBiases(poplar::Graph &graph, const Tensor &acts_,
                             const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
+
   const auto name = debugContext.getPathName();
   return trace(graph, {"poplin::createBiases", name}, [&] {
     poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts_),
@@ -2635,6 +2642,8 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    bool transposeAndFlipWeights, Sequence &prog,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   const auto debugPrefix = debugContext.getPathName();
   return trace(graph, {"poplin::convolution", debugPrefix}, [&] {
     poputil::PoplibsOpDebugInfo di(
@@ -2815,6 +2824,8 @@ void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
                                  Sequence &prog,
                                  const poplar::DebugContext &debugContext,
                                  const poplar::OptionFlags &options_) {
+  POPLIN_TRACEPOINT();
+
   const auto debugPrefix = debugContext.getPathName();
   return trace(
       graph, {"poplin::weightsTransposeChansFlipXY", debugPrefix}, [&] {
@@ -2882,6 +2893,8 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                              const CanonicalConvParams &wuParams,
                              ConvProgramTree &cpt, const DebugNameAndId &dnai,
                              const ConvOptions &wuOptions) {
+  POPLIN_TRACEPOINT();
+
   return trace(graph, "poplin::calculateWeightDeltas(planned)", [&] {
     const auto fwdNumConvGroups = wuParams->numConvGroups;
     const auto fwdOutChans = wuParams->outputChannelsPerConvGroup;
@@ -2930,6 +2943,8 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                              const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &fwdOptions_,
                              PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   const auto debugPrefix = debugContext.getPathName();
   return trace(graph, {"poplin::calculateWeightDeltas", debugPrefix}, [&] {
     poputil::PoplibsOpDebugInfo di(
@@ -3109,6 +3124,8 @@ void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
 
 void addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
              Sequence &prog, const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
+
   const auto debugPrefix = debugContext.getPathName();
   trace(graph, {"poplin::addBias", debugPrefix}, [&] {
     if (acts.rank() < 2) {
@@ -3383,6 +3400,8 @@ Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor weights,
                                      const poplar::DebugContext &debugContext,
                                      const poplar::OptionFlags &options_,
                                      PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   const auto debugPrefix = debugContext.getPathName();
   return trace(graph, {"poplin::fullyConnectedWeightTranspose", debugPrefix},
                [&] {

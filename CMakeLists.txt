@@ -10,6 +10,7 @@ include(AddGPLibrary)
 
 enable_testing()
 
+find_package(libpvti REQUIRED)
 find_package(poplar REQUIRED)
 
 if(NOT DEFINED POPLIBS_ENABLED_IPU_ARCH_NAMES)

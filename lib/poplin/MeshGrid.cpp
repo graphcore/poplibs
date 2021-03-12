@@ -1,4 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poputil/DebugInfo.hpp"
 #include <poplar/exceptions.hpp>
@@ -25,6 +26,7 @@ namespace logging = poplibs_support::logging;
 poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
                         float left, float right, size_t count,
                         const poplar::DebugContext &debugContext) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(type, left, right, count));
 
@@ -47,6 +49,7 @@ poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
 
 std::vector<poplar::Tensor> meshgrid2d(poplar::Graph &graph, poplar::Tensor x,
                                        poplar::Tensor y) {
+  POPLIN_TRACEPOINT();
   if (x.rank() != 1 || y.rank() != 1) {
     throw poplar::poplar_error("Meshgrid inputs must have be rank 1 tensors");
   }

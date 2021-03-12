@@ -6,6 +6,7 @@
 #include "ConvUtilInternal.hpp"
 #include "ConvolutionInternal.hpp"
 #include "MultiConvolutionInternal.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/Visitor.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/Convolution.hpp"
@@ -176,6 +177,7 @@ poplar::Tensor createWeights(poplar::Graph &graph,
                              unsigned weightsIndex,
                              const poplar::OptionFlags &options,
                              poplin::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   const auto args = convertToConvOptions(graph, args_);
 
   using ResultType = poplar::Tensor;
@@ -196,6 +198,7 @@ poplar::Tensor createInput(poplar::Graph &graph,
                            unsigned inputIndex,
                            const poplar::OptionFlags &options,
                            poplin::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   const auto args = convertToConvOptions(graph, args_);
 
   using ResultType = poplar::Tensor;
@@ -218,6 +221,7 @@ void weightsTransposeChansFlipXY(poplar::Graph &graph,
                                  const poplar::OptionFlags &options,
                                  const poplar::DebugContext &debugContext,
                                  poplin::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(args, weightsIn, options));
 
@@ -243,7 +247,7 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
             const bool transposeAndFlipWeights, poplar::program::Sequence &prog,
             const poplar::DebugContext &debugContext,
             const poplar::OptionFlags &options, PlanningCache *cache) {
-
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(args_, transposeAndFlipWeights, options, cache));
 
@@ -292,6 +296,7 @@ std::vector<poplar::Tensor> calculateWeightDeltas(
     poplar::Graph &graph, const std::vector<CalculateWeightDeltasArgs> &args_,
     poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args_, options, cache));
 
   const auto args = getWeightUpdateArgs(convertToConvOptions(graph, args_));
@@ -368,6 +373,7 @@ void convolutionWeightUpdate(poplar::Graph &graph,
                              const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &options,
                              PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args, options, cache));
   convolutionWeightUpdateImpl(graph, args, prog, {di}, options, cache);
 }
@@ -376,6 +382,7 @@ void convolutionWeightUpdate(
     poplar::Graph &graph, const std::vector<ConvWeightUpdateArgsScalar> &args,
     poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args, options, cache));
   convolutionWeightUpdateImpl(graph, args, prog, {di}, options, cache);
 }

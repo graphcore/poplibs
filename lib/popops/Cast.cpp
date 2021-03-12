@@ -1,6 +1,7 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "popops/Cast.hpp"
 
+#include "poplibs_support/Tracepoint.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -18,6 +19,7 @@ namespace popops {
 
 Program cast(Graph &graph, Tensor src, Tensor dst,
              const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dst));
 
   // Casting one type into itself, or int<->unsigned, is just a copy.
@@ -117,6 +119,7 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
 
 Tensor cast(Graph &graph, Tensor src, const Type &dstType, ComputeSet cs,
             const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType, cs));
   auto dst = graph.clone(dstType, src, {di, "cast"});
   cast(graph, src, dst, cs);
@@ -126,6 +129,7 @@ Tensor cast(Graph &graph, Tensor src, const Type &dstType, ComputeSet cs,
 
 poplar::Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
                     Sequence &prog, const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType));
   auto dst = graph.clone(dstType, src, {di, "cast"});
   prog.add(cast(graph, src, dst, {di}));
@@ -137,6 +141,7 @@ poplar::Tensor checkAccuracyWhenCast(Graph &graph, const Tensor &input,
                                      Type outputType, double tolerance,
                                      poplar::program::Sequence &prog,
                                      const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(input, outputType, tolerance));
 

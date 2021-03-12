@@ -1,6 +1,7 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "popops/Zero.hpp"
 
+#include "poplibs_support/Tracepoint.hpp"
 #include "popops/Fill.hpp"
 #include "poputil/DebugInfo.hpp"
 
@@ -26,6 +27,7 @@ void zero(poplar::Graph &graph, const poplar::Tensor &t,
 void zero(poplar::Graph &graph, const poplar::Tensor &t,
           poplar::program::Sequence &prog,
           const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t));
   fill(graph, t, prog, 0, {di});
 }

@@ -1,6 +1,7 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 #include "poplin/Cholesky.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplin/MatMul.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Encoding.hpp"
@@ -336,6 +337,8 @@ std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
 getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
                                    const std::vector<std::size_t> &shape,
                                    bool lower, poplar::OptionFlags options) {
+  POPLIN_TRACEPOINT();
+
   validateInput(shape);
   auto gshape = groupedShape(shape);
 
@@ -363,6 +366,8 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
                                    const poplar::DebugContext &debugContext,
                                    const poplar::OptionFlags &options,
                                    matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   poputil::PoplibsOpDebugInfo di(debugContext);
   auto gShape = groupedShape(shape);
 
@@ -401,6 +406,8 @@ void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
                      const poplar::DebugContext &debugContext,
                      poplar::OptionFlags options,
                      matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(a));
 
   validateInput(graph, a);
@@ -426,6 +433,7 @@ poplar::Tensor cholesky(poplar::Graph &graph, const poplar::Tensor &a,
                         const poplar::DebugContext &debugContext,
                         poplar::OptionFlags options,
                         matmul::PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
 
   auto a2 = createCholeskyInput(graph, a.elementType(), a.shape(), lower,
                                 debugContext, options, cache);

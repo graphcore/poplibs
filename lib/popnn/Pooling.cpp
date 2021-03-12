@@ -6,6 +6,7 @@
 #include "PoolVertices.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Trace.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/print.hpp"
@@ -755,6 +756,7 @@ static Tensor poolImpl(Graph &graph, const PoolParams &poolParams,
                        const Tensor &in_, Sequence &prog,
                        const poplar::DebugContext &debugContext,
                        const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in_, poolParams, options));
 
@@ -966,6 +968,7 @@ Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
                          const poplar::OptionFlags &options) {
   const auto debugPrefix = debugContext.getPathName();
   return trace(graph, {"popnn::pooling::poolInputGradient", debugPrefix}, [&] {
+    POPNN_TRACEPOINT();
     poputil::PoplibsOpDebugInfo di(
         debugContext, DI_ARGS(in_, pooled_, pooledGradient_, poolParams,
                               options, useScaledGradient));
@@ -986,6 +989,7 @@ Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
                          const poplar::OptionFlags &options) {
   const auto debugPrefix = debugContext.getPathName();
   return trace(graph, {"popnn::pooling::poolInputGradient", debugPrefix}, [&] {
+    POPNN_TRACEPOINT();
     poputil::PoplibsOpDebugInfo di(
         debugContext,
         DI_ARGS(pooledGradient_, poolParams, fwdChansPerGroup, options));

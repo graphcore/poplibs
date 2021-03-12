@@ -8,6 +8,7 @@
 #include "HyperGraphBlockZoltan.hpp"
 #include "HyperGraphStrip.hpp"
 #include "HyperGraphStripV0.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include <iostream>
 #include <memory>
 #include <poplibs_support/logging.hpp>
@@ -376,6 +377,7 @@ poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
                                       const poplar::DebugContext &debugContext,
                                       const poplar::OptionFlags &options) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(bsMatMul, options));
 
   BSMatMulImpl *impl = bsMatMul.impl.get();
@@ -423,6 +425,7 @@ poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
                                       const poplar::DebugContext &debugContext,
                                       const poplar::OptionFlags &options) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(bsMatMul, options));
 
   BSMatMulImpl *impl = bsMatMul.impl.get();
@@ -472,6 +475,7 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
                         const poplar::Tensor &rhsMatrixIn,
                         const poplar::OptionFlags &options,
                         const poplar::DebugContext &debugContext) {
+  POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(bsMatMul, lhsMatrixIn, rhsMatrixIn, options));
 

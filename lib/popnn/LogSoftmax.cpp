@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "NonLinearityInternal.hpp"
+#include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/ElementWiseUtil.hpp"
@@ -87,6 +88,7 @@ namespace popnn {
 
 void logSoftmaxInPlace(Graph &graph, Tensor t, Sequence &prog,
                        const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t));
 
   logSoftmaxImpl(graph, t, true, prog, {di});
@@ -94,6 +96,7 @@ void logSoftmaxInPlace(Graph &graph, Tensor t, Sequence &prog,
 
 Tensor logSoftmax(Graph &graph, Tensor t, Sequence &prog,
                   const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t));
 
   auto output = logSoftmaxImpl(graph, t, false, prog, {di});

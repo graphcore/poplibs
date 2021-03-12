@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef popops_Cholesky_hpp
-#define popops_Cholesky_hpp
+#ifndef poplin_Cholesky_hpp
+#define poplin_Cholesky_hpp
 #include "poplin/MatMul.hpp"
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
@@ -138,4 +138,4 @@ void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
 
 } // namespace poplin
 
-#endif // popops_Cholesky_hpp
+#endif // poplin_Cholesky_hpp

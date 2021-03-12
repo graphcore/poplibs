@@ -1,4 +1,5 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+#include "poplibs_support/Tracepoint.hpp"
 #include <algorithm>
 #include <cassert>
 #include <numeric>
@@ -20,6 +21,7 @@ CircBuf::CircBuf(Graph &graph, const Type &dataType, unsigned size,
                  const poplar::DebugContext &debugContext)
     : graph(graph), size_(size), shape(shape) {
 
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(dataType, size, shape));
 
   auto N = std::accumulate(shape.begin(), shape.end(), 1UL,
@@ -50,6 +52,7 @@ Graph::TileToTensorMapping CircBuf::getTileMapping() {
 
 Tensor CircBuf::prev(unsigned i, Sequence &seq,
                      const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(i));
   if (i >= size_)
     std::abort();
@@ -75,6 +78,7 @@ Tensor CircBuf::prev(unsigned i, Sequence &seq,
 
 void CircBuf::add(Tensor in, Sequence &seq,
                   const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(in));
 
   assert(in.shape() == shape);
