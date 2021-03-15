@@ -15,11 +15,26 @@
 namespace popnn {
 namespace ctc {
 
-static auto getTupleOfMembers(const LossPlan &p) {
-  return std::tie(p.serial.batch, p.serial.time, p.serial.label,
+static auto getTupleOfMembers(const CtcLossPlannerParams &p) noexcept {
+  return std::tie(p.inType, p.partialsType, p.outType, p.batchSize, p.maxTime,
+                  p.maxLabelLength, p.numClasses);
+}
+
+bool operator<(const CtcLossPlannerParams &a,
+               const CtcLossPlannerParams &b) noexcept {
+  return getTupleOfMembers(a) < getTupleOfMembers(b);
+}
+
+bool operator==(const CtcLossPlannerParams &a,
+                const CtcLossPlannerParams &b) noexcept {
+  return getTupleOfMembers(a) == getTupleOfMembers(b);
+}
+
+static auto getTupleOfMembers(const LossPlan &p) noexcept {
+  return std::tie(p.params, p.serial.batch, p.serial.time, p.serial.label,
                   p.parallel.alphabet, p.parallel.batch, p.parallel.label,
                   p.parallel.sliceFromInput, p.parallel.sliceIntoOutput,
-                  p.parallel.time);
+                  p.parallel.lastBlankOnSeparateTile, p.parallel.time);
 }
 bool operator<(const LossPlan &a, const LossPlan &b) noexcept {
   return getTupleOfMembers(a) < getTupleOfMembers(b);
