@@ -1,11 +1,10 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include <iostream>
-#include <random>
-
 #include <poplibs_test/CTCUtil.hpp>
 #include <poputil/exceptions.hpp>
 
 #include <boost/optional/optional.hpp>
+
+#include <iostream>
 
 namespace poplibs_test {
 namespace ctc {
@@ -50,26 +49,17 @@ std::vector<unsigned> extendedLabels(const std::vector<unsigned> &input,
   return output;
 }
 
-// Return a Random Generator for the given the input range
-static std::function<unsigned()>
-getInputGen(unsigned min, unsigned max,
-            const std::function<unsigned(unsigned, unsigned)> &randRange) {
-  return [=]() { return randRange(min, max); };
-}
-
 // Create a random data input for all timesteps and symbols. Apply an increased
 // probability to a sequence using a random label (Intended to be shorter than
 // a label that would occupy all timesteps) and padding it to represent a
 // probable sequence
 template <typename FPType>
 std::pair<boost::multi_array<FPType, 2>, std::vector<unsigned>>
-provideInputWithPath(
-    unsigned labelLength, unsigned timeSteps, unsigned maxT,
-    unsigned numClasses, unsigned blankClass,
-    const std::function<unsigned(unsigned, unsigned)> &randRange) {
-  auto randClass =
-      getInputGen(0U, static_cast<unsigned>(numClasses - 2), randRange);
-  auto randInput = getInputGen(0U, 10U, randRange);
+provideInputWithPath(unsigned labelLength, unsigned timeSteps, unsigned maxT,
+                     unsigned numClasses, unsigned blankClass,
+                     RandomUtil &rand) {
+  auto randClass = rand.generator<unsigned>(0, numClasses - 2);
+  auto randInput = rand.generator<double>(0.0, 10.0);
 
   std::vector<unsigned> label(labelLength);
 
@@ -128,7 +118,7 @@ provideInputWithPath(
   std::iota(indices.begin(), indices.end(), 0);
   for (unsigned i = 0; i < padSymbols; i++) {
     // Pick an index (and so an original symbol to duplicate)
-    auto insertIndex = randRange(0, indices.size() - 1);
+    auto insertIndex = rand.range<unsigned>(0, indices.size() - 1);
     auto insertPoint = indices[insertIndex];
     for (unsigned j = insertIndex; j < indices.size(); j++) {
       indices[j]++;
@@ -145,43 +135,14 @@ provideInputWithPath(
   return std::make_pair(input, label);
 }
 
-template <typename FPType>
-std::pair<boost::multi_array<FPType, 2>, std::vector<unsigned>>
-provideInputWithPath(unsigned labelLength, unsigned timesteps, unsigned maxT,
-                     unsigned numClasses, unsigned blankClass, unsigned seed) {
-  std::mt19937 gen;
-  gen.seed(seed);
-  const auto randRange = [&](unsigned min, unsigned max) -> unsigned {
-    if (max < min) {
-      poputil::poplibs_error(
-          "max must be greater than min when specifying random range");
-    }
-    std::uniform_int_distribution<> range(min, max);
-    return range(gen);
-  };
-
-  return provideInputWithPath<FPType>(labelLength, timesteps, maxT, numClasses,
-                                      blankClass, randRange);
-}
-
-template std::pair<boost::multi_array<double, 2>, std::vector<unsigned>>
-provideInputWithPath(
-    unsigned labelLength, unsigned timeSteps, unsigned maxT,
-    unsigned numClasses, unsigned blankClass,
-    const std::function<unsigned(unsigned, unsigned)> &randRange);
-
-template std::pair<boost::multi_array<float, 2>, std::vector<unsigned>>
-provideInputWithPath(
-    unsigned labelLength, unsigned timeSteps, unsigned maxT,
-    unsigned numClasses, unsigned blankClass,
-    const std::function<unsigned(unsigned, unsigned)> &randRange);
-
-template std::pair<boost::multi_array<double, 2>, std::vector<unsigned>>
-provideInputWithPath(unsigned labelLength, unsigned timeSteps, unsigned maxT,
-                     unsigned numClasses, unsigned blankClass, unsigned seed);
-
 template std::pair<boost::multi_array<float, 2>, std::vector<unsigned>>
 provideInputWithPath(unsigned labelLength, unsigned timeSteps, unsigned maxT,
-                     unsigned numClasses, unsigned blankClass, unsigned seed);
+                     unsigned numClasses, unsigned blankClass,
+                     RandomUtil &rand);
+template std::pair<boost::multi_array<double, 2>, std::vector<unsigned>>
+provideInputWithPath(unsigned labelLength, unsigned timeSteps, unsigned maxT,
+                     unsigned numClasses, unsigned blankClass,
+                     RandomUtil &rand);
+
 } // namespace ctc
 } // namespace poplibs_test

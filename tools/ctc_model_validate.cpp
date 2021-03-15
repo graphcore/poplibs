@@ -281,25 +281,12 @@ void testBeamSearchInference(
 template <typename FPType>
 struct InputSequence<FPType>
 getRandomTestInput(unsigned timesteps, unsigned baseSequenceLength,
-                   unsigned numClassesIncBlank, unsigned seed) {
-
+                   unsigned numClassesIncBlank, RandomUtil &rand) {
   unsigned blankClass = numClassesIncBlank - 1;
-  std::mt19937 gen;
 
-  if (seed) {
-    std::cout << "Using seed: " << seed << "\n";
-    gen.seed(seed);
-  } else {
-    std::random_device rd;
-    std::mt19937 seedGen(rd());
-    std::uniform_int_distribution<> rand(0, INT_MAX);
-    const auto randSeed = rand(seedGen);
-    std::cout << "Generated seed:" << randSeed << "\n";
-    gen.seed(randSeed);
-  }
   auto [input, idx] =
       provideInputWithPath<FPType>(baseSequenceLength, timesteps, timesteps,
-                                   numClassesIncBlank, blankClass, seed);
+                                   numClassesIncBlank, blankClass, rand);
   std::cout << "Input sequence: ";
   print(idx, blankClass);
   return {log::softMax(matrix::transpose(input)),
@@ -333,7 +320,7 @@ int main(int argc, char **argv) {
   unsigned beamWidth = 3;
   unsigned randomTestLength = 15;
   unsigned numClassesIncBlank = 4;
-  unsigned seed = 0;
+  boost::optional<unsigned> seed = boost::none;
   boost::optional<unsigned> baseSequenceLength = boost::none;
 
   VectorOption<double> input;
@@ -357,7 +344,7 @@ int main(int argc, char **argv) {
      "Expected sequence")
     ("expectedLogProb", po::value<boost::optional<double>>(&expectedLogProb),
      "Expected log probability")
-    ("seed", po::value(&seed)->default_value(seed),
+    ("seed", po::value(&seed),
      "If random data provide a seed, if not one is chosen and displayed")
     ("test-length", po::value(&randomTestLength)->default_value(randomTestLength),
      "Test length (t) for random test sequences")
@@ -402,12 +389,18 @@ int main(int argc, char **argv) {
     throw std::logic_error("Log arithmetic only supported with inference");
   }
 
+  if (!seed) {
+    seed = std::random_device{}();
+  }
+  std::cout << "Using seed: " << *seed << "\n";
+  RandomUtil rand{*seed};
+
   if (useDoubles) {
     const auto test = [&]() {
       auto result = input.val.empty()
                         ? getRandomTestInput<double>(randomTestLength,
                                                      *baseSequenceLength,
-                                                     numClassesIncBlank, seed)
+                                                     numClassesIncBlank, rand)
                         : parseInput<double>(input.val, inputShape);
 
       if (useLogArithmetic) {
@@ -446,7 +439,7 @@ int main(int argc, char **argv) {
       auto result =
           input.val.empty()
               ? getRandomTestInput<float>(randomTestLength, *baseSequenceLength,
-                                          numClassesIncBlank, seed)
+                                          numClassesIncBlank, rand)
               : parseInput<float>(input.val, inputShape);
 
       if (useLogArithmetic) {

@@ -176,8 +176,9 @@ template <typename FPType> struct InputSequence {
 InputSequence<double> getRandomTestInput(size_t timesteps, size_t testSymbols,
                                          unsigned numClasses,
                                          unsigned blankClass) {
+  RandomUtil rand{42};
   auto [input, label] = provideInputWithPath<double>(
-      testSymbols, timesteps, timesteps, numClasses, blankClass, 1);
+      testSymbols, timesteps, timesteps, numClasses, blankClass, rand);
 
   return {log::softMax(transpose(input)), label, numClasses};
 }

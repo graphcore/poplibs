@@ -121,7 +121,7 @@ getRandomSize(const boost::optional<unsigned> &minT,
               const boost::optional<unsigned> &minLabelLength,
               const boost::optional<unsigned> &fixedLabelLength,
               unsigned maxLabelLength, bool disableAlwaysSatisfiableError,
-              const std::function<unsigned(unsigned, unsigned)> &randRange) {
+              RandomUtil &rand) {
   auto checkSatisfiable = [&](unsigned t, unsigned labelLength) -> void {
     if (t < labelLength) {
       throw poputil::poplibs_error(
@@ -155,14 +155,14 @@ getRandomSize(const boost::optional<unsigned> &minT,
       auto t = *fixedT;
       auto maxLabelLengthForT = t;
       auto upperBound = std::min(maxLabelLengthForT, maxLabelLength);
-      auto labelLength = randRange(*minLabelLength, upperBound);
+      auto labelLength = rand.range(*minLabelLength, upperBound);
       checkSatisfiable(t, labelLength);
       return {t, labelLength};
     } else {
       auto labelLength = *fixedLabelLength;
       auto minTForLabelLength = labelLength;
       auto lowerBound = std::max(minTForLabelLength, *minT);
-      auto t = randRange(lowerBound, maxT);
+      auto t = rand.range(lowerBound, maxT);
       checkSatisfiable(t, labelLength);
       return {t, labelLength};
     }
@@ -171,28 +171,28 @@ getRandomSize(const boost::optional<unsigned> &minT,
     auto minTForMinLabelLength = *minLabelLength * 2 - 1;
     auto TLowerBound = std::max(minTForMinLabelLength, *minT);
 
-    auto t = randRange(TLowerBound, maxT);
+    auto t = rand.range(TLowerBound, maxT);
     // Prune upper bound of label for given T
     auto maxLabelLengthForT = (t + 1) / 2;
     auto labelLengthUpperBound = std::min(maxLabelLengthForT, maxLabelLength);
 
-    auto labelLength = randRange(*minLabelLength, labelLengthUpperBound);
+    auto labelLength = rand.range(*minLabelLength, labelLengthUpperBound);
 
     checkSatisfiable(t, labelLength);
     return {t, labelLength};
   }
 }
 
-InputSequence<double> getRandomTestInput(
-    unsigned t, unsigned maxT, unsigned labelLength, unsigned maxLabelLength,
-    unsigned numClasses, unsigned blankClass, bool isLogits,
-    const std::function<unsigned(unsigned, unsigned)> &randRange) {
+InputSequence<double>
+getRandomTestInput(unsigned t, unsigned maxT, unsigned labelLength,
+                   unsigned maxLabelLength, unsigned numClasses,
+                   unsigned blankClass, bool isLogits, RandomUtil &rand) {
 
   // Create an input sequence of random data, and if the input sequence is a
   // compatible length, increase its probability to stop the loss getting very
   // small (important in large tests)
   auto [input, label] = provideInputWithPath<double>(
-      labelLength, t, maxT, numClasses, blankClass, randRange);
+      labelLength, t, maxT, numClasses, blankClass, rand);
   if (!isLogits) { // Convert to log probs
     input = log::log(transpose(log::softMax(transpose(input))));
   }
@@ -578,29 +578,17 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  std::mt19937 gen;
-  gen.seed(1234);
-
-  const auto randRange = [&](unsigned min, unsigned max) -> unsigned {
-    if (max < min) {
-      poputil::poplibs_error(
-          "max must be greater than min when specifying random range");
-    }
-    std::uniform_int_distribution<> range(min, max);
-    return range(gen);
-  };
+  RandomUtil rand{42};
 
   // For test call the reference function for each batch input
   std::vector<InputSequence<double>> tests;
   std::vector<std::pair<double, boost::multi_array<double, 2>>> references;
   for (unsigned i = 0; i < batchSize; i++) {
-    const auto [t, labelLength] =
-        getRandomSize(minRandomTime, fixedTime, maxTime, minRandomLabelLength,
-                      fixedLabelLength, maxLabelLength,
-                      disableAlwaysSatisfiableError, randRange);
+    const auto [t, labelLength] = getRandomSize(
+        minRandomTime, fixedTime, maxTime, minRandomLabelLength,
+        fixedLabelLength, maxLabelLength, disableAlwaysSatisfiableError, rand);
     tests.push_back(getRandomTestInput(t, maxTime, labelLength, maxLabelLength,
-                                       numClasses, blankClass, isLogits,
-                                       randRange));
+                                       numClasses, blankClass, isLogits, rand));
 
     if (verbose) {
       std::cout << "\nBatch:" << i << " Time:" << tests[i].inputLength

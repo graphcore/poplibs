@@ -152,9 +152,9 @@ template <typename FPType>
 std::pair<boost::multi_array<FPType, 2>, std::vector<unsigned>>
 getRandomTestInput(unsigned maxT, unsigned baseSequenceLength,
                    unsigned numClassesIncBlank, unsigned blankClass,
-                   unsigned seed) {
+                   RandomUtil &rand) {
   auto [input, label] = provideInputWithPath<FPType>(
-      baseSequenceLength, maxT, maxT, numClassesIncBlank, blankClass, seed);
+      baseSequenceLength, maxT, maxT, numClassesIncBlank, blankClass, rand);
 
   return {log::log(transpose(log::softMax(transpose(input)))), label};
 }
@@ -229,10 +229,9 @@ int main(int argc, char **argv) {
   // TODO: stop repeating defn
   const auto voidSymbol = std::numeric_limits<unsigned>::max();
 
-  std::mt19937 gen;
-  gen.seed(seed);
+  RandomUtil rand{seed};
   auto [logProbs, label] = getRandomTestInput<float>(
-      maxT, *baseSequenceLength, numClassesIncBlank, blankClass, seed);
+      maxT, *baseSequenceLength, numClassesIncBlank, blankClass, rand);
   if (verbose) {
     std::cout << "\nLabel:\n";
     print(label, blankClass);
