@@ -13,7 +13,6 @@
 #include "poputil/OptionParsing.hpp"
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/ContiguousRegionsByTile.hpp>
-#include <poplibs_support/Trace.hpp>
 #include <poplibs_support/print.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
@@ -697,16 +696,13 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
                       program::Sequence &prog,
                       const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
-  trace(graph, {"popops::reduceWithOutput", debugPrefix}, [&] {
-    POPOPS_TRACEPOINT();
-    poputil::PoplibsOpDebugInfo di(debugContext,
-                                   DI_ARGS(in, out_, dims, params, options));
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(in, out_, dims, params, options));
 
-    boost::optional<Tensor> out = out_;
-    reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
-                              prog, {di}, options);
-  });
+  boost::optional<Tensor> out = out_;
+  reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
+                            prog, {di}, options);
 }
 
 Tensor reduce(Graph &graph, const Tensor &in,

@@ -5,7 +5,6 @@
 #include "MatMulInternal.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/StructHelper.hpp"
-#include "poplibs_support/Trace.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvPreplan.hpp"

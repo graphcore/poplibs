@@ -28,7 +28,7 @@ add_library(poplibs_support STATIC
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/StructHelper.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/TestDevice.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileHierarchy.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/Trace.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/Tracepoint.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/VectorUtils.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/vv_iterator.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/popopsPerformanceEstimation.hpp

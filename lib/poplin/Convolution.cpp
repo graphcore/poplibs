@@ -17,7 +17,6 @@
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
-#include "poplibs_support/Trace.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
@@ -1406,35 +1405,29 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
 Tensor createInput(Graph &graph, const Plan &plan,
                    const CanonicalConvParams &params,
                    const DebugNameAndId &dnai, const ConvOptions &options) {
-  return trace(graph, "poplin::createInput(planned)", [&] {
-    const unsigned level = 0;
-    bool serial = true;
-    const std::vector<Split<ConvIndices>> indices;
-    auto input = createInputImpl(graph, params, level, serial, indices, {dnai},
-                                 plan, options);
-    input = actsToExternalShape(input);
-    return input;
-  });
+  const unsigned level = 0;
+  bool serial = true;
+  const std::vector<Split<ConvIndices>> indices;
+  auto input = createInputImpl(graph, params, level, serial, indices, {dnai},
+                               plan, options);
+  input = actsToExternalShape(input);
+  return input;
 }
 
 Tensor createInput(Graph &graph, const ConvParams &params_,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
   POPLIN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(params_, options_, cache), "createInput");
 
-  const auto name = debugContext.getPathName();
-  return trace(graph, {"poplin::createInput", name}, [&] {
-    poputil::PoplibsOpDebugInfo di(
-        debugContext, DI_ARGS(params_, options_, cache), "createInput");
+  const CanonicalConvParams params(params_);
+  const ConvOptions options(options_);
 
-    const CanonicalConvParams params(params_);
-    const ConvOptions options(options_);
-
-    const auto plan = getPlan(graph, graph.getTarget(), params, options, cache);
-    auto output = createInput(graph, plan, params, {di}, options);
-    di.addOutput(output);
-    return output;
-  });
+  const auto plan = getPlan(graph.getTarget(), params, options, cache);
+  auto output = createInput(graph, plan, params, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
@@ -1537,14 +1530,12 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
 Tensor createWeights(Graph &graph, const Plan &plan,
                      const CanonicalConvParams &params,
                      const DebugNameAndId &dnai, const ConvOptions &options) {
-  return trace(graph, "poplin::createWeights(planned)", [&] {
-    const unsigned level = 0;
-    bool serial = true;
-    const std::vector<Split<ConvIndices>> indices;
-    auto weights = createWeightsImpl(graph, params, level, serial, indices,
-                                     {dnai}, plan, options);
-    return weightsToExternalShape(weights);
-  });
+  const unsigned level = 0;
+  bool serial = true;
+  const std::vector<Split<ConvIndices>> indices;
+  auto weights = createWeightsImpl(graph, params, level, serial, indices,
+                                   {dnai}, plan, options);
+  return weightsToExternalShape(weights);
 }
 
 Tensor createWeights(Graph &graph, const ConvParams &params_,
@@ -1552,20 +1543,16 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
                      const poplar::OptionFlags &options_,
                      PlanningCache *cache) {
   POPLIN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(params_, options_, cache), "createWeights");
 
-  const auto name = debugContext.getPathName();
-  return trace(graph, {"poplin::createWeights", name}, [&] {
-    poputil::PoplibsOpDebugInfo di(
-        debugContext, DI_ARGS(params_, options_, cache), "createWeights");
+  const CanonicalConvParams params(params_);
+  const ConvOptions options(options_);
 
-    const CanonicalConvParams params(params_);
-    const ConvOptions options(options_);
-
-    const auto plan = getPlan(graph, graph.getTarget(), params, options, cache);
-    auto output = createWeights(graph, plan, params, {di}, options);
-    di.addOutput(output);
-    return output;
-  });
+  const auto plan = getPlan(graph.getTarget(), params, options, cache);
+  auto output = createWeights(graph, plan, params, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
@@ -1607,20 +1594,15 @@ static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
 poplar::Tensor createBiases(poplar::Graph &graph, const Tensor &acts_,
                             const poplar::DebugContext &debugContext) {
   POPLIN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts_), "createBiases");
 
-  const auto name = debugContext.getPathName();
-  return trace(graph, {"poplin::createBiases", name}, [&] {
-    poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts_),
-                                   "createBiases");
-
-    const auto acts = actsToInternalShape(acts_, 1, acts_.dim(1));
-    const auto numOutChans = acts.dim(acts.rank() - 1);
-    const auto dType = acts.elementType();
-    auto biases = graph.addVariable(dType, {numOutChans}, {di});
-    mapBiases(graph, biases, acts);
-    di.addOutput(biases);
-    return biases;
-  });
+  const auto acts = actsToInternalShape(acts_, 1, acts_.dim(1));
+  const auto numOutChans = acts.dim(acts.rank() - 1);
+  const auto dType = acts.elementType();
+  auto biases = graph.addVariable(dType, {numOutChans}, {di});
+  mapBiases(graph, biases, acts);
+  di.addOutput(biases);
+  return biases;
 }
 
 Tensor sliceOutput(const Tensor &out, const ConvSlice &slice,
@@ -2623,18 +2605,16 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const CanonicalConvParams &params,
                    bool transposeAndFlipWeights, ConvProgramTree &cpt,
                    const DebugNameAndId &dnai, const ConvOptions &options) {
-  return trace(graph, "poplin::convolution(planned)", [&] {
-    logging::poplin::info("convolution");
-    logging::poplin::info("  pass={}, name=\"{}\"", options.pass,
-                          dnai.getPathName());
-    log(2, *params);
+  logging::poplin::info("convolution");
+  logging::poplin::info("  pass={}, name=\"{}\"", options.pass,
+                        dnai.getPathName());
+  log(2, *params);
 
-    auto output =
-        convolutionInternal(graph, in, weights, plan, params,
-                            transposeAndFlipWeights, cpt, {dnai}, options);
+  auto output =
+      convolutionInternal(graph, in, weights, plan, params,
+                          transposeAndFlipWeights, cpt, {dnai}, options);
 
-    return output;
-  });
+  return output;
 }
 
 Tensor convolution(Graph &graph, const poplar::Tensor &in,
@@ -2643,31 +2623,27 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
   POPLIN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(in, weights, params_, transposeAndFlipWeights, options_, cache),
+      "convolution");
 
-  const auto debugPrefix = debugContext.getPathName();
-  return trace(graph, {"poplin::convolution", debugPrefix}, [&] {
-    poputil::PoplibsOpDebugInfo di(
-        debugContext,
-        DI_ARGS(in, weights, params_, transposeAndFlipWeights, options_, cache),
-        "convolution");
+  const CanonicalConvParams params(params_);
+  const ConvOptions options(options_);
 
-    const CanonicalConvParams params(params_);
-    const ConvOptions options(options_);
+  const std::string layerName = "Conv_" + convSuffix(params);
+  poplar::ProfileValue::Map pv;
+  const auto plan = getPlan(graph.getTarget(), params, options, cache, &pv);
+  ConvProgramTree cpt(graph, plan, {di, layerName});
+  di.add("planInfo", pv);
 
-    const std::string layerName = "Conv_" + convSuffix(params);
-    poplar::ProfileValue::Map pv;
-    const auto plan = getPlan(graph.getTarget(), params, options, cache, &pv);
-    ConvProgramTree cpt(graph, plan, {di, layerName});
-    di.add("planInfo", pv);
+  auto out =
+      convolution(graph, in, weights, plan, params, transposeAndFlipWeights,
+                  cpt, {di, layerName}, options);
 
-    auto out =
-        convolution(graph, in, weights, plan, params, transposeAndFlipWeights,
-                    cpt, {di, layerName}, options);
-
-    cpt.lower(graph, prog, options.insertTransformsCycleCountProgs, {di});
-    di.addOutput(out);
-    return out;
-  });
+  cpt.lower(graph, prog, options.insertTransformsCycleCountProgs, {di});
+  di.addOutput(out);
+  return out;
 }
 
 static uint64_t getFlops(const ConvParams &params) {
@@ -2825,21 +2801,15 @@ void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
                                  const poplar::DebugContext &debugContext,
                                  const poplar::OptionFlags &options_) {
   POPLIN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(weightsInUnGrouped, weightsOutUnGrouped, options_),
+      "weightsTransposeChansFlipXY");
 
-  const auto debugPrefix = debugContext.getPathName();
-  return trace(
-      graph, {"poplin::weightsTransposeChansFlipXY", debugPrefix}, [&] {
-        poputil::PoplibsOpDebugInfo di(
-            debugContext,
-            DI_ARGS(weightsInUnGrouped, weightsOutUnGrouped, options_),
-            "weightsTransposeChansFlipXY");
-
-        const ConvOptions options(options_);
-        ConvProgramTree cpt(graph, {di, "WeightsTranspose"});
-        weightsTransposeChansFlipXY(graph, weightsInUnGrouped,
-                                    weightsOutUnGrouped, cpt, {di});
-        cpt.lower(graph, prog, options.insertTransformsCycleCountProgs, {di});
-      });
+  const ConvOptions options(options_);
+  ConvProgramTree cpt(graph, {di, "WeightsTranspose"});
+  weightsTransposeChansFlipXY(graph, weightsInUnGrouped, weightsOutUnGrouped,
+                              cpt, {di});
+  cpt.lower(graph, prog, options.insertTransformsCycleCountProgs, {di});
 }
 
 ConvParams getWeightUpdateParams(const ConvParams &fwdParams_) {
@@ -2894,47 +2864,43 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                              ConvProgramTree &cpt, const DebugNameAndId &dnai,
                              const ConvOptions &wuOptions) {
   POPLIN_TRACEPOINT();
+  const auto fwdNumConvGroups = wuParams->numConvGroups;
+  const auto fwdOutChans = wuParams->outputChannelsPerConvGroup;
+  const auto fwdInChans = wuParams->batchSize;
 
-  return trace(graph, "poplin::calculateWeightDeltas(planned)", [&] {
-    const auto fwdNumConvGroups = wuParams->numConvGroups;
-    const auto fwdOutChans = wuParams->outputChannelsPerConvGroup;
-    const auto fwdInChans = wuParams->batchSize;
+  // [G][N]...[Co]
+  auto zDeltas = actsToInternalShape(zDeltas_, fwdNumConvGroups, fwdOutChans);
 
-    // [G][N]...[Co]
-    auto zDeltas = actsToInternalShape(zDeltas_, fwdNumConvGroups, fwdOutChans);
+  // [G][N]...[Ci]
+  auto activations =
+      actsToInternalShape(activations_, fwdNumConvGroups, fwdInChans);
 
-    // [G][N]...[Ci]
-    auto activations =
-        actsToInternalShape(activations_, fwdNumConvGroups, fwdInChans);
+  // The weight update is equivalent to a convolution where:
+  // - wu conv groups = fwd conv groups
+  // - wu batch size = fwd input channels
+  // - wu input channels = fwd batch size
+  // - wu height = fwd height
+  // - wu width = fwd width
+  // - wu output channels = fwd output channels
 
-    // The weight update is equivalent to a convolution where:
-    // - wu conv groups = fwd conv groups
-    // - wu batch size = fwd input channels
-    // - wu input channels = fwd batch size
-    // - wu height = fwd height
-    // - wu width = fwd width
-    // - wu output channels = fwd output channels
+  // [G][C]...[N]
+  auto activationsRearranged = activations.dimShufflePartial(
+      {1, activations.rank() - 1}, {activations.rank() - 1, 1});
 
-    // [G][C]...[N]
-    auto activationsRearranged = activations.dimShufflePartial(
-        {1, activations.rank() - 1}, {activations.rank() - 1, 1});
+  // Acts[G][C][N]... or Weights[G][OC][IC]...
+  auto deltasRearranged = zDeltas.dimShufflePartial({zDeltas.rank() - 1}, {1});
 
-    // Acts[G][C][N]... or Weights[G][OC][IC]...
-    auto deltasRearranged =
-        zDeltas.dimShufflePartial({zDeltas.rank() - 1}, {1});
+  // [N][G * C]...
+  auto weightDeltas = convolution(
+      graph, actsToExternalShape(activationsRearranged), deltasRearranged,
+      wuPlan, wuParams, false, cpt, {dnai}, wuOptions);
 
-    // [N][G * C]...
-    auto weightDeltas = convolution(
-        graph, actsToExternalShape(activationsRearranged), deltasRearranged,
-        wuPlan, wuParams, false, cpt, {dnai}, wuOptions);
+  // [G][C]...[N]
+  weightDeltas =
+      actsToInternalShape(weightDeltas, fwdNumConvGroups, fwdOutChans);
 
-    // [G][C]...[N]
-    weightDeltas =
-        actsToInternalShape(weightDeltas, fwdNumConvGroups, fwdOutChans);
-
-    return weightsToExternalShape(
-        weightDeltas.dimShufflePartial({1}, {weightDeltas.rank() - 1}));
-  });
+  return weightsToExternalShape(
+      weightDeltas.dimShufflePartial({1}, {weightDeltas.rank() - 1}));
 }
 
 Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
@@ -2944,28 +2910,24 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                              const poplar::OptionFlags &fwdOptions_,
                              PlanningCache *cache) {
   POPLIN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(zDeltas_, activations_, fwdParams_, fwdOptions_, cache),
+      "calculateWeightDeltas");
 
-  const auto debugPrefix = debugContext.getPathName();
-  return trace(graph, {"poplin::calculateWeightDeltas", debugPrefix}, [&] {
-    poputil::PoplibsOpDebugInfo di(
-        debugContext,
-        DI_ARGS(zDeltas_, activations_, fwdParams_, fwdOptions_, cache),
-        "calculateWeightDeltas");
+  const CanonicalConvParams wuParams = getWeightUpdateParams(fwdParams_);
+  const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
+  const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
-    const CanonicalConvParams wuParams = getWeightUpdateParams(fwdParams_);
-    const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
-    const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
+  const std::string layerName = "Conv_" + convSuffix(wuParams);
+  ConvProgramTree cpt(graph, wuPlan, {di, layerName});
 
-    const std::string layerName = "Conv_" + convSuffix(wuParams);
-    ConvProgramTree cpt(graph, wuPlan, {di, layerName});
+  auto out = calculateWeightDeltas(graph, zDeltas_, activations_, wuPlan,
+                                   wuParams, cpt, {di}, wuOptions);
 
-    auto out = calculateWeightDeltas(graph, zDeltas_, activations_, wuPlan,
-                                     wuParams, cpt, {di}, wuOptions);
-
-    cpt.lower(graph, prog, wuOptions.insertTransformsCycleCountProgs, {di});
-    di.addOutput(out);
-    return out;
-  });
+  cpt.lower(graph, prog, wuOptions.insertTransformsCycleCountProgs, {di});
+  di.addOutput(out);
+  return out;
 }
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
@@ -2974,15 +2936,13 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const Tensor &scale, ConvProgramTree &cpt,
                              const DebugNameAndId &dnai,
                              const ConvOptions &wuOptions) {
-  trace(graph, "poplin::convolutionWeightUpdate(planned, scale=tensor)", [&] {
-    auto weightDeltas = calculateWeightDeltas(
-        graph, zDeltas, activations, wuPlan, wuParams, cpt, dnai, wuOptions);
+  auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, wuPlan,
+                                            wuParams, cpt, dnai, wuOptions);
 
-    // update weights
-    assert(weightDeltas.shape() == weights.shape());
-    popops::scaledAddTo(graph, weights, weightDeltas, scale, cpt.finalizeProg,
-                        {dnai, "UpdateWeights"});
-  });
+  // update weights
+  assert(weightDeltas.shape() == weights.shape());
+  popops::scaledAddTo(graph, weights, weightDeltas, scale, cpt.finalizeProg,
+                      {dnai, "UpdateWeights"});
 }
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
@@ -2992,31 +2952,24 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &fwdOptions_,
                              PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  trace(graph, {"poplin::convolutionWeightUpdate(scale=tensor)", debugPrefix},
-        [&] {
-          poputil::PoplibsOpDebugInfo di(
-              debugContext, DI_ARGS(zDeltas, weights, activations, scale,
-                                    fwdParams, fwdOptions_, cache));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(zDeltas, weights, activations, scale,
+                                         fwdParams, fwdOptions_, cache));
 
-          // Adjust params so that weightDelta is of inputType without needing
-          // to cast.
-          fwdParams.outputType = fwdParams.inputType;
+  // Adjust params so that weightDelta is of inputType without needing
+  // to cast.
+  fwdParams.outputType = fwdParams.inputType;
 
-          const CanonicalConvParams wuParams =
-              getWeightUpdateParams(std::move(fwdParams));
-          const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
-          const auto wuPlan =
-              getPlan(graph.getTarget(), wuParams, wuOptions, cache);
+  const CanonicalConvParams wuParams =
+      getWeightUpdateParams(std::move(fwdParams));
+  const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
+  const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
-          ConvProgramTree cpt(graph, wuPlan, {di});
+  ConvProgramTree cpt(graph, wuPlan, {di});
 
-          convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
-                                  std::move(wuParams), scale, cpt, {di},
-                                  wuOptions);
-          cpt.lower(graph, prog, wuOptions.insertTransformsCycleCountProgs,
-                    {di});
-        });
+  convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
+                          std::move(wuParams), scale, cpt, {di}, wuOptions);
+  cpt.lower(graph, prog, wuOptions.insertTransformsCycleCountProgs, {di});
 }
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
@@ -3025,20 +2978,18 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              float scale, ConvProgramTree &cpt,
                              const DebugNameAndId &dnai,
                              const ConvOptions &wuOptions) {
-  trace(graph, "poplin::convolutionWeightUpdate(planned, scale=float)", [&] {
-    auto weightDeltas = calculateWeightDeltas(
-        graph, zDeltas, activations, wuPlan, wuParams, cpt, {dnai}, wuOptions);
+  auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, wuPlan,
+                                            wuParams, cpt, {dnai}, wuOptions);
 
-    // Add the weight deltas to the weights.
-    assert(weightDeltas.shape() == weights.shape());
-    const auto maybeRegroupedWeightDeltas =
-        popops::rearrange::regroupIfBeneficial(graph, weightDeltas, weights,
-                                               cpt.finalizeProg,
-                                               {dnai, "regroupGradds"});
+  // Add the weight deltas to the weights.
+  assert(weightDeltas.shape() == weights.shape());
+  const auto maybeRegroupedWeightDeltas =
+      popops::rearrange::regroupIfBeneficial(graph, weightDeltas, weights,
+                                             cpt.finalizeProg,
+                                             {dnai, "regroupGradds"});
 
-    popops::scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale,
-                        cpt.finalizeProg, {dnai, "UpdateWeights"});
-  });
+  popops::scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale,
+                      cpt.finalizeProg, {dnai, "UpdateWeights"});
 }
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
@@ -3047,31 +2998,24 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &fwdOptions_,
                              PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  trace(graph, {"poplin::convolutionWeightUpdate(scale=float)", debugPrefix},
-        [&] {
-          poputil::PoplibsOpDebugInfo di(
-              debugContext, DI_ARGS(zDeltas, weights, activations, fwdParams,
-                                    scale, fwdOptions_, cache));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(zDeltas, weights, activations,
+                                         fwdParams, scale, fwdOptions_, cache));
 
-          // Adjust params so that weightDelta is of inputType without needing
-          // to cast.
-          fwdParams.outputType = fwdParams.inputType;
+  // Adjust params so that weightDelta is of inputType without needing
+  // to cast.
+  fwdParams.outputType = fwdParams.inputType;
 
-          const CanonicalConvParams wuParams =
-              getWeightUpdateParams(std::move(fwdParams));
-          const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
-          const auto wuPlan =
-              getPlan(graph.getTarget(), wuParams, wuOptions, cache);
+  const CanonicalConvParams wuParams =
+      getWeightUpdateParams(std::move(fwdParams));
+  const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
+  const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
-          ConvProgramTree cpt(graph, wuPlan, {di});
+  ConvProgramTree cpt(graph, wuPlan, {di});
 
-          convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
-                                  std::move(wuParams), scale, cpt, {di},
-                                  wuOptions);
-          cpt.lower(graph, prog, wuOptions.insertTransformsCycleCountProgs,
-                    {di});
-        });
+  convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
+                          std::move(wuParams), scale, cpt, {di}, wuOptions);
+  cpt.lower(graph, prog, wuOptions.insertTransformsCycleCountProgs, {di});
 }
 
 // Add a program to update the biases tensor with the gradients derived
@@ -3080,64 +3024,49 @@ void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                            const Tensor &biases, const Tensor &scale,
                            const poplar::OptionFlags &options_, Sequence &prog,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  trace(graph, {"poplin::convolutionBiasUpdate(scale=tensor)", debugPrefix},
-        [&] {
-          poputil::PoplibsOpDebugInfo di(
-              debugContext, DI_ARGS(zDeltasUngrouped, biases, scale, options_));
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(zDeltasUngrouped, biases, scale, options_));
 
-          const ConvOptions options(options_);
-          if (zDeltasUngrouped.rank() < 2)
-            throw poplibs_error(
-                "convolutionBiasUpdate with rank " +
-                std::to_string(zDeltasUngrouped.rank()) +
-                "; must have at least channel and batch dimensions");
+  const ConvOptions options(options_);
+  if (zDeltasUngrouped.rank() < 2)
+    throw poplibs_error("convolutionBiasUpdate with rank " +
+                        std::to_string(zDeltasUngrouped.rank()) +
+                        "; must have at least channel and batch dimensions");
 
-          std::vector<std::size_t> reduceDims(zDeltasUngrouped.rank() - 1);
-          std::iota(reduceDims.begin() + 1, reduceDims.end(), 2);
+  std::vector<std::size_t> reduceDims(zDeltasUngrouped.rank() - 1);
+  std::iota(reduceDims.begin() + 1, reduceDims.end(), 2);
 
-          popops::reduceWithOutput(
-              graph, zDeltasUngrouped, biases, reduceDims,
-              {popops::Operation::ADD, true, scale}, prog, {di, "BiasUpdate"},
-              {{"accumType.interTile", options.partialsType.toString()},
-               {"accumType.inVertex", options.partialsType.toString()}});
-        });
+  popops::reduceWithOutput(
+      graph, zDeltasUngrouped, biases, reduceDims,
+      {popops::Operation::ADD, true, scale}, prog, {di, "BiasUpdate"},
+      {{"accumType.interTile", options.partialsType.toString()},
+       {"accumType.inVertex", options.partialsType.toString()}});
 }
 
 void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                            const Tensor &biases, float scale,
                            const poplar::OptionFlags &options_, Sequence &prog,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  trace(graph, {"poplin::convolutionBiasUpdate(scale=float)", debugPrefix},
-        [&] {
-          poputil::PoplibsOpDebugInfo di(
-              debugContext, DI_ARGS(zDeltasUngrouped, biases, scale, options_));
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(zDeltasUngrouped, biases, scale, options_));
 
-          auto scaleTensor =
-              graph.addConstant(FLOAT, {}, scale, {di, "scaleTensor"});
-          graph.setTileMapping(scaleTensor, 0);
-          convolutionBiasUpdate(graph, zDeltasUngrouped, biases, scaleTensor,
-                                options_, prog, {di, "ConstLearning"});
-        });
+  auto scaleTensor = graph.addConstant(FLOAT, {}, scale, {di, "scaleTensor"});
+  graph.setTileMapping(scaleTensor, 0);
+  convolutionBiasUpdate(graph, zDeltasUngrouped, biases, scaleTensor, options_,
+                        prog, {di, "ConstLearning"});
 }
 
 void addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
              Sequence &prog, const poplar::DebugContext &debugContext) {
   POPLIN_TRACEPOINT();
+  if (acts.rank() < 2) {
+    throw poplibs_error("Expected at least a batch size and channel dimension");
+  }
 
-  const auto debugPrefix = debugContext.getPathName();
-  trace(graph, {"poplin::addBias", debugPrefix}, [&] {
-    if (acts.rank() < 2) {
-      throw poplibs_error(
-          "Expected at least a batch size and channel dimension");
-    }
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts, biases));
 
-    poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts, biases));
-
-    std::vector<std::size_t> broadcastBiases(acts.rank() - 2, 1);
-    popops::addInPlace(graph, acts, biases.expand(broadcastBiases), prog, {di});
-  });
+  std::vector<std::size_t> broadcastBiases(acts.rank() - 2, 1);
+  popops::addInPlace(graph, acts, biases.expand(broadcastBiases), prog, {di});
 }
 
 static ConvParams
@@ -3346,11 +3275,9 @@ static Tensor fullyConnectedWeightTranspose(
   }
   auto fwdParams = getFullyConnectedFwdParamsFromBwdParams(bwdParams);
   auto splitWeights = weightsToInternalShape(weights);
-  auto bwdPlan =
-      getPlan(graph, graph.getTarget(), bwdParams, bwdOptions, cache);
+  auto bwdPlan = getPlan(graph.getTarget(), bwdParams, bwdOptions, cache);
   auto fwdOptions = getFullyConnectedFwdOptionsFromBwdOptions(bwdOptions);
-  auto fwdPlan =
-      getPlan(graph, graph.getTarget(), fwdParams, fwdOptions, cache);
+  auto fwdPlan = getPlan(graph.getTarget(), fwdParams, fwdOptions, cache);
   Tensor transposed = createWeights(graph, bwdPlan, bwdParams,
                                     {dnai, "transposed"}, bwdOptions);
   auto splitTransposed = weightsToInternalShape(transposed);
@@ -3401,20 +3328,15 @@ Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor weights,
                                      const poplar::OptionFlags &options_,
                                      PlanningCache *cache) {
   POPLIN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(weights, params_, options_, cache),
+                                 "fullyConnectedWeightTranspose");
 
-  const auto debugPrefix = debugContext.getPathName();
-  return trace(graph, {"poplin::fullyConnectedWeightTranspose", debugPrefix},
-               [&] {
-                 poputil::PoplibsOpDebugInfo di(
-                     debugContext, DI_ARGS(weights, params_, options_, cache),
-                     "fullyConnectedWeightTranspose");
-
-                 const ConvOptions options(options_);
-                 auto output = fullyConnectedWeightTranspose(
-                     graph, weights, params_, prog, {di}, options, cache);
-                 di.addOutput(output);
-                 return output;
-               });
+  const ConvOptions options(options_);
+  auto output = fullyConnectedWeightTranspose(graph, weights, params_, prog,
+                                              {di}, options, cache);
+  di.addOutput(output);
+  return output;
 }
 
 std::tuple<unsigned, unsigned, unsigned>

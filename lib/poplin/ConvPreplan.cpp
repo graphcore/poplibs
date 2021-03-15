@@ -2,7 +2,6 @@
 #include "poplin/ConvPreplan.hpp"
 #include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
-#include "poplibs_support/Trace.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/Convolution.hpp"
@@ -49,8 +48,7 @@ void preplanConvolutions(poplar::Graph &graph,
                          PlanningCache &cache) {
   logging::poplin::warn("poplin::preplanConvolution() is deprecated! "
                         "Use poplin::preplan() instead");
-  poplibs_support::trace(graph, "poplin::preplanConvolutions",
-                         [&] { preplan(convs, {}, cache); });
+  preplan(convs, {}, cache);
 }
 
 void preplanConvolutions(const std::set<ConvPlanParams> &convs,
