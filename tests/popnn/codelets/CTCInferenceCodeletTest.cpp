@@ -3,6 +3,7 @@
 
 #include "CTCInferenceGenerateCandidates.hpp"
 #include "CTCInferenceMergeCandidates.hpp"
+#include "CTCInferenceSelectCandidates.hpp"
 
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
@@ -44,17 +45,15 @@ using namespace poputil;
 #define FLOAT_ABS_TOL 1e-6
 #define HALF_ABS_TOL 1e-5
 
-enum class VertexType { GENERATE, MERGE, SORT, PRUNE, UPDATE };
+enum class VertexType { GENERATE, MERGE, SELECT, UPDATE };
 
 std::ostream &operator<<(std::ostream &os, const VertexType &test) {
   if (test == VertexType::GENERATE) {
     return os << "generate";
   } else if (test == VertexType::MERGE) {
     return os << "merge";
-  } else if (test == VertexType::SORT) {
-    return os << "sort";
-  } else if (test == VertexType::PRUNE) {
-    return os << "prune";
+  } else if (test == VertexType::SELECT) {
+    return os << "select";
   } else if (test == VertexType::UPDATE) {
     return os << "update";
   } else {
@@ -69,10 +68,8 @@ std::istream &operator>>(std::istream &is, VertexType &test) {
     test = VertexType::GENERATE;
   } else if (token == "merge") {
     test = VertexType::MERGE;
-  } else if (token == "sort") {
-    test = VertexType::SORT;
-  } else if (token == "prune") {
-    test = VertexType::PRUNE;
+  } else if (token == "select") {
+    test = VertexType::SELECT;
   } else if (token == "update") {
     test = VertexType::UPDATE;
   } else {
@@ -183,7 +180,7 @@ int main(int argc, char **argv) {
     ("seed", po::value(&seed)->default_value(seed),
      "Seed used for random number generators")
     ("vertex-type", po::value(&vertexType)->default_value(vertexType),
-     "Vertex type to test: generate, merge, sort, prune, update")
+     "Vertex type to test: generate, merge, select, update")
     ("in-type", po::value(&inType)->default_value(inType),
      "Vertex input data type")
     ("partials-type", po::value(&partialsType)->default_value(partialsType),
@@ -232,6 +229,7 @@ int main(int argc, char **argv) {
   RandomUtil rand{seed};
   auto [logProbs, label] = getRandomTestInput<float>(
       maxT, *baseSequenceLength, numClassesIncBlank, blankClass, rand);
+
   if (verbose) {
     std::cout << "\nLabel:\n";
     print(label, blankClass);
@@ -348,6 +346,36 @@ int main(int argc, char **argv) {
         print(candidates, voidSymbol);
         std::cerr << "\nExpected:\n";
         print(paddedModelMergedCandidates, voidSymbol);
+      } else {
+        std::cerr << "Data mismatch\n";
+      }
+      return 1;
+    }
+    return 0;
+  }
+
+  if (vertexType == VertexType::SELECT) {
+    const auto sortedCandidates = runSelectCandidatesCodelet<float>(
+        graph, device, deviceType, partialsType, modelMergedCandidates,
+        beamwidth, profile);
+
+    if (verbose) {
+      std::cerr << "\nPreviously merged candidates:\n";
+      print(modelMergedCandidates, voidSymbol);
+      std::cout << "\nOutput:\n";
+      print(sortedCandidates, voidSymbol);
+      std::cout << "\nModel:\n";
+      print(modelPrunedCandidates, voidSymbol);
+    }
+
+    if (!candidatesAreClose(sortedCandidates, modelPrunedCandidates,
+                            relTolerance)) {
+      if (!verbose) {
+        std::cerr << "\nMismatch:\n";
+        std::cerr << "\nActual:\n";
+        print(sortedCandidates, voidSymbol);
+        std::cerr << "\nExpected:\n";
+        print(modelPrunedCandidates, voidSymbol);
       } else {
         std::cerr << "Data mismatch\n";
       }

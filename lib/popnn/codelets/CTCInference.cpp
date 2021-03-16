@@ -270,4 +270,72 @@ template class MergeCandidates<float, float, unsigned>;
 template class MergeCandidates<half, float, unsigned>;
 template class MergeCandidates<half, half, unsigned>;
 
+template <typename PartialsType, typename SymbolType>
+class SelectCandidates : public Vertex {
+
+public:
+  SelectCandidates();
+
+  // [beamwidth * (1 + numClasses)] -> per beam (copy + extend)
+  InOut<Vector<unsigned, ONE_PTR>> candidateParent;
+  InOut<Vector<SymbolType, ONE_PTR>> candidateAddend;
+  InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
+  InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
+
+  // Scratch space to store Pt
+  // TODO Consider doing this ahead of time if sorting is not very parallel
+  Output<Vector<PartialsType, ONE_PTR>> candidateProbTotalScratch;
+
+  const unsigned beamwidth;
+  const unsigned totalCandidates;
+
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute() {
+    // Precondition - candidates to be padded by previous codelets or memory
+    // suitably initialized (probability zero)
+    assert(beamwidth <= totalCandidates);
+
+    for (unsigned i = 0; i < totalCandidates; i++) {
+      candidateProbTotalScratch[i] =
+          logAdd(candidateBeamProbNonBlank[i], candidateBeamProbBlank[i]);
+    }
+
+    for (unsigned b = 0; b < beamwidth; b++) {
+      unsigned maxIdx = b;
+      PartialsType max = candidateProbTotalScratch[b];
+      for (unsigned i = b; i < totalCandidates; i++) {
+        const auto cmp = candidateProbTotalScratch[i];
+        if (cmp > max) {
+          maxIdx = i;
+          max = cmp;
+        }
+      }
+
+      unsigned tmpParent = candidateParent[b];
+      SymbolType tmpAddend = candidateAddend[b];
+      PartialsType tmpBeamProbNonBlank = candidateBeamProbNonBlank[b];
+      PartialsType tmpBeamProbBlank = candidateBeamProbBlank[b];
+      PartialsType tmpProbTotalScratch = candidateProbTotalScratch[b];
+
+      candidateParent[b] = candidateParent[maxIdx];
+      candidateAddend[b] = candidateAddend[maxIdx];
+      candidateBeamProbNonBlank[b] = candidateBeamProbNonBlank[maxIdx];
+      candidateBeamProbBlank[b] = candidateBeamProbBlank[maxIdx];
+      candidateProbTotalScratch[b] = candidateProbTotalScratch[maxIdx];
+
+      candidateParent[maxIdx] = tmpParent;
+      candidateAddend[maxIdx] = tmpAddend;
+      candidateBeamProbNonBlank[maxIdx] = tmpBeamProbNonBlank;
+      candidateBeamProbBlank[maxIdx] = tmpBeamProbBlank;
+      candidateProbTotalScratch[maxIdx] = tmpProbTotalScratch;
+    }
+
+    return true;
+  }
+};
+
+template class SelectCandidates<float, unsigned>;
+template class SelectCandidates<half, unsigned>;
+
 } // namespace popnn
