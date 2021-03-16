@@ -84,11 +84,6 @@ endif()
 message("Default test variants: ${DEFAULT_TEST_VARIANTS}")
 message("Enabled test variants: ${ENABLED_TEST_VARIANTS}")
 
-set(ENABLED_BENCHMARK_VARIANTS "${IPUMODEL_VARIANTS}" CACHE STRING
-      "Generate benchmarks for these devices and variants")
-
-message("Enabled benchmark variants: ${ENABLED_BENCHMARK_VARIANTS}")
-
 # Enable colour output if the CLICOLOR_FORCE environment variable is set.
 if($ENV{CLICOLOR_FORCE})
   if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
