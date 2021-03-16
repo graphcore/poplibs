@@ -108,7 +108,7 @@ add_multi_target_test_executable(CTCInferenceCodeletTest
 
 foreach (SEED RANGE 1 5)
   foreach (TIMESTEP RANGE 0 14)
-    foreach (VERTEX generate merge select)
+    foreach (VERTEX generate_copy generate_extend merge select)
       add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${SEED}_timestep_${TIMESTEP}_${VERTEX}"
           COMMAND CTCInferenceCodeletTest
             --seed=${SEED}

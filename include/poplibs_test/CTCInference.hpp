@@ -79,6 +79,11 @@ template <typename FPType>
 std::vector<Candidate<FPType>>
 mergeEquivalentCandidates(const std::vector<Candidate<FPType>> &candidates,
                           const BeamHistory &beamHistory, bool useLog);
+
+template <typename FPType>
+std::vector<std::pair<unsigned, unsigned>>
+listMergeableCandidates(const std::vector<Candidate<FPType>> &candidates,
+                        const BeamHistory &beamHistory);
 template <typename FPType>
 std::vector<Candidate<FPType>>
 sortCandidates(const std::vector<Candidate<FPType>> &candidates, bool useLog);

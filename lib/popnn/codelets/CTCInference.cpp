@@ -23,10 +23,10 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 namespace popnn {
 
 template <typename InType, typename PartialsType, typename SymbolType>
-class GenerateCandidates : public Vertex {
+class CTCGenerateCopyCandidates : public Vertex {
 
 public:
-  GenerateCandidates();
+  CTCGenerateCopyCandidates();
   Input<Vector<InType, ONE_PTR>> logProbs; // [maxT, numClassIncBlank]
   Input<Vector<SymbolType, ONE_PTR>> lastBeamOutputs;    // [beamwidth]
   Input<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
@@ -35,15 +35,18 @@ public:
   // Index into logProbs for HEAD position
   Input<unsigned> currentTimestep;
 
-  // [beamwidth * (1 + numClasses)] -> per beam (copy + extend)
+  // Outputs have size[beamwidth], the vertex generates 0 to beamwidth
+  // candidates, the number of which is indicated in validCandidates
   Output<Vector<unsigned, ONE_PTR>> candidateParent;
   Output<Vector<SymbolType, ONE_PTR>> candidateAddend;
   Output<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
   Output<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
+  Output<unsigned> validCandidates;
 
   const unsigned numClassesIncBlank;
   const SymbolType blankClass;
   const unsigned beamwidth;
+  const unsigned addendSymbol;
 
   IS_EXTERNAL_CODELET(false);
 
@@ -58,7 +61,10 @@ public:
 
     for (unsigned beamIdx = 0; beamIdx < beamwidth; ++beamIdx) {
       const auto prevSymbol = lastBeamOutputs[beamIdx];
-
+      // Only create copy beams which will end in the designated symbol
+      if (prevSymbol != addendSymbol) {
+        continue;
+      }
       // Copy beams ---
       // Where we maintain the same beam output sequence
       // By appending a blank to beam ending in a blank
@@ -88,52 +94,94 @@ public:
         candidateBeamProbNonBlank[candidateIdx] = nonBlankProb;
       }
       candidateIdx++;
-
-      // Extend beams ---
-      // Where we extend a beam by adding a symbol
-      for (SymbolType s = 0; s < numClassesIncBlank; s++) {
-        if (s == blankClass) {
-          continue;
-        }
-        // Extending a beam ending in a blank with a non-blank symbol
-        // e.g. beam: "a-", addend: "a" -> output: "aa" (extended by the
-        // same symbol)
-        const auto addendProb =
-            static_cast<PartialsType>(logProbs[baseOffset + s]);
-        const auto extendingBlankProb =
-            logMul<PartialsType>(beamProbBlank[beamIdx], addendProb);
-
-        candidateParent[candidateIdx] = beamIdx;
-        candidateAddend[candidateIdx] = s;
-        candidateBeamProbNonBlank[candidateIdx] = extendingBlankProb;
-        candidateBeamProbBlank[candidateIdx] = log::probabilityZero;
-
-        // Extending a beam ending in a non-blank with a different
-        // non-blank symbol
-        // e.g. beam: "a", addend: "b" -> output: "ab"
-        if (prevSymbol != s) {
-          const auto extendingNonBlankProb =
-              logMul<PartialsType>(beamProbNonBlank[beamIdx], addendProb);
-          // Note: We don't need to create a new candidate as this will have the
-          // same output sequence as the previous extend beam candidate
-          // "(extended by a different symbol)". Here we append the new
-          // symbol which is different to the symbol the beam ended with to the
-          // non-blank beam.
-
-          candidateBeamProbNonBlank[candidateIdx] = logAdd<PartialsType>(
-              candidateBeamProbNonBlank[candidateIdx], extendingNonBlankProb);
-        }
-        candidateIdx++;
-      }
     }
 
+    *validCandidates = candidateIdx;
     return true;
   }
 };
 
-template class GenerateCandidates<float, float, unsigned>;
-template class GenerateCandidates<half, float, unsigned>;
-template class GenerateCandidates<half, half, unsigned>;
+template class CTCGenerateCopyCandidates<float, float, unsigned>;
+template class CTCGenerateCopyCandidates<half, float, unsigned>;
+template class CTCGenerateCopyCandidates<half, half, unsigned>;
+
+template <typename InType, typename PartialsType, typename SymbolType>
+class CTCGenerateExtendCandidates : public Vertex {
+
+public:
+  CTCGenerateExtendCandidates();
+  Input<Vector<InType, ONE_PTR>> logProbs; // [maxT, numClassIncBlank]
+  Input<Vector<SymbolType, ONE_PTR>> lastBeamOutputs;    // [beamwidth]
+  Input<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
+  Input<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
+
+  // Index into logProbs for HEAD position
+  Input<unsigned> currentTimestep;
+
+  // Outputs have size[beamwidth], the vertex generates beamwidth candidates
+  Output<Vector<unsigned, ONE_PTR>> candidateParent;
+  Output<Vector<SymbolType, ONE_PTR>> candidateAddend;
+  Output<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
+  Output<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
+
+  const unsigned numClassesIncBlank;
+  const SymbolType blankClass;
+  const unsigned beamwidth;
+  const unsigned addendSymbol;
+
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute() {
+    // TODO Stop duplicating this defn
+    const auto voidSymbol = std::numeric_limits<SymbolType>::max();
+
+    const unsigned baseOffset = (*currentTimestep) * numClassesIncBlank;
+    unsigned candidateIdx = 0;
+    const auto blankProb =
+        static_cast<PartialsType>(logProbs[baseOffset + blankClass]);
+
+    for (unsigned beamIdx = 0; beamIdx < beamwidth; ++beamIdx) {
+      const auto prevSymbol = lastBeamOutputs[beamIdx];
+
+      // Extend beams ---
+      // Extend the beam using addendSymbol
+      // Extending a beam ending in a blank with a non-blank symbol
+      // e.g. beam: "a-", addend: "a" -> output: "aa" (extended by the
+      // same symbol)
+      const auto addendProb =
+          static_cast<PartialsType>(logProbs[baseOffset + addendSymbol]);
+      const auto extendingBlankProb =
+          logMul<PartialsType>(beamProbBlank[beamIdx], addendProb);
+
+      candidateParent[candidateIdx] = beamIdx;
+      candidateAddend[candidateIdx] = addendSymbol;
+      candidateBeamProbNonBlank[candidateIdx] = extendingBlankProb;
+      candidateBeamProbBlank[candidateIdx] = log::probabilityZero;
+
+      // Extending a beam ending in a non-blank with a different
+      // non-blank symbol
+      // e.g. beam: "a", addend: "b" -> output: "ab"
+      if (prevSymbol != addendSymbol) {
+        const auto extendingNonBlankProb =
+            logMul<PartialsType>(beamProbNonBlank[beamIdx], addendProb);
+        // Note: We don't need to create a new candidate as this will have the
+        // same output sequence as the previous extend beam candidate
+        // "(extended by a different symbol)". Here we append the new
+        // symbol which is different to the symbol the beam ended with to the
+        // non-blank beam.
+
+        candidateBeamProbNonBlank[candidateIdx] = logAdd<PartialsType>(
+            candidateBeamProbNonBlank[candidateIdx], extendingNonBlankProb);
+      }
+      candidateIdx++;
+    }
+    return true;
+  }
+};
+
+template class CTCGenerateExtendCandidates<float, float, unsigned>;
+template class CTCGenerateExtendCandidates<half, float, unsigned>;
+template class CTCGenerateExtendCandidates<half, half, unsigned>;
 
 template <typename SymbolType>
 // return {Symbol, t, beam}
@@ -196,23 +244,29 @@ inline bool equivalentOutputSequence(SymbolType *beamAddend,
 }
 
 template <typename InType, typename PartialsType, typename SymbolType>
-class MergeCandidates : public Vertex {
+class CTCMergeCandidates : public Vertex {
 
 public:
-  MergeCandidates();
-  // [beamwidth * (1 + numClasses)]
-  InOut<Vector<unsigned, ONE_PTR>> candidateParent;
-  InOut<Vector<SymbolType, ONE_PTR>> candidateAddend;
-  InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
-  InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
+  CTCMergeCandidates();
+  // Shape/size of Inputs is [extendCandidates]
+  Input<Vector<unsigned, ONE_PTR>> extendCandidateParent;
+  Input<Vector<SymbolType, ONE_PTR>> extendCandidateAddend;
+  Input<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbNonBlank;
+  Input<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbBlank;
+
+  Input<unsigned> copyCandidateParent;
+  Input<SymbolType> copyCandidateAddend;
+  InOut<PartialsType> copyCandidateBeamProbNonBlank;
+  InOut<PartialsType> copyCandidateBeamProbBlank;
 
   Input<Vector<SymbolType, ONE_PTR>> beamAddend; // [maxT, beamwidth]
   Input<Vector<unsigned, ONE_PTR>> beamParent;   // [maxT, beamwidth]
 
   // Index into beamAddend/Parent for HEAD position
   Input<unsigned> currentTimestep;
+  Output<unsigned> invalidCandidate;
 
-  const unsigned totalCandidates;
+  const unsigned extendCandidates;
   const SymbolType blankClass;
   const unsigned beamwidth;
 
@@ -222,53 +276,56 @@ public:
     // TODO Stop duplicating this defn
     const auto voidSymbol = std::numeric_limits<SymbolType>::max();
 
+    // Flag as all valid until we merge
+    *invalidCandidate = extendCandidates;
     if (currentTimestep == 0) { // No beams are mergeable at t = 0
       return true;
     }
-    for (unsigned j = 0; j < totalCandidates; j++) {
-      for (unsigned i = j + 1; i < totalCandidates; i++) {
-        // The only way for candidates to become mergeable is if one is a copy
-        // beam (same output sequence from parent beam), and the other extension
-        // (of a different beam). This is from; if both candidates are copy, the
-        // output sequence of parent beams will be unchanged so not made
-        // equivalent. Or alternatively, both are extension, they will need to
-        // be from the same output sequence which means they cannot be extending
-        // by the same symbol and so not equivalent.
+    const unsigned parentLhs = *copyCandidateParent;
+    const unsigned addendLhs = *copyCandidateAddend;
 
-        const auto parentLhs = candidateParent[j];
-        const auto parentRhs = candidateParent[i];
-        const auto addendLhs = candidateAddend[j];
-        const auto addendRhs = candidateAddend[i];
+    // The only way for candidates to be mergeable is if one is a copy
+    // beam (same output sequence from parent beam), and the other extension
+    // (of a different beam). This is from; if both candidates are copy, the
+    // output sequence of parent beams will be unchanged so not made
+    // equivalent. Or alternatively, both are extension, they will need to
+    // be from the same output sequence which means they cannot be extending
+    // by the same symbol and so not equivalent.
+    //
+    // Here we compare a single copy beam to multiple extend beams.  There is a
+    // possibility of a merge if the beam parents are different, and only 1
+    // merge is possible
+    for (unsigned i = 0; i < extendCandidates; i++) {
 
-        if ((parentLhs == parentRhs) || // From the same beam
-            (addendLhs == voidSymbol && addendRhs == voidSymbol) || // Both copy
-            (addendLhs != voidSymbol &&
-             addendRhs != voidSymbol)) { // Both extend
-          continue;
-        }
+      const auto parentRhs = extendCandidateParent[i];
+      const auto addendRhs = extendCandidateAddend[i];
+      if (parentLhs == parentRhs) {
+        // From the same beam
+        continue;
+      }
 
-        // TODO: improve efficiency
-        if (equivalentOutputSequence(&(beamAddend[0]), &(beamParent[0]),
-                                     *currentTimestep, beamwidth, parentLhs,
-                                     addendLhs, parentRhs, addendRhs)) {
+      // TODO: improve efficiency by simplifting traceback mechanism, possibly
+      // with no voidSymbol, and therefore different length paths for each beam
+      if (equivalentOutputSequence(&(beamAddend[0]), &(beamParent[0]),
+                                   *currentTimestep, beamwidth, parentLhs,
+                                   addendLhs, parentRhs, addendRhs)) {
 
-          candidateBeamProbNonBlank[j] = logAdd(candidateBeamProbNonBlank[j],
-                                                candidateBeamProbNonBlank[i]);
-          candidateBeamProbBlank[j] =
-              logAdd(candidateBeamProbBlank[j], candidateBeamProbBlank[i]);
-
-          candidateBeamProbNonBlank[i] = log::probabilityZero;
-          candidateBeamProbBlank[i] = log::probabilityZero;
-        }
+        *copyCandidateBeamProbNonBlank = logAdd(
+            *copyCandidateBeamProbNonBlank, extendCandidateBeamProbNonBlank[i]);
+        *copyCandidateBeamProbBlank = logAdd(*copyCandidateBeamProbBlank,
+                                             extendCandidateBeamProbBlank[i]);
+        *invalidCandidate = i;
+        // Only 1 can match
+        break;
       }
     }
     return true;
   }
 };
 
-template class MergeCandidates<float, float, unsigned>;
-template class MergeCandidates<half, float, unsigned>;
-template class MergeCandidates<half, half, unsigned>;
+template class CTCMergeCandidates<float, float, unsigned>;
+template class CTCMergeCandidates<half, float, unsigned>;
+template class CTCMergeCandidates<half, half, unsigned>;
 
 template <typename PartialsType, typename SymbolType>
 class SelectCandidates : public Vertex {

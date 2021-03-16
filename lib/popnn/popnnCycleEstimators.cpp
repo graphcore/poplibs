@@ -678,13 +678,19 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenBeta)(
           gradGivenBetaFlops(1, label.size() - 1, outType, false)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(GenerateCandidates)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGenerateCopyCandidates)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &partialsType, const Type symbolType) {
   // TODO: cycle estimator
   return {0, 0};
 }
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(MergeCandidates)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGenerateExtendCandidates)(
+    const VertexIntrospector &vertex, const Target &target, const Type &inType,
+    const Type &partialsType, const Type symbolType) {
+  // TODO: cycle estimator
+  return {0, 0};
+}
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCMergeCandidates)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &partialsType, const Type symbolType) {
   // TODO: cycle estimator
@@ -814,15 +820,24 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
                             false),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCGradGivenBeta, HALF, FLOAT, UNSIGNED_INT,
                             false),
-      CYCLE_ESTIMATOR_ENTRY(popnn, GenerateCandidates, FLOAT, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateCopyCandidates, FLOAT, FLOAT,
                             UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popnn, GenerateCandidates, HALF, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateCopyCandidates, HALF, FLOAT,
                             UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popnn, GenerateCandidates, HALF, HALF,
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateCopyCandidates, HALF, HALF,
                             UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popnn, MergeCandidates, FLOAT, FLOAT, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popnn, MergeCandidates, HALF, FLOAT, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popnn, MergeCandidates, HALF, HALF, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateExtendCandidates, FLOAT, FLOAT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateExtendCandidates, HALF, FLOAT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateExtendCandidates, HALF, HALF,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCMergeCandidates, FLOAT, FLOAT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCMergeCandidates, HALF, FLOAT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCMergeCandidates, HALF, HALF,
+                            UNSIGNED_INT),
 
       INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
       INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),

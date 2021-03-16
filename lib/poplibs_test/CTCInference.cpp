@@ -215,6 +215,34 @@ mergeEquivalentCandidates(const std::vector<Candidate<FPType>> &candidates,
   return mergedCandidates;
 }
 
+// Return - a vector containing pairs of indicies indicating which (if any)
+// candidates are mergeable
+template <typename FPType>
+std::vector<std::pair<unsigned, unsigned>>
+listMergeableCandidates(const std::vector<Candidate<FPType>> &candidates,
+                        const BeamHistory &beamHistory) {
+  std::vector<std::pair<unsigned, unsigned>> mergeablePairs;
+
+  for (size_t j = 0; j < candidates.size(); j++) {
+    for (size_t i = j + 1; i < candidates.size(); i++) {
+      auto &lhs = candidates[j];
+      const auto &rhs = candidates[i];
+      if (lhs.beam == rhs.beam) {
+        continue;
+      }
+      if ((lhs.addend == voidSymbol && rhs.addend == voidSymbol) ||
+          (lhs.addend != voidSymbol && rhs.addend != voidSymbol)) {
+        continue;
+      }
+      if (beamHistory.getOutputSequence(lhs) ==
+          beamHistory.getOutputSequence(rhs)) {
+        mergeablePairs.push_back(std::make_pair(i, j));
+      }
+    }
+  }
+  return mergeablePairs;
+}
+
 template <typename FPType>
 std::vector<Candidate<FPType>>
 sortCandidates(const std::vector<Candidate<FPType>> &candidates, bool useLog) {
@@ -378,6 +406,13 @@ mergeEquivalentCandidates(const std::vector<Candidate<double>> &candidates,
 template std::vector<Candidate<float>>
 mergeEquivalentCandidates(const std::vector<Candidate<float>> &candidates,
                           const BeamHistory &beamHistory, bool useLog);
+
+template std::vector<std::pair<unsigned, unsigned>>
+listMergeableCandidates(const std::vector<Candidate<double>> &candidates,
+                        const BeamHistory &beamHistory);
+template std::vector<std::pair<unsigned, unsigned>>
+listMergeableCandidates(const std::vector<Candidate<float>> &candidates,
+                        const BeamHistory &beamHistory);
 
 template std::vector<Candidate<double>>
 sortCandidates(const std::vector<Candidate<double>> &candidates, bool useLog);

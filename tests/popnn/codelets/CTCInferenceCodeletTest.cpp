@@ -45,11 +45,13 @@ using namespace poputil;
 #define FLOAT_ABS_TOL 1e-6
 #define HALF_ABS_TOL 1e-5
 
-enum class VertexType { GENERATE, MERGE, SELECT, UPDATE };
+enum class VertexType { GENERATE_COPY, GENERATE_EXTEND, MERGE, SELECT, UPDATE };
 
 std::ostream &operator<<(std::ostream &os, const VertexType &test) {
-  if (test == VertexType::GENERATE) {
-    return os << "generate";
+  if (test == VertexType::GENERATE_COPY) {
+    return os << "generate_copy";
+  } else if (test == VertexType::GENERATE_EXTEND) {
+    return os << "generate_extend";
   } else if (test == VertexType::MERGE) {
     return os << "merge";
   } else if (test == VertexType::SELECT) {
@@ -64,8 +66,10 @@ std::ostream &operator<<(std::ostream &os, const VertexType &test) {
 std::istream &operator>>(std::istream &is, VertexType &test) {
   std::string token;
   is >> token;
-  if (token == "generate") {
-    test = VertexType::GENERATE;
+  if (token == "generate_copy") {
+    test = VertexType::GENERATE_COPY;
+  } else if (token == "generate_extend") {
+    test = VertexType::GENERATE_EXTEND;
   } else if (token == "merge") {
     test = VertexType::MERGE;
   } else if (token == "select") {
@@ -134,15 +138,95 @@ template <typename ActualFPType, typename ExpectedFPType>
 bool candidatesAreClose(const std::vector<Candidate<ActualFPType>> &actual,
                         const std::vector<Candidate<ExpectedFPType>> &expected,
                         double relativeTolerance) {
-  // TODO: better comparison
-  if (actual.size() != expected.size()) {
-    return false;
-  }
   auto isClose = true;
-  for (size_t i = 0; i < actual.size(); i++) {
-    isClose &= candidateIsClose(actual[i], expected[i], relativeTolerance);
+  if (actual.size() != expected.size()) {
+    isClose = false;
+  } else {
+    for (size_t i = 0; i < actual.size(); i++) {
+      isClose &= candidateIsClose(actual[i], expected[i], relativeTolerance);
+    }
   }
   return isClose;
+}
+
+template <typename ActualFPType, typename ExpectedFPType>
+void debugPrint(const std::vector<Candidate<ActualFPType>> &actual,
+                const std::vector<Candidate<ExpectedFPType>> &expected,
+                bool isClose, bool verbose) {
+
+  if (verbose) {
+    std::cout << "\nOutput:\n";
+    print(actual, voidSymbol);
+    std::cout << "\nModel:\n";
+    print(expected, voidSymbol);
+  }
+
+  if (!verbose && !isClose) {
+    std::cerr << "\nMismatch:\n";
+    std::cerr << "\nActual:\n";
+    print(actual, voidSymbol);
+    std::cerr << "\nExpected:\n";
+    print(expected, voidSymbol);
+  }
+}
+
+template <typename ExpectedFPType>
+std::vector<Candidate<ExpectedFPType>>
+selectCopyCandidates(const std::vector<Candidate<ExpectedFPType>> &expected,
+                     const BeamHistory &beamHistory, unsigned addendClass) {
+  std::vector<Candidate<ExpectedFPType>> selected;
+  for (const auto candidate : expected) {
+    if (candidate.addend == voidSymbol) {
+      if (beamHistory.getLastOutput(candidate.beam) == addendClass) {
+        selected.push_back(candidate);
+      }
+    }
+  }
+  return selected;
+}
+
+template <typename ExpectedFPType>
+std::vector<Candidate<ExpectedFPType>>
+selectExtendCandidates(const std::vector<Candidate<ExpectedFPType>> &expected,
+                       unsigned addendClass) {
+  std::vector<Candidate<ExpectedFPType>> selected;
+  for (const auto candidate : expected) {
+    if (candidate.addend == addendClass) {
+      selected.push_back(candidate);
+    }
+  }
+  return selected;
+}
+
+template <typename ExpectedFPType>
+std::vector<Candidate<ExpectedFPType>>
+selectMergeCandidates(const std::vector<Candidate<ExpectedFPType>> &actual) {
+  std::vector<Candidate<ExpectedFPType>> selected;
+  // Don't compare those that are close to zero (close to as when adding 2
+  // log::probabilityZero we don't quite get zero)
+  const ExpectedFPType thresholdForZeroProb = log::probabilityZero + 100;
+  for (const auto candidate : actual) {
+    if (candidate.pb > thresholdForZeroProb ||
+        candidate.pnb > thresholdForZeroProb) {
+      selected.push_back(candidate);
+    }
+  }
+  return selected;
+}
+
+template <typename FPType>
+std::pair<Candidate<FPType>, std::vector<Candidate<FPType>>>
+getCopyAndExtendCandidates(const std::vector<Candidate<FPType>> &candidates,
+                           boost::optional<unsigned> merged, unsigned addend) {
+  auto copyCandidate = merged ? candidates[*merged] : candidates[0];
+
+  std::vector<Candidate<FPType>> extendCandidates;
+  for (const auto candidate : candidates) {
+    if (candidate.addend == addend) {
+      extendCandidates.push_back(candidate);
+    }
+  }
+  return std::make_pair(copyCandidate, extendCandidates);
 }
 
 template <typename FPType>
@@ -159,7 +243,7 @@ getRandomTestInput(unsigned maxT, unsigned baseSequenceLength,
 int main(int argc, char **argv) {
   unsigned seed = 42;
   DeviceType deviceType = DeviceType::IpuModel2;
-  VertexType vertexType = VertexType::GENERATE;
+  VertexType vertexType = VertexType::GENERATE_COPY;
   Type inType = FLOAT;
   Type partialsType = FLOAT;
   Type outType = FLOAT;
@@ -169,6 +253,8 @@ int main(int argc, char **argv) {
   unsigned blankClass = 0;
   unsigned timestep = 0;
   boost::optional<unsigned> baseSequenceLength = boost::none;
+  boost::optional<unsigned> addendClass = boost::none;
+  boost::optional<unsigned> mergeClass = boost::none;
 
   po::options_description desc("Options");
   // clang-format off
@@ -198,6 +284,12 @@ int main(int argc, char **argv) {
      "Beamwidth to use for the op")
     ("blank-class", po::value(&blankClass)->default_value(blankClass),
      "Index of the blank symbol. Range 0 to (num-classes - 1)")
+    ("addend-class", po::value(&addendClass),
+     "Symbol to make the addend when extending or making copy candidates."
+     " Range 0 to (num-classes - 1) avoiding the blank-class")
+    ("merge-class", po::value(&mergeClass),
+     "Symbol to make the addend when merging candidates."
+     " Range 0 to (num-classes - 1) avoiding the blank-class")
     ("timestep", po::value(&timestep)->default_value(timestep),
      "The timestep (loop count) to process")
     ("profile", "Show profile report")
@@ -220,13 +312,28 @@ int main(int argc, char **argv) {
   if (!baseSequenceLength) {
     baseSequenceLength = ceildiv(maxT, 2u);
   }
+  if (addendClass && mergeClass) {
+    std::cerr << "Specifying addend-class and merge-class -"
+                 " use just one of them\n";
+    return 1;
+  }
+  if (addendClass && *addendClass == blankClass) {
+    std::cerr << "addend-class must not equal blank-class\n";
+    return 1;
+  }
+  if (mergeClass && *mergeClass == blankClass) {
+    std::cerr << "merge-class must not equal blank-class\n";
+    return 1;
+  }
+  if (!addendClass) {
+    // Pick an arbitrary addend that isn't a blank
+    addendClass = blankClass == 0 ? 1 : 0;
+  }
   const bool profile = vm.count("profile");
   const bool verbose = vm.count("verbose");
 
-  // TODO: stop repeating defn
-  const auto voidSymbol = std::numeric_limits<unsigned>::max();
-
   RandomUtil rand{seed};
+
   auto [logProbs, label] = getRandomTestInput<float>(
       maxT, *baseSequenceLength, numClassesIncBlank, blankClass, rand);
 
@@ -279,76 +386,92 @@ int main(int argc, char **argv) {
       sortCandidates(modelMergedCandidates, true);
   const auto modelPrunedCandidates =
       pruneCandidates(modelSortedCandidates, beamwidth, true);
-  // TODO this function mutates state so can't be run here!
-  // applyCandidates(beamHistory, beamProbs, prunedCandidates, true);
 
-  if (vertexType == VertexType::GENERATE) {
-    const auto candidates = runGenerateCandidatesCodelet<float, float>(
-        graph, device, deviceType, inType, partialsType, logProbs, timestep,
-        beamProbs, beamHistory, blankClass, profile);
-
+  if (vertexType == VertexType::GENERATE_COPY ||
+      vertexType == VertexType::GENERATE_EXTEND) {
     if (verbose) {
-      std::cout << "\nOutput:\n";
-      print(candidates, voidSymbol);
-      std::cout << "\nModel:\n";
+      std::cout << "\nAll Generated Candidates:\n";
       print(modelCandidates, voidSymbol);
     }
+    const auto testGenerateCopyVertex = vertexType == VertexType::GENERATE_COPY;
+    const auto candidates = runGenerateCandidatesCodelet<float, float>(
+        graph, device, deviceType, inType, partialsType, logProbs, timestep,
+        beamProbs, beamHistory, *addendClass, blankClass,
+        testGenerateCopyVertex, profile);
 
-    if (!candidatesAreClose(candidates, modelCandidates, relTolerance)) {
-      if (!verbose) {
-        std::cerr << "\nMismatch:\n";
-        std::cerr << "\nActual:\n";
-        print(candidates, voidSymbol);
-        std::cerr << "\nExpected:\n";
-        print(modelCandidates, voidSymbol);
-      } else {
-        std::cerr << "Data mismatch\n";
-      }
+    const auto compareCandidates =
+        vertexType == VertexType::GENERATE_COPY
+            ? selectCopyCandidates(modelCandidates, beamHistory, *addendClass)
+            : selectExtendCandidates(modelCandidates, *addendClass);
+
+    auto isClose =
+        candidatesAreClose(candidates, compareCandidates, relTolerance);
+    debugPrint(candidates, compareCandidates, isClose, verbose);
+    if (!isClose) {
+      std::cerr << "Data mismatch\n";
       return 1;
     }
     return 0;
   }
 
   if (vertexType == VertexType::MERGE) {
+    // Merge events are fairly unusual so if there is one and the addend wasn't
+    // selected, choose the addend that corresponds to the first merge that
+    // happened
+    const auto mergedPairs =
+        listMergeableCandidates(modelCandidates, beamHistory);
+    const auto merged = [&]() {
+      boost::optional<unsigned> firstMergedCopyCandidate;
+      if (mergedPairs.size() >= 1) {
+        firstMergedCopyCandidate =
+            modelCandidates[mergedPairs[0].first].addend == voidSymbol
+                ? mergedPairs[0].first
+                : mergedPairs[0].second;
+      }
+      return firstMergedCopyCandidate;
+    }();
+
+    mergeClass = [&]() {
+      if (mergeClass) {
+        return mergeClass;
+      }
+      if (merged) {
+        return boost::make_optional(
+            beamHistory.getLastOutput(modelCandidates[*merged].beam));
+      }
+      // Pick an arbitrary class to merge that isn't a blank
+      return boost::make_optional(blankClass == 0 ? 1u : 0u);
+    }();
+
+    auto [copyCandidate, extendCandidates] =
+        getCopyAndExtendCandidates(modelCandidates, merged, *mergeClass);
+
     auto candidates = runMergeCandidatesCodelet<float>(
-        graph, device, deviceType, inType, partialsType, modelCandidates,
-        timestep, beamHistory, blankClass, profile);
+        graph, device, deviceType, inType, partialsType, extendCandidates,
+        copyCandidate, timestep, beamHistory, blankClass, profile);
+
+    extendCandidates.insert(extendCandidates.begin(), copyCandidate);
+    const auto modelMergedCandidates =
+        mergeEquivalentCandidates(extendCandidates, beamHistory, true);
 
     if (verbose) {
-      std::cout << "\nGenerated Candidates:\n";
+      if (merged) {
+        std::cout << "Merge on the timestep for test - candidate index:"
+                  << *merged << "\n";
+      }
+      std::cout << "\nAll model candidates:\n";
       print(modelCandidates, voidSymbol);
-      std::cout << "\nOutput:\n";
-      print(candidates, voidSymbol);
-      std::cout << "\nModel:\n";
-      print(modelMergedCandidates, voidSymbol);
+      std::cout << "\nCandidates selected to merge:\n";
+      print(extendCandidates, voidSymbol);
     }
-
-    auto paddedModelMergedCandidates = modelMergedCandidates;
-    // TODO better comparison to avoid filling in missing candidates
-    if (candidates.size() != paddedModelMergedCandidates.size()) {
-      for (unsigned i = 0; i < candidates.size(); i++) {
-        if ((paddedModelMergedCandidates.size() <= i) ||
-            (candidates[i].addend != paddedModelMergedCandidates[i].addend) ||
-            (candidates[i].beam != paddedModelMergedCandidates[i].beam)) {
-          paddedModelMergedCandidates.insert(
-              paddedModelMergedCandidates.begin() + i,
-              {candidates[i].beam, candidates[i].addend, log::probabilityZero,
-               log::probabilityZero});
-        }
-      }
-    }
-
-    if (!candidatesAreClose(candidates, paddedModelMergedCandidates,
-                            relTolerance)) {
-      if (!verbose) {
-        std::cerr << "\nMismatch:\n";
-        std::cerr << "\nActual:\n";
-        print(candidates, voidSymbol);
-        std::cerr << "\nExpected:\n";
-        print(paddedModelMergedCandidates, voidSymbol);
-      } else {
-        std::cerr << "Data mismatch\n";
-      }
+    auto candidatesToCompare = selectMergeCandidates(candidates);
+    auto modelCandidatesToCompare =
+        selectMergeCandidates(modelMergedCandidates);
+    auto isClose = candidatesAreClose(candidatesToCompare,
+                                      modelCandidatesToCompare, relTolerance);
+    debugPrint(candidatesToCompare, modelCandidatesToCompare, isClose, verbose);
+    if (!isClose) {
+      std::cerr << "Data mismatch\n";
       return 1;
     }
     return 0;

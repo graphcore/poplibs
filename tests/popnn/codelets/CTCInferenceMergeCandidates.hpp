@@ -16,7 +16,8 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
     poplar::Graph &graph, poplibs_support::TestDevice &device,
     poplibs_support::DeviceType deviceType, poplar::Type inType,
     poplar::Type partialsType,
-    const std::vector<Candidate<PartialsType>> &candidates, unsigned timestep,
+    const std::vector<Candidate<PartialsType>> &candidates,
+    const Candidate<PartialsType> &copyCandidate, unsigned timestep,
     const BeamHistory &beamHistory, unsigned blankClass, bool profile);
 
 } // namespace ctc
