@@ -395,4 +395,90 @@ public:
 template class SelectCandidates<float, unsigned>;
 template class SelectCandidates<half, unsigned>;
 
+template <typename PartialsType, typename SymbolType>
+class CTCUpdate : public Vertex {
+public:
+  CTCUpdate();
+  // Candidates
+  // [beamWidth] in size, or larger but only beamWidth entries are used
+  Input<Vector<unsigned, ONE_PTR>> candidateParent;
+  Input<Vector<SymbolType, ONE_PTR>> candidateAddend;
+  Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
+  Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
+
+  // Beams
+  InOut<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
+  InOut<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
+  InOut<Vector<unsigned, ONE_PTR>> beamAddend;           // [maxT, beamwidth]
+  InOut<Vector<unsigned, ONE_PTR>> beamParent;           // [maxT, beamwidth]
+
+  Input<unsigned> currentTimestep;
+  const unsigned beamwidth;
+
+  IS_EXTERNAL_CODELET(false);
+  bool compute() {
+    const unsigned baseOffset = (*currentTimestep) * beamwidth;
+    for (unsigned i = 0; i < beamwidth; i++) {
+      beamParent[baseOffset + i] = candidateParent[i];
+      beamAddend[baseOffset + i] = candidateAddend[i];
+      beamProbNonBlank[i] = candidateBeamProbNonBlank[i];
+      beamProbBlank[i] = candidateBeamProbBlank[i];
+    }
+    return true;
+  }
+};
+
+template class CTCUpdate<float, unsigned>;
+template class CTCUpdate<half, unsigned>;
+
+template <typename SymbolType> class CTCGenerateOutput : public Vertex {
+
+public:
+  CTCGenerateOutput();
+
+  Input<Vector<unsigned, ONE_PTR>> beamAddend; // [maxT, beamwidth]
+  Input<Vector<unsigned, ONE_PTR>> beamParent; // [maxT, beamwidth]
+  Input<unsigned> currentTimestep;
+  // The actual number of valid symbols found in the beamOutput
+  Output<unsigned> outputLength;
+  // The valid symbol sequence
+  Output<Vector<SymbolType>> beamOutput; // [maxT]
+  const unsigned beamwidth;
+  const unsigned maxT;
+  const unsigned beam;
+
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute() {
+    // TODO Stop duplicating this defn
+    const auto voidSymbol = std::numeric_limits<unsigned>::max();
+
+    auto traceBackBeam = beam;
+    auto traceBackTime = *currentTimestep;
+
+    for (unsigned i = 0; i < currentTimestep + 1; i++) {
+      SymbolType symbol;
+      std::tie(symbol, traceBackTime, traceBackBeam) =
+          getNextSymbol(&beamAddend[0], &beamParent[0], beamwidth,
+                        traceBackTime, traceBackBeam);
+      if (symbol == voidSymbol) {
+        // Beam end reached, so capture the length
+        *outputLength = i;
+        break;
+      }
+      // Store the symbol sequence starting at the end of the output and
+      // tracking backwards - so in the correct order but offset as we don't
+      // know how long it is until we've decoded it all
+      beamOutput[maxT - 1 - i] = symbol;
+    }
+    // Shuffle back to the start
+    for (unsigned i = 0; i < *outputLength; i++) {
+      beamOutput[i] = beamOutput[maxT - *outputLength + i];
+    }
+    return true;
+  }
+};
+
+template class CTCGenerateOutput<unsigned>;
+
 } // namespace popnn

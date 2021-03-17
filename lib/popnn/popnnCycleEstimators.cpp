@@ -696,6 +696,19 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCMergeCandidates)(
   // TODO: cycle estimator
   return {0, 0};
 }
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCUpdate)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &partialsType, const Type symbolType) {
+  // TODO: cycle estimator
+  return {0, 0};
+}
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(CTCGenerateOutput)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type symbolType) {
+  // TODO: cycle estimator
+  return {0, 0};
+}
 
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {
@@ -838,6 +851,10 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
                             UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCMergeCandidates, HALF, HALF,
                             UNSIGNED_INT),
+
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCUpdate, HALF, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCUpdate, FLOAT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateOutput, UNSIGNED_INT),
 
       INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
       INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),

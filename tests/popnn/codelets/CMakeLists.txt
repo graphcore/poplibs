@@ -104,16 +104,20 @@ add_multi_target_test_executable(CTCInferenceCodeletTest
   CTCInferenceMergeCandidates.hpp
   CTCInferenceSelectCandidates.cpp
   CTCInferenceSelectCandidates.hpp
+  CTCInferenceUpdate.cpp
+  CTCInferenceUpdate.hpp
+  CTCInferenceGenerateOutput.cpp
+  CTCInferenceGenerateOutput.hpp
 )
 
 foreach (SEED RANGE 1 5)
-  foreach (TIMESTEP RANGE 0 14)
-    foreach (VERTEX generate_copy generate_extend merge select)
+  foreach (TIMESTEP 0 1 4 14)
+    foreach (VERTEX generate_copy generate_extend merge select update output)
       add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${SEED}_timestep_${TIMESTEP}_${VERTEX}"
           COMMAND CTCInferenceCodeletTest
             --seed=${SEED}
-            --beamwidth=2
-            --num-classes=5
+            --beamwidth=5
+            --num-classes=25
             --max-time=15
             --timestep=${TIMESTEP}
             --vertex-type=${VERTEX}

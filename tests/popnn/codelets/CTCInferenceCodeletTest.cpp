@@ -2,8 +2,10 @@
 #define BOOST_TEST_MODULE CTCInferenceCodeletTest
 
 #include "CTCInferenceGenerateCandidates.hpp"
+#include "CTCInferenceGenerateOutput.hpp"
 #include "CTCInferenceMergeCandidates.hpp"
 #include "CTCInferenceSelectCandidates.hpp"
+#include "CTCInferenceUpdate.hpp"
 
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
@@ -45,7 +47,14 @@ using namespace poputil;
 #define FLOAT_ABS_TOL 1e-6
 #define HALF_ABS_TOL 1e-5
 
-enum class VertexType { GENERATE_COPY, GENERATE_EXTEND, MERGE, SELECT, UPDATE };
+enum class VertexType {
+  GENERATE_COPY,
+  GENERATE_EXTEND,
+  MERGE,
+  SELECT,
+  UPDATE,
+  OUTPUT
+};
 
 std::ostream &operator<<(std::ostream &os, const VertexType &test) {
   if (test == VertexType::GENERATE_COPY) {
@@ -58,6 +67,8 @@ std::ostream &operator<<(std::ostream &os, const VertexType &test) {
     return os << "select";
   } else if (test == VertexType::UPDATE) {
     return os << "update";
+  } else if (test == VertexType::OUTPUT) {
+    return os << "output";
   } else {
     throw poputil::poplibs_error("Unknown vertex type");
   }
@@ -76,6 +87,8 @@ std::istream &operator>>(std::istream &is, VertexType &test) {
     test = VertexType::SELECT;
   } else if (token == "update") {
     test = VertexType::UPDATE;
+  } else if (token == "output") {
+    test = VertexType::OUTPUT;
   } else {
     throw poputil::poplibs_error(std::string{"Unknown vertex type: `"} + token +
                                  std::string{"`"});
@@ -121,7 +134,41 @@ void print(const std::vector<Candidate<FPType>> &candidates,
               << "])\n";
   }
 }
+bool beamHistoryIsClose(const BeamHistory &actual,
+                        const BeamHistory &expected) {
+  if (actual.nextIndexToAssign != expected.nextIndexToAssign) {
+    return false;
+  }
+  for (unsigned t = 0; t < expected.nextIndexToAssign; t++) {
+    for (unsigned b = 0; b < expected.symbols.size(); b++) {
+      if (expected.symbols[b][t] != actual.symbols[b][t] ||
+          *expected.parents[b][t] != *actual.parents[b][t]) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
 
+template <typename ActualFPType, typename ExpectedFPType>
+bool beamProbabilitiesAreClose(
+    const std::vector<BeamProbability<ActualFPType>> &actual,
+    const std::vector<BeamProbability<ExpectedFPType>> &expected,
+    double relativeTolerance) {
+  if (actual.size() != expected.size()) {
+    return false;
+  }
+  for (unsigned i = 0; i < expected.size(); i++) {
+    bool pbClose = checkIsClose<ExpectedFPType>(actual[i].pb, expected[i].pb,
+                                                relativeTolerance);
+    bool pnbClose = checkIsClose<ExpectedFPType>(actual[i].pnb, expected[i].pnb,
+                                                 relativeTolerance);
+    if (!pnbClose || !pbClose) {
+      return false;
+    }
+  }
+  return true;
+}
 // TODO abs tolerance in poputil
 template <typename ActualFPType, typename ExpectedFPType>
 bool candidateIsClose(const Candidate<ActualFPType> &actual,
@@ -252,6 +299,7 @@ int main(int argc, char **argv) {
   unsigned beamwidth = 2;
   unsigned blankClass = 0;
   unsigned timestep = 0;
+  unsigned outputBeam = 0;
   boost::optional<unsigned> baseSequenceLength = boost::none;
   boost::optional<unsigned> addendClass = boost::none;
   boost::optional<unsigned> mergeClass = boost::none;
@@ -282,6 +330,8 @@ int main(int argc, char **argv) {
      "Classes in the alphabet including blank")
     ("beamwidth", po::value(&beamwidth)->default_value(beamwidth),
      "Beamwidth to use for the op")
+    ("output-beam", po::value(&outputBeam)->default_value(outputBeam),
+     "The beam to output when testing the GenerateOutput vertex")
     ("blank-class", po::value(&blankClass)->default_value(blankClass),
      "Index of the blank symbol. Range 0 to (num-classes - 1)")
     ("addend-class", po::value(&addendClass),
@@ -332,6 +382,10 @@ int main(int argc, char **argv) {
   const bool profile = vm.count("profile");
   const bool verbose = vm.count("verbose");
 
+  if (timestep >= maxT) {
+    throw poputil::poplibs_error("The test timestep must be < maxT");
+  }
+
   RandomUtil rand{seed};
 
   auto [logProbs, label] = getRandomTestInput<float>(
@@ -361,8 +415,9 @@ int main(int argc, char **argv) {
     const auto prunedCandidates =
         pruneCandidates(sortedCandidates, beamwidth, true);
     applyCandidates(beamHistory, beamProbs, prunedCandidates, true);
-    if (verbose) {
-      std::cout << "\nTimestep " << i << ":\n";
+
+    if (verbose && i == timestep - 1 && vertexType != VertexType::OUTPUT) {
+      std::cout << "\nTimestep " << i << " (Before vertex under test):\n";
       std::cout << "\nBeam history:\n";
       print(beamHistory);
       std::cout << "\nAppended candidates:\n";
@@ -485,26 +540,69 @@ int main(int argc, char **argv) {
     if (verbose) {
       std::cerr << "\nPreviously merged candidates:\n";
       print(modelMergedCandidates, voidSymbol);
-      std::cout << "\nOutput:\n";
-      print(sortedCandidates, voidSymbol);
-      std::cout << "\nModel:\n";
-      print(modelPrunedCandidates, voidSymbol);
     }
 
-    if (!candidatesAreClose(sortedCandidates, modelPrunedCandidates,
-                            relTolerance)) {
-      if (!verbose) {
-        std::cerr << "\nMismatch:\n";
-        std::cerr << "\nActual:\n";
-        print(sortedCandidates, voidSymbol);
-        std::cerr << "\nExpected:\n";
-        print(modelPrunedCandidates, voidSymbol);
-      } else {
-        std::cerr << "Data mismatch\n";
-      }
+    auto isClose = candidatesAreClose(sortedCandidates, modelPrunedCandidates,
+                                      relTolerance);
+    debugPrint(sortedCandidates, modelPrunedCandidates, isClose, verbose);
+    if (!isClose) {
+      std::cerr << "Data mismatch\n";
       return 1;
     }
     return 0;
+  }
+
+  if (vertexType == VertexType::UPDATE) {
+    auto [ipuBeamHistory, ipuBeamProbs] = runUpdateCodelet<float>(
+        graph, device, deviceType, inType, partialsType, modelPrunedCandidates,
+        timestep, beamHistory, beamProbs, blankClass, profile);
+
+    // Complete the model implementation for comparison, now the beam history
+    // has been used by the codelet
+    applyCandidates(beamHistory, beamProbs, modelPrunedCandidates, true);
+    if (verbose) {
+      std::cout << "\nPruned Candidates:\n";
+      print(modelPrunedCandidates, voidSymbol);
+      std::cout << "\nOutput:\n";
+      print(ipuBeamHistory);
+      std::cout << "\nModel:\n";
+      print(beamHistory);
+      for (unsigned i = 0; i < beamProbs.size(); i++) {
+        std::cout << "Model: [pnb: " << beamProbs[i].pnb
+                  << ", pb: " << beamProbs[i].pb << "]";
+        std::cout << " Output: [pnb: " << ipuBeamProbs[i].pnb
+                  << ", pb: " << ipuBeamProbs[i].pb << "]\n";
+      }
+    }
+    if (!beamHistoryIsClose(beamHistory, ipuBeamHistory) ||
+        !beamProbabilitiesAreClose(beamProbs, ipuBeamProbs, relTolerance)) {
+      std::cerr << "Data mismatch\n";
+      return 1;
+    }
+  }
+
+  if (vertexType == VertexType::OUTPUT) {
+    // Complete the model implementation for comparison
+    applyCandidates(beamHistory, beamProbs, modelPrunedCandidates, true);
+    if (verbose) {
+      std::cout << "\nBeam history:\n";
+      print(beamHistory);
+    }
+    const auto ipuOutput =
+        runGenerateOutputCodelet(graph, device, deviceType, timestep + 1,
+                                 beamHistory, outputBeam, profile);
+    const auto expectedOuput = beamHistory.getOutputSequence(outputBeam);
+    if (verbose) {
+      std::cout << "Actual:  ";
+      print(ipuOutput);
+      std::cout << "Expected:";
+      print(expectedOuput);
+      std::cout << "\n";
+    }
+    if (ipuOutput != expectedOuput) {
+      std::cerr << "Data mismatch\n";
+      return 1;
+    }
   }
 
   return 0;
