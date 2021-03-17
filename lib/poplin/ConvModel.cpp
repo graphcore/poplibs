@@ -521,7 +521,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
           // not need to take the number of worker contexts as an argument.
           auto zeroCycles =
               getConvPartialVerticalMacSupervisorZeroInnerLoopCycleEstimate(
-                  numOutElems);
+                  numOutElems, floatPartials);
           auto reductionCycles =
               getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
                   numOutElems, target.getNumWorkerContexts());

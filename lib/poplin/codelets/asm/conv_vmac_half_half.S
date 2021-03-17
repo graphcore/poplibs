@@ -1,5 +1,5 @@
-// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-// Computes an nx1 convolution using Vertical MAC with half input and float partials.
+// Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+// Computes an nx1 convolution using Vertical MAC with half input and half partials.
 // A contiguous field is partitioned for each position of the output element. The 
 // partitions are distributed between between workers. Each worker is provided a
 // temporary tensor to store its VMAC outputs. The worker outputs are finally 
@@ -9,7 +9,7 @@
 
 #include "conv_vmac_common.h.S"
 
-#define conv_vmac_sup_half_float __runCodelet_poplin__ConvPartialVerticalMac___half_float_true_4
+#define conv_vmac_sup_half_half __runCodelet_poplin__ConvPartialVerticalMac___half_half_true_4
 
 // =============================================================================
 
@@ -18,7 +18,7 @@
 // sizeof(input) in bytes
 #define SIZEOF_IN_ATOM                  2
 // sizeof(output) in bytes
-#define SIZEOF_OUT_ATOM                 4
+#define SIZEOF_OUT_ATOM                 2
 // sizeof(weights) in bytes
 #define SIZEOF_WEIGHTS_ATOM             2
 
@@ -27,18 +27,17 @@
 // =============================================================================
 // Performance:
 // 9 + (1 * num_elements)
-.section ".text.convVerticalMacWorkerStateRetention_float", "ax"
-.type convVerticalMacWorkerStateRetention_float, @function
+.section ".text.convVerticalMacWorkerStateRetention_half", "ax"
+.type convVerticalMacWorkerStateRetention_half, @function
 .align 8
 .worker
-convVerticalMacWorkerStateRetention_float:
+convVerticalMacWorkerStateRetention_half:
 // worker register mapping
 #define wkr_id_v                       m0
 #define partials_offset                m1
 #define mscratch                       m1
 #define partials_ptr                   m2
 #define total_elems                    m3
-#define total_elemsx2                  m3
 #define total_elemsx4                  m3
 #define num_elemsx4                    m4
 #define num_elems_whole                m5
@@ -49,7 +48,7 @@ convVerticalMacWorkerStateRetention_float:
 #define elems_offset                   m7
 #define fp_clr_reg                     a0
 
-// Save worker state for later calls to convVerticalMacZeroPartials_float
+// Save worker state for later calls to convVerticalMacZeroPartials_half
 get           $wkr_id_v, $WSR
 and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
 ld32          $total_elems, $mvertex_base, WKR_ZERO_LEN/4
@@ -57,21 +56,20 @@ ld32          $total_elems, $mvertex_base, WKR_ZERO_LEN/4
 // form partials address for worker
 ld32          $partials_ptr, $mvertex_base, WKR_PARTIALS_PTR/4
 mul           $partials_offset, $total_elems, $wkr_id_v
-shr           $total_elemsx2, $total_elems, 1
-ld32step      $azero, $mzero, $partials_ptr+=, $partials_offset
+shr           $total_elemsx4, $total_elems, 2
+ldb16step      $azero, $mzero, $partials_ptr+=, $partials_offset
 
 // store partials address for other worker functions
 st32          $partials_ptr, $mworker_base, WKR_STACK_PARTIALS_PTR/4
-st32          $total_elemsx2, $mworker_base, WKR_STACK_TOTAL_ELEMS_X2/4
+st32          $total_elemsx4, $mworker_base, WKR_STACK_TOTAL_ELEMS_X4/4
 
-// Save worker state for later calls to convVerticalMacReduce_float
+// Save worker state for later calls to convVerticalMacReduce_half
 
 // Calculate the number of 4-element blocks to be reduced by this worker
 // for the rest calculate n / 6 and n % 6 by reciprocal multiplcation
 //   n/6 = (n * 0xAAAB) >> 18
 //   n%6 = n - (n/6)*6
 // where n = count/(4*atomSize)
-shr           $total_elemsx4, $total_elemsx2, 1
 setzi         $mscratch, 0xAAAB
 mul           $num_elemsx4, $total_elemsx4, $mscratch
 shr           $num_elemsx4, $num_elemsx4, 18
@@ -99,20 +97,17 @@ min           $remainder_cumul, $wkr_id_v, $remainder_elems
 
 // position worker offset into partials vectors for reduction
 ld32          $partials_ptr, $mvertex_base, WKR_PARTIALS_PTR/4
-ld32step      $azero, $mzero, $partials_ptr+=, $elems_offset
+ldb16step      $azero, $mzero, $partials_ptr+=, $elems_offset
 
 // store worker state for reduction step
 st32          $num_elemsx4, $mworker_base, WKR_STACK_NUM_ELEMS_X4/4
 st32          $partials_ptr, $mworker_base, WKR_STACK_REDUCTION_PARTIALS_PTR/4
 st32          $elems_offset, $mworker_base, WKR_STACK_REDUCTION_ELEM_OFFSET/4
 
-convVerticalMacZeroPartials_float:
+convVerticalMacZeroPartials_half:
 ld32          $partials_ptr, $mworker_base, WKR_STACK_PARTIALS_PTR/4
-ld32          $total_elemsx2, $mworker_base, WKR_STACK_TOTAL_ELEMS_X2/4
-{
-  rpt           $total_elemsx2, (2f - 1f) / 8 - 1
-  fnop
-}
+ld32          $total_elemsx4, $mworker_base, WKR_STACK_TOTAL_ELEMS_X4/4
+rpt           $total_elemsx4, (2f - 1f) / 8 - 1
 1:
   {
     st64step      $azeros, $mzero, $partials_ptr+=, 1
@@ -126,7 +121,6 @@ exitz         $mzero
 #undef mscratch
 #undef partials_ptr
 #undef total_elems
-#undef total_elemsx2
 #undef total_elemsx4
 #undef num_elemsx4
 #undef num_elems_whole
@@ -137,33 +131,33 @@ exitz         $mzero
 #undef elems_offset
 #undef fp_clr_reg
 
-.size convVerticalMacWorkerStateRetention_float, . - convVerticalMacWorkerStateRetention_float
+.size convVerticalMacWorkerStateRetention_half, . - convVerticalMacWorkerStateRetention_half
 
 // =============================================================================
 // Performance:
 // 24 + ((9 + (2 * num_contexts)) * (n/4))
-.section ".text.convVerticalMacReduce_float", "ax"
-.type convVerticalMacReduce_float, @function
+.section ".text.convVerticalMacReduce_half", "ax"
+.type convVerticalMacReduce_half, @function
 .align 8
 .worker
-convVerticalMacReduce_float:
+convVerticalMacReduce_half:
 // worker register mapping
 #define out_ptr_v                      m1
 #define elems_offset                   m2
 #define num_elemsx4                    m3
-#define total_elemsx2                  m4
+#define total_elemsx4                  m4
 #define partials_base                  m5
 #define partials_context               m6
 
 ld32          $num_elemsx4, $mworker_base, WKR_STACK_NUM_ELEMS_X4/4
 brz           $num_elemsx4, LReduce_end
 add           $num_elemsx4, $num_elemsx4, -1
-ld32          $total_elemsx2, $mworker_base, WKR_STACK_TOTAL_ELEMS_X2/4
+ld32          $total_elemsx4, $mworker_base, WKR_STACK_TOTAL_ELEMS_X4/4
 ld32          $partials_base, $mworker_base, WKR_STACK_REDUCTION_PARTIALS_PTR/4
 ld32          $elems_offset, $mworker_base, WKR_STACK_REDUCTION_ELEM_OFFSET/4
 
 ld32          $out_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
-ld32step      $azero, $mzero, $out_ptr_v+=, $elems_offset
+ldb16step      $azero, $mzero, $out_ptr_v+=, $elems_offset
 
 // accumulate partials four at a time
 LRowLoop:
@@ -175,25 +169,25 @@ LRowLoop:
   }
 1:
     {
-      ld64step    $a0:1, $mzero, $partials_context+=, $total_elemsx2
+      ld64step    $a0:1, $mzero, $partials_context+=, $total_elemsx4
       fnop
     }
     {
       ld64        $a2:3, $mzero, $partials_context, 1
-      f32v4acc    $a0:3
+      f16v4acc    $a0:1
     }
 2:
-  ld64step    $a0:1, $mzero, $partials_context+=, $total_elemsx2
-  f32v4acc    $a0:3
+  ld64step    $a0:1, $mzero, $partials_context+=, $total_elemsx4
+  f16v4acc    $a0:1
   {
-    ld32step    $azero, $mzero, $partials_base+=, 4
-    f32v2gina   $a0:1, $azeros, 0
+    ldb16step    $azero, $mzero, $partials_base+=, 4
+    f16v2gina   $a0, $azero, 0
   }
   {
-    st64step    $a0:1, $mzero, $out_ptr_v+=, 1
-    f32v2gina   $a2:3, $azeros, 0
+    st32step    $a0, $mzero, $out_ptr_v+=, 1
+    f16v2gina   $a2, $azero, 0
   }
-  st64step    $a2:3, $mzero, $out_ptr_v+=, 1
+  st32step    $a2, $mzero, $out_ptr_v+=, 1
   brnzdec     $num_elemsx4, LRowLoop
 
 LReduce_end:
@@ -202,11 +196,11 @@ exitz         $mzero
 #undef out_ptr_v
 #undef elems_offset
 #undef num_elemsx4
-#undef total_elemsx2
+#undef total_elemsx4
 #undef partials_base
 #undef context
 #undef partials_context
-.size convVerticalMacReduce_float, . - convVerticalMacReduce_float
+.size convVerticalMacReduce_half, . - convVerticalMacReduce_half
 
 // =============================================================================
 // Performance:
@@ -240,20 +234,21 @@ exitz         $mzero
 #define WKR_STACK_PARTITION_BASE        (WKR_STACK_NUM_PARTITIONS + 4)
 
 // macro to store accumulators to 64-bit memory
-.macro STORE_ACC_FLOAT base, addr
-  f32v2gina     $a0:1, $azeros, 0
+.macro STORE_ACC_HALF base, addr
+  f16v2gina     $a0, $azero, 0
+  f16v2gina     $a1, $azero, 0
+  // Need this to align repeat
   {
     st64          $a0:1, \base, \addr, 0
-    f32v2gina     $a2:3, $azeros, 0
+    fnop
   }
-  st64          $a2:3, \base, \addr, 1
 .endm
 
-.section ".text.convVerticalMacFlattened_half_float", "ax"
-.type convVerticalMacFlattened_half_float, @function
+.section ".text.convVerticalMacFlattened_half_half", "ax"
+.type convVerticalMacFlattened_half_half, @function
 .align 8
 .worker
-convVerticalMacFlattened_half_float:
+convVerticalMacFlattened_half_half:
 get           $wkr_id_v, $WSR
 and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
 
@@ -290,7 +285,7 @@ ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
 st32          $num_partitions_v, $mworker_base, WKR_STACK_NUM_PARTITIONS/4
 st32          $partition_v, $mworker_base, WKR_STACK_PARTITION_BASE/4
 
-convVerticalMacFlattenedReentry_half_float:
+convVerticalMacFlattenedReentry_half_half:
 
 // Compensate for extra load in the loops. This could be done in the supervisor
 ld32          $num_partitions_v, $mworker_base, WKR_STACK_TOTAL_PARTITIONS/4
@@ -317,20 +312,24 @@ PartitionLoop:
   brz           $mscratch, L_Partition_Acc
 
   // store the accumulator result except if this is the very first pass
-  STORE_ACC_FLOAT $outchan_ptr_v, $prev_out_offset
+  STORE_ACC_HALF $outchan_ptr_v, $prev_out_offset
 
 L_Partition_load_acc:
   // reload the accumulators with current output values
   ld64          $a0:1, $outchan_ptr_v, $out_offset_v, 0
-  ld64          $a2:3, $outchan_ptr_v, $out_offset_v, 1
 
 L_Partition_Acc:
   ld32          $in_stride_v, $mvertex_base, WKR_IN_STRIDE/4
   ld64step      $a4:5, $inchan_ptr_v, $in_offset_v+=, $in_stride_v
-  ld64step      $a6:7, $weights_ptr_v, $weights_offset_v+=, $weights_stride_v
+  {
+    ld64step      $a6:7, $weights_ptr_v, $weights_offset_v+=, $weights_stride_v
+    fnop
+  }
+  // Note: if there were 8 channels in a conv group, this could be modified to
+  // utilise the 8-wide accumulator.
   {
     rpt          $num_fp_m1_v, (2f - 1f) / 8 - 1
-    f32v4acc     $a0:3
+    f16v4acc     $a0:1
   }
 1:
     {
@@ -353,18 +352,17 @@ L_Partition_end:
    }
 
   // Store accumulator results as final output
-  STORE_ACC_FLOAT $outchan_ptr_v, $prev_out_offset
+  STORE_ACC_HALF $outchan_ptr_v, $prev_out_offset
 
 L_Conv_end:
 exitz         $mzero
 
-.size convVerticalMacFlattened_half_float, . - convVerticalMacFlattened_half_float
-
+.size convVerticalMacFlattened_half_half, . - convVerticalMacFlattened_half_half
 
 // =============================================================================
 
 // Instantiate supervisor codelet
-CONV_VMAC_SUPERVISOR conv_vmac_sup_half_float half float
+CONV_VMAC_SUPERVISOR conv_vmac_sup_half_half half half
 
 #endif
 

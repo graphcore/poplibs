@@ -205,7 +205,7 @@ inline std::uint64_t getVerticalMacDotProductCycles(bool floatActivations,
                                                     bool floatPartials,
                                                     unsigned size,
                                                     unsigned numChannels) {
-  assert(!floatActivations && floatPartials);
+  assert(!floatActivations);
   const auto innerCyclesOverhead = 5;
   return innerCyclesOverhead + (2 * (size - 1));
 }
@@ -262,8 +262,9 @@ inline std::uint64_t getConvPartialVerticalMacSupervisorInnerLoopCycleEstimate(
 // function does not require the number of workers to be passed as an argument.
 inline std::uint64_t
 getConvPartialVerticalMacSupervisorZeroInnerLoopCycleEstimate(
-    unsigned numOutElems) {
-  return 4 + numOutElems;
+    unsigned numOutElems, bool floatPartials) {
+  unsigned elemsPerCycle = floatPartials ? 2 : 4;
+  return 4 + ceildiv(numOutElems, elemsPerCycle);
 }
 
 inline std::uint64_t
@@ -305,7 +306,7 @@ inline std::uint64_t getConvPartialVerticalMacSupervisorCycleEstimate(
           floatActivations, floatPartials);
   auto zeroInitCycles =
       getConvPartialVerticalMacSupervisorZeroInnerLoopCycleEstimate(
-          numOutElems);
+          numOutElems, floatPartials);
   auto reductionCycles =
       getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
           numOutElems, numWorkerContexts);

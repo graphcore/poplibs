@@ -688,9 +688,18 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
                             4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, false,
                             4),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, HALF, true,
+                            4),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, HALF, false,
+                            4),
+
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, true,
                             8),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, false,
+                            8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, HALF, true,
+                            8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, HALF, false,
                             8),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, false,

@@ -24,7 +24,7 @@ constexpr bool hasAssembly() {
   constexpr bool floatPartials = std::is_same<AccumType, float>();
   constexpr unsigned convGroupsImplemented = floatActivations ? 2 : 4;
   // We haven't implemented anything but half->float in assembly
-  return !floatActivations && floatPartials && useLimitedVer &&
+  return !floatActivations && useLimitedVer &&
          convGroupsPerGroup == convGroupsImplemented;
 }
 
@@ -115,8 +115,12 @@ public:
 
 template class ConvPartialVerticalMac<half, float, true, 4>;
 template class ConvPartialVerticalMac<half, float, false, 4>;
+template class ConvPartialVerticalMac<half, half, true, 4>;
+template class ConvPartialVerticalMac<half, half, false, 4>;
 
 template class ConvPartialVerticalMac<half, float, true, 8>;
 template class ConvPartialVerticalMac<half, float, false, 8>;
+template class ConvPartialVerticalMac<half, half, true, 8>;
+template class ConvPartialVerticalMac<half, half, false, 8>;
 
 } // end namespace poplin

@@ -181,10 +181,9 @@ static void getConvVertexVMACCandidates(
     const ConvParams &params, const ConvOptions &options, bool isJointPlan,
     std::vector<ConvVertexType> &candidates) {
   bool floatActivations = inputType == poplar::FLOAT;
-  bool floatPartials = partialType == poplar::FLOAT;
 
   // Assembly version only available for half activations and float partials
-  if (floatActivations || !floatPartials) {
+  if (floatActivations) {
     return;
   }
 
