@@ -22,6 +22,16 @@ const LossPlan &Plan::Impl::getAsLossPlan() const {
   }
 }
 
+const InferencePlan &Plan::Impl::getAsInferencePlan() const {
+  try {
+    return boost::get<const InferencePlan &>(plan);
+  } catch (...) {
+    throw poputil::poplibs_error(
+        "Invalid CTC Inference plan provided (must be created "
+        "by planning for inference and not loss).");
+  }
+}
+
 std::unique_ptr<Plan::Impl> Plan::Impl::clone() const {
   return std::make_unique<Plan::Impl>(*this);
 }

@@ -61,7 +61,7 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
  * \param debugContext Optional debug information
  * \return             The data input [maxTime, batchSize, numClasses] tensor
  */
-poplar::Tensor createDataInput(poplar::Graph &graph, poplar::Type &type,
+poplar::Tensor createDataInput(poplar::Graph &graph, const poplar::Type &type,
                                const std::size_t batchSize,
                                const std::size_t maxTime,
                                const std::size_t numClasses,
@@ -98,7 +98,7 @@ beamSearchDecoderLogProbabilities(poplar::Graph &graph,
                                   poplar::program::Sequence &prog,
                                   unsigned blankClass, unsigned beamwidth,
                                   unsigned topPaths, const ctc::Plan &plan,
-                                  const poplar::DebugContext = {},
+                                  const poplar::DebugContext &debugContext = {},
                                   const poplar::OptionFlags &options = {});
 
 /** Calculate the most likely \p topPaths labels and their probabilities given
@@ -130,7 +130,8 @@ beamSearchDecoderLogits(poplar::Graph &graph, const poplar::Tensor &logits,
                         const poplar::Tensor &dataLengths,
                         poplar::program::Sequence &prog, unsigned blankClass,
                         unsigned beamwidth, unsigned topPaths,
-                        const ctc::Plan &plan, const poplar::DebugContext = {},
+                        const ctc::Plan &plan,
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {});
 } // namespace ctc_infer
 } // namespace popnn

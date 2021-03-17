@@ -20,6 +20,7 @@ public:
   boost::variant<LossPlan, InferencePlan> plan;
 
   const LossPlan &getAsLossPlan() const;
+  const InferencePlan &getAsInferencePlan() const;
   std::unique_ptr<Plan::Impl> clone() const;
 };
 

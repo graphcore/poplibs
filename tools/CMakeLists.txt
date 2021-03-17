@@ -105,6 +105,11 @@ target_link_libraries(ctc_loss
                       poplibs_support poplibs_test
                       Boost::program_options)
 
+add_tool(ctc_beam_search ctc_beam_search.cpp)
+target_link_libraries(ctc_beam_search
+                      poplibs_support poplibs_test
+                      Boost::program_options)
+
 add_tool(ctc_model_validate ctc_model_validate.cpp)
 target_link_libraries(ctc_model_validate
                       poplibs_support poplibs_test

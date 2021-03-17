@@ -39,8 +39,18 @@ namespace ctc_infer {
 ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
                unsigned batchSize, unsigned maxTime, unsigned numClasses,
                unsigned beamwidth, const poplar::OptionFlags &options) {
-  return std::make_unique<ctc::Plan::Impl>(
-      ctc::Plan::Impl{ctc::InferencePlan{}});
+
+  // Some simple parameters based on splitting by numClasses alone
+  ctc::InferencePlan plan;
+  plan.params = {inType,  poplar::FLOAT, inType,     batchSize,
+                 maxTime, maxTime,       numClasses, beamwidth};
+  plan.parallel.batch = batchSize;
+  plan.parallel.time = 1;
+  plan.parallel.label = 1;
+  plan.parallel.beam = 1;
+  plan.parallel.classes = numClasses;
+
+  return std::make_unique<ctc::Plan::Impl>(ctc::Plan::Impl{std::move(plan)});
 }
 } // namespace ctc_infer
 } // namespace popnn
