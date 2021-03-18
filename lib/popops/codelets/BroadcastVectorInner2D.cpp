@@ -24,9 +24,9 @@ public:
   // and dataBlockCount.size()
   const uint32_t n;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> B;
-  Vector<uint16_t, ONE_PTR> BLen;
+  Input<Vector<uint16_t, ONE_PTR>> BLen;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> data;
-  Vector<uint16_t, ONE_PTR> dataBlockCount;
+  Input<Vector<uint16_t, ONE_PTR>> dataBlockCount;
   Vector<Output<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
 
   IS_EXTERNAL_CODELET(true);

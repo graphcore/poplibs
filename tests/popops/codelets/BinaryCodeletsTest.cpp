@@ -784,8 +784,16 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
         BLen[i] = sizes.op2RowSizes[i];
         dataBlockCount[i] = sizes.rowSizes[i] / sizes.op2RowSizes[i];
       }
-      graph.setInitialValue(v["BLen"], std::move(BLen));
-      graph.setInitialValue(v["dataBlockCount"], dataBlockCount);
+
+      auto BLenTensor =
+          graph.addConstant(UNSIGNED_SHORT, {BLen.size()}, BLen.data());
+      graph.setTileMapping(BLenTensor, 0);
+      auto dataBlockTensor = graph.addConstant(
+          UNSIGNED_SHORT, {dataBlockCount.size()}, dataBlockCount.data());
+      graph.setTileMapping(dataBlockTensor, 0);
+
+      graph.connect(v["BLen"], BLenTensor);
+      graph.connect(v["dataBlockCount"], dataBlockTensor);
     } else {
       unsigned n = sizes.nElems1 / sizes.nElems2;
       unsigned nWorkers = target.getNumWorkerContexts();

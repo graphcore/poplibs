@@ -883,7 +883,8 @@ bool binaryOpBroadcastInnerVector(
     Graph &graph, const Tensor &in1, const Tensor &in2, const Tensor &out,
     const std::vector<std::vector<Interval>> &intervals,
     const std::vector<BroadcastPattern> &patterns, unsigned tile,
-    const ComputeSet &cs, BinaryOpType op, bool inPlace, Sequence &prog) {
+    const ComputeSet &cs, BinaryOpType op, bool inPlace, Sequence &prog,
+    const DebugNameAndId &dnai) {
   const auto dType = in1.elementType();
   const auto &target = graph.getTarget();
 
@@ -1060,6 +1061,15 @@ bool binaryOpBroadcastInnerVector(
         assert((outRegions[i].numElements() % numPatternElems) == 0);
         dataBlockCount[i] = outRegions[i].numElements() / numPatternElems;
       }
+
+      auto BLenTensor = graph.addConstant(UNSIGNED_SHORT, {outRegions.size()},
+                                          BLen.data(), {dnai, "BLenWorklist"});
+      graph.setTileMapping(BLenTensor, tile);
+      auto dataBlockCountTensor =
+          graph.addConstant(UNSIGNED_SHORT, {outRegions.size()},
+                            dataBlockCount.data(), {dnai, "dataBlockWorklist"});
+      graph.setTileMapping(dataBlockCountTensor, tile);
+
       auto v = graph.addVertex(cs, vertexClass);
       graph.setInitialValue(v["n"], outRegions.size());
       graph.connect(v["B"], in2Regions);
@@ -1067,8 +1077,8 @@ bool binaryOpBroadcastInnerVector(
       if (!inPlace) {
         graph.connect(v["out"], outRegions);
       }
-      graph.setInitialValue(v["BLen"], std::move(BLen));
-      graph.setInitialValue(v["dataBlockCount"], std::move(dataBlockCount));
+      graph.connect(v["BLen"], BLenTensor);
+      graph.connect(v["dataBlockCount"], dataBlockCountTensor);
       graph.setTileMapping(v, tile);
     }
     return true;
@@ -1717,9 +1727,9 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
               const std::vector<std::vector<Interval>> &contiguousRegions,
               Tensor &in1, Tensor &in2) {
             if (haveInnerVectorBroadcastVertexForOp(op, inPlace, dType)) {
-              if (binaryOpBroadcastInnerVector(graph, in1, in2, out,
-                                               contiguousRegions, patterns,
-                                               tile, cs, op, inPlace, prog)) {
+              if (binaryOpBroadcastInnerVector(
+                      graph, in1, in2, out, contiguousRegions, patterns, tile,
+                      cs, op, inPlace, prog, dnai)) {
                 return true;
               }
             }
