@@ -228,11 +228,12 @@ inline std::uint64_t getConvPartialVerticalMacCycleEstimate(
   return cycles;
 }
 
-inline std::uint64_t
-getConvPartialVerticalReductionCycleEstimate(unsigned numElems,
-                                             unsigned numWorkers) {
-  const auto cyclesPerRpt = 2;
-  return 10 + ((9 + (cyclesPerRpt * (numWorkers - 1))) * numElems / 4);
+inline std::uint64_t getConvPartialVerticalReductionCycleEstimate(
+    unsigned numElems, unsigned numWorkers, bool floatPartials) {
+  const auto cyclesPerRpt = floatPartials ? 2 : 1;
+  return 11 - floatPartials +
+         ((7 + 2 * floatPartials + (cyclesPerRpt * (numWorkers - 1))) *
+          numElems / 4);
 }
 
 inline std::uint64_t getConvPartialVerticalMacSupervisorInnerLoopCycleEstimate(
@@ -269,11 +270,11 @@ getConvPartialVerticalMacSupervisorZeroInnerLoopCycleEstimate(
 
 inline std::uint64_t
 getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
-    unsigned numOutElems, unsigned numWorkerContexts) {
+    unsigned numOutElems, unsigned numWorkerContexts, bool floatPartials) {
   auto numElemsPerWorker =
       (numOutElems + numWorkerContexts - 1) / numWorkerContexts;
   uint64_t cycles = getConvPartialVerticalReductionCycleEstimate(
-      numElemsPerWorker, numWorkerContexts);
+      numElemsPerWorker, numWorkerContexts, floatPartials);
   return cycles;
 }
 
@@ -309,7 +310,7 @@ inline std::uint64_t getConvPartialVerticalMacSupervisorCycleEstimate(
           numOutElems, floatPartials);
   auto reductionCycles =
       getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
-          numOutElems, numWorkerContexts);
+          numOutElems, numWorkerContexts, floatPartials);
   cycles += getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
       innerLoopCycles, zeroInitCycles, reductionCycles, numConvGroups,
       numInGroups);

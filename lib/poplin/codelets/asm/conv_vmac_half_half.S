@@ -157,12 +157,12 @@ ld32          $partials_base, $mworker_base, WKR_STACK_REDUCTION_PARTIALS_PTR/4
 ld32          $elems_offset, $mworker_base, WKR_STACK_REDUCTION_ELEM_OFFSET/4
 
 ld32          $out_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
-ldb16step      $azero, $mzero, $out_ptr_v+=, $elems_offset
+ldb16step     $azero, $mzero, $out_ptr_v+=, $elems_offset
+mov           $partials_context, $partials_base
 
 // accumulate partials four at a time
 LRowLoop:
-  mov         $partials_context, $partials_base
-  ld64        $a2:3, $mzero, $partials_context, 1
+  ld64step    $a0:1, $mzero, $partials_context+=, $total_elemsx4
   {
     rpt         CTXT_WORKERS-1, (2f - 1f) / 8 - 1
     fnop
@@ -170,24 +170,19 @@ LRowLoop:
 1:
     {
       ld64step    $a0:1, $mzero, $partials_context+=, $total_elemsx4
-      fnop
-    }
-    {
-      ld64        $a2:3, $mzero, $partials_context, 1
       f16v4acc    $a0:1
     }
 2:
-  ld64step    $a0:1, $mzero, $partials_context+=, $total_elemsx4
-  f16v4acc    $a0:1
   {
     ldb16step    $azero, $mzero, $partials_base+=, 4
-    f16v2gina   $a0, $azero, 0
+    f16v4acc     $a0:1
   }
   {
-    st32step    $a0, $mzero, $out_ptr_v+=, 1
-    f16v2gina   $a2, $azero, 0
+    mov          $partials_context, $partials_base
+    f16v2gina    $a0, $azero, 0
   }
-  st32step    $a2, $mzero, $out_ptr_v+=, 1
+  f16v2gina   $a1, $azero, 0
+  st64step    $a0:1, $mzero, $out_ptr_v+=, 1
   brnzdec     $num_elemsx4, LRowLoop
 
 LReduce_end:

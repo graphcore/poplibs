@@ -524,7 +524,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   numOutElems, floatPartials);
           auto reductionCycles =
               getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
-                  numOutElems, target.getNumWorkerContexts());
+                  numOutElems, target.getNumWorkerContexts(), floatPartials);
           auto cycles = popsolver::DataType{
               getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
                   innerLoopCycles, zeroCycles, reductionCycles,
