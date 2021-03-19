@@ -276,17 +276,6 @@ getCopyAndExtendCandidates(const std::vector<Candidate<FPType>> &candidates,
   return std::make_pair(copyCandidate, extendCandidates);
 }
 
-template <typename FPType>
-std::pair<boost::multi_array<FPType, 2>, std::vector<unsigned>>
-getRandomTestInput(unsigned maxT, unsigned baseSequenceLength,
-                   unsigned numClassesIncBlank, unsigned blankClass,
-                   RandomUtil &rand) {
-  auto [input, label] = provideInputWithPath<FPType>(
-      baseSequenceLength, maxT, maxT, numClassesIncBlank, blankClass, rand);
-
-  return {log::log(transpose(log::softMax(transpose(input)))), label};
-}
-
 int main(int argc, char **argv) {
   unsigned seed = 42;
   DeviceType deviceType = DeviceType::IpuModel2;
@@ -388,8 +377,9 @@ int main(int argc, char **argv) {
 
   RandomUtil rand{seed};
 
-  auto [logProbs, label] = getRandomTestInput<float>(
-      maxT, *baseSequenceLength, numClassesIncBlank, blankClass, rand);
+  auto [logProbs, label] =
+      getRandomTestInput<float>(maxT, maxT, *baseSequenceLength,
+                                numClassesIncBlank, blankClass, false, rand);
 
   if (verbose) {
     std::cout << "\nLabel:\n";

@@ -9,6 +9,7 @@
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCLoss.hpp>
+#include <poplibs_test/CTCUtil.hpp>
 #include <poplibs_test/Embedding.hpp>
 #include <poplibs_test/MatrixTransforms.hpp>
 #include <poplibs_test/Util.hpp>
@@ -172,16 +173,6 @@ template <typename FPType> struct InputSequence {
   std::vector<unsigned> idx;
   unsigned alphabetSizeIncBlank;
 };
-
-InputSequence<double> getRandomTestInput(size_t timesteps, size_t testSymbols,
-                                         unsigned numClasses,
-                                         unsigned blankClass) {
-  RandomUtil rand{42};
-  auto [input, label] = provideInputWithPath<double>(
-      testSymbols, timesteps, timesteps, numClasses, blankClass, rand);
-
-  return {log::softMax(transpose(input)), label, numClasses};
-}
 
 template <typename FPType>
 boost::multi_array<FPType, 2>
@@ -505,8 +496,11 @@ int main(int argc, char **argv) {
                                  "(number of classes - 1)");
   }
 
-  auto test = getRandomTestInput(testTime, testSymbols, numClasses, blankClass);
-  test.input = log::log(test.input);
+  RandomUtil rand{42};
+  auto [input, label] = getRandomTestInput<double>(
+      testTime, testTime, testSymbols, numClasses, blankClass, true, rand);
+  auto test = InputSequence<double>{transpose(input), label, numClasses};
+
   print("Test sequence:", test.idx, blankClass, verbose);
 
   // Produce a sensible input by calling the model.

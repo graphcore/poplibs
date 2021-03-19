@@ -100,9 +100,9 @@ void applyCandidates(BeamHistory &beamHistory,
                      bool useLog);
 
 template <typename FPType>
-std::tuple<FPType, std::vector<unsigned>>
+std::vector<std::pair<std::vector<unsigned>, FPType>>
 infer(const boost::multi_array<FPType, 2> &input, unsigned blankSymbol,
-      unsigned beamwidth, bool useLog, bool verbose = false);
+      unsigned beamwidth, unsigned topBeams, bool useLog, bool verbose = false);
 
 //------------------------------------------------------------------------------
 // Exhaustive path inference functions. Coded to look simple and be divided

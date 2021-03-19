@@ -291,9 +291,9 @@ void applyCandidates(BeamHistory &beamHistory,
 }
 
 template <typename FPType>
-std::tuple<FPType, std::vector<unsigned>>
+std::vector<std::pair<std::vector<unsigned>, FPType>>
 infer(const boost::multi_array<FPType, 2> &input, unsigned blankSymbol,
-      unsigned beamwidth, bool useLog, bool verbose) {
+      unsigned beamwidth, unsigned topBeams, bool useLog, bool verbose) {
 
   const FPType maxProb = useLog ? log::probabilityOne : 1;
   const FPType minProb = useLog ? log::probabilityZero : 0;
@@ -369,25 +369,20 @@ infer(const boost::multi_array<FPType, 2> &input, unsigned blankSymbol,
 
   // We don't need to sort since beam probabilities already kept sorted
   // (implicit)
-  const auto output = beamHistory.getOutputSequence(0);
-
-  auto sum =
-      useLog ? log::add(beamProbabilities.at(0).pnb, beamProbabilities.at(0).pb)
-             : beamProbabilities.at(0).pnb + beamProbabilities.at(0).pb;
-  if (verbose) {
-    std::cout << "Output:" << std::endl;
+  std::vector<std::pair<std::vector<unsigned>, FPType>> outputs;
+  for (unsigned i = 0; i < topBeams; i++) {
+    const auto sequence = beamHistory.getOutputSequence(i);
+    auto prob =
+        useLog
+            ? log::add(beamProbabilities.at(i).pnb, beamProbabilities.at(i).pb)
+            : beamProbabilities.at(i).pnb + beamProbabilities.at(i).pb;
+    // Always return logProb
+    if (!useLog) {
+      prob = std::log(prob);
+    }
+    outputs.push_back({sequence, prob});
   }
-  print(output);
-  if (useLog) {
-    std::cout << "P = " << std::exp(sum) << std::endl;
-    std::cout << "Log(P) = " << sum << std::endl;
-
-  } else {
-    std::cout << "P = " << sum << std::endl;
-    std::cout << "Log(P) = " << std::log(sum) << std::endl;
-    sum = std::log(sum);
-  }
-  return {sum, output};
+  return outputs;
 }
 
 template std::vector<Candidate<double>> generateCandidates(
@@ -434,12 +429,12 @@ applyCandidates(BeamHistory &beamHistory,
                 std::vector<BeamProbability<float>> &beamProbabilities,
                 const std::vector<Candidate<float>> &candidates, bool useLog);
 
-template std::tuple<double, std::vector<unsigned>>
+template std::vector<std::pair<std::vector<unsigned>, double>>
 infer(const boost::multi_array<double, 2> &input, unsigned blankSymbol,
-      unsigned beamwidth, bool useLog, bool verbose);
-template std::tuple<float, std::vector<unsigned>>
+      unsigned beamwidth, unsigned topBeams, bool useLog, bool verbose);
+template std::vector<std::pair<std::vector<unsigned>, float>>
 infer(const boost::multi_array<float, 2> &input, unsigned blankSymbol,
-      unsigned beamwidth, bool useLog, bool verbose);
+      unsigned beamwidth, unsigned topBeams, bool useLog, bool verbose);
 
 /// ====================================================================
 /// ====================================================================

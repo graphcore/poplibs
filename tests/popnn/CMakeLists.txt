@@ -1144,3 +1144,9 @@ add_multitarget_test(
   COMMAND ctc_loss
           --test-reduced-codelet-result=1
   VARIANTS ${IPUMODEL_VARIANTS})
+
+# TODO Add some tests for beam search
+# add_multitarget_test(
+#   NAME CTC_Inference_test
+#   COMMAND ctc_beam_search
+#   VARIANTS ${IPUMODEL_VARIANTS})

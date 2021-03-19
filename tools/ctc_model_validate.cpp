@@ -145,7 +145,7 @@ boost::multi_array<FPType, 2> scale(const boost::multi_array<FPType, 2> &in,
 // Struct and function to return the test inputs
 template <typename FPType> struct InputSequence {
   boost::multi_array<FPType, 2> input;
-  std::vector<unsigned> idx;
+  std::vector<unsigned> extendedLabel;
   unsigned blankClass;
 };
 
@@ -153,7 +153,7 @@ template <typename FPType>
 void testTraining(const InputSequence<FPType> &test, bool normalise,
                   bool verbose) {
   auto blankClass = test.blankClass;
-  auto paddedSequence = test.idx;
+  auto paddedSequence = test.extendedLabel;
   auto validTimesteps = test.input.shape()[1];
 
   std::cout << "\n";
@@ -176,7 +176,7 @@ void testTraining(const InputSequence<FPType> &test, bool normalise,
 
   auto loss = -prodSum;
   if (normalise) {
-    loss = loss / test.idx.size();
+    loss = loss / test.extendedLabel.size();
   }
   std::cout << std::setprecision(6) << "\nP(sequence)=" << std::exp(prodSum)
             << "\nloss:" << loss << "\n";
@@ -252,7 +252,7 @@ void testAllPathsInference(const InputSequence<FPType> &test,
     }
   }
   bestPath = extendedLabels(bestPath, test.blankClass, false);
-  if (test.idx != bestPath) {
+  if (test.extendedLabel != bestPath) {
     throw std::logic_error("Incorrect result");
   }
 }
@@ -261,8 +261,15 @@ void testBeamSearchInference(
     const InputSequence<FPType> &test, bool useLogArithmetic,
     unsigned beamwidth, boost::optional<std::vector<unsigned>> expectedSequence,
     boost::optional<double> expectedLogProb, bool verbose = false) {
-  auto [probability, output] = infer<FPType>(
-      test.input, test.blankClass, beamwidth, useLogArithmetic, verbose);
+  auto [output, probability] =
+      infer<FPType>(test.input, test.blankClass, beamwidth, 1, useLogArithmetic,
+                    verbose)
+          .at(0);
+
+  std::cout << "Output:" << std::endl;
+  print(output);
+  std::cout << "P = " << std::exp(probability) << std::endl;
+  std::cout << "Log(P) = " << probability << std::endl;
 
   if (expectedSequence) {
     if (!std::equal(output.begin(), output.end(), expectedSequence->begin())) {
@@ -278,24 +285,11 @@ void testBeamSearchInference(
     }
   }
 }
-template <typename FPType>
-struct InputSequence<FPType>
-getRandomTestInput(unsigned timesteps, unsigned baseSequenceLength,
-                   unsigned numClassesIncBlank, RandomUtil &rand) {
-  unsigned blankClass = numClassesIncBlank - 1;
-
-  auto [input, idx] =
-      provideInputWithPath<FPType>(baseSequenceLength, timesteps, timesteps,
-                                   numClassesIncBlank, blankClass, rand);
-  std::cout << "Input sequence: ";
-  print(idx, blankClass);
-  return {log::softMax(matrix::transpose(input)),
-          extendedLabels(idx, blankClass, true), blankClass};
-}
 
 template <typename FPType>
 InputSequence<FPType> parseInput(const std::vector<double> &input,
-                                 const std::vector<unsigned> &shape) {
+                                 const std::vector<unsigned> &shape,
+                                 unsigned blankClass) {
   const auto numClassesIncBlank = shape.at(0);
   const auto tSize = shape.at(1);
   boost::multi_array<FPType, 2> reshapedInput(
@@ -303,14 +297,12 @@ InputSequence<FPType> parseInput(const std::vector<double> &input,
   for (unsigned i = 0; i < input.size(); i++) {
     *(reshapedInput.data() + i) = input[i];
   }
-  // Blank class always last but one for now
-  return {reshapedInput, {}, shape.at(0) - 1};
+  return {reshapedInput, {}, blankClass};
 }
 
 int main(int argc, char **argv) {
   // Default input parameters.
   bool inference = false;
-  bool useDoubles = true;
   bool useLogArithmetic = false;
   bool allPathsMethod = false;
   bool verbose = false;
@@ -319,6 +311,7 @@ int main(int argc, char **argv) {
   unsigned testNumber = 0;
   unsigned beamWidth = 3;
   unsigned randomTestLength = 15;
+  unsigned blankClass = 0;
   unsigned numClassesIncBlank = 4;
   boost::optional<unsigned> seed = boost::none;
   boost::optional<unsigned> baseSequenceLength = boost::none;
@@ -353,6 +346,8 @@ int main(int argc, char **argv) {
      " Defaults to --test-length/2")
     ("num-classes", po::value(&numClassesIncBlank)->default_value(numClassesIncBlank),
      "Number of classes (including blank) to use for random test sequences")
+    ("blank-class", po::value(&blankClass)->default_value(blankClass),
+     "Index of the blank class")
     ("test", po::value(&testNumber)->default_value(testNumber),
      "Index of hand coded test example")
     ("all-paths", po::value(&allPathsMethod)->default_value(allPathsMethod),
@@ -361,8 +356,6 @@ int main(int argc, char **argv) {
      "Normalise the loss")
     ("log", po::value(&useLogArithmetic)->default_value(useLogArithmetic),
      "Compute using log arithmetic")
-    ("doubles", po::value(&useDoubles)->default_value(useDoubles),
-     "Use double precision for reference")
     ("verbose", po::value(&verbose)->default_value(verbose),
      "More debug print");
   // clang-format on
@@ -395,84 +388,47 @@ int main(int argc, char **argv) {
   std::cout << "Using seed: " << *seed << "\n";
   RandomUtil rand{*seed};
 
-  if (useDoubles) {
-    const auto test = [&]() {
-      auto result = input.val.empty()
-                        ? getRandomTestInput<double>(randomTestLength,
-                                                     *baseSequenceLength,
-                                                     numClassesIncBlank, rand)
-                        : parseInput<double>(input.val, inputShape);
-
-      if (useLogArithmetic) {
-        result.input = log::log(result.input);
-        if (verbose) {
-          exportPrint("Log Softmax in", result.input);
-        }
-      }
-      return result;
-    }();
-    if (verbose) {
-      print("Test sequence:", test.idx, test.blankClass);
-      std::cout << "The blank symbol is: " << test.blankClass << "\n";
-      if (useLogArithmetic) {
-        print("Log Softmax input", test.input, test.blankClass);
-      } else {
-        print("Softmax input", test.input, test.blankClass);
-      }
-    }
-    if (inference) {
-      if (allPathsMethod) {
-        testAllPathsInference<double>(test, useLogArithmetic, verbose);
-      } else {
-        testBeamSearchInference<double>(
-            test, useLogArithmetic, beamWidth,
-            expectedSequence
-                ? boost::optional<std::vector<unsigned>>(expectedSequence->val)
-                : boost::none,
-            expectedLogProb, verbose);
-      }
+  const auto test = [&]() -> InputSequence<double> {
+    if (input.val.empty()) {
+      auto [inputProbs, label] = getRandomTestInput<double>(
+          *baseSequenceLength, randomTestLength, randomTestLength,
+          numClassesIncBlank, blankClass, !useLogArithmetic, rand);
+      std::cout << "Input sequence: ";
+      print(label, blankClass);
+      auto extendedLabel = extendedLabels(label, blankClass, true);
+      return {inputProbs, extendedLabel, blankClass};
     } else {
-      testTraining<double>(test, normalise, verbose);
+      auto test = parseInput<double>(input.val, inputShape, blankClass);
+      test.input = log::log(test.input);
+      return test;
+    }
+  }();
+
+  if (verbose) {
+    if (useLogArithmetic) {
+      exportPrint("Log Softmax in", test.input);
+    }
+    print("Test sequence:", test.extendedLabel, test.blankClass);
+    std::cout << "The blank symbol is: " << test.blankClass << "\n";
+    if (useLogArithmetic) {
+      print("Log Softmax input", test.input, test.blankClass);
+    } else {
+      print("Softmax input", test.input, test.blankClass);
+    }
+  }
+  if (inference) {
+    if (allPathsMethod) {
+      testAllPathsInference<double>(test, useLogArithmetic, verbose);
+    } else {
+      testBeamSearchInference<double>(
+          test, useLogArithmetic, beamWidth,
+          expectedSequence
+              ? boost::optional<std::vector<unsigned>>(expectedSequence->val)
+              : boost::none,
+          expectedLogProb, verbose);
     }
   } else {
-    const auto test = [&]() {
-      auto result =
-          input.val.empty()
-              ? getRandomTestInput<float>(randomTestLength, *baseSequenceLength,
-                                          numClassesIncBlank, rand)
-              : parseInput<float>(input.val, inputShape);
-
-      if (useLogArithmetic) {
-        result.input = log::log(result.input);
-        if (verbose) {
-          exportPrint("Log Softmax in", result.input);
-        }
-      }
-      return result;
-    }();
-    if (verbose) {
-      print("Test sequence:", test.idx, test.blankClass);
-      std::cout << "The blank symbol is: " << test.blankClass << "\n";
-      if (useLogArithmetic) {
-        print("Log Softmax input", test.input, test.blankClass);
-      } else {
-        print("Softmax input", test.input, test.blankClass);
-      }
-    }
-    if (inference) {
-      if (allPathsMethod) {
-        testAllPathsInference<float>(test, useLogArithmetic, verbose);
-      } else {
-        testBeamSearchInference<float>(
-            test, useLogArithmetic, beamWidth,
-            expectedSequence
-                ? boost::optional<std::vector<unsigned>>(expectedSequence->val)
-                : boost::none,
-            expectedLogProb, verbose);
-      }
-    } else {
-      testTraining<float>(test, normalise, verbose);
-    }
+    testTraining<double>(test, normalise, verbose);
   }
 
   return 0;

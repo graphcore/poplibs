@@ -6,6 +6,7 @@
 #include <poputil/exceptions.hpp>
 
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
 
 #include <random>
 #include <vector>
@@ -58,10 +59,39 @@ void print(const std::vector<unsigned> &sequence);
 void print(const std::vector<unsigned> &sequence, unsigned blank);
 
 template <typename FPType>
+void printInput(const boost::multi_array<FPType, 2> &in, unsigned blank);
+
+template <typename FPType>
+void printBeams(std::vector<std::pair<std::vector<unsigned>, FPType>> &beams,
+                unsigned blank);
+
+void validateTimeAndLabelBounds(
+    const boost::optional<unsigned> &minRandomTime,
+    const boost::optional<unsigned> &fixedTime, unsigned maxTime,
+    const boost::optional<unsigned> &minRandomLabelLength,
+    const boost::optional<unsigned> &fixedLabelLength, unsigned maxLabelLength);
+
+// Return pair {T, LabelLength} for given min/fixed/max values of T and label
+// length. It may be no combination is guaranteed that the label is
+// representable for a given t (satisfy t >= labelLength * 2 - 1), which can
+// cause confusing outputs (probabilties ~0). An error can be thrown for these
+// cases (toggleable via `disableAlwaysSatisfiableError`)
+std::pair<unsigned, unsigned>
+getRandomSize(const boost::optional<unsigned> &minT,
+              const boost::optional<unsigned> &fixedT, unsigned maxT,
+              const boost::optional<unsigned> &minLabelLength,
+              const boost::optional<unsigned> &fixedLabelLength,
+              unsigned maxLabelLength, bool disableAlwaysSatisfiableError,
+              RandomUtil &rand);
+
+// Create an input sequence of random data, and if the input sequence is a
+// compatible length, increase its probability to stop the loss getting very
+// small (important in large tests)
+template <typename FPType>
 std::pair<boost::multi_array<FPType, 2>, std::vector<unsigned>>
-provideInputWithPath(unsigned labelLength, unsigned timeSteps, unsigned maxT,
-                     unsigned numClasses, unsigned blankClass,
-                     RandomUtil &rand);
+getRandomTestInput(unsigned timesteps, unsigned maxT, unsigned labelLength,
+                   unsigned numClassesIncBlank, unsigned blankClass,
+                   bool isLogits, RandomUtil &rand);
 
 } // namespace ctc
 } // namespace poplibs_test

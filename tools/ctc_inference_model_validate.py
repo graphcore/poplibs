@@ -63,10 +63,10 @@ def beam_search_poplibs(program, softmax_input, expectedSequence, expectedLogPro
             "--input", "{" + softmax_to_poplibs_arg(softmax_input) + "}",
             "--input-shape", "{" + str(softmax_input.shape[2]) + "," + str(
                 softmax_input.shape[0]) + "}",  # (classes, t)
+            "--blank-class", str(softmax_input.shape[2] - 1),
             "--expectedSequence", "{" + vector_to_poplibs_arg(expectedSequence) + "}",
             "--expectedLogProb", str(expectedLogProb),
             "--log", "on",
-            "--doubles", "off",
             ]
     # print(program, *args)
     process = subprocess.Popen([program, *args], stdout=subprocess.PIPE)
