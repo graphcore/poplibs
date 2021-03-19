@@ -206,21 +206,23 @@ inline std::uint64_t getVerticalMacDotProductCycles(bool floatActivations,
                                                     unsigned size,
                                                     unsigned numChannels) {
   assert(!floatActivations);
-  const auto innerCyclesOverhead = 5;
+  const auto innerCyclesOverhead = 4;
   return innerCyclesOverhead + (2 * (size - 1));
 }
 
 inline std::uint64_t getConvPartialVerticalMacCycleEstimate(
     bool floatActivations, bool floatPartials, unsigned convGroupsPerGroup,
     const std::vector<unsigned> &convSizes) {
-  uint64_t cycles =
-      6; // 10 (reload state)  + 1 (bri) - 5 (cmpn, brz, Store-Acc);
+  // Reload state
+  uint64_t cycles = floatPartials ? 20 : 19;
   for (auto convSize : convSizes) {
-    cycles += 10;
-    cycles += 5; // Cycles to store accumulators and then reload. Note that
-                 // this is an overestimate since these cycles should only be
-                 // incurred  when the output differs from that of the
-                 // previous worklist.
+    cycles += 7;
+
+    // Cycles to store accumulators and then reload. Note that
+    // this is an overestimate since these cycles should only be
+    // incurred  when the output differs from that of the
+    // previous worklist.
+    cycles += floatPartials ? 5 : 3;
     auto dotProdCycles = getVerticalMacDotProductCycles(
         floatActivations, floatPartials, convSize, convGroupsPerGroup);
     cycles += dotProdCycles;

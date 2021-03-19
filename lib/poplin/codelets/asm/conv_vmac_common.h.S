@@ -1,5 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-//  
+//
 // Common header for Vertical MAC
 
 #ifndef _conv_vmac_common_h_S_
@@ -94,7 +94,7 @@
 #define in_offset_v                    m7
 #define weights_offset_v               m9
 #define num_fp_m1_v                    m3
-#define out_offset_v                   m8
+#define out_delta_v                    m8
 
 // =============================================================================
 // Performance:
@@ -254,29 +254,23 @@ br            $lr
 // =============================================================================
 
 // load worklist entry parametrs into registers
-.macro LOAD_WORKLIST_ENTRY IN_ATOM_SIZE, WEIGHTS_ATOM_SIZE, OUT_ATOM_SIZE, NUM_CHANS
+.macro LOAD_WORKLIST_ENTRY_EXCEPT_OUT IN_ATOM_SIZE, WEIGHTS_ATOM_SIZE, NUM_CHANS
+  ldz16step     $weights_offset_v, $mzero, $partition_v+=, 1
+
   // form input address
-  ldz16         $in_offset_v, $partition_v, PARTITION_IN_OFFSET/2
+  ldz16step     $in_offset_v, $mzero, $partition_v+=, 1
   mul           $in_offset_v, $in_offset_v, \IN_ATOM_SIZE * \NUM_CHANS
 
-  // form weights address
-  ldz16         $weights_offset_v, $partition_v, PARTITION_WEIGHTS_OFFSET/2
-  mul           $weights_offset_v, $weights_offset_v, \WEIGHTS_ATOM_SIZE * \NUM_CHANS
-
-  // obtain number of consecutive accumulations
-  // Note this relies on the fact that out offset is the first entry in the
-  // partition. This allows us to wind the pointer to the next partition
   {
-    ldz16         $num_fp_m1_v, $partition_v, PARTITION_NUM_ELEMS/2
+    ldz16step     $num_fp_m1_v, $mzero, $partition_v+=, 1
     mov           $a0:1, $azeros
   }
+
+  // form weights address
   {
-    ldz16step     $out_offset_v, $mzero, $partition_v+=, 4
+    mul           $weights_offset_v, $weights_offset_v, \WEIGHTS_ATOM_SIZE * \NUM_CHANS
     mov           $a2:3, $azeros
   }
-
-  // form output address and
-  mul           $out_offset_v, $out_offset_v, \OUT_ATOM_SIZE * \NUM_CHANS
 .endm
 
 #endif // #ifdef __IPU__

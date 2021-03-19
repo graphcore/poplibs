@@ -1,8 +1,8 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 // Computes an nx1 convolution using Vertical MAC with half input and half partials.
-// A contiguous field is partitioned for each position of the output element. The 
+// A contiguous field is partitioned for each position of the output element. The
 // partitions are distributed between between workers. Each worker is provided a
-// temporary tensor to store its VMAC outputs. The worker outputs are finally 
+// temporary tensor to store its VMAC outputs. The worker outputs are finally
 // reduced and stored in the user-specified output buffer.
 
 #ifdef __IPU__
@@ -199,10 +199,9 @@ exitz         $mzero
 
 // =============================================================================
 // Performance:
-//   one_time_overhead + 16 + load_acc + (20 + 2*(num_fp_m1_v + 1)))*num_partitions_v + reload_acc*num_outputs_processed
+//   one_time_overhead + 19 + (11 + 2*(num_fp_m1_v + 1)))*num_partitions_v + reload_acc*(num_outputs_processed-1)
 //     where one_time_overhead= 13
-//     where load_acc = 4 cycles
-//     where reload_acc = 7 cycles
+//     where reload_acc = 3 cycles
 //
 // Pre-requisite:
 //  - The worklists should be sorted by output offset.
@@ -216,7 +215,6 @@ exitz         $mzero
 #define partition_table_v              m2
 #define partition_struct_v             m2
 #define num_partitions_v               m4
-#define prev_out_offset                m5
 #define weights_ptr_v                  m6
 #define partition_base_v               m7
 #define inchan_ptr_v                   m10
@@ -227,17 +225,6 @@ exitz         $mzero
 #define WKR_STACK_TOTAL_PARTITIONS      WKR_STACK_COMMON
 #define WKR_STACK_NUM_PARTITIONS        (WKR_STACK_TOTAL_PARTITIONS + 4)
 #define WKR_STACK_PARTITION_BASE        (WKR_STACK_NUM_PARTITIONS + 4)
-
-// macro to store accumulators to 64-bit memory
-.macro STORE_ACC_HALF base, addr
-  f16v2gina     $a0, $azero, 0
-  f16v2gina     $a1, $azero, 0
-  // Need this to align repeat
-  {
-    st64          $a0:1, \base, \addr, 0
-    fnop
-  }
-.endm
 
 .section ".text.convVerticalMacFlattened_half_half", "ax"
 .type convVerticalMacFlattened_half_half, @function
@@ -293,33 +280,49 @@ ld32          $partition_v, $mworker_base, WKR_STACK_PARTITION_BASE/4
 // load previously stored partials address
 ld32          $outchan_ptr_v, $mworker_base, WKR_STACK_PARTIALS_PTR/4
 ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
-ld32          $weights_ptr_v, $mvertex_base, WKR_WEIGHTS_PTR/4
 
-LOAD_WORKLIST_ENTRY SIZEOF_IN_ATOM SIZEOF_WEIGHTS_ATOM SIZEOF_OUT_ATOM CHAN_GROUPS_PER_GROUP
-bri           L_Partition_load_acc
+{
+  ld32          $weights_ptr_v, $mvertex_base, WKR_WEIGHTS_PTR/4
+  mov           $a0:1, $azeros
+}
+
+ld32          $in_stride_v, $mvertex_base, WKR_IN_STRIDE/4
+ldz16step     $out_delta_v, $mzero, $partition_v+=, 1
+mul           $out_delta_v, $out_delta_v, CHAN_GROUPS_PER_GROUP
+ldz16step     $mzero, $mzero, $outchan_ptr_v+=, $out_delta_v
+
+// reload the accumulators with current output values
+ld64          $a0:1, $mzero, $outchan_ptr_v, 0
+{
+  setzi         $out_delta_v, 0
+  f16v4acc      $a0:1
+}
 
 PartitionLoop:
-  LOAD_WORKLIST_ENTRY SIZEOF_IN_ATOM SIZEOF_WEIGHTS_ATOM SIZEOF_OUT_ATOM CHAN_GROUPS_PER_GROUP
+  LOAD_WORKLIST_ENTRY_EXCEPT_OUT SIZEOF_IN_ATOM SIZEOF_WEIGHTS_ATOM CHAN_GROUPS_PER_GROUP
 
-  // detect if the output has changed. Store accumulator to output and reload
-  // the accumulator with the new output entry.
-  cmpne         $mscratch, $prev_out_offset, $out_offset_v
-  brz           $mscratch, L_Partition_Acc
+  brz           $out_delta_v, L_Partition_Acc
 
   // store the accumulator result except if this is the very first pass
-  STORE_ACC_HALF $outchan_ptr_v, $prev_out_offset
-
-L_Partition_load_acc:
-  // reload the accumulators with current output values
-  ld64          $a0:1, $outchan_ptr_v, $out_offset_v, 0
-
-L_Partition_Acc:
-  ld32          $in_stride_v, $mvertex_base, WKR_IN_STRIDE/4
-  ld64step      $a4:5, $inchan_ptr_v, $in_offset_v+=, $in_stride_v
   {
-    ld64step      $a6:7, $weights_ptr_v, $weights_offset_v+=, $weights_stride_v
+    mul           $out_delta_v, $out_delta_v, CHAN_GROUPS_PER_GROUP / 4
+    f16v2gina     $a2, $azero, 0
+  }
+
+  {
+    ld64          $a0:1, $mzero, $outchan_ptr_v, $out_delta_v
+    f16v2gina     $a3, $azero, 0
+  }
+  // Need this to align repeat
+  {
+    st64step      $a2:3, $mzero, $outchan_ptr_v+=, $out_delta_v
     fnop
   }
+
+L_Partition_Acc:
+  ld64step      $a4:5, $inchan_ptr_v, $in_offset_v+=, $in_stride_v
+  ld64step      $a6:7, $weights_ptr_v, $weights_offset_v+=, $weights_stride_v
+
   // Note: if there were 8 channels in a conv group, this could be modified to
   // utilise the 8-wide accumulator.
   {
@@ -336,18 +339,19 @@ L_Partition_Acc:
       f16v4acc      $a0:1
     }
 2:
+L_Partition_end:
   {
-    mov           $prev_out_offset, $out_offset_v
+    ldz16step     $out_delta_v, $mzero, $partition_v+=, 1
     f16v4mul      $a0:1, $a4:5, $a6:7
   }
-L_Partition_end:
-   {
-     brnzdec       $num_partitions_v, PartitionLoop
-     f16v4acc      $a0:1
-   }
+  {
+    brnzdec       $num_partitions_v, PartitionLoop
+    f16v4acc      $a0:1
+  }
 
-  // Store accumulator results as final output
-  STORE_ACC_HALF $outchan_ptr_v, $prev_out_offset
+  f16v2gina     $a0, $azero, 0
+  f16v2gina     $a1, $azero, 0
+  st64          $a0:1, $mzero, $outchan_ptr_v, 0
 
 L_Conv_end:
 exitz         $mzero

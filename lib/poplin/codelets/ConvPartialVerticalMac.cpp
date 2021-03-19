@@ -79,8 +79,12 @@ public:
         for (unsigned context = 0; context < usedContexts; ++context) {
           const auto &wl = worklists[context];
           unsigned wi = 0;
+          unsigned prevOut = 0;
           while (wi < wl.size()) {
-            auto outOffset = wl[wi];
+            // output offset is stored as deltas following the first value
+            auto outOffset = wl[wi] + prevOut;
+            prevOut = outOffset;
+
             auto kOffset = wl[wi + 1];
             auto inOffset = wl[wi + 2];
             auto numConv = wl[wi + 3] + 1;

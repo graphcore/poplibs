@@ -1495,8 +1495,13 @@ static void createConvPartialVerticalMacVertex(
               [](const auto &lhs, const auto &rhs) {
                 return lhs.outOffset < rhs.outOffset;
               });
+    unsigned prev = 0;
     for (auto wl : worklistEntry[context]) {
-      worklist[context].push_back(wl.outOffset);
+      // Output offsets are stored as the difference from the previous offset,
+      // except for the very first output offset.
+      worklist[context].push_back(wl.outOffset - prev);
+      prev = wl.outOffset;
+
       worklist[context].push_back(wl.weightOffset);
       worklist[context].push_back(wl.inOffset);
       assert(wl.numElems > 0);
