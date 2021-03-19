@@ -1029,15 +1029,15 @@ bool binaryOpBroadcastInnerVector(
   std::string vertexName = inPlace ? "popops::BroadcastVectorInner2DInPlace"
                                    : "popops::BroadcastVectorInner2D";
   auto vertexClass = templateVertex(vertexName, op, dType);
-  const auto maxAddendLen = graph.getMaxVertexFieldValue(vertexClass, "BLen");
+  const auto maxWorkListElemLen =
+      graph.getMaxVertexFieldValue(vertexClass, "workList");
   // If numPatternElems were some ludicrous number that doesn't
   // actually fit in numPatternElems then we could handle it and still
   // use channel ops but for now it seems unlikely.
-  if (numPatternElems <= maxAddendLen &&
+  if (numPatternElems <= maxWorkListElemLen &&
       (intervalSequenceNumElements(splitIntervals) % numPatternElems) == 0) {
-    const auto maxBlockCount = std::min<unsigned>(
-        graph.getMaxVertexFieldValue(vertexClass, "dataBlockCount"),
-        target.getRptCountMax());
+    const auto maxBlockCount =
+        std::min<unsigned>(maxWorkListElemLen, target.getRptCountMax());
     const auto maxSize = std::min(
         static_cast<unsigned>(maxBlockCount * numPatternElems), elementLimit);
     const auto vertexRegions =
@@ -1055,30 +1055,33 @@ bool binaryOpBroadcastInnerVector(
       for (auto &region : in2Regions) {
         region = region.slice(0, numPatternElems);
       }
-      std::vector<std::uint16_t> BLen(outRegions.size(), numPatternElems);
-      std::vector<std::uint16_t> dataBlockCount(outRegions.size());
-      for (std::size_t i = 0; i < outRegions.size(); ++i) {
+
+      const auto numEdges = outRegions.size();
+      std::vector<std::uint16_t> workList;
+      workList.reserve(2 * numEdges + 1);
+      if (numEdges > (1 + maxWorkListElemLen)) {
+        throw poplibs_error("2D vector inner has > " +
+                            std::to_string(maxWorkListElemLen) + " edges");
+      }
+      workList.push_back(numEdges - 1);
+      for (std::size_t i = 0; i < numEdges; ++i) {
         assert((outRegions[i].numElements() % numPatternElems) == 0);
-        dataBlockCount[i] = outRegions[i].numElements() / numPatternElems;
+        workList.push_back(numPatternElems);
+        workList.push_back(outRegions[i].numElements() / numPatternElems);
       }
 
-      auto BLenTensor = graph.addConstant(UNSIGNED_SHORT, {outRegions.size()},
-                                          BLen.data(), {dnai, "BLenWorklist"});
-      graph.setTileMapping(BLenTensor, tile);
-      auto dataBlockCountTensor =
-          graph.addConstant(UNSIGNED_SHORT, {outRegions.size()},
-                            dataBlockCount.data(), {dnai, "dataBlockWorklist"});
-      graph.setTileMapping(dataBlockCountTensor, tile);
+      auto workListTensor =
+          graph.addConstant(UNSIGNED_SHORT, {workList.size()}, workList.data(),
+                            {dnai, "workList"});
+      graph.setTileMapping(workListTensor, tile);
 
       auto v = graph.addVertex(cs, vertexClass);
-      graph.setInitialValue(v["n"], outRegions.size());
       graph.connect(v["B"], in2Regions);
       graph.connect(v["data"], in1Regions);
       if (!inPlace) {
         graph.connect(v["out"], outRegions);
       }
-      graph.connect(v["BLen"], BLenTensor);
-      graph.connect(v["dataBlockCount"], dataBlockCountTensor);
+      graph.connect(v["workList"], workListTensor);
       graph.setTileMapping(v, tile);
     }
     return true;

@@ -20,22 +20,19 @@ class [[poplar::constraint(
 public:
   BroadcastVectorInner2D();
 
-  // n is equal to B.size(), BLen.size(), data.size()
-  // and dataBlockCount.size()
-  const uint32_t n;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> B;
-  Input<Vector<uint16_t, ONE_PTR>> BLen;
+  Input<Vector<uint16_t, ONE_PTR>> workList;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> data;
-  Input<Vector<uint16_t, ONE_PTR>> dataBlockCount;
   Vector<Output<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
 
   IS_EXTERNAL_CODELET(true);
 
   bool compute() {
+    const auto n = workList[0] + 1;
+    const auto *lenAndBlockCount = &workList[1];
     for (unsigned i = 0; i != n; ++i) {
-      unsigned blockCount = dataBlockCount[i];
-      unsigned len = BLen[i];
-
+      unsigned len = *lenAndBlockCount++;
+      unsigned blockCount = *lenAndBlockCount++;
       for (unsigned b = 0; b != blockCount; ++b) {
         for (unsigned a = 0; a != len; ++a) {
           out[i][b * len + a] =

@@ -872,14 +872,14 @@ std::uint64_t vectorInner2DAddCycles(
                                  " respectively) in Broadcast ADD vertex");
   }
 
-  std::uint64_t numCycles = 5; // pre-loop
+  std::uint64_t numCycles = 3; // pre-loop
 
   for (unsigned i = 0; i != n; ++i) {
     // loop overhead. A bit more for halves
     if (type == HALF)
-      numCycles += 17;
+      numCycles += 15;
     else
-      numCycles += 11;
+      numCycles += 9;
 
     auto coreFunc = type == HALF ? vectorInnerAddCoreCycles_half
                                  : vectorInnerAddCoreCycles_float;
@@ -1024,14 +1024,14 @@ vectorInner2DDivCycles(uint32_t n, const std::vector<uint32_t> &BLen,
                                  " respectively) in Broadcast ADD vertex");
   }
 
-  std::uint64_t numCycles = 8; // pre-loop
+  std::uint64_t numCycles = 6; // pre-loop
 
   for (unsigned i = 0; i != n; ++i) {
     // loop overhead. A bit more for halves
     if (type == HALF)
-      numCycles += 17;
+      numCycles += 15;
     else
-      numCycles += 11;
+      numCycles += 9;
 
     auto coreFunc = type == HALF ? vectorInnerDivCoreCycles_half
                                  : vectorInnerDivCoreCycles_float;
@@ -1188,10 +1188,10 @@ std::uint64_t vectorInner2DMulCycles(
                                  " respectively) in Broadcast MUL vertex");
   }
 
-  std::uint64_t numCycles = 5; // pre-loop
+  std::uint64_t numCycles = 3; // pre-loop
 
   for (unsigned i = 0; i != n; ++i) {
-    numCycles += type == HALF ? 15 : 11; // loop overhead.
+    numCycles += type == HALF ? 13 : 9; // loop overhead.
 
     auto coreFunc = type == HALF ? vectorInnerMulCoreCycles_half
                                  : vectorInnerMulCoreCycles_float;
@@ -1370,28 +1370,42 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
   return 0;
 }
 
+// Broadcast inner vector worklist desconstruction
+struct BroadcastInnerVec2DSizes {
+  uint32_t n;
+  std::vector<uint32_t> BLen;
+  std::vector<uint32_t> dataBlockCount;
+};
+
+static BroadcastInnerVec2DSizes
+deconstructWorkList(const std::vector<uint32_t> &workList) {
+  BroadcastInnerVec2DSizes sizes;
+  // encoded as 1 less
+  sizes.n = 1 + workList.at(0);
+  sizes.BLen.reserve(sizes.n);
+  sizes.dataBlockCount.reserve(sizes.n);
+  assert(workList.size() == 1 + 2 * sizes.n);
+  for (unsigned i = 0; i != sizes.n; ++i) {
+    sizes.BLen.push_back(workList[1 + 2 * i]);
+    sizes.dataBlockCount.push_back(workList[2 * (i + 1)]);
+  }
+  return sizes;
+}
+
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2D)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  CODELET_SCALAR_VAL(n, uint32_t);
-  CODELET_VECTOR_VALS(BLen, uint32_t);
-  CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
-
+  CODELET_VECTOR_VALS(workList, uint32_t);
   const unsigned vectorWidth = target.getVectorWidth(type);
-  if (BLen.size() != dataBlockCount.size()) {
-    throw poputil::poplibs_error("n (" + std::to_string(n) +
-                                 ") does not "
-                                 "match BLen or dataBlockCount "
-                                 "length (" +
-                                 std::to_string(BLen.size()) + " & " +
-                                 std::to_string(dataBlockCount.size()) +
-                                 " respectively) in Broadcast vertex");
-  }
+  const auto sizes = deconstructWorkList(workList);
+  const auto &n = sizes.n;
+  const auto &BLen = sizes.BLen;
+  const auto &dataBlockCount = sizes.dataBlockCount;
   std::uint64_t totalElems = 0;
-  for (unsigned i = 0; i != BLen.size(); ++i) {
+  for (unsigned i = 0; i != sizes.BLen.size(); ++i) {
     totalElems +=
-        BLen[i] *
-        blockLengthFromPacked(dataBlockCount[i], target.getNumWorkerContexts());
+        BLen[i] * blockLengthFromPacked(sizes.dataBlockCount[i],
+                                        target.getNumWorkerContexts());
   }
   auto flops = flopsForBinaryOp2D(totalElems, type, op);
 
@@ -1421,26 +1435,14 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2D)(
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  CODELET_SCALAR_VAL(n, uint32_t);
-  CODELET_VECTOR_VALS(BLen, uint32_t);
-  CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
-
+  CODELET_VECTOR_VALS(workList, uint32_t);
   const unsigned vectorWidth = target.getVectorWidth(type);
-  if (BLen.size() != dataBlockCount.size()) {
-    throw poputil::poplibs_error("n (" + std::to_string(n) +
-                                 ") does not "
-                                 "match BLen or dataBlockCount "
-                                 "length (" +
-                                 std::to_string(BLen.size()) + " & " +
-                                 std::to_string(dataBlockCount.size()) +
-                                 " respectively) in Broadcast vertex");
-  }
   std::uint64_t totalElems = 0;
-  for (unsigned i = 0; i != BLen.size(); ++i) {
-    totalElems +=
-        BLen[i] *
-        blockLengthFromPacked(dataBlockCount[i], target.getNumWorkerContexts());
-  }
+  const auto sizes = deconstructWorkList(workList);
+  const auto &n = sizes.n;
+  const auto &BLen = sizes.BLen;
+  const auto &dataBlockCount = sizes.dataBlockCount;
+
   auto flops = flopsForBinaryOp2D(totalElems, type, op);
 
   switch (op) {

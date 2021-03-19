@@ -557,25 +557,20 @@ FN_SIZE CPP_FUNCNAME(InPlace,DIVIDE)
 ///////////////////// VectorInner2D Worker Vertices ////////////////////////
 
 // Vertex state layout for BroadcastVectorInner2D
-#define VERTEX2D_DATA_N_OFFSET 0                    // In 32-bits
-#define VERTEX2D_DATA_B_OFFSET 1                    // In 32-bits
-#define VERTEX2D_DATA_B_LEN_OFFSET 2                // In 32-bits
-#define VERTEX2D_DATA_DATA_OFFSET 3                 // In 32-bits
-#define VERTEX2D_DATA_BLOCK_COUNT_OFFSET 4          // In 32-bits
+#define VERTEX2D_DATA_B_OFFSET 0                    // In 32-bits
+#define VERTEX2D_DATA_WORKLIST_OFFSET 1             // In 32-bits
+#define VERTEX2D_DATA_DATA_OFFSET 2                 // In 32-bits
 // Additional state for non-inplace variant
-#define VERTEX2D_DATA_OUT_OFFSET 5                  // In 32-bits
+#define VERTEX2D_DATA_OUT_OFFSET 3                  // In 32-bits
 
 
 #define B_iterator                m5
-#define B_size_iterator           m6
+#define workList_iterator         m8
 #define data_iterator             m7
-#define data_block_count_iterator m8
-#define n                         m9
+#define nM1                       m9
 #define out_iterator              m11
 
 #define SCRATCH_OFFSET_B_ITERATOR               0
-#define SCRATCH_OFFSET_B_SIZE_ITERATOR          1
-
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,DIVIDE)
 FUNC_SECTION(2D,DIVIDE)
@@ -599,41 +594,33 @@ CPP_FUNCNAME(2DInPlace,DIVIDE):
   // Fall through.
 
 .Lworker2d:
-  ld32 $n,                         $mvertex_base, $mzero, VERTEX2D_DATA_N_OFFSET
+  ld32 $workList_iterator,         $mvertex_base, $mzero, VERTEX2D_DATA_WORKLIST_OFFSET
+  ldz16step $nM1, $mzero, $workList_iterator+=, 1
   ld32 $B_iterator,                $mvertex_base, $mzero, VERTEX2D_DATA_B_OFFSET
-  ld32 $B_size_iterator,           $mvertex_base, $mzero, VERTEX2D_DATA_B_LEN_OFFSET
-  ld32 $data_block_count_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_BLOCK_COUNT_OFFSET
-
-  // Subtract one for brnzdec
-  add $n, $n, -1
 
 .Louter_loop:
   // Advance all the iterators.
   ld32step  $B,                $mzero, $B_iterator+=, 1
-  ldz16step $B_size,           $mzero, $B_size_iterator+=, 1
+  ldz16step $B_size,           $mzero, $workList_iterator+=, 1
   ld32step  $data,             $mzero, $data_iterator+=, 1
-  ldz16step $data_block_count, $mzero, $data_block_count_iterator+=, 1
+  ldz16step $data_block_count, $mzero, $workList_iterator+=, 1
   ld32step  $out,              $mzero, $out_iterator+=, 1
 
   // We need to save & restore these as they are clobbered by the function call.
   st32   $B_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_B_ITERATOR
-  st32   $B_size_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_B_SIZE_ITERATOR
 
   call $lr, VectorInnerDiv_core_half
 
   ld32   $B_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_B_ITERATOR
-  ld32   $B_size_iterator, $mworker_base, $mzero, SCRATCH_OFFSET_B_SIZE_ITERATOR
-
-  brnzdec $n, .Louter_loop
+  brnzdec $nM1, .Louter_loop
 
   exitnz $mzero
 
 FN_SIZE CPP_FUNCNAME(2DInPlace,DIVIDE)
 
 #undef B_iterator
-#undef B_size_iterator
+#undef B_workList_iterator
 #undef data_iterator
-#undef data_block_count_iterator
-#undef n
+#undef nM1
 
 #endif // __IPU__

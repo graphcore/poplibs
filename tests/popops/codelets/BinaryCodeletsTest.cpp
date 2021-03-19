@@ -776,24 +776,19 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
     graph.setInitialValue(v["rows"], sizes.rows);
   } else if (vertex.isVectorInner) {
     if (vertex.is2D) {
-      graph.setInitialValue(v["n"], sizes.rows);
-
       std::vector<std::uint16_t> BLen(sizes.rows);
       std::vector<std::uint16_t> dataBlockCount(sizes.rows);
+      std::vector<std::uint16_t> workList;
+      workList.push_back(sizes.rows - 1);
       for (unsigned i = 0; i < sizes.rows; i++) {
-        BLen[i] = sizes.op2RowSizes[i];
-        dataBlockCount[i] = sizes.rowSizes[i] / sizes.op2RowSizes[i];
+        workList.push_back(sizes.op2RowSizes[i]);
+        workList.push_back(sizes.rowSizes[i] / sizes.op2RowSizes[i]);
       }
 
-      auto BLenTensor =
-          graph.addConstant(UNSIGNED_SHORT, {BLen.size()}, BLen.data());
-      graph.setTileMapping(BLenTensor, 0);
-      auto dataBlockTensor = graph.addConstant(
-          UNSIGNED_SHORT, {dataBlockCount.size()}, dataBlockCount.data());
-      graph.setTileMapping(dataBlockTensor, 0);
-
-      graph.connect(v["BLen"], BLenTensor);
-      graph.connect(v["dataBlockCount"], dataBlockTensor);
+      auto workListTensor =
+          graph.addConstant(UNSIGNED_SHORT, {workList.size()}, workList.data());
+      graph.setTileMapping(workListTensor, 0);
+      graph.connect(v["workList"], workListTensor);
     } else {
       unsigned n = sizes.nElems1 / sizes.nElems2;
       unsigned nWorkers = target.getNumWorkerContexts();

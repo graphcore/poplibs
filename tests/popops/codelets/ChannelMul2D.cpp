@@ -108,15 +108,14 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
     auto v = graph.addVertex(cs, templateVertexName);
 
     // Connect the acts and scale subvectors.
-
-    graph.setInitialValue(v["n"], tc.actsLen.size());
     graph.setFieldSize(v["data"], tc.actsLen.size());
     graph.setFieldSize(v["out"], tc.actsLen.size());
     graph.setFieldSize(v["B"], tc.actsLen.size());
 
     std::size_t actsPos = 0;
     std::size_t scalePos = 0;
-    std::vector<unsigned> dataBlockLen;
+    std::vector<unsigned> workList;
+    workList.push_back(tc.actsLen.size() - 1);
     for (unsigned a = 0; a < tc.actsLen.size(); ++a) {
       graph.connect(v["data"][a],
                     allActsIn.slice(actsPos, actsPos + tc.actsLen[a]));
@@ -133,20 +132,14 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
 
       if (actsBlockCount16 != actsBlockCount)
         return false;
-
-      dataBlockLen.push_back(actsBlockCount16);
+      workList.push_back(tc.scaleLen[a]);
+      workList.push_back(actsBlockCount16);
     }
     graph.setTileMapping(v, 0);
-
-    auto BLenTensor = graph.addConstant(UNSIGNED_SHORT, {tc.actsLen.size()},
-                                        tc.scaleLen.data());
-    graph.setTileMapping(BLenTensor, 0);
-    auto dataBlockTensor = graph.addConstant(
-        UNSIGNED_SHORT, {tc.actsLen.size()}, dataBlockLen.data());
-    graph.setTileMapping(dataBlockTensor, 0);
-
-    graph.connect(v["BLen"], BLenTensor);
-    graph.connect(v["dataBlockCount"], dataBlockTensor);
+    auto workListTensor =
+        graph.addConstant(UNSIGNED_SHORT, {workList.size()}, workList.data());
+    graph.setTileMapping(workListTensor, 0);
+    graph.connect(v["workList"], workListTensor);
 
     tcData[i].rawAllScales = allocateHostMemoryForTensor(
         allScales, "allScale" + suffix, graph, uploadProg, downloadProg, tmap);
