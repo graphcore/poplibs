@@ -112,6 +112,13 @@ inline const UnaryOpPerfTable unaryOpPerfInfo = {
     {{UnaryOpType::BITWISE_NOT, UNSIGNED_INT}, {1, true}},
     {{UnaryOpType::BITWISE_NOT, SHORT}, {2, false, 4}},
     {{UnaryOpType::BITWISE_NOT, UNSIGNED_SHORT}, {2, false, 4}},
+    // 3 for abs
+    // 12 (2 of f32ln) float and 4 (2 of f16v2ln) half for log
+    // 3 for load constant and multiply
+    // 6 float (2 of f32exp) and 4 (2 of f16v2exp) half for exp
+    // 3 for copysign
+    {{UnaryOpType::CBRT, FLOAT}, {27, true}},
+    {{UnaryOpType::CBRT, HALF}, {17, true}},
     // use mul with 1.0 and use correct rounding mode
     {{UnaryOpType::CEIL, FLOAT}, {2, true}},
     {{UnaryOpType::CEIL, HALF}, {2, true}},
@@ -194,6 +201,13 @@ inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
     {{UnaryOpType::BITWISE_NOT, UNSIGNED_INT}, {1, true}},
     {{UnaryOpType::BITWISE_NOT, SHORT}, {2, false, 4}},
     {{UnaryOpType::BITWISE_NOT, UNSIGNED_SHORT}, {2, false, 4}},
+    // 3 for abs
+    // 12 (2 of f32ln) float and 4 (2 of f16v2ln) half for log
+    // 3 for load constant and multiply
+    // 6 float (2 of f32exp) and 4 (2 of f16v2exp) half for exp
+    // 3 for copysign
+    {{UnaryOpType::CBRT, FLOAT}, {27, true}},
+    {{UnaryOpType::CBRT, HALF}, {17, true}},
     // use mul with 1.0 and use correct rounding mode
     {{UnaryOpType::CEIL, FLOAT}, {2, true}},
     {{UnaryOpType::CEIL, HALF}, {2, true}},

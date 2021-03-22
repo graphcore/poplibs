@@ -69,6 +69,8 @@ std::string debugName(expr::UnaryOpType op) {
     return "Absolute";
   case UnaryOpType::BITWISE_NOT:
     return "BitwiseNot";
+  case UnaryOpType::CBRT:
+    return "Cbrt";
   case UnaryOpType::CEIL:
     return "Ceil";
   case UnaryOpType::COS:

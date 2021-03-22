@@ -77,7 +77,7 @@ function(test_elementwise TEST_TAG TYPE SIZE)
   add_multitarget_test(NAME "UnaryOpCodeletsTests_${TEST_TAG}"
                        COMMAND UnaryCodeletsTest
                                --vertexRE ${TYPE}
-                               --operation ABSOLUTE BITWISE_NOT CEIL
+                               --operation ABSOLUTE BITWISE_NOT CEIL CBRT
                                            COUNT_LEADING_ZEROS EXPONENT
                                            EXPONENT_MINUS_ONE FLOOR INVERSE
                                            IS_NAN LOGARITHM LOGARITHM_ONE_PLUS

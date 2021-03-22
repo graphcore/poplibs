@@ -358,6 +358,8 @@ int main(int argc, char **argv) {
   // FLOAT only
   else if (test == "Floor") {
     CHECK((mapTest<10, float>(pe::Floor(pe::_1))));
+  } else if (test == "Cbrt") {
+    CHECK((mapTest<10, float>(pe::Cbrt(pe::_1))));
   } else if (test == "Ceil") {
     CHECK((mapTest<10, float>(pe::Ceil(pe::_1))));
   } else if (test == "Round") {

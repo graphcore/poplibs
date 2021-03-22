@@ -27,6 +27,7 @@ const std::map<UnaryOpType, const std::string> unaryOpToString = {
     ONE_OP(ABSOLUTE),
     ONE_OP(ASIN),
     ONE_OP(BITWISE_NOT),
+    ONE_OP(CBRT),
     ONE_OP(CEIL),
     ONE_OP(COS),
     ONE_OP(COUNT_LEADING_ZEROS),
@@ -188,6 +189,7 @@ void performOp(UnaryOpType op, float a, float &result) {
   COMMON_OPS();
   ONE_OP(ABSOLUTE, std::abs(a));
   ONE_OP(ASIN, std::asin(a));
+  ONE_OP(CBRT, std::cbrt(a));
   ONE_OP(CEIL, std::ceil(a));
   ONE_OP(COS, std::cos(a));
   ONE_OP(EXPONENT, std::exp(a));

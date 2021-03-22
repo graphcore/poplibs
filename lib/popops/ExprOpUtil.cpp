@@ -11,6 +11,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "ABSOLUTE";
   case UnaryOpType::BITWISE_NOT:
     return "BITWISE_NOT";
+  case UnaryOpType::CBRT:
+    return "CBRT";
   case UnaryOpType::CEIL:
     return "CEIL";
   case UnaryOpType::COS:
@@ -347,6 +349,7 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::INVERSE:
   case UnaryOpType::ASIN:
     return true;
+  case UnaryOpType::CBRT:
   case UnaryOpType::IS_FINITE:
   case UnaryOpType::LOGICAL_NOT:
   case UnaryOpType::NEGATE:
@@ -372,6 +375,8 @@ poplar::StringRef getUnaryOpAsString(UnaryOpType op, poplar::Type type) {
   }
   case UnaryOpType::BITWISE_NOT:
     return "~";
+  case UnaryOpType::CBRT:
+    return "NAMESPACE::cbrt";
   case UnaryOpType::CEIL:
     return "NAMESPACE::ceil";
   case UnaryOpType::COS:

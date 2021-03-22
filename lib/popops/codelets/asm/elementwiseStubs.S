@@ -125,6 +125,7 @@ INSTANTIATE_OP UnaryOp UnaryOp1D IS___NAN, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D ABSOLUTE, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1D ASIN, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D BITWISE___NOT, int, unsigned_int, short, unsigned_short
+INSTANTIATE_OP UnaryOp UnaryOp1D CBRT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D CEIL, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D COS, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D COUNT___LEADING___ZEROS, int, unsigned_int
@@ -150,6 +151,7 @@ INSTANTIATE_OP UnaryOp UnaryOp1D RSQRT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, ABSOLUTE, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, ASIN, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, BITWISE___NOT, int, unsigned_int, short, unsigned_short
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, CBRT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, CEIL, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COS, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COUNT___LEADING___ZEROS, int, unsigned_int

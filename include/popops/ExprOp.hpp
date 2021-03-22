@@ -48,6 +48,7 @@ enum class UnaryOpType {
   ABSOLUTE,
   ASIN,
   BITWISE_NOT,
+  CBRT,
   CEIL,
   COS,
   COUNT_LEADING_ZEROS,

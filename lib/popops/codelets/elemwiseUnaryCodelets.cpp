@@ -42,6 +42,24 @@ template <> struct UnaryLibCall<expr::UnaryOpType::SQRT> {
   int operator()(int x) const { return std::sqrt(x); }
 };
 
+template <> struct UnaryLibCall<expr::UnaryOpType::CBRT> {
+#ifdef __IPU__
+  template <typename FPType> static auto GetThird() {
+    if constexpr (isVectorType<FPType>::value) {
+      return FPType{} + decltype(std::declval<FPType>()[0])(1.f / 3.f);
+    } else {
+      return FPType{} + decltype(std::declval<FPType>())(1.f / 3.f);
+    }
+  }
+
+  template <typename FPType> FPType operator()(FPType x) const {
+    const auto xFloat = PromoteHalfsToFloats(x);
+    const auto third = PromoteHalfsToFloats(GetThird<FPType>());
+    return ipu::copysign(ipu::exp(ipu::log(ipu::fabs(xFloat)) * third), xFloat);
+  }
+#endif
+};
+
 // Structure with template specialization to define the output type
 // of a unary operation
 template <expr::UnaryOpType op, typename T> struct UnaryOpOutputType {
@@ -114,6 +132,9 @@ DEFINE_UNARY_OP_FN(
     },
     return UnaryLibCall<expr::UnaryOpType::ABSOLUTE>{}(x);)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::BITWISE_NOT, return ~x;)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::CBRT,
+                   return std::cbrt(PromoteHalfsToFloats(x));
+                   , return UnaryLibCall<expr::UnaryOpType::CBRT>{}(x);)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::CEIL, ceil)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::COS, cos)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::COUNT_LEADING_ZEROS,
@@ -878,6 +899,7 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::BITWISE_NOT, int, unsigned, short,
                unsigned short)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
@@ -912,6 +934,7 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ABSOLUTE, float, half,
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
                unsigned, short, unsigned short)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
@@ -947,6 +970,7 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::BITWISE_NOT, int, unsigned, short,
                unsigned short)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
@@ -976,6 +1000,7 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned,
                short, unsigned short)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
@@ -1012,6 +1037,7 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ABSOLUTE, float,
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
                unsigned, short, unsigned short)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
@@ -1056,6 +1082,7 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned,
                short, unsigned short)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,

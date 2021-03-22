@@ -1841,6 +1841,12 @@ int main(int argc, char **argv) {
                            [](int x, int y) -> int { return ~(x ^ y); });
   } else if (test == "BitwiseNotInt") {
     unaryOpTest<int, int>(popops::bitwiseNot, [](int x) -> int { return ~x; });
+  } else if (test == "CubeRoot") {
+    unaryOpTest<float, double>(popops::cbrt, [](float x) -> double {
+      double xd = static_cast<double>(x);
+      double res = std::cbrt(xd);
+      return res;
+    });
   } else if (test == "Ceil") {
     unaryOpTest<float, double>(popops::ceil, [](float x) -> double {
       double res = std::ceil(static_cast<double>(x));

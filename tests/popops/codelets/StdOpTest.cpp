@@ -397,7 +397,7 @@ int main(int argc, char **argv) {
     ("operation",
      po::value<std::string>(&operation)->required(),
      "Allowed operations:\n"
-     "  Unary: COS EXPONENT IS_FINITE IS_INF IS_NAN INVERSE LOGARITHM\n"
+     "  Unary: CBRT COS EXPONENT IS_FINITE IS_INF IS_NAN INVERSE LOGARITHM\n"
      "         LOGARITHM_ONE_PLUS NEGATE SIGNUM SIN SQRT SQUARE TAN TANH SIGMOID\n"
      "         RSQRT ASIN\n"
      "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
@@ -443,7 +443,11 @@ int main(int argc, char **argv) {
   }
 
   // Unary operations
-  if (operation == "COS") {
+  if (operation == "CBRT") {
+    unaryOp = 1;
+    unaryOperation = expr::UnaryOpType::CBRT;
+    unaryHostFn = [](double x) -> double { return std::cbrt(x); };
+  } else if (operation == "COS") {
     unaryOp = 1;
     unaryOperation = expr::UnaryOpType::COS;
     unaryHostFn = [](double x) -> double { return std::cos(x); };

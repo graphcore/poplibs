@@ -156,17 +156,35 @@ std::string Const::printValue() const {
                                this->getType().toString());
 }
 
-const std::vector<std::string> UnaryOp::UnaryOpNames = {
-    "ABS",    "ASIN",      "B_NOT",
-    "CEIL",   "COS",       "COUNT_LEADING_ZEROS",
-    "EXP",    "EXP_M_1",   "FLOOR",
-    "INV",    "IS_FINITE", "IS_INF",
-    "IS_NAN", "LOG",       "LOG_ONE_PLUS",
-    "NOT",    "NEG",       "POPCOUNT",
-    "SIGNUM", "SIN",       "TAN",
-    "TANH",   "ROUND",     "SQRT",
-    "SQU",    "SIGMOID",   "RSQRT",
-    "RELU"};
+const std::vector<std::string> UnaryOp::UnaryOpNames = {"ABS",
+                                                        "ASIN",
+                                                        "B_NOT",
+                                                        "CBRT",
+                                                        "CEIL",
+                                                        "COS",
+                                                        "COUNT_LEADING_ZEROS",
+                                                        "EXP",
+                                                        "EXP_M_1",
+                                                        "FLOOR",
+                                                        "INV",
+                                                        "IS_FINITE",
+                                                        "IS_INF",
+                                                        "IS_NAN",
+                                                        "LOG",
+                                                        "LOG_ONE_PLUS",
+                                                        "NOT",
+                                                        "NEG",
+                                                        "POPCOUNT",
+                                                        "SIGNUM",
+                                                        "SIN",
+                                                        "TAN",
+                                                        "TANH",
+                                                        "ROUND",
+                                                        "SQRT",
+                                                        "SQU",
+                                                        "SIGMOID",
+                                                        "RSQRT",
+                                                        "RELU"};
 
 const std::vector<std::string> BinaryOp::BinaryOpNames = {
     "ADD",
