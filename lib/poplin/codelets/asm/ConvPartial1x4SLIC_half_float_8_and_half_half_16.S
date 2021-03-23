@@ -605,16 +605,16 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     tapack $w_inoutout_triptr, $w_in_ptr, $w_last_out_ptr, $w_curr_out_ptr
     add $w_num_field_elems, $w_num_field_elems, -5
     brneg $w_num_field_elems, .Lworker_process_group_field_row_implicit_zero_stride1_lt5_elems_\ID
-    ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
 
 ALIGNED_RPT_START $w_num_field_elems
@@ -640,19 +640,19 @@ ALIGNED_RPT_END
 .Lworker_process_group_field_row_implicit_zero_stride1_lt5_elems_\ID:
     // + 5 (back to original num field elems) - 2
     add $w_num_field_elems, $w_num_field_elems, (5 - 2)
-    ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     // Handle 1 element separately
     brneg $w_num_field_elems, 3f
 
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
 ALIGNED_RPT_START $w_num_field_elems
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
@@ -882,19 +882,19 @@ ALIGNED_RPT_END
 .Lworker_process_group_field_row_implicit_zero_stride2_lt3_elems_\ID:
     // + 3 (back to original num field elems) - 2
     add $w_num_field_elems, $w_num_field_elems, (3 - 2)
-    ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+    ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     // Branch to handle 1 element
     brneg $w_num_field_elems, 3f
     // Must be 2 elements (store, dummy store, store)
-    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0100
       \SLIC_INSTR $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
 
     { st64pace $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b01
