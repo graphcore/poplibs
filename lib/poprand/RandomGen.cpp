@@ -511,9 +511,20 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
                const Tensor &reference, double keepProbability, double scale,
                Sequence &prog, const poplar::DebugContext &debugContext) {
   POPRAND_TRACEPOINT();
+  return dropout(graph, masterSeed, seedModifier, in, reference,
+                 keepProbability, scale,
+                 /* outputClonesRef */ true, prog, debugContext);
+}
+
+Tensor dropout(Graph &graph, const Tensor *masterSeed,
+               const uint32_t seedModifier, const Tensor &in,
+               const Tensor &reference, double keepProbability, double scale,
+               bool outputClonesRef, Sequence &prog,
+               const poplar::DebugContext &debugContext) {
+  POPRAND_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
-      debugContext,
-      DI_ARGS(masterSeed, in, reference, seedModifier, keepProbability, scale));
+      debugContext, DI_ARGS(masterSeed, in, reference, seedModifier,
+                            keepProbability, scale, outputClonesRef));
   seedTensorChecks(masterSeed);
   static const unsigned maxProbInHw = 65536;
   const std::string fnPrefix = "dropout";
@@ -534,24 +545,26 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
     return poputil::duplicate(graph, in, prog, {di});
   }
 
-  auto out = graph.clone(in.elementType(), reference, {di, fnPrefix + "/out"});
+  auto out = graph.clone(in.elementType(), outputClonesRef ? reference : in,
+                         {di, fnPrefix + "/out"});
 
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
                                              prog, {di, fnPrefix});
 
   auto cs = graph.addComputeSet({di, fnPrefix});
   auto outFlat = out.flatten();
+  auto refFlat = reference.flatten();
   auto inFlat = in.flatten();
-  graph.reorderToSimplify(&inFlat, {&outFlat}, false);
+  graph.reorderToSimplify(&inFlat, {&outFlat, &refFlat}, false);
 
-  const auto outFlatTileMap = graph.getTileMapping(outFlat);
+  const auto refFlatTileMap = graph.getTileMapping(refFlat);
 
-  for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
-    const auto thisTileMap = outFlatTileMap[tile];
+  for (auto tile = 0U; tile != refFlatTileMap.size(); ++tile) {
+    const auto thisTileMap = refFlatTileMap[tile];
     if (thisTileMap.empty())
       continue;
     const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(outFlat, thisTileMap);
+        graph.getSortedContiguousRegions(refFlat, thisTileMap);
     const auto intervals = flatten(tileContiguousRegions);
     const auto vertexTemplate =
         templateVertex("poprand::DropoutSupervisor", in.elementType());

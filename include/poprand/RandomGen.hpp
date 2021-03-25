@@ -47,6 +47,42 @@ poplar::Tensor dropout(poplar::Graph &graph, const poplar::Tensor *seed,
                        double scale, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {});
 
+/** Apply dropout to a tensor.
+ *
+ *  The elements of tensor \p input are multiplied by a mask consisting of a
+ *  sequence of randomly generated 1 or 0. The keep probability of the dropout
+ *  P(1) = \p keepProbability.
+ *  The contents of the mask depend on the keep probability, seed, seed
+ *  modifier and layout of the reference tensor.
+ *
+ *  \param graph            The graph to add this operation to.
+ *  \param seed             If not null, this is a pair of 32-bit integers used
+ *                          to seed the random number generator that generates
+ *                          the dropout mask.
+ *  \param seedModifier     Provides a further modification of the seed value.
+ *                          Ignored if \p seed is null.
+ *  \param input            The input tensor to be masked.
+ *  \param reference        A tensor that specifies the layout of the output
+ *                          tensor. Must be the same shape as the input.
+ *  \param keepProbability  The probability of keeping an input value.
+ *  \param scale            Scales the output tensor. This is typically the
+ *                          inverse of the dropout probability, (1 / P(1)).
+ *  \param outputClonesRef  When true, the output tensor is a clone of the
+ *                          reference tensors. When false, the output tensor
+ *                          is a clone of the input tensor.
+ *  \param prog             The program to add this operation to.
+ *  \param debugContext     Optional debug information.
+ *
+ *  \returns A tensor with elements randomly set to either zero or the scaled
+ *           input value.
+ */
+poplar::Tensor dropout(poplar::Graph &graph, const poplar::Tensor *seed,
+                       const uint32_t seedModifier, const poplar::Tensor &input,
+                       const poplar::Tensor &reference, double keepProbability,
+                       double scale, bool outputClonesRef,
+                       poplar::program::Sequence &prog,
+                       const poplar::DebugContext &debugContext = {});
+
 /** Apply shaped dropout to a tensor.
  *
  *  The elements of tensor \p input are multiplied by a mask consisting of a
