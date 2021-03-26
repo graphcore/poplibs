@@ -1761,10 +1761,10 @@ addRearrangeBeforeSliceEstimate(popsolver::Model &m,
   //
   // isSeriallySplit is 1 if and only if any serial split (either
   // inChanSplit.serial or outChanSplit.serial) is greater than 1.
-  const auto isSeriallySplit = m.addVariable(
-      popsolver::DataType{0}, popsolver::DataType{1}, "isSeriallySplit");
-  m.less(isSeriallySplit, m.product({tileSplits.inChanSplit.serial,
-                                     tileSplits.outChanSplit.serial}));
+  const auto totalSerialSplits = m.product(
+      {tileSplits.inChanSplit.serial, tileSplits.outChanSplit.serial});
+  const auto isSeriallySplit =
+      m.min({m.sub(totalSerialSplits, m.one()), m.one()});
 
   const auto exchangeCycles =
       exchangeEstimator.getCycles(weightsPerTile, params.inputType, level);
