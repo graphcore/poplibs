@@ -326,8 +326,8 @@ static bool accuracyTest(const Type &fpType, const Type &labelType,
   return modelNumCorrect == actualNumCorrect;
 }
 
-static bool argMaxTest(const Type &inType, std::size_t batchSize,
-                       std::size_t numClasses) {
+static bool argMinMaxTest(bool max, const Type &inType, std::size_t batchSize,
+                          std::size_t numClasses) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
@@ -355,9 +355,8 @@ static bool argMaxTest(const Type &inType, std::size_t batchSize,
   copy(target, hostActivations, inType, rawHostActivations.get());
 
   Sequence prog;
-  auto indices = argMax(graph, activations, prog);
-
-  boost::multi_array<unsigned, 1> hostIndices(boost::extents[batchSize]);
+  auto indices =
+      max ? argMax(graph, activations, prog) : argMin(graph, activations, prog);
 
   auto rawHostIndices = allocateHostMemoryForTensor(
       indices, "indices", graph, uploadProg, downloadProg, tmap);
@@ -374,16 +373,33 @@ static bool argMaxTest(const Type &inType, std::size_t batchSize,
 
   bool matches = true;
   for (unsigned b = 0; b != batchSize; ++b) {
-    auto maxElement =
-        std::max_element(hostActivations[b].begin(), hostActivations[b].end());
+    auto elementItr = hostActivations[b].end();
+    if (max) {
+      elementItr = std::max_element(hostActivations[b].begin(),
+                                    hostActivations[b].end());
+    } else {
+      elementItr = std::min_element(hostActivations[b].begin(),
+                                    hostActivations[b].end());
+    }
+
     matches = matches && std::distance(hostActivations[b].begin(),
-                                       maxElement) == indicesHost[b];
+                                       elementItr) == indicesHost[b];
   }
   return matches;
 }
 
+static bool argMaxTest(const Type &inType, std::size_t batchSize,
+                       std::size_t numClasses) {
+  return argMinMaxTest(/*max=*/true, inType, batchSize, numClasses);
+}
+
 static bool argMinTest(const Type &inType, std::size_t batchSize,
                        std::size_t numClasses) {
+  return argMinMaxTest(/*max=*/false, inType, batchSize, numClasses);
+}
+
+static bool maxMinArgMinMaxTest(bool max, const Type &inType,
+                                std::size_t batchSize, std::size_t numClasses) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
@@ -411,9 +427,11 @@ static bool argMinTest(const Type &inType, std::size_t batchSize,
   copy(target, hostActivations, inType, rawHostActivations.get());
 
   Sequence prog;
-  auto indices = argMin(graph, activations, prog);
+  auto [values, indices] = max ? maxAndArgMax(graph, activations, prog)
+                               : minAndArgMin(graph, activations, prog);
 
-  boost::multi_array<unsigned, 1> hostIndices(boost::extents[batchSize]);
+  auto rawHostValues = allocateHostMemoryForTensor(
+      values, "values", graph, uploadProg, downloadProg, tmap);
   auto rawHostIndices = allocateHostMemoryForTensor(
       indices, "indices", graph, uploadProg, downloadProg, tmap);
 
@@ -426,16 +444,35 @@ static bool argMinTest(const Type &inType, std::size_t batchSize,
   });
 
   const auto indicesHost = reinterpret_cast<unsigned *>(rawHostIndices.get());
+  std::vector<double> valuesHost(batchSize);
+  copy(target, inType, rawHostValues.get(), valuesHost.data(), batchSize);
 
   bool matches = true;
   for (unsigned b = 0; b != batchSize; ++b) {
-
-    auto minElement =
-        std::min_element(hostActivations[b].begin(), hostActivations[b].end());
+    auto elementItr = hostActivations[b].end();
+    if (max) {
+      elementItr = std::max_element(hostActivations[b].begin(),
+                                    hostActivations[b].end());
+    } else {
+      elementItr = std::min_element(hostActivations[b].begin(),
+                                    hostActivations[b].end());
+    }
+    matches = matches && std::fabs(static_cast<double>(*elementItr) -
+                                   valuesHost[b]) < 0.00001;
     matches = matches && std::distance(hostActivations[b].begin(),
-                                       minElement) == indicesHost[b];
+                                       elementItr) == indicesHost[b];
   }
   return matches;
+}
+
+static bool maxAndArgMaxTest(const Type &inType, std::size_t batchSize,
+                             std::size_t numClasses) {
+  return maxMinArgMinMaxTest(/*max=*/true, inType, batchSize, numClasses);
+}
+
+static bool minAndArgMinTest(const Type &inType, std::size_t batchSize,
+                             std::size_t numClasses) {
+  return maxMinArgMinMaxTest(/*max=*/false, inType, batchSize, numClasses);
 }
 
 static std::vector<double> model_topK(std::vector<double> &acts, int numK) {
@@ -566,6 +603,36 @@ BOOST_AUTO_TEST_CASE(argMinInt) {
 
 BOOST_AUTO_TEST_CASE(argMinUnsignedInt) {
   auto matchesModel = argMinTest(UNSIGNED_INT, 5, 25);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(maxAndArgMaxFloat) {
+  auto matchesModel = maxAndArgMaxTest(FLOAT, 2, 10);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(maxAndArgMaxHalf) {
+  auto matchesModel = maxAndArgMaxTest(HALF, 3, 15);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(minAndArgMinFloat) {
+  auto matchesModel = minAndArgMinTest(FLOAT, 3, 15);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(minAndArgMinHalf) {
+  auto matchesModel = minAndArgMinTest(HALF, 2, 10);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(maxAndArgMaxUnsignedInt) {
+  auto matchesModel = maxAndArgMaxTest(UNSIGNED_INT, 5, 25);
+  BOOST_CHECK(matchesModel);
+}
+
+BOOST_AUTO_TEST_CASE(maxAndArgMaxInt) {
+  auto matchesModel = maxAndArgMaxTest(INT, 5, 25);
   BOOST_CHECK(matchesModel);
 }
 

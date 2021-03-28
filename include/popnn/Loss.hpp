@@ -120,6 +120,21 @@ poplar::Tensor argMax(poplar::Graph &graph, const poplar::Tensor &input,
                       poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {});
 
+/** Compute max and argmax for each of the outer dimensions of \p input tensor.
+ *
+ *  If \p input is a tensor of dim [y][x] then max and argmax is computed over x
+ *  elements for each of the y outer dimension elements
+ *
+ *  \param graph          Graph to add operations and tensors to.
+ *  \param input          2D tensor of inputs
+ *  \param prog           Program to which the graph for this operation is added
+ *  \param debugContext   Optional debug information.
+ */
+std::pair<poplar::Tensor, poplar::Tensor>
+maxAndArgMax(poplar::Graph &graph, const poplar::Tensor &input,
+             poplar::program::Sequence &prog,
+             const poplar::DebugContext &debugContext = {});
+
 /** Compute argmin for each of the outer dimensions of \p input tensor.
  *
  *  If \p input is a tensor of dim [y][x] then argmin is computed over x
@@ -133,6 +148,21 @@ poplar::Tensor argMax(poplar::Graph &graph, const poplar::Tensor &input,
 poplar::Tensor argMin(poplar::Graph &graph, const poplar::Tensor &input,
                       poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {});
+
+/** Compute min and argmin for each of the outer dimensions of \p input tensor.
+ *
+ *  If \p input is a tensor of dim [y][x] then argmin is computed over x
+ *  elements for each of the y outer dimension elements
+ *
+ *  \param graph          Graph to add operations and tensors to.
+ *  \param input          2D tensor of inputs
+ *  \param prog           Program to which the graph for this operation is added
+ *  \param debugContext   Optional debug information.
+ */
+std::pair<poplar::Tensor, poplar::Tensor>
+minAndArgMin(poplar::Graph &graph, const poplar::Tensor &input,
+             poplar::program::Sequence &prog,
+             const poplar::DebugContext &debugContext = {});
 
 /** Find the top K elements of |input|. Takes a 2D tensor in the form of
  * [batch][values] and will return a tensor in the shape of [batch][K] where K

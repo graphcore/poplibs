@@ -133,7 +133,7 @@ Tensor onTileTransform(Graph &graph, const Tensor &modelOutputs,
 }
 
 // Parameters needed to create one ReduceXxxClassGather vertex, for the first
-// stage reduction in argMinOrMax().
+// stage reduction in maxMinArgMaxMin().
 struct ClassGatherVertexInfo {
   unsigned tile;       // In which tile to place the vertex
   unsigned row;        // Which row the elements belongs to
@@ -144,8 +144,8 @@ struct ClassGatherVertexInfo {
   unsigned workerNum;  // How many worker (i.e. how many partials)
 };
 
-/// Generate the work partition for the first stage reduction of argMinOrMax.
-/// Tries to spread the work uniformly among all IPU tiles.
+/// Generate the work partition for the first stage reduction of
+/// maxMinArgMaxMin. Tries to spread the work uniformly among all IPU tiles.
 /// Each tile will have one or more vertices, so that the total number of
 /// elements processed per tile is balanced.
 /// Also we don't want to assign too little work per worker (and supervisor)
@@ -395,7 +395,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                   modelOutputScaling, lossType, {di});
 }
 
-/// Returns the indices of the max (or min) values for each row of a 2-D tensor.
+/// Returns the max (or min) values and their indices per row in a 2-D tensor.
 ///
 /// \param[in] graph       the graph for the tensor
 /// \param[in] input       the (2-D) tensor to examine
@@ -405,16 +405,18 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
 /// \param[in] debugContext as the name says
 /// \param[in] max         if True find max, else find min
 ///
-/// \return a 1-D tensor of integral type with as many elements as the rows of
-///         'input', each one being the index where the max (or min) value for
-///          that row is in 'input'.
-static Tensor argMinOrMax(Graph &graph, const Tensor &input,
-                          const Type &resultType, Sequence &prog,
-                          unsigned resultTile, const DebugNameAndId &dnai,
-                          bool max = true) {
+/// \return a pair of 1-D tensor each with as many elements as the number of
+///         rows in 'input', with each element in the first tensor being the max
+///         (or min) value for that row in 'input' and the second tensor being
+///         the index of where the max (or min) value for that row is in
+///         'input'.
+static std::pair<Tensor, Tensor>
+maxMinArgMaxMin(Graph &graph, const Tensor &input, const Type &resultType,
+                Sequence &prog, unsigned resultTile, const DebugNameAndId &dnai,
+                bool max = true) {
   const std::string lowerCase = max ? "max" : "min";
   const std::string capitalized = max ? "Max" : "Min";
-  const std::string layerPrefix = "argMinOrMax(" + lowerCase + ")/";
+  const std::string layerPrefix = "maxMinArgMaxMin(" + lowerCase + ")/";
   const auto &target = graph.getTarget();
   const auto tilesPerIPU = target.getTilesPerIPU();
   const size_t nRows = input.dim(0);
@@ -535,7 +537,7 @@ static Tensor argMinOrMax(Graph &graph, const Tensor &input,
     prog.add(Execute(cs, {dnai}));
     reduceIndex++;
   } // while (rowsFullyReduced < nRows)
-  return concat(indexPartials);
+  return std::make_pair(concat(valuePartials), concat(indexPartials));
 }
 
 static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
@@ -738,13 +740,9 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
   return output;
 }
 
-Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
-              const poplar::DebugContext &debugContext) {
-  POPNN_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
-
-  logging::popnn::info("argMax input={}, name={}", input.shape(),
-                       debugContext.getPathName());
+static std::pair<poplar::Tensor, poplar::Tensor>
+maxAndArgMaxImpl(Graph &graph, const Tensor &input, Sequence &prog,
+                 const DebugNameAndId &dnai) {
 
   // TODO: T12906 Map the output tensor.
   unsigned numCorrectTile = 0;
@@ -758,19 +756,44 @@ Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
     throw poplibs_error("arg max on input type is not supported");
   }
 
-  auto output =
-      argMinOrMax(graph, input, UNSIGNED_INT, prog, numCorrectTile, {di});
-  di.addOutput(output);
-  return output;
+  return maxMinArgMaxMin(graph, input, UNSIGNED_INT, prog, numCorrectTile,
+                         dnai);
 }
 
-Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
+Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
               const poplar::DebugContext &debugContext) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
 
   logging::popnn::info("argMax input={}, name={}", input.shape(),
                        debugContext.getPathName());
+
+  auto output = maxAndArgMaxImpl(graph, input, prog, {di}).second;
+  di.addOutput(output);
+  return output;
+}
+
+std::pair<poplar::Tensor, poplar::Tensor>
+maxAndArgMax(Graph &graph, const Tensor &input, Sequence &prog,
+             const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
+
+  logging::popnn::info("maxAndArgMax input={}, name={}", input.shape(),
+                       debugContext.getPathName());
+  auto [values, indices] = maxAndArgMaxImpl(graph, input, prog, {di});
+
+  if (values.elementType() != input.elementType()) {
+    values = popops::cast(graph, values, input.elementType(), prog, {di});
+  }
+  di.addOutputs(
+      {{"max", toProfileValue(values)}, {"argMax", toProfileValue(indices)}});
+  return std::make_pair(values, indices);
+}
+
+static std::pair<poplar::Tensor, poplar::Tensor>
+minAndArgMinImpl(Graph &graph, const Tensor &input, Sequence &prog,
+                 const DebugNameAndId &dnai) {
 
   // TODO: T12906 Map the output tensor.
   unsigned numCorrectTile = 0;
@@ -784,10 +807,39 @@ Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
     throw poplibs_error("arg min on input type is not supported");
   }
 
-  auto output = argMinOrMax(graph, input, UNSIGNED_INT, prog, numCorrectTile,
-                            {di}, false);
+  return maxMinArgMaxMin(graph, input, UNSIGNED_INT, prog, numCorrectTile, dnai,
+                         false);
+}
+
+Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
+              const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
+
+  logging::popnn::info("argMin input={}, name={}", input.shape(),
+                       debugContext.getPathName());
+
+  auto output = minAndArgMinImpl(graph, input, prog, {di}).second;
   di.addOutput(output);
   return output;
+}
+
+std::pair<poplar::Tensor, poplar::Tensor>
+minAndArgMin(Graph &graph, const Tensor &input, Sequence &prog,
+             const poplar::DebugContext &debugContext) {
+  POPNN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
+
+  logging::popnn::info("minAndArgMin input={}, name={}", input.shape(),
+                       debugContext.getPathName());
+  auto [values, indices] = minAndArgMinImpl(graph, input, prog, {di});
+
+  if (values.elementType() != input.elementType()) {
+    values = popops::cast(graph, values, input.elementType(), prog, {di});
+  }
+  di.addOutputs(
+      {{"min", toProfileValue(values)}, {"argMin", toProfileValue(indices)}});
+  return std::make_pair(values, indices);
 }
 
 /// Compute the number of correct outputs against expected.
@@ -843,8 +895,9 @@ Program calcAccuracy(Graph &graph, const Tensor &modelOutputs,
 
   // Get the indices of the max value of each row of 'modelOutput'
   Sequence prog({}, {di});
-  auto maxIndices = argMinOrMax(graph, modelOutputs, expected.elementType(),
-                                prog, *numCorrectTile, {di, layerPrefix});
+  auto maxIndices = maxMinArgMaxMin(graph, modelOutputs, expected.elementType(),
+                                    prog, *numCorrectTile, {di, layerPrefix})
+                        .second;
 
   // This would ideally be calculated with a popops::eq followed by a
   // popops::reduceWithOutput. At the moment popops::eq outputs bool
