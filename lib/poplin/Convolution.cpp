@@ -2084,7 +2084,9 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
         auto sliceRearranged =
             createSliceMethod(graph, serialParams, level, true, indices,
                               {dnai, sliceKind + "Rearranged"}, plan, options);
-
+        // WriteUndef sliceRearranged as it may be partially written. See
+        // T36794.
+        cpt.transformPreSerial.writeUndef.push_back(sliceRearranged);
         auto inSliceRearranged = isActs ? &sliceRearranged : nullptr;
         auto weightsSliceRearranged = isActs ? nullptr : &sliceRearranged;
         preprocessForSerialSlice(inSliceRearranged, weightsSliceRearranged,

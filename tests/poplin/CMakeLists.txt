@@ -3260,7 +3260,7 @@ add_multitarget_test(NAME conv5x200_1_in_100_out
                  --kernel-size={5,200}
                  --batch-size=16
                  --data-type=half
-                 --tiles-per-ipu=16
+                 --tiles-per-ipu=20
                  --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":false,\"expandDims\":[1]}}}
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -3272,7 +3272,7 @@ add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
                  --kernel-size={5,200}
                  --batch-size=16
                  --data-type=half
-                 --tiles-per-ipu=16
+                 --tiles-per-ipu=20
                  --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":true,\"expandDims\":[1]}}}
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
