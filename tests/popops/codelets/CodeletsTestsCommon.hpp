@@ -79,18 +79,19 @@ template <typename T> std::string convertToString(T val) {
 // Prints the specified buffer containing one operand
 template <typename HostType>
 void printBuffer(const std::string &name, const std::vector<HostType> &buf,
-                 const Type IPUType, const std::vector<unsigned> &sizes) {
+                 const Type IPUType, const std::vector<unsigned> &sizes,
+                 const std::vector<unsigned> &rowOffsets) {
   unsigned nRows = sizes.size();
-  unsigned j = 0;
   std::cout << name << ": {" << ((nRows > 1) ? "\n" : "");
-  for (unsigned k = 0; k < nRows; k++) {
+  for (unsigned row = 0; row < nRows; row++) {
     std::cout << ((nRows > 1) ? "{" : "");
-    unsigned n = sizes[k];
+    unsigned n = sizes[row];
     for (unsigned i = 0; i < n; i++) {
+      HostType val = buf.at(rowOffsets[row] + i);
       if (IPUType == BOOL) {
-        std::cout << int(buf.at(j++));
+        std::cout << int(val);
       } else {
-        std::cout << convertToString(buf.at(j++));
+        std::cout << convertToString(val);
       }
       if (i < n - 1) {
         std::cout << ", ";
@@ -346,6 +347,11 @@ unsigned findDivisor(unsigned n) {
   }
 }
 
+// Round 'n' to the next multiple of 'align'. For instance: roundUp(21, 8) => 24
+unsigned roundUp(unsigned n, unsigned align) {
+  return ((n + align - 1) / align) * align;
+}
+
 // Used to pass the appropriate streams for upload/download between the setup
 // and running phases.
 using StreamMap = std::vector<std::pair<std::string, char *>>;
@@ -369,7 +375,15 @@ struct MiscOptions {
   // some operands!)
   unsigned randomSeed = 1;
 
-  float cycleCompareThreshold = 10; // percent
+  // print the number of cycles used by the vertex.
+  bool printCycles = false;
+
+  // Percent of (absolute value of) difference above which a cycle comparison
+  // test will fail
+  float cycleCompareThreshold = 10;
+
+  // Align the start of inputs and outputs on this number of bytes
+  unsigned alignStart = 0;
 };
 
 //*************************************************************************
@@ -400,8 +414,10 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
   Target target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
+  ComputeSet alignCS = graph.addComputeSet("alignCS");
   ComputeSet cs = graph.addComputeSet(computeSetName);
   Sequence program, upload, download;
+  bool ipuModel = isIpuModel(deviceType);
 
   StreamMap streamMap;
   for (unsigned i = 0; i < numTests; i++) {
@@ -412,9 +428,10 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
     if (verbose && (numTests == 1 || options.ignoreData)) {
       std::cout << tests[offs + i]->toString() << std::endl;
     }
-    doSetupTest(target, graph, upload, cs, download, streamMap,
-                *tests[offs + i], i, options);
+    doSetupTest(target, ipuModel, graph, upload, alignCS, cs, download,
+                streamMap, *tests[offs + i], i, options);
   }
+  program.add(Execute(alignCS));
   program.add(Execute(cs));
 
   // === Run the program
@@ -450,8 +467,7 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
         std::cout << tests[offs + i]->toString() << std::endl;
       }
 
-      if (!doVerifyTest(target, isIpuModel(deviceType), *tests[offs + i],
-                        options))
+      if (!doVerifyTest(target, ipuModel, *tests[offs + i], options))
         errCount++;
     }
   }
@@ -558,18 +574,26 @@ void addOneTest(std::optional<std::vector<std::shared_ptr<TestRecord>>> &tests,
                 std::shared_ptr<TestRecord> newTest,
                 std::vector<DeviceType> devices, unsigned &errCount,
                 const MiscOptions &options) {
-  // If we run a cycle comparison (devices has 2 elements), or if have specfied
-  // to run test individually ('tests[]' is empty), we run the one test
-  // straight away here, otherwise we add this test records in 'tests[]' to be
-  // run afterwards.
+  // If:
+  //   1. we are running a cycle comparison (devices has 2 elements), or
+  //   2. we have specfied to run test individually ('tests[]' is empty), or
+  //   3. we want to print the vertex execution cycles
+  // then we run the new test straight away here,
+  // otherwise we add this test record to 'tests[]', to be run afterwards.
   if (devices.size() == 2) {
     errCount += compareCycles<TestRecord, VertexDesc>(devices, newTest, options)
                     ? 0
                     : 1;
-  } else if (tests == std::nullopt) {
+  } else if (tests == std::nullopt || options.printCycles) {
     assert(devices.size() == 1);
     std::vector<std::shared_ptr<TestRecord>> testVect = {newTest};
-    errCount += runTests(testVect, 0, 1, devices[0], options, true);
+    if (options.printCycles) {
+      uint64_t cycles;
+      errCount += runTests(testVect, 0, 1, devices[0], options, false, &cycles);
+      std::cout << newTest->toString() << "  cycles:" << cycles << std::endl;
+    } else {
+      errCount += runTests(testVect, 0, 1, devices[0], options, true);
+    }
   } else {
     tests->emplace_back(std::move(newTest));
   }
@@ -580,8 +604,8 @@ void addOneTest(std::optional<std::vector<std::shared_ptr<TestRecord>>> &tests,
 /// nothing if the test have already been run individually
 /// \param[inout] tests      A vector with the tests to run. Could be 'nullopt'
 ///                          if we have already run the tests
-/// \param[in]    numTests   How many tests are in 'tests[]'. If tests was
-///                          empty, the total tests run already.
+/// \param[in]    numTests   How many tests are in 'tests[]'. If 'tests' is
+///                          empty, this is the total tests run already.
 /// \param[in]    groupTests how many tests to group together in a single
 ///                          graph and compute set
 /// \param[in]    deviceType What type of device to run the tests on
@@ -596,7 +620,7 @@ void runAllTests(std::optional<std::vector<std::shared_ptr<TestRecord>>> &tests,
     throw std::runtime_error("The specified vertex, operand(s) and data "
                              "type(s) do not match any valid combination");
   }
-  if (tests) {
+  if (tests->size() > 0) {
     assert(numTests == tests->size());
     // Run the tests in batches of up to 'groupTests' together on a single
     // graph/ single CS, each test on a different tile. We limit grouping tests
@@ -611,7 +635,7 @@ void runAllTests(std::optional<std::vector<std::shared_ptr<TestRecord>>> &tests,
     }
   }
   if (numTests > 1) {
-    std::cout << "BinaryCodeletsTest: " << numTests << " tests run in total; "
+    std::cout << numTests << " codelets tests run in total; "
               << ((errCount == 0) ? "All passed\n"
                                   : to_string(errCount) + " failed\n");
   }
@@ -631,17 +655,21 @@ public:
 /// executables.
 void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
                       boost::optional<std::string> &cycleCompareDevice,
-                      std::vector<Type> &dataTypes, unsigned &groupTests,
-                      MiscOptions &options) {
+                      unsigned &groupTests, MiscOptions &options) {
   // clang-format off
   poDesc.add_options()
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(DeviceType::Sim2),
      "Device type")
-    ("data-type",
-     po::value<std::vector<Type>>(&dataTypes)->multitoken(),
-     "Data type: one or more of half, float, int, uint, short, ushort, bool, "
-     "char, schar, uchar")
+    ("align-start",
+     po::value<unsigned>(&options.alignStart)->
+                                              default_value(options.alignStart),
+     "Align all inputs and the output on the specified number of bytes. If the "
+     "vertex requires stricter aligment then specified, setting this will "
+     "cause rearrangements, and overwrite detection won't work")
+    ("cycles",
+     po::value<bool>(&options.printCycles)->implicit_value(true),
+     "Print the number of cycles used by the vector")
     ("compare-cycles",
      po::value<boost::optional<std::string>>(&cycleCompareDevice)->
                                          implicit_value(std::string("default")),
@@ -651,14 +679,14 @@ void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
      po::value<float>(&options.cycleCompareThreshold)->
                                   default_value(options.cycleCompareThreshold),
      "Percent threshold when running the --compare-cycle option. An (absolute) "
-     "cycle difference greater than this threshold will make the test fail.")
+     "cycle difference greater than this threshold will make the test fail")
     ("report",
      po::value<bool>(&options.report)->implicit_value(true),
      "Provide a poplar report")
     ("disable-fp-exceptions",
      po::value<bool>(&options.disableFpExceptions)->
                                     default_value(options.disableFpExceptions),
-     "Disable floating point exceptions when running on device.")
+     "Disable floating point exceptions when running on device")
     ("options-file",
      po::value<std::string>(),
      "A file containing options, with the same syntax as the command line; "
@@ -666,7 +694,7 @@ void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
     ("random-seed",
      po::value<unsigned>(&options.randomSeed)->
                                             implicit_value(options.randomSeed),
-     "Seed for random data. Value of 0 means 'no random data'")
+     "Seed for random data. Value of 0 means 'don't use random data'")
     ("ignore-data",
      po::value<bool>(&options.ignoreData)->implicit_value(true),
      "Do not check correctness of result, useful for benchmarking without "
@@ -834,4 +862,264 @@ T get(const T data[], const std::vector<size_t> shape,
   return data[offs];
 }
 
+// Contains details of how one operand (or the result), possibly 2D, is stored
+// inside a linear Tensor, and in a linear buffer in the host, including the
+// position of the padding used for overprocessing/overwrite detection.
+struct TestOperand {
+  // FILL value is chosen so that we can detect overprocessing of 64 bit loads
+  // with a stride of 6.
+  // ALIGN is set to 8 to avoid rearrangements, as no vertex field requires more
+  // than 8 bytes alignment.
+  // Both must be a multiple of ANY possible type size (1,2,4), so
+  // that the total padding always contains a whole number of elements.
+  unsigned static constexpr FILL = 48; // In bytes
+  unsigned static constexpr ALIGN = 8; // In bytes
+
+  // Linear buffer where the in/out data is stored, in device format.
+  // Each row (a single one for Supervisor vertices) has FILL bytes added at
+  // the end. The end is then further padded, so that it aligns to ALIGN bytes.
+  //
+  // For instance, for a 1D test with a size of 3 half floats (if FILL was 4):
+  //                             FILL=4 bytes       Pad to ALIGN
+  //   <------ 6 bytes ------> <----- 4 -----> <--------------------->
+  //   0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
+  //  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  //  | rowSizes[0] = 3 half  |###|###|###|###|###|###|###|###|###|###|
+  //  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  //
+  //
+  // All rows are stored contiguously. For instance, for a 2D test with
+  // rows of length 3, 2, 1, 4 (half floats), still with FILL=4:
+  //   0   1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
+  //  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  //  |rowSizes[0]=3 half     |###|###|###|###|###|###|###|###|###|###|
+  //  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  //  |rowSizes[1]=2  |###|###|###|###|1 half |###|###|###|###|###|###|
+  //  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  //  |rowSizes[3]=4 half             |###|###|###|###|###|###|###|###|
+  //  +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+  //
+  // Additionally, we can also add some padding at the very start (startPad)
+  // (not shown above).
+  //
+  // The content of 'rawBuf' is what is uploaded to the device as a single 1D
+  // tensor, both for the input and output tensors. The operand, or the 2D
+  // operand subvectors (rows) are connected to the appropriate slices of the 1D
+  // uploaded tensor.
+  //
+  // All the padding (in the input and output buffer/tensor) is filled with a
+  // (nonzero) byte pattern. that is checked after execution, for past-the-end
+  // overwrites in the output. For float/half, the pattern (which contains NaNs)
+  // is also written in the input tensors, to detect overprocessing
+  std::unique_ptr<char[]> rawBuf;
+
+  // Size of each row in elements, just the data, excluding the padding
+  std::vector<unsigned> rowSizes;
+
+  // Offsets in rawBuf/tensor where each rows begins (in elements, not bytes).
+  // Will be populated with 'number of rows + 1' elements, the last one being
+  // one past the end of the padding of the last row.
+  std::vector<unsigned> offsets;
+
+  Type type;
+
+  // Total size (in elements, not bytes) of the rawBuf/tensor, after adding
+  // aligment & padding
+  unsigned totalElems = 0;
+
+  // In elements. This can be added at the very start (before the first row) to
+  // test vertices that handle different initial alignment. All rows start will
+  // be offset by this.
+  unsigned startPad = 0;
+
+  /// Setup the offset and sizes relative to this operand
+  ///
+  /// \param[in] rowSz
+  /// \param[in] startPadBytes number of bytes to add at the start
+  void setup(const Target &target, Type dataType,
+             const std::vector<unsigned> &rowSz, unsigned startPadBytes = 0) {
+    type = dataType;
+    const unsigned typeSize = target.getTypeSize(type);
+    startPad = startPadBytes / typeSize;
+    if ((startPadBytes % typeSize) != 0) {
+      std::cout << "Warning: start alignment of " << startPadBytes << " is not "
+                << "valid for type " << type.toString() << ". Alignment set to "
+                << startPad * typeSize << "\n";
+    }
+    startPad = startPadBytes / typeSize;
+
+    rowSizes = rowSz;
+    unsigned numRows = rowSizes.size();
+    offsets.resize(numRows + 1);
+    totalElems = startPad;
+    offsets[0] = startPad;
+    for (unsigned i = 0; i < numRows; i++) {
+      // Compute aligned/padded size of row (and offset of next row)
+      unsigned nBytes = rowSizes[i] * typeSize;
+      nBytes = roundUp(nBytes + FILL, ALIGN);
+      unsigned sizePadded = nBytes / typeSize;
+      totalElems += sizePadded;
+      offsets[i + 1] = offsets[i] + sizePadded;
+    }
+  }
+
+  enum OperandType { isScalar, is1D, is2D };
+
+  // Calls graph.connect() appropriately for the correct slice(s) of the 1D
+  // tensor that has been allocated with the padding.
+  void connectOperand(Graph &graph, VertexRef &v, OperandType opType, Tensor &t,
+                      const std::string &fieldName) {
+    switch (opType) {
+    case is2D: {
+      unsigned numRows = rowSizes.size();
+      graph.setFieldSize(v[fieldName], numRows);
+      for (unsigned i = 0; i < numRows; i++) {
+        graph.connect(v[fieldName][i],
+                      t.slice(offsets[i], offsets[i] + rowSizes[i]));
+      }
+    } break;
+    case isScalar:
+      graph.connect(v[fieldName], t[offsets[0]]);
+      break;
+    default:
+      graph.connect(v[fieldName],
+                    t.slice(offsets[0], offsets[0] + rowSizes[0]));
+    }
+  };
+
+  // Iterates over all padding bytes, for each of them calling:
+  //   processByte(row, padOffs, i, padByteValue)
+  // where:
+  //   row    : the number of the row [-1..nRow). -1 means the initial padding.
+  //   padOffs: offset in bytes inside rawBuf where the pad for 'row' starts
+  //   i      : index for the pad byte for 'row' 0..nPad
+  //   padByteValue: the value for the pad byte at: rawBuf[padOffs + i]
+  //
+  // This diagram represents how the buffer is structured (includes also an
+  // initial padding). We need to scan all bytes marked '#'.
+  //                   rowSizes[0]         rowSizes[1]        rowSizes[2]
+  //                  <----------->        <---------->     <------------->
+  //            +----+-------------+------+------------+---+---------------+--+
+  //     rawBuf |####|             |######|            |###|               |##|
+  //            +----+-------------+------+------------+---+---------------+--+
+  // offsets[0] |--->|                    |                |                  |
+  // offsets[1] |------------------------>|                |                  |
+  // offsets[2] |----------------------------------------->|                  |
+  // offsets[3] |------------------------------------------------------------>|
+  //
+  // padOffs=0  |----------------->|
+  //            |                  |--> i
+  //
+  // The values for the pad bytes are chosen so that:
+  //   1. Strings of adjacent bytes are all different, as much as possible.
+  //   2. No pad byte is zero or one (which are valid boolean values).
+  //   3. For half/float types, if 'useNan' is set, an aligned groups of 2/4
+  //      bytes will represents a signalling NaN:
+  //        Half NaN : aaaaaaaa s111110b                   (low to high addr)
+  //        Float NaN: aaaaaaaa bbbbbbbb 10cccccc s1111111 (low to high addr)
+  //      where at least one of the 'a', 'b', 'c' bits must be 1, and 's' can
+  //      be 0 or 1
+  //
+  void processPadBytes(
+      const Target &target,
+      std::function<void(int, unsigned, unsigned, unsigned char)> processByte,
+      bool isIpuModel, bool useNan) const {
+    int numRows = rowSizes.size();
+    unsigned typeSize = target.getTypeSize(type);
+    unsigned char k = 2; // a running counter 2..123.
+    unsigned prevOffs = 0;
+    for (int row = 0; row < numRows + 1; row++) {
+      unsigned n = offsets[row] - prevOffs;
+      unsigned offsByte = prevOffs * typeSize;
+      if (row < numRows)
+        prevOffs += n + rowSizes[row];
+      n *= typeSize;
+      for (unsigned i = 0; i < n; i++) {
+        // The padding bytes are the sequence 2, 3, 4, ... 123, 2, 3, ...
+        // The value 123 is chosen to avoid having 124 (0x7c) which is the top
+        // byte of a half NaN which is undesirable for the IpuModel.
+        unsigned char padByteValue = k;
+        k = (k < 122) ? k + 1 : 2;
+        if (useNan) {
+          // But if we want NaNs, we massage groups pf 2/4 bytes to be NaNs
+          if (type == HALF) {
+            if (isIpuModel) {
+              // When running on the IpuModel, half signalling NaNs are
+              // normalized to 0x7c01, so we can use that one value only
+              padByteValue = (i & 1) ? 0x7c : 1;
+            } else {
+              if (i & 1) {
+                // Alternate 0/1 in MS and LS bits so that the bytes at odd
+                // offsets cycle between the values 7c, 7d, fc, fd
+                unsigned j = i >> 1;
+                padByteValue = 0x7c | (j & 1) | ((j & 2) << 6);
+              }
+            }
+          } else {
+            switch (i % 4) {
+            case 2:
+              padByteValue = (padByteValue & 0xc0) | 0x80;
+              break;
+            case 3:
+              padByteValue =
+                  0x7f | ((i & 0x04) << 5); // alternate 0/1 in sign bit
+              break;
+            default:;
+            }
+          }
+        }
+        processByte(row - 1, offsByte, i, padByteValue);
+      }
+    }
+  }
+
+  // Set the pad bytes in the raw buffer
+  void setPadBytes(const Target &target, bool isIpuModel, bool useNan = false) {
+    processPadBytes(
+        target,
+        [&](int row, unsigned rowEndOffs, unsigned i, unsigned char padByte) {
+          rawBuf[rowEndOffs + i] = padByte;
+        },
+        isIpuModel, useNan);
+  }
+
+  // Verifies that the pad bytes in the raw buffer are the same we set.
+  unsigned checkPadBytes(const Target &target, bool is2D, bool isIpuModel,
+                         bool useNan = false) const {
+    unsigned errCount = 0;
+    processPadBytes(
+        target,
+        [&](int row, unsigned rowEndOffs, unsigned i, unsigned char expected) {
+          unsigned char actual = (unsigned char)rawBuf[rowEndOffs + i];
+          if (actual != expected) {
+            std::string posStr =
+                is2D ? to_string(row) + "," + to_string(i) : to_string(i);
+            std::string rowStr = (row < 0)
+                                     ? "in initial padding"
+                                     : "past the end of row " + to_string(row);
+            std::cerr << "ovewrite " << rowStr << ", at offset " << i
+                      << ": expected:" << convertToString(expected)
+                      << ";  actual:" << convertToString(actual) << "\n";
+            errCount++;
+          }
+        },
+        isIpuModel, useNan);
+    if (errCount > 0) {
+      std::cerr << "Failed: overwrite detected on " << errCount << " byte(s)\n";
+    }
+    return errCount;
+  }
+};
+
+// Create the auxiliary vertex to ensure alignment of the tensor 't'
+void createAlignVertex(Graph &graph, ComputeSet &cs, const Tensor &t,
+                       unsigned tile) {
+  auto v = graph.addVertex(cs,
+                           poputil::templateVertex("popops::NopAlignVertex",
+                                                   TestOperand::ALIGN,
+                                                   t.elementType()),
+                           {{"t", t}});
+  graph.setTileMapping(v, tile);
+  graph.setPerfEstimate(v, 0);
+}
 #endif

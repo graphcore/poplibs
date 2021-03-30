@@ -55,11 +55,6 @@ static const unsigned TARGET_DATAPATH_WIDTH = 64;
 static const unsigned HALF_VECTOR_ELEMS = TARGET_DATAPATH_WIDTH / 16;
 static const unsigned FLOAT_VECTOR_ELEMS = TARGET_DATAPATH_WIDTH / 32;
 
-// Align 'n' to the next multiple of 'align'. For instance: roundUp(21, 8) => 24
-unsigned roundUp(unsigned n, unsigned align) {
-  return ((n + align - 1) / align) * align;
-}
-
 // All vertices that can be tested by this code
 const std::vector<std::string> verticesNames = {
     "BinaryOp1DSupervisor",
@@ -215,7 +210,8 @@ struct VertexDesc {
 // vertex. The individual fields are used for different vertex types.
 struct TensorSizes {
   // For 2D vertices: size of each row
-  // For 1D vertices: the first element is size of whole 1st operand
+  // For 1D vertices: single element (size of whole 1st operand)
+  // For VectorOuter: single element (size of whole 1st operand)
   std::vector<unsigned> rowSizes;
 
   // For BroadcastVectorInner2D vertices: size of each row for 2nd operand
@@ -224,15 +220,6 @@ struct TensorSizes {
 
   unsigned rows = 0;    // Only for "VectorOuter" vertices, or 2D vertices
   unsigned columns = 0; // Only for "VectorOuter" vertices
-
-  // Total number of elements in first operand ("in1") and output. For 2D
-  // vertices is the sum of all 'rowSizes'. For 1D vertices is the same as
-  // 'rowSizes[0]'
-  // For "VectorOuter" vertices is rows x columns
-  unsigned nElems1 = 0;
-
-  // Total number of elements in second operand ("in2")
-  unsigned nElems2 = 0;
 
   // A string that describes the sizes of the operands, for display
   std::string operandStr;
@@ -255,6 +242,15 @@ struct TensorSizes {
       return s;
     };
 
+    // Total number of elements in first operand ("in1") and output. For 2D
+    // vertices is the sum of all 'rowSizes'. For 1D vertices is the same as
+    // 'rowSizes[0]'
+    // For "VectorOuter" vertices is rows x columns
+    unsigned nElems1 = 0;
+
+    // Total number of elements in second operand ("in2")
+    unsigned nElems2 = 0;
+
     // =========== First Operand ===========
     if (vertex.isVectorOuter) {
       // -------- Vector Outer --------
@@ -271,8 +267,8 @@ struct TensorSizes {
       if (vertex.allowMisaligned == false && (columns % atomSize) != 0) {
         columns = roundUp(columns, atomSize);
       }
-      rowSizes.resize(rows, columns);
       nElems1 = rows * columns;
+      rowSizes.resize(1, nElems1);
       op1Str = to_string(rows) + "x" + to_string(columns);
     } else {
       // -------- VectorInner, BroadcastScalar, BinaryOp --------
@@ -390,15 +386,18 @@ struct TestRecord {
   // and the 2nd operand; if '0', it means place the two operands back-to-back.
   boost::optional<unsigned> operandOffset;
 
-  std::unique_ptr<char[]> hostRawBuf1;
-  std::unique_ptr<char[]> hostRawBuf2;
-  std::unique_ptr<char[]> hostOutBuf;
+  TestOperand in1;
+  TestOperand in2;
+  TestOperand out;
 
   // Stream names used to transfer the host data, for the two operands and the
-  // output. Must be different for each test run in the same graph.
+  // output. Must be different for each test that is run in the same graph/CS.
   std::string writeName1;
   std::string writeName2;
   std::string readName;
+
+  // Is the output buffer padding made up of Nan values?
+  bool padOutWithNan = false;
 
   /// \param[in] v      The vertex (with operation and data type) to test.
   /// \param[in] seq    A sequential index, different for each test
@@ -481,100 +480,86 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
 
   // Convert the device data in host format. Also convert back the input data
   // in host format.
-  std::vector<HostDataType> in1Host(sizes.nElems1);
-  std::vector<HostDataType> in2Host(sizes.nElems1);
-  std::vector<HostOutType> outHost(sizes.nElems1);
-  copy(target, vertex.dataType, test.hostRawBuf1.get(), in1Host.data(),
+  std::vector<HostDataType> in1Host(test.in1.totalElems);
+  std::vector<HostDataType> in2Host(test.in2.totalElems);
+  std::vector<HostOutType> outHost(test.out.totalElems);
+  copy(target, vertex.dataType, test.in1.rawBuf.get(), in1Host.data(),
        in1Host.size());
-  copy(target, vertex.dataType, test.hostRawBuf2.get(), in2Host.data(),
+  copy(target, vertex.dataType, test.in2.rawBuf.get(), in2Host.data(),
        in2Host.size());
-  copy(target, vertex.outputType, test.hostOutBuf.get(), outHost.data(),
+  copy(target, vertex.outputType, test.out.rawBuf.get(), outHost.data(),
        outHost.size());
   if (options.printBuffers) {
-    printBuffer("out", outHost, vertex.outputType, sizes.rowSizes);
+    printBuffer("out", outHost, vertex.outputType, sizes.rowSizes,
+                test.out.offsets);
   }
-  unsigned errCount = 0; // how many mismatched elements we find
 
-  // For 2D vertices, running partial sums of elements for the rows we have
-  // already done, to keep track of which row we are processing (both for 1st
-  // and 2nd operand
-  unsigned rowOffs = 0;
-  unsigned rowOffs2 = 0;
+  // Check for mismatches on computed values
+  auto &rowSizes = test.out.rowSizes; // same as test.in.rowSizes
+  unsigned errCount = 0;              // how many mismatched elements we find
+  unsigned numRows = rowSizes.size();
+  for (unsigned row = 0; row < numRows; row++) {
+    for (unsigned i = 0; i < rowSizes[row]; i++) {
 
-  unsigned row = 0; // For 2D vertices, index row of first operand
-
-  // Loop sequentially over the 1st operand linear data buffer, selecting the
-  // correct element from the second, according to the broadcasting rule of the
-  // vertex.
-  unsigned i = 0; // linear index into 1st operand buffer
-  unsigned j = 0; // linear index into 2nd operand buffer
-  do {
-    HostDataType val1 = in1Host[i]; // operands
-    HostDataType val2 = in2Host[j];
-
-    HostOutType actual = outHost[i]; // result from device
-
-    HostOutType expected = 0; // result for verification
-    performOp(op, val1, val2, expected);
-
-    if (!equalValues(isIpuModel, op, vertex.outputType, expected, actual)) {
-      // If its is 2D, we want to show row and column where it failed, not
-      // just the linear index.
-      unsigned col = i - rowOffs;
-      std::cerr << format("out[%s] = %s %s %s  =>  expected:%s;  actual:%s\n") %
-                       (vertex.is2D ? to_string(row) + "][" + to_string(col)
-                                    : to_string(i)) %
-                       convertToString(val1) % binaryOpToString.at(op) %
-                       convertToString(val2) % convertToString(expected) %
-                       convertToString(actual);
-      errCount++;
-    }
-
-    // Update index into the two operands according to the broadcasting rules
-    // of this vertex and sizes combination
-
-    // for first operand/output, always increment
-    i++;
-
-    // Update row index when we change row
-    if (i == rowOffs + sizes.rowSizes[row]) {
-      rowOffs += sizes.rowSizes[row];
-      if (vertex.isVectorInner2D) {
-        rowOffs2 += sizes.op2RowSizes[row];
+      // First operand (has the same size as result)
+      HostDataType val1 = in1Host[test.in1.offsets[row] + i];
+      // Second operand is more complex
+      HostDataType val2;
+      if (vertex.isBinaryOp) {
+        val2 = in2Host[test.in2.offsets[row] + i];
+      } else if (vertex.op2isSingleElem) {
+        val2 = in2Host[test.in2.offsets[0]];
+      } else if (vertex.isBroadcastScalar2D) {
+        val2 = in2Host[test.in2.offsets[0] + row];
+      } else if (vertex.isVectorInner) {
+        unsigned j = i % test.in2.rowSizes[row];
+        val2 = in2Host[test.in2.offsets[row] + j];
+      } else if (vertex.isVectorOuter) {
+        unsigned voRow = i / sizes.columns;
+        val2 = in2Host[test.in2.offsets[row] + voRow % test.in2.rowSizes[0]];
       }
-      row++;
-    }
 
-    // For second operand, need to check which broadcast pattern we are using
-    if (vertex.isBinaryOp) {
-      j++;
-    } else if (vertex.isBroadcastScalar2D) {
-      j = row;
-    } else if (vertex.isVectorInner2D) {
-      if (row < sizes.rows) // Need to avoid division by zero on last iteration
-        j = rowOffs2 + ((i - rowOffs) % sizes.op2RowSizes[row]);
-    } else if (vertex.isVectorInner) {
-      j = i % sizes.nElems2;
-    } else if (vertex.isVectorOuter) {
-      j = (i / sizes.columns) % sizes.nElems2;
-    }
-  } while (i < outHost.size());
+      // Result from device
+      HostOutType actual = outHost[test.out.offsets[row] + i];
 
+      HostOutType expected = 0; // result for verification
+      performOp(op, val1, val2, expected);
+
+      if (!equalValues(isIpuModel, op, vertex.outputType, expected, actual)) {
+        // If its is 2D, we want to show row and column where it failed, not
+        // just the linear index.
+        std::cerr << format(
+                         "out[%s] = %s %s %s  =>  expected:%s;  actual:%s\n") %
+                         (vertex.is2D ? to_string(row) + "][" + to_string(i)
+                                      : to_string(i)) %
+                         convertToString(val1) % binaryOpToString.at(op) %
+                         convertToString(val2) % convertToString(expected) %
+                         convertToString(actual);
+        errCount++;
+      }
+    }
+  }
   if (errCount > 0) {
     std::cerr << "Failed: mismatch on " << errCount << " value(s)\n";
   }
-  return errCount == 0;
+
+  // Check for overwrites past the end of each row
+  auto overwriteCount = test.out.checkPadBytes(target, vertex.is2D, isIpuModel,
+                                               test.padOutWithNan);
+
+  return (errCount == 0) && (overwriteCount == 0);
 }
 
 //*************************************************************************
 /// Setup one vertex test.
 ///
-/// \tparam HostDataType  Type to use on the host for dataType1, datatType2.
-/// \tparam HostOutType   Type to use on the host for outputType.
+/// \tparam HostDataType    Type to use on the host for dataType1, datatType2.
+/// \tparam HostOutType     Type to use on the host for outputType.
 /// \param[in]    target    Which target.
 /// \param[inout] graph     The graph.
 /// \param[inout] upload    A Sequence where we will add the uploading of the
-//                          data for this vertex (from the host to the device)
+///                         data for this vertex (from the host to the device)
+/// \param[inout] alignCS   Compute set containing the 'alignment' vertices.
 /// \param[inout] cs        The compute set to add the vertex to.
 /// \param[inout] download  A Sequence where we will add the downloading of the
 ///                         result data (from device to host)
@@ -583,11 +568,12 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
 /// \param[inout] test      Describes the test to setup. Pointers to data and
 ///                         output buffers are setup here.
 /// \param[in]    tile      Which tile to run this test on.
-/// \param[in]    options  Global options.
+/// \param[in]    options   Global options.
 ///
 template <typename HostDataType, typename HostOutType>
-static void setupTest(const Target &target, Graph &graph, Sequence &upload,
-                      ComputeSet &cs, Sequence &download, StreamMap &streamMap,
+static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
+                      Sequence &upload, ComputeSet &alignCS, ComputeSet &cs,
+                      Sequence &download, StreamMap &streamMap,
                       TestRecord &test, unsigned tile,
                       const MiscOptions &options) {
   const VertexDesc &vertex = *test.vertex;
@@ -623,14 +609,21 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
                              dataType.toString() + ")");
   }
 
+  // === Setup offsets for padding
+  test.in1.setup(target, dataType, sizes.rowSizes, options.alignStart);
+  test.in2.setup(target, dataType, sizes.op2RowSizes, options.alignStart);
+  test.out.setup(target, outputType, sizes.rowSizes, options.alignStart);
+
   // === Allocate and initialise host buffers with appropriate values.
-  std::vector<HostDataType> in1Host(sizes.nElems1);
-  std::vector<HostDataType> in2Host(sizes.nElems2);
+  std::vector<HostDataType> in1Host(test.in1.totalElems);
+  std::vector<HostDataType> in2Host(test.in2.totalElems);
   fillHostBuffers(vertex.op, dataType, options.randomSeed, in1Host, in2Host);
   // If requested, print the buffers, selecting the correct sizes
   if (options.printBuffers) {
-    printBuffer(vertex.in1Name, in1Host, dataType, sizes.rowSizes);
-    printBuffer(vertex.in2Name, in2Host, dataType, sizes.op2RowSizes);
+    printBuffer(vertex.in1Name, in1Host, dataType, sizes.rowSizes,
+                test.in1.offsets);
+    printBuffer(vertex.in2Name, in2Host, dataType, sizes.op2RowSizes,
+                test.in1.offsets);
   }
 
   // === Create graph variables.
@@ -656,22 +649,32 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
   //    separate graph variables. This let poplar place the operands in memory
   //    as it sees fit and it is much faster.
 
-  const static unsigned ALIGN = 8; // align sizes/offsets on this byte multiple
-  const unsigned dataTypeSize = target.getTypeSize(dataType);
-  assert((ALIGN % dataTypeSize) == 0);
-  const unsigned nBytes1 = sizes.nElems1 * dataTypeSize; // Operand1 size bytes
-  const unsigned nBytes1Aligned = roundUp(nBytes1, ALIGN);
-
-  Tensor in1, in2;
+  Tensor in1, in2, out;
 
   if (!test.operandOffset) {
     // Optional not specified ('none'), let poplar place the operands in memory
-    in1 = graph.addVariable(dataType, {sizes.nElems1}, vertex.in1Name);
+    in1 = graph.addVariable(dataType, {test.in1.totalElems}, vertex.in1Name);
     graph.setTileMapping(in1, tile);
-    in2 = graph.addVariable(dataType, {sizes.nElems2}, vertex.in2Name);
+    in2 = graph.addVariable(dataType, {test.in2.totalElems}, vertex.in2Name);
     graph.setTileMapping(in2, tile);
+    createAlignVertex(graph, alignCS, in1, tile);
+    createAlignVertex(graph, alignCS, in2, tile);
+    if (vertex.inPlace) {
+      out = in1;
+    } else {
+      out = graph.addVariable(vertex.outputType, {test.out.totalElems}, "out");
+      graph.setTileMapping(out, tile);
+      createAlignVertex(graph, alignCS, out, tile);
+    }
   } else {
     // Offset optional specified, check it's ok (must be aligned and big enough)
+    const static unsigned ALIGN = 8; // align sizes/offsets on this num. bytes
+    const unsigned dataTypeSize = target.getTypeSize(dataType);
+    assert((ALIGN % dataTypeSize) == 0);
+    const unsigned nBytes1 =
+        test.in1.totalElems * dataTypeSize; // Operand1 size bytes
+    const unsigned nBytes1Aligned = roundUp(nBytes1, ALIGN);
+
     unsigned offs = *test.operandOffset;
     if ((offs % ALIGN) != 0) {
       throw std::runtime_error("The specified --offset-operands (" +
@@ -691,21 +694,37 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
     }
 
     // Create one single tensor to be sliced in two
-    unsigned offsIn2 = std::max(nBytes1Aligned, offs); // Where operand 2 starts
-    unsigned offsIn2Elems = offsIn2 / dataTypeSize; // Now in elems, not bytes
-    unsigned totSize = offsIn2Elems + sizes.nElems2;
-    Tensor in = graph.addVariable(dataType, {totSize}, vertex.in1Name);
-    graph.setTileMapping(in, tile);
+    unsigned offs2 = std::max(nBytes1Aligned, offs); // Where op2/out starts
+    unsigned offs2Elems = offs2 / dataTypeSize;      // Now in elems, not bytes
 
-    in1 = in.slice(0, sizes.nElems1);
-    in2 = in.slice(offsIn2Elems, offsIn2Elems + sizes.nElems2);
-  }
-  Tensor out;
-  if (vertex.inPlace) {
-    out = in1;
-  } else {
-    out = graph.addVariable(vertex.outputType, {sizes.nElems1}, vertex.in1Name);
-    graph.setTileMapping(out, tile);
+    if (vertex.op2isSingleElem && !vertex.inPlace && dataType == outputType) {
+      unsigned totSize = offs2Elems + test.out.totalElems;
+      Tensor in = graph.addVariable(dataType, {totSize}, "in1_out");
+      graph.setTileMapping(in, tile);
+      createAlignVertex(graph, alignCS, in, tile);
+      in1 = in.slice(0, test.in1.totalElems);
+      out = in.slice(offs2Elems, offs2Elems + test.out.totalElems);
+
+      in2 = graph.addVariable(dataType, {test.in2.totalElems}, vertex.in2Name);
+      graph.setTileMapping(in2, tile);
+      createAlignVertex(graph, alignCS, in2, tile);
+    } else {
+      unsigned totSize = offs2Elems + test.in2.totalElems;
+      Tensor in = graph.addVariable(dataType, {totSize}, "in1_in2");
+      graph.setTileMapping(in, tile);
+      createAlignVertex(graph, alignCS, in, tile);
+
+      in1 = in.slice(0, test.in1.totalElems);
+      in2 = in.slice(offs2Elems, offs2Elems + test.in2.totalElems);
+      if (vertex.inPlace) {
+        out = in1;
+      } else {
+        out =
+            graph.addVariable(vertex.outputType, {test.out.totalElems}, "out");
+        graph.setTileMapping(out, tile);
+        createAlignVertex(graph, alignCS, out, tile);
+      }
+    }
   }
 
   // === Create the vertex
@@ -713,62 +732,59 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
   graph.setTileMapping(v, tile);
 
   if (vertex.inPlace) {
-    // In the inPlace case we copy the data in the 'hostOutBuf' from where it
-    // would be both written to the device and read back with the result.
-    // But we also copy it in the 'hostRawBuf1' to be used later for the
+    // In the inPlace case we copy the data in the 'test.out.rawBuf' from where
+    // it would be both written to the device and read back with the result.
+    // But we also copy it in the 'test.in1.rawBuf' to be used later for the
     // verification.
-    test.hostRawBuf1 =
+    test.in1.rawBuf =
         allocateHostMemoryForTensor(target, out, graph.getReplicationFactor());
-    test.hostOutBuf = allocateHostMemoryForTensor(out, test.writeName1, graph,
+    test.out.rawBuf = allocateHostMemoryForTensor(out, test.writeName1, graph,
                                                   upload, download, streamMap);
     copy(target, in1Host.data(), in1Host.size(), dataType,
-         test.hostRawBuf1.get());
+         test.in1.rawBuf.get());
     copy(target, in1Host.data(), in1Host.size(), outputType,
-         test.hostOutBuf.get());
+         test.out.rawBuf.get());
   } else {
-    test.hostRawBuf1 = allocateHostMemoryForTensor(
+    test.in1.rawBuf = allocateHostMemoryForTensor(
         in1, test.writeName1, graph, upload, boost::none, streamMap);
-    test.hostOutBuf = allocateHostMemoryForTensor(
-        out, test.readName, graph, boost::none, download, streamMap);
+    test.out.rawBuf = allocateHostMemoryForTensor(out, test.readName, graph,
+                                                  upload, download, streamMap);
     copy(target, in1Host.data(), in1Host.size(), dataType,
-         test.hostRawBuf1.get());
+         test.in1.rawBuf.get());
   }
-  test.hostRawBuf2 = allocateHostMemoryForTensor(
-      in2, test.writeName2, graph, upload, boost::none, streamMap);
-  copy(target, in2Host.data(), in2Host.size(), dataType,
-       test.hostRawBuf2.get());
+  test.in2.rawBuf = allocateHostMemoryForTensor(in2, test.writeName2, graph,
+                                                upload, boost::none, streamMap);
+  copy(target, in2Host.data(), in2Host.size(), dataType, test.in2.rawBuf.get());
 
-  // === Connect the edges appropriately, depending on the vertex variant
-  auto connectOperand2D = [&](const std::string &name,
-                              const std::vector<unsigned> &sizes, Tensor &in) {
-    graph.setFieldSize(v[name], sizes.size());
-    unsigned rowSum = 0;
-    for (unsigned i = 0; i < sizes.size(); i++) {
-      graph.connect(v[name][i], in.slice(rowSum, rowSum + sizes[i]));
-      rowSum += sizes[i];
+  // Fill the padding space in the input buffers (with NaNs) for overprocessing
+  // detection (only for floating point types). Also fill the output buffer
+  // padding, for overrun detection. For inPlace, 'in1' and 'out' are the same.
+  if (dataType == FLOAT || dataType == HALF) {
+    if (vertex.inPlace) {
+      test.padOutWithNan = true;
+    } else {
+      test.in1.setPadBytes(target, isIpuModel, true);
     }
-  };
-  if (vertex.is2D) {
-    connectOperand2D(vertex.in1Name, sizes.rowSizes, in1);
-    if (!vertex.inPlace)
-      connectOperand2D("out", sizes.rowSizes, out);
-    if (vertex.isBinaryOp)
-      connectOperand2D(vertex.in2Name, sizes.rowSizes, in2);
-    else if (vertex.op2isSingleElem)
-      graph.connect(v[vertex.in2Name], in2[0]);
-    else if (vertex.isVectorInner)
-      connectOperand2D(vertex.in2Name, sizes.op2RowSizes, in2);
-    else
-      graph.connect(v[vertex.in2Name], in2);
-  } else {
-    graph.connect(v[vertex.in1Name], in1);
-    if (!vertex.inPlace)
-      graph.connect(v["out"], out);
-    if (vertex.op2isSingleElem)
-      graph.connect(v[vertex.in2Name], in2[0]);
-    else
-      graph.connect(v[vertex.in2Name], in2);
+    test.in2.setPadBytes(target, isIpuModel, true);
   }
+  test.out.setPadBytes(target, isIpuModel, test.padOutWithNan);
+
+  // Connect the operands
+  TestOperand::OperandType opType = vertex.is2D
+                                        ? TestOperand::OperandType::is2D
+                                        : TestOperand::OperandType::is1D;
+  test.in1.connectOperand(graph, v, opType, in1, vertex.in1Name);
+  if (!vertex.inPlace)
+    test.out.connectOperand(graph, v, opType, out, "out");
+  // Second operand is more complex
+  if (vertex.op2isSingleElem) {
+    opType = TestOperand::OperandType::isScalar;
+  } else if ((vertex.isBinaryOp && vertex.is2D) || vertex.isVectorInner2D) {
+    opType = TestOperand::OperandType::is2D;
+  } else {
+    opType = TestOperand::OperandType::is1D;
+  }
+  test.in2.connectOperand(graph, v, opType, in2, vertex.in2Name);
 
   // VectorOuter and VectorInner have additional fields
   if (vertex.isVectorOuter) {
@@ -790,7 +806,7 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
       graph.setTileMapping(workListTensor, 0);
       graph.connect(v["workList"], workListTensor);
     } else {
-      unsigned n = sizes.nElems1 / sizes.nElems2;
+      unsigned n = test.in1.rowSizes[0] / test.in2.rowSizes[0];
       unsigned nWorkers = target.getNumWorkerContexts();
       std::uint16_t dataBlockCountPacked = ((n / nWorkers) << 3) | n % nWorkers;
       graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
@@ -824,16 +840,18 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
 // Calls the appropriate version of setupTest using the template parameters
 // relevant to the data/output types.
 // See 'setupTest()' for parameters
-static void doSetupTest(const Target &target, Graph &graph, Sequence &upload,
-                        ComputeSet &cs, Sequence &download,
-                        StreamMap &streamMap, TestRecord &test, unsigned tile,
+static void doSetupTest(const Target &target, bool isIpuModel, Graph &graph,
+                        Sequence &upload, ComputeSet &alignCS, ComputeSet &cs,
+                        Sequence &download, StreamMap &streamMap,
+                        TestRecord &test, unsigned tile,
                         const MiscOptions &options) {
   VertexDesc &vertex = *test.vertex;
   // Call the appropriate instantiation of the templated function
 #define SELECT_ONE(IPU_DATA_TYPE, IPU_OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE) \
   if (vertex.dataType == IPU_DATA_TYPE && vertex.outputType == IPU_OUT_TYPE) { \
-    setupTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                                  \
-        target, graph, upload, cs, download, streamMap, test, tile, options);  \
+    setupTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(target, isIpuModel, graph,        \
+                                             upload, alignCS, cs, download,    \
+                                             streamMap, test, tile, options);  \
     return;                                                                    \
   }
   SELECT_BY_TYPES()
@@ -943,6 +961,10 @@ int main(int argc, char **argv) {
     ("vertexRE",
      po::value<std::string>(&vertexRE),
      "Regular expression to specify vertex names (alternative to --vertex)")
+    ("data-type",
+     po::value<std::vector<Type>>(&dataTypes)->multitoken(),
+     "Data type: one or more of half, float, int, uint, short, ushort, bool, "
+     "char, schar, uchar")
     ("operation",
      po::value<std::vector<std::string>>(&operationStr)->multitoken(),
      ("Operation(s) to perform, one or more of: " + allOpsStr()).c_str())
@@ -966,8 +988,7 @@ int main(int argc, char **argv) {
      "in memory will be left to poplar")
     ;
   // clang-format on
-  addCommonOptions(poDesc, deviceType, cycleCompareDevice, dataTypes,
-                   groupTests, options);
+  addCommonOptions(poDesc, deviceType, cycleCompareDevice, groupTests, options);
 
   parseOptions(argc, argv, poDesc);
 

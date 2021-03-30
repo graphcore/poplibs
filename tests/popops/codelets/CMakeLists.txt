@@ -6,8 +6,25 @@
 add_multi_target_test_executable(UnaryCodeletsTest UnaryCodeletsTest.cpp)
 add_multi_target_test_executable(BinaryCodeletsTest BinaryCodeletsTest.cpp)
 
+# Each of the tests for elementwise operators below test in parallel up to
+# 100 different vertices in a single compute set/graph, to speed up the test,
+# (using the '--group-tests' option.
+# In certain cases (for instance if there is an exception due to
+# overprocessing/overwriting) this makes hard to find which specific vertex is
+# responsible.
+# In this case, you can run exactly the same command, but without the
+# '--group-tests' option. This will run each vertex individually, which is
+# slower but make easier finding the failing vertex.
+
 # Basic test to verify that all expected vertices are instantiated, using the
 # smallest possible data sizes. This is done for IpuModelX as well.
+
+# '--disable-fp-exceptions' is set because some unary/binary operations can
+# generate FP exceptions when they are enabled (this currently happens in Debug
+# builds)
+# This should be fixed by removing '--disable-fp-exceptions'
+#   For IS_FINITE, IS_INF, IS_NAN      : see T33934
+#   For SQUARE, INV_STD_DEV_TO_VARIANCE: see T34981, T36789
 add_multitarget_test(NAME "UnaryOpCodeletsTests_all"
                      COMMAND UnaryCodeletsTest
                              --group-tests
@@ -19,6 +36,7 @@ add_multitarget_test(NAME "BinaryOpCodeletsTests_all"
                      COMMAND BinaryCodeletsTest
                              --group-tests
                              --size 1
+                             --disable-fp-exceptions true
                      LABELS codelet
                      TEST_IPUMODEL "true")
 
@@ -35,6 +53,7 @@ add_multitarget_test(NAME "BinaryOpCodeletsTests_NoSim"
                              --group-tests
                              --size 480 168 24565 8176 8192
                              --size2  8   8     1 2044 2048
+                             --disable-fp-exceptions true
                      LABELS codelet
                      VARIANTS IpuModel1 IpuModel2)
 
@@ -80,10 +99,9 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                                --operation ABSOLUTE BITWISE_NOT CEIL CBRT
                                            COUNT_LEADING_ZEROS EXPONENT
                                            EXPONENT_MINUS_ONE FLOOR INVERSE
-                                           IS_NAN LOGARITHM LOGARITHM_ONE_PLUS
+                                           LOGARITHM LOGARITHM_ONE_PLUS
                                            LOGICAL_NOT NEGATE POPCOUNT RELU
-                                           SIGNUM TANH ROUND SQRT SQUARE SIGMOID
-                                           RSQRT
+                                           SIGNUM TANH ROUND RSQRT SQRT SIGMOID
                                --size ${SIZE}
                                --group-tests
                        LABELS codelet)
@@ -94,7 +112,6 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                                --operation ADD BITWISE_AND BITWISE_OR
                                            BITWISE_XOR BITWISE_XNOR EQUAL
                                            GREATER_THAN_EQUAL GREATER_THAN
-                                           INV_STD_DEV_TO_VARIANCE
                                            LESS_THAN_EQUAL LOGICAL_AND LOGICAL_OR
                                            LESS_THAN MAXIMUM MINIMUM MULTIPLY
                                            NOT_EQUAL SHIFT_LEFT SHIFT_RIGHT
@@ -121,12 +138,23 @@ test_elementwise(S4  Supervisor   "28;44;50")
 test_elementwise(2D_1 2D "[1,2,3,4,8,9,12,22,24]"  1)
 test_elementwise(2D_2 2D "[25,26,27,28]"  1)
 
-# These two operations will generate FP exceptions in debug builds
+# These operations will generate FP exceptions when they are enabled (this
+# currently happens in Debug builds).
+# This should be fixed and the operations moved back in 'test_elementwise' above
+#   For IS_FINITE, IS_INF, IS_NAN      : see T33934
+#   For SQUARE, INV_STD_DEV_TO_VARIANCE: see T34981, T36789
 add_multitarget_test(NAME "UnaryOpCodeletsTests_no_fp_except"
                       COMMAND UnaryCodeletsTest
-                              --operation IS_FINITE IS_INF
+                              --operation IS_FINITE IS_INF IS_NAN SQUARE
                               --disable-fp-exceptions true
-                              --size "2;3;4;8;12;16;24;25;26;27;28;44;50"
+                              --size "2;3;4;8;12;16;24;25;26;27;28;44;50;[1,2,23,24]"
+                              --group-tests
+                      LABELS codelet)
+add_multitarget_test(NAME "BinaryOpCodeletsTests_no_fp_except"
+                      COMMAND BinaryCodeletsTest
+                              --operation INV_STD_DEV_TO_VARIANCE
+                              --disable-fp-exceptions true
+                              --size "2;3;4;8;12;16;24;25;26;27;28;44;50;[1,2,23,24]"
                               --group-tests
                       LABELS codelet)
 

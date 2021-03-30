@@ -33,7 +33,6 @@
 #include <type_traits>
 
 using namespace poputil;
-using namespace popops;
 
 const std::vector<std::string> verticesNames = {
     "Cast",
@@ -47,18 +46,22 @@ const std::vector<std::string> verticesNames = {
 struct VertexDesc {
   std::string name;
 
-  Type srcType;
-  Type dstType;
+  Type dataType;
+  Type outputType;
 
   std::string vClass;    // full name with template params for addVertex()
   std::string vClassFmt; // vClass, formatted for display
+
+  // Name of the operand field in the vertex
+  std::string inName = "src";
+  std::string outName = "dst";
 
   bool is2D;
   bool isSupervisor;
 
   VertexDesc(const std::string &vertexName, const Type &srcType,
              const Type &dstType)
-      : name(vertexName), srcType(srcType), dstType(dstType) {
+      : name(vertexName), dataType(srcType), outputType(dstType) {
 
     // Extract the flags by looking at the name
     is2D = vertexName == "Cast2d";
@@ -66,7 +69,7 @@ struct VertexDesc {
 
     // Get the vertex class
     std::string vName = "popops::" + name;
-    vClass = templateVertex(vName, srcType, dstType);
+    vClass = templateVertex(vName, dataType, outputType);
 
     // Format the name for display, removing namespaces
     vClassFmt = vClass;
@@ -80,52 +83,10 @@ struct VertexDesc {
 };
 
 //*************************************************************************
-// Contains information relative to the test for one single vertex
-struct TestRecord {
-  SizeDesc size;
-  std::unique_ptr<VertexDesc> vertex;
-
-  std::unique_ptr<char[]> hostRawBuf;
-  std::unique_ptr<char[]> hostOutBuf;
-
-  // Stream names used to transfer the host data and the output. Must be
-  // different for each test run in the same graph.
-  std::string writeName;
-  std::string readName;
-
-  /// \param[in] v      The vertex (with operation and data type) to test.
-  /// \param[in] seq    A sequential index, different for each test
-  /// \param[in] tSizes The data sizes to use for the test.
-  TestRecord(std::unique_ptr<VertexDesc> v, unsigned seq, const SizeDesc &sz)
-      : size(sz), vertex(std::move(v)) {
-    writeName = "src_" + to_string(seq);
-    readName = "dst_" + to_string(seq);
-    if (size.isRowsByCols) {
-      size.isRowsByCols = false;
-      unsigned rows = size.val.at(0);
-      unsigned cols = size.val.at(1);
-      size.val.clear();
-      if (vertex->is2D) {
-        size.val.resize(rows, cols);
-      } else {
-        size.val.push_back(rows * cols);
-      }
-    } else {
-      if (!vertex->is2D) {
-        size.val.resize(1);
-      }
-    }
-  }
-  TestRecord(TestRecord &&) = default;
-
-  std::string toString() { return vertex->vClassFmt + size.toString(); }
-};
-
-//*************************************************************************
 // Return true if the combination of src and dst type is valid
 bool isValidTypes(const VertexDesc &vertex) {
-  const Type &src = vertex.srcType;
-  const Type &dst = vertex.dstType;
+  const Type &src = vertex.dataType;
+  const Type &dst = vertex.outputType;
 
   // if BOTH src and destination are among these types, the combination is
   // valid, with the exclusion of:
@@ -158,23 +119,23 @@ bool isValidTypes(const VertexDesc &vertex) {
 /// Verifies if the results of the cast performed on the device match
 /// with the one the host
 template <typename HostDataType, typename HostOutType>
-bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
+bool verifyTest(const Target &target, bool isIpuModel,
+                const TestRecord<VertexDesc> &test,
                 const MiscOptions &options) {
   const VertexDesc &vertex = *test.vertex;
   const std::vector<unsigned> &sizes = test.size.val;
 
   // Convert the device data in host format. Also convert back the input data
   // in host format.
-  const unsigned nElems =
-      vertex.is2D ? std::accumulate(sizes.begin(), sizes.end(), 0) : sizes[0];
-  std::vector<HostDataType> inHost(nElems);
-  std::vector<HostOutType> outHost(nElems);
-  copy(target, vertex.srcType, test.hostRawBuf.get(), inHost.data(),
+  std::vector<HostDataType> inHost(test.in.totalElems);
+  std::vector<HostOutType> outHost(test.out.totalElems);
+  copy(target, vertex.dataType, test.in.rawBuf.get(), inHost.data(),
        inHost.size());
-  copy(target, vertex.dstType, test.hostOutBuf.get(), outHost.data(),
+  copy(target, vertex.outputType, test.out.rawBuf.get(), outHost.data(),
        outHost.size());
   if (options.printBuffers) {
-    printBuffer("out", outHost, vertex.dstType, sizes);
+    printBuffer(vertex.outName, outHost, vertex.outputType, sizes,
+                test.out.offsets);
   }
 
   if (isIpuModel) {
@@ -186,43 +147,53 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
     std::fesetround(FE_TONEAREST);
   }
 
+  // Check for mismatches on computed values
   unsigned errCount = 0; // how many mismatched elements we find
+  unsigned numRows = sizes.size();
+  Operation castOp(vertex.outputType);
+  for (unsigned row = 0; row < numRows; row++) {
+    for (unsigned i = 0; i < sizes[row]; i++) {
+      HostDataType val = inHost[test.in.offsets[row] + i]; // operands
 
-  // Loop sequentially over the operand linear data buffer
-  for (unsigned i = 0; i < inHost.size(); i++) {
-    HostDataType val = inHost[i]; // operands
+      // result from device
+      HostOutType actual = outHost[test.out.offsets[row] + i];
 
-    HostOutType actual = outHost[i]; // result from device
+      HostOutType expected = 0; // result for verification
+      performCast(isIpuModel, val, expected, vertex.dataType,
+                  vertex.outputType);
 
-    HostOutType expected = 0; // result for verification
-    performCast(isIpuModel, val, expected, vertex.srcType, vertex.dstType);
-
-    if (!equalValues(isIpuModel, vertex.dstType, vertex.srcType, expected,
-                     actual)) {
-      std::cerr << "out[" << i << "] = "
-                << "cast<" << vertex.dstType.toString() << ">("
-                << convertToString(val)
-                << ") =>  expected:" << convertToString(expected)
-                << ";  actual:" << convertToString(actual) << "\n";
-      errCount++;
+      if (!equalValues(isIpuModel, castOp, vertex.dataType, expected, actual)) {
+        std::string posStr =
+            vertex.is2D ? to_string(row) + "," + to_string(i) : to_string(i);
+        std::cerr << vertex.outName << "[" << posStr << "] = cast<"
+                  << vertex.outputType.toString() << ">("
+                  << convertToString(val)
+                  << ") =>  expected:" << convertToString(expected)
+                  << ";  actual:" << convertToString(actual) << "\n";
+        errCount++;
+      }
     }
   }
-
   if (errCount > 0) {
     std::cerr << "Failed: mismatch on " << errCount << " value(s)\n";
   }
-  return errCount == 0;
+
+  // Check for overwrites past the end of each row
+  auto overwriteCount = test.out.checkPadBytes(target, vertex.is2D, isIpuModel);
+
+  return (errCount == 0) && (overwriteCount == 0);
 }
 
 //*************************************************************************
 /// Setup one vertex test.
 ///
-/// \tparam HostDataType   Type to use on the host for srcType.
-/// \tparam HostOutType    Type to use on the host for dstType.
+/// \tparam HostDataType   Type to use on the host for dataType.
+/// \tparam HostOutType    Type to use on the host for outputType.
 /// \param[in]    target   Which target.
 /// \param[inout] graph    The graph.
 /// \param[inout] upload   A Sequence where we will add the uploading of the
-//                         data for this vertex (from the host to the device)
+///                        data for this vertex (from the host to the device)
+/// \param[inout] alignCS  Compute set containing the 'alignment' vertices.
 /// \param[inout] cs       The compute set to add the vertex to.
 /// \param[inout] download A Sequence where we will add the downloading of the
 ///                        result data (from device to host)
@@ -234,14 +205,15 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
 /// \param[in]    options  Global options.
 ///
 template <typename HostDataType, typename HostOutType>
-static void setupTest(const Target &target, Graph &graph, Sequence &upload,
-                      ComputeSet &cs, Sequence &download, StreamMap &streamMap,
-                      TestRecord &test, unsigned tile,
+static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
+                      Sequence &upload, ComputeSet &alignCS, ComputeSet &cs,
+                      Sequence &download, StreamMap &streamMap,
+                      TestRecord<VertexDesc> &test, unsigned tile,
                       const MiscOptions &options) {
   const VertexDesc &vertex = *test.vertex;
   const std::vector<unsigned> &sizes = test.size.val;
-  const Type &srcType = vertex.srcType;
-  const Type &dstType = vertex.dstType;
+  const Type &srcType = vertex.dataType;
+  const Type &dstType = vertex.outputType;
 
   // Check for various possible inconsistencies in the combinations of
   // parameters
@@ -252,53 +224,62 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
                              " is not a valid vertex name for this test");
   }
 
+  // === Setup offsets for padding
+  test.in.setup(target, srcType, sizes, options.alignStart);
+  test.out.setup(target, dstType, sizes, options.alignStart);
+
   // === Allocate and initialise host buffers with appropriate values.
-  const unsigned nElems =
-      vertex.is2D ? std::accumulate(sizes.begin(), sizes.end(), 0) : sizes[0];
-  std::vector<HostDataType> inHost(nElems);
-  fillHostBuffer(vertex.dstType, srcType, options.randomSeed, inHost);
+  std::vector<HostDataType> inHost(test.in.totalElems);
+  Operation castOp(dstType);
+  fillHostBuffer(castOp, srcType, options.randomSeed, inHost);
   if (options.printBuffers) {
-    printBuffer("in", inHost, srcType, sizes);
+    printBuffer(vertex.inName, inHost, srcType, sizes, test.in.offsets);
   }
 
   // === Create graph variables.
-  Tensor in = graph.addVariable(srcType, {nElems}, "src");
+  Tensor in = graph.addVariable(srcType, {test.in.totalElems}, vertex.inName);
   graph.setTileMapping(in, tile);
 
-  Tensor out = graph.addVariable(dstType, {nElems}, "dst");
+  Tensor out =
+      graph.addVariable(dstType, {test.out.totalElems}, vertex.outName);
   graph.setTileMapping(out, tile);
+
+  // === Create the auxiliary vertices required to align the tensors to 8 bytes
+  createAlignVertex(graph, alignCS, in, tile);
+  createAlignVertex(graph, alignCS, out, tile);
 
   // === Create the vertex
   auto v = graph.addVertex(cs, vertex.vClass);
   graph.setTileMapping(v, tile);
 
-  test.hostRawBuf = allocateHostMemoryForTensor(in, test.writeName, graph,
-                                                upload, boost::none, streamMap);
-  test.hostOutBuf = allocateHostMemoryForTensor(
-      out, test.readName, graph, boost::none, download, streamMap);
-  copy(target, inHost.data(), inHost.size(), srcType, test.hostRawBuf.get());
+  test.in.rawBuf = allocateHostMemoryForTensor(in, test.writeName, graph,
+                                               upload, boost::none, streamMap);
+  test.out.rawBuf = allocateHostMemoryForTensor(out, test.readName, graph,
+                                                upload, download, streamMap);
+  copy(target, inHost.data(), inHost.size(), srcType, test.in.rawBuf.get());
+
+  // Fill the padding space in the input buffer (with NaNs) for overprocessing
+  // detection (only for floating point types). Also fill the output buffer
+  // padding, for overrun detection.
+  if (srcType == FLOAT || srcType == HALF) {
+    test.in.setPadBytes(target, isIpuModel, true);
+  }
+  test.out.setPadBytes(target, isIpuModel);
 
   // === Connect the edges appropriately, depending on the vertex variant
-  auto connectOperand2D = [&](const std::string &name,
-                              const std::vector<unsigned> &sizes, Tensor &in) {
-    graph.setFieldSize(v[name], sizes.size());
-    unsigned rowSum = 0;
-    for (unsigned i = 0; i < sizes.size(); i++) {
-      graph.connect(v[name][i], in.slice(rowSum, rowSum + sizes[i]));
-      rowSum += sizes[i];
-    }
-  };
-  if (vertex.is2D) {
-    connectOperand2D("src", sizes, in);
-    connectOperand2D("dst", sizes, out);
-  } else {
-    graph.connect(v["src"], in);
-    graph.connect(v["dst"], out);
+  TestOperand::OperandType opType = vertex.is2D
+                                        ? TestOperand::OperandType::is2D
+                                        : TestOperand::OperandType::is1D;
+  test.in.connectOperand(graph, v, opType, in, vertex.inName);
+  test.out.connectOperand(graph, v, opType, out, vertex.outName);
+
+  if (!vertex.is2D) {
+    unsigned totalElems = sizes[0];
     if (vertex.isSupervisor) {
       // Computing the bitfields for the 'partitionParams' word. See the codelet
       // C++ definition for the meaning of the fields.
       unsigned grainSize = 4;
-      unsigned numGrains = (nElems + grainSize - 1) / grainSize;
+      unsigned numGrains = (totalElems + grainSize - 1) / grainSize;
       unsigned numWorkerContexts = target.getNumWorkerContexts();
       unsigned workerCount = numWorkerContexts;
       unsigned grainsPerWorker = 1;
@@ -318,12 +299,12 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
       unsigned deltaLast =
           workerCount * workerElems +
           (numWorkerContexts - workerCount) * (workerElems - grainSize) -
-          nElems;
+          totalElems;
       unsigned partitionParams = (workerElems << 9) | (workerCount << 6) |
                                  (workerLast << 3) | deltaLast;
       graph.setInitialValue(v["partitionParams"], partitionParams);
     } else {
-      graph.setInitialValue(v["numElems"], nElems);
+      graph.setInitialValue(v["numElems"], totalElems);
     }
   }
 }
@@ -332,20 +313,22 @@ static void setupTest(const Target &target, Graph &graph, Sequence &upload,
 // Calls the appropriate version of setupTest using the template parameters
 // relevant to the data/output types.
 // See 'setupTest()' for parameters
-static void doSetupTest(const Target &target, Graph &graph, Sequence &upload,
-                        ComputeSet &cs, Sequence &download,
-                        StreamMap &streamMap, TestRecord &test, unsigned tile,
+static void doSetupTest(const Target &target, bool isIpuModel, Graph &graph,
+                        Sequence &upload, ComputeSet &alignCS, ComputeSet &cs,
+                        Sequence &download, StreamMap &streamMap,
+                        TestRecord<VertexDesc> &test, unsigned tile,
                         const MiscOptions &options) {
   VertexDesc &vertex = *test.vertex;
   // Call the appropriate instantiation of the templated function
 #define SELECT_ONE(IPU_SRC_TYPE, IPU_DST_TYPE, HOST_SRC_TYPE, HOST_DST_TYPE)   \
-  if (vertex.srcType == IPU_SRC_TYPE && vertex.dstType == IPU_DST_TYPE) {      \
-    setupTest<HOST_SRC_TYPE, HOST_DST_TYPE>(                                   \
-        target, graph, upload, cs, download, streamMap, test, tile, options);  \
+  if (vertex.dataType == IPU_SRC_TYPE && vertex.outputType == IPU_DST_TYPE) {  \
+    setupTest<HOST_SRC_TYPE, HOST_DST_TYPE>(target, isIpuModel, graph, upload, \
+                                            alignCS, cs, download, streamMap,  \
+                                            test, tile, options);              \
     return;                                                                    \
   }
   SELECT_BY_TYPES()
-  throw invalid_types(vertex.srcType, vertex.dstType);
+  throw invalid_types(vertex.dataType, vertex.outputType);
 #undef SELECT_ONE
 }
 
@@ -353,17 +336,17 @@ static void doSetupTest(const Target &target, Graph &graph, Sequence &upload,
 // Calls the appropriate version of verifyTest using the template parameters
 // relevant to the data/output types.
 // See 'verifyTest()' for parameters
-bool doVerifyTest(const Target &target, bool isIpuModel, TestRecord &test,
-                  const MiscOptions &options) {
+bool doVerifyTest(const Target &target, bool isIpuModel,
+                  TestRecord<VertexDesc> &test, const MiscOptions &options) {
   VertexDesc &vertex = *test.vertex;
 
 #define SELECT_ONE(IPU_SRC_TYPE, IPU_DST_TYPE, HOST_SRC_TYPE, HOST_DST_TYPE)   \
-  if (vertex.srcType == IPU_SRC_TYPE && vertex.dstType == IPU_DST_TYPE) {      \
+  if (vertex.dataType == IPU_SRC_TYPE && vertex.outputType == IPU_DST_TYPE) {  \
     return verifyTest<HOST_SRC_TYPE, HOST_DST_TYPE>(target, isIpuModel, test,  \
                                                     options);                  \
   }
   SELECT_BY_TYPES()
-  throw invalid_types(vertex.srcType, vertex.dstType);
+  throw invalid_types(vertex.dataType, vertex.outputType);
 #undef SELECT_ONE
 }
 
@@ -412,6 +395,10 @@ int main(int argc, char **argv) {
     ("vertex",
      po::value<std::vector<std::string>>(&vertices)->multitoken(),
      "Vertices to test, one or more of: Cast, CastSupervisor, Cast2d")
+    ("data-type",
+     po::value<std::vector<Type>>(&srcTypes)->multitoken(),
+     "Data type: one or more of half, float, int, uint, short, ushort, bool, "
+     "char, schar, uchar")
     ("cast",
      po::value<std::vector<std::string>>(&dstTypeStrs)->multitoken(),
      "Destination type(s) for the cast(s) to perform")
@@ -421,8 +408,7 @@ int main(int argc, char **argv) {
      "square bracket, comma separated list of values for a 2D vertex")
     ;
   // clang-format on
-  addCommonOptions(poDesc, deviceType, cycleCompareDevice, srcTypes, groupTests,
-                   options);
+  addCommonOptions(poDesc, deviceType, cycleCompareDevice, groupTests, options);
 
   parseOptions(argc, argv, poDesc);
 
@@ -467,7 +453,7 @@ int main(int argc, char **argv) {
     devices.push_back(getCycleCompareDevice(deviceType, *cycleCompareDevice));
   }
 
-  std::optional<std::vector<std::shared_ptr<TestRecord>>> tests;
+  std::optional<std::vector<std::shared_ptr<TestRecord<VertexDesc>>>> tests;
   if (!cycleCompareDevice && groupTests > 1) {
     tests.emplace();
   }
@@ -482,16 +468,16 @@ int main(int argc, char **argv) {
               std::make_unique<VertexDesc>(vertexName, srcType, dstType);
           if (isValidTypes(*vertex)) {
             numTests++;
-            auto testRec =
-                std::make_shared<TestRecord>(std::move(vertex), numTests, sz);
-            addOneTest<TestRecord, VertexDesc>(tests, testRec, devices,
-                                               errCount, options);
+            auto testRec = std::make_shared<TestRecord<VertexDesc>>(
+                std::move(vertex), numTests, sz);
+            addOneTest<TestRecord<VertexDesc>, VertexDesc>(
+                tests, testRec, devices, errCount, options);
           }
         }
       }
     }
   }
-  runAllTests<TestRecord>(tests, numTests, groupTests, deviceType, errCount,
-                          options);
+  runAllTests<TestRecord<VertexDesc>>(tests, numTests, groupTests, deviceType,
+                                      errCount, options);
   return (errCount == 0) ? 0 : 1; // returning 1 means an error.
 }

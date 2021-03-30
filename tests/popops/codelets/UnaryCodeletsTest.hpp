@@ -450,14 +450,18 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
       UnaryOpType unaryOp = std::get<UnaryOpType>(op);
       if (unaryOp == UnaryOpType::IS_FINITE || unaryOp == UnaryOpType::IS_INF ||
           unaryOp == UnaryOpType::IS_NAN) {
-        // We want to make 1 in 5 elements the same
-        std::uniform_int_distribution<int> d(1, 5);
-        float val = (unaryOp == UnaryOpType::IS_NAN)
-                        ? std::numeric_limits<float>::infinity()
-                        : std::numeric_limits<float>::signaling_NaN();
+        // We want to make 1 in 5 elements to be a 'special value' (inf or NaN)
+        std::uniform_int_distribution<int> d1(1, 5);
+        // and we have 4 different types of 'special values'
+        static std::array<float, 4> specials = {
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::signaling_NaN(),
+            std::numeric_limits<float>::infinity(),
+            -std::numeric_limits<float>::infinity()};
+        std::uniform_int_distribution<int> d2(1, specials.size());
         for (unsigned i = 0; i < buf.size(); i++) {
-          if (d(*rndEng) == 1) {
-            buf[i] = val;
+          if (d1(*rndEng) == 1) {
+            buf[i] = specials[d2(*rndEng)];
           }
         }
       }
@@ -508,5 +512,51 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
   SELECT_BY_SRC_TYPE(CHAR, char)                                               \
   SELECT_BY_SRC_TYPE(SIGNED_CHAR, signed char)                                 \
   SELECT_BY_SRC_TYPE(UNSIGNED_CHAR, unsigned char)
+
+//*************************************************************************
+// Contains information relative to a single test (one specific vertex,
+// and one SizeDesc value) for UnaryOp or Cast
+template <typename VertexDesc> struct TestRecord {
+  SizeDesc size;
+  std::unique_ptr<VertexDesc> vertex;
+
+  TestOperand in;
+  TestOperand out;
+
+  // Stream names used to transfer the host data and the output. Must be
+  // different for each test that is run in the same graph/compute set.
+  std::string writeName;
+  std::string readName;
+
+  // Is the output buffer padding made up of Nan values?
+  bool padOutWithNan = false;
+
+  /// \param[in] v      The vertex (with operation and data type) to test.
+  /// \param[in] seq    A sequential index, different for each test
+  /// \param[in] tSizes The data sizes to use for the test.
+  TestRecord(std::unique_ptr<VertexDesc> v, unsigned seq, const SizeDesc &sz)
+      : size(sz), vertex(std::move(v)) {
+    writeName = vertex->inName + "_" + to_string(seq);
+    readName = vertex->outName + "_" + to_string(seq);
+    if (size.isRowsByCols) {
+      size.isRowsByCols = false;
+      unsigned rows = size.val.at(0);
+      unsigned cols = size.val.at(1);
+      size.val.clear();
+      if (vertex->is2D) {
+        size.val.resize(rows, cols);
+      } else {
+        size.val.push_back(rows * cols);
+      }
+    } else {
+      if (!vertex->is2D) {
+        size.val.resize(1);
+      }
+    }
+  }
+  TestRecord(TestRecord &&) = default;
+
+  std::string toString() { return vertex->vClassFmt + size.toString(); }
+};
 
 #endif // popops_UnaryCodeletsTest_hpp

@@ -753,4 +753,22 @@ template class HistogramSupervisor<float, true, false>;
 template class HistogramSupervisor<half, true, false>;
 template class HistogramSupervisor<float, false, false>;
 template class HistogramSupervisor<half, false, false>;
+
+// This vertex is used for testing, to ensure that a vector is aligned to
+// 8 bytes
+template <unsigned ALIGN, typename T> class NopAlignVertex : public Vertex {
+public:
+  InOut<Vector<T, SPAN, ALIGN>> t;
+  bool compute() { return true; }
+};
+template class NopAlignVertex<8, half>;
+template class NopAlignVertex<8, float>;
+template class NopAlignVertex<8, int>;
+template class NopAlignVertex<8, unsigned int>;
+template class NopAlignVertex<8, short>;
+template class NopAlignVertex<8, unsigned short>;
+template class NopAlignVertex<8, bool>;
+template class NopAlignVertex<8, char>;
+template class NopAlignVertex<8, unsigned char>;
+template class NopAlignVertex<8, signed char>;
 } // namespace popops
