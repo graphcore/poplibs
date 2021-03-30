@@ -321,7 +321,7 @@ int main(int argc, char **argv) try {
     rawUpdateSlices = allocateHostMemoryForTensor(
         updateSlices, "updateSlices", graph, uploadProg, downloadProg, tmap);
   }
-  Sequence controlProg(std::move(uploadProg), std::move(prog));
+  Sequence controlProg({std::move(uploadProg), std::move(prog)});
   if (!ignoreData) {
     controlProg.add(downloadProg);
   }

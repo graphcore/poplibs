@@ -128,7 +128,7 @@ static bool doTest(const DeviceType &deviceType, const Type &dataType,
   graph.setInitialValue(v["numK"], topK);
   graph.setInitialValue(v["shouldSort"], sort);
 
-  Engine e(std::move(graph), Sequence(uploadProg, Execute(cs), downloadProg));
+  Engine e(std::move(graph), Sequence{uploadProg, Execute(cs), downloadProg});
   attachStreams(e, tmap);
 
   device.bind([&](const Device &d) { e.loadAndRun(d); });

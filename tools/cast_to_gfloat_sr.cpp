@@ -243,7 +243,7 @@ int main(int argc, char **argv) {
   // Create stream for input data
   auto inStreamV = graph.addHostToDeviceFIFO("InputVector", inType, inSize);
 
-  gfCastProg = Sequence(Copy(inStreamV, input));
+  gfCastProg = Sequence{Copy(inStreamV, input)};
 
   uint32_t hSeed[2];
   hSeed[0] = seed;

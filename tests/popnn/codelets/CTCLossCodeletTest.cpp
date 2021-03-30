@@ -414,7 +414,7 @@ gradIPU(const InputSequence<double> &input, unsigned timeStep,
   if (profile) {
     engineOptions.set("debug.instrumentCompute", "true");
   }
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
   device.bind([&](const Device &d) {
     engine.load(d);

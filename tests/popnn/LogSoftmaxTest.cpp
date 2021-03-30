@@ -102,7 +102,7 @@ void validateLogSoftmax(unsigned batchSize, unsigned numChannels) {
   copy(target, hActIn, FLOAT, rawHActF.get());
   copy(target, hActIn, HALF, rawHActH.get());
 
-  Engine fwdEng(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine fwdEng(graph, Sequence{uploadProg, prog, downloadProg});
   attachStreams(fwdEng, tmap);
   device.bind([&](const Device &d) { fwdEng.loadAndRun(d); });
 

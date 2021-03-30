@@ -364,7 +364,7 @@ int main(int argc, char **argv) try {
   rawHostSubT = allocateHostMemoryForTensor(subT, "subT", graph, uploadProg,
                                             downloadProg, tmap);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   attachStreams(engine, tmap);
 
   std::vector<boost::multi_array<double, 1>> hostNZBuckets;

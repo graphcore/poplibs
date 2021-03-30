@@ -354,7 +354,7 @@ poplar::Tensor rnnFwdSequence(
   Tensor thisState = poputil::duplicate(graph, fwdStateInit, prog, {di});
 
   // core rnn loop
-  auto loop = Sequence({}, {di});
+  auto loop = Sequence{{}, {di}};
   {
     // input is either sliced from weightedIn, or
     // sliced from prevLayerActs then weighted
@@ -550,7 +550,7 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
       concat(fwdStateInit.expand({0}), fwdState.slice(0, fwdState.dim(0) - 1));
   graph.setTileMapping(fwdStateOffset[0],
                        graph.getTileMapping(fwdStateOffset[1]));
-  auto loop = Sequence({}, {di});
+  auto loop = Sequence{{}, {di}};
   {
     Tensor gradientInputThisStep;
     Tensor outGradS =

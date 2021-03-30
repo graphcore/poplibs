@@ -218,7 +218,7 @@ static bool reduceAddTest(const DeviceType &deviceType,
   copy(target, hostPrev, outType, rawHostPrev.get());
   copy(target, hostIn, partialsType, rawHostIn.get());
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, options);
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);
@@ -310,7 +310,7 @@ static bool reduceOpsTest(const DeviceType &deviceType,
   copy(target, hostOut, outType, rawHostOut.get());
   copy(target, hostIn, outType, rawHostIn.get());
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, options);
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);

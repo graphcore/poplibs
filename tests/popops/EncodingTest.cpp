@@ -117,7 +117,7 @@ static bool encodeTest(std::size_t numIndices, std::size_t length,
   auto rawHostEncoded = allocateHostMemoryForTensor(
       encoded, "encoded", graph, uploadProg, downloadProg, tmap);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);
@@ -182,7 +182,7 @@ static bool iotaTest(std::int64_t startInteger, std::size_t length,
     iota(graph, iotaOut, start, prog, "/iotaTest");
   }
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);

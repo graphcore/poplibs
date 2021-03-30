@@ -379,7 +379,7 @@ void RnnState::next() {
 }
 
 program::Sequence RnnState::initCounter() {
-  auto prog = Sequence({}, {dnai, "initCounter"});
+  auto prog = Sequence{{}, {dnai, "initCounter"}};
   if (reverse) {
     auto start =
         (currIndex < (numShards - 1)) ? startExclLastShard : startLastShard;
@@ -391,7 +391,7 @@ program::Sequence RnnState::initCounter() {
 }
 
 program::Sequence RnnState::updateCounter() {
-  auto prog = Sequence({}, {dnai, "updateCounter"});
+  auto prog = Sequence{{}, {dnai, "updateCounter"}};
   // Update loop counters
   if (reverse) {
     subInPlace(graph, seqIdx, one, prog, {dnai, "seqIdxDecr"});
@@ -411,7 +411,7 @@ sliceShard(Graph &graph, const RnnParams &params, std::size_t tilesPerShard,
   auto interval = shard.interval();
   auto counter = shard.counterTensor();
   auto shardIndex = shard.index();
-  auto loop = Sequence({}, {dnai, "RnnLoop"});
+  auto loop = Sequence{{}, {dnai, "RnnLoop"}};
   std::vector<Tensor> inputSlices(inputs.size());
   for (unsigned i = 0; i < inputs.size(); ++i) {
     auto &input = inputs[i];
@@ -477,7 +477,7 @@ static program::Sequence updateShard(
     const Tensor &stateSequence, const std::vector<Tensor> &outputSlice,
     const std::vector<Tensor> &outputs, const std::vector<Tensor> &createdSlice,
     const std::vector<Tensor> &created, const DebugNameAndId &dnai) {
-  auto loop = Sequence({}, {dnai, "updateShard"});
+  auto loop = Sequence{{}, {dnai, "updateShard"}};
   if (interimOut) {
     updateTensor(graph, params, *interimOut, interimOutSlice, shard, loop,
                  {dnai, "UpdateInterimOutShard"});
@@ -749,7 +749,7 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
                    interimOut, outputState, numShards, {di, "sliceShard"});
 
     initProg.add(initCounter);
-    auto loop = Sequence({}, {di});
+    auto loop = Sequence{{}, {di}};
     loop.add(slicer);
 
     // Call loop builder

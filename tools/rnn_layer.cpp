@@ -379,7 +379,7 @@ int main(int argc, char **argv) {
   if (vm.count("profile") || vm.count("profile-json")) {
     engineOptions.set("debug.instrumentCompute", "true");
   }
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
 
   if (vm.count("compile-only"))
     return 0;

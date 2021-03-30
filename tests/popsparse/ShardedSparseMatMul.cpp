@@ -70,9 +70,9 @@ int main(int argc, char **argv) {
     ("profile", "Enable profiling and print profiling report")
     ("profile-json", po::value<std::string>(&profileJsonPath)->default_value(profileJsonPath),
      "Path to a file into which the profiling report will be output in json format")
-    ("left-square-matrix-size", po::value<unsigned>(&m)->default_value(m), 
+    ("left-square-matrix-size", po::value<unsigned>(&m)->default_value(m),
      "Square matrix size for the left matrix")
-    ("num-shards", po::value<unsigned>(&numShards)->default_value(numShards), 
+    ("num-shards", po::value<unsigned>(&numShards)->default_value(numShards),
      "Number of shards (each shard on an IPU)")
     ("right-matrix-cols", po::value<unsigned>(&n)->default_value(n),
      "Right hand matrix input cols")
@@ -188,7 +188,7 @@ int main(int argc, char **argv) {
   auto rawOut = allocateHostMemoryForTensor(outMM.back(), "out", mainGraph,
                                             uploadProg, downloadProg, tmap);
 
-  Sequence controlProg(std::move(uploadProg), std::move(prog));
+  Sequence controlProg({std::move(uploadProg), std::move(prog)});
   controlProg.add(downloadProg);
 
   using EType = float;

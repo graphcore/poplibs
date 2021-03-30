@@ -342,7 +342,7 @@ bool doBroadcastVectorOptimiseTest(
   }
 
   // Run sequences and compare host and IPU result
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, options);
   attachStreams(engine, tmap);
 
   if (!ignoreData) {

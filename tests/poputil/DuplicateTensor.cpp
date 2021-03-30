@@ -73,7 +73,7 @@ static void TestFunc(poplar::TensorCloneMethod cloneMethod) {
     BOOST_CHECK_EQUAL(testInput.numElements(), testResult.numElements());
 
   // run Engine and verify copying
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);

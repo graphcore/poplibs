@@ -314,7 +314,7 @@ static bool normTest(const DeviceType &deviceType,
   copy(target, hostBeta, dataType, rawHostBeta.get());
   copy(target, hostGradsIn, dataType, rawHostGradsIn.get());
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
 
   if (compile_only)
     return 0;

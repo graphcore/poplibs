@@ -38,7 +38,7 @@ static std::size_t loopTest(std::size_t begin, std::size_t end,
         return prog;
       }));
 
-  Engine engine(graph, Sequence(uploadProg, loop, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, loop, downloadProg});
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);

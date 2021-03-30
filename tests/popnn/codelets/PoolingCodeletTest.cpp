@@ -240,7 +240,7 @@ int main(int argc, char **argv) {
   auto rawHostNextAct = allocateHostMemoryForTensor(
       nextAct, "nextAct", graph, uploadProg, downloadProg, tmap);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
 
   MultiArray<double> hostPrevAct{prevActShape};

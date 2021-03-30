@@ -144,7 +144,7 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
         graph.connect(fwdV["data"], actsTestSlice);
         graph.setInitialValue(fwdV["n"], numElements);
         if (!testBwd) {
-          programs.push_back(Sequence(Execute(fwdCS)));
+          programs.push_back(Sequence{Execute(fwdCS)});
         }
       }
       if (testBwd) {
@@ -157,11 +157,11 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
         graph.connect(bwdV["inGrad"], ingradTestSlice);
         graph.setInitialValue(bwdV["n"], numElements);
         if (!testFwd) {
-          programs.push_back(Sequence(Execute(bwdCS)));
+          programs.push_back(Sequence{Execute(bwdCS)});
         }
       }
       if (testFwd && testBwd) {
-        programs.emplace_back(Sequence(Execute(bwdCS), Execute(fwdCS)));
+        programs.emplace_back(Sequence{Execute(bwdCS), Execute(fwdCS)});
       }
       programSlices.push_back(SliceDesc{offset, numElements});
     }

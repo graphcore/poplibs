@@ -423,7 +423,7 @@ int main(int argc, char **argv) {
       engineOptions.set("profiler.format", *profileFormat);
     }
   }
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
 
   if (vm.count("compile-only"))
     return 0;

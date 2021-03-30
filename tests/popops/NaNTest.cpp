@@ -91,7 +91,7 @@ static bool hasNaNTest(DeviceType deviceType, const bool introduceNaN,
       out, "out", graph, uploadProg, downloadProg, tmap);
 
   const poplar::OptionFlags options{{"debug.floatPointOpException", "false"}};
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, options);
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);
@@ -135,16 +135,16 @@ int main(int argc, char **argv) {
     ("two-d",
       po::value<bool>(&twoD)->default_value(twoD),
       "Use 2D vertex (only allowed with fullSize)")
-    ("add-inf", 
+    ("add-inf",
      po::value<bool>(&addInf)->required(),
      "Add inf to the tensor")
-    ("add-nan", 
+    ("add-nan",
      po::value<bool>(&addNaN)->required(),
      "Add NaN to the tensor")
-    ("check-nan-only", 
+    ("check-nan-only",
      po::value<bool>(&checkNaNOnly)->required(),
      "Check for NaNs only even if there may be infs, else checks for both")
-    ("num-tiles", 
+    ("num-tiles",
      po::value<unsigned>(&numTiles)->default_value(numTiles),
      "Number of tiles to use")
     ("data-type",

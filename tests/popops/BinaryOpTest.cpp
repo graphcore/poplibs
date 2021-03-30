@@ -277,7 +277,7 @@ static bool doBinaryOpTest(
   if (doReport) {
     engOpts.set("debug.instrumentCompute", "true");
   }
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engOpts);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engOpts);
   attachStreams(engine, tmap);
 
   device.bind([&](const Device &d) {

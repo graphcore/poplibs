@@ -53,7 +53,7 @@ countedLoop(poplar::Graph &graph, std::size_t begin, std::size_t end,
 
   prog.add(poplar::program::Copy(tBegin, tInductionVar, false, {di}));
 
-  poplar::program::Sequence bodyProg = body(tInductionVar);
+  poplar::program::Sequence bodyProg = {body(tInductionVar)};
   popops::addInPlace(graph, tInductionVar, tStep, bodyProg, {di});
 
   std::size_t count = (end - begin + step - 1) / step;

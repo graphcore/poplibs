@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "poplibs_test/Util.hpp"
 #include "popops/EncodingConstants.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -181,7 +181,7 @@ void singleTest(const Type &dataType, const LossTransformType &ltType,
       graph.connect(v["modelOutputScaling"], tModelOutputScaling);
     }
 
-    programs.push_back(Sequence(Execute(cs)));
+    programs.push_back(Sequence{Execute(cs)});
     programSizes.push_back(size);
   }
   const auto numTests = programs.size();

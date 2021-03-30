@@ -322,7 +322,7 @@ int main(int argc, char **argv) try {
                                            downloadProg, tmap);
   }
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   attachStreams(engine, tmap);
 
   std::vector<boost::multi_array<double, 1>> hostABuckets;

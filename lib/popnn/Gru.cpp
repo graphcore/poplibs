@@ -932,7 +932,7 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
                   Tensor &interimOut, std::vector<Tensor> &outputs,
                   std::vector<Tensor> &created, program::Sequence *initProg,
                   const DebugNameAndId &dnai) {
-        auto loop = Sequence({}, {dnai});
+        auto loop = Sequence{{}, {dnai}};
         debug_tensor(loop, "fwdLoop:", seqIdx);
         auto &fwdInput = inputs[0];
         boost::optional<const Tensor &> sliceAttScoresOpt(boost::none);
@@ -1783,7 +1783,7 @@ static Tensor gruBwdImpl(
           const Tensor &fwdIntermediates, Tensor &interimOut,
           std::vector<Tensor> &outputs, std::vector<Tensor> &created,
           program::Sequence *initProg, const DebugNameAndId &dnai) {
-        auto loop = Sequence({}, {dnai});
+        auto loop = Sequence{{}, {dnai}};
         const Tensor *gradLayerNextThisStepPtr =
             bwdInput[0].valid() ? &bwdInput[0] : nullptr;
         auto &prevLayerOut = bwdInput[1];
@@ -2082,7 +2082,7 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
                     const Tensor &fwdIntermediates, Tensor &interimOut,
                     std::vector<Tensor> &outputs, std::vector<Tensor> &created,
                     program::Sequence *initProg, const DebugNameAndId &dnai) {
-    auto loop = Sequence({}, {dnai});
+    auto loop = Sequence{{}, {dnai}};
     auto &prevLayerOut = wuInput[0];
     auto &prevStepOut = wuInput[1];
     auto &bwdIntermediates = wuInput[2];

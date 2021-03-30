@@ -337,7 +337,7 @@ int main(int argc, char **argv) try {
     graph.createHostRead("totalCycleCount", cycleCounter);
   }
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
 
   std::vector<double> hostIn(batchSize * n);

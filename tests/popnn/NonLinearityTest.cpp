@@ -287,7 +287,7 @@ BOOST_AUTO_TEST_CASE(
 
     copy(target, hActIn, FLOAT, rawHActF.get());
     copy(target, hActIn, HALF, rawHActH.get());
-    Engine fwdEng(graph, Sequence(uploadProg, fwdProg, downloadProg));
+    Engine fwdEng(graph, Sequence{uploadProg, fwdProg, downloadProg});
     attachStreams(fwdEng, tmap);
     device.bind([&](const Device &d) { fwdEng.loadAndRun(d); });
     copy(target, FLOAT, rawHActF.get(), hActOutF);
@@ -309,7 +309,7 @@ BOOST_AUTO_TEST_CASE(
     copy(target, hActIn, HALF, rawHActH.get());
     copy(target, hDeltaIn, FLOAT, rawHDeltaF.get());
     copy(target, hDeltaIn, HALF, rawHDeltaH.get());
-    Engine bwdEng(graph, Sequence(uploadProg, bwdProg, downloadProg));
+    Engine bwdEng(graph, Sequence{uploadProg, bwdProg, downloadProg});
     attachStreams(bwdEng, tmap);
     device.bind([&](const Device &d) { bwdEng.loadAndRun(d); });
     copy(target, FLOAT, rawHDeltaF.get(), hDeltaOutF);
@@ -393,7 +393,7 @@ BOOST_AUTO_TEST_CASE(
 
     copy(target, hActIn, FLOAT, rawHActF.get());
     copy(target, hActIn, HALF, rawHActH.get());
-    Engine fwdEng(graph, Sequence(uploadProg, fwdProg, downloadProg));
+    Engine fwdEng(graph, Sequence{uploadProg, fwdProg, downloadProg});
     attachStreams(fwdEng, tmap);
     device.bind([&](const Device &d) { fwdEng.loadAndRun(d); });
     copy(target, FLOAT, rawHActF.get(), hActOutF);
@@ -415,7 +415,7 @@ BOOST_AUTO_TEST_CASE(
     copy(target, hActIn, HALF, rawHActH.get());
     copy(target, hDeltaIn, FLOAT, rawHDeltaF.get());
     copy(target, hDeltaIn, HALF, rawHDeltaH.get());
-    Engine bwdEng(graph, Sequence(uploadProg, bwdProg, downloadProg));
+    Engine bwdEng(graph, Sequence{uploadProg, bwdProg, downloadProg});
     attachStreams(bwdEng, tmap);
     device.bind([&](const Device &d) { bwdEng.loadAndRun(d); });
     copy(target, FLOAT, rawHDeltaF.get(), hDeltaOutF);

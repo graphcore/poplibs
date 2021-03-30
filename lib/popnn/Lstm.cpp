@@ -959,7 +959,7 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
                const Tensor &interimIn, Tensor &interimOut,
                std::vector<Tensor> &outputs, std::vector<Tensor> &created,
                program::Sequence *initProg, const DebugNameAndId &dnai) {
-        auto loop = Sequence({}, {dnai});
+        auto loop = Sequence{{}, {dnai}};
         auto &fwdInput = inputs[0];
         LstmState state = {fwdState[0].squeeze({0}), fwdState[1].squeeze({0})};
         bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
@@ -1355,7 +1355,7 @@ static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
                           std::vector<Tensor> &created,
                           program::Sequence *initProg,
                           const DebugNameAndId &dnai) {
-    auto loop = Sequence({}, {dnai});
+    auto loop = Sequence{{}, {dnai}};
     auto prevCellState = shardState[0].squeeze({0});
     auto forgetGate = getSavedFwdIntermediate(
         interimIn, params, options, LSTM_FWD_INTERMEDIATE_FORGET_GATE);
@@ -1458,7 +1458,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
           const Tensor &fwdIntermediates, Tensor &interimOut,
           std::vector<Tensor> &outputs, std::vector<Tensor> &created,
           program::Sequence *initProg, const DebugNameAndId &dnai) {
-        auto loop = Sequence({}, {dnai});
+        auto loop = Sequence{{}, {dnai}};
         auto &gradLayerNext = bwdInput[0];
         Tensor inputGrad =
             shardState[0].valid() ? shardState[0].squeeze({0}) : Tensor{};
@@ -1637,7 +1637,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
                     Tensor &interimOut, std::vector<Tensor> &output,
                     std::vector<Tensor> &created, program::Sequence *initProg,
                     const DebugNameAndId &dnai) {
-    auto loop = Sequence({}, {dnai});
+    auto loop = Sequence{{}, {dnai}};
     auto &prevLayerOut = wuInput[0];
     auto &prevStepOut = wuInput[1];
     auto &bwdIntermediates = wuInput[2];

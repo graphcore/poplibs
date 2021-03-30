@@ -442,7 +442,7 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
   if (options.disableFpExceptions) {
     engOpts.set("debug.floatPointOpException", "false");
   }
-  Engine engine(graph, Sequence(upload, program, download), engOpts);
+  Engine engine(graph, Sequence{upload, program, download}, engOpts);
   attachStreams(engine, streamMap);
 
   device.bind([&](const Device &d) {

@@ -134,7 +134,7 @@ bool doTest(const DeviceType &deviceType, const Type &dataType,
             graph.setTileMapping(fwdV, 0);
             graph.connect(fwdV["data"], actTestSlices);
             if (!testBwd) {
-              programs.emplace_back(Sequence(Execute(fwdCS)));
+              programs.emplace_back(Sequence{Execute(fwdCS)});
             }
           }
           if (testBwd) {
@@ -145,11 +145,11 @@ bool doTest(const DeviceType &deviceType, const Type &dataType,
             graph.connect(bwdV["outGrad"], outgradTestSlices);
             graph.connect(bwdV["inGrad"], ingradTestSlices);
             if (!testFwd) {
-              programs.emplace_back(Sequence(Execute(bwdCS)));
+              programs.emplace_back(Sequence{Execute(bwdCS)});
             }
           }
           if (testFwd && testBwd) {
-            programs.emplace_back(Sequence(Execute(bwdCS), Execute(fwdCS)));
+            programs.emplace_back(Sequence{Execute(bwdCS), Execute(fwdCS)});
           }
           programSlices.emplace_back(SliceDesc{intervals});
           uid++;

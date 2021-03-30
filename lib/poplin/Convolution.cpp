@@ -2028,7 +2028,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
   } else {
     assert(loopCount != 0);
     prog.add(Repeat(loopCount,
-                    Sequence({slice, body, update, loopPost}, {dnai}), {dnai}));
+                    Sequence{{slice, body, update, loopPost}, {dnai}}, {dnai}));
   }
 
   // transformPostSerial

@@ -83,7 +83,7 @@ static void TestFunc(poplar::TensorCloneMethod cloneMethod,
       BOOST_CHECK_EQUAL(unalisedElements, numElements);
 
       prog.add(Copy(ipuCopy.slice(0, numElements), testResult));
-      progs.push_back(Sequence(uploadProg, prog, downloadProg));
+      progs.push_back(Sequence{uploadProg, prog, downloadProg});
     }
   }
   Engine engine(graph, progs);

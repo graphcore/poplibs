@@ -442,7 +442,7 @@ public:
             graph, indices[*dimIt], endIndices[*dimIt], progs.back(),
             {dnai, "is" + dimNames[*dimIt] + "StartingIndexOutsideLoopBounds"});
         progs.back().add(If(doesNotFitInLoopBound, std::move(prog),
-                            Sequence({}, {dnai}), {dnai}));
+                            Sequence{{}, {dnai}}, {dnai}));
       }
       for (std::size_t i = 0; i < dimsToIterate.size(); ++i) {
         progs.emplace_back();
@@ -518,7 +518,7 @@ public:
           auto prog = std::move(progs.back());
           progs.pop_back();
           progs.back().add(If(totalRemaining, std::move(prog),
-                              Sequence({}, {dnai}), {dnai}));
+                              Sequence{{}, {dnai}}, {dnai}));
         }
 
         auto prog = std::move(progs.back());
@@ -574,9 +574,9 @@ public:
               {dnai, "updateRemainingExchanges" + dimNames[dim]});
           progs.back().add(
               RepeatWhileTrue(std::move(condBody), haveRemainingExchanges,
-                              Sequence({propagationExchanges.at(dim),
+                              Sequence{{propagationExchanges.at(dim),
                                         std::move(updateRemainingExchanges)},
-                                       {dnai}),
+                                       {dnai}},
                               {dnai}));
         }
       }
@@ -589,7 +589,7 @@ public:
         auto prog = std::move(progs.back());
         progs.pop_back();
         progs.back().add(
-            If(totalRemaining, std::move(prog), Sequence({}, {dnai}), {dnai}));
+            If(totalRemaining, std::move(prog), Sequence{{}, {dnai}}, {dnai}));
       }
 
       assert(progs.size() == 1);
@@ -2033,9 +2033,9 @@ static Tensor fullyConnectedImpl(
         false, nextLevelInputs, propagationBuffers.values.at(buffer),
         propagationBuffers.metaInfo.at(buffer), partials, subGroupIds, {dnai});
   }
-  progBuilder.propagationCompute =
+  progBuilder.propagationCompute = {
       Switch(bufferIdx, {{0, Execute(propagationCS.at(false), {dnai})}},
-             Execute(propagationCS.at(true), {dnai}), {dnai});
+             Execute(propagationCS.at(true), {dnai}), {dnai})};
   const auto output =
       finalReduction(graph, progBuilder, shape, resultType, {}, plan, options,
                      hierarchy, 0, partials, false, {dnai});

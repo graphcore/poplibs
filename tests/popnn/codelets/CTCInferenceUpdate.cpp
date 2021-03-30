@@ -178,7 +178,7 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   }
   Sequence prog;
   prog.add(Execute(cs));
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
   device.bind([&](const Device &d) {
     engine.load(d);

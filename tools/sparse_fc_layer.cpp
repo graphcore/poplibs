@@ -502,8 +502,8 @@ int main(int argc, char **argv) try {
       graph.createHostRead("wuCycles", wuCycles);
     }
   }
-  Sequence controlProg(std::move(uploadProg), std::move(fwdProg),
-                       std::move(bwdProg), std::move(wuProg));
+  Sequence controlProg({std::move(uploadProg), std::move(fwdProg),
+                        std::move(bwdProg), std::move(wuProg)});
   if (!ignoreData) {
     controlProg.add(std::move(downloadProg));
   }

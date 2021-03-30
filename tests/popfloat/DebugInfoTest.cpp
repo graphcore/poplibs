@@ -186,7 +186,7 @@ BOOST_AUTO_TEST_CASE(DebugInfoTest) {
   // Create stream for input data
   auto inStreamV = graph.addHostToDeviceFIFO("InputVector", inType, inSize);
 
-  gfCastProg = Sequence(Copy(inStreamV, input));
+  gfCastProg = Sequence{Copy(inStreamV, input)};
 
   SpecType gfStorageType = convertStringToSpecType(storeType);
 

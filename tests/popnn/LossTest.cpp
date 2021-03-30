@@ -241,7 +241,7 @@ static bool lossTest(const LossType lossType, std::size_t batchSize,
                    tModelOutputScaling, lossType)
           : calcLoss(graph, activations, expected, loss, deltas, lossType);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);
@@ -313,7 +313,7 @@ static bool accuracyTest(const Type &fpType, const Type &labelType,
 
   auto prog = calcAccuracy(graph, activations, expected, numCorrect);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);
@@ -361,7 +361,7 @@ static bool argMinMaxTest(bool max, const Type &inType, std::size_t batchSize,
   auto rawHostIndices = allocateHostMemoryForTensor(
       indices, "indices", graph, uploadProg, downloadProg, tmap);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);
@@ -435,7 +435,7 @@ static bool maxMinArgMinMaxTest(bool max, const Type &inType,
   auto rawHostIndices = allocateHostMemoryForTensor(
       indices, "indices", graph, uploadProg, downloadProg, tmap);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);
@@ -525,7 +525,7 @@ static bool topKTest(const Type &fpType, std::size_t batchSize,
   auto rawHostOut = allocateHostMemoryForTensor(values, "output", graph,
                                                 uploadProg, downloadProg, tmap);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);

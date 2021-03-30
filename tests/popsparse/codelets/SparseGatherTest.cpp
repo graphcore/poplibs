@@ -129,7 +129,7 @@ int main(int argc, char **argv) try {
                                                uploadProg, downloadProg, tmap);
 
   std::cout << "Building engine...\n";
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
   std::cout << "Built\n";
   attachStreams(engine, tmap);
 

@@ -255,9 +255,9 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
       // Because the input data has constraints of what is valid, we can't
       // ignore the uploadProg without reasonable likelihood of encountering an
       // exception or unexpected behaviour.
-      return Sequence(uploadProg, prog);
+      return Sequence{uploadProg, prog};
     } else {
-      return Sequence(uploadProg, prog, downloadProg);
+      return Sequence{uploadProg, prog, downloadProg};
     }
   }();
   Engine engine(graph, s, engineOptions);

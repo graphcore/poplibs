@@ -212,7 +212,7 @@ int main(int argc, char **argv) try {
   auto rawOut = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
                                             downloadProg, tmap);
 
-  Sequence controlProg(std::move(uploadProg), std::move(prog));
+  Sequence controlProg({std::move(uploadProg), std::move(prog)});
   if (!ignoreData) {
     controlProg.add(downloadProg);
   }

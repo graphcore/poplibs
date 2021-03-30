@@ -767,7 +767,7 @@ static Program kernelTransform(Graph &graph, const WgdTilePartition &tp,
     }
     numZig -= zigThisTile;
   }
-  return Sequence(Execute(cs, {dnai}));
+  return Sequence{Execute(cs, {dnai})};
 }
 
 static Program kernelTransform(Graph &graph, const WinogradOptions &options,
@@ -847,7 +847,7 @@ static Program kernelTransform(Graph &graph, const WinogradOptions &options,
       unitsThisTile -= unitsThisVertex;
     }
   }
-  return Sequence(Execute(cs, {dnai}));
+  return Sequence{Execute(cs, {dnai})};
 }
 
 static std::vector<Tensor> allocateKernelTfTensor(Graph &graph,
@@ -1025,7 +1025,7 @@ static Program dataTransform(Graph &graph, const WgdTilePartition &tp,
     }
     numZig -= zigThisTile;
   }
-  return Sequence(Execute(zCs, {dnai}), Execute(cs, {dnai}));
+  return Sequence{Execute(zCs, {dnai}), Execute(cs, {dnai})};
 }
 
 static Program dataTransform(Graph &graph, const WinogradOptions &options,
@@ -1133,7 +1133,7 @@ static Program dataTransform(Graph &graph, const WinogradOptions &options,
       unitsThisTile -= unitsThisVertex;
     }
   }
-  return Sequence(Execute(zCs, {dnai}), Execute(dCs, {dnai}));
+  return Sequence{Execute(zCs, {dnai}), Execute(dCs, {dnai})};
 }
 
 static std::vector<Tensor> allocateDataTfTensor(Graph &graph,

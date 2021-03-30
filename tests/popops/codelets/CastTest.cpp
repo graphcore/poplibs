@@ -147,7 +147,7 @@ bool doTest(const DeviceType &deviceType, const Type &dataTypeIn,
   sequence.add(Execute(testComputeSet));
 
   // Run each sequence and compare host and IPU result
-  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg));
+  Engine engine(graph, Sequence{uploadProg, sequence, downloadProg});
   attachStreams(engine, tmap);
 
   // Put test inputs into an array of the correct type ready to use

@@ -99,8 +99,8 @@ executeExpr(const Expr &expression, const poplar::Type &dType, bool inPlace,
     g.createHostRead("tNoOpt", c);
   }
 
-  poplar::program::Sequence controlProg(std::move(progOpt),
-                                        std::move(progNoOpt));
+  poplar::program::Sequence controlProg(
+      {std::move(progOpt), std::move(progNoOpt)});
 
   poplar::Engine e(g, controlProg);
   device.bind([&](const poplar::Device &d) {
