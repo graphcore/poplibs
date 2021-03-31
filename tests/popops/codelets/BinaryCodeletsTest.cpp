@@ -517,6 +517,10 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
       } else if (vertex.isVectorOuter) {
         unsigned voRow = i / sizes.columns;
         val2 = in2Host[test.in2.offsets[row] + voRow % test.in2.rowSizes[0]];
+      } else {
+        std::cerr << "Unhandled vertex type\n";
+        errCount++;
+        continue;
       }
 
       // Result from device
