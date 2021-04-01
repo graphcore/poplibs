@@ -82,6 +82,29 @@ convertStringToRoundType(const std::string &roundMode, poplar::Type inType,
   throw poputil::poplibs_error("Round Mode not supported");
 }
 
+// TODO : This class could be moved to it's own file
+
+// When deleted the file will be removed.
+class FileTerminator {
+  std::string name;
+
+public:
+  explicit FileTerminator(const std::string &n) : name(n) {}
+
+  FileTerminator(FileTerminator &&other) : name(std::move(other.name)) {}
+
+  FileTerminator &operator=(FileTerminator &&other) {
+    name = std::move(other.name);
+    return *this;
+  }
+
+  ~FileTerminator() {
+    if (!name.empty()) {
+      remove(name.c_str());
+    }
+  }
+};
+
 BOOST_AUTO_TEST_CASE(DebugInfoTest) {
 
   unsigned man = 10;
@@ -124,6 +147,9 @@ BOOST_AUTO_TEST_CASE(DebugInfoTest) {
 
   poplar::DebugInfo::initializeStreamer(filename,
                                         poplar::DebugSerializationFormat::JSON);
+
+  // Arnold will make sure the file is deleted even if there is an exception.
+  FileTerminator arnold(filename);
 
   poplar::Device::createCPUDevice();
   const auto &target = dev.getTarget();
@@ -195,6 +221,4 @@ BOOST_AUTO_TEST_CASE(DebugInfoTest) {
 #if SUPPORTS_FUNCTION_BUILTINS
   BOOST_CHECK(createCastOpParamsTensorDiExist == true);
 #endif
-
-  remove(filename.c_str());
 }
