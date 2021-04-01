@@ -279,9 +279,11 @@ fn_divide_work\DIVISOR\():
   // If greater than elementSize apart we can use the fast loop
   sub $mscratch, $in1Ptr, $in2Ptr
   abs $mscratch, $mscratch
-  // Allow for 2 strided pre-reads of 64 bits before we start using ldst instructions,
-  // plus 8 bytes to avoid the equals case
-  cmpult $mscratch, $mscratch, (TMEM_ELEMSIZE * 2) + (24 * 2) + 8
+  // Allow for the 2 strided pre-reads of 64 bits (6 * 8 bytes) done before
+  // starting the RPT loop in 'broadcast_op_loop_float_fast_\OPERATION\()' and
+  // 'broadcast_op_loop_\TYPE\()_fast_\OPERATION\()'.
+  // Add an extra 1 because we use cmpult to do a 'COMPARE LESS OR EQUAL'
+  cmpult $mscratch, $mscratch, (TMEM_ELEMSIZE * 2) + (2 * 6 * 8) + 1
  2:
  // Returning 0 = fast, 1 = normal
   br  $mlink
