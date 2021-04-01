@@ -655,11 +655,11 @@ aXplusbY_half_float_worker:
 
 // ---------------------------------------------------------------
 // 2D scaled minus (worker) entry point: tensor scale values, WITH memory constraints
-DEF_STACK_USAGE  0  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTRA
-ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTRA
+DEF_STACK_USAGE  0  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
+ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
   setzi         $memConstraints, 1
   bri           1f
-FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTRA
+FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
 
 // ---------------------------------------------------------------
 // 2D scaled minus (worker) entry point: tensor scale values, NO memory constraints
@@ -675,11 +675,11 @@ FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
 // 2D (worker) entry point: tensor scale values, WITH memory constraints
 // Note that memory constraints are not relevant to the code in this file
 // but need to be passed on if the code in ScaledAdd2D_half.S is called
-DEF_STACK_USAGE  0  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST_MEMCONSTR
-ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST_MEMCONSTR
+DEF_STACK_USAGE  0  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
+ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
   setzi         $memConstraints, 1
   bri           1f
-FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST_MEMCONSTR
+FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
 
 // ---------------------------------------------------------------
 // 2D (worker) entry point: tensor scale values, NO memory constraints

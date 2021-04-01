@@ -3140,6 +3140,7 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, false, true),
 
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true, true),
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true,
