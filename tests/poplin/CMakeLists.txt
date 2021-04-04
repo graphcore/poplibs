@@ -3224,6 +3224,22 @@ add_multitarget_test(
             --wu-plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_conv7x7_stride_2_1024_in_512_out_serial_fail_case.json
             VARIANTS ${TimesOutOnSim})
 
+# convolution with kernel dilation which gave incorrect memory estimates
+add_multitarget_test(
+         NAME conv3x3_stride_2_64_in_64_out_field_14x14
+         COMMAND single_conv_layer
+            --input-channels=64
+            --output-channels=64
+            --field={14,14}
+            --stride={2,2}
+            --kernel-size={3,3}
+            --padding=1
+            --batch-size=20
+            --ipus=1
+            --tiles-per-ipu 64
+            --convolution-options={\"partialsType\":\"half\",\"availableMemoryProportion\":\"0.175\"}
+            VARIANTS ${TimesOutOnSim})
+
 add_multitarget_test(
          NAME conv_T10392
          COMMAND single_conv_layer

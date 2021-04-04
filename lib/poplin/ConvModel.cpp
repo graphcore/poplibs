@@ -83,8 +83,10 @@ getMaxInputRangeSize(popsolver::Model &m,
         const auto stride = params.outputTransform.stride[dim];
         const auto inputDilation = params.inputTransform.dilation[dim];
         const auto preDownSampleOutputSize = (outputRangeSize - 1) * stride + 1;
+        const auto dilatedKernelSize =
+            1 + (tileKernelSize - 1) * params.kernelTransform.dilation[dim];
         const auto dilatedInputSize =
-            preDownSampleOutputSize + tileKernelSize - 1;
+            preDownSampleOutputSize + dilatedKernelSize - 1;
         const auto inputRangeSize = (dilatedInputSize - 1) / inputDilation + 1;
 
         // If inputRangeSize expands  beyond the input data range, clip the
