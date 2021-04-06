@@ -45,6 +45,8 @@ using popops::expr::UnaryOpType;
 
 namespace popops {
 
+// namespace popops {
+
 namespace {
 
 enum class ternaryOpTensorsMap {
@@ -687,149 +689,14 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
   prog.add(Execute(cs, {dnai}));
 }
 
-/** Generate vertices to perform an element-wise operation where
- *  the second operand is just one underlying unique element.
- *
- *  This assumes each element of the outer vector in `intervals`
- *  contains regions which are both contiguous in memory and
- *  cover a single unique underlying element in in2.
- *
- *  \param graph            The graph to add vertices to.
- *  \param in1              LHS input operand.
- *  \param in2              RHS input operand, the input that is broadcast.
- *  \param out              Output operand. If in-place this will be the same
- *                          as the LHS input operand `in1`.
- *  \param intervals        Contiguous regions for the output operand on this
- *                          tile.
- *  \param tile             The tile to add vertices to.
- *  \param cs               The compute set to add vertices to.
- *  \param op               Binary operation to perform.
- *  \param inPlace          Whether or not this operation is performed in-place
- *                          on the LHS input operand.
- *  \param uniformScalar    Whether or not the scalar for each contiguous
- *                          region in `intervals` is the same. If true this
- *                          allows use of smaller vertices in the 2-dimensional
- *                          case.
- */
 bool binaryOpBroadcastScalar(
     Graph &graph, const Tensor &in1, const Tensor &in2, const Tensor &out,
     const std::vector<std::vector<Interval>> &intervals, unsigned tile,
     const ComputeSet &cs, BinaryOpType op, bool inPlace, bool uniformScalar,
     bool exitIfInefficient = false) {
-
-  const auto &target = graph.getTarget();
-  const auto numWorkers = target.getNumWorkerContexts();
-  const auto dType = in1.elementType();
-  const auto grainSize = std::max<unsigned>(target.getVectorWidth(dType),
-                                            target.getAtomicStoreGranularity());
-
-  // Use a simple heuristic to decide if creating multiple supervisor
-  // vertices for multiple regions will be poorly balanced over
-  // using 2D vertices
-
-  bool useSupervisor =
-      intervals.size() == 1 ||
-      (intervals.size() < numWorkers &&
-       std::all_of(intervals.begin(), intervals.end(),
-                   [&](const std::vector<Interval> &is) {
-                     auto elems = std::accumulate(
-                         is.begin(), is.end(), std::size_t(0),
-                         [](std::size_t total, const Interval &i) {
-                           return total + i.size();
-                         });
-                     return elems >= ((numWorkers + 1) / 2) * grainSize;
-                   }));
-
-  const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
-
-  const auto vertexRegions = splitRegionsBetweenWorkers(
-      target, intervals, grainSize, 2 * grainSize, UINT_MAX, elementLimit);
-
-  if (useSupervisor && exitIfInefficient) {
-    // If necessary insert criteria for exit, having chosen Supervisor vertices
-    // over workers here.
-  }
-
-  // Having chosen worker vertices over supervisor, exit if that is
-  // inefficient.
-  if (!useSupervisor && exitIfInefficient) {
-    // Calculate the total number of elements on the tile, and the number
-    // of regions these are split into for the workers
-    std::size_t totalElems = intervalSequenceNumElements(intervals);
-    unsigned regions = 0;
-    for (const auto &vertexRegion : vertexRegions) {
-      regions += vertexRegion.size();
-    }
-    const auto elementsPerWorkerRegion = totalElems / regions;
-
-    // Use a heuristic based on avoiding assigning many workers a very small
-    // amount of work to decide if we should exit and abandon this method
-    if (regions > numWorkers && elementsPerWorkerRegion < 2 * grainSize) {
-      return false;
-    }
-  }
-  if (useSupervisor && validateRegionSizeForSupervisorVertex(
-                           intervals, elementLimit, numWorkers)) {
-    const std::string vertexName =
-        inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
-                : "popops::BroadcastScalar1DSupervisor";
-    const auto vertexClass = templateVertex(vertexName, op, dType);
-    logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
-                           intervals.size(), vertexClass);
-    for (const auto &regions : intervals) {
-      const auto outRegion = concat(out.flatten().slices(regions));
-      const auto in1Region = concat(in1.flatten().slices(regions));
-      // We know that for this interval the second operand is a single
-      // scalar value so we can just slice a single element.
-      assert(!regions.empty());
-      const auto in2ScalarRegion = in2.flatten()[regions.front().begin()];
-      const auto v = graph.addVertex(
-          cs, vertexClass, {{"data", in1Region}, {"B", in2ScalarRegion}});
-      if (!inPlace) {
-        graph.connect(v["out"], outRegion);
-      }
-      graph.setTileMapping(v, tile);
-    }
-  } else {
-    std::string vertexName = uniformScalar ? "popops::BroadcastScalar2DData"
-                                           : "popops::BroadcastScalar2D";
-    if (inPlace) {
-      vertexName += "InPlace";
-    }
-    const auto vertexClass = templateVertex(vertexName, op, dType);
-    if (vertexRegions.size()) {
-      logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
-                             vertexRegions.size(), vertexClass);
-    }
-    for (const auto &regions : vertexRegions) {
-      const auto outRegions = out.flatten().slices(regions);
-      const auto in1Regions = in1.flatten().slices(regions);
-      const auto v = graph.addVertex(cs, vertexClass, {{"data", in1Regions}});
-      if (!inPlace) {
-        graph.connect(v["out"], outRegions);
-      }
-      assert(!regions.empty());
-      if (uniformScalar) {
-        const auto &region = regions.front();
-        assert(!region.empty());
-        const auto in2ScalarRegion = in2.flatten()[region.front().begin()];
-        graph.connect(v["B"], in2ScalarRegion);
-      } else {
-        // Take the first element in each region as the scalar.
-        // We know that this must be the same element for all in each
-        // region, otherwise calling this function is invalid.
-        std::vector<Tensor> in2ScalarRegions;
-        in2ScalarRegions.reserve(regions.size());
-        for (const auto &region : regions) {
-          assert(!region.empty());
-          in2ScalarRegions.push_back(in2.flatten()[region.front().begin()]);
-        }
-        graph.connect(v["B"], in2ScalarRegions);
-      }
-      graph.setTileMapping(v, tile);
-    }
-  }
-  return true;
+  return popops::createVertexBinaryOpBroadcastScalar(
+      graph, in1, in2, out, intervals, tile, cs, op, inPlace, uniformScalar,
+      exitIfInefficient);
 }
 
 void binaryOpBroadcastScalar(Graph &graph, const Tensor &in1, const Tensor &in2,
@@ -2513,6 +2380,151 @@ ExprAndType optimise(const expr::Expr &expr,
 }
 
 } // end anonymous namespace
+
+bool createVertexBinaryOpBroadcastScalar(
+    Graph &graph, const Tensor &in1, const Tensor &in2, const Tensor &out,
+    const std::vector<std::vector<Interval>> &intervals, unsigned tile,
+    const ComputeSet &cs, BinaryOpType op, bool inPlace, bool uniformScalar,
+    bool exitIfInefficient) {
+  const auto &target = graph.getTarget();
+  const auto numWorkers = target.getNumWorkerContexts();
+  const auto inType = in1.elementType();
+  const auto outType = out.elementType();
+  const auto grainSize = std::max<unsigned>(target.getVectorWidth(inType),
+                                            target.getAtomicStoreGranularity());
+
+  // Use a simple heuristic to decide if creating multiple supervisor
+  // vertices for multiple regions will be poorly balanced over
+  // using 2D vertices
+
+  bool useSupervisor =
+      intervals.size() == 1 ||
+      (intervals.size() < numWorkers &&
+       std::all_of(intervals.begin(), intervals.end(),
+                   [&](const std::vector<Interval> &is) {
+                     auto elems = std::accumulate(
+                         is.begin(), is.end(), std::size_t(0),
+                         [](std::size_t total, const Interval &i) {
+                           return total + i.size();
+                         });
+                     return elems >= ((numWorkers + 1) / 2) * grainSize;
+                   }));
+
+  const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
+  const auto vertexRegions = splitRegionsBetweenWorkers(
+      target, intervals, grainSize, 2 * grainSize, UINT_MAX, elementLimit);
+
+  if (useSupervisor && exitIfInefficient) {
+    // If necessary insert criteria for exit, having chosen Supervisor vertices
+    // over workers here.
+  }
+
+  // Having chosen worker vertices over supervisor, exit if that is
+  // inefficient.
+  if (!useSupervisor && exitIfInefficient) {
+    // Calculate the total number of elements on the tile, and the number
+    // of regions these are split into for the workers
+    std::size_t totalElems = intervalSequenceNumElements(intervals);
+    unsigned regions = 0;
+    for (const auto &vertexRegion : vertexRegions) {
+      regions += vertexRegion.size();
+    }
+    const auto elementsPerWorkerRegion = totalElems / regions;
+
+    // Use a heuristic based on avoiding assigning many workers a very small
+    // amount of work to decide if we should exit and abandon this method
+    if (regions > numWorkers && elementsPerWorkerRegion < 2 * grainSize) {
+      return false;
+    }
+  }
+  auto isVarianceConversionBinaryOp = [](BinaryOpType &op) {
+    return ((op == BinaryOpType::VARIANCE_TO_INV_STD_DEV) ||
+            (op == BinaryOpType::INV_STD_DEV_TO_VARIANCE))
+               ? true
+               : false;
+  };
+  if (useSupervisor && validateRegionSizeForSupervisorVertex(
+                           intervals, elementLimit, numWorkers)) {
+    std::string vertexClass;
+    if (isVarianceConversionBinaryOp(op) && (inType != outType)) {
+      assert(!inPlace);
+      auto vertexName = "popops::BroadcastScalar2Types1DSupervisor";
+      vertexClass = templateVertex(vertexName, op, inType, outType);
+    } else {
+      auto vertexName = inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
+                                : "popops::BroadcastScalar1DSupervisor";
+      vertexClass = templateVertex(vertexName, op, inType);
+    }
+    logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
+                           intervals.size(), vertexClass);
+    for (const auto &regions : intervals) {
+      const auto outRegion = concat(out.flatten().slices(regions));
+      const auto in1Region = concat(in1.flatten().slices(regions));
+      // We know that for this interval the second operand is a
+      // scalar value. There are two cases:
+      //  - If the operand is a tensor of scalars, use a slice.
+      //  - If the operand is a single scalar, just use it directly
+      assert(!regions.empty());
+      const auto in2ScalarRegion = in2.numElements() > 1
+                                       ? in2.flatten()[regions.front().begin()]
+                                       : in2.reshape({});
+      const auto v = graph.addVertex(
+          cs, vertexClass, {{"data", in1Region}, {"B", in2ScalarRegion}});
+      if (!inPlace) {
+        graph.connect(v["out"], outRegion);
+      }
+      graph.setTileMapping(v, tile);
+    }
+  } else {
+    std::string vertexClass;
+    if (isVarianceConversionBinaryOp(op) && (inType != outType)) {
+      assert(!inPlace);
+      auto vertexName = "popops::BroadcastScalar2Types2DData";
+      vertexClass = templateVertex(vertexName, op, inType, outType);
+    } else {
+      std::string vertexName = uniformScalar ? "popops::BroadcastScalar2DData"
+                                             : "popops::BroadcastScalar2D";
+      if (inPlace) {
+        vertexName += "InPlace";
+      }
+      vertexClass = templateVertex(vertexName, op, inType);
+    }
+    if (vertexRegions.size()) {
+      logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
+                             vertexRegions.size(), vertexClass);
+    }
+    for (const auto &regions : vertexRegions) {
+      const auto outRegions = out.flatten().slices(regions);
+      const auto in1Regions = in1.flatten().slices(regions);
+      const auto v = graph.addVertex(cs, vertexClass, {{"data", in1Regions}});
+      if (!inPlace) {
+        graph.connect(v["out"], outRegions);
+      }
+      assert(!regions.empty());
+      if (in2.numElements() == 1) {
+        graph.connect(v["B"], in2.reshape({}));
+      } else if (uniformScalar) {
+        const auto &region = regions.front();
+        assert(!region.empty());
+        const auto in2ScalarRegion = in2.flatten()[region.front().begin()];
+        graph.connect(v["B"], in2ScalarRegion);
+      } else {
+        // Take the first element in each region as the scalar.
+        // We know that this must be the same element for all in each
+        // region, otherwise calling this function is invalid.
+        std::vector<Tensor> in2ScalarRegions;
+        in2ScalarRegions.reserve(regions.size());
+        for (const auto &region : regions) {
+          assert(!region.empty());
+          in2ScalarRegions.push_back(in2.flatten()[region.front().begin()]);
+        }
+        graph.connect(v["B"], in2ScalarRegions);
+      }
+      graph.setTileMapping(v, tile);
+    }
+  }
+  return true;
+}
 
 Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
            program::Sequence &prog, const poplar::DebugContext &debugContext,

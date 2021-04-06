@@ -3,6 +3,8 @@
 #ifndef _popops_ElementWiseUtilInternal_hpp_
 #define _popops_ElementWiseUtilInternal_hpp_
 
+#include "ExprOpUtil.hpp"
+#include <poplar/Graph.hpp>
 #include <vector>
 
 namespace popops {
@@ -36,6 +38,41 @@ std::vector<poplar::Interval>
 cutRegionSection(const std::vector<poplar::Interval> &region,
                  const unsigned secLength, unsigned &index, unsigned &offset,
                  unsigned &regIndex);
+
+/** Generate vertices to perform an element-wise operation where
+ *  the second operand is just one underlying unique element.
+ *
+ *  This assumes each element of the outer vector in `intervals`
+ *  contains regions which are both contiguous in memory and
+ *  cover a single unique underlying element in in2.
+ *
+ *  \param graph             The graph to add vertices to.
+ *  \param in1               LHS input operand.
+ *  \param in2               RHS input operand, the input that is broadcast.
+ *  \param out               Output operand. If in-place this will be the same
+ *                           as the LHS input operand `in1`.
+ *  \param intervals         Contiguous regions for the output operand on this
+ *                           tile.
+ *  \param tile              The tile to add vertices to.
+ *  \param cs                The compute set to add vertices to.
+ *  \param op                Binary operation to perform.
+ *  \param inPlace           Whether or not this operation is performed in-place
+ *                           on the LHS input operand.
+ *  \param uniformScalar     Whether or not the scalar for each contiguous
+ *                           region in `intervals` is the same. If true this
+ *                           allows use of smaller vertices in the 2-dimensional
+ *                           case.
+ *  \param exitIfInefficient Fail in finding an appropriate vertex if neither
+ *                           supervisor nor worker vertices are efficient.
+ *
+ *  \return true if vertex was found and false otherwise.
+ */
+bool createVertexBinaryOpBroadcastScalar(
+    poplar::Graph &graph, const poplar::Tensor &in1, const poplar::Tensor &in2,
+    const poplar::Tensor &out,
+    const std::vector<std::vector<poplar::Interval>> &intervals, unsigned tile,
+    const poplar::ComputeSet &cs, expr::BinaryOpType op, bool inPlace = false,
+    bool uniformScalar = false, bool exitIfInefficient = false);
 
 } // end namespace popops
 

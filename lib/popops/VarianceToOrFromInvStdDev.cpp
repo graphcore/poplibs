@@ -1,4 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#include "ElementWiseUtilInternal.hpp"
 #include "ExprOpUtil.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
@@ -39,47 +40,15 @@ Program convertVariance(Graph &graph, Tensor src, Tensor dst,
   }
 
   graph.reorderToSimplify(&dst, {&src}, false);
-  const auto srcType = src.elementType();
-  const auto dstType = dst.elementType();
   const auto &target = graph.getTarget();
-  const auto vectorWidth = target.getFloatVectorWidth();
-
   const auto mapping = graph.getTileMapping(src);
   const auto numTiles = target.getNumTiles();
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(src, mapping[tile]);
-    auto vertexRegions = splitRegionsBetweenWorkers(
-        target, tileContiguousRegions, vectorWidth, 2 * vectorWidth);
-    for (const auto &regions : vertexRegions) {
-      const auto numRegions = regions.size();
-      VertexRef v;
-      if (numRegions == 1) {
-        const auto vertexName =
-            srcType == dstType
-                ? templateVertex("popops::BroadcastScalar1DSupervisor", op,
-                                 srcType)
-                : templateVertex("popops::BroadcastScalar2Types1DSupervisor",
-                                 op, srcType, dstType);
-        v = graph.addVertex(cs, vertexName);
-        const auto &region = regions.front();
-        graph.connect(v["data"], concat(src.slices(region)));
-        graph.connect(v["out"], concat(dst.slices(region)));
-        graph.connect(v["B"], epsilon.reshape({}));
-      } else {
-        const auto vertexName =
-            srcType == dstType
-                ? templateVertex("popops::BroadcastScalar2DData", op, srcType)
-                : templateVertex("popops::BroadcastScalar2Types2DData", op,
-                                 srcType, dstType);
-        v = graph.addVertex(cs, vertexName);
-        graph.connect(v["data"], src.slices(regions));
-        graph.connect(v["out"], dst.slices(regions));
-        graph.connect(v["B"], epsilon.reshape({}));
-      }
-      graph.setTileMapping(v, tile);
-    };
+    createVertexBinaryOpBroadcastScalar(graph, src, epsilon, dst,
+                                        tileContiguousRegions, tile, cs, op);
   }
   return Execute(cs, {dnai});
 }
