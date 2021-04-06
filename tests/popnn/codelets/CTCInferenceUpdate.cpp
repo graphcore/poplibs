@@ -58,8 +58,13 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
       graph.addVariable(partialsType, {beamwidth}, "beamProbNonBlank");
   auto beamProbBlank =
       graph.addVariable(partialsType, {beamwidth}, "beamProbBlank");
+  auto lastBeamOutputs =
+      graph.addVariable(UNSIGNED_INT, {beamwidth}, "lastBeamOutputs");
+  auto lastBeamOutputsScratch =
+      graph.addVariable(UNSIGNED_INT, {beamwidth}, "lastBeamOutputsScratch");
 
-  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  auto currentTimestep = graph.addVariable(UNSIGNED_INT, {}, "currentTimestep");
+  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
 
   graph.setTileMapping(candidateParent, 0);
   graph.setTileMapping(candidateAddend, 0);
@@ -70,8 +75,11 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   graph.setTileMapping(beamParent, 0);
   graph.setTileMapping(beamProbNonBlank, 0);
   graph.setTileMapping(beamProbBlank, 0);
+  graph.setTileMapping(lastBeamOutputs, 0);
+  graph.setTileMapping(lastBeamOutputsScratch, 0);
 
   graph.setTileMapping(currentTimestep, 0);
+  graph.setTileMapping(dataLength, 0);
 
   auto cs = graph.addComputeSet("cs");
   auto vertex = graph.addVertex(
@@ -87,8 +95,13 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   graph.connect(vertex["beamParent"], beamParent.flatten());
   graph.connect(vertex["beamProbNonBlank"], beamProbNonBlank);
   graph.connect(vertex["beamProbBlank"], beamProbBlank);
+  // TODO - the content of lastBeamOutputs isn't written, or verified by this
+  // test
+  graph.connect(vertex["lastBeamOutputs"], lastBeamOutputs);
+  graph.connect(vertex["lastBeamOutputsScratch"], lastBeamOutputsScratch);
 
   graph.connect(vertex["currentTimestep"], currentTimestep);
+  graph.connect(vertex["dataLength"], dataLength);
 
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
 
@@ -97,7 +110,7 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
 
   // Inputs
   std::unique_ptr<char[]> rawCandidateParent, rawCandidateAddend,
-      rawCandidateBeamProbNonBlank, rawCandidateBeamProbBlank;
+      rawCandidateBeamProbNonBlank, rawCandidateBeamProbBlank, rawTimestep;
 
   rawCandidateParent =
       allocateHostMemoryForTensor(candidateParent, "candidateParent", graph,
@@ -111,11 +124,14 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   rawCandidateBeamProbBlank = allocateHostMemoryForTensor(
       candidateBeamProbBlank, "candidateBeamProbBlank", graph, uploadProg,
       downloadProg, tmap);
+  rawTimestep = allocateHostMemoryForTensor(currentTimestep, "timestep", graph,
+                                            uploadProg, downloadProg, tmap);
 
   std::vector<unsigned> candidateParentIn{};
   std::vector<unsigned> candidateAddendIn{};
   std::vector<float> candidateBeamProbNonBlankIn{};
   std::vector<float> candidateBeamProbBlankIn{};
+  std::vector<unsigned> timestepIn = {timestep};
 
   for (unsigned c = 0; c < totalCandidates; c++) {
     candidateParentIn.push_back(candidates[c].beam);
@@ -130,6 +146,7 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
        rawCandidateBeamProbNonBlank.get());
   copy(target, candidateBeamProbBlankIn, partialsType,
        rawCandidateBeamProbBlank.get());
+  copy(target, timestepIn, UNSIGNED_INT, rawTimestep.get());
 
   // InOut
   std::unique_ptr<char[]> rawBeamAddend, rawBeamParent, rawBeamProbNonBlank,
@@ -219,7 +236,6 @@ template std::pair<BeamHistory, std::vector<BeamProbability<float>>>
 runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
                  Type inType, Type partialsType,
                  const std::vector<Candidate<float>> &candidates,
-
                  unsigned timestep, const BeamHistory &beamHistory,
                  const std::vector<BeamProbability<float>> &beamProbs,
                  unsigned blankClass, bool profile);

@@ -21,7 +21,7 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
     poplar::Type partialsType,
     const boost::multi_array<InputType, 2> &logProbsIn, unsigned timestep,
     const std::vector<BeamProbability<PartialsType>> &beamProbs,
-    const BeamHistory &beamHistory, unsigned classToMakeAddend,
+    const BeamHistory &beamHistory, unsigned classToMakeAddend, unsigned beam,
     unsigned blankClass, bool testGenerateCopyVertex, bool profile);
 
 } // namespace ctc

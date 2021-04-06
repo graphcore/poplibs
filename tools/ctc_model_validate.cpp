@@ -8,6 +8,7 @@
 #include <random>
 
 #include <poplibs_support/Algorithm.hpp>
+#include <poplibs_support/CTCInferenceDefs.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_test/CTCInference.hpp>
 #include <poplibs_test/CTCLoss.hpp>
@@ -223,7 +224,7 @@ void testAllPathsInference(const InputSequence<FPType> &test,
     if (verbose) {
       std::cout << "B:" << allOutputPaths[paths[bestIndex]][i] << "\n";
     }
-    if (allOutputPaths[paths[bestIndex]][i] == voidSymbol) {
+    if (allOutputPaths[paths[bestIndex]][i] == popnn::ctc_infer::voidSymbol) {
       break;
     }
     bestPath.push_back(allOutputPaths[paths[bestIndex]][i]);
@@ -239,7 +240,7 @@ void testAllPathsInference(const InputSequence<FPType> &test,
     for (unsigned i = 0; i < probabilities.size(); i++) {
       std::cout << "Path:";
       for (unsigned j = 0; j < allOutputPaths[paths[i]].size(); j++) {
-        if (allOutputPaths[paths[i]][j] == voidSymbol) {
+        if (allOutputPaths[paths[i]][j] == popnn::ctc_infer::voidSymbol) {
           break;
         }
         std::cout << allOutputPaths[paths[i]][j] << ",";

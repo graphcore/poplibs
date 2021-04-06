@@ -42,12 +42,13 @@ using namespace poputil;
 
 template <typename FPType> struct InputSequence {
   boost::multi_array<FPType, 2> input;
+  unsigned inputLength;
   bool isLogits;
 };
 
-// TODO: Return top paths {sequence, prob}
-std::vector<std::pair<std::vector<unsigned>, double>>
-beamSearchIPU(std::size_t maxTime, std::size_t batchSize, unsigned blankClass,
+std::vector<std::vector<std::pair<std::vector<unsigned>, double>>>
+beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
+              std::size_t maxTime, std::size_t batchSize, unsigned blankClass,
               std::size_t numClasses, unsigned beamwidth, unsigned topPaths,
               Type inType, Type outType, const DeviceType &deviceType,
               boost::optional<unsigned> tiles) {
@@ -68,26 +69,100 @@ beamSearchIPU(std::size_t maxTime, std::size_t batchSize, unsigned blankClass,
   auto dataLengths = graph.addVariable(UNSIGNED_INT, {batchSize});
   graph.setTileMapping(dataLengths, 0);
 
-  // Call both beam search functions as a placeholder test that they exist and
-  // execute
+  // Write the inputs
+  Sequence uploadProg, downloadProg;
+  std::vector<std::pair<std::string, char *>> tmap;
+  std::unique_ptr<char[]> rawDataLengths;
+  std::vector<std::unique_ptr<char[]>> rawData(batchSize);
+  rawDataLengths = allocateHostMemoryForTensor(
+      dataLengths, "dataLengths", graph, uploadProg, downloadProg, tmap);
+
+  for (unsigned i = 0; i < batchSize; i++) {
+    rawData[i] = allocateHostMemoryForTensor(data.slice(i, i + 1, 1),
+                                             "data_" + std::to_string(i), graph,
+                                             uploadProg, downloadProg, tmap);
+    copy(target, inputs[i].input, inType, rawData[i].get());
+  }
+  std::vector<unsigned> initDataLengths(batchSize);
+  for (unsigned i = 0; i < batchSize; i++) {
+    initDataLengths[i] = inputs[i].inputLength;
+  }
+  copy(target, initDataLengths, dataLengths.elementType(),
+       rawDataLengths.get());
+
+  // Call beam search function
   Sequence prog;
-  popnn::ctc_infer::beamSearchDecoderLogits(graph, data, dataLengths, prog,
-                                            blankClass, beamwidth, topPaths,
-                                            plan, "BeamSearchLogits");
-  popnn::ctc_infer::beamSearchDecoderLogProbabilities(
-      graph, data, dataLengths, prog, blankClass, beamwidth, topPaths, plan,
-      "BeamSearchLogProbabilities");
-  Engine engine(graph, prog);
+  const auto [probsResult, lengthsResult, labelResult] = [&]() {
+    if (inputs[0].isLogits) {
+      return popnn::ctc_infer::beamSearchDecoderLogits(
+          graph, data, dataLengths, prog, blankClass, beamwidth, topPaths, plan,
+          "BeamSearchLogits");
+    } else {
+      return popnn::ctc_infer::beamSearchDecoderLogProbabilities(
+          graph, data, dataLengths, prog, blankClass, beamwidth, topPaths, plan,
+          "BeamSearchLogProbabilities");
+    }
+  }();
+
+  // Create handles for reading the result
+  std::vector<std::unique_ptr<char[]>> rawLabelResult(batchSize);
+  std::vector<std::unique_ptr<char[]>> rawLabelsLength(batchSize);
+  std::vector<std::unique_ptr<char[]>> rawLabelsProbs(batchSize);
+  for (unsigned i = 0; i < batchSize; i++) {
+    rawLabelResult[i] = allocateHostMemoryForTensor(
+        labelResult.slice(i, i + 1, 0), "result_label_" + std::to_string(i),
+        graph, uploadProg, downloadProg, tmap);
+
+    rawLabelsLength[i] =
+        allocateHostMemoryForTensor(lengthsResult.slice(i, i + 1, 0),
+                                    "result_label_length_" + std::to_string(i),
+                                    graph, uploadProg, downloadProg, tmap);
+
+    rawLabelsProbs[i] =
+        allocateHostMemoryForTensor(probsResult.slice(i, i + 1, 0),
+                                    "result_label_probs_" + std::to_string(i),
+                                    graph, uploadProg, downloadProg, tmap);
+  }
+
+  // Run it
+  auto s = Sequence(uploadProg, prog, downloadProg);
+  Engine engine(graph, s);
+  attachStreams(engine, tmap);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run();
   });
 
-  return {};
+  // Fetch the result
+  std::vector<std::vector<std::pair<std::vector<unsigned>, double>>> results;
+
+  for (unsigned i = 0; i < batchSize; i++) {
+    // Initially copy from the IPU into constant sized containers
+    std::vector<double> labelProbs(topPaths);
+    std::vector<unsigned> labelLengths(topPaths);
+    boost::multi_array<unsigned, 2> decodedLabels;
+    decodedLabels.resize(boost::extents[topPaths][maxTime]);
+
+    copy(target, outType, rawLabelsProbs[i].get(), labelProbs);
+    copy(target, UNSIGNED_INT, rawLabelsLength[i].get(), labelLengths);
+    copy(target, UNSIGNED_INT, rawLabelResult[i].get(), decodedLabels);
+
+    // Then put into the output result format
+    std::vector<std::pair<std::vector<unsigned>, double>> result(topPaths);
+    for (unsigned j = 0; j < topPaths; j++) {
+      auto &label = result[j].first;
+      auto &probability = result[j].second;
+      probability = labelProbs[j];
+      label.resize(labelLengths[j]);
+      std::copy(decodedLabels[j].begin(),
+                decodedLabels[j].begin() + label.size(), label.begin());
+    }
+    results.push_back(result);
+  }
+  return results;
 }
 
 int main(int argc, char **argv) {
-  // TODO check all these are options
   // Default input parameters.
   DeviceType deviceType = DeviceType::IpuModel2;
   boost::optional<unsigned> tiles = boost::none;
@@ -157,7 +232,7 @@ int main(int argc, char **argv) {
     ("in-type", po::value(&inType)->default_value(inType),
      "Input data type")
     ("partials-type", po::value(&partialsType)->default_value(partialsType),
-     "Input data type")
+     "Partials data type")
     ("out-type", po::value(&outType)->default_value(outType),
      "Output data type")
 
@@ -221,6 +296,9 @@ int main(int argc, char **argv) {
     throw poputil::poplibs_error("The blank class must be in the range 0 to "
                                  "(number of classes - 1)");
   }
+  if (topPaths > beamwidth) {
+    throw poputil::poplibs_error("top-paths must be <= beamwidth");
+  }
 
   if (!minRandomTime && !fixedTime) {
     fixedTime = maxTime;
@@ -262,11 +340,11 @@ int main(int argc, char **argv) {
     auto [input, label] = getRandomTestInput<double>(
         t, maxTime, labelLength, numClasses, blankClass, isLogits, rand);
 
-    tests.push_back({input, isLogits});
+    tests.push_back({input, t, isLogits});
 
     if (verbosityLevel == 1) {
       std::cout << "\nBatch:" << i << " Time:" << t
-                << " Label length:" << label.size() << "\n\n";
+                << " Imposed label length:" << label.size() << "\n\n";
       if (tests[i].isLogits) {
         std::cout << "Logits in\n";
         printInput(tests[i].input, blankClass);
@@ -282,15 +360,16 @@ int main(int argc, char **argv) {
     }
 
     if (!ignoreData) {
+      const auto input = tests[i].input.resize(
+          boost::extents[tests[i].inputLength][numClasses]);
       if (isLogits) {
         references.push_back(ctc::infer<double>(
-            log::log(matrix::transpose(
-                log::softMax(matrix::transpose(tests[i].input)))),
-            blankClass, beamwidth, topPaths, true, verbosityLevel == 2));
+            log::log(log::softMax(matrix::transpose(input))), blankClass,
+            beamwidth, topPaths, true, verbosityLevel == 2));
       } else {
-        references.push_back(ctc::infer<double>(tests[i].input, blankClass,
-                                                beamwidth, topPaths, true,
-                                                verbosityLevel == 2));
+        references.push_back(ctc::infer<double>(matrix::transpose(input),
+                                                blankClass, beamwidth, topPaths,
+                                                true, verbosityLevel == 2));
       }
       if (verbosityLevel == 1) {
         std::cout << "Reference output (batch " << i << "):\n";
@@ -299,27 +378,44 @@ int main(int argc, char **argv) {
     }
   }
 
-  auto outputs =
-      beamSearchIPU(maxTime, batchSize, blankClass, numClasses, beamwidth,
-                    topPaths, inType, outType, deviceType, tiles);
+  const auto outputs =
+      beamSearchIPU(tests, maxTime, batchSize, blankClass, numClasses,
+                    beamwidth, topPaths, inType, outType, deviceType, tiles);
 
   for (unsigned i = 0; i < batchSize; i++) {
     if (verbosityLevel == 1) {
       std::cout << "Result output (batch " << i << "):\n";
-      printBeams(outputs, blankClass);
+      printBeams(outputs[i], blankClass);
     }
   }
 
-  // double relativeTolerance = outType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
-  // double absoluteTolerance = outType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
-
+  const double relativeTolerance =
+      outType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
   bool success = true;
   if (!ignoreData) {
     for (unsigned i = 0; i < batchSize; i++) {
-      // TODO compare
-      bool batchSuccess = false;
-      if (!batchSuccess) {
-        success = false;
+      for (unsigned j = 0; j < topPaths; j++) {
+        bool lengthMatch =
+            outputs[i][j].first.size() == references[i][j].first.size();
+        bool pathSuccess = checkIsClose(
+            outputs[i][j].second, references[i][j].second, relativeTolerance);
+        if (lengthMatch) {
+          pathSuccess =
+              pathSuccess && checkEqual("Paths", outputs[i][j].first.data(),
+                                        {outputs[i][j].first.size()},
+                                        references[i][j].first.data(),
+                                        references[i][j].first.size());
+        }
+        if (!pathSuccess || !lengthMatch) {
+          if (verbosityLevel == 0) {
+            std::cout << "Mismatch in data:";
+            std::cout << "Reference output (batch " << i << "):\n";
+            printBeams(references[i], blankClass);
+            std::cout << "Result output (batch " << i << "):\n";
+            printBeams(outputs[i], blankClass);
+          }
+          success = false;
+        }
       }
     }
   }

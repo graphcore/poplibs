@@ -23,7 +23,7 @@ std::vector<unsigned> BeamHistory::getOutputSequence(unsigned beamIndex) const {
   std::vector<unsigned> reversedSequence;
 
   for (int i = nextIndexToAssign - 1; i >= 0; i--) {
-    if (symbols[beamIndex][i] != voidSymbol) {
+    if (symbols[beamIndex][i] != popnn::ctc_infer::voidSymbol) {
       reversedSequence.push_back(symbols[beamIndex][i]);
     }
     if (parents[beamIndex][i]) {
@@ -39,7 +39,7 @@ std::vector<unsigned> BeamHistory::getOutputSequence(unsigned beamIndex) const {
 unsigned BeamHistory::getLastOutput(unsigned beamIndex) const {
   auto o = getOutputSequence(beamIndex);
   if (o.empty()) {
-    return voidSymbol;
+    return popnn::ctc_infer::voidSymbol;
   } else {
     return o.back();
   }
@@ -61,7 +61,7 @@ void print(const std::vector<Candidate<FPType>> &candidates,
   for (const auto &candidate : candidates) {
     std::cout << "(Beam=" << candidate.beam;
     std::cout << ", addend: ";
-    if (candidate.addend == voidSymbol) {
+    if (candidate.addend == popnn::ctc_infer::voidSymbol) {
       std::cout << " ";
     } else {
       std::cout << candidate.addend;
@@ -79,9 +79,10 @@ void print(const BeamHistory &beamHistory) {
       const std::string parent =
           beamHistory.parents[b][t] ? std::to_string(*beamHistory.parents[b][t])
                                     : std::string{" "};
-      const std::string symbol = beamHistory.symbols[b][t] != voidSymbol
-                                     ? std::to_string(beamHistory.symbols[b][t])
-                                     : std::string{" "};
+      const std::string symbol =
+          beamHistory.symbols[b][t] != popnn::ctc_infer::voidSymbol
+              ? std::to_string(beamHistory.symbols[b][t])
+              : std::string{" "};
       std::cout << "(" << parent << ", " << symbol << ") ";
     }
     std::cout << std::endl;
@@ -125,11 +126,11 @@ std::vector<Candidate<FPType>> generateCandidates(
         useLog ? log::mul(beam.pnb, blankProb) : beam.pnb * blankProb;
     const auto prob = useLog ? log::add(prevBlankProb, prevNonBlankProb)
                              : prevBlankProb + prevNonBlankProb;
-    candidates.push_back({beamIdx, voidSymbol, zero, prob});
+    candidates.push_back({beamIdx, popnn::ctc_infer::voidSymbol, zero, prob});
 
     // By appending the same symbol as at the end of the beam
     // e.g. beam: "a", addend: "a" -> output: "a"
-    if (prevSymbol != voidSymbol) {
+    if (prevSymbol != popnn::ctc_infer::voidSymbol) {
       const auto addendProb = input[prevSymbol][t];
       const auto nonBlankProb =
           useLog ? log::mul(beam.pnb, addendProb) : beam.pnb * addendProb;
@@ -230,8 +231,10 @@ listMergeableCandidates(const std::vector<Candidate<FPType>> &candidates,
       if (lhs.beam == rhs.beam) {
         continue;
       }
-      if ((lhs.addend == voidSymbol && rhs.addend == voidSymbol) ||
-          (lhs.addend != voidSymbol && rhs.addend != voidSymbol)) {
+      if ((lhs.addend == popnn::ctc_infer::voidSymbol &&
+           rhs.addend == popnn::ctc_infer::voidSymbol) ||
+          (lhs.addend != popnn::ctc_infer::voidSymbol &&
+           rhs.addend != popnn::ctc_infer::voidSymbol)) {
         continue;
       }
       if (beamHistory.getOutputSequence(lhs) ==
@@ -342,7 +345,7 @@ infer(const boost::multi_array<FPType, 2> &input, unsigned blankSymbol,
     applyCandidates(beamHistory, beamProbabilities, selectedCandidates, useLog);
 
     if (verbose) {
-      std::cout << "==============" << std::endl;
+      std::cout << "============== State after time step:" << t << std::endl;
       std::cout << std::endl;
 
       std::cout << "Beam history: (Parent Beam reference, current symbol)"
@@ -497,7 +500,8 @@ inputToOutputPath(const boost::multi_array<unsigned, 2> &inputPath,
   auto timeSteps = inputPath.shape()[1];
   boost::multi_array<unsigned, 2> result(boost::extents[paths][timeSteps]);
   // Fill with void symbol to represent null
-  std::fill(result.data(), result.data() + result.num_elements(), voidSymbol);
+  std::fill(result.data(), result.data() + result.num_elements(),
+            popnn::ctc_infer::voidSymbol);
 
   for (unsigned p = 0; p < paths; p++) {
     auto lastOne = blankSymbol;

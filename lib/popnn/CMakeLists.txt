@@ -4,6 +4,8 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 add_library(popnn SHARED
   codelets.cpp
   CTCInference.cpp
+  CTCInferenceConnection.cpp
+  CTCInferenceConnection.hpp
   CTCLoss.cpp
   CTCInferencePlan.cpp
   CTCInferencePlan.hpp

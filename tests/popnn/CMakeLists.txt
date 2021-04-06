@@ -1145,8 +1145,50 @@ add_multitarget_test(
           --test-reduced-codelet-result=1
   VARIANTS ${IPUMODEL_VARIANTS})
 
-# TODO Add some tests for beam search
-# add_multitarget_test(
-#   NAME CTC_Inference_test
-#   COMMAND ctc_beam_search
-#   VARIANTS ${IPUMODEL_VARIANTS})
+# CTC inference beam search.  Batch size provides multiple random inputs
+foreach(beam_width 1 2 3)
+  foreach(num_classes 3 5 10)
+    foreach(blank_class 0 1)
+      set(top_paths 2)
+      if(beam_width EQUAL 1)
+        set(top_paths 1)
+      endif()
+      add_multitarget_test(
+        NAME ctc_beam_search_batch_beam${beam_width}_classes${num_classes}_blank${blank_class}
+          COMMAND ctc_beam_search
+            --batch=16
+            --max-label-length=16
+            --min-label-length=5
+            --max-time=100
+            --top-paths=${top_paths}
+            --beamwidth=${beam_width}
+            --num-classes=${num_classes}
+            --blank-class=${blank_class}
+          VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(beam_width 1 2 3 5)
+  foreach(seed RANGE 1 10)
+    foreach(num_classes 3 5 10)
+      set(top_paths 2)
+      if(beam_width EQUAL 1)
+        set(top_paths 1)
+      endif()
+      add_multitarget_test(
+        NAME ctc_beam_search_seed${seed}_beam${beam_width}_classes${num_classes}
+          COMMAND ctc_beam_search
+            --batch=2
+            --seed=${seed}
+            --max-label-length=20
+            --min-label-length=15
+            --max-time=100
+            --min-time=40
+            --top-paths=${top_paths}
+            --beamwidth=${beam_width}
+            --num-classes=${num_classes}
+          VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
+  endforeach()
+endforeach()

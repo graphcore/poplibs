@@ -17,6 +17,7 @@ add_library(poplibs_support STATIC
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/Compiler.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/ContiguousRegionsByTile.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/codelets.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/CTCInferenceDefs.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/cyclesTables.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/forceInterleavedEstimates.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/gcd.hpp

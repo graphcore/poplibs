@@ -2,6 +2,7 @@
 
 #include "popnn/CTCInference.hpp"
 
+#include "CTCInferenceConnection.hpp"
 #include "CTCInferencePlan.hpp"
 #include "CTCPlanInternal.hpp"
 
@@ -9,11 +10,14 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
 
+#include <poplibs_support/CTCInferenceDefs.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/Tracepoint.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/LogSoftmax.hpp>
 #include <popops/Cast.hpp>
+#include <popops/ElementWise.hpp>
+#include <popops/Expr.hpp>
 #include <poputil/OptionParsing.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
@@ -24,24 +28,32 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_support;
 using namespace popops;
+using namespace popops::expr;
 using namespace poputil;
 
 template <unsigned size> using Slice = std::array<std::size_t, size>;
+enum class PartitionType { BATCH_ENTRY, CLASSES, BEAMWIDTH };
+
 namespace {
+
+using TempTensors = popnn::ctc_infer::TempTensors;
+using BeamTensors = popnn::ctc_infer::BeamTensors;
+static constexpr auto voidSymbol = popnn::ctc_infer::voidSymbol;
 
 void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
                                  const popnn::ctc::InferencePlan &plan) {
   // Map the data input according to the plan, but the innermost dimension
   // isn't really compatible with the plan, as it is the number of classes
-  // whereas we planned for the label length.
+  // whereas we planned for batchEntry partitions.
   // Choose to split the time dimension as much as possible over the combined
-  // time and label partitions.  This avoids splitting the innermost dimension
-  // which would result in increased exchange code size.
-  const auto batchSize = tensor.dim(1);
+  // time and batchEntry partitions.  This avoids splitting the innermost
+  // dimension which would result in increased exchange code size.
+  const auto batchSize = tensor.dim(0);
   const unsigned timeSize = tensor.dim(2);
   const auto numClasses = tensor.dim(3);
 
-  const auto numNonBatchPartitions = plan.parallel.time * plan.parallel.label;
+  const auto numNonBatchPartitions =
+      plan.parallel.time * plan.batchEntryPartitions();
   const auto remappedTimePartitions = std::min(numNonBatchPartitions, timeSize);
   const auto typeSize = graph.getTarget().getTypeSize(tensor.elementType());
 
@@ -72,12 +84,359 @@ void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
         auto b = plan.partitionBatch(batchSize, batch);
         const auto timeEnd = std::min(timeSize, (time + 1) * timePartitionSize);
 
-        graph.setTileMapping(tensor.slice({0, b.begin(), timeBegin, 0},
-                                          {1, b.end(), timeEnd, numClasses}),
+        graph.setTileMapping(tensor.slice({b.begin(), 0, timeBegin, 0},
+                                          {b.end(), 1, timeEnd, numClasses}),
                              tile);
       }
     }
   }
+}
+
+inline poplar::Interval makePartition(unsigned size, unsigned index,
+                                      PartitionType partitionType,
+                                      const popnn::ctc::InferencePlan &plan) {
+  switch (partitionType) {
+  case PartitionType::BATCH_ENTRY:
+    return plan.partitionBatchEntry(size, index);
+  case PartitionType::CLASSES:
+    return plan.partitionClass(size, index);
+  default:
+    return plan.partitionBeam(size, index);
+  };
+}
+
+void mapAccordingToPlanRank3(Graph &graph, const Tensor &tensor,
+                             PartitionType partitionType,
+                             const popnn::ctc::InferencePlan &plan) {
+  // Map any rank 3 tensors used in this process to the correct tiles according
+  // to the plan.
+  const auto batchSize = tensor.dim(0);
+  const auto totalPartitions = tensor.dim(1);
+  const auto innermostDimSize = tensor.dim(2);
+
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    for (unsigned partition = 0; partition < totalPartitions; partition++) {
+      auto tile = plan.getTile(batch, 0, partition);
+      auto b = plan.partitionBatch(batchSize, batch);
+      auto p = makePartition(totalPartitions, partition, partitionType, plan);
+      graph.setTileMapping(tensor.slice({b.begin(), p.begin(), 0},
+                                        {b.end(), p.end(), innermostDimSize}),
+                           tile);
+    }
+  }
+}
+void mapAccordingToPlanRank4(Graph &graph, const Tensor &tensor,
+                             PartitionType partitionType,
+                             const popnn::ctc::InferencePlan &plan) {
+  // Map any rank 4 tensors used in this process to the correct tiles according
+  // to the plan
+  const auto batchSize = tensor.dim(0);
+  const auto totalPartitions = tensor.dim(1);
+  const auto timeSize = tensor.dim(2);
+  const auto innermostDimSize = tensor.dim(3);
+
+  for (unsigned partition = 0; partition < plan.batchEntryPartitions();
+       partition++) {
+    for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+      for (unsigned time = 0; time < plan.parallel.time; time++) {
+
+        auto tile = plan.getTile(batch, time, partition);
+        auto b = plan.partitionBatch(batchSize, batch);
+        auto p = makePartition(totalPartitions, partition, partitionType, plan);
+        auto t = plan.partitionTime(timeSize, time);
+        graph.setTileMapping(
+            tensor.slice({b.begin(), p.begin(), t.begin(), 0},
+                         {b.end(), p.end(), t.end(), innermostDimSize}),
+            tile);
+      }
+    }
+  }
+}
+
+void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
+                        PartitionType partitionType,
+                        const popnn::ctc::InferencePlan &plan) {
+  assert(tensor.rank() == 3 || tensor.rank() == 4);
+  if (tensor.rank() == 3) {
+    mapAccordingToPlanRank3(graph, tensor, partitionType, plan);
+  } else if (tensor.rank() == 4) {
+    mapAccordingToPlanRank4(graph, tensor, partitionType, plan);
+  }
+}
+
+TempTensors createAndInitialiseTemporaryTensors(
+    Graph &graph, const Tensor &dataLengths,
+    const popnn::ctc::InferencePlan &plan, unsigned numClasses,
+    unsigned batchSize, unsigned beamwidth, const Type &partialsType,
+    Sequence &prog, const poplar::DebugContext &di) {
+  TempTensors tempTensors;
+
+  // Make a counter per tile for the vertices to use
+  // Note - making these unsigned short would mean the vertex has to do a
+  // subword write.  This slows it down, but more importantly when plans put
+  // 2 vertices on the same tile will result in poplar running the vertices in
+  // series to avoid the subword writes of 2 vertices clashing.  When using
+  // unsigned this won't be an issue
+
+  tempTensors.currentTimestep = graph.addVariable(
+      UNSIGNED_INT, {batchSize, plan.batchEntryPartitions(), 1},
+      {di, "currentTimestep"});
+  mapAccordingToPlan(graph, tempTensors.currentTimestep,
+                     PartitionType::BATCH_ENTRY, plan);
+  // Initialise the count
+  auto initialiserZero = graph.addConstant<unsigned>(UNSIGNED_INT, {1}, 0u, di);
+  graph.setTileMapping(initialiserZero, 0);
+  prog.add(Copy(
+      initialiserZero.broadcast(tempTensors.currentTimestep.numElements(), 0),
+      tempTensors.currentTimestep.flatten(), false, di));
+
+  // Data length tensor broadcast per tile
+  tempTensors.dataLengths =
+      graph.clone(tempTensors.currentTimestep, {di, "timesteps"});
+  auto dataLengthsBroadcast =
+      dataLengths.expand({1, 1}).broadcast(plan.batchEntryPartitions(), 1);
+  prog.add(Copy(dataLengthsBroadcast, tempTensors.dataLengths));
+
+  // Extend candidates
+  const std::vector<std::size_t> extendCandidateShape = {
+      batchSize, numClasses - 1, beamwidth};
+  tempTensors.extendCandidatesPb = graph.addVariable(
+      partialsType, extendCandidateShape, {di, "extendCandidatesPb"});
+  tempTensors.extendCandidatesPnb = graph.addVariable(
+      partialsType, extendCandidateShape, {di, "extendCandidatesPnb"});
+
+  tempTensors.extendCandidatesParent = graph.addVariable(
+      UNSIGNED_INT, extendCandidateShape, {di, "extendCandidatesParents"});
+  tempTensors.extendCandidatesAddend = graph.addVariable(
+      UNSIGNED_INT, extendCandidateShape, {di, "extendCandidatesAddends"});
+
+  mapAccordingToPlan(graph, tempTensors.extendCandidatesPb,
+                     PartitionType::CLASSES, plan);
+  mapAccordingToPlan(graph, tempTensors.extendCandidatesPnb,
+                     PartitionType::CLASSES, plan);
+  mapAccordingToPlan(graph, tempTensors.extendCandidatesParent,
+                     PartitionType::CLASSES, plan);
+  mapAccordingToPlan(graph, tempTensors.extendCandidatesAddend,
+                     PartitionType::CLASSES, plan);
+
+  // Copy candidates
+  const std::vector<std::size_t> copyCandidateShape = {batchSize, beamwidth, 1};
+  tempTensors.copyCandidatesPb = graph.addVariable(
+      partialsType, copyCandidateShape, {di, "copyCandidatesPb"});
+  tempTensors.copyCandidatesPnb = graph.addVariable(
+      partialsType, copyCandidateShape, {di, "copyCandidatesPnb"});
+
+  tempTensors.copyCandidatesParent = graph.addVariable(
+      UNSIGNED_INT, copyCandidateShape, {di, "copyCandidatesParent"});
+  tempTensors.copyCandidatesAddend = graph.addVariable(
+      UNSIGNED_INT, copyCandidateShape, {di, "copyCandidatesAddend"});
+
+  mapAccordingToPlan(graph, tempTensors.copyCandidatesPb,
+                     PartitionType::BEAMWIDTH, plan);
+  mapAccordingToPlan(graph, tempTensors.copyCandidatesPnb,
+                     PartitionType::BEAMWIDTH, plan);
+  mapAccordingToPlan(graph, tempTensors.copyCandidatesParent,
+                     PartitionType::BEAMWIDTH, plan);
+  mapAccordingToPlan(graph, tempTensors.copyCandidatesAddend,
+                     PartitionType::BEAMWIDTH, plan);
+
+  // Merge indication and merge candidates vectors of tensors
+  tempTensors.mergeCandidatesPb.resize(beamwidth);
+  tempTensors.mergeCandidatesPnb.resize(beamwidth);
+  tempTensors.mergeCandidatesParent.resize(beamwidth);
+  tempTensors.mergeCandidatesAddend.resize(beamwidth);
+  tempTensors.mergedCandidateIndicator.resize(beamwidth);
+
+  const auto numClassesM1 = numClasses - 1;
+  const std::vector<size_t> mergeTensorsShape = {batchSize, numClassesM1, 1};
+  for (unsigned i = 0; i < beamwidth; i++) {
+
+    const auto debugStr = std::to_string(i);
+    tempTensors.mergeCandidatesPb[i] = graph.addVariable(
+        partialsType, mergeTensorsShape, {di, "mergeCandidatesPb_" + debugStr});
+    tempTensors.mergeCandidatesPnb[i] =
+        graph.addVariable(partialsType, mergeTensorsShape,
+                          {di, "mergeCandidatesPnb_" + debugStr});
+
+    tempTensors.mergeCandidatesParent[i] =
+        graph.addVariable(UNSIGNED_INT, mergeTensorsShape,
+                          {di, "mergeCandidatesParent_" + debugStr});
+    tempTensors.mergeCandidatesAddend[i] =
+        graph.addVariable(UNSIGNED_INT, mergeTensorsShape,
+                          {di, "mergeCandidatesAddend_" + debugStr});
+    tempTensors.mergedCandidateIndicator[i] =
+        graph.addVariable(UNSIGNED_INT, mergeTensorsShape,
+                          {di, "mergedCandidateIndicator_" + debugStr});
+
+    mapAccordingToPlan(graph, tempTensors.mergeCandidatesPb[i],
+                       PartitionType::CLASSES, plan);
+    mapAccordingToPlan(graph, tempTensors.mergeCandidatesPnb[i],
+                       PartitionType::CLASSES, plan);
+    mapAccordingToPlan(graph, tempTensors.mergeCandidatesParent[i],
+                       PartitionType::CLASSES, plan);
+    mapAccordingToPlan(graph, tempTensors.mergeCandidatesAddend[i],
+                       PartitionType::CLASSES, plan);
+    mapAccordingToPlan(graph, tempTensors.mergedCandidateIndicator[i],
+                       PartitionType::CLASSES, plan);
+  }
+  return tempTensors;
+}
+
+BeamTensors createAndInitialiseBeamTensors(
+    Graph &graph, const popnn::ctc::InferencePlan &plan, unsigned batchSize,
+    unsigned maxT, unsigned beamwidth, const Type &partialsType, Sequence &prog,
+    const poplar::DebugContext &di) {
+  BeamTensors beamTensors;
+
+  const std::vector<std::size_t> beamHistoryShape = {
+      batchSize, plan.batchEntryPartitions(), maxT, beamwidth};
+  beamTensors.parent =
+      graph.addVariable(UNSIGNED_INT, beamHistoryShape, {di, "beamParent"});
+  beamTensors.addend =
+      graph.addVariable(UNSIGNED_INT, beamHistoryShape, {di, "beamAddend"});
+
+  const std::vector<std::size_t> beamProbsShape = {
+      batchSize, plan.batchEntryPartitions(), beamwidth, 1};
+  beamTensors.pb =
+      graph.addVariable(partialsType, beamProbsShape, {di, "beamPb"});
+  beamTensors.pnb =
+      graph.addVariable(partialsType, beamProbsShape, {di, "beamPnb"});
+  beamTensors.lastOutput =
+      graph.addVariable(UNSIGNED_INT, beamProbsShape, {di, "beamlastOutput"});
+
+  mapAccordingToPlan(graph, beamTensors.parent, PartitionType::BATCH_ENTRY,
+                     plan);
+  mapAccordingToPlan(graph, beamTensors.addend, PartitionType::BATCH_ENTRY,
+                     plan);
+
+  mapAccordingToPlan(graph, beamTensors.pb, PartitionType::BATCH_ENTRY, plan);
+  mapAccordingToPlan(graph, beamTensors.pnb, PartitionType::BATCH_ENTRY, plan);
+  mapAccordingToPlan(graph, beamTensors.lastOutput, PartitionType::BATCH_ENTRY,
+                     plan);
+
+  // Initialise the beam probabilities, with only one origin point
+  auto initialiserProbZero =
+      graph.addConstant<float>(partialsType, {1}, log::probabilityZero, di);
+  graph.setTileMapping(initialiserProbZero, 0);
+  prog.add(Copy(initialiserProbZero.broadcast(beamTensors.pb.numElements(), 0),
+                beamTensors.pb.flatten(), false, di));
+  prog.add(Copy(initialiserProbZero.broadcast(beamTensors.pnb.numElements(), 0),
+                beamTensors.pnb.flatten(), false, di));
+
+  auto initialiserProbOne =
+      graph.addConstant<float>(partialsType, {1}, log::probabilityOne, di);
+  graph.setTileMapping(initialiserProbOne, 0);
+  auto pnbSlice = beamTensors.pnb.slice(
+      {0, 0, 0, 0}, {batchSize, plan.batchEntryPartitions(), 1, 1});
+  prog.add(Copy(initialiserProbOne.broadcast(pnbSlice.numElements(), 0),
+                pnbSlice.flatten(), false, di));
+
+  // last symbol = voidSymbol initial state
+  auto initialiserVoidSymbol =
+      graph.addConstant(UNSIGNED_INT, {1}, voidSymbol, di);
+  graph.setTileMapping(initialiserVoidSymbol, 0);
+  prog.add(Copy(
+      initialiserVoidSymbol.broadcast(beamTensors.lastOutput.numElements(), 0),
+      beamTensors.lastOutput.flatten(), false, di));
+
+  return beamTensors;
+}
+
+Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
+                            const Tensor &data, const BeamTensors &beams,
+                            const TempTensors &tempTensors, unsigned blankClass,
+                            unsigned beamwidth,
+                            const poplar::DebugContext &di) {
+
+  const auto maxT = data.dim(2);
+  const auto numClasses = data.dim(3);
+  const auto numClassesM1 = numClasses - 1;
+  Sequence prog;
+
+  // Generate candidates in the 1st compute set
+  auto cs1 = graph.addComputeSet(di);
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    // Extend candidates
+    for (unsigned c = 0; c < plan.parallel.classes; c++) {
+      const unsigned addendClass = c >= blankClass ? c + 1 : c;
+      const unsigned tile = plan.getTile(batch, 0, c);
+      generateExtendCandidateVertex(graph, data, beams, tempTensors, cs1, batch,
+                                    {0, maxT}, c, blankClass, beamwidth,
+                                    addendClass, tile);
+    }
+    // Copy candidates
+    for (unsigned c = 0; c < plan.parallel.beam; c++) {
+      const unsigned tile = plan.getTile(batch, 0, c);
+      generateCopyCandidateVertex(graph, data, beams, tempTensors, cs1, batch,
+                                  {0, maxT}, c, blankClass, beamwidth, tile);
+    }
+  }
+  prog.add(Execute(cs1, di));
+
+  // Broadcast the copy candidates into the vectors of merge candidates
+  auto transform = [=](const Tensor &in, unsigned i) {
+    return in.slice(i, i + 1, 1).expand({1}).broadcast(numClassesM1, 1);
+  };
+
+  for (unsigned i = 0; i < beamwidth; i++) {
+    prog.add(Copy(transform(tempTensors.copyCandidatesParent, i),
+                  tempTensors.mergeCandidatesParent[i]));
+    prog.add(Copy(transform(tempTensors.copyCandidatesAddend, i),
+                  tempTensors.mergeCandidatesAddend[i]));
+    prog.add(Copy(transform(tempTensors.copyCandidatesPb, i),
+                  tempTensors.mergeCandidatesPb[i]));
+    prog.add(Copy(transform(tempTensors.copyCandidatesPnb, i),
+                  tempTensors.mergeCandidatesPnb[i]));
+  }
+
+  // Merge candidates in the 2nd compute set
+  // TODO- Merging could be more parallel
+  auto cs2 = graph.addComputeSet(di);
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    for (unsigned copy = 0; copy < plan.parallel.beam; copy++) {
+      for (unsigned addend = 0; addend < numClassesM1; addend++) {
+        const unsigned tile = plan.getTile(batch, 0, addend);
+        mergeCandidateVertex(graph, beams, tempTensors, cs2, batch, {0, maxT},
+                             addend, copy, beamwidth, tile);
+      }
+    }
+  }
+  prog.add(Execute(cs2, di));
+
+  // Select candidates in the 3rd compute set
+  // TODO - make some of the sorting work more in parallel
+  auto cs3 = graph.addComputeSet(di);
+  const unsigned candidatesPerMerge = numClassesM1;
+  const unsigned candidatesToCompare = plan.parallel.beam * numClassesM1 * 2;
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    const unsigned tile = batch * plan.batchEntryPartitions();
+    // Scratch (Created here as not used by other vertices)
+    auto scratch =
+        graph.addVariable(tempTensors.mergeCandidatesPb[0].elementType(),
+                          {candidatesToCompare}, {di, "scratch"});
+    graph.setTileMapping(scratch, tile);
+    selectCandidatesVertex(graph, scratch, tempTensors, cs3, batch, 0,
+                           candidatesPerMerge, candidatesToCompare, beamwidth,
+                           tile);
+  }
+  prog.add(Execute(cs3, di));
+
+  // Update beam history and probabilities in the 4th compute set
+  auto cs4 = graph.addComputeSet(di);
+  const unsigned sortedResultOffset = plan.parallel.beam * (numClassesM1 - 1);
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    for (unsigned beam = 0; beam < plan.batchEntryPartitions(); beam++) {
+      const unsigned tile = plan.getTile(batch, 0, beam);
+      // Scratch (Created here as not used by other vertices)
+      auto scratch = graph.addVariable(UNSIGNED_INT, {beamwidth});
+      graph.setTileMapping(scratch, tile);
+      updateVertex(graph, scratch, beams, tempTensors, cs4, batch, {0, maxT},
+                   beam, sortedResultOffset, beamwidth, tile);
+    }
+  }
+  prog.add(Execute(cs4, di));
+
+  return prog;
 }
 
 Tensor toInternalShape(const Tensor &data) {
@@ -85,9 +444,9 @@ Tensor toInternalShape(const Tensor &data) {
   // [maxTime, batchSize, numClasses].
   // Internally, data is ordered differently, and we will broadcast this data
   // according to the number of partitions made. So internally we use:
-  // [partitions, batchSize,maxTime,  numClasses]
-  // Here we have not yet broadcast so partitions = 1
-  return data.dimShufflePartial({0}, {1}).expand({0});
+  // [batchSize, batchEntryPartitions, maxTime,  numClasses]
+  // Here we have not yet broadcast so batchEntryPartitions = 1
+  return data.dimShufflePartial({0}, {1}).expand({1});
 }
 
 Tensor toExternalShape(const Tensor &data) {
@@ -134,11 +493,11 @@ poplar::Tensor createDataInput(poplar::Graph &graph, const poplar::Type &type,
   logging::popnn::debug("Creating data tensor for CTC beam search with Time:{}"
                         " Batches:{} Classes:{}",
                         maxTime, batchSize, numClasses);
-  const auto data = graph.addVariable(type, {1, batchSize, maxTime, numClasses},
+  const auto data = graph.addVariable(type, {batchSize, 1, maxTime, numClasses},
                                       {di, "data"});
   mapDataInputAccordingToPlan(graph, data, inferPlan);
   di.addOutput(data);
-  return toExternalShape(data.squeeze({0}));
+  return toExternalShape(data.squeeze({1}));
 }
 
 // beamSearchDecoderLogProbabilitiesImpl output tuple:
@@ -150,7 +509,7 @@ beamSearchDecoderLogProbabilitiesImpl(
     poplar::Graph &graph, const poplar::Type &outType,
     const poplar::Tensor &data, const poplar::Tensor &dataLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
-    const unsigned beamWidth, const unsigned topPaths,
+    const unsigned beamwidth, const unsigned topPaths,
     const ctc::InferencePlan &plan, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options) {
 
@@ -159,7 +518,7 @@ beamSearchDecoderLogProbabilitiesImpl(
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di({debugContext, "CTCBeamSearchDecoder"},
                                  DI_ARGS(outType, data, dataLengths, blankClass,
-                                         beamWidth, topPaths, plan, options));
+                                         beamwidth, topPaths, plan, options));
 
   logging::popnn::debug("Disabled NANOO for CTC beam search decoder operation");
   poplar::FloatingPointBehaviour clear{false, false, false, false,
@@ -171,24 +530,88 @@ beamSearchDecoderLogProbabilitiesImpl(
   logging::popnn::debug("Creating CTC beam search decoder using\n{}", plan);
   const auto maxT = data.dim(0);
   const auto batchSize = data.dim(1);
+  const auto numClasses = data.dim(2);
 
   // Reshape the input for internal use
   auto internalData = toInternalShape(data);
+  auto internalDataShape = internalData.shape();
+  internalDataShape[1] = plan.batchEntryPartitions();
 
-  // TODO - The actual beam search!
+  // Broadcast the data input and map according to the planned totalPartitions
+  // which require a copy of the data while computing
+  const auto workingData = [&]() {
+    if (plan.batchEntryPartitions() != 1) {
+      auto result = graph.addVariable(data.elementType(), internalDataShape,
+                                      {di, "broadcastInput"});
+      mapAccordingToPlan(graph, result, PartitionType::BATCH_ENTRY, plan);
+      auto broadcastData =
+          internalData.broadcast(plan.batchEntryPartitions(), 1);
+      prog.add(Copy(broadcastData, result, false, di));
+      return result;
+    } else {
+      // No broadcast/copy to do
+      return internalData;
+    }
+  }();
 
-  // Create results with the intended shape and map
-  // TODO - map according to plan etc, although not so critical as this is
-  // all just used when the result is produced at the end
-  auto labelProbs = graph.addVariable(outType, {batchSize, topPaths},
+  // Make the beam history tensors, setting only 1 beam to probablity = 1
+  // and all outputs = voidSymbol
+  auto beams = createAndInitialiseBeamTensors(
+      graph, plan, batchSize, maxT, beamwidth, partialsType, prog, di);
+
+  // Make the temporary tensors, initialising only the count
+  auto tempTensors = createAndInitialiseTemporaryTensors(
+      graph, dataLengths, plan, numClasses, batchSize, beamwidth, partialsType,
+      prog, di);
+
+  // Make the loop body and run it
+  auto loopBody =
+      createLoopBodyProg(graph, plan, workingData, beams, tempTensors,
+                         blankClass, beamwidth, {di, "beamSearchDecoderLoop"});
+  prog.add(Repeat(maxT, loopBody, di));
+
+  // Create results and map, inserting a 3rd dimension so mapping functions can
+  // be used
+  // TODO - More flexible mapping functions would remove the need for this
+  auto labelProbs = graph.addVariable(outType, {batchSize, topPaths, 1},
                                       {di, "labelProbabilities"});
-  auto labelLengths = graph.addVariable(UNSIGNED_INT, {batchSize, topPaths},
+  auto labelLengths = graph.addVariable(UNSIGNED_INT, {batchSize, topPaths, 1},
                                         {di, "labelLengths"});
   auto decodedLabels = graph.addVariable(
       UNSIGNED_INT, {batchSize, topPaths, maxT}, {di, "decodedLabels"});
-  graph.setTileMapping(labelProbs, 0);
-  graph.setTileMapping(labelLengths, 0);
-  graph.setTileMapping(decodedLabels, 0);
+
+  mapAccordingToPlan(graph, labelProbs, PartitionType::BEAMWIDTH, plan);
+  mapAccordingToPlan(graph, labelLengths, PartitionType::BEAMWIDTH, plan);
+  mapAccordingToPlan(graph, decodedLabels, PartitionType::BEAMWIDTH, plan);
+  // Remove the 3rd dimension that was inserted
+  labelProbs.squeeze({2});
+  labelLengths.squeeze({2});
+
+  auto outputCS = graph.addComputeSet({di, "output"});
+  for (unsigned batch = 0; batch < batchSize; batch++) {
+    for (unsigned path = 0; path < topPaths; path++) {
+      unsigned tile = plan.getTile(batch, 0, path);
+      unsigned partition = path;
+      generateOutputVertex(graph, beams, tempTensors, decodedLabels,
+                           labelLengths, outputCS, batch, beamwidth, partition,
+                           path, tile);
+    }
+  }
+  prog.add(Execute(outputCS, di));
+  // Combine probabilities for output (Log add of pb,pnb)
+  auto pb = beams.pb.slice(0, 1, 1);
+  auto pnb = beams.pnb.slice(0, 1, 1);
+  // Implement a log add using elementwise operations,
+  // when doing a logAdd(a,b) , we use min = min(a,b), max = max (a,b)
+  // result =  exp( max + log(1 + exp(min - max)))
+  auto plusOne = graph.addConstant<float>(partialsType, {1}, 1.0, di);
+  graph.setTileMapping(plusOne, 0);
+  auto max = popops::map(graph, Max(_1, _2), {pb, pnb}, prog, di);
+
+  popops::mapInPlace(graph, _3 + Log(_4 + Exp(Min(_1, _2) - _3)),
+                     {pb, pnb, max, plusOne}, prog, di);
+
+  labelProbs = pb;
 
   auto labelProbsOut = [&]() {
     if (partialsType != outType) {
@@ -207,7 +630,7 @@ beamSearchDecoderLogProbabilitiesImpl(
                  {"decodedLabels", poputil::toProfileValue(labelLengths)}});
 
   poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, di);
-  return {labelProbs, labelLengths, decodedLabels};
+  return {labelProbsOut, labelLengths, decodedLabels};
 }
 
 void printOp(std::string name, const poplar::Type &partialsType,

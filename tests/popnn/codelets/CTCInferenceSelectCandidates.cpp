@@ -25,7 +25,9 @@ using namespace poputil;
 
 namespace poplibs_test {
 namespace ctc {
-
+// TODO - This test is disabled at present.  The vertex is likely to get
+// modified further so leave changing this (as it is not trivial) until the
+// proper solution is found.
 template <typename PartialsType>
 std::vector<Candidate<PartialsType>> runSelectCandidatesCodelet(
     poplar::Graph &graph, poplibs_support::TestDevice &device,
@@ -54,7 +56,7 @@ std::vector<Candidate<PartialsType>> runSelectCandidatesCodelet(
   graph.setTileMapping(candidateProbTotalScratch, 0);
 
   auto cs = graph.addComputeSet("cs");
-  auto vertex = graph.addVertex(cs, templateVertex("popnn::SelectCandidates",
+  auto vertex = graph.addVertex(cs, templateVertex("popnn::CTCSelectCandidates",
                                                    partialsType, UNSIGNED_INT));
   graph.setTileMapping(vertex, 0);
 

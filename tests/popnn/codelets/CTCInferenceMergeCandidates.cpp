@@ -32,7 +32,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
     Type partialsType,
     const std::vector<Candidate<PartialsType>> &extendCandidates,
     const Candidate<PartialsType> &copyCandidate, unsigned timestep,
-    const BeamHistory &beamHistory, unsigned blankClass, bool profile) {
+    const BeamHistory &beamHistory, bool profile) {
   const auto target = graph.getTarget();
   const auto beamwidth = beamHistory.symbols.size();
   const auto numExtendCandidates = beamwidth;
@@ -65,6 +65,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
       graph.addVariable(UNSIGNED_INT, {}, "invalidCandidate");
 
   auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
 
   graph.setTileMapping(extendCandidateParent, 0);
   graph.setTileMapping(extendCandidateAddend, 0);
@@ -81,11 +82,11 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
 
   graph.setTileMapping(invalidCandidate, 0);
   graph.setTileMapping(currentTimestep, 0);
+  graph.setTileMapping(dataLength, 0);
 
   auto cs = graph.addComputeSet("cs");
-  auto vertex =
-      graph.addVertex(cs, templateVertex("popnn::CTCMergeCandidates", inType,
-                                         partialsType, UNSIGNED_INT));
+  auto vertex = graph.addVertex(cs, templateVertex("popnn::CTCMergeCandidates",
+                                                   partialsType, UNSIGNED_INT));
   graph.setTileMapping(vertex, 0);
 
   graph.connect(vertex["extendCandidateParent"], extendCandidateParent);
@@ -107,9 +108,9 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
 
   graph.connect(vertex["invalidCandidate"], invalidCandidate);
   graph.connect(vertex["currentTimestep"], currentTimestep);
+  graph.connect(vertex["dataLength"], dataLength);
 
   graph.setInitialValue(vertex["extendCandidates"], numExtendCandidates);
-  graph.setInitialValue(vertex["blankClass"], blankClass);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
 
   Sequence uploadProg, downloadProg;
@@ -273,7 +274,7 @@ template std::vector<Candidate<float>> runMergeCandidatesCodelet(
     Graph &graph, TestDevice &device, DeviceType deviceType, Type inType,
     Type partialsType, const std::vector<Candidate<float>> &extendCandidates,
     const Candidate<float> &copyCandidate, unsigned timestep,
-    const BeamHistory &beamHistory, unsigned blankClass, bool profile);
+    const BeamHistory &beamHistory, bool profile);
 
 } // namespace ctc
 } // namespace poplibs_test

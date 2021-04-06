@@ -4,6 +4,7 @@
 #define poplibs_test_ctc_inference_hpp
 
 #include "CTCUtil.hpp"
+#include <poplibs_support/CTCInferenceDefs.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 
 #include <boost/multi_array.hpp>
@@ -13,9 +14,6 @@
 
 namespace poplibs_test {
 namespace ctc {
-
-// placeholder to represent no change to output sequence
-inline constexpr unsigned voidSymbol = std::numeric_limits<unsigned>::max();
 
 // Probabilities representing the final symbol of a beam
 template <typename FPType> struct BeamProbability {
@@ -54,7 +52,7 @@ struct BeamHistory {
   std::vector<unsigned>
   getOutputSequence(const Candidate<FPType> &candidate) const {
     auto output = getOutputSequence(candidate.beam);
-    if (candidate.addend != voidSymbol) {
+    if (candidate.addend != popnn::ctc_infer::voidSymbol) {
       output.push_back(candidate.addend);
     }
     return output;

@@ -20,12 +20,11 @@ struct CtcInferencePlannerParams {
   unsigned beamWidth;
 };
 
-// A placeholder structure with potential partitions to allow mapping
-// and other basic functions to be implemented similar to those used for loss
 template <typename T> struct CtcInferencePartition {
+  // Simple initial partition parameters, see plan assignment for a description
+  // TODO - Documnet a fully thought out plan here
   T batch;
   T time;
-  T label;
   T beam;
   T classes;
 };
@@ -54,15 +53,39 @@ public:
   poplar::Interval partitionTime(unsigned timeSize, unsigned index) const {
     return partition(timeSize, parallel.time, index);
   }
-  unsigned getTile(unsigned batch, unsigned time, unsigned label) const {
-    return batch * (parallel.time * parallel.label) // Batch
-           + time * parallel.label                  // Time
-           + label;                                 // Label
+
+  // The larger of the `classes` and `beam` partitions is the total number
+  // of broadcast inputs, and replicas of the beam history that we will build.
+  // In this simple model of splitting up the work, copy candidates and extend
+  // candidates are generated with vertices allocated on overlapping tiles, so
+  // the maximum of the 2 parameters is used here. In a more complete solution
+  // we could choose between overlapping (total=max) or sequential (total=sum)
+  // allocation of vertices
+  unsigned batchEntryPartitions(void) const {
+    return std::max(parallel.beam, parallel.classes);
+  }
+
+  poplar::Interval partitionBatchEntry(unsigned size, unsigned index) const {
+    return partition(size, batchEntryPartitions(), index);
+  }
+
+  poplar::Interval partitionClass(unsigned classSize, unsigned index) const {
+    return partition(classSize, parallel.classes, index);
+  }
+
+  poplar::Interval partitionBeam(unsigned beamSize, unsigned index) const {
+    return partition(beamSize, parallel.beam, index);
+  }
+
+  unsigned getTile(unsigned batch, unsigned time, unsigned batchEntry) const {
+    return batch * (parallel.time * batchEntryPartitions()) // Batch
+           + time * batchEntryPartitions()                  // Time
+           + batchEntry;                                    // Batch entry
   }
   // Tile allocation when splitting across batch and time dimensions only
   unsigned getTile(unsigned batch, unsigned time) const {
-    return batch * (parallel.time * parallel.label) // Batch
-           + time;                                  // Time
+    return batch * (parallel.time * batchEntryPartitions()) // Batch
+           + time;                                          // Time
   }
   std::unique_ptr<InferencePlan> clone() const {
     return std::make_unique<InferencePlan>(*this);

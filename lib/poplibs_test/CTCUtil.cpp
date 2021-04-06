@@ -57,8 +57,9 @@ template void printInput(const boost::multi_array<double, 2> &in,
                          unsigned blank);
 
 template <typename FPType>
-void printBeams(std::vector<std::pair<std::vector<unsigned>, FPType>> &beams,
-                unsigned blank) {
+void printBeams(
+    const std::vector<std::pair<std::vector<unsigned>, FPType>> &beams,
+    unsigned blank) {
   auto i = 0;
   for (const auto &beam : beams) {
     std::cout << "Beam " << i << " ";
@@ -79,10 +80,10 @@ void printBeams(std::vector<std::pair<std::vector<unsigned>, FPType>> &beams,
 }
 
 template void
-printBeams(std::vector<std::pair<std::vector<unsigned>, float>> &beams,
+printBeams(const std::vector<std::pair<std::vector<unsigned>, float>> &beams,
            unsigned blank);
 template void
-printBeams(std::vector<std::pair<std::vector<unsigned>, double>> &beams,
+printBeams(const std::vector<std::pair<std::vector<unsigned>, double>> &beams,
            unsigned blank);
 
 std::vector<unsigned> extendedLabels(const std::vector<unsigned> &input,

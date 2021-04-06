@@ -62,8 +62,9 @@ template <typename FPType>
 void printInput(const boost::multi_array<FPType, 2> &in, unsigned blank);
 
 template <typename FPType>
-void printBeams(std::vector<std::pair<std::vector<unsigned>, FPType>> &beams,
-                unsigned blank);
+void printBeams(
+    const std::vector<std::pair<std::vector<unsigned>, FPType>> &beams,
+    unsigned blank);
 
 void validateTimeAndLabelBounds(
     const boost::optional<unsigned> &minRandomTime,

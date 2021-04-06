@@ -30,7 +30,7 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
     Type partialsType, const boost::multi_array<InputType, 2> &logProbsIn,
     unsigned timestep,
     const std::vector<BeamProbability<PartialsType>> &beamProbs,
-    const BeamHistory &beamHistory, unsigned classToMakeAddend,
+    const BeamHistory &beamHistory, unsigned classToMakeAddend, unsigned beam,
     unsigned blankClass, bool testGenerateCopyVertex, bool profile) {
   const auto target = graph.getTarget();
 
@@ -48,19 +48,25 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
       graph.addVariable(partialsType, {beamwidth}, "beamProbBlank");
 
   auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
 
-  const auto totalCandidates =
-      testGenerateCopyVertex ? beamwidth : (numClassesIncBlank - 1) * beamwidth;
+  auto addCandidate = [&](const Type type, bool copyVertex,
+                          const std::string &name) {
+    if (copyVertex) {
+      return graph.addVariable(type, {}, name);
+    } else {
+      return graph.addVariable(type, {beamwidth}, name);
+    }
+  };
 
   auto candidateParent =
-      graph.addVariable(UNSIGNED_INT, {totalCandidates}, "candidateParent");
+      addCandidate(UNSIGNED_INT, testGenerateCopyVertex, "candidateParent");
   auto candidateAddend =
-      graph.addVariable(UNSIGNED_INT, {totalCandidates}, "candidateAddend");
-  auto candidateBeamProbNonBlank = graph.addVariable(
-      partialsType, {totalCandidates}, "candidateBeamProbNonBlank");
-  auto candidateBeamProbBlank = graph.addVariable(
-      partialsType, {totalCandidates}, "candidateBeamProbBlank");
-  auto validCandidates = graph.addVariable(UNSIGNED_INT, {}, "validCandidates");
+      addCandidate(UNSIGNED_INT, testGenerateCopyVertex, "candidateAddend");
+  auto candidateBeamProbNonBlank = addCandidate(
+      partialsType, testGenerateCopyVertex, "candidateBeamProbNonBlank");
+  auto candidateBeamProbBlank = addCandidate(
+      partialsType, testGenerateCopyVertex, "candidateBeamProbBlank");
 
   graph.setTileMapping(logProbs, 0);
   graph.setTileMapping(lastBeamOutputs, 0);
@@ -68,7 +74,7 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   graph.setTileMapping(beamProbBlank, 0);
 
   graph.setTileMapping(currentTimestep, 0);
-  graph.setTileMapping(validCandidates, 0);
+  graph.setTileMapping(dataLength, 0);
 
   graph.setTileMapping(candidateParent, 0);
   graph.setTileMapping(candidateAddend, 0);
@@ -89,19 +95,24 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   graph.connect(vertex["beamProbBlank"], beamProbBlank);
 
   graph.connect(vertex["currentTimestep"], currentTimestep);
-  if (testGenerateCopyVertex) {
-    graph.connect(vertex["validCandidates"], validCandidates);
-  }
-  graph.connect(vertex["candidateParent"], candidateParent);
-  graph.connect(vertex["candidateAddend"], candidateAddend);
-  graph.connect(vertex["candidateBeamProbNonBlank"], candidateBeamProbNonBlank);
-  graph.connect(vertex["candidateBeamProbBlank"], candidateBeamProbBlank);
+  graph.connect(vertex["dataLength"], dataLength);
+
+  const std::string prefix =
+      testGenerateCopyVertex ? "candidate" : "extendCandidate";
+  graph.connect(vertex[prefix + "Parent"], candidateParent);
+  graph.connect(vertex[prefix + "Addend"], candidateAddend);
+  graph.connect(vertex[prefix + "BeamProbNonBlank"], candidateBeamProbNonBlank);
+  graph.connect(vertex[prefix + "BeamProbBlank"], candidateBeamProbBlank);
 
   graph.setInitialValue(vertex["numClassesIncBlank"], numClassesIncBlank);
   graph.setInitialValue(vertex["blankClass"], blankClass);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
-  graph.setInitialValue(vertex["addendSymbol"], classToMakeAddend);
 
+  if (testGenerateCopyVertex) {
+    graph.setInitialValue(vertex["beamIdx"], beam);
+  } else {
+    graph.setInitialValue(vertex["addendSymbol"], classToMakeAddend);
+  }
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
 
@@ -138,8 +149,7 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
 
   // Outputs
   std::unique_ptr<char[]> rawCandidateParent, rawCandidateAddend,
-      rawCandidateBeamProbNonBlank, rawCandidateBeamProbBlank,
-      rawValidCandidates;
+      rawCandidateBeamProbNonBlank, rawCandidateBeamProbBlank;
 
   rawCandidateParent =
       allocateHostMemoryForTensor(candidateParent, "candidateParent", graph,
@@ -153,9 +163,6 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   rawCandidateBeamProbBlank = allocateHostMemoryForTensor(
       candidateBeamProbBlank, "candidateBeamProbBlank", graph, uploadProg,
       downloadProg, tmap);
-  rawValidCandidates =
-      allocateHostMemoryForTensor(validCandidates, "validCandidates", graph,
-                                  uploadProg, downloadProg, tmap);
 
   // TODO Need to initialise outputs?
 
@@ -172,6 +179,7 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
     engine.run();
   });
 
+  const auto totalCandidates = testGenerateCopyVertex ? 1 : beamwidth;
   std::vector<unsigned> candidateParentOut(totalCandidates);
   std::vector<unsigned> candidateAddendOut(totalCandidates);
   std::vector<unsigned> validCandidatesOut(1);
@@ -181,7 +189,6 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   std::vector<float> candidateBeamProbNonBlankOut(totalCandidates);
   copy(target, UNSIGNED_INT, rawCandidateParent.get(), candidateParentOut);
   copy(target, UNSIGNED_INT, rawCandidateAddend.get(), candidateAddendOut);
-  copy(target, UNSIGNED_INT, rawValidCandidates.get(), validCandidatesOut);
   copy(target, partialsType, rawCandidateBeamProbNonBlank.get(),
        candidateBeamProbNonBlankOut);
   copy(target, partialsType, rawCandidateBeamProbBlank.get(),
@@ -191,10 +198,9 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
     engine.printProfileSummary(std::cout,
                                OptionFlags{{"showExecutionSteps", "true"}});
   }
-  const auto numOutputCandidates =
-      testGenerateCopyVertex ? validCandidatesOut[0] : beamwidth;
+
   std::vector<Candidate<float>> candidates;
-  for (unsigned i = 0; i < numOutputCandidates; i++) {
+  for (unsigned i = 0; i < totalCandidates; i++) {
     candidates.push_back({candidateParentOut[i], candidateAddendOut[i],
                           candidateBeamProbNonBlankOut[i],
                           candidateBeamProbBlankOut[i]});
@@ -206,7 +212,7 @@ template std::vector<Candidate<float>> runGenerateCandidatesCodelet(
     Graph &graph, TestDevice &device, DeviceType deviceType, Type inType,
     Type partialsType, const boost::multi_array<float, 2> &logProbsIn,
     unsigned timestep, const std::vector<BeamProbability<float>> &beamProbs,
-    const BeamHistory &beamHistory, unsigned classToMakeAddend,
+    const BeamHistory &beamHistory, unsigned classToMakeAddend, unsigned beam,
     unsigned blankClass, bool testGenerateCopyVertex, bool profile);
 
 } // namespace ctc

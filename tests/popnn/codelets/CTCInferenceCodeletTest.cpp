@@ -12,6 +12,7 @@
 #include <poplar/IPUModel.hpp>
 #include <poplar/Type.hpp>
 #include <poplibs_support/Algorithm.hpp>
+#include <poplibs_support/CTCInferenceDefs.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCInference.hpp>
@@ -39,6 +40,7 @@ using namespace poplibs_test;
 using namespace poplibs_test::matrix;
 using namespace poplibs_test::util;
 using namespace poplibs_support;
+using namespace popnn::ctc_infer;
 using namespace poputil;
 
 // Default tolerances used in tests
@@ -220,11 +222,11 @@ void debugPrint(const std::vector<Candidate<ActualFPType>> &actual,
 template <typename ExpectedFPType>
 std::vector<Candidate<ExpectedFPType>>
 selectCopyCandidates(const std::vector<Candidate<ExpectedFPType>> &expected,
-                     const BeamHistory &beamHistory, unsigned addendClass) {
+                     unsigned beam) {
   std::vector<Candidate<ExpectedFPType>> selected;
   for (const auto candidate : expected) {
     if (candidate.addend == voidSymbol) {
-      if (beamHistory.getLastOutput(candidate.beam) == addendClass) {
+      if (candidate.beam == beam) {
         selected.push_back(candidate);
       }
     }
@@ -288,7 +290,7 @@ int main(int argc, char **argv) {
   unsigned beamwidth = 2;
   unsigned blankClass = 0;
   unsigned timestep = 0;
-  unsigned outputBeam = 0;
+  unsigned beam = 0;
   boost::optional<unsigned> baseSequenceLength = boost::none;
   boost::optional<unsigned> addendClass = boost::none;
   boost::optional<unsigned> mergeClass = boost::none;
@@ -319,8 +321,10 @@ int main(int argc, char **argv) {
      "Classes in the alphabet including blank")
     ("beamwidth", po::value(&beamwidth)->default_value(beamwidth),
      "Beamwidth to use for the op")
-    ("output-beam", po::value(&outputBeam)->default_value(outputBeam),
-     "The beam to output when testing the GenerateOutput vertex")
+    ("beam", po::value(&beam)->default_value(beam),
+     "The beam to output when testing the GenerateOutput vertex.\n"
+     "The beam to make a copy candidate from when testing the "
+     "GenerateCopyCandidate vertex.")
     ("blank-class", po::value(&blankClass)->default_value(blankClass),
      "Index of the blank symbol. Range 0 to (num-classes - 1)")
     ("addend-class", po::value(&addendClass),
@@ -441,12 +445,12 @@ int main(int argc, char **argv) {
     const auto testGenerateCopyVertex = vertexType == VertexType::GENERATE_COPY;
     const auto candidates = runGenerateCandidatesCodelet<float, float>(
         graph, device, deviceType, inType, partialsType, logProbs, timestep,
-        beamProbs, beamHistory, *addendClass, blankClass,
+        beamProbs, beamHistory, *addendClass, beam, blankClass,
         testGenerateCopyVertex, profile);
 
     const auto compareCandidates =
         vertexType == VertexType::GENERATE_COPY
-            ? selectCopyCandidates(modelCandidates, beamHistory, *addendClass)
+            ? selectCopyCandidates(modelCandidates, beam)
             : selectExtendCandidates(modelCandidates, *addendClass);
 
     auto isClose =
@@ -493,7 +497,7 @@ int main(int argc, char **argv) {
 
     auto candidates = runMergeCandidatesCodelet<float>(
         graph, device, deviceType, inType, partialsType, extendCandidates,
-        copyCandidate, timestep, beamHistory, blankClass, profile);
+        copyCandidate, timestep, beamHistory, profile);
 
     extendCandidates.insert(extendCandidates.begin(), copyCandidate);
     const auto modelMergedCandidates =
@@ -578,10 +582,9 @@ int main(int argc, char **argv) {
       std::cout << "\nBeam history:\n";
       print(beamHistory);
     }
-    const auto ipuOutput =
-        runGenerateOutputCodelet(graph, device, deviceType, timestep + 1,
-                                 beamHistory, outputBeam, profile);
-    const auto expectedOuput = beamHistory.getOutputSequence(outputBeam);
+    const auto ipuOutput = runGenerateOutputCodelet(
+        graph, device, deviceType, timestep + 1, beamHistory, beam, profile);
+    const auto expectedOuput = beamHistory.getOutputSequence(beam);
     if (verbose) {
       std::cout << "Actual:  ";
       print(ipuOutput);

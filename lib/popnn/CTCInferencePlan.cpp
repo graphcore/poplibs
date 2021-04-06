@@ -44,11 +44,17 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   ctc::InferencePlan plan;
   plan.params = {inType,  poplar::FLOAT, inType,     batchSize,
                  maxTime, maxTime,       numClasses, beamwidth};
-  plan.parallel.batch = batchSize;
+  // Cannot split by time at the moment
   plan.parallel.time = 1;
-  plan.parallel.label = 1;
-  plan.parallel.beam = 1;
-  plan.parallel.classes = numClasses;
+  // Each batch occupies a separate set of tiles
+  plan.parallel.batch = batchSize;
+  // Extend candidate generation is parititoned by class. The blank class is
+  // not part of an extend operation so use 1 class per partition.
+  // `beamwidth` extend candidates are generated per partition
+  plan.parallel.classes = numClasses - 1;
+  // Copy candidate generation is partitioned by beam.  One copy candidate is
+  // generated per beam output
+  plan.parallel.beam = beamwidth;
 
   return std::make_unique<ctc::Plan::Impl>(ctc::Plan::Impl{std::move(plan)});
 }
