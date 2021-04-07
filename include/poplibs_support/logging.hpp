@@ -85,7 +85,7 @@ void log(Module m, Level l, std::string &&msg);
 // the MAKE_LOG_TEMPLATE macros instead, e.g.
 // logging::poplin::debug("The answer is: {}", 42).
 template <typename... Args>
-void log(Module m, Level l, const char *s, Args &&... args) {
+void log(Module m, Level l, const char *s, Args &&...args) {
   // Avoid formatting if the logging is disabled anyway.
   if (shouldLog(m, l)) {
     log(m, l, fmt::format(s, std::forward<Args>(args)...));
@@ -97,11 +97,11 @@ void log(Module m, Level l, const char *s, Args &&... args) {
 // logging level
 #define MAKE_MODULE_LOG_TEMPLATE(fnName, module, lvl)                          \
   template <typename... Args>                                                  \
-  inline void fnName(const std::string &s, Args &&... args) {                  \
+  inline void fnName(const std::string &s, Args &&...args) {                   \
     log(Module::module, Level::lvl, s.c_str(), std::forward<Args>(args)...);   \
   }                                                                            \
   template <typename... Args>                                                  \
-  inline void fnName(const char *s, Args &&... args) {                         \
+  inline void fnName(const char *s, Args &&...args) {                          \
     log(Module::module, Level::lvl, s, std::forward<Args>(args)...);           \
   }
 
@@ -116,7 +116,7 @@ void log(Module m, Level l, const char *s, Args &&... args) {
   inline void setLogLevel(Level l) { setLogLevel(Module::MODULE, l); }         \
   inline bool shouldLog(Level l) { return shouldLog(Module::MODULE, l); }      \
   template <typename... Args>                                                  \
-  void log(Level l, const char *s, Args &&... args) {                          \
+  void log(Level l, const char *s, Args &&...args) {                           \
     log(Module::MODULE, l, fmt::format(s, std::forward<Args>(args)...));       \
   }                                                                            \
   }
