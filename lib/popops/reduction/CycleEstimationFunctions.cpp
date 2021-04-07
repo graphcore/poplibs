@@ -20,8 +20,7 @@ bool isAccumOp(Operation operation) {
   return (operation == Operation::ADD || operation == Operation::SQUARE_ADD);
 }
 
-bool vectorisedOp(popops::Operation operation,
-                  popops::ReductionSpecialisation specialisation) {
+bool vectorisedOp(popops::Operation operation) {
   return (operation == Operation::MUL || operation == Operation::MAX ||
           operation == Operation::MIN || operation == Operation::ADD ||
           operation == Operation::SQUARE_ADD);
@@ -74,9 +73,7 @@ poplar::VertexPerfEstimate getCyclesEstimateForReduce(
   // Total number of reductions.
   std::size_t numReductions = outSizes.size();
 
-  // Additional cycles required for scaling, updating and format conversion.
-  unsigned scaleAndUpdateCycles = isUpdate + 1;
-  unsigned conversionCyles = outType == partialsType ? 0 : 1;
+  unsigned conversionCycles = outType == partialsType ? 0 : 1;
 
   const auto usesAccumulators = isAccumOp(operation);
   const auto opVectorWidth = usesAccumulators ? accVectorWidth : vectorWidth;
@@ -85,68 +82,9 @@ poplar::VertexPerfEstimate getCyclesEstimateForReduce(
   const auto interleaveFactor = getForceInterleavedEstimates() ? 2 : 1;
   // Total execution cycles.
   std::uint64_t cycles = 5 + 1 + 1; // entry/exit
-
-  if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
-    assert(bool(stride));
-    assert(numPartials.size() == 1);
-    auto numOutputs = std::accumulate(outSizes.cbegin(), outSizes.cend(), 0u);
-    cycles += 17; // non-loop overhead
-
-    // The elements processed per loop is limited by the data path width, the
-    // interleave factor, and the op width, so with 64-bit data path width and
-    // 128-bit accumulator based ops we only manage 64-bits per-cycle. With the
-    // same scenario with interleave factor 2,  we can manage 64 * 2 bits
-    // per-cycle.
-    //
-    // Additionally when performing modelling experiments, elemsPerLoop may
-    // be greater than that for 64-bits but our graph construction allows
-    // a stride with any multiple of 64-bits. In order to do elemsPerCycle
-    // each loop we need the stride to be compatible with the number of
-    // elements processed per cycle or else we won't be aligned on the
-    // second (or more) iteration(s) hence we take a gcd.
-    const auto elemsPerLoop =
-        gcd(std::min(opVectorWidth, dataPathWidth * interleaveFactor), *stride);
-
-    // Estimate the number of outer loops. If elemsPerLoop is equivalent to
-    // 64-bits of input data per cycle this is exact.
-    const auto numOuterLoops = ceildiv(numOutputs, elemsPerLoop);
-
-    cycles += numOuterLoops * 6;
-    cycles += cyclesPerOp * partialsSizes[0] / elemsPerLoop; // inner loop
-    std::uint64_t flops = static_cast<std::uint64_t>(numOutputs) *
-                          (partialsSizes[0] + isUpdate - 1) *
-                          flopsForReduceOp(operation);
-    return {cycles, convertToTypeFlops(flops, outType)};
-  }
-  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
-    assert(accVectorWidth % vectorWidth == 0);
-    // Take the minimum of the data path width * interleaved factor and
-    // the op width to get the elements we can do per cycle. This is for the ASM
-    // vertices. The C vertices are worse
-    const auto elemsPerCycle =
-        std::min(opVectorWidth, dataPathWidth * interleaveFactor);
-    cycles += 8;
-    // other init / checking
-    cycles += 11;
-    if (partialsSizes[0] < 6) {
-      cycles += 6;
-    } else {
-      cycles += cyclesPerOp * partialsSizes[0] / elemsPerCycle;
-      // 1 cycle per element for the remainder
-      cycles += partialsSizes[0] % elemsPerCycle;
-    }
-    if (outType != poplar::FLOAT)
-      cycles += 5;
-    // Additional operation for update
-    std::uint64_t flops =
-        (static_cast<std::uint64_t>(partialsSizes[0]) + isUpdate - 1) *
-        flopsForReduceOp(operation);
-    return {cycles, convertToTypeFlops(flops, outType)};
-  }
-
   // Trying to generalise vectorised vertex estimates...
   std::uint64_t flops = 0;
-  if (vectorisedOp(operation, specialisation)) {
+  if (vectorisedOp(operation)) {
     cycles += 3 + 23; // load state etc.
 
     // We do scale + store in output type so the cycles for scale, update,
@@ -242,49 +180,151 @@ poplar::VertexPerfEstimate getCyclesEstimateForReduce(
       partialsIndex += numPartials[r];
     }
   } else {
-    // Non-accumulator code.
-    cycles += 2;
-    if (specialisation == ReductionSpecialisation::DEFAULT ||
-        specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS) {
-      // VectorList costs 7 or 9 cycles to load n+base+descriptorPtr.
-      // These vertices have two VectorList::DELTAN so we'll have one of each
-      // and save a cycle (basemem only created once)
-      cycles += 7 + 8 - 1;
-    } else {
-      // Two SCALED_PTR32 to load, base only created once
-      cycles += 3 + 3 + 1;
-    }
+    assert(operation == Operation::LOGICAL_AND ||
+           operation == Operation::LOGICAL_OR ||
+           operation == Operation::LOG_ADD);
+
+    // The following numbers are approximations for C++ codelets.
+    // VectorList costs ~12 cycles to load n+base+descriptorPtr for a single
+    // pointer. These vertices have two VectorList::DELTANELEMENTS.
+    cycles += 12 * 2;
+
     // Partial index.
     unsigned pi = 0;
 
+    auto cyclesPerCppOp = operation == Operation::LOG_ADD ? 12 : cyclesPerOp;
     for (unsigned r = 0; r < numReductions; ++r) {
-      cycles += 5; // Copied from above.
-
-      // Calculate the maximum vector width we can actually use for this
-      // reduction.
-      unsigned usableVectorWidth = vectorWidth;
-      while (outSizes[r] % usableVectorWidth != 0)
-        usableVectorWidth /= 2;
-      // This isn't quite right, but it will be much easier to estimate when
-      // I've actually written the assembly.
-
-      // I think we can calculate the above by just examining the lower bits
-      // of out[r].size() and using a jump table. Conservative guess:
-      cycles += 5;
-
-      // This is all a quite wild guess.
+      cycles += 8;
       for (unsigned i = 0; i < numPartials[r]; ++i) {
-        auto numVectorWidths =
-            (partialsSizes[pi] + vectorWidth - 1) / vectorWidth;
         flops +=
             (partialsSizes[pi] + isUpdate - 1) * flopsForReduceOp(operation);
-        cycles +=
-            (2 * 1 + cyclesPerOp + 3 + scaleAndUpdateCycles + conversionCyles) *
-            numVectorWidths;
+        cycles += 22 + // pointer, offset, bound checking etc.
+                  (24 + cyclesPerCppOp + conversionCycles) * partialsSizes[pi];
         ++pi;
       }
     }
   }
+  return {cycles, convertToTypeFlops(flops, outType)};
+}
+
+poplar::VertexPerfEstimate getCyclesEstimateForStridedReduce(
+    const std::size_t partialsSize, const std::size_t numPartials,
+    const std::size_t numOutputs, const unsigned stride,
+    const unsigned dataPathWidth, const unsigned vectorWidth,
+    const unsigned accVectorWidth, const poplar::Type &partialsType,
+    const poplar::Type &outType, popops::Operation operation,
+    const unsigned cyclesPerOp, bool isUpdate) {
+  const auto usesAccumulators = isAccumOp(operation);
+  const auto opVectorWidth = usesAccumulators ? accVectorWidth : vectorWidth;
+  assert(opVectorWidth % dataPathWidth == 0 ||
+         dataPathWidth % opVectorWidth == 0);
+  const auto interleaveFactor = getForceInterleavedEstimates() ? 2 : 1;
+
+  // entry/exit
+  std::uint64_t cycles = 2 + 2;
+
+  // loop setup
+  cycles += 6 + 5;
+
+  unsigned cyclesLoopPost = 0;
+  if (partialsType == poplar::HALF) {
+    // inner loop completion
+    cyclesLoopPost++;
+    // result storage depending on type, operation and isUpdate
+    std::map<poplar::Type, std::map<Operation, std::map<bool, unsigned>>>
+        cycleMap = {{poplar::HALF,
+                     {{Operation::ADD, {{false, 7}, {true, 9}}},
+                      {Operation::MAX, {{false, 7}, {true, 10}}},
+                      {Operation::MIN, {{false, 7}, {true, 10}}},
+                      {Operation::LOG_ADD, {{false, 7}, {true, 22}}}}},
+                    {poplar::FLOAT,
+                     {{Operation::ADD, {{false, 6}, {true, 11}}},
+                      {Operation::MAX, {{false, 7}, {true, 10}}},
+                      {Operation::MIN, {{false, 7}, {true, 10}}},
+                      {Operation::LOG_ADD, {{false, 7}, {true, 56}}}}}};
+    cyclesLoopPost += cycleMap[outType][operation][isUpdate];
+  } else {
+    bool isOpAdd = (operation == Operation::ADD) ? true : false;
+    bool isOpLogAdd = (operation == Operation::LOG_ADD) ? true : false;
+    // inner loop completion
+    cyclesLoopPost += isOpAdd ? 3 : 2;
+    // result storage depending on type, operation and isUpdate
+    std::map<poplar::Type, std::map<bool, std::map<bool, unsigned>>> cycleMap =
+        {{poplar::HALF,
+          {{false, {{false, 2}, {true, 4}}}, {true, {{false, 2}, {true, 13}}}}},
+         {poplar::FLOAT,
+          {{false, {{false, 2}, {true, 5}}},
+           {true, {{false, 2}, {true, 27}}}}}};
+    cyclesLoopPost += cycleMap[outType][isOpLogAdd][isUpdate];
+  }
+  // outer loop
+  auto cyclesOuter = 3 + cyclesLoopPost;
+  cyclesOuter += cyclesPerOp * (numPartials - 1); // inner loop
+
+  // The elements processed per loop is limited by the data path width, the
+  // interleave factor, and the op width, so with 64-bit data path width and
+  // 128-bit accumulator based ops we only manage 64-bits per-cycle. With the
+  // same scenario with interleave factor 2,  we can manage 64 * 2 bits
+  // per-cycle.
+  //
+  // Additionally when performing modelling experiments, elemsPerLoop may
+  // be greater than that for 64-bits but our graph construction allows
+  // a stride with any multiple of 64-bits. In order to do elemsPerCycle
+  // each loop we need the stride to be compatible with the number of
+  // elements processed per cycle or else we won't be aligned on the
+  // second (or more) iteration(s) hence we take a gcd.
+  const auto elemsPerLoop =
+      gcd(std::min(opVectorWidth, dataPathWidth * interleaveFactor), stride);
+
+  // Estimate the number of outer loops. If elemsPerLoop is equivalent to
+  // 64-bits of input data per cycle this is exact.
+  const auto numOuterLoops = ceildiv(numOutputs, elemsPerLoop);
+  cycles += cyclesOuter * numOuterLoops;
+
+  std::uint64_t flops = static_cast<std::uint64_t>(numOutputs) *
+                        (partialsSize + isUpdate - 1) *
+                        flopsForReduceOp(operation);
+  return {cycles, convertToTypeFlops(flops, outType)};
+}
+
+poplar::VertexPerfEstimate getCyclesEstimateForSingleInput(
+    const std::size_t partialsSize, const unsigned dataPathWidth,
+    const unsigned vectorWidth, const unsigned accVectorWidth,
+    const poplar::Type &outType, const popops::Operation operation,
+    const unsigned cyclesPerOp, bool isUpdate) {
+  assert(accVectorWidth % vectorWidth == 0);
+  const auto usesAccumulators = isAccumOp(operation);
+  const auto opVectorWidth = usesAccumulators ? accVectorWidth : vectorWidth;
+  assert(opVectorWidth % dataPathWidth == 0 ||
+         dataPathWidth % opVectorWidth == 0);
+  const auto interleaveFactor = getForceInterleavedEstimates() ? 2 : 1;
+
+  // Take the minimum of the data path width * interleaved factor and
+  // the op width to get the elements we can do per cycle. This is for the ASM
+  // vertices. The C vertices are worse
+  const auto elemsPerCycle =
+      std::min(opVectorWidth, dataPathWidth * interleaveFactor);
+  const auto loadsPerLoop = opVectorWidth / elemsPerCycle;
+  const auto cyclesPerLoop = std::max(loadsPerLoop, cyclesPerOp);
+  const auto elemsPerLoop = elemsPerCycle * loadsPerLoop;
+
+  std::uint64_t cycles = 1 + 2; // entry, storage and exit
+  // other init / checking
+  cycles += 6;
+  cycles += cyclesPerLoop * partialsSize / elemsPerLoop;
+  // calculate remainder, load from accumulators
+  cycles += 5;
+  // 1 cycle per element for the remainder
+  cycles += partialsSize % elemsPerLoop;
+  // sum up all accumulators
+  cycles += 3;
+
+  if (outType != poplar::FLOAT)
+    cycles += 5;
+  // Additional operation for update
+  std::uint64_t flops =
+      (static_cast<std::uint64_t>(partialsSize) + isUpdate - 1) *
+      flopsForReduceOp(operation);
   return {cycles, convertToTypeFlops(flops, outType)};
 }
 
@@ -317,7 +357,12 @@ poplar::VertexPerfEstimate getCycleEstimateReduceAllRegionsContinuous(
           convertToTypeFlops(flops, type)};
 }
 
-// TODO: this does not take into account vertices that include scaling.
+// For specialisations which support scaled as well as unscaled reduction, the
+// assembly implementation is based on the scaled version. The unscaled version
+// forms a special case with the scale factor assigned to 1.0. Hence there is
+// no signficant difference between the cycle estimates between scaled and
+// unscaled versions and for simplicity this aspect has been omitted from all
+// the estimates.
 poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
     const poplar::VertexIntrospector &vertex, const poplar::Target &target,
     const poplar::Type &partialsType, const poplar::Type &outType,
@@ -356,9 +401,9 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
     //      + 1 add
     // Total: 23
     // For the f16v4 variant the exp, log instructions take 2 cycles each,
-    // Total = 3 + (2*2) + 1 + (2*2) + 1 = 12
+    // Total = 3 + (2*2) + 1 + (2*2) + 1 = 13
     if (logAddHasAssembler) {
-      return partialsType == poplar::HALF ? 12 : 23;
+      return partialsType == poplar::HALF ? 13 : 23;
     }
     // Approx result in C++ log-add by comparing to Sim execution time
     // (This is for a scalar as per opVectorWidth)
@@ -367,24 +412,27 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
 
   const auto partialsPer64Bits = partialsTypeSize / 8;
   const auto dataPathWidth = target.getDataPathWidth() / (partialsTypeSize * 8);
-  std::vector<unsigned> numPartialEdges;
-  std::vector<size_t> partialsPerEdge;
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
   std::optional<unsigned> stride;
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+    assert(out.size() == 1);
     // single edge case
     // paritalsPerEdge takes the number of partials for the corresponding
     // output edge
-    numPartialEdges.emplace_back(1);
-    partialsPerEdge.emplace_back(partials.size());
+    CODELET_SCALAR_VAL(numPartials, unsigned);
+    return getCyclesEstimateForSingleInput(
+        numPartials, dataPathWidth, target.getVectorWidth(partialsType),
+        opVectorWidth, outType, operation, cyclesPerOp, isUpdate);
   } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
-    numPartialEdges.emplace_back(1);
     CODELET_SCALAR_VAL(numPartialsM1, unsigned);
     CODELET_SCALAR_VAL(numOutputs, unsigned);
-    CODELET_SCALAR_VAL(partialsWidth, unsigned);
-    partialsPerEdge.emplace_back((numPartialsM1 + 1) * numOutputs);
-    stride = partialsWidth;
+    auto numPartials = numPartialsM1 + 1;
+    auto partialsPerEdge = numPartials * numOutputs;
+    return getCyclesEstimateForStridedReduce(
+        partialsPerEdge, numPartials, numOutputs, *stride, dataPathWidth,
+        target.getVectorWidth(partialsType), opVectorWidth, partialsType,
+        outType, operation, cyclesPerOp, isUpdate);
   } else if (specialisation ==
              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
     CODELET_SCALAR_VAL(numPartials, unsigned);
@@ -392,15 +440,15 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
     return getCycleEstimateReduceAllRegionsContinuous(
         numPartials, numOutputsM1, dataPathWidth, opVectorWidth, cyclesPerOp,
         isUpdate, outType, operation);
-  } else {
-    // partials is a 2D edge
-    CODELET_VECTOR_VALS(numPartials, unsigned);
-    numPartialEdges = numPartials;
-    partialsPerEdge = fieldSizes(partials);
   }
+  assert((specialisation == ReductionSpecialisation::DEFAULT) ||
+         (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS));
 
+  // partials is a 2D edge
+  CODELET_VECTOR_VALS(numPartials, unsigned);
+  auto partialsPerEdge = fieldSizes(partials);
   return getCyclesEstimateForReduce(
-      partialsPerEdge, fieldSizes(out), numPartialEdges, stride, dataPathWidth,
+      partialsPerEdge, fieldSizes(out), numPartials, stride, dataPathWidth,
       target.getVectorWidth(partialsType), opVectorWidth,
       target.getVectorWidth(outType), partialsPer64Bits, partialsType, outType,
       operation, cyclesPerOp, isUpdate, specialisation);
