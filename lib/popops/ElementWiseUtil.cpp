@@ -131,11 +131,9 @@ Tensor createOutputForElementWiseOp(Graph &graph,
     // width for the output type. Though this in itself doesn't help regrouping
     // in all cases, it increases the chances of targeting more efficient
     // rearrangements.
-    auto grainSize = graph.getTarget().getVectorWidth(outputType);
-    // use grain size of 4 if the type cannot be used as a vector
-    if (grainSize == 1) {
-      grainSize = 4;
-    }
+    auto vectorWidth = graph.getTarget().getDataPathWidth() /
+                       (8 * graph.getTarget().getTypeSize(outputType));
+    auto grainSize = std::max(1UL, vectorWidth);
     poputil::mapTensorLinearly(graph, output, 0, grainSize);
   }
   di.addOutput(output);
