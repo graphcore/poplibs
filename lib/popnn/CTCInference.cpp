@@ -17,6 +17,7 @@
 #include <popnn/LogSoftmax.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
+#include <popops/Encoding.hpp>
 #include <popops/Expr.hpp>
 #include <poputil/OptionParsing.hpp>
 #include <poputil/TileMapping.hpp>
@@ -186,8 +187,9 @@ TempTensors createAndInitialiseTemporaryTensors(
       {di, "currentTimestep"});
   mapAccordingToPlan(graph, tempTensors.currentTimestep,
                      PartitionType::BATCH_ENTRY, plan);
-  // Initialise the count
-  auto initialiserZero = graph.addConstant<unsigned>(UNSIGNED_INT, {1}, 0u, di);
+  // Initialise the count.  The first timestep is 1, with timestep 0 being an
+  // initial state
+  auto initialiserZero = graph.addConstant<unsigned>(UNSIGNED_INT, {1}, 1u, di);
   graph.setTileMapping(initialiserZero, 0);
   prog.add(Copy(
       initialiserZero.broadcast(tempTensors.currentTimestep.numElements(), 0),
@@ -306,8 +308,10 @@ BeamTensors createAndInitialiseBeamTensors(
     const poplar::DebugContext &di) {
   BeamTensors beamTensors;
 
+  // Include an additional time step so that we can make a helpful initial
+  // state
   const std::vector<std::size_t> beamHistoryShape = {
-      batchSize, plan.batchEntryPartitions(), maxT, beamwidth};
+      batchSize, plan.batchEntryPartitions(), maxT + 1, beamwidth};
   beamTensors.parent =
       graph.addVariable(UNSIGNED_INT, beamHistoryShape, {di, "beamParent"});
   beamTensors.addend =
@@ -357,6 +361,29 @@ BeamTensors createAndInitialiseBeamTensors(
       initialiserVoidSymbol.broadcast(beamTensors.lastOutput.numElements(), 0),
       beamTensors.lastOutput.flatten(), false, di));
 
+  // Setup the initial beam history with a zero time slice with:
+  // beam   parent addend
+  // 0      0      voidSymbol      (This is valid, but void)
+  // 1      1      voidSymbol-1    (These are invalid symbols and won't merge)
+  // 2      2      voidSymbol-2
+  // ...
+  const auto addendSlice = beamTensors.addend.slice(0, 1, 2).slice(0, 1, 3);
+  prog.add(Copy(initialiserVoidSymbol.broadcast(addendSlice.numElements(), 0),
+                addendSlice.flatten()));
+
+  const auto numBeamsInstances = batchSize * plan.batchEntryPartitions();
+  const auto parentZeroTimeSlice =
+      beamTensors.parent.slice(0, 1, 2).reshapePartial(0, 2,
+                                                       {numBeamsInstances, 1});
+  const auto addendZeroTimeSlice =
+      beamTensors.addend.slice(0, 1, 2)
+          .slice(1, beamwidth, 3)
+          .reshapePartial(0, 2, {numBeamsInstances, 1});
+  for (unsigned i = 0; i < numBeamsInstances; i++) {
+    iota(graph, parentZeroTimeSlice.slice(i, i + 1, 0).flatten(), 0u, prog, di);
+    iota(graph, addendZeroTimeSlice.slice(i, i + 1, 0).flatten(),
+         voidSymbol - beamwidth, prog, di);
+  }
   return beamTensors;
 }
 

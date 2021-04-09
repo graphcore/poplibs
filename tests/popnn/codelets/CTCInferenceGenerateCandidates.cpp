@@ -47,7 +47,10 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   auto beamProbBlank =
       graph.addVariable(partialsType, {beamwidth}, "beamProbBlank");
 
-  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  // Codelet tests don't add an extra timestep = 0 initial state like the
+  // main implementation does. The effect of this is that we need to provide
+  // timestep + 1 here to compensate
+  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
   auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
 
   auto addCandidate = [&](const Type type, bool copyVertex,

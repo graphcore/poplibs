@@ -49,7 +49,8 @@ struct TempTensors {
 
 struct BeamTensors {
   // Beam history
-  // [batchSize][batchEntryPartitions][maxT][beamWidth]
+  // 0th timestep is an initial state
+  // [batchSize][batchEntryPartitions][maxT+1][beamWidth]
   poplar::Tensor parent;
   poplar::Tensor addend;
   // Beam probabilities, and last output from each beam

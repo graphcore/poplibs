@@ -362,7 +362,7 @@ void generateOutputVertex(Graph &graph, const BeamTensors &beams,
                           unsigned batch, unsigned beamwidth,
                           unsigned partition, unsigned path, unsigned tile) {
 
-  const auto maxT = beams.parent.dim(2);
+  const auto maxT = labels.dim(2);
 
   const auto vertexName =
       templateVertex("popnn::CTCGenerateOutput", UNSIGNED_INT);
@@ -377,7 +377,7 @@ void generateOutputVertex(Graph &graph, const BeamTensors &beams,
       vertex["outputLength"],
       labelLengths.slice({batch, path}, {batch + 1, path + 1}).reshape({}));
 
-  attachBeamHistory(graph, beams, {0, maxT}, batch, partition, beamwidth,
+  attachBeamHistory(graph, beams, {0, maxT + 1}, batch, partition, beamwidth,
                     vertex);
 
   // Timestep connection

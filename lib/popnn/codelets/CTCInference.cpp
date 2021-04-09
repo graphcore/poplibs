@@ -56,10 +56,10 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    if (currentTimestep >= dataLength) {
+    if (currentTimestep > dataLength) {
       return true;
     }
-    const unsigned baseOffset = (*currentTimestep) * numClassesIncBlank;
+    const unsigned baseOffset = (*currentTimestep - 1) * numClassesIncBlank;
     const auto blankProb =
         static_cast<PartialsType>(logProbs[baseOffset + blankClass]);
 
@@ -137,10 +137,10 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    if (currentTimestep >= dataLength) {
+    if (currentTimestep > dataLength) {
       return true;
     }
-    const unsigned baseOffset = (*currentTimestep) * numClassesIncBlank;
+    const unsigned baseOffset = (*currentTimestep - 1) * numClassesIncBlank;
     const auto blankProb =
         static_cast<PartialsType>(logProbs[baseOffset + blankClass]);
     unsigned outIdx = 0;
@@ -267,8 +267,8 @@ public:
   InOut<PartialsType> copyCandidateBeamProbBlank;
   InOut<PartialsType> copyCandidateBeamProbTotal;
 
-  Input<Vector<SymbolType, ONE_PTR>> beamAddend; // [maxT, beamwidth]
-  Input<Vector<unsigned, ONE_PTR>> beamParent;   // [maxT, beamwidth]
+  Input<Vector<SymbolType, ONE_PTR>> beamAddend; // [maxT+1, beamwidth]
+  Input<Vector<unsigned, ONE_PTR>> beamParent;   // [maxT+1, beamwidth]
 
   // Index into beamAddend/Parent for HEAD position
   Input<unsigned> currentTimestep;
@@ -295,27 +295,14 @@ public:
     // outputs match.
     // If the beginning of one beam history is reached and not the other then
     // the lengths are difference so there is no match
-    if (currentTimestep >= dataLength) {
+    if (currentTimestep > dataLength) {
       return true;
     }
-    // TODO - This allows detecting copy candidates with close to zero
-    // probability.  The definition of this is a bit arbitrary
-    const auto closeToZeroProbability =
-        log::probabilityZero + static_cast<PartialsType>(1000);
     // Flag as all valid until we merge
     *invalidCandidate = beamwidth;
 
     const unsigned parentLhs = *copyCandidateParent;
     const unsigned addendLhs = *copyCandidateAddend;
-    // No candidates are mergeable at t = 0
-    // Don't merge candidates with zero probability as the results introduce
-    // beams with outputs and zero probability
-    if (currentTimestep == 0 ||
-        (*copyCandidateBeamProbNonBlank <= closeToZeroProbability &&
-         *copyCandidateBeamProbBlank <= closeToZeroProbability)) {
-      return true;
-    }
-
     // The only way for candidates to be mergeable is if one is a copy
     // beam (same output sequence from parent beam), and the other extension
     // (of a different beam). This is from; if both candidates are copy, the
@@ -416,7 +403,7 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    if (currentTimestep >= dataLength) {
+    if (currentTimestep > dataLength) {
       return true;
     }
     // Precondition - candidates to be padded by previous codelets or memory
@@ -537,8 +524,8 @@ public:
   InOut<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
   InOut<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
   InOut<Vector<unsigned, ONE_PTR>> lastBeamOutputs;      // [beamwidth]
-  InOut<Vector<unsigned, ONE_PTR>> beamAddend;           // [maxT, beamwidth]
-  InOut<Vector<unsigned, ONE_PTR>> beamParent;           // [maxT, beamwidth]
+  InOut<Vector<unsigned, ONE_PTR>> beamAddend;           // [maxT+1, beamwidth]
+  InOut<Vector<unsigned, ONE_PTR>> beamParent;           // [maxT+1, beamwidth]
 
   Output<Vector<unsigned, ONE_PTR>> lastBeamOutputsScratch; //[beamWidth]
 
@@ -549,7 +536,7 @@ public:
 
   IS_EXTERNAL_CODELET(false);
   bool compute() {
-    if (currentTimestep >= dataLength) {
+    if (currentTimestep > dataLength) {
       // Early exit here avoids updating beams, probabilities and the count
       // and so nothing will change regardless
       return true;
@@ -563,17 +550,14 @@ public:
     const auto parent = &beamParent[baseOffset];
     const auto addend = &beamAddend[baseOffset];
     for (unsigned i = 0; i < beamwidth; i++) {
-      // TODO - this special case shouldn't be needed - we are dealing with
-      // candidates which are from invalid beams (At t=0 only beam zero exists)
-      parent[i] = currentTimestep == 0 ? 0 : candidateParent[i];
+      parent[i] = candidateParent[i];
       addend[i] = candidateAddend[i];
-      beamProbNonBlank[i] = candidateBeamProbNonBlank[i];
-      beamProbBlank[i] = candidateBeamProbBlank[i];
-
       // Keep the output from the parent beam, which can be a new parent
       lastBeamOutputs[i] = candidateAddend[i] == voidSymbol
                                ? lastBeamOutputsScratch[candidateParent[i]]
                                : candidateAddend[i];
+      beamProbNonBlank[i] = candidateBeamProbNonBlank[i];
+      beamProbBlank[i] = candidateBeamProbBlank[i];
     }
     // Increment time, which is used for all the codelets
     *currentTimestep = *currentTimestep + 1;
@@ -591,8 +575,8 @@ template <typename SymbolType> class CTCGenerateOutput : public Vertex {
 public:
   CTCGenerateOutput();
 
-  Input<Vector<unsigned, ONE_PTR>> beamAddend; // [maxT, beamwidth]
-  Input<Vector<unsigned, ONE_PTR>> beamParent; // [maxT, beamwidth]
+  Input<Vector<unsigned, ONE_PTR>> beamAddend; // [maxT+1, beamwidth]
+  Input<Vector<unsigned, ONE_PTR>> beamParent; // [maxT+1, beamwidth]
   Input<unsigned> currentTimestep;
   // The actual number of valid symbols found in the beamOutput
   Output<unsigned> outputLength;
@@ -618,13 +602,14 @@ public:
         break;
       }
       // Maintain the output length now we have another symbol
-      *outputLength = i + 1;
+      *outputLength = i;
       // Store the symbol sequence starting at the end of the output and
       // tracking backwards - so in the correct order but offset as we don't
       // know how long it is until we've decoded it all
       beamOutput[maxT - 1 - i] = symbol;
     }
     // Shuffle back to the start
+    *outputLength = *outputLength + 1;
     if (*outputLength != maxT) {
       for (unsigned i = 0; i < *outputLength; i++) {
         beamOutput[i] = beamOutput[maxT - *outputLength + i];
