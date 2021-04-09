@@ -46,6 +46,7 @@ public:
   Output<SymbolType> candidateAddend;
   Output<PartialsType> candidateBeamProbNonBlank;
   Output<PartialsType> candidateBeamProbBlank;
+  Output<PartialsType> candidateBeamProbTotal;
 
   const unsigned numClassesIncBlank;
   const SymbolType blankClass;
@@ -79,6 +80,7 @@ public:
     *candidateAddend = voidSymbol;
     *candidateBeamProbNonBlank = log::probabilityZero;
     *candidateBeamProbBlank = prob;
+    *candidateBeamProbTotal = prob;
 
     // By appending the same symbol as at the end of the beam
     // e.g. beam: "a", addend: "a" -> output: "a"
@@ -91,6 +93,7 @@ public:
       // same output sequence as the previous copy beam candidate which
       // appended a blank
       *candidateBeamProbNonBlank = nonBlankProb;
+      *candidateBeamProbTotal = logAdd<PartialsType>(prob, nonBlankProb);
     }
     return true;
   }
@@ -115,16 +118,20 @@ public:
   // The length of the data input (Valid for this specific input)
   Input<unsigned> dataLength;
 
-  // Outputs have size[beamwidth], the vertex generates beamwidth candidates
+  // Outputs have size[endBeam-startBeam],
+  // the vertex generates endBeam-startBeam] candidates
   Output<Vector<unsigned, ONE_PTR>> extendCandidateParent;
   Output<Vector<SymbolType, ONE_PTR>> extendCandidateAddend;
   Output<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbNonBlank;
   Output<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbBlank;
+  Output<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbTotal;
 
   const unsigned numClassesIncBlank;
   const SymbolType blankClass;
-  const unsigned beamwidth;
-  // Creating all the extend beams with this symbol
+  // Extending beams in this range
+  const unsigned startBeam;
+  const unsigned endBeam;
+  // Creating extend beams with this symbol
   const unsigned addendSymbol;
 
   IS_EXTERNAL_CODELET(false);
@@ -136,16 +143,16 @@ public:
     const unsigned baseOffset = (*currentTimestep) * numClassesIncBlank;
     const auto blankProb =
         static_cast<PartialsType>(logProbs[baseOffset + blankClass]);
-
-    for (unsigned beamIdx = 0; beamIdx < beamwidth; ++beamIdx) {
+    unsigned outIdx = 0;
+    for (unsigned beamIdx = startBeam; beamIdx < endBeam; ++beamIdx) {
       // Extend beams ---
       // Extend the beam using addendSymbol
       // Extending a beam ending in a blank with a non-blank symbol
       // e.g. beam: "a-", addend: "a" -> output: "aa" (extended by the
       // same symbol)
-      extendCandidateParent[beamIdx] = beamIdx;
-      extendCandidateAddend[beamIdx] = addendSymbol;
-      extendCandidateBeamProbBlank[beamIdx] = log::probabilityZero;
+      extendCandidateParent[outIdx] = beamIdx;
+      extendCandidateAddend[outIdx] = addendSymbol;
+      extendCandidateBeamProbBlank[outIdx] = log::probabilityZero;
 
       const auto addendProb =
           static_cast<PartialsType>(logProbs[baseOffset + addendSymbol]);
@@ -168,7 +175,9 @@ public:
         extendingBlankProb =
             logAdd<PartialsType>(extendingBlankProb, extendingNonBlankProb);
       }
-      extendCandidateBeamProbNonBlank[beamIdx] = extendingBlankProb;
+      extendCandidateBeamProbNonBlank[outIdx] = extendingBlankProb;
+      extendCandidateBeamProbTotal[outIdx] = extendingBlankProb;
+      outIdx++;
     }
     return true;
   }
@@ -246,11 +255,17 @@ public:
   Input<Vector<SymbolType, ONE_PTR>> extendCandidateAddend;
   Input<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbNonBlank;
   Input<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbBlank;
+  // Note - total probability not required for extend candidates, because:
+  // 1. They are never modified.
+  // 2. When merging, the resulting copy candidate needs a updated pb and pnb
+  //    pb = pbCopy + pbExtend and pnb = pnbCopy + pnbExtend
+  //    and so the pTotal of the merged result can be calculated from pb, pnb
 
   InOut<unsigned> copyCandidateParent;
   InOut<SymbolType> copyCandidateAddend;
   InOut<PartialsType> copyCandidateBeamProbNonBlank;
   InOut<PartialsType> copyCandidateBeamProbBlank;
+  InOut<PartialsType> copyCandidateBeamProbTotal;
 
   Input<Vector<SymbolType, ONE_PTR>> beamAddend; // [maxT, beamwidth]
   Input<Vector<unsigned, ONE_PTR>> beamParent;   // [maxT, beamwidth]
@@ -283,7 +298,7 @@ public:
     if (currentTimestep >= dataLength) {
       return true;
     }
-    // TODO - This allows detecting copt candidates with close to zero
+    // TODO - This allows detecting copy candidates with close to zero
     // probability.  The definition of this is a bit arbitrary
     const auto closeToZeroProbability =
         log::probabilityZero + static_cast<PartialsType>(1000);
@@ -331,6 +346,8 @@ public:
             *copyCandidateBeamProbNonBlank, extendCandidateBeamProbNonBlank[i]);
         *copyCandidateBeamProbBlank = logAdd(*copyCandidateBeamProbBlank,
                                              extendCandidateBeamProbBlank[i]);
+        *copyCandidateBeamProbTotal =
+            logAdd(*copyCandidateBeamProbBlank, *copyCandidateBeamProbNonBlank);
         // Preserve the addend and parent of the extend candidate
         *copyCandidateParent = parentRhs;
         *copyCandidateAddend = addendRhs;
@@ -380,6 +397,7 @@ public:
   InOut<Vector<SymbolType, ONE_PTR>> candidateAddend;
   InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
   InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
+  InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbTotal;
 
   // TODO - this appears redundant, although this code could be subject to
   // change.  Leave it in place for now, as it may prove useful later!
@@ -390,10 +408,6 @@ public:
   Input<unsigned> currentTimestep;
   // The length of the data input (Valid for this specific input)
   Input<unsigned> dataLength;
-
-  // Scratch space to store Pt
-  // TODO Consider doing this ahead of time if sorting is not very parallel
-  Output<Vector<PartialsType, ONE_PTR>> candidateProbTotalScratch;
 
   const unsigned beamwidth; // beamwidth indicates the number of copy candidates
   const unsigned totalCandidates;
@@ -411,13 +425,7 @@ public:
     const auto numCopyCandidatesBroadcast = beamwidth * extendCandidateGroups;
 
     // TODO - This preparation stage could maybe be parellelised by using a
-    // dedicated codelet, including finding the probability sum ?
-
-    // Find the summed probability for all the extend candidates
-    for (unsigned i = numCopyCandidatesBroadcast; i < totalCandidates; i++) {
-      candidateProbTotalScratch[i] =
-          logAdd(candidateBeamProbNonBlank[i], candidateBeamProbBlank[i]);
-    }
+    // dedicated codelet
 
     // We already broadcast the copy candidates - so only keep one of each
     // broadcast group, but select the one that was part of a merge
@@ -441,10 +449,10 @@ public:
           // When merged the copy candidate's parent was overwritten with that
           // of the extend candidate it merged with  This allows us to find and
           // modify that extend candidate
-          candidateProbTotalScratch
-              [numCopyCandidatesBroadcast + // Start of extend candidates
-               groupOffset +                // group0, group1 etc
-               candidateParent[idx]] =      // parent within group
+          candidateBeamProbTotal[numCopyCandidatesBroadcast + // Start of extend
+                                                              // candidates
+                                 groupOffset +           // group0, group1 etc
+                                 candidateParent[idx]] = // parent within group
               log::probabilityZero;
           groupOffset = beamwidth * (extendCandidateGroups - 1);
           break;
@@ -455,22 +463,17 @@ public:
       const auto idx = i + groupOffset;
       if (mergeFound) {
         // There was already a merge among the copy candidates so overwrite the
-        // last one, and find its probability sum
+        // last one
         candidateParent[idx] = candidateParent[mergedIndex];
         candidateAddend[idx] = candidateAddend[mergedIndex];
         candidateBeamProbNonBlank[idx] = candidateBeamProbNonBlank[mergedIndex];
         candidateBeamProbBlank[idx] = candidateBeamProbBlank[mergedIndex];
-        candidateProbTotalScratch[idx] =
-            logAdd(candidateBeamProbNonBlank[mergedIndex],
-                   candidateBeamProbBlank[mergedIndex]);
+        candidateBeamProbTotal[idx] = candidateBeamProbTotal[mergedIndex];
       } else {
         // No merge found yet, so use the last one, checking if it was a merge
-        candidateProbTotalScratch[idx] =
-            logAdd(candidateBeamProbNonBlank[idx], candidateBeamProbBlank[idx]);
         if (candidateAddend[idx] != voidSymbol) {
-          candidateProbTotalScratch[numCopyCandidatesBroadcast + groupOffset +
-                                    candidateParent[idx]] =
-              log::probabilityZero;
+          candidateBeamProbTotal[numCopyCandidatesBroadcast + groupOffset +
+                                 candidateParent[idx]] = log::probabilityZero;
         }
       }
     }
@@ -481,9 +484,9 @@ public:
     for (unsigned b = 0; b < beamwidth; b++) {
       const auto beamOutIdx = offset + b;
       unsigned maxIdx = beamOutIdx;
-      PartialsType max = candidateProbTotalScratch[beamOutIdx];
+      PartialsType max = candidateBeamProbTotal[beamOutIdx];
       for (unsigned i = beamOutIdx; i < totalCandidates; i++) {
-        const auto cmp = candidateProbTotalScratch[i];
+        const auto cmp = candidateBeamProbTotal[i];
         if (cmp > max) {
           maxIdx = i;
           max = cmp;
@@ -506,9 +509,9 @@ public:
       candidateBeamProbBlank[beamOutIdx] = candidateBeamProbBlank[maxIdx];
       candidateBeamProbBlank[maxIdx] = tmpBeamProbBlank;
 
-      PartialsType tmpProbTotalScratch = candidateProbTotalScratch[beamOutIdx];
-      candidateProbTotalScratch[beamOutIdx] = candidateProbTotalScratch[maxIdx];
-      candidateProbTotalScratch[maxIdx] = tmpProbTotalScratch;
+      PartialsType tmpProbTotalScratch = candidateBeamProbTotal[beamOutIdx];
+      candidateBeamProbTotal[beamOutIdx] = candidateBeamProbTotal[maxIdx];
+      candidateBeamProbTotal[maxIdx] = tmpProbTotalScratch;
     }
 
     return true;
@@ -560,6 +563,8 @@ public:
     const auto parent = &beamParent[baseOffset];
     const auto addend = &beamAddend[baseOffset];
     for (unsigned i = 0; i < beamwidth; i++) {
+      // TODO - this special case shouldn't be needed - we are dealing with
+      // candidates which are from invalid beams (At t=0 only beam zero exists)
       parent[i] = currentTimestep == 0 ? 0 : candidateParent[i];
       addend[i] = candidateAddend[i];
       beamProbNonBlank[i] = candidateBeamProbNonBlank[i];

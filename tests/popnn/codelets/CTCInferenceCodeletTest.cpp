@@ -133,7 +133,7 @@ void print(const std::vector<Candidate<FPType>> &candidates,
     }
     std::cout << std::fixed << std::setprecision(4)
               << " [pnb: " << candidate.pnb << ", pb: " << candidate.pb
-              << "])\n";
+              << ", pTotal: " << candidate.pTotal << "])\n";
   }
 }
 bool beamHistoryIsClose(const BeamHistory &actual,
@@ -180,6 +180,8 @@ bool candidateIsClose(const Candidate<ActualFPType> &actual,
          checkIsClose<ExpectedFPType>(actual.pnb, expected.pnb,
                                       relativeTolerance) &&
          checkIsClose<ExpectedFPType>(actual.pb, expected.pb,
+                                      relativeTolerance) &&
+         checkIsClose<ExpectedFPType>(actual.pTotal, expected.pTotal,
                                       relativeTolerance);
 }
 

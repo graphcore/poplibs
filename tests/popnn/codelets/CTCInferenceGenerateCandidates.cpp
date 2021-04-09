@@ -67,6 +67,8 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
       partialsType, testGenerateCopyVertex, "candidateBeamProbNonBlank");
   auto candidateBeamProbBlank = addCandidate(
       partialsType, testGenerateCopyVertex, "candidateBeamProbBlank");
+  auto candidateBeamProbTotal = addCandidate(
+      partialsType, testGenerateCopyVertex, "candidateBeamProbTotal");
 
   graph.setTileMapping(logProbs, 0);
   graph.setTileMapping(lastBeamOutputs, 0);
@@ -80,6 +82,7 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   graph.setTileMapping(candidateAddend, 0);
   graph.setTileMapping(candidateBeamProbNonBlank, 0);
   graph.setTileMapping(candidateBeamProbBlank, 0);
+  graph.setTileMapping(candidateBeamProbTotal, 0);
 
   auto cs = graph.addComputeSet("cs");
   const auto vertexName = testGenerateCopyVertex
@@ -103,14 +106,17 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   graph.connect(vertex[prefix + "Addend"], candidateAddend);
   graph.connect(vertex[prefix + "BeamProbNonBlank"], candidateBeamProbNonBlank);
   graph.connect(vertex[prefix + "BeamProbBlank"], candidateBeamProbBlank);
+  graph.connect(vertex[prefix + "BeamProbTotal"], candidateBeamProbTotal);
 
   graph.setInitialValue(vertex["numClassesIncBlank"], numClassesIncBlank);
   graph.setInitialValue(vertex["blankClass"], blankClass);
-  graph.setInitialValue(vertex["beamwidth"], beamwidth);
 
   if (testGenerateCopyVertex) {
+    graph.setInitialValue(vertex["beamwidth"], beamwidth);
     graph.setInitialValue(vertex["beamIdx"], beam);
   } else {
+    graph.setInitialValue(vertex["startBeam"], 0);
+    graph.setInitialValue(vertex["endBeam"], beamwidth);
     graph.setInitialValue(vertex["addendSymbol"], classToMakeAddend);
   }
   Sequence uploadProg, downloadProg;
@@ -149,7 +155,8 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
 
   // Outputs
   std::unique_ptr<char[]> rawCandidateParent, rawCandidateAddend,
-      rawCandidateBeamProbNonBlank, rawCandidateBeamProbBlank;
+      rawCandidateBeamProbNonBlank, rawCandidateBeamProbBlank,
+      rawCandidateBeamProbTotal;
 
   rawCandidateParent =
       allocateHostMemoryForTensor(candidateParent, "candidateParent", graph,
@@ -162,6 +169,9 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
       downloadProg, tmap);
   rawCandidateBeamProbBlank = allocateHostMemoryForTensor(
       candidateBeamProbBlank, "candidateBeamProbBlank", graph, uploadProg,
+      downloadProg, tmap);
+  rawCandidateBeamProbTotal = allocateHostMemoryForTensor(
+      candidateBeamProbTotal, "candidateBeamProbTotal", graph, uploadProg,
       downloadProg, tmap);
 
   // TODO Need to initialise outputs?
@@ -187,12 +197,15 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   // TODO partialsType == float
   std::vector<float> candidateBeamProbBlankOut(totalCandidates);
   std::vector<float> candidateBeamProbNonBlankOut(totalCandidates);
+  std::vector<float> candidateBeamProbTotalOut(totalCandidates);
   copy(target, UNSIGNED_INT, rawCandidateParent.get(), candidateParentOut);
   copy(target, UNSIGNED_INT, rawCandidateAddend.get(), candidateAddendOut);
   copy(target, partialsType, rawCandidateBeamProbNonBlank.get(),
        candidateBeamProbNonBlankOut);
   copy(target, partialsType, rawCandidateBeamProbBlank.get(),
        candidateBeamProbBlankOut);
+  copy(target, partialsType, rawCandidateBeamProbTotal.get(),
+       candidateBeamProbTotalOut);
 
   if (profile && deviceType != DeviceType::Cpu) {
     engine.printProfileSummary(std::cout,
@@ -203,7 +216,8 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   for (unsigned i = 0; i < totalCandidates; i++) {
     candidates.push_back({candidateParentOut[i], candidateAddendOut[i],
                           candidateBeamProbNonBlankOut[i],
-                          candidateBeamProbBlankOut[i]});
+                          candidateBeamProbBlankOut[i],
+                          candidateBeamProbTotalOut[i]});
   }
   return candidates;
 }

@@ -25,8 +25,9 @@ template <typename FPType> struct Candidate {
   unsigned beam;   // Parent output sequence
   unsigned addend; // Symbol to append onto beam
 
-  FPType pnb; // beam and non blank
-  FPType pb;  // beam and blank
+  FPType pnb;    // beam and non blank
+  FPType pb;     // beam and blank
+  FPType pTotal; // pTotal = pnb + pb
 };
 
 struct BeamHistory {

@@ -32,7 +32,7 @@ using namespace popops::expr;
 using namespace poputil;
 
 template <unsigned size> using Slice = std::array<std::size_t, size>;
-enum class PartitionType { BATCH_ENTRY, CLASSES, BEAMWIDTH };
+enum class PartitionType { BATCH_ENTRY, COPY, EXTEND, MERGE, OUTPUT };
 
 namespace {
 
@@ -98,10 +98,14 @@ inline poplar::Interval makePartition(unsigned size, unsigned index,
   switch (partitionType) {
   case PartitionType::BATCH_ENTRY:
     return plan.partitionBatchEntry(size, index);
-  case PartitionType::CLASSES:
-    return plan.partitionClass(size, index);
+  case PartitionType::MERGE:
+    return plan.partitionMerge(size, index);
+  case PartitionType::EXTEND:
+    return plan.partitionExtend(size, index);
+  case PartitionType::COPY:
+    return plan.partitionCopy(size, index);
   default:
-    return plan.partitionBeam(size, index);
+    return plan.partitionOutput(size, index);
   };
 }
 
@@ -170,7 +174,6 @@ TempTensors createAndInitialiseTemporaryTensors(
     unsigned batchSize, unsigned beamwidth, const Type &partialsType,
     Sequence &prog, const poplar::DebugContext &di) {
   TempTensors tempTensors;
-
   // Make a counter per tile for the vertices to use
   // Note - making these unsigned short would mean the vertex has to do a
   // subword write.  This slows it down, but more importantly when plans put
@@ -204,6 +207,8 @@ TempTensors createAndInitialiseTemporaryTensors(
       partialsType, extendCandidateShape, {di, "extendCandidatesPb"});
   tempTensors.extendCandidatesPnb = graph.addVariable(
       partialsType, extendCandidateShape, {di, "extendCandidatesPnb"});
+  tempTensors.extendCandidatesPTotal = graph.addVariable(
+      partialsType, extendCandidateShape, {di, "extendCandidatesPTotal"});
 
   tempTensors.extendCandidatesParent = graph.addVariable(
       UNSIGNED_INT, extendCandidateShape, {di, "extendCandidatesParents"});
@@ -211,13 +216,15 @@ TempTensors createAndInitialiseTemporaryTensors(
       UNSIGNED_INT, extendCandidateShape, {di, "extendCandidatesAddends"});
 
   mapAccordingToPlan(graph, tempTensors.extendCandidatesPb,
-                     PartitionType::CLASSES, plan);
+                     PartitionType::EXTEND, plan);
   mapAccordingToPlan(graph, tempTensors.extendCandidatesPnb,
-                     PartitionType::CLASSES, plan);
+                     PartitionType::EXTEND, plan);
+  mapAccordingToPlan(graph, tempTensors.extendCandidatesPTotal,
+                     PartitionType::EXTEND, plan);
   mapAccordingToPlan(graph, tempTensors.extendCandidatesParent,
-                     PartitionType::CLASSES, plan);
+                     PartitionType::EXTEND, plan);
   mapAccordingToPlan(graph, tempTensors.extendCandidatesAddend,
-                     PartitionType::CLASSES, plan);
+                     PartitionType::EXTEND, plan);
 
   // Copy candidates
   const std::vector<std::size_t> copyCandidateShape = {batchSize, beamwidth, 1};
@@ -225,24 +232,29 @@ TempTensors createAndInitialiseTemporaryTensors(
       partialsType, copyCandidateShape, {di, "copyCandidatesPb"});
   tempTensors.copyCandidatesPnb = graph.addVariable(
       partialsType, copyCandidateShape, {di, "copyCandidatesPnb"});
+  tempTensors.copyCandidatesPTotal = graph.addVariable(
+      partialsType, copyCandidateShape, {di, "copyCandidatesPTotal"});
 
   tempTensors.copyCandidatesParent = graph.addVariable(
       UNSIGNED_INT, copyCandidateShape, {di, "copyCandidatesParent"});
   tempTensors.copyCandidatesAddend = graph.addVariable(
       UNSIGNED_INT, copyCandidateShape, {di, "copyCandidatesAddend"});
 
-  mapAccordingToPlan(graph, tempTensors.copyCandidatesPb,
-                     PartitionType::BEAMWIDTH, plan);
-  mapAccordingToPlan(graph, tempTensors.copyCandidatesPnb,
-                     PartitionType::BEAMWIDTH, plan);
+  mapAccordingToPlan(graph, tempTensors.copyCandidatesPb, PartitionType::COPY,
+                     plan);
+  mapAccordingToPlan(graph, tempTensors.copyCandidatesPnb, PartitionType::COPY,
+                     plan);
+  mapAccordingToPlan(graph, tempTensors.copyCandidatesPTotal,
+                     PartitionType::COPY, plan);
   mapAccordingToPlan(graph, tempTensors.copyCandidatesParent,
-                     PartitionType::BEAMWIDTH, plan);
+                     PartitionType::COPY, plan);
   mapAccordingToPlan(graph, tempTensors.copyCandidatesAddend,
-                     PartitionType::BEAMWIDTH, plan);
+                     PartitionType::COPY, plan);
 
   // Merge indication and merge candidates vectors of tensors
   tempTensors.mergeCandidatesPb.resize(beamwidth);
   tempTensors.mergeCandidatesPnb.resize(beamwidth);
+  tempTensors.mergeCandidatesPTotal.resize(beamwidth);
   tempTensors.mergeCandidatesParent.resize(beamwidth);
   tempTensors.mergeCandidatesAddend.resize(beamwidth);
   tempTensors.mergedCandidateIndicator.resize(beamwidth);
@@ -257,6 +269,9 @@ TempTensors createAndInitialiseTemporaryTensors(
     tempTensors.mergeCandidatesPnb[i] =
         graph.addVariable(partialsType, mergeTensorsShape,
                           {di, "mergeCandidatesPnb_" + debugStr});
+    tempTensors.mergeCandidatesPTotal[i] =
+        graph.addVariable(partialsType, mergeTensorsShape,
+                          {di, "mergeCandidatesPTotal_" + debugStr});
 
     tempTensors.mergeCandidatesParent[i] =
         graph.addVariable(UNSIGNED_INT, mergeTensorsShape,
@@ -269,16 +284,19 @@ TempTensors createAndInitialiseTemporaryTensors(
                           {di, "mergedCandidateIndicator_" + debugStr});
 
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesPb[i],
-                       PartitionType::CLASSES, plan);
+                       PartitionType::MERGE, plan);
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesPnb[i],
-                       PartitionType::CLASSES, plan);
+                       PartitionType::MERGE, plan);
+    mapAccordingToPlan(graph, tempTensors.mergeCandidatesPTotal[i],
+                       PartitionType::MERGE, plan);
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesParent[i],
-                       PartitionType::CLASSES, plan);
+                       PartitionType::MERGE, plan);
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesAddend[i],
-                       PartitionType::CLASSES, plan);
+                       PartitionType::MERGE, plan);
     mapAccordingToPlan(graph, tempTensors.mergedCandidateIndicator[i],
-                       PartitionType::CLASSES, plan);
+                       PartitionType::MERGE, plan);
   }
+
   return tempTensors;
 }
 
@@ -357,15 +375,18 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   auto cs1 = graph.addComputeSet(di);
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     // Extend candidates
-    for (unsigned c = 0; c < plan.parallel.classes; c++) {
+    for (unsigned c = 0; c < plan.parallel.extend; c++) {
       const unsigned addendClass = c >= blankClass ? c + 1 : c;
       const unsigned tile = plan.getTile(batch, 0, c);
-      generateExtendCandidateVertex(graph, data, beams, tempTensors, cs1, batch,
-                                    {0, maxT}, c, blankClass, beamwidth,
-                                    addendClass, tile);
+      for (unsigned v = 0; v < plan.parallel.extendVerticesPerPartition; v++) {
+        const auto beamPartition = plan.partitionExtendVertices(beamwidth, v);
+        generateExtendCandidateVertex(
+            graph, data, beams, tempTensors, cs1, batch, {0, maxT}, c,
+            blankClass, beamwidth, beamPartition, addendClass, tile);
+      }
     }
     // Copy candidates
-    for (unsigned c = 0; c < plan.parallel.beam; c++) {
+    for (unsigned c = 0; c < plan.parallel.copy; c++) {
       const unsigned tile = plan.getTile(batch, 0, c);
       generateCopyCandidateVertex(graph, data, beams, tempTensors, cs1, batch,
                                   {0, maxT}, c, blankClass, beamwidth, tile);
@@ -387,13 +408,15 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
                   tempTensors.mergeCandidatesPb[i]));
     prog.add(Copy(transform(tempTensors.copyCandidatesPnb, i),
                   tempTensors.mergeCandidatesPnb[i]));
+    prog.add(Copy(transform(tempTensors.copyCandidatesPTotal, i),
+                  tempTensors.mergeCandidatesPTotal[i]));
   }
 
   // Merge candidates in the 2nd compute set
   // TODO- Merging could be more parallel
   auto cs2 = graph.addComputeSet(di);
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
-    for (unsigned copy = 0; copy < plan.parallel.beam; copy++) {
+    for (unsigned copy = 0; copy < plan.parallel.copy; copy++) {
       for (unsigned addend = 0; addend < numClassesM1; addend++) {
         const unsigned tile = plan.getTile(batch, 0, addend);
         mergeCandidateVertex(graph, beams, tempTensors, cs2, batch, {0, maxT},
@@ -407,15 +430,10 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   // TODO - make some of the sorting work more in parallel
   auto cs3 = graph.addComputeSet(di);
   const unsigned candidatesPerMerge = numClassesM1;
-  const unsigned candidatesToCompare = plan.parallel.beam * numClassesM1 * 2;
+  const unsigned candidatesToCompare = plan.parallel.copy * numClassesM1 * 2;
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     const unsigned tile = batch * plan.batchEntryPartitions();
-    // Scratch (Created here as not used by other vertices)
-    auto scratch =
-        graph.addVariable(tempTensors.mergeCandidatesPb[0].elementType(),
-                          {candidatesToCompare}, {di, "scratch"});
-    graph.setTileMapping(scratch, tile);
-    selectCandidatesVertex(graph, scratch, tempTensors, cs3, batch, 0,
+    selectCandidatesVertex(graph, tempTensors, cs3, batch, 0,
                            candidatesPerMerge, candidatesToCompare, beamwidth,
                            tile);
   }
@@ -423,7 +441,7 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
 
   // Update beam history and probabilities in the 4th compute set
   auto cs4 = graph.addComputeSet(di);
-  const unsigned sortedResultOffset = plan.parallel.beam * (numClassesM1 - 1);
+  const unsigned sortedResultOffset = plan.parallel.copy * (numClassesM1 - 1);
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     for (unsigned beam = 0; beam < plan.batchEntryPartitions(); beam++) {
       const unsigned tile = plan.getTile(batch, 0, beam);
@@ -580,9 +598,9 @@ beamSearchDecoderLogProbabilitiesImpl(
   auto decodedLabels = graph.addVariable(
       UNSIGNED_INT, {batchSize, topPaths, maxT}, {di, "decodedLabels"});
 
-  mapAccordingToPlan(graph, labelProbs, PartitionType::BEAMWIDTH, plan);
-  mapAccordingToPlan(graph, labelLengths, PartitionType::BEAMWIDTH, plan);
-  mapAccordingToPlan(graph, decodedLabels, PartitionType::BEAMWIDTH, plan);
+  mapAccordingToPlan(graph, labelProbs, PartitionType::OUTPUT, plan);
+  mapAccordingToPlan(graph, labelLengths, PartitionType::OUTPUT, plan);
+  mapAccordingToPlan(graph, decodedLabels, PartitionType::OUTPUT, plan);
   // Remove the 3rd dimension that was inserted
   labelProbs.squeeze({2});
   labelLengths.squeeze({2});

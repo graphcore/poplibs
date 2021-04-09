@@ -23,12 +23,14 @@ struct TempTensors {
   // [batchSize][numClasses-1][beamwidth]
   poplar::Tensor extendCandidatesPb;
   poplar::Tensor extendCandidatesPnb;
+  poplar::Tensor extendCandidatesPTotal;
   poplar::Tensor extendCandidatesParent;
   poplar::Tensor extendCandidatesAddend;
   // Copy candidates
   // [batchSize][beamwidth][1]
   poplar::Tensor copyCandidatesPb;
   poplar::Tensor copyCandidatesPnb;
+  poplar::Tensor copyCandidatesPTotal;
   poplar::Tensor copyCandidatesParent;
   poplar::Tensor copyCandidatesAddend;
   // Merge candidates (The broadcast of the copy candidates which can be
@@ -38,6 +40,7 @@ struct TempTensors {
   // [batchSize][numClasses-1][1]
   std::vector<poplar::Tensor> mergeCandidatesPb;
   std::vector<poplar::Tensor> mergeCandidatesPnb;
+  std::vector<poplar::Tensor> mergeCandidatesPTotal;
   std::vector<poplar::Tensor> mergeCandidatesParent;
   std::vector<poplar::Tensor> mergeCandidatesAddend;
   // Merged candidate (Integer indicating a merge and which was merged)
@@ -60,7 +63,8 @@ void generateExtendCandidateVertex(
     poplar::Graph &graph, const poplar::Tensor &data, const BeamTensors &beams,
     const TempTensors &TempTensors, poplar::ComputeSet &cs, unsigned batch,
     const poplar::Interval &time, unsigned addendPartition, unsigned blankClass,
-    unsigned beamwidth, unsigned addendClass, unsigned tile);
+    unsigned beamwidth, const poplar::Interval &beamPartition,
+    unsigned addendClass, unsigned tile);
 
 void generateCopyCandidateVertex(
     poplar::Graph &graph, const poplar::Tensor &data, const BeamTensors &beams,
@@ -75,7 +79,7 @@ void mergeCandidateVertex(poplar::Graph &graph, const BeamTensors &beams,
                           unsigned addendPartition, unsigned beamPartition,
                           unsigned beamwidth, unsigned tile);
 
-void selectCandidatesVertex(poplar::Graph &graph, const poplar::Tensor &scratch,
+void selectCandidatesVertex(poplar::Graph &graph,
                             const TempTensors &tempTensors,
                             poplar::ComputeSet &cs, unsigned batch,
                             unsigned partition, unsigned candidatesPerMerge,

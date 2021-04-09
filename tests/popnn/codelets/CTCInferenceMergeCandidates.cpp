@@ -55,6 +55,8 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
       graph.addVariable(partialsType, {}, "copyCandidateBeamProbNonBlank");
   auto copyCandidateBeamProbBlank =
       graph.addVariable(partialsType, {}, "copyCandidateBeamProbBlank");
+  auto copyCandidateBeamProbTotal =
+      graph.addVariable(partialsType, {}, "copyCandidateBeamProbTotal");
 
   auto beamAddend =
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamAddend");
@@ -76,6 +78,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   graph.setTileMapping(copyCandidateAddend, 0);
   graph.setTileMapping(copyCandidateBeamProbNonBlank, 0);
   graph.setTileMapping(copyCandidateBeamProbBlank, 0);
+  graph.setTileMapping(copyCandidateBeamProbTotal, 0);
 
   graph.setTileMapping(beamAddend, 0);
   graph.setTileMapping(beamParent, 0);
@@ -102,6 +105,8 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
                 copyCandidateBeamProbNonBlank);
   graph.connect(vertex["copyCandidateBeamProbBlank"],
                 copyCandidateBeamProbBlank);
+  graph.connect(vertex["copyCandidateBeamProbTotal"],
+                copyCandidateBeamProbTotal);
 
   graph.connect(vertex["beamAddend"], beamAddend.flatten());
   graph.connect(vertex["beamParent"], beamParent.flatten());
@@ -118,13 +123,16 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
 
   // InOut
   std::unique_ptr<char[]> rawCopyCandidateBeamProbNonBlank,
-      rawCopyCandidateBeamProbBlank;
+      rawCopyCandidateBeamProbBlank, rawCopyCandidateBeamProbTotal;
 
   rawCopyCandidateBeamProbNonBlank = allocateHostMemoryForTensor(
       copyCandidateBeamProbNonBlank, "copyCandidateBeamProbNonBlank", graph,
       uploadProg, downloadProg, tmap);
   rawCopyCandidateBeamProbBlank = allocateHostMemoryForTensor(
       copyCandidateBeamProbBlank, "copyCandidateBeamProbBlank", graph,
+      uploadProg, downloadProg, tmap);
+  rawCopyCandidateBeamProbTotal = allocateHostMemoryForTensor(
+      copyCandidateBeamProbTotal, "copyCandidateBeamProbTotal", graph,
       uploadProg, downloadProg, tmap);
 
   // Inputs
@@ -178,6 +186,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   std::vector<unsigned> copyCandidateAddendIn = {copyCandidate.addend};
   std::vector<float> copyCandidateBeamProbNonBlankIn = {copyCandidate.pnb};
   std::vector<float> copyCandidateBeamProbBlankIn = {copyCandidate.pb};
+  std::vector<float> copyCandidateBeamProbTotalIn = {copyCandidate.pTotal};
 
   copy(target, copyCandidateParentIn, UNSIGNED_INT,
        rawCopyCandidateParent.get());
@@ -187,6 +196,8 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
        rawCopyCandidateBeamProbNonBlank.get());
   copy(target, copyCandidateBeamProbBlankIn, partialsType,
        rawCopyCandidateBeamProbBlank.get());
+  copy(target, copyCandidateBeamProbTotalIn, partialsType,
+       rawCopyCandidateBeamProbTotal.get());
 
   std::unique_ptr<char[]> rawBeamAddend, rawBeamParent;
 
@@ -236,6 +247,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   // TODO partialsType == float
   std::vector<float> copyCandidateBeamProbBlankOut(1);
   std::vector<float> copyCandidateBeamProbNonBlankOut(1);
+  std::vector<float> copyCandidateBeamProbTotalOut(1);
 
   // This is all that should have changed - either a merge happened or it didn't
   // and if so the copy candidate is updated with probabilities.
@@ -247,6 +259,8 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
        copyCandidateBeamProbNonBlankOut);
   copy(target, partialsType, rawCopyCandidateBeamProbBlank.get(),
        copyCandidateBeamProbBlankOut);
+  copy(target, partialsType, rawCopyCandidateBeamProbTotal.get(),
+       copyCandidateBeamProbTotalOut);
 
   if (profile && deviceType != DeviceType::Cpu) {
     engine.printProfileSummary(std::cout,
@@ -258,13 +272,14 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   std::vector<Candidate<float>> mergedCandidates;
   mergedCandidates.push_back(
       {copyCandidateParentIn[0], copyCandidateAddendIn[0],
-       copyCandidateBeamProbNonBlankOut[0], copyCandidateBeamProbBlankOut[0]});
+       copyCandidateBeamProbNonBlankOut[0], copyCandidateBeamProbBlankOut[0],
+       copyCandidateBeamProbTotalOut[0]});
   for (unsigned i = 0; i < numExtendCandidates; i++) {
     if (i != invalidCandidateOut[0]) {
-      mergedCandidates.push_back({extendCandidateParentIn[i],
-                                  extendCandidateAddendIn[i],
-                                  extendCandidateBeamProbNonBlankIn[i],
-                                  extendCandidateBeamProbBlankIn[i]});
+      mergedCandidates.push_back(
+          {extendCandidateParentIn[i], extendCandidateAddendIn[i],
+           extendCandidateBeamProbNonBlankIn[i],
+           extendCandidateBeamProbBlankIn[i], extendCandidates[i].pTotal});
     }
   }
   return mergedCandidates;

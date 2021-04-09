@@ -25,8 +25,12 @@ template <typename T> struct CtcInferencePartition {
   // TODO - Documnet a fully thought out plan here
   T batch;
   T time;
-  T beam;
-  T classes;
+
+  T copy;
+  T extend;
+  T extendVerticesPerPartition;
+  T merge;
+  T output;
 };
 
 class InferencePlan {
@@ -62,19 +66,32 @@ public:
   // we could choose between overlapping (total=max) or sequential (total=sum)
   // allocation of vertices
   unsigned batchEntryPartitions(void) const {
-    return std::max(parallel.beam, parallel.classes);
+    return std::max(parallel.merge, std::max(parallel.extend, parallel.copy));
   }
 
   poplar::Interval partitionBatchEntry(unsigned size, unsigned index) const {
     return partition(size, batchEntryPartitions(), index);
   }
 
-  poplar::Interval partitionClass(unsigned classSize, unsigned index) const {
-    return partition(classSize, parallel.classes, index);
+  poplar::Interval partitionMerge(unsigned mergeSize, unsigned index) const {
+    return partition(mergeSize, parallel.merge, index);
   }
 
-  poplar::Interval partitionBeam(unsigned beamSize, unsigned index) const {
-    return partition(beamSize, parallel.beam, index);
+  poplar::Interval partitionOutput(unsigned outSize, unsigned index) const {
+    return partition(outSize, parallel.output, index);
+  }
+
+  poplar::Interval partitionCopy(unsigned copySize, unsigned index) const {
+    return partition(copySize, parallel.copy, index);
+  }
+
+  poplar::Interval partitionExtend(unsigned extendSize, unsigned index) const {
+    return partition(extendSize, parallel.extend, index);
+  }
+
+  poplar::Interval partitionExtendVertices(unsigned extendSize,
+                                           unsigned index) const {
+    return partition(extendSize, parallel.extendVerticesPerPartition, index);
   }
 
   unsigned getTile(unsigned batch, unsigned time, unsigned batchEntry) const {
@@ -87,6 +104,9 @@ public:
     return batch * (parallel.time * batchEntryPartitions()) // Batch
            + time;                                          // Time
   }
+
+  unsigned numTiles() const { return parallel.batch * batchEntryPartitions(); }
+
   std::unique_ptr<InferencePlan> clone() const {
     return std::make_unique<InferencePlan>(*this);
   };

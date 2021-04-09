@@ -139,7 +139,9 @@ std::vector<Candidate<FPType>> generateCandidates(
       // a blank
       candidates.back().pnb = nonBlankProb;
     }
-
+    candidates.back().pTotal =
+        useLog ? log::add(candidates.back().pb, candidates.back().pnb)
+               : candidates.back().pb + candidates.back().pnb;
     // Extend beams ---
     // Where we extend a beam by adding a symbol
     for (unsigned s = 0; s < numClassesIncBlank; s++) {
@@ -172,6 +174,9 @@ std::vector<Candidate<FPType>> generateCandidates(
             useLog ? log::add(candidates.back().pnb, nonBlankProb)
                    : candidates.back().pnb + nonBlankProb;
       }
+      candidates.back().pTotal =
+          useLog ? log::add(candidates.back().pb, candidates.back().pnb)
+                 : candidates.back().pb + candidates.back().pnb;
     }
     beamIdx++;
   }
@@ -205,6 +210,7 @@ mergeEquivalentCandidates(const std::vector<Candidate<FPType>> &candidates,
           beamHistory.getOutputSequence(rhs)) {
         lhs.pnb = useLog ? log::add(lhs.pnb, rhs.pnb) : lhs.pnb + rhs.pnb;
         lhs.pb = useLog ? log::add(lhs.pb, rhs.pb) : lhs.pb + rhs.pb;
+        lhs.pTotal = useLog ? log::add(lhs.pb, lhs.pnb) : lhs.pb + lhs.pnb;
         // It doesn't matter which we remove as they result in the same output
         // sequence since they are equivalent
         mergedCandidates.erase(mergedCandidates.begin() + i);

@@ -53,10 +53,11 @@ void attachBeamHistory(Graph &graph, const BeamTensors &beams,
 
 void attachExtendCandidates(Graph &graph, const TempTensors &tempTensors,
                             unsigned batch, unsigned partition,
-                            unsigned beamwidth, const VertexRef &vertex) {
+                            const Interval &beamPartition, bool includeTotal,
+                            const VertexRef &vertex) {
 
-  Slice<3> begin = {batch, partition, 0};
-  Slice<3> end = {batch + 1, partition + 1, beamwidth};
+  Slice<3> begin = {batch, partition, beamPartition.begin()};
+  Slice<3> end = {batch + 1, partition + 1, beamPartition.end()};
   graph.connect(vertex["extendCandidateParent"],
                 tempTensors.extendCandidatesParent.slice(begin, end).flatten());
   graph.connect(vertex["extendCandidateAddend"],
@@ -65,6 +66,11 @@ void attachExtendCandidates(Graph &graph, const TempTensors &tempTensors,
                 tempTensors.extendCandidatesPnb.slice(begin, end).flatten());
   graph.connect(vertex["extendCandidateBeamProbBlank"],
                 tempTensors.extendCandidatesPb.slice(begin, end).flatten());
+  if (includeTotal) {
+    graph.connect(
+        vertex["extendCandidateBeamProbTotal"],
+        tempTensors.extendCandidatesPTotal.slice(begin, end).flatten());
+  }
 }
 
 void attachData(Graph &graph, const Tensor &data, unsigned batch,
@@ -133,7 +139,8 @@ void generateExtendCandidateVertex(
     Graph &graph, const Tensor &data, const BeamTensors &beams,
     const TempTensors &tempTensors, ComputeSet &cs, unsigned batch,
     const Interval &time, unsigned addendPartition, unsigned blankClass,
-    unsigned beamwidth, unsigned addendClass, unsigned tile) {
+    unsigned beamwidth, const Interval &beamPartition, unsigned addendClass,
+    unsigned tile) {
 
   const auto partialsType = beams.pb.elementType();
   const auto vertexName =
@@ -152,12 +159,13 @@ void generateExtendCandidateVertex(
   // Timestep, data length connection
   attachTimeAndLength(graph, tempTensors, batch, addendPartition, vertex);
   // Extend candidate connection
-  attachExtendCandidates(graph, tempTensors, batch, addendPartition, beamwidth,
-                         vertex);
+  attachExtendCandidates(graph, tempTensors, batch, addendPartition,
+                         beamPartition, true, vertex);
   // Constants
   graph.setInitialValue(vertex["numClassesIncBlank"], numClasses);
   graph.setInitialValue(vertex["blankClass"], blankClass);
-  graph.setInitialValue(vertex["beamwidth"], beamwidth);
+  graph.setInitialValue(vertex["startBeam"], beamPartition.begin());
+  graph.setInitialValue(vertex["endBeam"], beamPartition.end());
   graph.setInitialValue(vertex["addendSymbol"], addendClass);
 }
 
@@ -197,6 +205,8 @@ void generateCopyCandidateVertex(Graph &graph, const Tensor &data,
                 transform(tempTensors.copyCandidatesPnb));
   graph.connect(vertex["candidateBeamProbBlank"],
                 transform(tempTensors.copyCandidatesPb));
+  graph.connect(vertex["candidateBeamProbTotal"],
+                transform(tempTensors.copyCandidatesPTotal));
 
   // Constants
   graph.setInitialValue(vertex["numClassesIncBlank"], numClasses);
@@ -221,8 +231,8 @@ void mergeCandidateVertex(Graph &graph, const BeamTensors &beams,
   graph.setTileMapping(vertex, tile);
 
   // Extend candidate connection
-  attachExtendCandidates(graph, tempTensors, batch, addendPartition, beamwidth,
-                         vertex);
+  attachExtendCandidates(graph, tempTensors, batch, addendPartition,
+                         {0, beamwidth}, false, vertex);
 
   // Merge candidate connection (broadcast copy candidates)
   auto transform = [=](const std::vector<Tensor> &in) {
@@ -238,6 +248,8 @@ void mergeCandidateVertex(Graph &graph, const BeamTensors &beams,
                 transform(tempTensors.mergeCandidatesPnb));
   graph.connect(vertex["copyCandidateBeamProbBlank"],
                 transform(tempTensors.mergeCandidatesPb));
+  graph.connect(vertex["copyCandidateBeamProbTotal"],
+                transform(tempTensors.mergeCandidatesPTotal));
 
   // Beam history connection
   attachBeamHistory(graph, beams, time, batch, addendPartition, beamwidth,
@@ -257,9 +269,8 @@ void mergeCandidateVertex(Graph &graph, const BeamTensors &beams,
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
 }
 
-void selectCandidatesVertex(Graph &graph, const Tensor &scratch,
-                            const TempTensors &tempTensors, ComputeSet &cs,
-                            unsigned batch, unsigned partition,
+void selectCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
+                            ComputeSet &cs, unsigned batch, unsigned partition,
                             unsigned candidatesPerMerge,
                             unsigned candidatesToCompare, unsigned beamwidth,
                             unsigned tile) {
@@ -277,15 +288,19 @@ void selectCandidatesVertex(Graph &graph, const Tensor &scratch,
   auto addends = gatherMergeSlices(tempTensors.mergeCandidatesAddend, batch);
   auto pnb = gatherMergeSlices(tempTensors.mergeCandidatesPnb, batch);
   auto pb = gatherMergeSlices(tempTensors.mergeCandidatesPb, batch);
+  auto pTotal = gatherMergeSlices(tempTensors.mergeCandidatesPTotal, batch);
   // ... followed by the extend candidates
   parents.push_back(tempTensors.extendCandidatesParent[batch].flatten());
   addends.push_back(tempTensors.extendCandidatesAddend[batch].flatten());
   pnb.push_back(tempTensors.extendCandidatesPnb[batch].flatten());
   pb.push_back(tempTensors.extendCandidatesPb[batch].flatten());
+  pTotal.push_back(tempTensors.extendCandidatesPTotal[batch].flatten());
+
   graph.connect(vertex["candidateParent"], concat(parents));
   graph.connect(vertex["candidateAddend"], concat(addends));
   graph.connect(vertex["candidateBeamProbNonBlank"], concat(pnb));
   graph.connect(vertex["candidateBeamProbBlank"], concat(pb));
+  graph.connect(vertex["candidateBeamProbTotal"], concat(pTotal));
 
   // Invalid (merged) candidate indication connection for each copy comparison
   const auto mergeIndicator =
@@ -293,8 +308,6 @@ void selectCandidatesVertex(Graph &graph, const Tensor &scratch,
   graph.connect(vertex["mergedCandidateIndicator"], concat(mergeIndicator));
   // Timestep, data length connection (Only for early end)
   attachTimeAndLength(graph, tempTensors, batch, partition, vertex);
-  // Scratch
-  graph.connect(vertex["candidateProbTotalScratch"], scratch);
 
   // Constants
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
