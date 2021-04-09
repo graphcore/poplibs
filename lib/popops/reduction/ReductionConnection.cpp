@@ -380,10 +380,22 @@ extractPartials(const RegionReductionRange reductions) {
   std::vector<poplar::Tensor> result;
   for (auto &red : reductions) {
     if (red.regularPartials()) {
-      for (unsigned j = 0; j < red.outerFactor; j++) {
-        const auto base = red.getOffset() + (j * red.getStride());
-        result.emplace_back(red.getPartials()[0].slice(
-            base, base + red.output.numElements() * red.innerFactor));
+      bool partialsGroupContiguous =
+          red.getStride() == red.output.numElements();
+      for (unsigned i = 0; i < red.getNumOuterStrides(); i++) {
+        if (partialsGroupContiguous) {
+          const auto base = red.getOffset() + (i * red.getOuterStride());
+          result.emplace_back(red.getPartials()[0].slice(
+              base, base + red.output.numElements() * red.innerFactor *
+                               red.outerFactor));
+        } else {
+          for (unsigned j = 0; j < red.outerFactor; j++) {
+            const auto base = red.getOffset() + (j * red.getStride()) +
+                              (i * red.getOuterStride());
+            result.emplace_back(red.getPartials()[0].slice(
+                base, base + red.output.numElements() * red.innerFactor));
+          }
+        }
       }
     } else {
       for (const auto &partial : red.getPartials()) {
@@ -423,12 +435,10 @@ static void createStridedReduceVertex(
   const auto &target = graph.getTarget();
   auto partialsElemWidth =
       target.getTypeSize(r0.getPartials()[0].elementType());
-  unsigned numPartials, partialsWidth;
+  unsigned numPartials, partialsWidth, vertexOuterStride, numOuterStridesM1;
+
   if (r0.regularPartials()) {
     // Partials information is regular and we may be able to use the stride
-    logging::popops::trace("  Offset: {} PartialsWidth: {}", r0.getOffset(),
-                           r0.getStride());
-
     std::vector<poplar::Tensor> outputs;
     outputs.reserve(reductions.size());
     for (const auto &region : reductions) {
@@ -438,21 +448,45 @@ static void createStridedReduceVertex(
     graph.setInitialValue(vertex["numOutputs"], output.numElements());
     graph.connect(vertex["out"], output);
 
-    if ((r0.getStride() * partialsElemWidth) % 8 == 0) {
+    const auto strideIsCompatible =
+        (r0.getStride() * partialsElemWidth) % 8 == 0;
+    const auto outerStrideIsCompatible =
+        (r0.getOuterStride() * partialsElemWidth) % 8 == 0;
+    if (strideIsCompatible && outerStrideIsCompatible) {
       // We can use the stride to connect to a larger region without copies
-      const auto sliceEnd = r0.getOffset() + output.numElements() +
-                            r0.getStride() * (r0.outerFactor - 1);
+      const auto oneSliceSize =
+          output.numElements() + r0.getStride() * (r0.outerFactor - 1);
+      numOuterStridesM1 = r0.getNumOuterStrides() - 1;
+
+      const auto sliceEnd = r0.getOffset() + oneSliceSize +
+                            r0.getOuterStride() * numOuterStridesM1;
       graph.connect(vertex["partials"],
                     r0.getPartials()[0].slice(r0.getOffset(), sliceEnd));
       partialsWidth = r0.getStride();
+      // Vertex uses an outer stride that is the stride to the next partial
+      // having iterated over the previous group of partials
+      const auto partialsType = r0.getPartials()[0].elementType();
+      const auto partialsGrainSize = partialsType == poplar::HALF ? 4 : 2;
+      vertexOuterStride = r0.getOuterStride() == 0
+                              ? 0
+                              : (r0.getOuterStride() -
+                                 (r0.getStride() * (r0.outerFactor - 1))) /
+                                    partialsGrainSize;
+      numPartials = r0.outerFactor;
 
+      logging::popops::trace("  Offset: {} PartialsWidth: {} "
+                             "NumOuterStridesM1: {} OuterStride: {}",
+                             r0.getOffset(), partialsWidth, numOuterStridesM1,
+                             r0.getOuterStride());
     } else {
       // The size of the stride is not useful so slice and introduce copies.
       graph.connect(vertex["partials"],
                     flattenAndCheckPartials(graph, reductions));
       partialsWidth = r0.output.numElements();
+      numOuterStridesM1 = 0;
+      vertexOuterStride = 0;
+      numPartials = r0.outerFactor * r0.getNumOuterStrides();
     }
-    numPartials = r0.outerFactor;
   } else {
     const auto allPartials = flattenAndCheckPartials(graph, reductions);
     numPartials = allPartials.numElements() / r0.output.numElements();
@@ -461,11 +495,18 @@ static void createStridedReduceVertex(
 
     graph.setInitialValue(vertex["numOutputs"], r0.output.numElements());
     graph.connect(vertex["out"], r0.output);
+    // The outer stride is not applicable in this case
+    numOuterStridesM1 = 0;
+    vertexOuterStride = 0;
   }
   // Check within range
   if (numPartials > std::numeric_limits<unsigned short>::max() &&
       !targetIsCpu) {
     throw poputil::poplibs_error("Number of partials larger than short");
+  }
+  if (vertexOuterStride > std::numeric_limits<unsigned short>::max() &&
+      !targetIsCpu) {
+    throw poputil::poplibs_error("Outer stride larger than short");
   }
   graph.setInitialValue(vertex["numPartialsM1"], numPartials - 1);
 
@@ -474,6 +515,8 @@ static void createStridedReduceVertex(
     throw poputil::poplibs_error("Partials width larger than short");
   }
   graph.setInitialValue(vertex["partialsWidth"], partialsWidth);
+  graph.setInitialValue(vertex["outerStride"], vertexOuterStride);
+  graph.setInitialValue(vertex["numOuterStridesM1"], numOuterStridesM1);
 }
 
 static void createSingleOutputVertex(
@@ -915,11 +958,23 @@ std::vector<unsigned> splitRowsToWorkers(unsigned rows, unsigned N,
 //
 // The output is not set in the returned values. You have to do that yourself.
 std::vector<RegionReduction>
-splitPartialsByRows(const RegionReduction &reduction,
+splitPartialsByRows(const RegionReduction &reduction_,
                     const std::vector<unsigned> &rows) {
 
   std::vector<RegionReduction> out(rows.size());
+  auto reduction = reduction_;
+  if (reduction.regularPartials() && reduction.getNumOuterStrides() != 1) {
+    const auto convertToIrregularPartials =
+        [](popops::RegionReduction &region) {
+          const std::vector<RegionReduction> regions = {region};
+          const auto partials = extractPartials(regions);
+          region.partials = IrregularPartials{partials};
+        };
 
+    convertToIrregularPartials(reduction);
+    logging::popops::trace("Converting to irregular partials so that we can"
+                           " split partials by row.");
+  }
   if (reduction.regularPartials()) {
     // For regular partials this is a case of changing the offset and
     // outerFactor to reference the correct piece of the partials
@@ -1178,22 +1233,24 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
 
     // If the partials aren't suitable we need to back out of this for this
     // reduction
-    std::size_t partialsAreSuitable;
-    if (reduction.regularPartials()) {
-      // We can't do this unless the original outputsize = stride. Also there
-      // must be reducing to do if we increase the effective output size.
-      // Plus the whole area must be a multiple of the new outputsize
-      partialsAreSuitable =
-          reduction.getNumPartialsElements() != firstStageOutputSize &&
-          (reduction.output.numElements() == reduction.getStride()) &&
-          (reduction.getNumPartialsElements() % firstStageOutputSize) == 0;
-    } else {
-      partialsAreSuitable = std::all_of(
-          reduction.getPartials().begin(), reduction.getPartials().end(),
-          [&](const poplar::Tensor &t) {
-            return (t.numElements() % firstStageOutputSize) == 0;
-          });
-    }
+    const bool partialsAreSuitable = [&]() {
+      if (reduction.regularPartials()) {
+        // We can't do this unless the original outputsize = stride. Also there
+        // must be reducing to do if we increase the effective output size.
+        // Plus the whole area must be a multiple of the new outputsize
+        return reduction.getNumPartialsElementsPerOuterStride() !=
+                   firstStageOutputSize &&
+               (reduction.output.numElements() == reduction.getStride()) &&
+               (reduction.getNumPartialsElementsPerOuterStride() %
+                firstStageOutputSize) == 0;
+      } else {
+        return std::all_of(
+            reduction.getPartials().begin(), reduction.getPartials().end(),
+            [&](const poplar::Tensor &t) {
+              return (t.numElements() % firstStageOutputSize) == 0;
+            });
+      }
+    }();
     if (partialsAreSuitable) {
       consumedReductions.emplace_back(std::move(reduction));
       const unsigned firstStageFactor =

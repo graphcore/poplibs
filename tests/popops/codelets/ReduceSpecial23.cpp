@@ -27,8 +27,12 @@ const OptionFlags options;
 
 static bool doTest(const DeviceType &deviceType, const Type &partialsType,
                    const Type &outType, const unsigned outerDim,
-                   const unsigned innerDim, const unsigned outputDim,
-                   const popops::Operation op, const float scale, bool isUpdate,
+                   const unsigned innerDim,
+                   const boost::optional<unsigned> numPartials,
+                   const boost::optional<unsigned> outerStride,
+                   const boost::optional<unsigned> numOuterStrides,
+                   const unsigned outputDim, const popops::Operation op,
+                   const float scale, bool isUpdate,
                    ReductionSpecialisation specialisation) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
@@ -74,9 +78,10 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   // Using negative input data is important for log-add operations and using
   // integers (in float type variables) is helpful for exact comparison
   // for other operations
+  const float inputScale = op == popops::Operation::LOG_ADD ? -0.1f : 1.0f;
   for (unsigned i = 0; i < outerDim; ++i) {
     for (unsigned j = 0; j < innerDim; ++j) {
-      nums[(i * innerDim) + j] = -1.0 * (i + j);
+      nums[(i * innerDim) + j] = inputScale * (i + j);
       intData[(i * innerDim + j)] = i + j;
     }
   }
@@ -110,8 +115,11 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
     graph.setInitialValue(v1["numPartials"], innerDim * outerDim);
   } else {
     graph.setInitialValue(v1["numOutputs"], outputDim);
-    graph.setInitialValue(v1["numPartialsM1"], outerDim - 1);
+    graph.setInitialValue(v1["numPartialsM1"], numPartials.get() - 1);
     graph.setInitialValue(v1["partialsWidth"], innerDim);
+    graph.setInitialValue(v1["outerStride"], (outerStride.get() + 1) *
+                                                 innerDim / partialsGrainSize);
+    graph.setInitialValue(v1["numOuterStridesM1"], numOuterStrides.get() - 1);
   }
   auto scaleTensor = graph.addVariable(FLOAT, {});
   graph.setTileMapping(scaleTensor, 0);
@@ -162,11 +170,36 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   const auto arrayDim =
       (specialisation == ReductionSpecialisation::STRIDED_REDUCE) ? innerDim
                                                                   : outputDim;
-  MultiArray<float> input{(outerDim * innerDim) / arrayDim, arrayDim};
-  for (unsigned i = 0; i < input.numElements(); i++) {
-    const unsigned row = i / (innerDim);
-    const unsigned column = i % (innerDim);
-    input.data()[i] = nums[row * innerDim + column];
+  const auto numPartialsToReduce =
+      specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT
+          ? outerDim
+          : numPartials.get() * numOuterStrides.get();
+
+  // Loop extracting only the partials of interest in the case of strided
+  // reduce, or all partials in the case of scalar output
+  MultiArray<float> input{(numPartialsToReduce * innerDim) / arrayDim,
+                          arrayDim};
+  unsigned inRow = 0;
+  unsigned numPartialsCount = 0;
+  for (unsigned outRow = 0; outRow < numPartialsToReduce; outRow++) {
+    if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+      inRow = outRow;
+    }
+    for (unsigned column = 0; column < innerDim; column++) {
+      input.data()[outRow * innerDim + column] =
+          nums[inRow * innerDim + column];
+    }
+    if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
+      inRow++;
+      numPartialsCount++;
+      if (numPartialsCount == numPartials.get()) {
+        inRow += outerStride.get();
+        numPartialsCount = 0;
+      }
+      if (inRow > nums.size() / innerDim) {
+        break;
+      }
+    }
   }
 
   auto result = reduce(input, {0}, op);
@@ -194,15 +227,20 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
 
   bool success = true;
   if (outType == FLOAT || outType == HALF) {
-    // When using half data the log-add result is slightly inaccurate
+    // When using half data the log-add and square-add results can be slightly
+    // inaccurate.  log-add always, and square-add depending on the input values
     // Other operations should be exact with integer value float/half inputs
-    const double tolerance = (op == popops::Operation::LOG_ADD &&
-                              (outType == HALF || partialsType == HALF))
-                                 ? 0.001
-                                 : 0.0;
+    const bool logAdd = op == popops::Operation::LOG_ADD;
+    const bool squareAddHalf =
+        op == popops::Operation::SQUARE_ADD && outType == HALF;
+    const double tolerance = logAdd || squareAddHalf ? 0.001 : 0.0;
     for (unsigned i = 0; i < outputDim; ++i) {
-      success = checkIsClose(correct_answer[i], answers[i], tolerance);
-      answers[i] = 0; // zero for next iteration
+      bool isClose = checkIsClose(correct_answer[i], answers[i], tolerance);
+      if (!isClose) {
+        std::cerr << "Result:" << answers[i]
+                  << " Expected:" << correct_answer[i] << "\n";
+        success = false;
+      }
     }
     if (!success) {
       std::cerr << "Errors in result\n";
@@ -228,6 +266,9 @@ int main(int argc, char **argv) {
   bool isUpdate = true;
   unsigned specialisation;
   unsigned outerDim, innerDim, outputDim;
+  boost::optional<unsigned> outerStride = boost::none;
+  boost::optional<unsigned> numOuterStrides = boost::none;
+  boost::optional<unsigned> numPartials = boost::none;
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -256,10 +297,20 @@ int main(int argc, char **argv) {
      "scale")
     ("outer-dim",
      po::value<unsigned>(&outerDim)->required(),
-     "Outer dimension")
+     "Outer dimension of the whole input, only part of which may be reduced")
     ("inner-dim",
      po::value<unsigned>(&innerDim)->required(),
-     "Inner dimension")
+     "Inner dimension of the whole input, only part of which may be reduced")
+    ("outer-stride",
+     po::value(&outerStride),
+     "Outer stride to take when testing STRIDED_REDUCE vertices")
+    ("num-outer-strides",
+     po::value(&numOuterStrides),
+     "Number of outer-strides to take when testing STRIDED_REDUCE vertices")
+    ("num-partials",
+     po::value(&numPartials),
+     "Number of partials to reduce per outerStride when testing STRIDED_REDUCE"
+     " vertices")
     ("output-dim",
      po::value<unsigned>(&outputDim)->required(),
      "Output dimension");
@@ -276,12 +327,34 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-
+  if (specialisation == 2) {
+    if (outerStride || numOuterStrides || numPartials) {
+      std::cerr << "outer-stride, num-outer-stride and num-partials parameters"
+                   " are specific to specialisation 3\n";
+      return 1;
+    }
+  }
+  if (specialisation == 3) {
+    if (!outerStride || !numOuterStrides || !numPartials) {
+      std::cerr << "outer-stride, num-outer-stride and num-partials parameters"
+                   " are required for specialisation 3\n";
+      return 1;
+    }
+    const auto dataUsed =
+        (outerStride.get() + numPartials.get()) * (numOuterStrides.get() - 1) +
+        numPartials.get();
+    if (outerDim < dataUsed) {
+      std::cerr << "outer-dim needs to be at least " << dataUsed
+                << " for this test\n";
+      return 1;
+    }
+  }
   const auto specialisationType =
       specialisation == 2 ? ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT
                           : ReductionSpecialisation::STRIDED_REDUCE;
-  if (!doTest(deviceType, partialsType, outType, outerDim, innerDim, outputDim,
-              op, scale, isUpdate, specialisationType))
+  if (!doTest(deviceType, partialsType, outType, outerDim, innerDim,
+              numPartials, outerStride, numOuterStrides, outputDim, op, scale,
+              isUpdate, specialisationType))
     return 1;
   return 0;
 }

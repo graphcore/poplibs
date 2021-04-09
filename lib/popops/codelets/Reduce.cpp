@@ -167,14 +167,23 @@ public:
   ShortType numOutputs;
   ShortType numPartialsM1;
   ShortType partialsWidth;
+  ShortType outerStride;
+  ShortType numOuterStridesM1;
 
   bool compute() {
+    constexpr auto partialsGrainSize =
+        std::is_same<PartialsType, half>::value ? 4u : 2u;
     for (unsigned o = 0; o < numOutputs; ++o) {
       const PartialsType *pPtr = &partials[o];
       AccType acc = ReduceOp::template init<AccType>();
-      for (unsigned p = 0; p < numPartialsM1 + 1; ++p) {
-        ReduceOp::update(acc, static_cast<AccType>(*pPtr));
-        pPtr += partialsWidth;
+      // Reduce numPartialsM1 + 1 partials, then take an outer stride, repeat
+      for (unsigned os = 0; os < numOuterStridesM1 + 1; os++) {
+        for (unsigned p = 0; p < numPartialsM1 + 1; ++p) {
+          ReduceOp::update(acc, static_cast<AccType>(*pPtr));
+          pPtr += partialsWidth;
+        }
+        // Take the outer stride
+        pPtr += (outerStride * partialsGrainSize) - partialsWidth;
       }
 
       if constexpr (isUpdate) {
