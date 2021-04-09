@@ -2598,7 +2598,6 @@ convolutionInternal(Graph &graph, const poplar::Tensor &in_,
                                  params->outputChannelsPerConvGroup, {dnai});
     }
   }
-
   return output;
 }
 

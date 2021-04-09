@@ -442,6 +442,7 @@ int main(int argc, char **argv) {
     ("norm-type",
      po::value<std::string>(&test)->required(),
      "Normalisation type: BN | GN | IN | LN")
+     
     ("strided-channel-grouping",
      po::value<bool>(&groupNormStridedChannelGrouping)->
                     default_value(groupNormStridedChannelGrouping),

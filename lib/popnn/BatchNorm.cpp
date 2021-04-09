@@ -49,6 +49,27 @@ batchNormStatistics(Graph &graph, const Tensor acts, float eps, Sequence &prog,
   return outputs;
 }
 
+std::pair<Tensor, Tensor> distributedBatchNormStatistics(
+    Graph &graph, const Tensor acts, float eps, Sequence &prog,
+    bool unbiasedVarEstimate, poplin::DistributedNormReduceCallback callback,
+    unsigned normBatchSize, bool stableAlgo, const Type &partialsType,
+    const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(acts, eps, unbiasedVarEstimate, stableAlgo,
+                            partialsType, normBatchSize, options));
+
+  checkTensorShape(acts);
+  auto outputs = poplin::distributedNormStatistics(
+      graph, acts, eps, prog, unbiasedVarEstimate, callback, normBatchSize,
+      stableAlgo, partialsType, {di});
+
+  di.addOutputs({{"mean", toProfileValue(outputs.first)},
+                 {"inverseStd", toProfileValue(outputs.second)}});
+  return outputs;
+}
+
 Tensor batchNormWhiten(Graph &graph, const Tensor &acts_, const Tensor &mean,
                        const Tensor &iStdDev, Sequence &prog,
                        const poplar::DebugContext &debugContext,
@@ -147,6 +168,30 @@ batchNormParamGradients(Graph &graph, const Tensor &acts, const Tensor &gradsIn,
   return outputs;
 }
 
+static Tensor batchNormGradientsImpl(
+    Graph &graph, const Tensor &actsWhitened_, const Tensor &gradsIn_,
+    const Tensor &iStdDev, const Tensor &gamma, Sequence &prog,
+    const Type &partialsType, poplin::DistributedNormReduceCallback callback,
+    unsigned normSize, const poplar::DebugNameAndId &dnai) {
+  const auto rank = actsWhitened_.rank();
+  checkTensorShape(actsWhitened_);
+  checkTensorShape(gradsIn_);
+  auto actsWhitened = preProcessNormActs(actsWhitened_);
+  auto gradsIn = preProcessNormActs(gradsIn_);
+  auto gradsNorm = poplin::normGradients(graph, gradsIn, gamma, prog, {dnai});
+  Tensor gradsOut;
+  if (callback) {
+    gradsOut = poplin::distributedNormStatisticsGradients(
+        graph, actsWhitened, gradsNorm, iStdDev, prog, callback, normSize,
+        partialsType, {dnai});
+  } else {
+    gradsOut = poplin::normStatisticsGradients(
+        graph, actsWhitened, gradsNorm, iStdDev, prog, partialsType, {dnai});
+  }
+  auto output = postProcessNormActs(gradsOut, rank);
+  return output;
+}
+
 Tensor batchNormGradients(Graph &graph, const Tensor &actsWhitened_,
                           const Tensor &gradsIn_, const Tensor &iStdDev,
                           const Tensor &gamma, Sequence &prog,
@@ -157,18 +202,29 @@ Tensor batchNormGradients(Graph &graph, const Tensor &actsWhitened_,
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(actsWhitened_, gradsIn_, iStdDev, gamma, partialsType, options));
+  auto gradsOut = batchNormGradientsImpl(
+      graph, actsWhitened_, gradsIn_, iStdDev, gamma, prog, partialsType,
+      nullptr, 1, {di, "NonDistributedBatchNormGrads"});
+  di.addOutput(gradsOut);
+  return gradsOut;
+}
 
-  const auto rank = actsWhitened_.rank();
-  checkTensorShape(actsWhitened_);
-  checkTensorShape(gradsIn_);
-  auto actsWhitened = preProcessNormActs(actsWhitened_);
-  auto gradsIn = preProcessNormActs(gradsIn_);
-  auto gradsNorm = poplin::normGradients(graph, gradsIn, gamma, prog, {di});
-  auto gradsOut = poplin::normStatisticsGradients(
-      graph, actsWhitened, gradsNorm, iStdDev, prog, partialsType, {di});
-  auto output = postProcessNormActs(gradsOut, rank);
-  di.addOutput(output);
-  return output;
+Tensor distributeBatchNormGradients(
+    Graph &graph, const Tensor &actsWhitened_, const Tensor &gradsIn_,
+    const Tensor &iStdDev, const Tensor &gamma, Sequence &prog,
+    poplin::DistributedNormReduceCallback reduceCallback,
+    unsigned normBatchSize, const Type &partialsType,
+    const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(actsWhitened_, gradsIn_, iStdDev, gamma,
+                            partialsType, normBatchSize, options));
+  auto gradsOut = batchNormGradientsImpl(
+      graph, actsWhitened_, gradsIn_, iStdDev, gamma, prog, partialsType,
+      reduceCallback, normBatchSize, {di, "distributedBatchNormGrads"});
+  di.addOutput(gradsOut);
+  return gradsOut;
 }
 
 Tensor batchNormGradients(Graph &graph, const Tensor &acts_,
@@ -184,8 +240,30 @@ Tensor batchNormGradients(Graph &graph, const Tensor &acts_,
 
   checkTensorShape(acts_);
   auto actsWhitened = batchNormWhiten(graph, acts_, mean, iStdDev, prog, {di});
-  auto output = batchNormGradients(graph, actsWhitened, gradsIn_, iStdDev,
-                                   gamma, prog, partialsType, {di});
+  auto output = batchNormGradientsImpl(graph, actsWhitened, gradsIn_, iStdDev,
+                                       gamma, prog, partialsType, nullptr, 1,
+                                       {di, "NonDistributedBatchNormGrads"});
+  di.addOutput(output);
+  return output;
+}
+
+Tensor distributedBatchNormGradients(
+    Graph &graph, const Tensor &acts_, const Tensor &gradsIn_,
+    const Tensor &mean, const Tensor &iStdDev, const Tensor &gamma,
+    Sequence &prog, poplin::DistributedNormReduceCallback callback,
+    unsigned normBatchSize, const Type &partialsType,
+    const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options) {
+  POPNN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(acts_, gradsIn_, mean, iStdDev, gamma,
+                                         normBatchSize, partialsType, options));
+
+  checkTensorShape(acts_);
+  auto actsWhitened = batchNormWhiten(graph, acts_, mean, iStdDev, prog, {di});
+  auto output = batchNormGradientsImpl(
+      graph, actsWhitened, gradsIn_, iStdDev, gamma, prog, partialsType,
+      callback, normBatchSize, {di, "DistributedBatchNormGrads"});
   di.addOutput(output);
   return output;
 }

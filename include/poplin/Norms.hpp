@@ -7,6 +7,7 @@
 
 #ifndef poplin_Norms_hpp
 #define poplin_Norms_hpp
+#include <functional>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <tuple>
@@ -123,6 +124,75 @@ normStatistics(poplar::Graph &graph, const poplar::Tensor &actsUngrouped,
                const poplar::Type &partialsType = poplar::FLOAT,
                const poplar::DebugContext &debugContext = {});
 
+/// Callback to reduce statistics and gradients. The reduce operation is
+/// reduce-add.
+/// \param graph     The replicated graph in which the computation is performed.
+/// \param inputsToReduce
+///                  A vector of independent tensors to reduce
+/// \param prog      A program sequence that the code to perform the
+///                  normalisation will be appended to.
+/// \param groupSize The number of replicas that need to be reduced. This may
+///                  be less than the total number of replicas in the top level
+///                  graph. A group is formed by adjacent replicas such that
+///                  the top level graph contains an integral number of
+///                  `groupSize` replicas.
+/// \param debugContext
+///                  Optional debug information.
+/// \param options   The structure describing options on how the reduction
+///                   should be implemented.
+/// \return  A vector of reduced tensors in the same order as supplied in
+///          `inputsToReduce`
+using DistributedNormReduceCallback = std::function<std::vector<poplar::Tensor>(
+    poplar::Graph &replicatedGraph,
+    const std::vector<poplar::Tensor> &inputsToReduce,
+    poplar::program::Sequence &prog, unsigned groupSize,
+    const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options)>;
+
+/// Compute the normalisation statistics for a part of the activations tensor
+/// which is distributed over multiple replicas. Each replica gets equal sized
+/// batches (`N`) with normalisation done over `normSize` batches.
+/// A callback does the required mean reduction over multiple replicas.
+/// The activations tensor is of shape `[N][C][..F..]`. The mean and inverse
+/// standard deviation is computed over dimensions `{[N] [..F..]}` and vectors
+/// of length `C` are returned as estimates.
+///
+/// The input activations tensor must be rearranged such that statistics are
+/// computed for `C` channels.
+/// \param replicatedGraph
+///                       The replicated graph in which the computation is
+///                       performed.
+/// \param actsUngrouped  The activation with shape `[N][C][..F..]`
+///                       where:
+///                           - `N` is the batch size
+///                           - `C` is the number of channels
+///                           - `..F..` is dimensions of a N-dimensional field.
+/// \param eps            The epsilon added to the variance to avoid divide by
+///                       zero.
+/// \param prog           A program sequence that the code to
+///                       perform the normalisation will be appended to.
+/// \param unbiasedVarEstimate
+///                       Compute unbiased variance estimate.
+/// \param stableAlgo     If true, computes the mean first and subtracts
+///                       the activations by it before computing the variance.
+///                       The implementation with this flag set to true is
+//                        slower than when set to false.
+/// \param partialsType   Poplar type used for partials.
+/// \param allReduceCallback
+///                       Callback to perform all-reduce over 'normSize'
+///                       batch elements.
+/// \param normSize       Number of batch elements over which statistics
+///                       are estimated.
+/// \param debugContext   Optional debug information.
+///
+/// \returns             A vector pair with mean and inverse standard deviation.
+std::pair<poplar::Tensor, poplar::Tensor> distributedNormStatistics(
+    poplar::Graph &replicatedGraph, const poplar::Tensor &actsUngrouped,
+    float eps, poplar::program::Sequence &prog, bool unbiasedVarEstimate,
+    DistributedNormReduceCallback allReduceCallback, unsigned normSize,
+    bool stableAlgo = false, const poplar::Type &partialsType = poplar::FLOAT,
+    const poplar::DebugContext &debugContext = {});
+
 /// Compute the whitened activations using the supplied mean and inverse
 /// standard deviation.
 ///
@@ -202,6 +272,38 @@ poplar::Tensor normStatisticsGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, const poplar::Tensor &invStdDev,
     poplar::program::Sequence &prog,
+    const poplar::Type &partialsType = poplar::FLOAT,
+    const poplar::DebugContext &debugContext = {});
+
+/// Propagate the gradients through the norm statistics layer where equal sized
+/// batch elements are distributed over replicas.
+/// Each replica gets the same number of batches and norm gradients are computed
+/// over `normSize` batch elements. Each replica is given
+/// `N` batch elements. A callback does the required reduction over multiple
+/// replicas.
+///
+/// The input to the layer is the output gradients from the normalisation layer.
+/// The whitened activations and the input gradients must have undergone a prior
+/// rearrangement such that the channel dimension has the same elements as
+/// \p invStdDev.
+/// \param replicatedGraph
+///                     The replicated graph to which the normalisaton operation
+///                     is added.
+/// \param actsWhitened Forward whitened activations.
+/// \param gradsIn      Input gradients to the normalisation layer.
+/// \param invStdDev    Inverse standard deviation from norm statistics.
+/// \param prog         A program sequence that the code to
+///                     perform the normalisation will be appended to.
+/// \param reduceCallback
+///                     A call back to perform all reduce of the statistics
+///                     gradients across the replicas.
+/// \param normSize     The batch size over which the norm is done.
+/// \param debugContext Optional debug information.
+poplar::Tensor distributedNormStatisticsGradients(
+    poplar::Graph &replocatedGraph, const poplar::Tensor &actsWhitened,
+    const poplar::Tensor &gradsIn, const poplar::Tensor &invStdDev,
+    poplar::program::Sequence &prog,
+    poplin::DistributedNormReduceCallback reduceCallback, unsigned normSize,
     const poplar::Type &partialsType = poplar::FLOAT,
     const poplar::DebugContext &debugContext = {});
 
