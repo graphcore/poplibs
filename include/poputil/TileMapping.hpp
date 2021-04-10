@@ -103,7 +103,7 @@ unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
 /** Update a tensor's tile mapping for use as the output of an elementwise
  *  operation.
  *
- *  \deprecated {Obsoleted in favour of createOutputForElementWiseOp}
+ *  \deprecated Use createOutputForElementWiseOp() instead.
  *
  *  You can then use the mapping of this tensor to map elementwise operations to
  *  tiles in order to produce an operation that is computationally balanced

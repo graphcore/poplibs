@@ -24,17 +24,17 @@ const std::vector<BasicGruCellUnit> getDefaultBasicGruCellOrder();
 struct GruParams {
   rnn::RnnParams rnn;
 
-  // The datatype of the GRU
-  /// Deprecated: Use rnn.dataType
+  // The datatype of the GRU.
+  /// \deprecated Use \ref rnn.dataType instead.
   poplar::Type dataType;
   /// The batch size
-  /// Deprecated: Use rnn.batchSize
+  /// \deprecated Use rnn.batchSize instead.
   std::size_t batchSize;
-  /// The number of time steps in the sequence of the GRU
-  /// Deprecated: Use rnn.timeSteps
+  /// The number of time steps in the sequence of the GRU.
+  /// \deprecated Use rnn.timeSteps instead.
   std::size_t timeSteps;
-  /// The number of neurons for the input and output layer
-  /// Deprecated: Use rnn.layerSizes
+  /// The number of neurons for the input and output layer.
+  /// \deprecated Use rnn.layerSizes instead.
   std::vector<std::size_t> layerSizes;
   /// If true the GRU function returns the entire sequence of outputs,
   /// otherwise it returns just the final output.
@@ -51,7 +51,7 @@ struct GruParams {
   /// Controls whether the reset gate is applied before or after the candidate
   /// weights and biases.
   bool resetAfter = false;
-  /// Activation function
+  /// Activation function.
   NonLinearityType activation = NonLinearityType::TANH;
   /// Recurrent activation function.
   NonLinearityType recurrentActivation = NonLinearityType::SIGMOID;
@@ -71,7 +71,7 @@ uint64_t getBasicGruCellWuFlops(const GruParams &params);
 
 /** Create an input tensor of shape [numSteps, batchSize, inputSize] which is
  *  optimally mapped to multiply the whole input sequence in a single matrix
- *  multiply operation
+ *  multiply operation.
  *
  * **GRU options**
  *
@@ -88,14 +88,14 @@ uint64_t getBasicGruCellWuFlops(const GruParams &params);
  *
  *      See createWeights().
  *
- * \param graph           Graph object
- * \param params          The GRU parameters
+ * \param graph           Graph object to add the tensor to.
+ * \param params          The GRU parameters.
  * \param debugContext    Optional debug information.
- * \param options         Any implementation/debug options for the GRU
- * \param planningCache   A poplin matrix multiply planning cache
+ * \param options         Any implementation/debug options for the GRU.
+ * \param planningCache   A poplin matrix multiply planning cache.
  *
- * \return                A tensor created in the graph of shape:
- *                        [timeSteps, batchSize, inputSize]
+ * \return                A tensor created in the graph of shape
+ *                        [timeSteps, batchSize, inputSize].
  */
 poplar::Tensor
 createInput(poplar::Graph &graph, const GruParams &params,
@@ -143,13 +143,13 @@ createWeights(poplar::Graph &graph, const GruParams &params,
               const poplar::OptionFlags &options = {},
               poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Create attention tensor for augru.
+/** Create attention tensor for AUGRU.
  */
 poplar::Tensor createAttention(poplar::Graph &graph, const GruParams &params,
                                const poplar::DebugContext &debugContext,
                                const poplar::OptionFlags &options = {});
 
-/** Calculate the result of applying a GRU across a sequence
+/** Calculate the result of applying a GRU across a sequence.
  *
  * The following are the formulas for a GRU cell:
  *
@@ -187,7 +187,7 @@ poplar::Tensor createAttention(poplar::Graph &graph, const GruParams &params,
  *         Depending on the outputFullSequence parameter the output tensor is
  *         either the output of the last timestep in the shape
  *         [batch, outputSize] or it is the sequence of outputs for every
- *         timestep in the shape [timesteps, batch, outputSize]
+ *         timestep in the shape [timesteps, batch, outputSize].
  */
 poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::Tensor &stateInit, const poplar::Tensor &in,
@@ -197,7 +197,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::OptionFlags &options = {},
                       poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Calculate the result of applying a GRU across a sequence
+/** Calculate the result of applying a GRU across a sequence.
  *
  * The following are the formulas for a GRU cell:
  *
@@ -237,7 +237,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
  *         Depending on the outputFullSequence parameter the output tensor is
  *         either the output of the last timestep in the shape
  *         [batch, outputSize] or it is the sequence of outputs for every
- *         timestep in the shape [timesteps, batch, outputSize]
+ *         timestep in the shape [timesteps, batch, outputSize].
  */
 poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::Tensor &stateInit, const poplar::Tensor &in,
@@ -248,7 +248,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::OptionFlags &options = {},
                       poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Calculate the result of applying a AUGRU across a sequence
+/** Calculate the result of applying a AUGRU across a sequence.
  *
  * The following are the formulas for a AUGRU cell:
  *
@@ -289,7 +289,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
  *         Depending on the outputFullSequence parameter the output tensor is
  *         either the output of the last timestep in the shape
  *         [batch, outputSize] or it is the sequence of outputs for every
- *         timestep in the shape [timesteps, batch, outputSize]
+ *         timestep in the shape [timesteps, batch, outputSize].
  */
 poplar::Tensor auGruFwd(poplar::Graph &graph, const GruParams &params,
                         const poplar::Tensor &stateInit,
@@ -301,7 +301,7 @@ poplar::Tensor auGruFwd(poplar::Graph &graph, const GruParams &params,
                         const poplar::OptionFlags &options = {},
                         poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Calculate the result of applying a AUGRU across a sequence
+/** Calculate the result of applying a AUGRU across a sequence.
  *
  * The following are the formulas for a AUGRU cell:
  *
@@ -344,7 +344,7 @@ poplar::Tensor auGruFwd(poplar::Graph &graph, const GruParams &params,
  *         Depending on the outputFullSequence parameter the output tensor is
  *         either the output of the last timestep in the shape
  *         [batch, outputSize] or it is the sequence of outputs for every
- *         timestep in the shape [timesteps, batch, outputSize]
+ *         timestep in the shape [timesteps, batch, outputSize].
  */
 poplar::Tensor
 auGruFwd(poplar::Graph &graph, const GruParams &params,

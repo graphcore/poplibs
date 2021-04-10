@@ -25,19 +25,19 @@ struct LstmParams {
   rnn::RnnParams rnn;
 
   /// The datatype of the LSTM.
-  /// Deprecated: Use rnn.dataType
+  /// \deprecated Use rnn.dataType instead.
   poplar::Type dataType;
   /// The batch size.
-  /// Deprecated: Use rnn.batchSize
+  /// \deprecated Use rnn.batchSize instead.
   std::size_t batchSize;
   /// The number of time steps in the sequence of the LSTM.
-  /// Deprecated: Use rnn.timeSteps
+  /// \deprecated Use rnn.timeSteps instead.
   std::size_t timeSteps;
   /// The number of neurons before and after each layer of the LSTM.
   /// If the LSTM consists of N layers, then this should be a vector
   /// of size N+1. The first element is the input size and each subsequent
   /// element is the output size of the LSTM layer.
-  /// Deprecated: Use rnn.layerSizes
+  /// \deprecated Use rnn.layerSizes instead.
   std::vector<std::size_t> layerSizes;
   /// If true the Lstm function returns the entire sequence of outputs,
   /// otherwise it returns just the final output.

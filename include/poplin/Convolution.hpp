@@ -283,8 +283,7 @@ poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
 
 using ConvPlanParams = std::tuple<const poplar::Target *, const ConvParams,
                                   const poplar::OptionFlags *>;
-/** \deprecated
- *  **deprecated** Use poplin::preplan() instead.
+/** \deprecated Use preplan() instead.
  *
  * Plan the specified convolutions.
  *
@@ -299,8 +298,7 @@ using ConvPlanParams = std::tuple<const poplar::Target *, const ConvParams,
 void preplanConvolutions(const std::set<ConvPlanParams> &convs,
                          PlanningCache &cache);
 
-/** \deprecated
- *  **deprecated** Use poplin::preplan() instead.
+/** \deprecated Use preplan() instead.
  *
  * Plan the specified convolutions.
  *

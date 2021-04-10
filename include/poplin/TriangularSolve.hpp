@@ -46,8 +46,10 @@ poplar::Tensor createTriangularSolveInputLHS(
     matmul::PlanningCache *cache = nullptr);
 
 /**
- * \deprecated Create a tensor that is used as the left operand of triangular
+ * Create a tensor that is used as the left operand of triangular
  * solve.
+ *
+ * \deprecated This version of the function will be removed in future.
  *
  * This will create a 2D/3D tensor in the graph. The ordering and tile mapping
  * of the tensor will be set to make a triangular solver with this
@@ -108,8 +110,10 @@ poplar::Tensor createTriangularSolveInputRHS(
     matmul::PlanningCache *cache = nullptr);
 
 /**
- * \deprecated Create a tensor that is used as the right operand of triangular
+ * Create a tensor that is used as the right operand of triangular
  * solve.
+ *
+ * \deprecated This version of the function will be removed in future.
  *
  * This will create a 2D/3D tensor in the graph. The ordering and tile mapping
  * of the tensor will be set to make a triangular solver with this
@@ -188,8 +192,10 @@ poplar::Tensor triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
                                matmul::PlanningCache *cache = nullptr);
 
 /**
- * \deprecated Solves systems of linear equations with lower or upper triangular
+ * Solves systems of linear equations with lower or upper triangular
  * coefficients.
+ *
+ * \deprecated This version of the function will be removed in future.
  *
  *  \param graph          The Poplar graph.
  *  \param a              Tensor of floating-point type with shape [..., N,N].
@@ -238,7 +244,9 @@ getTriangularSolveMatMulPrePlanParameters(
     const poplar::OptionFlags &options);
 
 /**
- * \deprecated Plan matrix multiplication for given triangular solver
+ * Plan matrix multiplication for given triangular solver
+ *
+ * \deprecated This version of the function will be removed in future.
  *
  * \param inputType       The data type of the lhs tensor.
  * \param outputType      The data type of the rhs tensor.

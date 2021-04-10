@@ -561,8 +561,7 @@ std::set<ConvPlanParams>
 matMulGetConvPlanParams(const std::set<MatMulPlanParams> &matmuls,
                         MatMulToConvOptions &matmulToConvOpts);
 
-/** \deprecated
- *  **deprecated** Use poplin::preplan() instead.
+/** \deprecated Use preplan() instead.
  *
  * Plan the specified matrix multiplications.
  * \param matmuls   A set of parameters to preplan matmuls
@@ -573,8 +572,7 @@ void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
 
 namespace matmul {
 
-/** \deprecated
- *  **deprecated** Use poplin::PlanningCache instead */
+/** \deprecated Use poplin::PlanningCache instead. */
 class PlanningCache {
 public:
   PlanningCache();

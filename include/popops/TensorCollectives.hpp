@@ -79,8 +79,7 @@ Chunks reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
                      poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext = {},
                      const poplar::OptionFlags &options = {});
-/** \deprecated
- *  **deprecated** Use reduceScatter with popops::CollectiveOperator instead */
+/** \deprecated Use reduceScatter() with popops::CollectiveOperator instead. */
 inline Chunks reduceScatter(poplar::Graph &graph,
                             const poplar::Tensor &toReduce,
                             popops::Operation op,
@@ -133,8 +132,7 @@ poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {});
-/** \deprecated
- *  **deprecated** Use allReduce with popops::CollectiveOperator instead */
+/** \deprecated Use allReduce() with popops::CollectiveOperator instead. */
 
 inline poplar::Tensor allReduce(poplar::Graph &graph,
                                 const poplar::Tensor &toReduce,
