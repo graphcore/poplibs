@@ -209,7 +209,7 @@ Tensor batchNormGradients(Graph &graph, const Tensor &actsWhitened_,
   return gradsOut;
 }
 
-Tensor distributeBatchNormGradients(
+Tensor distributedBatchNormGradients(
     Graph &graph, const Tensor &actsWhitened_, const Tensor &gradsIn_,
     const Tensor &iStdDev, const Tensor &gamma, Sequence &prog,
     poplin::DistributedNormReduceCallback reduceCallback,
