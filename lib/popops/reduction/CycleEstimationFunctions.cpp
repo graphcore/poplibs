@@ -210,10 +210,10 @@ poplar::VertexPerfEstimate getCyclesEstimateForReduce(
 poplar::VertexPerfEstimate getCyclesEstimateForStridedReduce(
     const std::size_t partialsSize, const std::size_t numPartials,
     const std::size_t numOutputs, const unsigned stride,
-    const unsigned numOuterStrides, const unsigned dataPathWidth,
-    const unsigned vectorWidth, const unsigned accVectorWidth,
-    const poplar::Type &partialsType, const poplar::Type &outType,
-    popops::Operation operation, const unsigned cyclesPerOp, bool isUpdate) {
+    const unsigned dataPathWidth, const unsigned vectorWidth,
+    const unsigned accVectorWidth, const poplar::Type &partialsType,
+    const poplar::Type &outType, popops::Operation operation,
+    const unsigned cyclesPerOp, bool isUpdate) {
   const auto usesAccumulators = isAccumOp(operation);
   const auto opVectorWidth = usesAccumulators ? accVectorWidth : vectorWidth;
   assert(opVectorWidth % dataPathWidth == 0 ||
@@ -259,8 +259,8 @@ poplar::VertexPerfEstimate getCyclesEstimateForStridedReduce(
   }
   // outer loop
   auto cyclesOuter = 3 + cyclesLoopPost;
-  // numOuterStrides inner loops are executed
-  cyclesOuter += numOuterStrides * (3 + cyclesPerOp * (numPartials - 1));
+  cyclesOuter += cyclesPerOp * (numPartials - 1); // inner loop
+
   // The elements processed per loop is limited by the data path width, the
   // interleave factor, and the op width, so with 64-bit data path width and
   // 128-bit accumulator based ops we only manage 64-bits per-cycle. With the
@@ -282,7 +282,7 @@ poplar::VertexPerfEstimate getCyclesEstimateForStridedReduce(
   cycles += cyclesOuter * numOuterLoops;
 
   std::uint64_t flops = static_cast<std::uint64_t>(numOutputs) *
-                        (partialsSize + isUpdate - 1) * numOuterStrides *
+                        (partialsSize + isUpdate - 1) *
                         flopsForReduceOp(operation);
   return {cycles, convertToTypeFlops(flops, outType)};
 }
@@ -427,14 +427,12 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
   } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
     CODELET_SCALAR_VAL(numPartialsM1, unsigned);
     CODELET_SCALAR_VAL(numOutputs, unsigned);
-    CODELET_SCALAR_VAL(numOuterStridesM1, unsigned);
     auto numPartials = numPartialsM1 + 1;
-    auto numOuterStrides = numOuterStridesM1 + 1;
     auto partialsPerEdge = numPartials * numOutputs;
     return getCyclesEstimateForStridedReduce(
-        partialsPerEdge, numPartials, numOutputs, *stride, numOuterStrides,
-        dataPathWidth, target.getVectorWidth(partialsType), opVectorWidth,
-        partialsType, outType, operation, cyclesPerOp, isUpdate);
+        partialsPerEdge, numPartials, numOutputs, *stride, dataPathWidth,
+        target.getVectorWidth(partialsType), opVectorWidth, partialsType,
+        outType, operation, cyclesPerOp, isUpdate);
   } else if (specialisation ==
              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
     CODELET_SCALAR_VAL(numPartials, unsigned);

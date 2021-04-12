@@ -26,31 +26,9 @@ namespace popops {
 // 2. If any of the criteria for RegularPartials is not met we store a vector
 //    or tensors instead.  We have no information about the memory layout.
 struct RegularPartials {
-  // By example, if partial's data belongs to the numbered columns:
-  // 0 1 2 3
-  // 0 1 2 3
-  // 4 5 6 7
-  // 4 5 6 7
-  // 0 1 2 3
-  // 0 1 2 3
-  // 4 5 6 7
-  // 4 5 6 7
-  // 0 1 2 3
-  // 0 1 2 3
-  // When reducing 0,1 their locations in the data region are described by:
-  // an inner pattern: offset=0 stride=4 (innerFactor=1, outerFactor = 2)
-  // An outer pattern: outerStride = 16 numOuterStrides = 3
-  // When reducing 2,3 offset = 2, other parameters are the same as 0,1
-  //
-  // When reducing 4,5 their locations in the data region are described by:
-  // an inner pattern: offset=8 stride=4 (innerFactor=1, outerFactor = 2)
-  // An outer pattern: outerStride = 16 numOuterStrides = 2
-  // When reducing 6,7 offset = 10, other parameters are the same as 4,5
   std::vector<poplar::Tensor> data;
   unsigned offset;
   unsigned stride;
-  unsigned outerStride = 0;
-  unsigned numOuterStrides = 1;
 };
 struct IrregularPartials {
   std::vector<poplar::Tensor> data;
@@ -101,29 +79,15 @@ struct RegionReduction {
     }
   }
 
-  // Get the number of separate contiguous regions that the partials occupy
   std::size_t getNumPartials() const {
     if (regularPartials()) {
-      bool partialsGroupContiguous = getStride() == output.numElements();
-      auto factor = partialsGroupContiguous ? 1 : outerFactor;
-      return factor * boost::get<RegularPartials>(partials).numOuterStrides;
+      return outerFactor;
     } else {
       return boost::get<IrregularPartials>(partials).data.size();
     }
   }
 
-  // Get the number of actual partials elements that will be reduced
-  // (Excluding those in the regular partials Tensor that won't be reduced)
   unsigned getNumPartialsElements() const {
-    if (regularPartials()) {
-      return innerFactor * outerFactor * output.numElements() *
-             boost::get<RegularPartials>(partials).numOuterStrides;
-    } else {
-      return concat(boost::get<IrregularPartials>(partials).data).numElements();
-    }
-  }
-
-  unsigned getNumPartialsElementsPerOuterStride() const {
     if (regularPartials()) {
       return innerFactor * outerFactor * output.numElements();
     } else {
@@ -167,44 +131,6 @@ struct RegionReduction {
           "Irregular reduction partials have no stride");
     }
   }
-
-  // Outer Stride
-  unsigned getOuterStride() const {
-    if (regularPartials()) {
-      return boost::get<RegularPartials>(partials).outerStride;
-    } else {
-      throw poputil::poplibs_error(
-          "Irregular reduction partials have no outer stride");
-    }
-  }
-
-  unsigned &getOuterStride() {
-    if (regularPartials()) {
-      return boost::get<RegularPartials>(partials).outerStride;
-    } else {
-      throw poputil::poplibs_error(
-          "Irregular reduction partials have no outer stride");
-    }
-  }
-
-  // Num Outer Strides
-  unsigned getNumOuterStrides() const {
-    if (regularPartials()) {
-      return boost::get<RegularPartials>(partials).numOuterStrides;
-    } else {
-      throw poputil::poplibs_error(
-          "Irregular reduction partials have no num outer stride");
-    }
-  }
-
-  unsigned &getNumOuterStrides() {
-    if (regularPartials()) {
-      return boost::get<RegularPartials>(partials).numOuterStrides;
-    } else {
-      throw poputil::poplibs_error(
-          "Irregular reduction partials have no num outer strides");
-    }
-  }
 };
 
 inline std::ostream &operator<<(std::ostream &os, const RegionReduction &r) {
@@ -214,9 +140,7 @@ inline std::ostream &operator<<(std::ostream &os, const RegionReduction &r) {
        << ", numPartials = " << r.getNumPartials()
        << ", numPartialsElements = " << r.getNumPartialsElements()
        << "; regular partials: offset = " << partials.offset
-       << ", stride = " << partials.stride
-       << ", outerStride = " << partials.outerStride
-       << ", numOuterStrides = " << partials.numOuterStrides << " }";
+       << ", stride = " << partials.stride << " }";
   } else {
     os << "{ inner = " << r.innerFactor
        << ", numPartials = " << r.getNumPartials()

@@ -39,18 +39,14 @@
 #define NUM_OUTPUTS_OFFSET   4
 #define NUM_PARTIALS_OFFSET  6
 #define PARTIALS_WIDTH_OFFSET 8
-#define OUTER_STRIDE_OFFSET  10
-#define NUM_OUTER_STRIDES_OFFSET 12
-#define SCALE_OFFSET         14
+#define SCALE_OFFSET         10
 #else
 #define OUT_OFFSET           0
 #define IN_OFFSET            4
 #define NUM_OUTPUTS_OFFSET   8
 #define NUM_PARTIALS_OFFSET  10
 #define PARTIALS_WIDTH_OFFSET 12
-#define OUTER_STRIDE_OFFSET  14
-#define NUM_OUTER_STRIDES_OFFSET 16
-#define SCALE_OFFSET         20
+#define SCALE_OFFSET         16
 #endif
 
 #define PTR32_SHL_BITS   2
@@ -62,14 +58,12 @@
 // Register definitions
 #define SCRATCH        m5
 #define STRIDE         m7
+#define OUT_COUNT      m9
 #ifdef VECTOR_AVAIL_SCALED_PTR32
 #define BASE            m8
 #else
 #define BASE            mzero
 #endif
-#define OUT_COUNT      m9
-#define NUM_OUTER_STRIDES m10
-#define OUTER_STRIDE m11
 
 #define RESULT_LO       a2
 #define RESULT_HI       a3
@@ -199,102 +193,68 @@ REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE):
   // $STRIDE = 64bit offset between consecutive partials for the same output
  {shr $STRIDE, $STRIDE, 3-LOG2_PARTIAL_SIZE
   uput  $FP_CLR, $ZAACC}
+  bri 4f
 
-  ldz16 $OUTER_STRIDE, $mvertex_base, $mzero, OUTER_STRIDE_OFFSET/2
-.ifc "\OP_IMPL","log_add"
-  // log_add uses an add instead of a load of the last in group with a stride
-  // so manipulate the passed value
-  sub $OUTER_STRIDE, $OUTER_STRIDE, $STRIDE
-  shl $OUTER_STRIDE, $OUTER_STRIDE, 3
-.endif
-
-  // Ensure that the inputs being accumulated (that weren't loaded) are legal
-  // Branch to decrement and load zero into 1st input for the add, square add cases
-  {bri 4f
-  mov $RESULT, $azeros}
-
-///////////////////// Assemble one of 3 nested loops
-
-.align 8
-  nop   // Rpt alignment
+///////////////////// Assemble one of 3 inner loops
+// last pass will overread 8 bytes, processed after the loop
+.align 8 // Rpt alignment
 float_loop\@:
   // $m6 points to the first partial to be accumulated for this output
   // $STRIDE is the step between consecutive partials for the same output
+.ifc "\OP_IMPL","log_add"
+  // For log-add the constant value is just needed as a constant for calculation
+  // in a register. load it here as we'd need a bundled nop anyhow
+  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+   or  $CONST, $azero, \CONST_VALUE}
+.else
+  // For other variants, the constant value is the initial result to accumulate
+  // with or initial max/min value, reload each loop pass
+  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+  or $RESULT_LO, $azero, \CONST_VALUE}
+.endif
 
 .ifc "\OP_IMPL","acc"
-  // Reading the second set of accumulators clears them for the next pass
- {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
-  f32v2gina $RESULT, $azeros, 0}
-float_outer_stride_loop\@:
-  rpt $m3, (3f-2f)/8-1
+  {rpt $m3, (3f-2f)/8-1
+  mov $RESULT_HI,$RESULT_LO}
 2:
   {ld64step $a0:1, $BASE, $m6+=, $STRIDE
    \INSTRUCTION $f32v4RESULT}
 3:
-  // Read the last in a group with the outer stride
-  {ld64step $a0:1, $BASE, $m6+=, $OUTER_STRIDE
-  \INSTRUCTION $f32v4RESULT}
-  brnzdec $NUM_OUTER_STRIDES, float_outer_stride_loop\@
-
-  \INSTRUCTION $f32v4RESULT
-  // advance to first partial for the next output
-  // Get the result from the accumulators
+ // advance to first partial for the next output
+ // Process the last one loaded
  {add $m1, $m1, 8
-  f32v2gina $RESULT, $azeros, 0}
+  \INSTRUCTION $f32v4RESULT}
+  // Get the result from the accumulators if they were used
+  f32v2gina $RESULT, $azeros, 0
 .endif
 
 .ifc "\OP_IMPL","max_min"
-// Const value used to load the initial result
- {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
-  or $RESULT_HI, $azero, \CONST_VALUE}
-  mov $RESULT_LO,$RESULT_HI
-  // 1st input is unused - set to max or min, which is in result
-  mov $a0:1, $RESULT
-float_outer_stride_loop\@:
-  rpt $m3, (3f-2f)/8-1
+  {rpt $m3, (3f-2f)/8-1
+  mov $RESULT_HI,$RESULT_LO}
 2:
   {ld64step $a0:1, $BASE, $m6+=, $STRIDE
    \INSTRUCTION $RESULT, $RESULT, $a0:1}
 3:
-  // Read the last one with the outer stride
- {ld64step $a0:1, $BASE, $m6+=, $OUTER_STRIDE
-  \INSTRUCTION $RESULT, $RESULT, $a0:1}
-  brnzdec $NUM_OUTER_STRIDES, float_outer_stride_loop\@
-
  // advance to first partial for the next output
+ // Process the last one loaded
  {add $m1, $m1, 8
   \INSTRUCTION $RESULT, $RESULT, $a0:1}
 .endif
 
 .ifc "\OP_IMPL","log_add"
-  // For log-add the constant value is just needed as a constant for calculation
-  // in a register.
-  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
-   or  $CONST, $azero, \CONST_VALUE}
-  {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
-    mov $a4:5, $azeros}
-   // Null $a4:5 so the 1st add produces the initial value
-  bri 1f
-float_outer_stride_loop\@:
-  ld64step $a0:1, $BASE, $m6+=, $STRIDE
-  f32v2LOGADD
-1:
-  rpt $m3, (3f-2f)/8-1
+  // Null $a4:5 so the 1st add produces the initial value
+  {rpt $m3, (3f-2f)/8-1
+  mov $a4:5, $azeros}
 2:
   // Load the next input, complete the previous log-add
-  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+  {ld64step $a0:1, $BASE, $m6+=, $STRIDE;
   f32v2add $RESULT, $a4:5, $a0:1}
   f32v2LOGADD "{nop;" "};"
 3:
-  // Use an add to advance the pointer to avoid overread with stride
-  // Read the last one with the outer stride
-  // Complete the log-add operation
-  {add $m6, $m6, $OUTER_STRIDE
-  f32v2add $RESULT, $a4:5, $a0:1}
-  brnzdec $NUM_OUTER_STRIDES, float_outer_stride_loop\@
-
   // advance to first partial for the next output
-  add $m1, $m1, 8
+  // Complete the log-add operation
+  {add $m1, $m1, 8
+  f32v2add $RESULT, $a4:5, $a0:1}
 .endif
 
 // Apply scale.  A log-mul is implemented with an add
@@ -342,8 +302,7 @@ float_outer_stride_loop\@:
 .endif
 
 4:
-  {brnzdec $OUT_COUNT, float_loop\@
-   mov $a0:1, $azeros}
+  brnzdec $OUT_COUNT, float_loop\@
   exitnz $mzero
 .size REDUCE_FLOAT(Reduce,STRIDED___REDUCE), .-REDUCE_FLOAT(Reduce,STRIDED___REDUCE)
 .endm
@@ -461,6 +420,7 @@ REDUCE_HALF(ScaledReduce,STRIDED___REDUCE):
   setzi $ZAACC, ZAACC_BITMASK}
   ldz16 $m3, $mvertex_base, $mzero, NUM_PARTIALS_OFFSET/2 // load numPartials
 #endif
+
   // $m4 = numOutputs/4; 2 elements per loop for float partials
   {and $m4, $m2, 1<<(3-LOG2_PARTIAL_SIZE)-1
    setzi  $CONST,  \CONST_VALUE}
@@ -473,46 +433,30 @@ REDUCE_HALF(ScaledReduce,STRIDED___REDUCE):
   // STRIDE = 64bit offset between consecutive partials for the same output
  {shr $STRIDE, $STRIDE, 3-LOG2_PARTIAL_SIZE
   uput  $FP_CLR, $ZAACC}
+  bri 4f
 
-  ldz16 $OUTER_STRIDE, $mvertex_base, $mzero, OUTER_STRIDE_OFFSET/2
-.ifc "\OP_IMPL","log_add"
-  // log_add uses an add instead of a load of the last in group with a stride
-  // so manipulate the passed value
-  sub $OUTER_STRIDE, $OUTER_STRIDE, $STRIDE
-  shl $OUTER_STRIDE, $OUTER_STRIDE, 3
-.endif
-  // Ensure that the inputs being accumulated (that weren't loaded) are legal.
-  // Branch to decrement and load zero into 1st input for the add, square add cases
-  {bri 4f
-  mov $RESULT, $azeros}
 
-///////////////////// Assemble one of 3 nested loops
-
-.align 8
-  nop    //Repeat alignment given variable code size above
+///////////////////// Assemble one of 3 inner loops
+// last pass will overread 8 bytes, processed after the loop
+.align 8 //Repeat alignment given variable code size above
 half_loop\@:
   // $m6 points to the first partial to be accumulated for this output
   // $STRIDE is the step between consecutive partials for the same output
+  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+   sort4x16lo $RESULT_LO, $CONST, $CONST}
 
 .ifc "\OP_IMPL","acc"
-  // Reading the second set of accumulators clears them for the next pass
-  {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
-   f32v2gina $RESULT, $azeros, 0}
-half_outer_stride_loop\@:
-  rpt $m3, (3f-2f)/8-1
+  {rpt $m3, (3f-2f)/8-1
+   sort4x16lo $RESULT_HI, $CONST, $CONST}
 2:
   // There is no f16v4sqadd, so use f16v8 for all types
  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
   \INSTRUCTION $f32v4RESULT}
 3:
-  // Read the last in a group with the outer stride
-  {ld64step $a0:1, $BASE, $m6+=, $OUTER_STRIDE
-  \INSTRUCTION $f32v4RESULT}
-  brnzdec $NUM_OUTER_STRIDES, half_outer_stride_loop\@
-
+  // Process the last one loaded
   // advance to first partial for the next output
-  {add $m1, $m1, 8
-   \INSTRUCTION $f32v4RESULT}
+  {add $m1, $m1, 8 // Load working pointer
+  \INSTRUCTION $f32v4RESULT}
  // If using the acc the result is in float so we apply the float scale and
  // cast to half if required
  {mov $m6, $m1 // Load working ptr
@@ -526,26 +470,16 @@ half_outer_stride_loop\@:
 .endif
 
 .ifc "\OP_IMPL","max_min"
-  // Const value used to load the initial result
-  {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
-   sort4x16lo $RESULT_LO, $CONST, $CONST}
-   sort4x16lo $RESULT_HI, $CONST, $CONST
-  // 1st input is unused - set to max or min, which is in result
-   mov $a0:1, $RESULT
-half_outer_stride_loop\@:
-  rpt $m3, (3f-2f)/8-1
+  {rpt $m3, (3f-2f)/8-1
+   sort4x16lo $RESULT_HI, $CONST,$CONST}
 2:
  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
   \INSTRUCTION $RESULT,$a0:1,$RESULT}
 3:
-  // Read the last in a group with the outer stride
-  {ld64step $a0:1, $BASE, $m6+=, $OUTER_STRIDE
-  \INSTRUCTION $RESULT,$a0:1,$RESULT}
-  brnzdec $NUM_OUTER_STRIDES, half_outer_stride_loop\@
-
+  // Process the last one loaded
   // advance to first partial for the next output
   {add $m1, $m1, 8
-   \INSTRUCTION $RESULT,$a0:1,$RESULT}
+  \INSTRUCTION $RESULT,$a0:1,$RESULT}
   // The result is in half. Cast so that we can apply scale, and then cast back.
   // Here we will always output half for max, min
   {mov $m6,$m1  // Load working pointer
@@ -565,34 +499,19 @@ half_outer_stride_loop\@:
 .endif
 
 .ifc "\OP_IMPL","log_add"
-  // For log-add the constant value is just needed as a constant for calculation
-  // in a register.
-  {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
-   sort4x16lo $RESULT_LO, $CONST, $CONST}
   // Null $a4:5 so the 1st add produces the initial value
-  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
-   mov $a4:5, $azeros}
-   bri  1f
-half_outer_stride_loop\@:
-  ld64step $a0:1, $BASE, $m6+=, $STRIDE
-  f16v4LOGADD
-1:
-  rpt $m3, (3f-2f)/8-1
+  {rpt $m3, (3f-2f)/8-1
+   mov $a4:5,$azeros}
 2:
   // Load the next input, complete the previous log-add
  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
   f16v4add $RESULT, $a4:5, $a0:1}
   f16v4LOGADD "{nop;" "};"
 3:
-  // Use an add to advance the pointer to avoid overread with stride
-  // Complete the log-add
-  {add $m6, $m6, $OUTER_STRIDE
-  f16v4add $RESULT, $a4:5, $a0:1}
-  brnzdec $NUM_OUTER_STRIDES, half_outer_stride_loop\@
-
+  // Complete the last log-add
   // advance to first partial for the next output
-  add $m1, $m1, 8
-
+  {add $m1, $m1, 8
+   f16v4add $RESULT, $a4:5, $a0:1}
   // The result is in half. Cast so that we can apply scale
   .ifc "\OUT_TYPE","half"
     {mov $m6,$m1  // Load working pointer
@@ -652,9 +571,7 @@ half_outer_stride_loop\@:
   .endif
 .endif
 4:
-  // 1st input is unused - set to zero
-  {brnzdec $OUT_COUNT, half_loop\@
-   mov $a0:1, $azeros}
+  brnzdec $OUT_COUNT, half_loop\@
   exitnz $mzero
 .size REDUCE_HALF(Reduce,3common), .-REDUCE_HALF(Reduce,3common)
 .endm

@@ -59,7 +59,7 @@ std::vector<popops::RegionReduction> listPartialsUsingPatterns(
     const std::vector<PartialsDescription> &partialsDescription,
     const poplar::Tensor &input,
     const std::vector<std::vector<poplar::Interval>> &inputRegions,
-    unsigned tile);
+    unsigned tile, unsigned columns);
 
 // Given a set of contiguous regions for a tensor with shape {rows, columns},
 // fills partialsDescription with patterns describing each column individually.

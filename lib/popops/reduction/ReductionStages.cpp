@@ -134,7 +134,7 @@ void createInputReductions(
 
     // Create the regionReductions with partials populated from patterns
     auto reductions = listPartialsUsingPatterns(
-        splitGroupedPartials, in, contiguousRegionsThisTile, tile);
+        splitGroupedPartials, in, contiguousRegionsThisTile, tile, columns);
     // Record the tensor in the IR, and the merged regions.
     std::vector<Interval> outputRegionsSplit;
     for (unsigned i = 0; i < splitGroupedPartials.size(); i++) {
