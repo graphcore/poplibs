@@ -555,7 +555,7 @@ checkAccuracyWhenCastFloatV2ToHalfWorker:
 #define Y1            a6   // first Y value, expanded as single float
 #define Y2            a7   // second Y value, expanded as single float
 #define Y             a6:7 // two Y values, as single floats
-
+#define ascratch      a4
 
 // ---------------------------------------------------------------
 // The supervisor vertices will start 6 of these worker threads.
@@ -610,7 +610,7 @@ aXplusbY_half_float_worker:
 // Common worker code used by both AXPlusBy2D and AXMinusBy2D. The optional
 // argument is intended to allow the scale B factor to be negated when called by
 // AXMinusBy2D
-.macro VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON OPTIONAL_SCALEB_MODIFIER:vararg
+.macro VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON OPTIONAL_SCALEB_MODIFIER
   ld32          $tolerance, $mvertex_base, $mzero, VERTEX_2D_TOLERANCE_OFFSET/4
 
   // The 'a' scale will go in the special $TAS register, for the f32v2axpy instr
@@ -662,12 +662,22 @@ ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
 FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
 
 // ---------------------------------------------------------------
+// For the 'Minus' vertex we need to invert the 'b' scale both in $b (in case we
+// are about to jump to ''.LcontinueMixedCode') and in $value1_2_half (in case
+// we will jump to 'axplusby_half_half_common')
+.macro INVERT_SCALE_B
+  f32sub     $b, $azero, $b
+  f32tof16   $ascratch, $b
+  sort4x16lo $value1_2_half, $value1_2_half, $ascratch
+.endm
+
+// ---------------------------------------------------------------
 // 2D scaled minus (worker) entry point: tensor scale values, NO memory constraints
 DEF_STACK_USAGE  0  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
 ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
   setzi   $memConstraints,0
 1:
-  VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON f32sub $b, $azero, $b
+  VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON INVERT_SCALE_B
 
 FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
 
