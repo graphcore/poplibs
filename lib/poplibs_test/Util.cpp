@@ -404,7 +404,6 @@ Tensor createGenericConvInput(Graph &graph, const Type &type,
   tensorShape.insert(tensorShape.end(), fieldShape.begin(), fieldShape.end());
   tensorShape.push_back(convGroupsPerGroup);
   tensorShape.push_back(chansPerGroup);
-
   auto t = graph.addVariable(type, tensorShape, name);
   const auto vectorWidth = graph.getTarget().getVectorWidth(type);
   const auto grainSize = lcm(

@@ -22,8 +22,6 @@ add_library(poplin SHARED
   ConvReducePlan.hpp
   ConvTransforms.cpp
   ConvTransforms.hpp
-  ConvTransformsBytesToCycles.cpp
-  ConvTransformsBytesToCycles.hpp
   ConvUtil.cpp
   ConvUtilInternal.cpp
   ConvUtilInternal.hpp

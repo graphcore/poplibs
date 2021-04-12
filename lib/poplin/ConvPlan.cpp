@@ -369,6 +369,8 @@ getCostOfSolution(const popsolver::Solution &s,
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
   cost.transformCopyCycles = s[e.transformCopyCycles];
   cost.transformExchangeCycles = s[e.transformExchangeCycles];
+  cost.inputRearrangeBytesPerTile = s[e.inputRearrangeBytesPerTile];
+  cost.weightsRearrangeBytesPerTile = s[e.weightsRearrangeBytesPerTile];
 
   cost.totalExchangeCycles = s[e.totalExchangeCycles];
   cost.itemisedExchangeCycles.inputExchangeCycles =
@@ -883,9 +885,12 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
     logging::poplin::log(l, "{} - dynamic slice: {} cycles, unknown bytes",
                          prefix, passCost.dynamicSliceCycles);
     logging::poplin::log(
-        l, "{} - transform: {} copy cycles, {} exchange cycles, {} bytes",
+        l,
+        "{} - transform: {} copy cycles, {} exchange cycles, {} bytes (input "
+        "{}, weights {})",
         prefix, passCost.transformCopyCycles, passCost.transformExchangeCycles,
-        passCost.transformTempBytes);
+        passCost.transformTempBytes, passCost.inputRearrangeBytesPerTile,
+        passCost.weightsRearrangeBytesPerTile);
     logging::poplin::log(
         l,
         "{} - exchange: {} cycles, n/a bytes. (Input {},"

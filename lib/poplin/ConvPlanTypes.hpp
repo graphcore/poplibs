@@ -90,6 +90,9 @@ template <typename T> struct SinglePassEstimates {
   T transformCopyCycles;
   T transformExchangeCycles;
 
+  T inputRearrangeBytesPerTile;
+  T weightsRearrangeBytesPerTile;
+
   T totalExchangeCycles;
   ExchangeEstimates<T> itemisedExchangeCycles;
 

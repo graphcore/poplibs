@@ -5,6 +5,8 @@ import collections
 import csv
 import itertools
 import logging
+import numpy
+import math
 from multiprocessing import Pool, TimeoutError
 import re
 import os
@@ -15,6 +17,7 @@ from progress.bar import Bar
 
 NEW_LINE_CHAR = r'(?:\n|\r\n?)'
 LOG_FILE_EXT = r'.conv.log'
+NUMBER_OF_MATCHES = 6 # See capture_logs_info for an explanation
 group_to_analyse = ['single_conv_layer']
 phases_dict = {'fwd':0, 'bwd':1, 'wu':2}
 
@@ -36,7 +39,7 @@ phases_dict = {'fwd':0, 'bwd':1, 'wu':2}
 # 16:52:46.800 55378 PL [D]    - add in-place: 0 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - cast: 0 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - total: 30748 cycles, 51072 bytes
-re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+): Cost\{cycles=(\d+), memory=(\d+), tiles=(\d+)\}." + NEW_LINE_CHAR +
+re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+_?[A-Z]+?): Cost\{cycles=(\d+), memory=(\d+), tiles=(\d+)\}." + NEW_LINE_CHAR +
                            ".+pass=([A-Z]+)_([A-Z]+)"  + NEW_LINE_CHAR +
                           ".+" + NEW_LINE_CHAR +
                           ".+total parallel split:\s(\d+)" + NEW_LINE_CHAR +
@@ -44,7 +47,7 @@ re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+): Cost\{cycles=(
                           ".+rearrangement before slice:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+memsetZeroBeforeAddInPlace:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+dynamic slice:\s(\d+).+" + NEW_LINE_CHAR +
-                          ".+transform:\s(\d+)\scopy\scycles,\s(\d+)\sexchange\scycles,\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+transform:\s(\d+)\scopy\scycles,\s(\d+)\sexchange\scycles,\s(\d+)\sbytes\s\(input\s(\d+),\sweights\s(\d+).+" + NEW_LINE_CHAR +  #764 bytes (input 360, weights 22)
                           ".+exchange:\s(\d+).+Input\s(\d+),\sWeight\s(\d+),\sReduce\s(\d+)\s\+\s(\d+).+" + NEW_LINE_CHAR +
                           ".+tile level transform:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+compute:\s(\d+).+" + NEW_LINE_CHAR +
@@ -56,7 +59,8 @@ re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+): Cost\{cycles=(
 
 planner_info_fields_names = ['method', 'cost', 'memory', 'tiles', 'training', 'phase',
                  'parallelSplit', 'serialSplit', 'rearrangeBeforeSlice', 'memsetZeroBeforeAddInPlace',
-                 'dynamicSlice', 'transformsCopyCycles', 'transformsExchangeCycles', 'transformsBytes', 'exchange', 'inputExchange',
+                 'dynamicSlice', 'transformsCopyCycles', 'transformsExchangeCycles', 'transformsBytes', 
+                 'transformsCopyInputBytes', 'transformsCopyWeightsBytes', 'exchange', 'inputExchange',
                  'weightsExchange', 'reduceExchange', 'reduceExchangePlus', 'tileTransforms',
                  'compute', 'reduce', 'dynamicUpdate', 'addInPlace', 'cast']
 
@@ -123,6 +127,33 @@ partition_info_fields_names = ['fieldSplit', 'batchSplit', 'outChanSplit_serial'
 PartitionInfoFields = collections.namedtuple(
     'PartitionInfoFields', partition_info_fields_names
 )
+
+
+# Plan information
+#        convGroupsPerGroup      1
+#        inChansPerGroup         16
+#        partialChansPerGroup    8
+#        method                  AMP
+#        isJointPlan             0
+#        startTile               0
+#        linearizeTileDirection  ASCENDING
+#        totalTiles              24
+re_plan_info = re.compile(r'^\s+convGroupsPerGroup\s+(\d+)' + NEW_LINE_CHAR +
+                          '\s+inChansPerGroup\s+(\d+)' + NEW_LINE_CHAR +
+                           '\s+partialChansPerGroup\s+(\d+)' + NEW_LINE_CHAR +
+                           '\s+method\s+([A-Z]+)' + NEW_LINE_CHAR +
+                           '\s+isJointPlan\s+(\d+)' + NEW_LINE_CHAR +
+                           '\s+startTile\s+(\d+)' + NEW_LINE_CHAR +
+                           '\s+linearizeTileDirection\s+([A-Z]+)' + NEW_LINE_CHAR +
+                           '\s+totalTiles\s+(\d+)$',
+                           re.MULTILINE)
+
+plan_info_fields_names = ['inChansPerGroup', 'convGroupsPerGroup', 'partialChansPerGroup', 
+    'method', 'isJointPlan', 'startTile', 'linearizeTileDirection', 'totalTiles']
+PlanInfoFields = collections.namedtuple(
+    'PlanInfoFields', plan_info_fields_names
+)
+
 
 # Another monsto regex to capture conv params:
 #   Params:
@@ -192,6 +223,7 @@ ConvParamsInfoFields = collections.namedtuple(
     'ConvParamsInfoFields', conv_params_info_fields_names
 )
 
+
 # Execution (Profile) capture
 re_execution_profile = re.compile(r"^\s+([a-zA-Z]+): (.+)" + NEW_LINE_CHAR +
                                "\s+Cycles:\s+(.+):.+" + NEW_LINE_CHAR +
@@ -203,9 +235,9 @@ execution_fields_names = ['weightsTransposeSeq', 'transformPreSerialSeq', 'trans
 execution_step_cycles = ['DoExchange', 'OnTileExecute']
 
 # Planner to Profile diff
-planner_2_profile_ratio_fields_names = ['Exch_Pl2Pr', 'OnTile_Pl2Pr']
-Planner2ProfileRatioFields = collections.namedtuple(
-    'Planner2ProfileRatioFields', planner_2_profile_ratio_fields_names
+profile_2_planner_ratio_fields_names = ['Exch_PrByPl', 'OnTile_PrByPl']
+Profile2PlannerRatioFields = collections.namedtuple(
+    'Profile2PlannerRatioFields', profile_2_planner_ratio_fields_names
 )
 
 
@@ -265,14 +297,45 @@ def update_test_cmd(test_cmd, device_type):
     test_cmd = amend_conv_options(test_cmd)
     test_cmd = amend_device_type(test_cmd, device_type)
     test_cmd.append('--profile')
-    test_cmd.append('--preplan=0')
+    test_cmd.append('--enable-convolution-reuse=false')
     test_cmd = amend_create_input(test_cmd)
 
     return test_cmd
 
+
 # -----------------------------------------------------------------------------
 # Benchmarks collector
 # -----------------------------------------------------------------------------
+def amend_conv_options(test_cmd):
+    # Find if <--convolution-options> is already present and amend it
+    try:
+        co_index = test_cmd.index('--convolution-options') + 1
+        test_cmd[co_index] = test_cmd[co_index][:-1] + ', "insertTransformsCycleCountProgs":true, "partialsType":"float"}'
+    except ValueError:
+        test_cmd.append(r'--convolution-options={"insertTransformsCycleCountProgs":true}')
+    return test_cmd
+
+
+def amend_device_type(test_cmd, device_type):
+    # Find <--device-type> and amend with desired target
+    try:
+        co_index = test_cmd.index('--device-type') + 1
+        test_cmd[co_index] = device_type
+    except ValueError:
+        test_cmd.append(f'--device-type={device_type}')
+    return test_cmd
+
+
+def amend_create_input(test_cmd):
+    state = '0'
+    try: # Reset create input to False
+        index = test_cmd.index('--use-create-input') + 1
+        test_cmd[index] = state
+    except ValueError:
+        test_cmd.append(r'--use-create-input=' + state)
+    return test_cmd
+
+
 def get_list_of_tests(cmd, device_type):
     nproc = f'-j{os.cpu_count()}'
     cmd.append(nproc)
@@ -289,6 +352,7 @@ def get_list_of_tests(cmd, device_type):
                     test_cmd[test_cmd.index('--batch-size') + 1] = '2'
                     test_cmd.insert(0, match.group(5))
                     test_cmd = update_test_cmd(test_cmd, device_type)
+                    test_cmd.append('--preplan=0')
                     tests_dict[match.group(2)] = test_cmd
 
     return tests_dict
@@ -340,19 +404,26 @@ def parse_test_file(file_path, device_type):
 # Benchmarks permutation
 # -----------------------------------------------------------------------------
 def transform_constraints(phase, so, ed, ocfd, ccgf):
-    swap_operands = f'"swapOperands":{so}'
-    expand_dims = f'"expandDims":{ed}'
-    out_chan_flatten_dims = f'"outChanFlattenDims":{ocfd}'
-    combine_conv_groups_factor = f'"combineConvGroupsFactor":[{ccgf}]'
-    phase_constraints_prefix = r'{"0": {"transform": {'
-    phase_constraints_suffix = r'}}}'
-    phase_constraints =  phase_constraints_prefix +\
-                        swap_operands + ',' +\
-                        expand_dims + ',' +\
-                        out_chan_flatten_dims + ',' +\
-                        combine_conv_groups_factor +\
-                        phase_constraints_suffix
-    return f'--{phase.lower()}-plan-constraints=' + phase_constraints
+    constraints = []
+    if so:
+        constraints.append(f'"swapOperands":{so}')
+    if ed:
+        constraints.append(f'"expandDims":{ed}')
+    if ocfd:
+        constraints.append(f'"outChanFlattenDims":{ocfd}')
+    if ccgf:
+        constraints.append(f'"combineConvGroupsFactor":[{ccgf}]')
+    
+    phase_constraints = ''
+    if constraints:
+        phase_constraints = f'--{phase.lower()}-plan-constraints='
+        phase_constraints += r'{"0": {"transform": {'
+        for c in constraints[:-1]:
+            phase_constraints += c + ','
+        phase_constraints += constraints[-1]
+        phase_constraints += r'}}}'
+
+    return phase_constraints
 
 
 def powerset(dims):
@@ -407,11 +478,13 @@ def add_permutations(standard_test):
 class BenchmarksBar(Bar):
     suffix = '%(index)d/%(max)d - %(elapsed)ds'
 
+
 def open_proc(file_path, cmd):
     # Skip run if log file already exists
     if not os.path.exists(file_path):
         with open(file_path, mode="w", encoding='utf-8') as log_file:
             subprocess.call(cmd, stdout=log_file, stderr=log_file)
+
 
 def run_tests(tests_dict, output_path, runtime_timeout):
     os.environ["POPLIBS_LOG_LEVEL"] = "DEBUG"
@@ -505,7 +578,7 @@ def capture_exec_cycles(log_output):
 # -----------------------------------------------------------------------------
 def get_diffs(planner_cycles,  profile_cycles):
     try:
-        diff = '{:.2f}'.format(abs(float(planner_cycles) / float(profile_cycles)))
+        diff = '{:.2f}'.format(abs(float(profile_cycles) / float(planner_cycles)))
     except ZeroDivisionError:
         diff = '0'
 
@@ -532,7 +605,7 @@ def calculate_diffs(planner_data, profile_data):
     transforms_exchange_diff = get_diffs(planner_data.transformsExchangeCycles, profile_data[te_index])
     transforms_on_tile_diff = get_diffs(planner_data.transformsCopyCycles, profile_data[tot_index])
 
-    return Planner2ProfileRatioFields._make(x for x in [transforms_exchange_diff, transforms_on_tile_diff])
+    return Profile2PlannerRatioFields._make(x for x in [transforms_exchange_diff, transforms_on_tile_diff])
 
 
 # -----------------------------------------------------------------------------
@@ -548,9 +621,12 @@ def capture_logs_info(tests_dict, output_path, remove_log_files):
         if remove_log_files is True:
             os.remove(filepath)
 
+        # NOTE: When adding new match need to update NUMBER_OF_MATCHES define to allow 
+        #       CI test successfully validate number of matches for each test
         match_planner_info = re_planner_info.findall(all_of_it)
         match_transform_info = re_transform_info.findall(all_of_it)
         match_partition_info = re_partition_info.findall(all_of_it)
+        match_plan_info = re_plan_info.findall(all_of_it)
         match_conv_params_info = re_conv_params_info.findall(all_of_it)
         match_execution_profile = re_execution_profile.findall(all_of_it)
 
@@ -573,11 +649,6 @@ def capture_logs_info(tests_dict, output_path, remove_log_files):
             logging.debug('%s - No best plan info. Most likely test had a timeout', name)
             continue
 
-        # Make sure we got plan info for a correct phase
-        if index != phases_dict[phase]:
-            logging.debug('%s - No best plan info for a %s pass', name, phase)
-            continue
-
         try:
             phase_dict[name].append(TransformInfoFields._make(x for x in match_transform_info[index]))
         except IndexError:
@@ -591,7 +662,14 @@ def capture_logs_info(tests_dict, output_path, remove_log_files):
             continue
 
         try:
-            phase_dict[name].append(ConvParamsInfoFields._make(x for x in match_conv_params_info[index]))
+            plan_info = PlanInfoFields._make(x for x in match_plan_info[index])
+        except IndexError:
+            logging.debug('%s - No plan details. Planner failed...', name)
+            continue
+
+        try:
+            conv_params = ConvParamsInfoFields._make(x for x in match_conv_params_info[index])
+            phase_dict[name].append(conv_params)
         except IndexError:
             logging.debug('%s - No convolution params info. Planner failed...', name)
             continue
@@ -656,7 +734,7 @@ def dump_results(all_results, file_path):
             header1.append('profileCycles')
             header2.append(e_name + '_' + e_step)
 
-    for p_name in planner_2_profile_ratio_fields_names:
+    for p_name in profile_2_planner_ratio_fields_names:
         header1.append('Diff ratio')
         header2.append(p_name)
 
@@ -726,8 +804,10 @@ def validate_ci_test(all_results):
         sys.exit(1)
     else:
         for k in all_results:
-            if len(all_results[k]) != 6:
-                logging.error('Not all test data found for %s phase', k)
+            number_of_matches = len(all_results[k])
+            # See capture_logs_info method for an explanation on NUMBER_OF_MATCHES
+            if number_of_matches != NUMBER_OF_MATCHES:
+                logging.error(f'Not all test data found for {k} phase. Expected {NUMBER_OF_MATCHES} but got {number_of_matches}')
                 sys.exit(1)
 
         # Check so specific transfroms cycles fields
@@ -761,7 +841,7 @@ def main():
     parser.add_argument('--remove-files', default=False, action='store_true', help='If specified - log capture files WILL BE removed after being processed')
     parser.add_argument('--test-names', default='', help='Benchmarks names separated by commas')
     parser.add_argument('--ci-test', default=False, action='store_true', help='Uses predefined test to assest regex parsers')
-    parser.add_argument('--execution-timeout', type=int, default=45, help='Defines timeout for a single test execution')
+    parser.add_argument('--execution-timeout', type=int, default=120, help='Defines timeout for a single test execution')
     parser.add_argument('--test-file', default='', help='Shall contain list of '
          'single_conv_layers tests. File format shall be next: name:<test_name>, command:<test executable>. One command per line.')
     parser.add_argument('--test-binary', default='', help='Provides a path to the single_conv_layer tool')

@@ -1386,7 +1386,6 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
                      params->inputFieldShape.end());
   tensorShape.push_back(convGroupsPerGroup);
   tensorShape.push_back(inChansPerGroup);
-
   auto t = graph.addVariable(params->inputType, tensorShape, {dnai});
   t = unsplitActivationFromGroups(t.dimRoll(0, 1).flatten(1, 3));
   mapActivations(graph, params, plan, level, serial, indices, t, options);
