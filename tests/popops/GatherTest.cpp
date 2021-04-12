@@ -353,3 +353,26 @@ BOOST_AUTO_TEST_CASE(GatherTestCase16) {
                    {nBatch, nRows, 1}, {2}, {2}, {nBatch, nRows, nOut});
   BOOST_TEST(result == expected, boost::test_tools::per_element());
 }
+
+BOOST_AUTO_TEST_CASE(GatherTestCaseBatchDimInMiddle) {
+  const unsigned nBatch = 2;
+  const unsigned nRows = 3;
+  const unsigned nCols = 4;
+  const unsigned nOut = 2;
+  std::vector<int> input(nBatch * nRows * nCols);
+  std::iota(input.begin(), input.end(), 0);
+
+  std::vector<int> indices = {1, 0};
+  // clang-format off
+  std::vector<int> expected = {
+     4,  5,  6,  7,
+     0,  1,  2,  3,
+    16, 17, 18, 19,
+    12, 13, 14, 15
+  };
+  // clang-format on
+  auto result =
+      deviceGather(input, {nBatch, nRows, nCols}, indices, {nOut}, 1, {0, 1, 3},
+                   {nBatch, 1, nCols}, {}, {1}, {nBatch, 1, nOut, nCols});
+  BOOST_TEST(result == expected, boost::test_tools::per_element());
+}

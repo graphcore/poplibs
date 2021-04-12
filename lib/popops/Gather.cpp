@@ -127,35 +127,38 @@ Tensor canonicalizeGatherInput(const Tensor &input,
   return input.dimShuffle(permutation);
 }
 
-// The canonicalized input tensor has its axis permuted such that all of its
-// sliced axes after the non-sliced axes. This function transforms the
-// collapsedSliceDims so that it still refers to the same dimensions in the
-// canonicalized input tensor.
-std::vector<std::size_t> canonicalizeCollapsedSliceDims(
-    std::size_t rank, const std::vector<std::size_t> &collapsedSliceDims,
-    const std::vector<unsigned> &startIndexMap) {
-  std::vector<unsigned> permutation(rank);
+// The gather result is in a canonical form where axes have been permuted such
+// that the zero-th dimension is a batch axis, followed by sliced axes, followed
+// by the non-sliced axes. This function applies an inverse of that permutation
+// which restores the original order of slice dimensions and keeps the batch
+// dimension at axis zero.
+Tensor
+adjustSliceDimensionsInAccumulator(const Tensor &accumulator,
+                                   const std::vector<unsigned> &startIndexMap) {
+  // Find the permutation of the non-batch axes which was applied to the gather
+  // input prior to the gather.
+  // Note that startIndexMap refers to the dimensions in the gather input which
+  // (unlike the accumulator) doesn't have the batch dimension.
+  std::vector<unsigned> permutation(accumulator.rank() - 1);
   boost::iota(permutation, 0);
 
   auto dimPred = [&](std::size_t dim) {
     return std::find(startIndexMap.begin(), startIndexMap.end(), dim) !=
            startIndexMap.end();
   };
-
+  // Recreate the permutation by putting the sliced axes first.
   boost::stable_partition(permutation, dimPred);
 
-  std::vector<unsigned> inversePermutation(permutation.size());
+  // Reverse the permutation and add an extra 0 dimension at the beginning to
+  // keep the batch dimension of the accumulator at the beginning and offset all
+  // the other dimensions by one to account for this extra dimension.
+  std::vector<unsigned> inversePermutation(permutation.size() + 1);
+  inversePermutation[0] = 0;
   for (auto i = 0ul; i < permutation.size(); ++i) {
-    inversePermutation[permutation[i]] = i;
+    inversePermutation[permutation[i] + 1] = i + 1;
   }
 
-  std::vector<std::size_t> canonCollapsedSliceDims;
-  canonCollapsedSliceDims.reserve(collapsedSliceDims.size());
-  for (auto &dim : collapsedSliceDims) {
-    canonCollapsedSliceDims.emplace_back(inversePermutation[dim]);
-  }
-
-  return canonCollapsedSliceDims;
+  return accumulator.dimShuffle(inversePermutation);
 }
 
 // The canonicalized input tensor has its axis permuted such that all of its
@@ -314,8 +317,6 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
       canonicalizeGatherIndices(indices, indexVectorDim, startIndexMap);
   auto canonicalizedInput = canonicalizeGatherInput(input, startIndexMap);
 
-  auto canonCollapsedSliceDims = canonicalizeCollapsedSliceDims(
-      input.rank(), collapsedSliceDims, startIndexMap);
   auto canonSliceSizes = canonicalizeSliceSizes(sliceSizes, startIndexMap);
 
   for (uint i = canonicalizedIndices.dim(1); i < canonSliceSizes.size(); ++i) {
@@ -328,13 +329,21 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
       internal::gather(graph, canonicalizedInput, canonicalizedIndices,
                        canonSliceSizes, prog, {di});
 
-  boost::transform(canonCollapsedSliceDims, canonCollapsedSliceDims.begin(),
-                   [](std::size_t dim) { return dim + 1; });
-  result = result.squeeze(canonCollapsedSliceDims);
+  // Permute the dimensions in the result tensor to put the sliced and
+  // non-sliced axes back into their original positions.
+  result = adjustSliceDimensionsInAccumulator(result, startIndexMap);
 
+  // Remove collapsed slice dimensions.
+  auto offsetCollapsedSliceDims = collapsedSliceDims;
+  boost::transform(offsetCollapsedSliceDims, offsetCollapsedSliceDims.begin(),
+                   [](std::size_t dim) { return dim + 1; });
+  result = result.squeeze(offsetCollapsedSliceDims);
+
+  // Expand batch axes.
   result =
       adjustBatchDimsInAccumulator(indices.shape(), result, indexVectorDim);
 
+  // Permute the dimensions into the expected output format.
   const auto outputRank = (indices.rank() == indexVectorDim ? 0 : -1) +
                           offsetDims.size() + indices.rank();
   auto output = permuteBatchAndOffsetDims(result, offsetDims, outputRank);
