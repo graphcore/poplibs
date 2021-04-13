@@ -865,31 +865,48 @@ bool binaryOpBroadcastInnerVector(
 
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
-  if (splitIntervals.size() == 1 &&
-      validateRegionSizeForSupervisorVertex(splitIntervals, elementLimit,
-                                            target.getNumWorkerContexts())) {
-    const auto outRegion = concat(out.flatten().slices(splitIntervals));
-    const auto in1Region = concat(in1.flatten().slices(splitIntervals));
-    auto in2Region =
-        concat(in2.flatten().slices(splitIntervals)).slice(0, numPatternElems);
-    if (canUseSupervisorVertex(outRegion.numElements(),
-                               in2Region.numElements())) {
-      std::string vertexName =
-          inPlace ? "popops::BroadcastVectorInnerInPlaceSupervisor"
-                  : "popops::BroadcastVectorInnerSupervisor";
-      auto vertexClass = templateVertex(vertexName, op, dType);
-      logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
-                             vertexClass);
-      std::uint16_t dataBlockCountPacked =
-          packCount(outRegion.numElements(), in2Region.numElements());
-      auto v = graph.addVertex(cs, vertexClass);
-      graph.connect(v["B"], in2Region);
-      graph.connect(v["data"], in1Region);
-      if (!inPlace) {
-        graph.connect(v["out"], outRegion);
+  // Use supervisor vertices to reduce memory use if there are a small number
+  // of suitable intervals
+  if (splitIntervals.size() <= 2) {
+    auto intervalVectorLength = [](const std::vector<Interval> &iVector) {
+      std::size_t len = 0;
+      for (const auto &i : iVector)
+        len += i.size();
+      return len;
+    };
+    bool canUseSupervisor = true;
+    for (const auto &splitInterval : splitIntervals) {
+      if (!canUseSupervisorVertex(intervalVectorLength(splitInterval),
+                                  numPatternElems) ||
+          !validateRegionSizeForSupervisorVertex(
+              {splitInterval}, elementLimit, target.getNumWorkerContexts())) {
+        canUseSupervisor = false;
+        break;
       }
-      graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
-      graph.setTileMapping(v, tile);
+    }
+    if (canUseSupervisor) {
+      for (const auto &splitInterval : splitIntervals) {
+        const auto &outRegion = concat(out.flatten().slices(splitInterval));
+        const auto &in1Region = concat(in1.flatten().slices(splitInterval));
+        const auto &in2Region = concat(in2.flatten().slices(splitInterval))
+                                    .slice(0, numPatternElems);
+        std::string vertexName =
+            inPlace ? "popops::BroadcastVectorInnerInPlaceSupervisor"
+                    : "popops::BroadcastVectorInnerSupervisor";
+        auto vertexClass = templateVertex(vertexName, op, dType);
+        logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
+                               vertexClass);
+        std::uint16_t dataBlockCountPacked =
+            packCount(outRegion.numElements(), in2Region.numElements());
+        auto v = graph.addVertex(cs, vertexClass);
+        graph.connect(v["B"], in2Region);
+        graph.connect(v["data"], in1Region);
+        if (!inPlace) {
+          graph.connect(v["out"], outRegion);
+        }
+        graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
+        graph.setTileMapping(v, tile);
+      }
       return true;
     }
   }
