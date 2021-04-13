@@ -1,5 +1,6 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "poputil/Util.hpp"
+#include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
@@ -304,6 +305,18 @@ std::size_t intervalSequenceNumElements(
   return numElements;
 }
 
+static bool preservesAliasing(const poplar::TensorCloneMethod method) {
+  switch (method) {
+  case poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES:
+  case poplar::TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES:
+    return true;
+  case poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES:
+  case poplar::TensorCloneMethod::CREATE_NEW_ORDER:
+    return false;
+  }
+  POPLIB_UNREACHABLE();
+}
+
 poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
                          poplar::program::Sequence &p,
                          const poplar::DebugContext &debugContext,
@@ -314,11 +327,11 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
   poplar::Tensor copy = graph.clone(src, {di}, method);
   poplar::Tensor copyDst = copy;
   poplar::Tensor copySrc = src;
-  if (method == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES &&
-      src.containsAliases()) {
+  if (preservesAliasing(method) && src.containsAliases()) {
     // remove all aliased regions in source and destination tensors
     auto copyFlat = copy.flatten();
     auto srcFlat = src.flatten();
+    graph.reorderToSimplify(&srcFlat, {&copyFlat}, false);
     auto srcFlatRegions = graph.getSortedContiguousRegions(
         srcFlat, {{0, srcFlat.numElements()}}, true);
     copyDst = poplar::concat(copyFlat.slices(srcFlatRegions));
