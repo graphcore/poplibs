@@ -64,7 +64,7 @@ public:
   // Enables insertion of cycle counts progs around convolution sequences
   bool insertTransformsCycleCountProgs = false;
   // Enables conversion table for transforms estimates
-  bool enableTransformsConvTable = false;
+  bool enableTransformsConvTable = true;
 
   void parseConvOptions(const poplar::OptionFlags &options);
 
