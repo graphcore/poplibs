@@ -1498,15 +1498,14 @@ addTransformCycleEstimate(
   } else {
     const auto outputCopyCycles = m.sum(copyOutputCyclesOperands);
     const auto ipuTransforms = transforms[ipuLevel];
-    const auto defaultBytesPerCycle = target.getMemcpyBytesPerCycle();
 
     copyCyclesEstimates = m.call<uint64_t>(
         {partitionVars[ipuLevel].inChanSplit.serial,
          partitionVars[ipuLevel].outChanSplit.serial,
          mInputRearrangeBytesPerTile, mWeightsRearrangeBytesPerTile,
          outputCopyCycles},
-        [ipuTransforms, defaultBytesPerCycle, transformedViewParams,
-         convVertexType, inputBytesPerElement](
+        [ipuTransforms, transformedViewParams, convVertexType,
+         inputBytesPerElement](
             const std::vector<uint64_t> &vars) -> popsolver::DataType {
           const auto &inChanSerialSplit = vars[0];
           const auto &outChanSerialSplit = vars[1];
