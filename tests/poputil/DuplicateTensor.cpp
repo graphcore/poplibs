@@ -24,12 +24,15 @@ static void TestFunc(poplar::TensorCloneMethod cloneMethod) {
   Tensor testInput =
       graph.addVariable(INT, {numElements}, VariableMappingMethod::LINEAR);
 
+  const bool preservesAliasing =
+      cloneMethod == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES ||
+      cloneMethod ==
+          poplar::TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES;
+
   // create a tensor view with aliases when checking for alias preservation
   const unsigned broadcastFactor = 2;
   auto srcTensor =
-      cloneMethod == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES
-          ? testInput.broadcast(broadcastFactor, 0)
-          : testInput;
+      preservesAliasing ? testInput.broadcast(broadcastFactor, 0) : testInput;
 
   // test funtion: duplicate (clone+copy) the tensor
   Tensor testResult =
@@ -66,11 +69,12 @@ static void TestFunc(poplar::TensorCloneMethod cloneMethod) {
   BOOST_CHECK(srcAliases == resAliases);
 
   // verify duplicated tensor has expected number of elements
-  if (cloneMethod == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES)
+  if (preservesAliasing) {
     BOOST_CHECK_EQUAL(broadcastFactor * testInput.numElements(),
                       testResult.numElements());
-  else
+  } else {
     BOOST_CHECK_EQUAL(testInput.numElements(), testResult.numElements());
+  }
 
   // run Engine and verify copying
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
@@ -110,4 +114,9 @@ BOOST_AUTO_TEST_CASE(CopyToIpuCreateNewOrderTest) {
 
 BOOST_AUTO_TEST_CASE(CopyToIpuPreserveOrderAndAliases) {
   TestFunc(poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES);
+}
+
+BOOST_AUTO_TEST_CASE(CopyToIpuGatherAndPreserveTileOrderAndAliases) {
+  TestFunc(
+      poplar::TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
 }
