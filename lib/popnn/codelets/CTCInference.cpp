@@ -261,6 +261,10 @@ public:
   //    pb = pbCopy + pbExtend and pnb = pnbCopy + pnbExtend
   //    and so the pTotal of the merged result can be calculated from pb, pnb
 
+  // Note that the copy candidate parent and addend fields are updated with
+  // those of the extend candidate it was merged with.  This is so that the
+  // beam history can be updated but also allows us to identify the extend
+  // candidate that was merged later in the process.
   InOut<unsigned> copyCandidateParent;
   InOut<SymbolType> copyCandidateAddend;
   InOut<PartialsType> copyCandidateBeamProbNonBlank;
@@ -269,24 +273,21 @@ public:
 
   Input<Vector<SymbolType, ONE_PTR>> beamAddend; // [maxT+1, beamwidth]
   Input<Vector<unsigned, ONE_PTR>> beamParent;   // [maxT+1, beamwidth]
+  // The last output from the beam that the copy candidate came from
+  Input<SymbolType> lastBeamOutput;
 
   // Index into beamAddend/Parent for HEAD position
   Input<unsigned> currentTimestep;
   // The length of the data input (Valid for this specific input)
   Input<unsigned> dataLength;
-  // An output indicating the index of the single extend candidate (if any)
-  // which was merged with the copy candidate.  beamwidth signifies no merged
-  Output<unsigned> invalidCandidate;
 
   const unsigned extendCandidates;
   const unsigned beamwidth;
+  const SymbolType blankClass;
 
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    // Consider a single copy candidate and a number of extend candidates.
-    // The copy candidate is compared to each of the extend candidates in turn,
-    // we expect only 1 match (at most) so stop if a match is found.
     // Comparison involves tracking backward through the beam history of both
     // candidates in order to generate the output symbol by symbol.  Outputs are
     // compared one by one and conclusions reached:
@@ -298,50 +299,45 @@ public:
     if (currentTimestep > dataLength) {
       return true;
     }
-    // Flag as all valid until we merge
-    *invalidCandidate = beamwidth;
 
     const unsigned parentLhs = *copyCandidateParent;
     const unsigned addendLhs = *copyCandidateAddend;
-    // The only way for candidates to be mergeable is if one is a copy
-    // beam (same output sequence from parent beam), and the other extension
-    // (of a different beam). This is from; if both candidates are copy, the
-    // output sequence of parent beams will be unchanged so not made
-    // equivalent. Or alternatively, both are extension, they will need to
-    // be from the same output sequence which means they cannot be extending
-    // by the same symbol and so not equivalent.
-    //
-    // Here we compare a single copy beam to multiple extend beams.  There is a
-    // possibility of a merge if the beam parents are different, and only 1
-    // merge is possible
-    for (unsigned i = 0; i < extendCandidates; i++) {
 
-      const auto parentRhs = extendCandidateParent[i];
-      const auto addendRhs = extendCandidateAddend[i];
-      if (parentLhs == parentRhs) {
-        // From the same beam
-        continue;
-      }
+    // Consider a single copy candidate and a number of extend candidates.
+    // The extend candidates are all from a single beam and are listed:
+    // extend[addendA]
+    // extend[addendB]
+    // extend[addendC]
+    // ...
+    // In other words in order of addend, with the blankClass being omitted.
+    // The last symbol of the copy candidate is the last symbol of its parent
+    // beam.  The extend candidate with the same addend is the only one that
+    // need be compared.
+    const auto copyCandidateLastOut = lastBeamOutput;
+    if (copyCandidateLastOut == voidSymbol) {
+      return true;
+    }
+    const auto i = copyCandidateLastOut > blankClass ? copyCandidateLastOut - 1
+                                                     : copyCandidateLastOut;
 
-      // TODO: improve efficiency by simplifting traceback mechanism, possibly
-      // with no voidSymbol, and therefore different length paths for each beam
-      if (equivalentOutputSequence(&(beamAddend[0]), &(beamParent[0]),
-                                   *currentTimestep, beamwidth, parentLhs,
-                                   addendLhs, parentRhs, addendRhs)) {
+    const auto parentRhs = extendCandidateParent[i];
+    const auto addendRhs = extendCandidateAddend[i];
 
-        *copyCandidateBeamProbNonBlank = logAdd(
-            *copyCandidateBeamProbNonBlank, extendCandidateBeamProbNonBlank[i]);
-        *copyCandidateBeamProbBlank = logAdd(*copyCandidateBeamProbBlank,
-                                             extendCandidateBeamProbBlank[i]);
-        *copyCandidateBeamProbTotal =
-            logAdd(*copyCandidateBeamProbBlank, *copyCandidateBeamProbNonBlank);
-        // Preserve the addend and parent of the extend candidate
-        *copyCandidateParent = parentRhs;
-        *copyCandidateAddend = addendRhs;
-        *invalidCandidate = i;
-        // Only 1 can match
-        break;
-      }
+    // TODO: improve efficiency by simplifting traceback mechanism, possibly
+    // with no voidSymbol, and therefore different length paths for each beam
+    if (equivalentOutputSequence(&(beamAddend[0]), &(beamParent[0]),
+                                 *currentTimestep, beamwidth, parentLhs,
+                                 addendLhs, parentRhs, addendRhs)) {
+
+      *copyCandidateBeamProbNonBlank = logAdd(
+          *copyCandidateBeamProbNonBlank, extendCandidateBeamProbNonBlank[i]);
+      *copyCandidateBeamProbBlank =
+          logAdd(*copyCandidateBeamProbBlank, extendCandidateBeamProbBlank[i]);
+      *copyCandidateBeamProbTotal =
+          logAdd(*copyCandidateBeamProbBlank, *copyCandidateBeamProbNonBlank);
+      // Preserve the addend and parent of the extend candidate
+      *copyCandidateParent = parentRhs;
+      *copyCandidateAddend = addendRhs;
     }
     return true;
   }
@@ -351,44 +347,125 @@ template class CTCMergeCandidates<float, unsigned>;
 template class CTCMergeCandidates<half, unsigned>;
 
 template <typename PartialsType, typename SymbolType>
+class CTCSelectCopyCandidates : public Vertex {
+
+public:
+  CTCSelectCopyCandidates();
+  // Shape and size of inputs is [numCandidates]
+  Input<Vector<unsigned>> copyCandidateParent;
+  Input<Vector<SymbolType>> copyCandidateAddend;
+  Input<Vector<PartialsType>> copyCandidateBeamProbNonBlank;
+  Input<Vector<PartialsType>> copyCandidateBeamProbBlank;
+  Input<Vector<PartialsType>> copyCandidateBeamProbTotal;
+
+  // A single result candidate
+  Output<unsigned> candidateParent;
+  Output<SymbolType> candidateAddend;
+  Output<PartialsType> candidateBeamProbNonBlank;
+  Output<PartialsType> candidateBeamProbBlank;
+  Output<PartialsType> candidateBeamProbTotal;
+
+  // Only use of current timestep and dataLength is to end early
+  // Index into beamAddend/Parent for HEAD position
+  Input<unsigned> currentTimestep;
+  // The length of the data input (Valid for this specific input)
+  Input<unsigned> dataLength;
+  unsigned numCandidates;
+
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute() {
+    if (currentTimestep > dataLength) {
+      return true;
+    }
+    // Select a single copy candidate from those attached, the one that was
+    // merged if there is one
+    for (unsigned i = 0; i < numCandidates - 1; i++) {
+      // Loop over each copy candidate
+      if (copyCandidateAddend[i] != voidSymbol) {
+        // There was a merge among the group of broadcast copy candidates so
+        // select the merged one
+        *candidateParent = copyCandidateParent[i];
+        *candidateAddend = copyCandidateAddend[i];
+        *candidateBeamProbNonBlank = copyCandidateBeamProbNonBlank[i];
+        *candidateBeamProbBlank = copyCandidateBeamProbBlank[i];
+        *candidateBeamProbTotal = copyCandidateBeamProbTotal[i];
+        return true;
+      }
+    }
+    // No merge, or the last one was merged.  Either way, use the last one
+    const auto i = numCandidates - 1;
+    *candidateParent = copyCandidateParent[i];
+    *candidateAddend = copyCandidateAddend[i];
+    *candidateBeamProbNonBlank = copyCandidateBeamProbNonBlank[i];
+    *candidateBeamProbBlank = copyCandidateBeamProbBlank[i];
+    *candidateBeamProbTotal = copyCandidateBeamProbTotal[i];
+    return true;
+  }
+};
+
+template class CTCSelectCopyCandidates<float, unsigned>;
+template class CTCSelectCopyCandidates<half, unsigned>;
+
+template <typename PartialsType, typename SymbolType>
+class CTCSelectExtendCandidates : public Vertex {
+
+public:
+  CTCSelectExtendCandidates();
+  // The parent from each copy candidate that was compared to the extend
+  // candidates.
+  Input<Vector<SymbolType>> copyCandidateAddend; // [numCopyCandidates]
+  // The extend candidates, which can have their total probability zeroed if
+  // a merge took place
+  InOut<Vector<PartialsType>> extendCandidateBeamProbTotal; // [numSymbols-1]
+
+  // Only use of current timestep and dataLength is to end early
+  // Index into beamAddend/Parent for HEAD position
+  Input<unsigned> currentTimestep;
+  // The length of the data input (Valid for this specific input)
+  Input<unsigned> dataLength;
+  // The number of copy candidates
+  unsigned numCopyCandidates;
+  const SymbolType blankClass;
+
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute() {
+    if (currentTimestep > dataLength) {
+      return true;
+    }
+    // Where a copy candidate indicates a merge, zero the total probability
+    // of the corresponding extend candidate which it was merged with
+    for (unsigned i = 0; i < numCopyCandidates; i++) {
+      // Loop over each copy candidate
+      if (copyCandidateAddend[i] != voidSymbol) {
+        // There was a merge among the group of broadcast copy candidates
+        // so 'discard' the corresponding extend candidate by zeroing its
+        // sum probability
+        const auto symbol = copyCandidateAddend[i];
+        const auto idx = symbol > blankClass ? symbol - 1 : symbol;
+        extendCandidateBeamProbTotal[idx] = log::probabilityZero;
+        // Don't exit, there could be several merges to pick up
+      }
+    }
+    return true;
+  }
+};
+
+template class CTCSelectExtendCandidates<float, unsigned>;
+template class CTCSelectExtendCandidates<half, unsigned>;
+
+template <typename PartialsType, typename SymbolType>
 class CTCSelectCandidates : public Vertex {
 
 public:
   CTCSelectCandidates();
-  // The input is a flat list of candidates:
-  // Total broadcast copy candidates followed by the extend candidates
-  // Suppose Beamwidth = 3, and numSymbols = 3 so numSymbolsM1 = 2 (no blank)
-  // numGroups = numSymbolsM1, numParents = beamwidth
-  //----------------------------------------------------------------------------
-  // copy[group0,parent0]  // Was compared to group 0
-  // copy[group0,parent1]  //        (But could have been updated if merged)
-  // copy[group0,parent2]
-  // copy[group1,parent0]  // A copy of copy[g0,p0], was compared to group1
-  // copy[group1,parent1]  //        (But could have been updated if merged)
-  // copy[group1,parent2]
-  // extend[group0,parent0]  // Group 0 of extend candidates (same addend)
-  // extend[group0,parent1]
-  // extend[group0,parent2]
-  // extend[group1,parent0]  // Group 1 of extend candidates (same addend)
-  // extend[group1,parent1]
-  // extend[group1,parent2]
-  //
-  // Following merge we know that 1 or none of copy[groupX,parent0] was merged
-  // with an extend candidate, likewise for copy[groupX,parent1] and
-  // copy[groupX,parent2]
-  // First we will determine which merges happened and overwrite last group of
-  // copy candidates with the merged candidates (if any) and null the
-  // probability of the extend candidate that was merged
-
+  // Inputs have size [totalCandidates]
   InOut<Vector<unsigned, ONE_PTR>> candidateParent;
   InOut<Vector<SymbolType, ONE_PTR>> candidateAddend;
   InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
   InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
   InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbTotal;
-
-  // TODO - this appears redundant, although this code could be subject to
-  // change.  Leave it in place for now, as it may prove useful later!
-  Input<Vector<unsigned>> mergedCandidateIndicator;
 
   // Only use of current timestep and dataLength is to end early
   // Index into beamAddend/Parent for HEAD position
@@ -396,9 +473,8 @@ public:
   // The length of the data input (Valid for this specific input)
   Input<unsigned> dataLength;
 
-  const unsigned beamwidth; // beamwidth indicates the number of copy candidates
+  const unsigned beamwidth; // The number of result candidates = beamwidth
   const unsigned totalCandidates;
-  const unsigned extendCandidateGroups;
 
   IS_EXTERNAL_CODELET(false);
 
@@ -409,96 +485,40 @@ public:
     // Precondition - candidates to be padded by previous codelets or memory
     // suitably initialized (probability zero)
     assert(beamwidth <= totalCandidates);
-    const auto numCopyCandidatesBroadcast = beamwidth * extendCandidateGroups;
-
-    // TODO - This preparation stage could maybe be parellelised by using a
-    // dedicated codelet
-
-    // We already broadcast the copy candidates - so only keep one of each
-    // broadcast group, but select the one that was part of a merge
-    // (if there was a merge)
-    for (unsigned i = 0; i < beamwidth; i++) {
-      // Loop over each copy candidate (Before the broadcast)
-      auto mergeFound = false;
-      unsigned mergedIndex;
-      unsigned groupOffset = 0;
-      // Loop over all but the last one in a broadcast group.
-      for (unsigned j = 0; j < extendCandidateGroups - 1; j++) {
-        const auto idx = i + groupOffset;
-        // Any copy candidate that was merged will have its addend (Which was
-        // the voidSymbol) overwritten with that of the extend candidate it was
-        // merged with
-        if (candidateAddend[idx] != voidSymbol) {
-          // There was a merge among the group of broadcast copy candidates
-          mergeFound = true;
-          mergedIndex = idx;
-          // Null out the probability of the corresponding extend candidate.
-          // When merged the copy candidate's parent was overwritten with that
-          // of the extend candidate it merged with  This allows us to find and
-          // modify that extend candidate
-          candidateBeamProbTotal[numCopyCandidatesBroadcast + // Start of extend
-                                                              // candidates
-                                 groupOffset +           // group0, group1 etc
-                                 candidateParent[idx]] = // parent within group
-              log::probabilityZero;
-          groupOffset = beamwidth * (extendCandidateGroups - 1);
-          break;
-        }
-        groupOffset += beamwidth;
-      }
-      // Keep or update the last one depending on if a merge was already found
-      const auto idx = i + groupOffset;
-      if (mergeFound) {
-        // There was already a merge among the copy candidates so overwrite the
-        // last one
-        candidateParent[idx] = candidateParent[mergedIndex];
-        candidateAddend[idx] = candidateAddend[mergedIndex];
-        candidateBeamProbNonBlank[idx] = candidateBeamProbNonBlank[mergedIndex];
-        candidateBeamProbBlank[idx] = candidateBeamProbBlank[mergedIndex];
-        candidateBeamProbTotal[idx] = candidateBeamProbTotal[mergedIndex];
-      } else {
-        // No merge found yet, so use the last one, checking if it was a merge
-        if (candidateAddend[idx] != voidSymbol) {
-          candidateBeamProbTotal[numCopyCandidatesBroadcast + groupOffset +
-                                 candidateParent[idx]] = log::probabilityZero;
-        }
-      }
-    }
-    // The actual select - operate on the last group of copy candidates and
-    // the extend candidates only.
-    // The result is in the position of hte last group of copy candidates
-    const unsigned offset = numCopyCandidatesBroadcast - beamwidth;
+    // The input is a flat list of candidates:
+    // Copy candidates followed by the extend candidates. Although order isn't
+    // important for the input sorting process, the 1st beamwidth candidates
+    // (Equal to the number of copy candidates) will be overwritten with the
+    // most probable candidates
     for (unsigned b = 0; b < beamwidth; b++) {
-      const auto beamOutIdx = offset + b;
-      unsigned maxIdx = beamOutIdx;
-      PartialsType max = candidateBeamProbTotal[beamOutIdx];
-      for (unsigned i = beamOutIdx; i < totalCandidates; i++) {
+      unsigned maxIdx = b;
+      PartialsType max = candidateBeamProbTotal[b];
+      for (unsigned i = b; i < totalCandidates; i++) {
         const auto cmp = candidateBeamProbTotal[i];
         if (cmp > max) {
           maxIdx = i;
           max = cmp;
         }
       }
+      // Total probablility is not needed as an output, but the displaced
+      // result total probability is needed
+      candidateBeamProbTotal[maxIdx] = candidateBeamProbTotal[b];
 
-      unsigned tmpParent = candidateParent[beamOutIdx];
-      candidateParent[beamOutIdx] = candidateParent[maxIdx];
+      unsigned tmpParent = candidateParent[b];
+      candidateParent[b] = candidateParent[maxIdx];
       candidateParent[maxIdx] = tmpParent;
 
-      SymbolType tmpAddend = candidateAddend[beamOutIdx];
-      candidateAddend[beamOutIdx] = candidateAddend[maxIdx];
+      SymbolType tmpAddend = candidateAddend[b];
+      candidateAddend[b] = candidateAddend[maxIdx];
       candidateAddend[maxIdx] = tmpAddend;
 
-      PartialsType tmpBeamProbNonBlank = candidateBeamProbNonBlank[beamOutIdx];
-      candidateBeamProbNonBlank[beamOutIdx] = candidateBeamProbNonBlank[maxIdx];
+      PartialsType tmpBeamProbNonBlank = candidateBeamProbNonBlank[b];
+      candidateBeamProbNonBlank[b] = candidateBeamProbNonBlank[maxIdx];
       candidateBeamProbNonBlank[maxIdx] = tmpBeamProbNonBlank;
 
-      PartialsType tmpBeamProbBlank = candidateBeamProbBlank[beamOutIdx];
-      candidateBeamProbBlank[beamOutIdx] = candidateBeamProbBlank[maxIdx];
+      PartialsType tmpBeamProbBlank = candidateBeamProbBlank[b];
+      candidateBeamProbBlank[b] = candidateBeamProbBlank[maxIdx];
       candidateBeamProbBlank[maxIdx] = tmpBeamProbBlank;
-
-      PartialsType tmpProbTotalScratch = candidateBeamProbTotal[beamOutIdx];
-      candidateBeamProbTotal[beamOutIdx] = candidateBeamProbTotal[maxIdx];
-      candidateBeamProbTotal[maxIdx] = tmpProbTotalScratch;
     }
 
     return true;

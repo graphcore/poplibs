@@ -268,12 +268,14 @@ selectMergeCandidates(const std::vector<Candidate<ExpectedFPType>> &actual) {
 template <typename FPType>
 std::pair<Candidate<FPType>, std::vector<Candidate<FPType>>>
 getCopyAndExtendCandidates(const std::vector<Candidate<FPType>> &candidates,
-                           boost::optional<unsigned> merged, unsigned addend) {
-  auto copyCandidate = merged ? candidates[*merged] : candidates[0];
-
+                           unsigned mergedCopyBeam, unsigned mergedExtendBeam) {
+  Candidate<FPType> copyCandidate;
   std::vector<Candidate<FPType>> extendCandidates;
   for (const auto candidate : candidates) {
-    if (candidate.addend == addend) {
+    if (candidate.addend == voidSymbol && candidate.beam == mergedCopyBeam) {
+      copyCandidate = candidate;
+    }
+    if (candidate.addend != voidSymbol && candidate.beam == mergedExtendBeam) {
       extendCandidates.push_back(candidate);
     }
   }
@@ -295,7 +297,8 @@ int main(int argc, char **argv) {
   unsigned beam = 0;
   boost::optional<unsigned> baseSequenceLength = boost::none;
   boost::optional<unsigned> addendClass = boost::none;
-  boost::optional<unsigned> mergeClass = boost::none;
+  boost::optional<unsigned> mergeCopyBeam = boost::none;
+  boost::optional<unsigned> mergeExtendBeam = boost::none;
 
   po::options_description desc("Options");
   // clang-format off
@@ -332,9 +335,12 @@ int main(int argc, char **argv) {
     ("addend-class", po::value(&addendClass),
      "Symbol to make the addend when extending or making copy candidates."
      " Range 0 to (num-classes - 1) avoiding the blank-class")
-    ("merge-class", po::value(&mergeClass),
-     "Symbol to make the addend when merging candidates."
-     " Range 0 to (num-classes - 1) avoiding the blank-class")
+    ("merge-copy-beam", po::value(&mergeCopyBeam),
+     "Parent beam of the copy candidate to choose when merging candidates."
+     " Range 0 to (beamwidth-1")
+    ("merge-extend-beam", po::value(&mergeExtendBeam),
+     "Parent beam of the extend candidates to choose when merging candidates."
+     " Range 0 to (beamwidth-1")
     ("timestep", po::value(&timestep)->default_value(timestep),
      "The timestep (loop count) to process")
     ("profile", "Show profile report")
@@ -357,17 +363,18 @@ int main(int argc, char **argv) {
   if (!baseSequenceLength) {
     baseSequenceLength = ceildiv(maxT, 2u);
   }
-  if (addendClass && mergeClass) {
-    std::cerr << "Specifying addend-class and merge-class -"
-                 " use just one of them\n";
+  if (addendClass && (mergeCopyBeam || mergeExtendBeam)) {
+    std::cerr << "Specifying addend-class and merge-beam(s) -"
+                 " use either addend-class or both merge-beams\n";
     return 1;
   }
   if (addendClass && *addendClass == blankClass) {
     std::cerr << "addend-class must not equal blank-class\n";
     return 1;
   }
-  if (mergeClass && *mergeClass == blankClass) {
-    std::cerr << "merge-class must not equal blank-class\n";
+  if (mergeCopyBeam != mergeExtendBeam) {
+    std::cerr << "Select either both or neither of merge-copy-beam and"
+                 " merge-extend-beam\n";
     return 1;
   }
   if (!addendClass) {
@@ -471,44 +478,51 @@ int main(int argc, char **argv) {
     // happened
     const auto mergedPairs =
         listMergeableCandidates(modelCandidates, beamHistory);
-    const auto merged = [&]() {
-      boost::optional<unsigned> firstMergedCopyCandidate;
+
+    const auto [mergedCopy, mergedExtend] = [&]() {
+      boost::optional<unsigned> copy;
+      boost::optional<unsigned> extend;
       if (mergedPairs.size() >= 1) {
-        firstMergedCopyCandidate =
-            modelCandidates[mergedPairs[0].first].addend == voidSymbol
-                ? mergedPairs[0].first
-                : mergedPairs[0].second;
+        copy = mergedPairs[0].first;
+        extend = mergedPairs[0].second;
       }
-      return firstMergedCopyCandidate;
+      return std::tuple<boost::optional<unsigned>, boost::optional<unsigned>>(
+          copy, extend);
     }();
 
-    mergeClass = [&]() {
-      if (mergeClass) {
-        return mergeClass;
+    auto pickMergeBeam = [&](const boost::optional<unsigned> beam,
+                             const boost::optional<unsigned> candidate,
+                             unsigned defaultBeam) {
+      if (beam) {
+        return *beam;
       }
-      if (merged) {
-        return boost::make_optional(
-            beamHistory.getLastOutput(modelCandidates[*merged].beam));
+      if (candidate) {
+        return modelCandidates[*candidate].beam;
       }
-      // Pick an arbitrary class to merge that isn't a blank
-      return boost::make_optional(blankClass == 0 ? 1u : 0u);
-    }();
+      return defaultBeam;
+    };
 
-    auto [copyCandidate, extendCandidates] =
-        getCopyAndExtendCandidates(modelCandidates, merged, *mergeClass);
+    const auto chosenMergeCopyBeam =
+        pickMergeBeam(mergeCopyBeam, mergedCopy, 0);
+    const auto chosenMergeExtendBeam =
+        pickMergeBeam(mergeExtendBeam, mergedExtend, 1);
+
+    auto [copyCandidate, extendCandidates] = getCopyAndExtendCandidates(
+        modelCandidates, chosenMergeCopyBeam, chosenMergeExtendBeam);
 
     auto candidates = runMergeCandidatesCodelet<float>(
         graph, device, deviceType, inType, partialsType, extendCandidates,
-        copyCandidate, timestep, beamHistory, profile);
+        copyCandidate, timestep, blankClass, beamHistory, profile);
 
     extendCandidates.insert(extendCandidates.begin(), copyCandidate);
     const auto modelMergedCandidates =
         mergeEquivalentCandidates(extendCandidates, beamHistory, true);
 
     if (verbose) {
-      if (merged) {
-        std::cout << "Merge on the timestep for test - candidate index:"
-                  << *merged << "\n";
+      if (mergedCopy && mergedExtend) {
+        std::cout << "Merge on the timestep for test - copy candidate index:"
+                  << *mergedCopy << " extend candidate index:" << *mergedExtend
+                  << "\n";
       }
       std::cout << "\nAll model candidates:\n";
       print(modelCandidates, voidSymbol);

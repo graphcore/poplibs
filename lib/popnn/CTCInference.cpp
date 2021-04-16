@@ -253,16 +253,15 @@ TempTensors createAndInitialiseTemporaryTensors(
   mapAccordingToPlan(graph, tempTensors.copyCandidatesAddend,
                      PartitionType::COPY, plan);
 
-  // Merge indication and merge candidates vectors of tensors
+  // Merge merge candidates vectors of tensors
   tempTensors.mergeCandidatesPb.resize(beamwidth);
   tempTensors.mergeCandidatesPnb.resize(beamwidth);
   tempTensors.mergeCandidatesPTotal.resize(beamwidth);
   tempTensors.mergeCandidatesParent.resize(beamwidth);
   tempTensors.mergeCandidatesAddend.resize(beamwidth);
-  tempTensors.mergedCandidateIndicator.resize(beamwidth);
 
-  const auto numClassesM1 = numClasses - 1;
-  const std::vector<size_t> mergeTensorsShape = {batchSize, numClassesM1, 1};
+  const std::vector<size_t> mergeTensorsShape = {batchSize, plan.parallel.merge,
+                                                 1};
   for (unsigned i = 0; i < beamwidth; i++) {
 
     const auto debugStr = std::to_string(i);
@@ -281,9 +280,6 @@ TempTensors createAndInitialiseTemporaryTensors(
     tempTensors.mergeCandidatesAddend[i] =
         graph.addVariable(UNSIGNED_INT, mergeTensorsShape,
                           {di, "mergeCandidatesAddend_" + debugStr});
-    tempTensors.mergedCandidateIndicator[i] =
-        graph.addVariable(UNSIGNED_INT, mergeTensorsShape,
-                          {di, "mergedCandidateIndicator_" + debugStr});
 
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesPb[i],
                        PartitionType::MERGE, plan);
@@ -294,8 +290,6 @@ TempTensors createAndInitialiseTemporaryTensors(
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesParent[i],
                        PartitionType::MERGE, plan);
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesAddend[i],
-                       PartitionType::MERGE, plan);
-    mapAccordingToPlan(graph, tempTensors.mergedCandidateIndicator[i],
                        PartitionType::MERGE, plan);
   }
 
@@ -423,7 +417,7 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
 
   // Broadcast the copy candidates into the vectors of merge candidates
   auto transform = [=](const Tensor &in, unsigned i) {
-    return in.slice(i, i + 1, 1).expand({1}).broadcast(numClassesM1, 1);
+    return in.slice(i, i + 1, 1).expand({1}).broadcast(plan.parallel.merge, 1);
   };
 
   for (unsigned i = 0; i < beamwidth; i++) {
@@ -440,46 +434,64 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   }
 
   // Merge candidates in the 2nd compute set
-  // TODO- Merging could be more parallel
   auto cs2 = graph.addComputeSet(di);
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     for (unsigned copy = 0; copy < plan.parallel.copy; copy++) {
-      for (unsigned addend = 0; addend < numClassesM1; addend++) {
-        const unsigned tile = plan.getTile(batch, 0, addend);
+      for (unsigned merge = 0; merge < plan.parallel.merge; merge++) {
+        const unsigned tile = plan.getTile(batch, 0, merge);
         mergeCandidateVertex(graph, beams, tempTensors, cs2, batch, {0, maxT},
-                             addend, copy, beamwidth, tile);
+                             merge, copy, blankClass, beamwidth, tile);
       }
     }
   }
   prog.add(Execute(cs2, di));
 
-  // Select candidates in the 3rd compute set
-  // TODO - make some of the sorting work more in parallel
+  // Select the merged copy candidates, and zero the probability of merged
+  // extend candidates in the 3rd compute set
   auto cs3 = graph.addComputeSet(di);
-  const unsigned candidatesPerMerge = numClassesM1;
-  const unsigned candidatesToCompare = plan.parallel.copy * numClassesM1 * 2;
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
-    const unsigned tile = batch * plan.batchEntryPartitions();
-    selectCandidatesVertex(graph, tempTensors, cs3, batch, 0,
-                           candidatesPerMerge, candidatesToCompare, beamwidth,
-                           tile);
+    for (unsigned copy = 0; copy < plan.parallel.preSelectCopy; copy++) {
+      const unsigned tile = plan.getTile(batch, 0, copy);
+      selectCopyCandidateVertex(graph, tempTensors, cs3, batch, copy, beamwidth,
+                                tile);
+    }
+    for (unsigned extend = 0; extend < plan.parallel.preSelectExtend;
+         extend++) {
+      const unsigned tile = plan.getTile(batch, 0, extend);
+      selectExtendCandidateVertex(graph, tempTensors, cs3, batch, extend,
+                                  beamwidth, blankClass, tile);
+    }
   }
   prog.add(Execute(cs3, di));
 
-  // Update beam history and probabilities in the 4th compute set
+  // Select candidates in the 4th compute set
+  // TODO - make some of the sorting work more in parallel
   auto cs4 = graph.addComputeSet(di);
-  const unsigned sortedResultOffset = plan.parallel.copy * (numClassesM1 - 1);
+  const unsigned candidatesToCompare =
+      plan.parallel.copy + plan.parallel.copy * numClassesM1;
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    for (unsigned select = 0; select < plan.parallel.select; select++) {
+      const unsigned tile = plan.getTile(batch, 0, select);
+      selectCandidatesVertex(graph, tempTensors, cs4, batch, 0,
+                             candidatesToCompare, beamwidth, tile);
+    }
+  }
+  prog.add(Execute(cs4, di));
+
+  // Update beam history and probabilities in the 5th compute set
+  auto cs5 = graph.addComputeSet(di);
+  const unsigned sortedResultOffset = plan.parallel.copy * (beamwidth - 1);
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     for (unsigned beam = 0; beam < plan.batchEntryPartitions(); beam++) {
       const unsigned tile = plan.getTile(batch, 0, beam);
       // Scratch (Created here as not used by other vertices)
       auto scratch = graph.addVariable(UNSIGNED_INT, {beamwidth});
       graph.setTileMapping(scratch, tile);
-      updateVertex(graph, scratch, beams, tempTensors, cs4, batch, {0, maxT},
+      updateVertex(graph, scratch, beams, tempTensors, cs5, batch, {0, maxT},
                    beam, sortedResultOffset, beamwidth, tile);
     }
   }
-  prog.add(Execute(cs4, di));
+  prog.add(Execute(cs5, di));
 
   return prog;
 }

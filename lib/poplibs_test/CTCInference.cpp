@@ -223,7 +223,8 @@ mergeEquivalentCandidates(const std::vector<Candidate<FPType>> &candidates,
 }
 
 // Return - a vector containing pairs of indicies indicating which (if any)
-// candidates are mergeable
+// candidates are mergeable.  One of each pair will always be a copy candidate
+// which is the first of the pair returned.
 template <typename FPType>
 std::vector<std::pair<unsigned, unsigned>>
 listMergeableCandidates(const std::vector<Candidate<FPType>> &candidates,
@@ -245,7 +246,13 @@ listMergeableCandidates(const std::vector<Candidate<FPType>> &candidates,
       }
       if (beamHistory.getOutputSequence(lhs) ==
           beamHistory.getOutputSequence(rhs)) {
-        mergeablePairs.push_back(std::make_pair(i, j));
+        if (lhs.addend == popnn::ctc_infer::voidSymbol) {
+          // lhs, indexed by j is a copy candidate
+          mergeablePairs.push_back(std::make_pair(j, i));
+        } else {
+          // rhs, indexed by i is a copy candidate
+          mergeablePairs.push_back(std::make_pair(i, j));
+        }
       }
     }
   }

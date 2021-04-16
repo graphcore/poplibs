@@ -51,7 +51,9 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
               std::size_t maxTime, std::size_t batchSize, unsigned blankClass,
               std::size_t numClasses, unsigned beamwidth, unsigned topPaths,
               Type inType, Type outType, const DeviceType &deviceType,
-              boost::optional<unsigned> tiles) {
+              boost::optional<unsigned> tiles, bool profile,
+              const boost::optional<std::string> &profileFormat,
+              const boost::optional<std::string> &jsonProfileOut) {
 
   auto device = createTestDevice(deviceType, 1, tiles);
   const auto &target = device.getTarget();
@@ -125,8 +127,15 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
   }
 
   // Run it
+  OptionFlags engineOptions;
+  if (profile) {
+    engineOptions.set("debug.instrumentCompute", "true");
+    if (profileFormat) {
+      engineOptions.set("profiler.format", *profileFormat);
+    }
+  }
   auto s = Sequence(uploadProg, prog, downloadProg);
-  Engine engine(graph, s);
+  Engine engine(graph, s, engineOptions);
   attachStreams(engine, tmap);
   device.bind([&](const Device &d) {
     engine.load(d);
@@ -158,6 +167,17 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
                 decodedLabels[j].begin() + label.size(), label.begin());
     }
     results.push_back(result);
+  }
+
+  if (jsonProfileOut) {
+    const auto pr = engine.getProfile();
+
+    std::ofstream os(*jsonProfileOut);
+    poplar::serializeToJSON(os, pr);
+  }
+  if (profile && deviceType != DeviceType::Cpu) {
+    engine.printProfileSummary(std::cout,
+                               OptionFlags{{"showExecutionSteps", "true"}});
   }
   return results;
 }
@@ -283,7 +303,6 @@ int main(int argc, char **argv) {
   }
 
   const bool profile = vm.count("profile");
-  (void)profile; // TODO - currently unused
   const bool ignoreData = vm.count("ignore-data");
   const bool planOnly = vm.count("plan-only");
   const bool disableAlwaysSatisfiableError =
@@ -380,7 +399,8 @@ int main(int argc, char **argv) {
 
   const auto outputs =
       beamSearchIPU(tests, maxTime, batchSize, blankClass, numClasses,
-                    beamwidth, topPaths, inType, outType, deviceType, tiles);
+                    beamwidth, topPaths, inType, outType, deviceType, tiles,
+                    profile, profileFormat, jsonProfileOut);
 
   for (unsigned i = 0; i < batchSize; i++) {
     if (verbosityLevel == 1) {

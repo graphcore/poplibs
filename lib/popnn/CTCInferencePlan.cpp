@@ -39,7 +39,9 @@ std::ostream &operator<<(std::ostream &o, const CtcInferencePlannerParams &p) {
 static auto getTupleOfMembers(const InferencePlan &p) {
   return std::tie(p.params, p.parallel.batch, p.parallel.time, p.parallel.copy,
                   p.parallel.extend, p.parallel.extendVerticesPerPartition,
-                  p.parallel.merge, p.parallel.output);
+                  p.parallel.merge, p.parallel.preSelectCopy,
+                  p.parallel.preSelectExtend, p.parallel.select,
+                  p.parallel.output);
 }
 bool operator<(const InferencePlan &a, const InferencePlan &b) noexcept {
   return getTupleOfMembers(a) < getTupleOfMembers(b);
@@ -58,6 +60,9 @@ std::ostream &operator<<(std::ostream &o, const InferencePlan &p) {
     << p.parallel.extendVerticesPerPartition << "\n";
   o << "    copyPartitions             " << p.parallel.copy << "\n";
   o << "    mergePartitions            " << p.parallel.merge << "\n";
+  o << "    preSelectCopy              " << p.parallel.preSelectCopy << "\n";
+  o << "    preSelectExtend            " << p.parallel.preSelectExtend << "\n";
+  o << "    select                     " << p.parallel.select << "\n";
   o << "    outputPartitions           " << p.parallel.output << "\n";
   o << "    (Tiles per batch entry)    " << p.batchEntryPartitions() << "\n";
   o << "    (Tiles)                    " << p.numTiles() << "\n";
@@ -97,9 +102,19 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   // generated per beam output
   plan.parallel.copy = beamwidth;
 
-  // Merge candidate generation is partitioned by class
-  plan.parallel.merge = numClasses - 1;
+  // Merge candidate generation is partitioned by beam
+  // TODO - could be beam - 1 ?
+  plan.parallel.merge = beamwidth;
 
+  // Selection of copy and extend beams spread over this many tiles for the
+  // extend beam dimension
+  plan.parallel.preSelectExtend = beamwidth;
+  // Selection of copy and extend beams spread over this many vertices for the
+  // copy beam dimension
+  plan.parallel.preSelectCopy = beamwidth;
+
+  // Select - by most probable candidate
+  plan.parallel.select = 1;
   // For output generation
   plan.parallel.output = beamwidth;
 

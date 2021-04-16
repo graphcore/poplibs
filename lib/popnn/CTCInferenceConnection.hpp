@@ -26,7 +26,9 @@ struct TempTensors {
   poplar::Tensor extendCandidatesPTotal;
   poplar::Tensor extendCandidatesParent;
   poplar::Tensor extendCandidatesAddend;
-  // Copy candidates
+  // Copy candidates - used for both the original generation of copy candidates
+  // and the result from the `CTCSelectCopyCandidates` vertices which are the
+  // end merged candidates before Select
   // [batchSize][beamwidth][1]
   poplar::Tensor copyCandidatesPb;
   poplar::Tensor copyCandidatesPnb;
@@ -37,14 +39,12 @@ struct TempTensors {
   // modified)
   // To avoid rearrangements into a single contiguous variable
   // each is a vector of tensors.  Vector size is beamwidth
-  // [batchSize][numClasses-1][1]
+  // [batchSize][plan.parallel.merge][1]
   std::vector<poplar::Tensor> mergeCandidatesPb;
   std::vector<poplar::Tensor> mergeCandidatesPnb;
   std::vector<poplar::Tensor> mergeCandidatesPTotal;
   std::vector<poplar::Tensor> mergeCandidatesParent;
   std::vector<poplar::Tensor> mergeCandidatesAddend;
-  // Merged candidate (Integer indicating a merge and which was merged)
-  std::vector<poplar::Tensor> mergedCandidateIndicator;
 };
 
 struct BeamTensors {
@@ -77,15 +77,28 @@ void mergeCandidateVertex(poplar::Graph &graph, const BeamTensors &beams,
                           const TempTensors &tempTensors,
                           poplar::ComputeSet &cs, unsigned batch,
                           const poplar::Interval &time,
-                          unsigned addendPartition, unsigned beamPartition,
-                          unsigned beamwidth, unsigned tile);
+                          unsigned extendPartition, unsigned beamPartition,
+                          unsigned blankClass, unsigned beamwidth,
+                          unsigned tile);
+
+void selectCopyCandidateVertex(poplar::Graph &graph,
+                               const TempTensors &tempTensors,
+                               poplar::ComputeSet &cs, unsigned batch,
+                               unsigned copyPartition,
+                               unsigned numCopyCandidates, unsigned tile);
+
+void selectExtendCandidateVertex(poplar::Graph &graph,
+                                 const TempTensors &tempTensors,
+                                 poplar::ComputeSet &cs, unsigned batch,
+                                 unsigned extendPartition,
+                                 unsigned numCopyCandidates,
+                                 unsigned blankClass, unsigned tile);
 
 void selectCandidatesVertex(poplar::Graph &graph,
                             const TempTensors &tempTensors,
                             poplar::ComputeSet &cs, unsigned batch,
-                            unsigned partition, unsigned candidatesPerMerge,
-                            unsigned candidatesToCompare, unsigned beamwidth,
-                            unsigned tile);
+                            unsigned partition, unsigned candidatesToCompare,
+                            unsigned beamwidth, unsigned tile);
 
 void updateVertex(poplar::Graph &graph, const poplar::Tensor &scratch,
                   const BeamTensors &beams, const TempTensors &tempTensors,

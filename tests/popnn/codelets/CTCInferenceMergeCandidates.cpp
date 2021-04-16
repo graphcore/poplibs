@@ -32,10 +32,10 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
     Type partialsType,
     const std::vector<Candidate<PartialsType>> &extendCandidates,
     const Candidate<PartialsType> &copyCandidate, unsigned timestep,
-    const BeamHistory &beamHistory, bool profile) {
+    unsigned blankClass, const BeamHistory &beamHistory, bool profile) {
   const auto target = graph.getTarget();
   const auto beamwidth = beamHistory.symbols.size();
-  const auto numExtendCandidates = beamwidth;
+  const auto numExtendCandidates = extendCandidates.size();
   const auto maxT = beamHistory.symbols[0].size();
 
   auto extendCandidateParent = graph.addVariable(
@@ -62,9 +62,9 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamAddend");
   auto beamParent =
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamParent");
-
-  auto invalidCandidate =
-      graph.addVariable(UNSIGNED_INT, {}, "invalidCandidate");
+  auto lastBeamOutput = graph.addConstant(
+      UNSIGNED_INT, {}, beamHistory.getLastOutput(copyCandidate.beam),
+      "lastBeamOutput");
 
   auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
   auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
@@ -82,8 +82,8 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
 
   graph.setTileMapping(beamAddend, 0);
   graph.setTileMapping(beamParent, 0);
+  graph.setTileMapping(lastBeamOutput, 0);
 
-  graph.setTileMapping(invalidCandidate, 0);
   graph.setTileMapping(currentTimestep, 0);
   graph.setTileMapping(dataLength, 0);
 
@@ -110,13 +110,14 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
 
   graph.connect(vertex["beamAddend"], beamAddend.flatten());
   graph.connect(vertex["beamParent"], beamParent.flatten());
+  graph.connect(vertex["lastBeamOutput"], lastBeamOutput);
 
-  graph.connect(vertex["invalidCandidate"], invalidCandidate);
   graph.connect(vertex["currentTimestep"], currentTimestep);
   graph.connect(vertex["dataLength"], dataLength);
 
   graph.setInitialValue(vertex["extendCandidates"], numExtendCandidates);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
+  graph.setInitialValue(vertex["blankClass"], blankClass);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
@@ -223,12 +224,6 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   copy(target, beamAddendIn, UNSIGNED_INT, rawBeamAddend.get());
   copy(target, beamParentIn, UNSIGNED_INT, rawBeamParent.get());
 
-  // Out only
-  std::unique_ptr<char[]> rawInvalidCandidateOut;
-  rawInvalidCandidateOut =
-      allocateHostMemoryForTensor(invalidCandidate, "invalidCandidate", graph,
-                                  uploadProg, downloadProg, tmap);
-
   OptionFlags engineOptions;
   if (profile) {
     engineOptions.set("debug.instrumentCompute", "true");
@@ -242,25 +237,25 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
     engine.run();
   });
 
-  std::vector<unsigned> invalidCandidateOut(1);
-
   // TODO partialsType == float
   std::vector<float> copyCandidateBeamProbBlankOut(1);
   std::vector<float> copyCandidateBeamProbNonBlankOut(1);
   std::vector<float> copyCandidateBeamProbTotalOut(1);
+  std::vector<unsigned> copyCandidateAddendOut(1);
 
   // This is all that should have changed - either a merge happened or it didn't
   // and if so the copy candidate is updated with probabilities.
   // The vector of extend beams can be shared between multiple vertices so is
-  // not changed and `invalidCandidate` indicates which was merged into the
-  // copy.
-  copy(target, UNSIGNED_INT, rawInvalidCandidateOut.get(), invalidCandidateOut);
+  // not changed and the copy candidate addend indicates which was merged into
+  // the copy.
   copy(target, partialsType, rawCopyCandidateBeamProbNonBlank.get(),
        copyCandidateBeamProbNonBlankOut);
   copy(target, partialsType, rawCopyCandidateBeamProbBlank.get(),
        copyCandidateBeamProbBlankOut);
   copy(target, partialsType, rawCopyCandidateBeamProbTotal.get(),
        copyCandidateBeamProbTotalOut);
+  copy(target, UNSIGNED_INT, rawCopyCandidateAddend.get(),
+       copyCandidateAddendOut);
 
   if (profile && deviceType != DeviceType::Cpu) {
     engine.printProfileSummary(std::cout,
@@ -269,13 +264,14 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   // Return a vector of candidates for comparison: The copy candidate first
   // and the the extend candidates, omitting the one that was merged if a merge
   // happened
+
   std::vector<Candidate<float>> mergedCandidates;
   mergedCandidates.push_back(
       {copyCandidateParentIn[0], copyCandidateAddendIn[0],
        copyCandidateBeamProbNonBlankOut[0], copyCandidateBeamProbBlankOut[0],
        copyCandidateBeamProbTotalOut[0]});
   for (unsigned i = 0; i < numExtendCandidates; i++) {
-    if (i != invalidCandidateOut[0]) {
+    if (extendCandidateAddendIn[i] != copyCandidateAddendOut[0]) {
       mergedCandidates.push_back(
           {extendCandidateParentIn[i], extendCandidateAddendIn[i],
            extendCandidateBeamProbNonBlankIn[i],
@@ -289,7 +285,7 @@ template std::vector<Candidate<float>> runMergeCandidatesCodelet(
     Graph &graph, TestDevice &device, DeviceType deviceType, Type inType,
     Type partialsType, const std::vector<Candidate<float>> &extendCandidates,
     const Candidate<float> &copyCandidate, unsigned timestep,
-    const BeamHistory &beamHistory, bool profile);
+    unsigned blankClass, const BeamHistory &beamHistory, bool profile);
 
 } // namespace ctc
 } // namespace poplibs_test

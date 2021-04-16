@@ -696,6 +696,18 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCMergeCandidates)(
   // TODO: cycle estimator
   return {0, 0};
 }
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSelectCopyCandidates)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &partialsType, const Type symbolType) {
+  // TODO: cycle estimator
+  return {0, 0};
+}
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSelectExtendCandidates)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &partialsType, const Type symbolType) {
+  // TODO: cycle estimator
+  return {0, 0};
+}
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSelectCandidates)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &partialsType, const Type symbolType) {
@@ -853,6 +865,15 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
                             UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCMergeCandidates, FLOAT, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCMergeCandidates, HALF, UNSIGNED_INT),
+
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSelectCopyCandidates, FLOAT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSelectCopyCandidates, HALF, UNSIGNED_INT),
+
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSelectExtendCandidates, FLOAT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSelectExtendCandidates, HALF,
+                            UNSIGNED_INT),
 
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCSelectCandidates, FLOAT, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCSelectCandidates, HALF, UNSIGNED_INT),

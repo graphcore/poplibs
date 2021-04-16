@@ -21,15 +21,104 @@ struct CtcInferencePlannerParams {
 };
 
 template <typename T> struct CtcInferencePartition {
-  // Simple initial partition parameters, see plan assignment for a description
-  // TODO - Documnet a fully thought out plan here
+  // Each stage is partitioned using different parameters.  Throughout we use:
+  // Beam: 0,1,2...beamWidthMinus1
+  // Classes: a,b,c, ... numClassesExcludingBlank
+  // Copy candidate from beam [n]: C[0], C[1]
+  // Copy candidates can be broadcast: C[0] gives C[0]' C[0]" C[0]"' C[0]"" ...
+  // Extend candidate from beam with class E[0a], E[0b]..., E[1a]...
+  // Extend candidates from a beam with all classes: E[0..], E[1..]
+
+  // ***************** Overall parameters  *****************
+  // At present this is simply the batch size
   T batch;
+  // The number of partitions of the time dimension in the implementation.
+  // At present this is always 1
   T time;
 
+  // ***************** Stage 1 : Generate *****************
+  // Copy and Extend candidate generation happen in parallel.  They are
+  // partitioned independently but occupy the same tiles.
+  // TODO - Optimise this choice, possibly using different tiles for Copy and
+  // Extend candidate generation.
+  //
+  // Generate copy candidates spread over 'copy' partitions.  Each has a
+  // single vertex generating a single copy candidate:
+  // Partition 0: C[0]
+  // Partition 1: C[1]
+  // ... ('copy' partitions)
   T copy;
+  // Generate extend candidates splitting work over `extend` partitions. Each
+  // partition has `extendVerticesPerPartition`.  A vertex can generate extend
+  // candidates extending with a single class, for a range of beams.
+  // For example with beamwidth=4 and extendVerticesPerPartition=2 we get:
+  // Partition 0: Vertex0: E[0a], E[1a]. Vertex1: E[2a], E[3a]
+  // Partition 1: Vertex0: E[0b], E[1b]. Vertex1: E[2b], E[3b]
+  // Partition 2: Vertex0: E[0c], E[1c]. Vertex1: E[2c], E[3c]
+  // ... ('extend' partitions)
   T extend;
+  // As Copy and Extend candidate generation happen in parallel the number of
+  // workers for Extend is affected by the Copy vertices.
+  // `extendVerticesPerPartition` is set to reflect this and avoid > 6 workers
+  // being used.
   T extendVerticesPerPartition;
+
+  // ***************** Stage 2 : Merge *****************
+  // Each vertex attempts to merge a single copy candidate with a group of
+  // extend candidates. The copy candidate is modified with the merged
+  // probabilities, the extend candidates are unchanged.
+  // This requires beamwidth^2 vertices, arranged over `merge` partitions:
+  // P0: Vertex0:C[0]', E[0..]  Vertex1:C[1]', E[0..]  Vertex2:C[2]', E[0..]
+  // P1: Vertex0:C[0]", E[1..]  Vertex1:C[1]", E[1..]  Vertex2:C[2]", E[1..]
+  // P2: Vertex0:C[0]"',E[2..]  Vertex1:C[1]"',E[2..]  Vertex2:C[2]"',E[2..]
+  // ... ('merge' partitions)
+  //
+  // TODO - We need not compare C[X] with E[X..], so there could be just
+  // beamwidth * (beamwidth-1) vertices.  It makes this step kind of irregular
+  // and so is awkward.  Unless this step runs out of workers with just 1 more
+  // comparison to do it doesn't actually slow things down.
   T merge;
+
+  // ***************** Stage 3 : Select copy, zero extend *****************
+  // Copy -
+  // Reduce the broadcast C[0]' C[0]" ... candidates to just C[0], being
+  // the single merged candidate (There can only be 1 if any), or just any one
+  // of them, given that with no merge they will all be the same.
+  // This occupies `preSelectCopy` partitions
+  // Partition 0: Vertex selects C[0] from C[0]',C[0]", C[0]"' ...
+  // Partition 1: Vertex selects C[1] from C[1]',C[1]", C[1]"' ...
+  // ... ('preSelectCopy' partitions)
+  T preSelectCopy;
+  // Extend -
+  // Mark any extend candidates that were merged as zero probability and so
+  // never selected in the next step
+  // Partition 0: Use C[0]', C[1]', C[2]',  Change E[0..]
+  // Partition 1: Use C[0]", C[1]", C[2]",  Change E[1..]
+  // Partition 2: Use C[0]"',C[1]"',C[2]"', Change E[2..]
+  // ... ('preSelectExtend' partitions)
+  T preSelectExtend;
+
+  // ***************** Stage 4 : Select *****************
+  // There is a single Select vertex in the 1st partition assigned to any
+  // batch entry.  It is attached to all candidates from the pre-select stage:
+  // Partition 0: C[0],C[1],C[2]...E[0..],E[1..],E[2..]...
+  // The result is C[0],C[2] ... (beamwidth most probable candidates)
+  T select;
+
+  // ***************** Stage 5 : Update *****************
+  // The above stages require a per partition copy of the beam information, with
+  // a structure describing output sequences and probabilities.  This is
+  // updated using the result of the `Select` stage.  It updates all copies of
+  // the beam information - which is the maximum number of copies needed by the
+  // other Stages.
+  // No parameters required.
+
+  // ***************** Post loop stage: Output *****************
+  // Outputs are generated after the loop. This process is spread over `output`
+  // partitions, where the `topPaths` most probable outputs are generated
+  // Partition 0: Most probable path
+  // Partition 1: 2nd most probable
+  // ... ('output' partitions)
   T output;
 };
 
