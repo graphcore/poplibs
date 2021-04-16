@@ -1,4 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#include <cstdint>
 #include <iomanip>
 #include <popops/Expr.hpp>
 #include <poputil/DebugInfo.hpp>
@@ -88,6 +89,35 @@ double Const::getDataAsDouble() const {
   }
   throw poputil::poplibs_error("Constant type is not supported: " +
                                this->getType().toString());
+}
+
+std::uint64_t Const::getDataForUnsignedIntegral() const {
+  char *rawData = this->getData();
+  const auto constType = this->getType();
+  if (constType == poplar::BOOL) {
+    return static_cast<std::uint64_t>(*reinterpret_cast<bool *>(rawData));
+  } else if (constType == poplar::UNSIGNED_CHAR) {
+    return static_cast<std::uint64_t>(
+        *reinterpret_cast<unsigned char *>(rawData));
+  } else if (constType == poplar::UNSIGNED_SHORT) {
+    return static_cast<std::uint64_t>(
+        *reinterpret_cast<unsigned short *>(rawData));
+  } else if (constType == poplar::UNSIGNED_INT) {
+    return static_cast<std::uint64_t>(
+        *reinterpret_cast<unsigned int *>(rawData));
+  } else if (constType == poplar::UNSIGNED_LONG) {
+    return static_cast<std::uint64_t>(
+        *reinterpret_cast<unsigned long *>(rawData));
+  } else if (constType == poplar::UNSIGNED_LONGLONG) {
+    auto typeValue = *reinterpret_cast<unsigned long long *>(rawData);
+    auto uint64Val = static_cast<std::uint64_t>(typeValue);
+    if (static_cast<unsigned long long>(uint64Val) != typeValue) {
+      throw poputil::poplibs_error("Error in conversion of value to uint64_t");
+    }
+    return typeValue;
+  } else {
+    throw poputil::poplibs_error("Error in conversion of value to uint64_t");
+  }
 }
 
 std::string Const::printValue() const {

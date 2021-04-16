@@ -141,12 +141,15 @@ add_unit_test(GatherTest GatherTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(HostSliceTensorTest HostSliceTensorTest.cpp VARIANTS ${SIM_VARIANTS})
 add_unit_test(MapExprOptimisations MapExprOptimisations.cpp)
 
+
+
 # MapFusionTests
 macro(add_map_fusion_test test)
   add_multitarget_test(NAME MapFusion_${test} COMMAND MapFusionTest --test ${test})
 endmacro()
 
 add_multi_target_test_executable(MapFusionTest MapFusionTest.cpp)
+
 add_map_fusion_test(Abs)
 add_map_fusion_test(Add)
 add_map_fusion_test(And)
@@ -205,6 +208,30 @@ add_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
 # Check reduction patterns.
 add_test_executable (ReductionPatternsTest ReductionPatternsTest.cpp)
 add_test(NAME ReductionPatternsTest COMMAND ReductionPatternsTest)
+
+
+add_multi_target_test_executable(MapExprRemAndDivOptimTest MapExprRemAndDivideOptimisations.cpp)
+
+foreach(dtype unsigned int)
+  foreach(inPlace true false)
+    foreach(op REMAINDER DIVIDE)
+      foreach(power2 true false)
+        foreach(rhsSigned true false)
+          add_multitarget_test(
+          NAME MapExprRemAndDivOptimTest_${dtype}_inplace_${inPlace}_op_${op}_po2_${power2}_signed_${rhsSigned}
+            COMMAND MapExprRemAndDivOptimTest
+              --rhs-is-signed=${rhsSigned}
+              --data-type=${dtype}
+              --test=${op}
+              --power-of-two=${power2}
+              --in-place=${inPlace})
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+
 
 add_multi_target_test_executable(ReductionTests ReductionTests.cpp)
 add_multitarget_test(NAME Reduce_100x100_float_float_noupdate

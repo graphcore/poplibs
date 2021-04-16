@@ -126,6 +126,8 @@ public:
 
   double getDataAsDouble() const;
 
+  std::uint64_t getDataForUnsignedIntegral() const;
+
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new Const(typeTraits, type, data.get()));
   }

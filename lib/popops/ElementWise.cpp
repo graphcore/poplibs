@@ -2,6 +2,7 @@
 #include "popops/ElementWise.hpp"
 #include "ElementWiseUtilInternal.hpp"
 #include "ExprOpUtil.hpp"
+#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
@@ -2352,7 +2353,8 @@ ExprAndType optimise(const expr::Expr &expr,
   } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
     const expr::Const *c = b->getRHS().getAs<expr::Const>();
     auto infoLhs = optimise(b->getLHS(), ts);
-    if (b->getOpType() == BinaryOpType::POWER && c &&
+    const auto opType = b->getOpType();
+    if (opType == BinaryOpType::POWER && c &&
         (c->getType() == FLOAT || c->getType() == HALF)) {
       double value = c->getDataAsDouble();
       if (value == 0.5) {
@@ -2377,6 +2379,47 @@ ExprAndType optimise(const expr::Expr &expr,
         return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
                     UnaryOpType::SQUARE, *infoLhs.expression)),
                 infoLhs.type};
+      }
+    } else if ((opType == BinaryOpType::REMAINDER ||
+                opType == BinaryOpType::DIVIDE) &&
+               c) {
+      const auto rhsTraits = c->getTypeTraits();
+      bool isLhsUnsignedAndIntegral = infoLhs.type == UNSIGNED_SHORT ||
+                                      infoLhs.type == UNSIGNED_INT ||
+                                      infoLhs.type == UNSIGNED_CHAR;
+      bool isRhsUnsignedAndIntegral =
+          rhsTraits.isIntegral && !rhsTraits.isSigned;
+
+      if (isLhsUnsignedAndIntegral && isRhsUnsignedAndIntegral) {
+        // only allow types upto UNSIGED_INT as there are no codelets
+        // that support larger types
+        const unsigned value =
+            static_cast<unsigned>(c->getDataForUnsignedIntegral());
+        if (value && !(value & (value - 1))) {
+          if (opType == BinaryOpType::REMAINDER) {
+            logging::popops::debug(
+                "REMAINDER op optimised to an BITWISE_AND for type {} with "
+                "AND value {}",
+                infoLhs.type, value - 1);
+
+            return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
+                        BinaryOpType::BITWISE_AND, *infoLhs.expression,
+                        expr::Const(value - 1))),
+                    infoLhs.type};
+
+          } else {
+            const unsigned log2Val = ceilLog2(value);
+            logging::popops::debug(
+                "DIVIDE op optimised to an SHR for type {} with shift "
+                "value {}",
+                infoLhs.type, log2Val);
+
+            return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
+                        BinaryOpType::SHIFT_RIGHT, *infoLhs.expression,
+                        expr::Const(log2Val))),
+                    infoLhs.type};
+          }
+        }
       }
     }
     auto argRhs = optimise(b->getRHS(), ts);
