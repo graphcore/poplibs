@@ -310,7 +310,6 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
     const auto grainSize = target.getVectorWidth(dataType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(aFlat, mapping[tile]);
-    graph.setTileMapping(scaleB, tile);
 
     if (tileContiguousRegions.size() == 1 &&
         validateRegionSizeForSupervisorVertex(tileContiguousRegions,

@@ -355,6 +355,7 @@ int main(int argc, char **argv) {
     wuOptions.set("fullyConnectedPass", "TRAINING_WU");
     auto prevActTransposed = poplin::transposeGroupedMatrix(prevAct);
     auto scale = graph.addConstant(weights.elementType(), {}, -learningRate);
+    graph.setTileMapping(scale, 0);
     // the check on groups is done to exercise both grouped and ungrouped
     // variants of matmul
     if (numGroups == 1) {

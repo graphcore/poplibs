@@ -600,6 +600,7 @@ BOOST_AUTO_TEST_CASE(
 
   float k = 2;
   auto factor = graph.addVariable(FLOAT, {});
+  graph.setTileMapping(factor, 0);
   graph.setInitialValue(factor, k);
   Tensor in1, in2;
   std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
@@ -642,6 +643,7 @@ BOOST_AUTO_TEST_CASE(
 
   float k = 2;
   auto factor = graph.addVariable(FLOAT, {});
+  graph.setTileMapping(factor, 0);
   graph.setInitialValue(factor, k);
   Tensor in1, in2;
   std::tie(in1, in2) = mapBinaryOpTensors(graph, FLOAT);
