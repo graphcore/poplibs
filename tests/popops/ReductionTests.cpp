@@ -160,13 +160,14 @@ static void reduceTensor(boost::multi_array_ref<double, 2> in,
 static bool reduceAddTest(const DeviceType &deviceType,
                           const std::vector<std::size_t> &dims,
                           const Type &partialsType, const Type &outType,
-                          float k, bool update, bool scale) {
+                          float k, bool update, bool scale, unsigned int many) {
   auto device = createTestDevice(deviceType, 1, 64);
   auto &target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
 
   assert(!(scale && update));
+  assert(!(scale && many != 0));
   assert(dims.size() == 2);
 
   auto in = graph.addVariable(partialsType, {dims}, "in");
@@ -176,25 +177,49 @@ static bool reduceAddTest(const DeviceType &deviceType,
   poputil::mapTensorLinearly(graph, prev);
 
   auto prog = Sequence();
-  Tensor out;
+  std::vector<Tensor> outs;
 
   if (scale) {
     auto rate = graph.addVariable(FLOAT, {});
     graph.setTileMapping(rate, 0);
     graph.setInitialValue(rate, k);
-    out = popops::reduce(graph, in, outType, {0},
-                         {popops::Operation::ADD, false, rate}, prog);
+    outs.push_back(popops::reduce(graph, in, outType, {0},
+                                  {popops::Operation::ADD, false, rate}, prog));
+  } else if (many) {
+    auto rate = graph.addVariable(FLOAT, {});
+    graph.setTileMapping(rate, 0);
+    graph.setInitialValue(rate, k);
+    std::vector<SingleReduceOp> reductions;
+    reductions.reserve(many);
+    for (size_t i = 0; i < many; ++i) {
+      reductions.push_back(SingleReduceOp{
+          in, {0}, {popops::Operation::ADD, update, rate}, outType});
+    }
+    if (update) {
+      outs.reserve(many);
+      for (size_t i = 0; i < many; ++i) {
+        outs.push_back(graph.clone(prev));
+        prog.add(Copy(prev, outs.back()));
+      }
+    }
+    popops::reduceMany(graph, reductions, outs, prog);
   } else if (update) {
     auto rate = graph.addVariable(FLOAT, {});
     graph.setTileMapping(rate, 0);
     graph.setInitialValue(rate, k);
-    out = graph.clone(prev);
-    prog.add(Copy(prev, out));
-    popops::reduceWithOutput(graph, in, out, {0},
+    outs.push_back(graph.clone(prev));
+    prog.add(Copy(prev, outs.back()));
+    popops::reduceWithOutput(graph, in, outs[0], {0},
                              {popops::Operation::ADD, true, rate}, prog);
   } else {
-    out = popops::reduce(graph, in, outType, {0}, popops::Operation::ADD, prog);
+    outs.push_back(
+        popops::reduce(graph, in, outType, {0}, popops::Operation::ADD, prog));
   }
+
+  std::vector<std::string> outNames;
+  outNames.reserve(outs.size());
+  for (size_t i = 0; i < outs.size(); ++i)
+    outNames.push_back("out_" + std::to_string(i));
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
@@ -202,19 +227,28 @@ static bool reduceAddTest(const DeviceType &deviceType,
       prev, "prev", graph, uploadProg, downloadProg, tmap);
   auto rawHostIn = allocateHostMemoryForTensor(in, "in", graph, uploadProg,
                                                downloadProg, tmap);
-  auto rawHostOut = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
-                                                downloadProg, tmap);
+  std::vector<std::unique_ptr<char[]>> rawHostOuts;
+  rawHostOuts.reserve(outs.size());
+  for (size_t i = 0; i < outs.size(); ++i)
+    rawHostOuts.push_back(allocateHostMemoryForTensor(
+        outs[i], outNames[i], graph, uploadProg, downloadProg, tmap));
 
   boost::multi_array<double, 1> hostPrev(boost::extents[dims[1]]);
   boost::multi_array<double, 2> hostIn(boost::extents[dims[0]][dims[1]]);
-  boost::multi_array<double, 1> hostOut(boost::extents[dims[1]]);
+  std::vector<boost::multi_array<double, 1>> hostOuts;
+  hostOuts.reserve(outs.size());
+  for (size_t i = 0; i < outs.size(); ++i)
+    hostOuts.emplace_back(boost::extents[dims[1]]);
 
   std::mt19937 randomEngine;
-  std::fill(hostOut.data(), hostOut.data() + hostOut.num_elements(), 0);
+  for (size_t i = 0; i < hostOuts.size(); ++i)
+    std::fill(hostOuts[i].data(),
+              hostOuts[i].data() + hostOuts[i].num_elements(), 0);
   writeRandomValues(target, partialsType, hostPrev, -1.0, +5.0, randomEngine);
   writeRandomValues(target, partialsType, hostIn, 1.5, 1.6, randomEngine);
 
-  copy(target, hostOut, outType, rawHostOut.get());
+  for (size_t i = 0; i < rawHostOuts.size(); ++i)
+    copy(target, hostOuts[i], outType, rawHostOuts[i].get());
   copy(target, hostPrev, outType, rawHostPrev.get());
   copy(target, hostIn, partialsType, rawHostIn.get());
 
@@ -225,7 +259,8 @@ static bool reduceAddTest(const DeviceType &deviceType,
     engine.run(0); // Run.
   });
 
-  copy(target, outType, rawHostOut.get(), hostOut);
+  for (size_t i = 0; i < rawHostOuts.size(); ++i)
+    copy(target, outType, rawHostOuts[i].get(), hostOuts[i]);
 
   boost::multi_array<double, 1> modelReduced(boost::extents[dims[1]]);
 
@@ -234,12 +269,11 @@ static bool reduceAddTest(const DeviceType &deviceType,
   boost::multi_array<double, 1> modelOut(boost::extents[dims[1]]);
 
   double kp = 0, kn = 1.0;
-  if (scale) {
-    kn = k;
-  } else if (update) {
+  if (update) {
     kp = 1.0;
     kn = k;
-  }
+  } else if (scale || many)
+    kn = k;
 
   for (auto c = 0U; c != dims[1]; ++c) {
     modelOut[c] = kp * hostPrev[c] + kn * modelReduced[c];
@@ -250,9 +284,12 @@ static bool reduceAddTest(const DeviceType &deviceType,
   const double relativeTolerance =
       outType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
 
-  auto matchesModel = checkIsClose("out", hostOut, modelOut, relativeTolerance,
-                                   absoluteTolerance);
-  return matchesModel;
+  bool allMatchModel = true;
+  for (size_t i = 0; i < rawHostOuts.size(); ++i)
+    allMatchModel =
+        allMatchModel && checkIsClose(outNames[i], hostOuts[i], modelOut,
+                                      relativeTolerance, absoluteTolerance);
+  return allMatchModel;
 }
 
 static bool reduceOpsTest(const DeviceType &deviceType,
@@ -345,6 +382,7 @@ int main(int argc, char **argv) {
   ShapeOption<std::size_t> redVect;
   bool update;
   bool scale;
+  unsigned many;
   Operation operation;
   std::string test;
 
@@ -377,6 +415,9 @@ int main(int argc, char **argv) {
     ("scale",
      po::value<bool>(&scale)->default_value(false),
      "Scale")
+    ("many",
+     po::value<decltype(many)>(&many)->default_value(0),
+     "Number of reductions to do in parallel")
     ("operation",
      po::value<Operation>(&operation)->default_value(Operation::ADD),
      "The operation to perform (ADD, SQUARE_ADD, LOG_ADD, MUL, MIN, MAX,"
@@ -408,7 +449,7 @@ int main(int argc, char **argv) {
     }
 
     auto matchesModel = reduceAddTest(deviceType, dims.val, partialsType,
-                                      outType, k, update, scale);
+                                      outType, k, update, scale, many);
     return matchesModel ? 0 : 1;
   } else if (test == "Ops") {
     if (vm["red-vect"].defaulted() || vm["operation"].defaulted()) {

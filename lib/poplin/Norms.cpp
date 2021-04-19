@@ -27,8 +27,7 @@ namespace logging = poplibs_support::logging;
 namespace poplin {
 
 static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped,
-                         const Tensor &scale, bool doSquare,
-                         std::vector<ComputeSet> &css,
+                         const Tensor &scale, bool doSquare, Sequence &prog,
                          const Type &, // partialsType,
                          const Type &outputType,
                          const Tensor *outputToCloneFrom,
@@ -55,22 +54,8 @@ static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped,
       graph, actsUngrouped, t, reduceDims,
       {doSquare ? popops::Operation::SQUARE_ADD : popops::Operation::ADD, false,
        scale},
-      css, {dnai});
+      prog, {dnai});
   return t;
-}
-
-static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped, float scale,
-                         bool doSquare, std::vector<ComputeSet> &css,
-                         const Type &partialsType, const Type &outputType,
-                         const Tensor *outputToCloneFrom,
-                         const DebugNameAndId &dnai) {
-  auto constantScale =
-      graph.addConstant(FLOAT, {}, scale, {dnai, "constantScale"});
-  graph.setTileMapping(constantScale, 0);
-
-  return normReduce(graph, actsUngrouped, constantScale, doSquare, css,
-                    partialsType, outputType, outputToCloneFrom,
-                    {dnai, "ConstScale"});
 }
 
 static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
@@ -175,19 +160,35 @@ normStatisticsImpl(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
       scaleVar = static_cast<float>(numElements) / (numElements - 1);
   }
 
-  const auto powerOutputType = partialsType;
+  auto scaleTensor =
+      graph.addConstant(FLOAT, {}, scale, {dnai, layer + "/scaleTensor"});
+  graph.setTileMapping(scaleTensor, 0);
+
+  if (acts.rank() < 2)
+    throw poplibs_error("NormReduce with rank " + std::to_string(acts.rank()) +
+                        " expected >=2");
+  std::vector<std::size_t> dims(acts.rank() - 1);
+  std::iota(dims.begin() + 1, dims.end(), 2);
+
   const auto meanOutputType = acts.elementType();
+  // The actual output type for squared sum may be different as the dynamic
+  // range is higher. The selection should be based on actual statistics
+  // gathered from training experiments. For now keep it at reduced precision
+  // to save memory
+  const auto powerOutputType = partialsType;
 
-  std::vector<ComputeSet> css;
-  auto mean = normReduce(graph, acts, scale, false, css, partialsType,
-                         meanOutputType, nullptr, {dnai, layer + "/mean"});
-
-  auto maybeZeroMeanActs = acts;
+  constexpr bool update = false;
+  popops::ReduceParams meanParams{popops::Operation::ADD, update, scaleTensor};
+  popops::ReduceParams powerParams{popops::Operation::SQUARE_ADD, update,
+                                   scaleTensor};
+  poplar::Tensor mean =
+      createBroadcastOperand(graph, acts, meanOutputType, 1, true,
+                             {dnai, layer + "/mean/ReduceResult"});
+  poplar::Tensor power =
+      graph.clone(powerOutputType, mean, {dnai, layer + "/power/ReduceResult"});
   if (stableAlgo) {
-    for (const auto &cs : css) {
-      prog.add(Execute(cs, {dnai}));
-    }
-    css.clear();
+    reduceWithOutput(graph, acts, mean, dims, std::move(meanParams), prog,
+                     {dnai, layer + "/mean"});
     logging::poplin::info("Stable statistics estimator used");
     if (executeCallback) {
       auto allReduceResult =
@@ -196,20 +197,28 @@ normStatisticsImpl(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
       mean = allReduceResult.at(0);
     }
     using namespace popops::expr;
-    maybeZeroMeanActs = popops::map(graph, _1 - Cast(_2, acts.elementType()),
+    auto zeroMeanActs = popops::map(graph, _1 - Cast(_2, acts.elementType()),
                                     {acts, broadcastChannelToMatch(acts, mean)},
                                     prog, {dnai, layer + "/removeMean"});
-  }
-  // The actual output type for squared sum may be different as the dynamic
-  // range is higher. The selection should be based on actual statistics
-  // gathered from training experiments. For now keep it at reduced precision
-  // to save memory
-  auto power =
-      normReduce(graph, maybeZeroMeanActs, scale, true, css, partialsType,
-                 powerOutputType, &mean, {dnai, layer + "/power"});
-
-  for (const auto &cs : css) {
-    prog.add(Execute(cs, {dnai}));
+    reduceWithOutput(graph, std::move(zeroMeanActs), power, std::move(dims),
+                     std::move(powerParams), prog, {dnai, layer + "/power"});
+  } else {
+    std::vector<poplar::Tensor> outputs = {std::move(mean), std::move(power)};
+    std::vector<popops::SingleReduceOp> reductions = {
+        popops::SingleReduceOp{
+            /*in     = */ acts,
+            /*dims   = */ dims,
+            /*params = */ std::move(meanParams),
+            /*debugContext = */ poplar::DebugContext{dnai, layer + "/mean"}},
+        popops::SingleReduceOp{
+            /*in     = */ acts,
+            /*dims   = */ std::move(dims),
+            /*params = */ std::move(powerParams),
+            /*debugContext = */ poplar::DebugContext{dnai, layer + "/power"}}};
+    popops::reduceMany(graph, reductions, outputs, prog,
+                       {dnai, layer + "/reduceMany"});
+    mean = std::move(outputs[0]);
+    power = std::move(outputs[1]);
   }
 
   if (executeCallback) {
@@ -385,8 +394,6 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
   auto numChannels = gradsInMultActs.dim(1);
   const auto concatInputs = concat({gradsInMultActs, gradsInMaybeRegrouped}, 1);
 
-  std::vector<ComputeSet> css;
-
   // For beta = Re{gradsIn} where Re{x} reduces the tensor x along the
   //                              second dimension to produce a vector
   //                              of length x.dim(1)
@@ -396,14 +403,11 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
 
   auto scaleTensor = graph.addConstant(FLOAT, {}, scale, {dnai, "scaleTensor"});
   graph.setTileMapping(scaleTensor, 0);
+
   const auto concatDeltas =
-      normReduce(graph, concatInputs, scaleTensor, false, css, partialsType,
+      normReduce(graph, concatInputs, scaleTensor, false, prog, partialsType,
                  gradsInMaybeRegrouped.elementType(), nullptr,
                  {dnai, layer + "/JointGammaDelta"});
-
-  for (const auto &cs : css) {
-    prog.add(Execute(cs, {dnai}));
-  }
 
   return std::make_pair(concatDeltas.slice(0, numChannels),
                         concatDeltas.slice(numChannels, 2 * numChannels));

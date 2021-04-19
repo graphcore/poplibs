@@ -324,6 +324,28 @@ add_multitarget_test(NAME Reduce_31x201_update_float_half
     --scale=false
     --test=Add)
 
+add_multitarget_test(NAME ReduceMany_31x201_noupdate_float_half
+    COMMAND ReductionTests
+      --many 3
+      --dims={31,101}
+      --partials-type=float
+      --out-type=half
+      --k=-1.5
+      --update=false
+      --scale=false
+      --test=Add)
+
+add_multitarget_test(NAME ReduceMany_31x201_update_float_half
+    COMMAND ReductionTests
+      --many 3
+      --dims={31,101}
+      --partials-type=float
+      --out-type=half
+      --k=-1.5
+      --update=true
+      --scale=false
+      --test=Add)
+
 add_multitarget_test(NAME Reduce_Add_float
   COMMAND ReductionTests
     --dims={10,20,30}

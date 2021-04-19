@@ -705,6 +705,59 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
                             prog, {di}, options);
 }
 
+void reduceMany(poplar::Graph &graph,
+                const std::vector<SingleReduceOp> &reductions,
+                std::vector<poplar::Tensor> &outputs,
+                poplar::program::Sequence &prog,
+                const poplar::DebugContext &debugContext,
+                const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(options));
+
+  const bool shouldCreateOutputs = outputs.empty();
+  std::vector<Type> outputElementTypes;
+  if (shouldCreateOutputs) {
+    for (const SingleReduceOp &op : reductions)
+      if (op.params.update)
+        throw poputil::poplibs_error(
+            "reduceMany: outputs must be provided to do a reduction "
+            "with the update flag set");
+    outputs.resize(reductions.size());
+    outputElementTypes.reserve(outputs.size());
+    for (const SingleReduceOp &op : reductions)
+      outputElementTypes.push_back(op.useOutType ? op.outType
+                                                 : op.in.elementType());
+  } else {
+    outputElementTypes.reserve(outputs.size());
+    for (const Tensor &out : outputs)
+      outputElementTypes.push_back(out.elementType());
+  }
+
+  if (outputs.size() != reductions.size())
+    throw poputil::poplibs_error(
+        "reduceMany: outputs must be the same size as reductions");
+
+  std::vector<ComputeSet> css;
+  css.reserve(reductions.size());
+  for (size_t i = 0; i < reductions.size(); ++i) {
+    const SingleReduceOp &op = reductions[i];
+    boost::optional<Tensor> optionalOut;
+    if (!shouldCreateOutputs)
+      optionalOut = std::move(outputs[i]);
+    poputil::PoplibsOpDebugInfo diInner(
+        op.debugContext,
+        DI_ARGS(op.in, outputs[i], op.dims, op.params, options));
+    reduceWithOutputProgOrCss(graph, op.in, optionalOut, outputElementTypes[i],
+                              op.dims, op.params, css, {diInner}, options);
+    assert(optionalOut.has_value());
+    outputs[i] = std::move(*optionalOut);
+  }
+
+  // Prog is not modified until all reduction operations have been created.
+  for (auto &cs : css)
+    prog.add(program::Execute(cs));
+}
+
 Tensor reduce(Graph &graph, const Tensor &in,
               const std::vector<std::size_t> &dims, ReduceParams params,
               program::Sequence &prog, const poplar::DebugContext &debugContext,
