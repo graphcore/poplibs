@@ -543,11 +543,11 @@ public:
   // Beams
   InOut<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
   InOut<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
-  InOut<Vector<unsigned, ONE_PTR>> lastBeamOutputs;      // [beamwidth]
   InOut<Vector<unsigned, ONE_PTR>> beamAddend;           // [maxT+1, beamwidth]
   InOut<Vector<unsigned, ONE_PTR>> beamParent;           // [maxT+1, beamwidth]
 
-  Output<Vector<unsigned, ONE_PTR>> lastBeamOutputsScratch; //[beamWidth]
+  Input<Vector<unsigned, ONE_PTR>> previousLastBeamOutputs; // [beamwidth]
+  Output<Vector<unsigned, ONE_PTR>> lastBeamOutputs;        // [beamwidth]
 
   InOut<unsigned> currentTimestep;
   // The length of the data input (Valid for this specific input)
@@ -561,11 +561,6 @@ public:
       // and so nothing will change regardless
       return true;
     }
-    // Preserve the last beam outputs which may be needed after they are
-    // overwritten
-    for (unsigned i = 0; i < beamwidth; i++) {
-      lastBeamOutputsScratch[i] = lastBeamOutputs[i];
-    }
     const unsigned baseOffset = (*currentTimestep) * beamwidth;
     const auto parent = &beamParent[baseOffset];
     const auto addend = &beamAddend[baseOffset];
@@ -574,7 +569,7 @@ public:
       addend[i] = candidateAddend[i];
       // Keep the output from the parent beam, which can be a new parent
       lastBeamOutputs[i] = candidateAddend[i] == voidSymbol
-                               ? lastBeamOutputsScratch[candidateParent[i]]
+                               ? previousLastBeamOutputs[candidateParent[i]]
                                : candidateAddend[i];
       beamProbNonBlank[i] = candidateBeamProbNonBlank[i];
       beamProbBlank[i] = candidateBeamProbBlank[i];

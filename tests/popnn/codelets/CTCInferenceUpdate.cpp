@@ -60,8 +60,8 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
       graph.addVariable(partialsType, {beamwidth}, "beamProbBlank");
   auto lastBeamOutputs =
       graph.addVariable(UNSIGNED_INT, {beamwidth}, "lastBeamOutputs");
-  auto lastBeamOutputsScratch =
-      graph.addVariable(UNSIGNED_INT, {beamwidth}, "lastBeamOutputsScratch");
+  auto previousLastBeamOutputs =
+      graph.addVariable(UNSIGNED_INT, {beamwidth}, "previousLastBeamOutputs");
 
   auto currentTimestep = graph.addVariable(UNSIGNED_INT, {}, "currentTimestep");
   auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
@@ -76,7 +76,7 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   graph.setTileMapping(beamProbNonBlank, 0);
   graph.setTileMapping(beamProbBlank, 0);
   graph.setTileMapping(lastBeamOutputs, 0);
-  graph.setTileMapping(lastBeamOutputsScratch, 0);
+  graph.setTileMapping(previousLastBeamOutputs, 0);
 
   graph.setTileMapping(currentTimestep, 0);
   graph.setTileMapping(dataLength, 0);
@@ -95,10 +95,10 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   graph.connect(vertex["beamParent"], beamParent.flatten());
   graph.connect(vertex["beamProbNonBlank"], beamProbNonBlank);
   graph.connect(vertex["beamProbBlank"], beamProbBlank);
-  // TODO - the content of lastBeamOutputs isn't written, or verified by this
-  // test
+  // TODO - the content of lastBeamOutputs isn't verified by this
+  // test, and previousLastBeamOutputs is not written
   graph.connect(vertex["lastBeamOutputs"], lastBeamOutputs);
-  graph.connect(vertex["lastBeamOutputsScratch"], lastBeamOutputsScratch);
+  graph.connect(vertex["previousLastBeamOutputs"], previousLastBeamOutputs);
 
   graph.connect(vertex["currentTimestep"], currentTimestep);
   graph.connect(vertex["dataLength"], dataLength);

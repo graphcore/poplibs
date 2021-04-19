@@ -41,6 +41,16 @@ void attachBeamScalars(Graph &graph, const BeamTensors &beams, unsigned batch,
                 beams.lastOutput.slice(begin, end).flatten());
 }
 
+void attachUpdateBeamScalars(Graph &graph, const BeamTensors &beams,
+                             unsigned batch, unsigned partition,
+                             unsigned beamwidth, const VertexRef &vertex) {
+  attachBeamScalars(graph, beams, batch, partition, beamwidth, vertex);
+  Slice<4> begin = {batch, partition, 0, 0};
+  Slice<4> end = {batch + 1, partition + 1, beamwidth, 1};
+  graph.connect(vertex["previousLastBeamOutputs"],
+                beams.previousLastOutput.slice(begin, end).flatten());
+}
+
 void attachBeamHistory(Graph &graph, const BeamTensors &beams,
                        const Interval &time, unsigned batch, unsigned partition,
                        unsigned beamwidth, const VertexRef &vertex) {
@@ -379,7 +389,7 @@ void selectCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
   graph.setInitialValue(vertex["totalCandidates"], candidatesToCompare);
 }
 
-void updateVertex(Graph &graph, const Tensor &scratch, const BeamTensors &beams,
+void updateVertex(Graph &graph, const BeamTensors &beams,
                   const TempTensors &tempTensors, ComputeSet &cs,
                   unsigned batch, const Interval &time, unsigned beamPartition,
                   unsigned sortedResultOffset, unsigned beamwidth,
@@ -393,11 +403,10 @@ void updateVertex(Graph &graph, const Tensor &scratch, const BeamTensors &beams,
   graph.setTileMapping(vertex, tile);
 
   // Beam connection
-  attachBeamScalars(graph, beams, batch, beamPartition, beamwidth, vertex);
+  attachUpdateBeamScalars(graph, beams, batch, beamPartition, beamwidth,
+                          vertex);
   attachBeamHistory(graph, beams, time, batch, beamPartition, beamwidth,
                     vertex);
-  // Scratch
-  graph.connect(vertex["lastBeamOutputsScratch"], scratch);
   // Timestep, data length connections
   attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
 

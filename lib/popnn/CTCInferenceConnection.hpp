@@ -58,6 +58,8 @@ struct BeamTensors {
   poplar::Tensor pb;
   poplar::Tensor pnb;
   poplar::Tensor lastOutput;
+  // A copy of lastOutput, made to use in the update process
+  poplar::Tensor previousLastOutput;
 };
 
 void generateExtendCandidateVertex(
@@ -100,12 +102,11 @@ void selectCandidatesVertex(poplar::Graph &graph,
                             unsigned partition, unsigned candidatesToCompare,
                             unsigned beamwidth, unsigned tile);
 
-void updateVertex(poplar::Graph &graph, const poplar::Tensor &scratch,
-                  const BeamTensors &beams, const TempTensors &tempTensors,
-                  poplar::ComputeSet &cs, unsigned batch,
-                  const poplar::Interval &time, unsigned beamPartition,
-                  unsigned sortedResultOffset, unsigned beamwidth,
-                  unsigned tile);
+void updateVertex(poplar::Graph &graph, const BeamTensors &beams,
+                  const TempTensors &tempTensors, poplar::ComputeSet &cs,
+                  unsigned batch, const poplar::Interval &time,
+                  unsigned beamPartition, unsigned sortedResultOffset,
+                  unsigned beamwidth, unsigned tile);
 
 void generateOutputVertex(poplar::Graph &graph, const BeamTensors &beams,
                           const TempTensors &tempTensors,

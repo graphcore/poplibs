@@ -318,7 +318,9 @@ BeamTensors createAndInitialiseBeamTensors(
   beamTensors.pnb =
       graph.addVariable(partialsType, beamProbsShape, {di, "beamPnb"});
   beamTensors.lastOutput =
-      graph.addVariable(UNSIGNED_INT, beamProbsShape, {di, "beamlastOutput"});
+      graph.addVariable(UNSIGNED_INT, beamProbsShape, {di, "beamLastOutput"});
+  beamTensors.previousLastOutput = graph.addVariable(
+      UNSIGNED_INT, beamProbsShape, {di, "previousBeamLastOutput"});
 
   mapAccordingToPlan(graph, beamTensors.parent, PartitionType::BATCH_ENTRY,
                      plan);
@@ -329,6 +331,8 @@ BeamTensors createAndInitialiseBeamTensors(
   mapAccordingToPlan(graph, beamTensors.pnb, PartitionType::BATCH_ENTRY, plan);
   mapAccordingToPlan(graph, beamTensors.lastOutput, PartitionType::BATCH_ENTRY,
                      plan);
+  mapAccordingToPlan(graph, beamTensors.previousLastOutput,
+                     PartitionType::BATCH_ENTRY, plan);
 
   // Initialise the beam probabilities, with only one origin point
   auto initialiserProbZero =
@@ -477,6 +481,8 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
     }
   }
   prog.add(Execute(cs4, di));
+  // Prepare the copy of the last output for the Update stage
+  prog.add(Copy(beams.lastOutput, beams.previousLastOutput));
 
   // Update beam history and probabilities in the 5th compute set
   auto cs5 = graph.addComputeSet(di);
@@ -484,11 +490,8 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     for (unsigned beam = 0; beam < plan.batchEntryPartitions(); beam++) {
       const unsigned tile = plan.getTile(batch, 0, beam);
-      // Scratch (Created here as not used by other vertices)
-      auto scratch = graph.addVariable(UNSIGNED_INT, {beamwidth});
-      graph.setTileMapping(scratch, tile);
-      updateVertex(graph, scratch, beams, tempTensors, cs5, batch, {0, maxT},
-                   beam, sortedResultOffset, beamwidth, tile);
+      updateVertex(graph, beams, tempTensors, cs5, batch, {0, maxT}, beam,
+                   sortedResultOffset, beamwidth, tile);
     }
   }
   prog.add(Execute(cs5, di));
