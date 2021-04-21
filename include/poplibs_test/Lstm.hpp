@@ -60,6 +60,9 @@ void basicLstmCellForwardPass(
 
 /** Run backward pass given forward sequence
  *
+ * \param outputFullSequence  if true, the all sequence of outputs will be
+ *                            returned, otherwise, only the output of the last
+ *                            cell will be returned.
  * \param weightsInput        Input weights
  *                            shape: [NUM_LSTM_UNITS][input ch][output ch]
  * \param weightsOutput       Output weights
@@ -81,6 +84,7 @@ void basicLstmCellForwardPass(
  * activation function.
  */
 void basicLstmCellBackwardPass(
+    bool outputFullSequence,
     const boost::multi_array_ref<double, 3> weightsInput,
     const boost::multi_array_ref<double, 3> weightsOutput,
     const boost::multi_array_ref<double, 3> gradsNextLayer,

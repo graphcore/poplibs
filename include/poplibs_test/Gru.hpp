@@ -25,6 +25,9 @@ namespace gru {
  * Compute the output of a basic non-fused GRU cell (without
  * peephole connections).
  *
+ * \param outputFullSequence  if true, the all sequence of outputs will be
+ *                            returned, otherwise, only the output of the last
+ *                            cell will be returned.
  * \param input               Input to the GRU cell of dimension
  *                            [sequenceSize][batchSize][inputSize]
  * \param biases              Biases in the GRU cell of dimension
@@ -70,9 +73,9 @@ void basicGruCellForwardPass(
 
 /** Run backward pass given forward sequence
  *
- * \param outputFullSequence if ture, the all sequence of outputs will be
-                             returned, otherwise, only the output of the last
-                             cell will be returned.
+ * \param outputFullSequence if true, the all sequence of outputs will be
+ *                           returned, otherwise, only the output of the last
+ *                           cell will be returned.
  * \param weightsInput    Input weights
  *                        shape: [BASIC_GRU_CELL_NUM_UNITS][input ch][output ch]
  * \param weightsOutput   Output weights

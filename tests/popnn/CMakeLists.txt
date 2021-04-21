@@ -1043,6 +1043,68 @@ foreach(REUSE false true)
                         VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
+# Test LSTM/GRU with output-all-sequence=0/1
+foreach(ALL_OUTPUT  0 1)
+        add_multitarget_test(
+                NAME lstm_16x2x32_seq_601_shards_3_allOutput_${ALL_OUTPUT}
+                COMMAND lstm_layer
+                        --input-size 16
+                        --batch-size=2
+                        --output-size 32
+                        --tiles-per-ipu=20
+                        --phase all
+                        --sequence-size 601
+                        --shards=3
+                        --output-all-sequence=${ALL_OUTPUT}
+                        VARIANTS "Hw")
+        add_multitarget_test(
+                NAME lstm_16x2x32_seq_601_shards_3_allOutput_${ALL_OUTPUT}_ignore_input_gradient
+                COMMAND lstm_layer
+                        --input-size 16
+                        --batch-size=2
+                        --output-size 32
+                        --tiles-per-ipu=20
+                        --phase all
+                        --sequence-size 601
+                        --shards=3
+                        --output-all-sequence=${ALL_OUTPUT}
+                        --ignore-input-gradient
+                        VARIANTS "Hw")
+
+        foreach(ATTENTION false true)
+                # real-time-steps=true is only supported with --output-all-sequence=true
+                add_multitarget_test(
+                        NAME augru_16x2x32_seq_102_shards_3_attention_${ATTENTION}_real_time_steps_0_allOutput_${ALL_OUTPUT}
+                        COMMAND gru_layer
+                                --input-size 16
+                                --batch-size=2
+                                --with-attention ${ATTENTION}
+                                --with-real-time-steps 0
+                                --output-size 8
+                                --tiles-per-ipu=20
+                                --phase all
+                                --sequence-size 102
+                                --shards=3
+                                --output-all-sequence=${ALL_OUTPUT}
+                                VARIANTS "Hw")
+                add_multitarget_test(
+                        NAME augru_16x2x32_seq_102_shards_3_attention_${ATTENTION}_real_time_steps_0_allOutput_${ALL_OUTPUT}_ignore_input_gradient
+                        COMMAND gru_layer
+                                --input-size 16
+                                --batch-size=2
+                                --with-attention ${ATTENTION}
+                                --with-real-time-steps 0
+                                --output-size 8
+                                --tiles-per-ipu=20
+                                --phase all
+                                --sequence-size 102
+                                --shards=3
+                                --output-all-sequence=${ALL_OUTPUT}
+                                --ignore-input-gradient
+                                VARIANTS "Hw")
+        endforeach()
+endforeach()
+
 add_unit_test(NormStatisticsTest
               NormStatisticsTest.cpp
               VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS}

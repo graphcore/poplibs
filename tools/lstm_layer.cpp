@@ -127,6 +127,7 @@ int main(int argc, char **argv) {
   double absoluteTolerance;
   unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
+  bool outputAllSequence = true;
   bool preweightInput = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   std::string recompMode;
@@ -195,6 +196,9 @@ int main(int argc, char **argv) {
     ("ipus",
      po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
+    ("output-all-sequence",
+       po::value<bool>(&outputAllSequence)->default_value(outputAllSequence),
+     "output the data from all cells (1 / 0)")
     ("pre-weight-input",
        po::value<bool>(&preweightInput)->default_value(preweightInput),
      "Pre-weight whole sequence before recursive part is computed (0 / 1)")
@@ -287,6 +291,7 @@ int main(int argc, char **argv) {
   lstm::LstmParams params(dataType, batchSize, sequenceSize,
                           {inputSize, outputSize}, activation,
                           recurrentActivation);
+  params.outputFullSequence = outputAllSequence;
   if (!cellOrder.val.empty()) {
     params.cellOrder = getCellOrder(cellOrder.val);
   }
@@ -346,14 +351,16 @@ int main(int argc, char **argv) {
   lstm::LstmWeights weightGrads;
   if (doBwdPass || doWuPass) {
     const Tensor *lastCellStateGradPtr = nullptr;
+    const Tensor nextGrad =
+        params.outputFullSequence ? nextLayerGrads : nextLayerGrads[0];
     if (doWuPass) {
       lstm::lstmBwdWithWU(graph, params, prog, fwdStateInit, fwdIntermediates,
-                          weights, input, fwdOutputSeq, nextLayerGrads,
+                          weights, input, fwdOutputSeq, nextGrad,
                           lastCellStateGradPtr, inputGrad, weightGrads, "bwd",
                           options, &cache);
     } else {
       lstm::lstmBwd(graph, params, prog, fwdStateInit, fwdIntermediates,
-                    weights, input, fwdOutputSeq, nextLayerGrads,
+                    weights, input, fwdOutputSeq, nextGrad,
                     lastCellStateGradPtr, inputGrad, nullptr, "bwd", options,
                     &cache);
     }
@@ -530,18 +537,27 @@ int main(int argc, char **argv) {
 
     if (doBwdPass) {
       poplibs_test::lstm::basicLstmCellBackwardPass(
-          hostWeightsInput, hostWeightsOutput, hostNextLayerGrads,
-          hostCellStateInit, modelFwdState, modelBwdState, modelPrevLayerGrads,
-          params.cellOrder, activation, recurrentActivation);
+          params.outputFullSequence, hostWeightsInput, hostWeightsOutput,
+          hostNextLayerGrads, hostCellStateInit, modelFwdState, modelBwdState,
+          modelPrevLayerGrads, params.cellOrder, activation,
+          recurrentActivation);
     }
 
     boost::multi_array<double, 3> matImpl(
         boost::extents[sequenceSize][batchSize][outputSize]);
     copy(target, dataType, rawHostNextAct.get(), matImpl);
-    for (auto s = 0U; s != sequenceSize; ++s) {
-      boost::multi_array<double, 2> subMatImpl = matImpl[s];
-      boost::multi_array<double, 2> subMatRef =
-          modelFwdState[LSTM_FWD_STATE_ACTS_IDX][s];
+    if (params.outputFullSequence) {
+      for (auto s = 0U; s != sequenceSize; ++s) {
+        boost::multi_array<double, 2> subMatImpl = matImpl[s];
+        boost::multi_array<double, 2> subMatRef =
+            modelFwdState[LSTM_FWD_STATE_ACTS_IDX][s];
+        matchesModel &= checkIsClose("nextLayerAct", subMatImpl, subMatRef,
+                                     relativeTolerance, absoluteTolerance);
+      }
+    } else {
+      const boost::multi_array<double, 2> subMatImpl = matImpl[0];
+      const boost::multi_array<double, 2> subMatRef =
+          modelFwdState[LSTM_FWD_STATE_ACTS_IDX][sequenceSize - 1];
       matchesModel &= checkIsClose("nextLayerAct", subMatImpl, subMatRef,
                                    relativeTolerance, absoluteTolerance);
     }

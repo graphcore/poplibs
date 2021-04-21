@@ -24,6 +24,10 @@ using Array3d = boost::multi_array<double, 3>;
 
 using namespace poplibs_test;
 
+static void matrixZero(boost::multi_array_ref<double, 2> matA) {
+  std::fill(matA.data(), matA.data() + matA.num_elements(), 0.0);
+}
+
 /**
  * Process a given unit type within an LSTM given its weights and biases.
  * The non-linearity is also specified although it may be derived from the unit
@@ -167,9 +171,10 @@ static void computeGradients(const Array2dRef weightIn,
 }
 
 void poplibs_test::lstm::basicLstmCellBackwardPass(
-    const Array3dRef weightsInput, const Array3dRef weightsOutput,
-    const Array3dRef gradsNextLayer, const Array2dRef prevCellState,
-    const Array4dRef fwdState, Array4dRef bwdState, Array3dRef gradsPrevLayer,
+    bool outputFullSequence, const Array3dRef weightsInput,
+    const Array3dRef weightsOutput, const Array3dRef gradsNextLayer,
+    const Array2dRef prevCellState, const Array4dRef fwdState,
+    Array4dRef bwdState, Array3dRef gradsPrevLayer,
     const std::vector<BasicLstmCellUnit> &cellOrder,
     const popnn::NonLinearityType activation,
     const popnn::NonLinearityType recurrentActivation) {
@@ -220,9 +225,19 @@ void poplibs_test::lstm::basicLstmCellBackwardPass(
 
   for (auto i = sequenceSize; i != 0; --i) {
     const auto s = i - 1;
-
     Array2d sumGradOut(boost::extents[batchSize][outputSize]);
-    Array2d gradOut = gradsNextLayer[s];
+    Array2d gradOut(boost::extents[batchSize][outputSize]);
+    if (outputFullSequence)
+      gradOut = gradsNextLayer[s];
+    else {
+      // Only the last layer receives the gradient
+      if (s == sequenceSize - 1)
+        gradOut = gradsNextLayer[0];
+      else {
+        matrixZero(gradOut);
+      }
+    }
+
     axpby::add(gradOut, gradOutput, sumGradOut);
 
     Array2d actOutGate = fwdState[LSTM_FWD_STATE_OUTPUT_GATE][s];

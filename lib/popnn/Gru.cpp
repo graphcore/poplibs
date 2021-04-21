@@ -1894,10 +1894,10 @@ static Tensor gruBwdImpl(
         createInputTensor(graph, params.rnn, numShards, {dnai, "prevLayerOut"});
     prog.add(Copy(fwdInputSeq, prevLayerOut, false, {dnai}));
   }
-  Tensor fwdIntermediates = fwdIntermediatesSeq.dimRoll(0, 1);
-  auto fwdOut = (params.outputFullSequence)
-                    ? fwdOutput
-                    : fwdIntermediates[GRU_FWD_INTERMEDIATE_OUTPUT];
+  auto fwdOut =
+      (params.outputFullSequence)
+          ? fwdOutput
+          : fwdIntermediatesSeq.dimRoll(1)[GRU_FWD_INTERMEDIATE_OUTPUT];
   prevStepOut = rnn::shiftRnnTensor(graph, params.rnn, fwdOut, fwdOutputInit,
                                     prog, numShards, {dnai, "fwdOutshifted"});
   std::vector<Tensor> bwdStateInit = {inputGradInit, lastOutGradInit};
@@ -2102,9 +2102,10 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   Tensor inputCopy =
       createInputTensor(graph, params.rnn, numShards, {dnai, "inputCopy"});
   prog.add(Copy(input, inputCopy, false, {dnai}));
-  auto fwdOut = (params.outputFullSequence)
-                    ? output
-                    : fwdIntermediatesSeq[GRU_FWD_INTERMEDIATE_OUTPUT];
+  auto fwdOut =
+      (params.outputFullSequence)
+          ? output
+          : fwdIntermediatesSeq.dimRoll(1)[GRU_FWD_INTERMEDIATE_OUTPUT];
   Tensor prevStepOut =
       rnn::shiftRnnTensor(graph, params.rnn, fwdOut, fwdOutputInit, prog,
                           numShards, {dnai, "fwdOutshifted"});

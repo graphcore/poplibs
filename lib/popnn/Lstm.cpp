@@ -333,14 +333,20 @@ getMatMulPrePlanParameters(LstmParams params, poplar::OptionFlags opts) {
   return matmuls;
 }
 
-unsigned getNumFwdIntermediatesToSave(const LstmOpts &options) {
+static unsigned getNumFwdIntermediatesToSave(const LstmParams &params,
+                                             const LstmOpts &options) {
+  unsigned numIntermediates = 0;
   if (options.recomputationMode == LstmRecomputationMode::None) {
-    return 6;
+    numIntermediates += 6;
   } else if (options.recomputationMode == LstmRecomputationMode::CellAndTanh) {
-    return 4;
+    numIntermediates += 4;
+  } else {
+    throw poputil::poplibs_error("Unhandled recomputation type");
   }
-  throw poputil::poplibs_error("Unhandled recomputation type");
-  return 0;
+  if (!params.outputFullSequence) {
+    numIntermediates++;
+  }
+  return numIntermediates;
 }
 
 // Sharding is relevant for LSTM/GRU models which use significantly fewer
@@ -380,7 +386,7 @@ static std::size_t getNumShards(const Graph &graph, const LstmParams &params,
   auto maxShards = params.rnn.getMaxShards(graph);
   auto inputSize = params.rnn.getInputBytesPerTile(graph);
   auto outputSize = params.rnn.getOutputBytesPerTile(graph);
-  auto numIntermediates = getNumFwdIntermediatesToSave(opt);
+  auto numIntermediates = getNumFwdIntermediatesToSave(params, opt);
   auto operandSingleIteration =
       inputSize + (outputSize * (1 + numIntermediates));
   auto operandSize = operandSingleIteration * params.rnn.timeSteps;
@@ -995,7 +1001,7 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
 
   auto input = useWeightedIn ? weightedIn : prevLayerActsCopy;
   auto numIntermediates =
-      intermediatesSeq ? getNumFwdIntermediatesToSave(opt) : 0;
+      intermediatesSeq ? getNumFwdIntermediatesToSave(params, opt) : 0;
   rnn::StateSequence stateSequence;
   auto numShards = getNumShards(graph, params, opt, {di, "numShards"});
   if (params.outputFullSequence) {
@@ -1459,7 +1465,8 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
           std::vector<Tensor> &outputs, std::vector<Tensor> &created,
           program::Sequence *initProg, const DebugNameAndId &dnai) {
         auto loop = Sequence{{}, {dnai}};
-        auto &gradLayerNext = bwdInput[0];
+        const Tensor *gradLayerNextThisStepPtr =
+            bwdInput[0].valid() ? &bwdInput[0] : nullptr;
         Tensor inputGrad =
             shardState[0].valid() ? shardState[0].squeeze({0}) : Tensor{};
         LstmState stateGrads = {shardState[1].squeeze({0}),
@@ -1470,16 +1477,18 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
           Tensor nextInputGrad;
           std::tie(newStateGrads, nextInputGrad, bwdIntermediates) =
               popnn::lstm::basicLstmBackwardStep(
-                  graph, &gradLayerNext, fwdIntermediates, stateGrads, true,
-                  weightsRearranged, loop, options, params, {dnai}, cache);
+                  graph, gradLayerNextThisStepPtr, fwdIntermediates, stateGrads,
+                  true, weightsRearranged, loop, options, params, {dnai},
+                  cache);
           if (inputGrad.valid()) {
             loop.add(Copy(nextInputGrad, inputGrad, false, {dnai}));
           }
         } else {
           std::tie(newStateGrads, std::ignore, bwdIntermediates) =
-              basicLstmBackwardStep(graph, &gradLayerNext, fwdIntermediates,
-                                    stateGrads, false, weightsRearranged, loop,
-                                    options, params, {dnai}, cache);
+              basicLstmBackwardStep(graph, gradLayerNextThisStepPtr,
+                                    fwdIntermediates, stateGrads, false,
+                                    weightsRearranged, loop, options, params,
+                                    {dnai}, cache);
         }
         if (interimOut.valid()) {
           loop.add(Copy(bwdIntermediates, interimOut, false, {dnai}));
@@ -1555,9 +1564,10 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     prevLayerOut =
         createInputTensor(graph, params.rnn, numShards, {dnai, "prevLayerOut"});
     prog.add(Copy(fwdInputSeq, prevLayerOut, false, {dnai}));
-    auto fwdOut = (params.outputFullSequence)
-                      ? fwdOutput
-                      : fwdIntermediates[LSTM_FWD_INTERMEDIATE_OUTPUT];
+    auto fwdOut =
+        (params.outputFullSequence)
+            ? fwdOutput
+            : fwdIntermediates.dimRoll(1)[LSTM_FWD_INTERMEDIATE_OUTPUT];
     prevStepOut =
         rnn::shiftRnnTensor(graph, params.rnn, fwdOut, fwdStateInit.output,
                             prog, numShards, {dnai, "fwdOutShifted"});
