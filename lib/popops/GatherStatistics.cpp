@@ -81,7 +81,7 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
   const auto inType = input.elementType();
   const auto vectorWidth = target.getVectorWidth(inType);
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto flattenedInput = input.flatten();
+  auto flattenedInput = input.flatten();
 
   const auto cs = graph.addComputeSet({dnai, "Histogram"});
 
@@ -102,6 +102,7 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
 
   // Gather a vector of results from each vertex created
   std::vector<Tensor> results;
+  graph.reorderToSimplify(&flattenedInput, {}, false);
   const auto mapping = graph.getTileMapping(flattenedInput);
   for (unsigned tile = 0; tile < numTiles; tile++) {
     const auto tileContiguousRegions =
