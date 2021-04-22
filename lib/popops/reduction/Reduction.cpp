@@ -161,6 +161,9 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
   // to writeUndef, which will improve compile time
   boost::optional<Tensor> originalOutput = out;
 
+  // Avoid mutating `out` when `columnsOrder` and `withOutput` is true.
+  boost::optional<Tensor> outCopy = out;
+
   if (columnsOrder) {
     if (logging::popops::shouldLog(logging::Level::Debug)) {
       logging::popops::debug("Non incremental column ordering detected,"
@@ -196,7 +199,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
     slices.push_back(currentSlice);
     // re-arrange the input and output to match the input columns memory layout
     if (withOutput) {
-      out = concat(out.get().flatten().slices(slices)).reshape(outputShape);
+      outCopy = concat(out.get().flatten().slices(slices)).reshape(outputShape);
     }
     in = concat(in.slices(slices, 1), 1);
     // We may need to present a revised description of all of this to the later
@@ -262,11 +265,10 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
     // Do the entire reduction on each tile with no exchange at all.
 
     inputToOutputNoExchange(graph, in, contiguousRegionsByTile, groupedPartials,
-                            out, originalOutput, outputShape,
+                            outCopy, originalOutput, outputShape,
                             reductionTypes.inVertex, outputType, params, csList,
                             reductionResultTensors, {dnai, "ReduceOnTile"});
-    restoreOutputShape(out);
-    return;
+    restoreOutputShape(outCopy);
   } else {
 
     IntermediatePartials ip;
@@ -301,7 +303,8 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
     const auto startTile =
         getStartTile(in.shape(), outputShape, params, target.getTilesPerIPU());
 
-    for (unsigned i = 0;; ++i) {
+    constexpr unsigned loopExit = ~0u;
+    for (unsigned i = 0; i != loopExit; ++i) {
       // At each point, see if it is worth doing another reduction stage or if
       // we should just do the final reduction, and if so should we do
       // it spread over the IPU or at the destination?
@@ -323,21 +326,26 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
         // SQUARE - change it to an ADD.
         if (params.op == Operation::SQUARE_ADD)
           params.op = Operation::ADD;
+
+        reductionStageInputType = reductionTypes.inVertex;
         break;
       case INTERMEDIATE_TO_OUTPUT:
 
         logging::popops::debug("Creating final reduction stage");
-        intermediateToOutput(graph, ip, out, originalOutput, outputShape,
+        intermediateToOutput(graph, ip, outCopy, originalOutput, outputShape,
                              outputType, params, reductionStageInputType,
                              csList, reductionResultTensors, in,
                              {dnai, "ReduceFinalStage"});
 
-        restoreOutputShape(out);
-        return;
+        restoreOutputShape(outCopy);
+        i = loopExit - 1; // exit the loop
+        break;
       }
-      reductionStageInputType = reductionTypes.inVertex;
     }
   }
+
+  if (!withOutput)
+    out = outCopy;
 }
 
 bool opBenefitsFromHigherIntermediatePrecision(const popops::Operation &op) {
@@ -741,12 +749,12 @@ void reduceMany(poplar::Graph &graph,
   css.reserve(reductions.size());
   for (size_t i = 0; i < reductions.size(); ++i) {
     const SingleReduceOp &op = reductions[i];
-    boost::optional<Tensor> optionalOut;
-    if (!shouldCreateOutputs)
-      optionalOut = std::move(outputs[i]);
     poputil::PoplibsOpDebugInfo diInner(
         op.debugContext,
         DI_ARGS(op.in, outputs[i], op.dims, op.params, options));
+    boost::optional<Tensor> optionalOut;
+    if (!shouldCreateOutputs)
+      optionalOut = std::move(outputs[i]);
     reduceWithOutputProgOrCss(graph, op.in, optionalOut, outputElementTypes[i],
                               op.dims, op.params, css, {diInner}, options);
     assert(optionalOut.has_value());
