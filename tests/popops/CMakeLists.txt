@@ -1154,6 +1154,22 @@ foreach(dType half float)
   endforeach()
 endforeach()
 
+# NormaliseImage tests
+add_multi_target_test_executable(NormaliseImageTest NormaliseImageTest.cpp)
+foreach(dType uchar half float)
+  foreach(b 1 2 4)
+    foreach(fsize 4 224)
+      add_multitarget_test(NAME NormaliseImageTest_${dType}_b${b}_size${fsize}
+        COMMAND NormaliseImageTest
+          --data-type ${dType}
+          --batch-size ${b}
+          --field-size ${fsize})
+    endforeach()
+  endforeach()
+  # Test with an odd number of elements
+  add_multitarget_test(NAME NormaliseImageTest_${dType}_b1_size3
+                       COMMAND NormaliseImageTest --data-type ${dType} --batch-size 1 --field-size 3)
+endforeach()
 
 foreach(DATA_TYPE half float)
   add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_b0_n1000_k100_edge_case

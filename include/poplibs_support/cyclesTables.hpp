@@ -53,7 +53,7 @@ using PerfEstimatorTable =
     std::vector<std::pair<std::string, poplar::PerfEstimateFunc>>;
 
 template <typename F, typename... Args>
-inline std::pair<std::string, poplar::PerfEstimateFunc>
+[[nodiscard]] inline std::pair<std::string, poplar::PerfEstimateFunc>
 makePerfEstimatorEntry(const std::string &codelet, F f, Args &&...args) {
   using std::placeholders::_1;
   using std::placeholders::_2;

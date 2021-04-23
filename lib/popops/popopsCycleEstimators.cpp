@@ -2967,6 +2967,32 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistanceKeyVal)(
   return VertexPerfEstimate(cycles, flops);
 }
 
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(NormaliseImage)(const VertexIntrospector &vertex,
+                                         const Target &target,
+                                         const Type &inType, const Type &) {
+  CODELET_SCALAR_VAL(packedNPixels, unsigned);
+  unsigned nPixelsPerWorker = packedNPixels >> 3;
+  unsigned remainder = packedNPixels & 0x7;
+  unsigned nWorkers = target.getNumWorkerContexts();
+  unsigned nPixels = nWorkers * nPixelsPerWorker + remainder;
+  auto flops = 3 * 3 * nPixels;
+  unsigned cycles = 0;
+  unsigned workerCycles;
+  if (inType == UNSIGNED_CHAR) {
+    workerCycles = 28 + (nPixelsPerWorker + (remainder > 1)) * 8 + 1;
+  } else if (inType == HALF) {
+    workerCycles = 51 + (nPixelsPerWorker + (remainder > 1)) * 11 + 1;
+  } else if (inType == FLOAT) {
+    workerCycles = 51 + (nPixelsPerWorker + (remainder > 1)) * 17 + 1;
+
+  } else {
+    throw poputil::poplibs_error(
+        "NormaliseImage does not support this data type");
+  }
+  cycles = nWorkers * workerCycles;
+  return {cycles, flops};
+}
 #define BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(vertexName)                        \
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                    \
                         BinaryOpType::VARIANCE_TO_INV_STD_DEV, FLOAT, HALF),   \
@@ -3467,6 +3493,11 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
     table.push_back(CYCLE_ESTIMATOR_ENTRY(
         popops, BroadcastScalar1DInPlaceSupervisor, op, type));
   }
+
+  table.push_back(
+      CYCLE_ESTIMATOR_ENTRY(popops, NormaliseImage, UNSIGNED_CHAR, HALF));
+  table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, NormaliseImage, HALF, HALF));
+  table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, NormaliseImage, FLOAT, FLOAT));
   return table;
 }
 

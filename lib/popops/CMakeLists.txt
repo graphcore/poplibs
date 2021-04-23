@@ -28,6 +28,7 @@ add_library(popops SHARED
   GatherStatistics.cpp
   HostSliceTensor.cpp
   NaN.cpp
+  NormaliseImage.cpp
   Operation.cpp
   Pad.cpp
   Padder.cpp
@@ -60,6 +61,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Fill.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/GatherStatistics.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/NaN.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/NormaliseImage.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Operation.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Rearrange.hpp
@@ -126,6 +128,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CompareAndSwapAtDistanceKeyVal_float_unsigned.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/EncodeOneHot.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/HasNaN.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NormaliseImage.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiUpdateAdd.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01Acc.S
@@ -197,6 +200,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiSlice.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdate.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdateAdd.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NormaliseImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Reduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledContinuousReduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledReduce.cpp
