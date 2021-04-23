@@ -294,6 +294,36 @@ add_unit_test(TransposeTest
               SUITES TransposeFast_16bit TransposeFast_Float TransposeFast_Integral
                      Transpose2d T19548 T33035
               LABELS codelet)
+
+# Fill vertices for 8 bit types need to be tested with a lot of different data
+# lengths and start offsets (from 0 to 7), because the assembly code is quite
+# specialised for the various combinations.
+# They all use the same assembly code (with the different function labels being
+# at the same entry point) so in theory we could just test for a single 8 bit
+# type, but here we exercise them all (bool, char, unsigned char, signed char)
+# to make sure all the C++ decalarations and assembly incantations are correctly
+# spelled.
+add_multi_target_test_executable(FillCodeletsTest FillCodeletsTest.cpp)
+function(test_fill_vertex  TYPE  START_ALIGNMENT)
+  add_multitarget_test(NAME "FillCodelets_8bit_align${START_ALIGNMENT}"
+                      COMMAND FillCodeletsTest --group-test
+                              --size 1 2 3 4 5 6 7 8 9 10 11 12 43
+                                     [44,11,13] [45,12,14] 46 47 48
+                              --data ${TYPE}
+                              --align-start ${START_ALIGNMENT}
+                      LABELS codelet
+                      TEST_IPUMODEL "true")
+endfunction()
+test_fill_vertex(bool 0)
+test_fill_vertex(bool 1)
+test_fill_vertex(char 2)
+test_fill_vertex(char 3)
+test_fill_vertex(uchar 4)
+test_fill_vertex(uchar 5)
+test_fill_vertex(schar 6)
+test_fill_vertex(schar 7)
+
+
 add_unit_test(FillAndZeroTest
               FillAndZeroTest.cpp
               LABELS codelet)

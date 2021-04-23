@@ -75,17 +75,17 @@ template class Fill<float>;
 template class Fill<half>;
 template class Fill<int>;
 template class Fill<unsigned>;
-
-template <typename FPType> constexpr bool fill2dHasAssembly() {
-  return std::is_same<FPType, half>() || std::is_same<FPType, float>();
-}
+template class Fill<bool>;
+template class Fill<char>;
+template class Fill<unsigned char>;
+template class Fill<signed char>;
 
 template <typename FPType> class Fill2d : public Vertex {
 public:
   FPType in;
   Vector<Output<Vector<FPType>>> out;
 
-  IS_EXTERNAL_CODELET(fill2dHasAssembly<FPType>);
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     for (auto &row : out) {
@@ -101,6 +101,10 @@ template class Fill2d<float>;
 template class Fill2d<half>;
 template class Fill2d<unsigned int>;
 template class Fill2d<int>;
+template class Fill2d<bool>;
+template class Fill2d<char>;
+template class Fill2d<unsigned char>;
+template class Fill2d<signed char>;
 
 // A couple of macros to instantiate more compactly the templates of the various
 // Cast vertices, for all possible combinations of input and output types

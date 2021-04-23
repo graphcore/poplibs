@@ -1491,9 +1491,22 @@ MAKE_PERF_ESTIMATOR_NAME(HadamardProd)(const VertexIntrospector &vertex,
 
 std::uint64_t _fillCycleEstimate(std::uint64_t size, const Target &target,
                                  const Type &type) {
+  const bool is8Bits = type == BOOL || type == CHAR || type == UNSIGNED_CHAR ||
+                       type == SIGNED_CHAR;
   const bool isHalf = type == HALF;
   const auto width = target.getDataPathWidth() / (isHalf ? 16 : 32);
 
+  if (is8Bits) {
+    // Exact execution times for Fill vertices for 8 bits depend on memory byte
+    // alignment of the tensor. For small sizes, this is a rough estimate.
+
+    // For less than 64 bytes (16 words) we do st32, while for more we do st64
+    if (size < 64) {
+      return 28 + size / 4;
+    } else {
+      return 39 + size / 8;
+    }
+  }
   if (isHalf) {
     // Cycle breakdown:
     //
@@ -1520,7 +1533,6 @@ std::uint64_t _fillCycleEstimate(std::uint64_t size, const Target &target,
       return 26 + size / width;
     }
   }
-
   // Cycle breakdown:
   //
   // + 16 cycles for pre-loop code, such as loading data and checking alignment.
@@ -3194,11 +3206,19 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, Fill, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill, INT),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, SIGNED_CHAR),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, SIGNED_CHAR),
 
       CAST_CYCLE_ESTIM_ENTRIES(Cast),
       CAST_CYCLE_ESTIM_ENTRIES(Cast2d),
