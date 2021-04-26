@@ -26,9 +26,11 @@ using namespace poputil;
 namespace poplibs_test {
 namespace ctc {
 
-std::vector<unsigned> runGenerateOutputCodelet(
-    Graph &graph, TestDevice &device, DeviceType deviceType, unsigned timestep,
-    const BeamHistory &beamHistory, unsigned outputBeam, bool profile) {
+std::vector<unsigned>
+runGenerateOutputCodelet(Graph &graph, TestDevice &device,
+                         DeviceType deviceType, unsigned timestep,
+                         const BeamHistory &beamHistory, unsigned beamOutLength,
+                         unsigned outputBeam, bool profile) {
   const auto target = graph.getTarget();
 
   const auto beamwidth = beamHistory.symbols.size();
@@ -41,15 +43,19 @@ std::vector<unsigned> runGenerateOutputCodelet(
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamAddend");
   auto beamParent =
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamParent");
+  const std::vector<unsigned> length(beamwidth, beamOutLength);
+  auto beamLength = graph.addConstant(UNSIGNED_INT, {beamwidth},
+                                      ArrayRef(length), "beamLength");
 
   // TODO - this is the length already formed, what will the timestep be
   // when we run for real?
-  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
 
   graph.setTileMapping(beamOutput, 0);
   graph.setTileMapping(outputLength, 0);
   graph.setTileMapping(beamAddend, 0);
   graph.setTileMapping(beamParent, 0);
+  graph.setTileMapping(beamLength, 0);
 
   graph.setTileMapping(currentTimestep, 0);
 
@@ -63,6 +69,7 @@ std::vector<unsigned> runGenerateOutputCodelet(
   graph.connect(vertex["beamAddend"], beamAddend.flatten());
   graph.connect(vertex["beamParent"], beamParent.flatten());
   graph.connect(vertex["currentTimestep"], currentTimestep);
+  graph.connect(vertex["beamLength"], beamLength);
 
   graph.setInitialValue(vertex["beam"], outputBeam);
   graph.setInitialValue(vertex["maxT"], maxT);

@@ -59,6 +59,10 @@ void attachBeamHistory(Graph &graph, const BeamTensors &beams,
   Slice<4> end = {batch + 1, partition + 1, time.end(), beamwidth};
   graph.connect(vertex["beamAddend"], beams.addend.slice(begin, end).flatten());
   graph.connect(vertex["beamParent"], beams.parent.slice(begin, end).flatten());
+  Slice<4> beginLength = {batch, partition, 0, 0};
+  Slice<4> endLength = {batch + 1, partition + 1, beamwidth, 1};
+  graph.connect(vertex["beamLength"],
+                beams.length.slice(beginLength, endLength).flatten());
 }
 
 void attachSingleCopyCandidate(Graph &graph, const TempTensors &tempTensors,
@@ -514,6 +518,10 @@ void updateVertex(Graph &graph, const BeamTensors &beams,
                           vertex);
   attachBeamHistory(graph, beams, time, batch, beamPartition, beamwidth,
                     vertex);
+  Slice<4> beginLength = {batch, beamPartition, 0, 0};
+  Slice<4> endLength = {batch + 1, beamPartition + 1, beamwidth, 1};
+  graph.connect(vertex["previousBeamLength"],
+                beams.previousLength.slice(beginLength, endLength).flatten());
   // Timestep, data length connections
   attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
 

@@ -32,11 +32,14 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
     Type partialsType,
     const std::vector<Candidate<PartialsType>> &extendCandidates,
     const Candidate<PartialsType> &copyCandidate, unsigned timestep,
-    unsigned blankClass, const BeamHistory &beamHistory, bool profile) {
+    unsigned blankClass, const BeamHistory &beamHistory,
+    const ArrayRef<unsigned> &outputLengths, unsigned lastBeamOutputSym,
+    bool profile) {
+
   const auto target = graph.getTarget();
   const auto beamwidth = beamHistory.symbols.size();
   const auto numExtendCandidates = extendCandidates.size();
-  const auto maxT = beamHistory.symbols[0].size();
+  const auto maxT = beamHistory.symbols[0].size() - 1;
 
   auto extendCandidateParent = graph.addVariable(
       UNSIGNED_INT, {numExtendCandidates}, "extendCandidateParent");
@@ -62,12 +65,14 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamAddend");
   auto beamParent =
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamParent");
-  auto lastBeamOutput = graph.addConstant(
-      UNSIGNED_INT, {}, beamHistory.getLastOutput(copyCandidate.beam),
-      "lastBeamOutput");
+  auto lastBeamOutput =
+      graph.addConstant(UNSIGNED_INT, {}, lastBeamOutputSym, "lastBeamOutput");
+
+  auto beamLength =
+      graph.addConstant(UNSIGNED_INT, {beamwidth}, outputLengths, "beamLength");
 
   auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
-  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
+  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);
 
   graph.setTileMapping(extendCandidateParent, 0);
   graph.setTileMapping(extendCandidateAddend, 0);
@@ -83,6 +88,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   graph.setTileMapping(beamAddend, 0);
   graph.setTileMapping(beamParent, 0);
   graph.setTileMapping(lastBeamOutput, 0);
+  graph.setTileMapping(beamLength, 0);
 
   graph.setTileMapping(currentTimestep, 0);
   graph.setTileMapping(dataLength, 0);
@@ -111,6 +117,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   graph.connect(vertex["beamAddend"], beamAddend.flatten());
   graph.connect(vertex["beamParent"], beamParent.flatten());
   graph.connect(vertex["lastBeamOutput"], lastBeamOutput);
+  graph.connect(vertex["beamLength"], beamLength);
 
   graph.connect(vertex["currentTimestep"], currentTimestep);
   graph.connect(vertex["dataLength"], dataLength);
@@ -285,7 +292,9 @@ template std::vector<Candidate<float>> runMergeCandidatesCodelet(
     Graph &graph, TestDevice &device, DeviceType deviceType, Type inType,
     Type partialsType, const std::vector<Candidate<float>> &extendCandidates,
     const Candidate<float> &copyCandidate, unsigned timestep,
-    unsigned blankClass, const BeamHistory &beamHistory, bool profile);
+    unsigned blankClass, const BeamHistory &beamHistory,
+    const ArrayRef<unsigned> &outputLengths, unsigned lastBeamOutputSym,
+    bool profile);
 
 } // namespace ctc
 } // namespace poplibs_test

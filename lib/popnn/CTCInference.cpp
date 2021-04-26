@@ -348,6 +348,10 @@ BeamTensors createAndInitialiseBeamTensors(
       graph.addVariable(UNSIGNED_INT, beamProbsShape, {di, "beamLastOutput"});
   beamTensors.previousLastOutput = graph.addVariable(
       UNSIGNED_INT, beamProbsShape, {di, "previousBeamLastOutput"});
+  beamTensors.length =
+      graph.addVariable(UNSIGNED_INT, beamProbsShape, {di, "beamLength"});
+  beamTensors.previousLength = graph.addVariable(UNSIGNED_INT, beamProbsShape,
+                                                 {di, "previousBeamLength"});
 
   mapAccordingToPlan(graph, beamTensors.parent, PartitionType::BATCH_ENTRY,
                      plan);
@@ -359,6 +363,10 @@ BeamTensors createAndInitialiseBeamTensors(
   mapAccordingToPlan(graph, beamTensors.lastOutput, PartitionType::BATCH_ENTRY,
                      plan);
   mapAccordingToPlan(graph, beamTensors.previousLastOutput,
+                     PartitionType::BATCH_ENTRY, plan);
+  mapAccordingToPlan(graph, beamTensors.length, PartitionType::BATCH_ENTRY,
+                     plan);
+  mapAccordingToPlan(graph, beamTensors.previousLength,
                      PartitionType::BATCH_ENTRY, plan);
 
   // Initialise the beam probabilities, with only one origin point
@@ -385,6 +393,12 @@ BeamTensors createAndInitialiseBeamTensors(
   prog.add(Copy(
       initialiserVoidSymbol.broadcast(beamTensors.lastOutput.numElements(), 0),
       beamTensors.lastOutput.flatten(), false, di));
+
+  // Zero symbols per beam to start with
+  auto initialiserZero = graph.addConstant(UNSIGNED_INT, {1}, 0u, di);
+  graph.setTileMapping(initialiserZero, 0);
+  prog.add(Copy(initialiserZero.broadcast(beamTensors.length.numElements(), 0),
+                beamTensors.length.flatten(), false, di));
 
   // Setup the initial beam history with a zero time slice with:
   // beam   parent addend
@@ -576,8 +590,10 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
           }),
       plan.parallel.sort);
 
-  // Prepare the copy of the last output for the Update stage
+  // Prepare the copy of the last output, length for the Update stage
   prog.add(Copy(beams.lastOutput, beams.previousLastOutput));
+  prog.add(Copy(beams.length, beams.previousLength));
+
   // Update beam history and probabilities in the 5th compute set
   auto cs5 = graph.addComputeSet(di);
   const unsigned sortedResultOffset = plan.parallel.copy * (beamwidth - 1);

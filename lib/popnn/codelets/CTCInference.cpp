@@ -187,19 +187,13 @@ template class CTCGenerateExtendCandidates<half, float, unsigned>;
 template class CTCGenerateExtendCandidates<half, half, unsigned>;
 
 template <typename SymbolType>
-// return {Symbol, t, beam}
-inline std::tuple<SymbolType, unsigned, unsigned>
-getNextSymbol(SymbolType *beamAddend, unsigned *beamParent, unsigned beamwidth,
-              unsigned t, unsigned beam) {
-  while (t > 0) {
-    t--;
-    auto symbol = beamAddend[beamwidth * t + beam];
-    beam = beamParent[beamwidth * t + beam];
-    if (symbol != voidSymbol) {
-      return {symbol, t, beam};
-    }
-  }
-  return {voidSymbol, 0, beam};
+// return {symbol, beamIndex}
+inline std::tuple<SymbolType, unsigned> getNextSymbol(SymbolType *beamAddend,
+                                                      unsigned *beamParent,
+                                                      unsigned beamIndex) {
+  auto symbol = beamAddend[beamIndex];
+  beamIndex = beamParent[beamIndex];
+  return {symbol, beamIndex};
 }
 
 template <typename SymbolType>
@@ -211,37 +205,29 @@ inline bool equivalentOutputSequence(SymbolType *beamAddend,
 
   // Assumption that addendLhs != addendRhs, by design we shouldn't be
   // comparing two addends with classes which are both not voidSymbol
-  auto tLhs = t;
-  auto tRhs = t;
-  auto beamLhs = parentLhs;
-  auto beamRhs = parentRhs;
+  auto beamIndexLhs = parentLhs + (t - 1) * beamwidth;
+  auto beamIndexRhs = parentRhs + (t - 1) * beamwidth;
   unsigned nextSymbolLhs, nextSymbolRhs;
 
-  if (addendLhs == voidSymbol) {
-    std::tie(nextSymbolLhs, tLhs, beamLhs) =
-        getNextSymbol(beamAddend, beamParent, beamwidth, tLhs, beamLhs);
-  } else {
-    nextSymbolLhs = addendLhs;
-  }
-
-  if (addendRhs == voidSymbol) {
-    std::tie(nextSymbolRhs, tRhs, beamRhs) =
-        getNextSymbol(beamAddend, beamParent, beamwidth, tRhs, beamRhs);
-  } else {
-    nextSymbolRhs = addendRhs;
-  }
+  // Assumption that LHS is a copy candidate so we need to get the
+  // last beam output to begin the comparison
+  std::tie(nextSymbolLhs, beamIndexLhs) =
+      getNextSymbol(beamAddend, beamParent, beamIndexLhs);
+  // Assumption that RHS is not a copy candidate so the addend is needed to
+  // begin the comparison
+  nextSymbolRhs = addendRhs;
 
   while (true) {
     if (nextSymbolLhs != nextSymbolRhs) {
       return false;
     }
-    if (tLhs == tRhs && beamLhs == beamRhs) {
+    if (beamIndexLhs == beamIndexRhs) {
       return true;
     }
-    std::tie(nextSymbolLhs, tLhs, beamLhs) =
-        getNextSymbol(beamAddend, beamParent, beamwidth, tLhs, beamLhs);
-    std::tie(nextSymbolRhs, tRhs, beamRhs) =
-        getNextSymbol(beamAddend, beamParent, beamwidth, tRhs, beamRhs);
+    std::tie(nextSymbolLhs, beamIndexLhs) =
+        getNextSymbol(beamAddend, beamParent, beamIndexLhs);
+    std::tie(nextSymbolRhs, beamIndexRhs) =
+        getNextSymbol(beamAddend, beamParent, beamIndexRhs);
   }
 }
 
@@ -272,6 +258,7 @@ public:
 
   Input<Vector<SymbolType, ONE_PTR>> beamAddend; // [maxT+1, beamwidth]
   Input<Vector<unsigned, ONE_PTR>> beamParent;   // [maxT+1, beamwidth]
+  Input<Vector<unsigned, ONE_PTR>> beamLength;   // [beamwidth]
   // The last output from the beam that the copy candidate came from
   Input<SymbolType> lastBeamOutput;
 
@@ -321,9 +308,12 @@ public:
 
     const auto parentRhs = extendCandidateParent[i];
     const auto addendRhs = extendCandidateAddend[i];
+    // To merge the parent of the copy candidate must have 1 less symbol than
+    // the parent of the extend candidate
+    if (beamLength[parentLhs] != beamLength[parentRhs] + 1) {
+      return true;
+    }
 
-    // TODO: improve efficiency by simplifting traceback mechanism, possibly
-    // with no voidSymbol, and therefore different length paths for each beam
     if (equivalentOutputSequence(&(beamAddend[0]), &(beamParent[0]),
                                  *currentTimestep, beamwidth, parentLhs,
                                  addendLhs, parentRhs, addendRhs)) {
@@ -683,7 +673,49 @@ public:
 template class CTCSortReduceCandidates<float, unsigned>;
 template class CTCSortReduceCandidates<half, unsigned>;
 
-// TODO - Consider splitting this up - different field can be done in parallel
+// Create the parent and addend data.
+// Data format explanation:
+// Parent indices are an index into the flattened beam history, valid for both
+// the parent and addend arrays. index = (beamwidth * timestep) + beam
+// For example with beamwidth = 3, then beam 2 at timestep 4 has index 14
+// (using 3 * 4 + 2)
+// If we insert a voidSymbol then the addend is the last non void addend in
+// that beam history and parent references back to the symbol before.
+// Therefore when tracing back through any path we should only see a voidSymbol
+// when we reach the beginning of the beam history.
+// In addition there is a dummy 1st timestep inserted before the codelets are
+// run.  This makes an origin point for beam 0 (the only initial valid beam) and
+// a dummy symbol for each other beam.
+// Example:
+// P = parent Index, A = addend, - = blank, x = dummy symbol
+// T*bw is the parent index for beam 0 at the specific timestep which helps in
+// understanding traceback
+// beamwidth = 5
+//       T=0      T=1     T=2     T=3
+//       T*bw=0   T*bw=5  T*bw=10 T*bw=15
+// beam  P  A     P  A    P  A    P  A
+// -----------------------------------
+// 0     0  -     0  4    0  4    0  4
+// 1     0  x     0  1    5  3    11 4
+// 2     0  x     0  -    6  4    6  4
+// 3     0  x     0  2    5  2    10 3
+// 4     0  x     0  3    8  4    13 4
+//
+// Traceback:
+// Beam0.  At (T=3,beam=0) Addend=4, Parent = 0, which references the origin so
+//         we are done. Output = 4
+// Beam1.  At (T=3,beam=1) Addend = 4, Parent = 11 (T=2,beam=1)
+//         At (T=2,beam=1) Addend = 3, Parent = 5  (T=1,beam=0)
+//         At (T=1,beam=0) Addend = 4, Parent = 0, which references the origin
+//         so we are done. Output = 4,3,4
+// Beam2.  At (T=3,beam=2) Addend = 4, Parent = 6  (T=1, beam=1)
+//         At (T=1,beam=1) Addend = 1, Parent = 0, which references the origin
+//         so we are done. Output = 1,4
+// Tracing back for beam 3,4
+// Beam 3: Output 4,3
+// Beam 4: Output 4,2,4
+
+// TODO - Consider splitting this up - different fields can be done in parallel
 template <typename PartialsType, typename SymbolType>
 class CTCUpdate : public Vertex {
 public:
@@ -700,6 +732,9 @@ public:
   InOut<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
   InOut<Vector<unsigned, ONE_PTR>> beamAddend;           // [maxT+1, beamwidth]
   InOut<Vector<unsigned, ONE_PTR>> beamParent;           // [maxT+1, beamwidth]
+
+  Input<Vector<unsigned, ONE_PTR>> previousBeamLength; // [beamwidth]
+  Output<Vector<unsigned, ONE_PTR>> beamLength;        // [beamwidth]
 
   Input<Vector<unsigned, ONE_PTR>> previousLastBeamOutputs; // [beamwidth]
   Output<Vector<unsigned, ONE_PTR>> lastBeamOutputs;        // [beamwidth]
@@ -719,13 +754,32 @@ public:
     const unsigned baseOffset = (*currentTimestep) * beamwidth;
     const auto parent = &beamParent[baseOffset];
     const auto addend = &beamAddend[baseOffset];
+
+    const unsigned previousBaseOffset = baseOffset - beamwidth;
+    const auto previousParent = &beamParent[previousBaseOffset];
+
     for (unsigned i = 0; i < beamwidth; i++) {
-      parent[i] = candidateParent[i];
-      addend[i] = candidateAddend[i];
-      // Keep the output from the parent beam, which can be a new parent
-      lastBeamOutputs[i] = candidateAddend[i] == voidSymbol
-                               ? previousLastBeamOutputs[candidateParent[i]]
-                               : candidateAddend[i];
+
+      if (candidateAddend[i] == voidSymbol) {
+        // Candidate addend is voidSymbol - add nothing to the beam:
+        // So there are no more symbols - just the same as the parent beam
+        beamLength[i] = previousBeamLength[candidateParent[i]];
+        // And the output for this beam is that of the parent beam
+        lastBeamOutputs[i] = previousLastBeamOutputs[candidateParent[i]];
+        // Don't change the beam output but maintain parent and last symbol
+        // at the current timestep
+        parent[i] = previousParent[candidateParent[i]];
+        addend[i] = lastBeamOutputs[i];
+      } else {
+        // Adding a non voidSymbol:
+        // So there is 1 more symbol than the parent beam had
+        beamLength[i] = previousBeamLength[candidateParent[i]] + 1;
+        // And the output for this beam is the addend that was added
+        lastBeamOutputs[i] = candidateAddend[i];
+        // The beam has the addend and parent of the candidate
+        parent[i] = candidateParent[i] + previousBaseOffset;
+        addend[i] = candidateAddend[i];
+      }
       beamProbNonBlank[i] = candidateBeamProbNonBlank[i];
       beamProbBlank[i] = candidateBeamProbBlank[i];
     }
@@ -747,6 +801,7 @@ public:
 
   Input<Vector<unsigned, ONE_PTR>> beamAddend; // [maxT+1, beamwidth]
   Input<Vector<unsigned, ONE_PTR>> beamParent; // [maxT+1, beamwidth]
+  Input<Vector<unsigned, ONE_PTR>> beamLength; // [beamwidth]
   Input<unsigned> currentTimestep;
   // The actual number of valid symbols found in the beamOutput
   Output<unsigned> outputLength;
@@ -759,31 +814,23 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    auto traceBackBeam = beam;
-    auto traceBackTime = *currentTimestep;
+    auto traceBackBeamIndex = beam + (currentTimestep - 1) * beamwidth;
 
-    for (unsigned i = 0; i < currentTimestep; i++) {
+    *outputLength = beamLength[beam];
+    auto outIdx = *outputLength - 1;
+    while (true) {
       SymbolType symbol;
-      std::tie(symbol, traceBackTime, traceBackBeam) =
-          getNextSymbol(&beamAddend[0], &beamParent[0], beamwidth,
-                        traceBackTime, traceBackBeam);
+      std::tie(symbol, traceBackBeamIndex) =
+          getNextSymbol(&beamAddend[0], &beamParent[0], traceBackBeamIndex);
       if (symbol == voidSymbol) {
-        // Beam end reached
+        // Beam end reached, not always at t=0 as beams can exist with an
+        // empty output for several timesteps
         break;
       }
-      // Maintain the output length now we have another symbol
-      *outputLength = i;
-      // Store the symbol sequence starting at the end of the output and
-      // tracking backwards - so in the correct order but offset as we don't
-      // know how long it is until we've decoded it all
-      beamOutput[maxT - 1 - i] = symbol;
-    }
-    // Shuffle back to the start
-    *outputLength = *outputLength + 1;
-    if (*outputLength != maxT) {
-      for (unsigned i = 0; i < *outputLength; i++) {
-        beamOutput[i] = beamOutput[maxT - *outputLength + i];
-      }
+      // Store the symbol sequence starting at the end of the output (given the
+      // output length) and tracking backwards
+      beamOutput[outIdx] = symbol;
+      outIdx--;
     }
     return true;
   }

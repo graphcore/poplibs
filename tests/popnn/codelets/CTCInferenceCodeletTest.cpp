@@ -282,6 +282,46 @@ getCopyAndExtendCandidates(const std::vector<Candidate<FPType>> &candidates,
   return std::make_pair(copyCandidate, extendCandidates);
 }
 
+BeamHistory toIpuFormat(const BeamHistory &beamHistory, unsigned timestep) {
+  const auto beamwidth = beamHistory.symbols.size();
+  const auto maxT = beamHistory.symbols[0].size();
+  // There is an extra timestep in the IPU format to provide an initial state
+  auto ipuHistory = BeamHistory(beamwidth, maxT + 1);
+  // First timestep:
+  // beam 0 has parent = 0, symbol = void
+  // Other beams have parent = 0, and symbol = unique symbol not in the set
+  // of allowed symbols
+  ipuHistory.incrementIndex();
+  ipuHistory.parents[0][0] = 0;
+  ipuHistory.symbols[0][0] = voidSymbol;
+  for (unsigned i = 1; i < beamwidth; i++) {
+    ipuHistory.parents[i][0] = 0;
+    ipuHistory.symbols[i][0] = voidSymbol - i;
+  }
+
+  for (unsigned i = 0; i < timestep + 1; i++) {
+    for (unsigned j = 0; j < beamwidth; j++) {
+      const unsigned idx = i + 1;
+      if (beamHistory.symbols[j][i] == voidSymbol) {
+        // For a void symbol, reference the previous parent (already in the
+        // ipu history) and repeat the symbol that is there with it
+        const auto previous = *beamHistory.parents[j][i];
+        ipuHistory.symbols[j][idx] = ipuHistory.symbols[previous][idx - 1];
+        ipuHistory.parents[j][idx] = *ipuHistory.parents[previous][idx - 1];
+      } else {
+        // For a non void symbol, reference the parent, converting to a flat
+        // index and copy the symbol
+        const auto previousTimestepOffset = i * beamwidth;
+        ipuHistory.parents[j][idx] =
+            *beamHistory.parents[j][i] + previousTimestepOffset;
+        ipuHistory.symbols[j][idx] = beamHistory.symbols[j][i];
+      }
+    }
+    ipuHistory.incrementIndex();
+  }
+  return ipuHistory;
+}
+
 int main(int argc, char **argv) {
   unsigned seed = 42;
   DeviceType deviceType = DeviceType::IpuModel2;
@@ -510,9 +550,17 @@ int main(int argc, char **argv) {
     auto [copyCandidate, extendCandidates] = getCopyAndExtendCandidates(
         modelCandidates, chosenMergeCopyBeam, chosenMergeExtendBeam);
 
+    std::vector<unsigned> expectedOutputLength(beamwidth);
+    for (unsigned i = 0; i < beamwidth; i++) {
+      expectedOutputLength[i] = beamHistory.getOutputSequence(i).size();
+    }
+    const auto lastBeamOutputSym =
+        beamHistory.getLastOutput(copyCandidate.beam);
     auto candidates = runMergeCandidatesCodelet<float>(
         graph, device, deviceType, inType, partialsType, extendCandidates,
-        copyCandidate, timestep, blankClass, beamHistory, profile);
+        copyCandidate, timestep + 1, blankClass,
+        toIpuFormat(beamHistory, timestep - 1), expectedOutputLength,
+        lastBeamOutputSym, profile);
 
     extendCandidates.insert(extendCandidates.begin(), copyCandidate);
     const auto modelMergedCandidates =
@@ -565,18 +613,21 @@ int main(int argc, char **argv) {
   if (vertexType == VertexType::UPDATE) {
     auto [ipuBeamHistory, ipuBeamProbs] = runUpdateCodelet<float>(
         graph, device, deviceType, inType, partialsType, modelPrunedCandidates,
-        timestep, beamHistory, beamProbs, blankClass, profile);
+        timestep + 1, toIpuFormat(beamHistory, timestep - 1), beamProbs,
+        blankClass, profile);
 
     // Complete the model implementation for comparison, now the beam history
     // has been used by the codelet
     applyCandidates(beamHistory, beamProbs, modelPrunedCandidates, true);
+    // Convert to the same form that we expect the IPU output to be in
+    auto modelBeamHistory = toIpuFormat(beamHistory, timestep);
     if (verbose) {
       std::cout << "\nPruned Candidates:\n";
       print(modelPrunedCandidates, voidSymbol);
       std::cout << "\nOutput:\n";
       print(ipuBeamHistory);
       std::cout << "\nModel:\n";
-      print(beamHistory);
+      print(modelBeamHistory);
       for (unsigned i = 0; i < beamProbs.size(); i++) {
         std::cout << "Model: [pnb: " << beamProbs[i].pnb
                   << ", pb: " << beamProbs[i].pb << "]";
@@ -584,7 +635,7 @@ int main(int argc, char **argv) {
                   << ", pb: " << ipuBeamProbs[i].pb << "]\n";
       }
     }
-    if (!beamHistoryIsClose(beamHistory, ipuBeamHistory) ||
+    if (!beamHistoryIsClose(modelBeamHistory, ipuBeamHistory) ||
         !beamProbabilitiesAreClose(beamProbs, ipuBeamProbs, relTolerance)) {
       std::cerr << "Data mismatch\n";
       return 1;
@@ -598,17 +649,20 @@ int main(int argc, char **argv) {
       std::cout << "\nBeam history:\n";
       print(beamHistory);
     }
-    const auto ipuOutput = runGenerateOutputCodelet(
-        graph, device, deviceType, timestep + 1, beamHistory, beam, profile);
-    const auto expectedOuput = beamHistory.getOutputSequence(beam);
+    const auto expectedOutput = beamHistory.getOutputSequence(beam);
+
+    const auto ipuOutput =
+        runGenerateOutputCodelet(graph, device, deviceType, timestep + 1,
+                                 toIpuFormat(beamHistory, timestep),
+                                 expectedOutput.size(), beam, profile);
     if (verbose) {
       std::cout << "Actual:  ";
       print(ipuOutput);
       std::cout << "Expected:";
-      print(expectedOuput);
+      print(expectedOutput);
       std::cout << "\n";
     }
-    if (ipuOutput != expectedOuput) {
+    if (ipuOutput != expectedOutput) {
       std::cerr << "Data mismatch\n";
       return 1;
     }

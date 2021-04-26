@@ -66,8 +66,10 @@ struct BeamTensors {
   poplar::Tensor pb;
   poplar::Tensor pnb;
   poplar::Tensor lastOutput;
-  // A copy of lastOutput, made to use in the update process
+  poplar::Tensor length;
+  // A copy of lastOutput and length, made to use in the update process
   poplar::Tensor previousLastOutput;
+  poplar::Tensor previousLength;
 };
 
 void generateExtendCandidateVertex(
