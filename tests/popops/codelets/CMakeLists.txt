@@ -589,6 +589,9 @@ foreach(TYPE half float)
                           --operation=${OPERATION}
                           --update=${UPDATE}
                           --specialisation=3
+                          --num-outer-strides=1
+                          --outer-stride=0
+                          --num-partials=5
                           LABELS codelet)
       endforeach()
     endforeach()
@@ -605,12 +608,15 @@ foreach(PARTIALS_TYPE half float)
                         COMMAND ReduceSpecial23
                           --partials-type=${PARTIALS_TYPE}
                           --out-type=${OUT_TYPE}
-                          --outer-dim=3
+                          --outer-dim=13
                           --inner-dim=16
                           --output-dim=16
                           --operation=${OPERATION}
                           --update=${UPDATE}
                           --specialisation=3
+                          --num-outer-strides=3
+                          --outer-stride=2
+                          --num-partials=3
                           LABELS codelet)
       endforeach()
     endforeach()

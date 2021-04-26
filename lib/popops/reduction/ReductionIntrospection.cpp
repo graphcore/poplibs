@@ -364,6 +364,28 @@ gatherReductionPatterns(const std::vector<std::vector<Interval>> &regions,
   return partialsDescription;
 }
 
+// Consider several patterns, which need to describe the same data layout
+// with a consistent stride to be seen as regular
+static bool patternsAreRegular(const std::vector<PartialsPattern> &patterns) {
+  if (patterns.size() == 1) {
+    return true;
+  }
+  const auto firstRegionOffsetDelta =
+      patterns[1].regionOffset - patterns[0].regionOffset;
+  for (unsigned i = 1; i < patterns.size(); i++) {
+    const auto regionOffsetDelta =
+        patterns[i].regionOffset - patterns[i - 1].regionOffset;
+    if (regionOffsetDelta != firstRegionOffsetDelta ||
+        patterns[i].innerFactor != patterns.front().innerFactor ||
+        patterns[i].stride != patterns.front().stride ||
+        patterns[i].outerFactor != patterns.front().outerFactor ||
+        patterns[i].regionIdx != patterns.front().regionIdx) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // A function which accepts a vector of patterns which each describe
 // a reduction of one or more columns. Each pattern references a region /
 // regions and describes a number of tensor elements (partials) found within
@@ -373,7 +395,7 @@ gatherReductionPatterns(const std::vector<std::vector<Interval>> &regions,
 std::vector<RegionReduction> listPartialsUsingPatterns(
     const std::vector<PartialsDescription> &partialsDescription,
     const Tensor &input, const std::vector<std::vector<Interval>> &inputRegions,
-    unsigned tile, unsigned columns) {
+    unsigned tile) {
   // For speed, prepare a vector of tensors for each on tile region, each of
   // which will be referenced many times in the loop below.
   std::vector<Tensor> regionTensors(inputRegions.size());
@@ -383,17 +405,25 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
 
   std::vector<RegionReduction> reductions(partialsDescription.size());
   for (unsigned i = 0; i < reductions.size(); i++) {
-    if (partialsDescription[i].patterns.size() == 1) {
+    if (patternsAreRegular(partialsDescription[i].patterns)) {
       // This reduction's partials can be described by a single tensor
       // and offset, stride pattern which can make for a more efficient
       // implementation.
       auto &pat = partialsDescription[i].patterns[0];
+      auto &patterns = partialsDescription[i].patterns;
       reductions[i].getPartials().emplace_back(regionTensors[pat.regionIdx]);
 
       reductions[i].getOffset() = pat.regionOffset;
       reductions[i].getStride() = pat.stride;
       reductions[i].innerFactor = pat.innerFactor;
       reductions[i].outerFactor = pat.outerFactor;
+      reductions[i].getNumOuterStrides() = patterns.size();
+      if (patterns.size() > 1) {
+        reductions[i].getOuterStride() =
+            patterns[1].regionOffset - patterns[0].regionOffset;
+      } else {
+        reductions[i].getOuterStride() = 0;
+      }
     } else {
       // Store all the partials in iPartials  and assign them at the end
       IrregularPartials iPartials;

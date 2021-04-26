@@ -164,17 +164,27 @@ public:
       typename std::conditional<isUpdate, InOut<T>, Output<T>>::type;
   ReduceOutput<Vector<OutType, PTR_ALIGN32, 4>> out;
   Input<Vector<PartialsType, PTR_ALIGN32, 8>> partials;
-  ShortType numOutputs;
+  ShortType numOutputsM1;
   ShortType numPartialsM1;
   ShortType partialsWidth;
+  ShortType outerStride;
+  ShortType numOuterStridesM1;
 
   bool compute() {
-    for (unsigned o = 0; o < numOutputs; ++o) {
+    constexpr auto partialsGrainSize =
+        std::is_same<PartialsType, half>::value ? 4u : 2u;
+    const auto numOutputLoops = (numOutputsM1 + 1) * partialsGrainSize;
+    for (unsigned o = 0; o < numOutputLoops; ++o) {
       const PartialsType *pPtr = &partials[o];
       AccType acc = ReduceOp::template init<AccType>();
-      for (unsigned p = 0; p < numPartialsM1 + 1; ++p) {
-        ReduceOp::update(acc, static_cast<AccType>(*pPtr));
-        pPtr += partialsWidth;
+      // Reduce numPartialsM1 + 1 partials, then take an outer stride, repeat
+      for (unsigned os = 0; os < numOuterStridesM1 + 1; os++) {
+        for (unsigned p = 0; p < numPartialsM1 + 1; ++p) {
+          ReduceOp::update(acc, static_cast<AccType>(*pPtr));
+          pPtr += partialsWidth * partialsGrainSize;
+        }
+        // Take the outer stride
+        pPtr += (outerStride - partialsWidth) * partialsGrainSize;
       }
 
       if constexpr (isUpdate) {
