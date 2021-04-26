@@ -50,9 +50,9 @@ std::vector<std::vector<std::pair<std::vector<unsigned>, double>>>
 beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
               std::size_t maxTime, std::size_t batchSize, unsigned blankClass,
               std::size_t numClasses, unsigned beamwidth, unsigned topPaths,
-              Type inType, Type outType, const DeviceType &deviceType,
-              boost::optional<unsigned> tiles, bool profile,
-              const boost::optional<std::string> &profileFormat,
+              Type inType, Type outType, OptionFlags planOpts,
+              const DeviceType &deviceType, boost::optional<unsigned> tiles,
+              bool profile, const boost::optional<std::string> &profileFormat,
               const boost::optional<std::string> &jsonProfileOut) {
 
   auto device = createTestDevice(deviceType, 1, tiles);
@@ -63,7 +63,7 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
 
   // Create the inputs to the beam search function
   const popnn::ctc::Plan plan = popnn::ctc_infer::plan(
-      graph, inType, batchSize, maxTime, numClasses, beamwidth);
+      graph, inType, batchSize, maxTime, numClasses, beamwidth, planOpts);
 
   auto data = popnn::ctc_infer::createDataInput(
       graph, inType, batchSize, maxTime, numClasses, plan, "DataInput");
@@ -209,6 +209,7 @@ int main(int argc, char **argv) {
   unsigned verbosityLevel = 0;
 
   boost::optional<std::string> planConstraints;
+  boost::optional<std::string> options;
 
   boost::optional<std::string> jsonProfileOut;
   boost::optional<std::string> profileFormat;
@@ -263,6 +264,9 @@ int main(int argc, char **argv) {
 
     ("plan-constraints", po::value(&planConstraints),
      "JSON constraints for planner, e.g. {\"parallel\": {\"batch\": 1}}")
+
+    ("options", po::value(&options),
+     "JSON options, e.g. {\"sortMethod\":\"rank\"}}")
 
     ("profile", "Show profile report")
     ("profile-format",
@@ -330,6 +334,9 @@ int main(int argc, char **argv) {
                                   maxLabelLength);
 
   poplar::OptionFlags planOpts;
+  if (options) {
+    poplar::readJSON(*options, planOpts);
+  }
   if (planConstraints) {
     planOpts.set("planConstraints", *planConstraints);
   }
@@ -399,8 +406,8 @@ int main(int argc, char **argv) {
 
   const auto outputs =
       beamSearchIPU(tests, maxTime, batchSize, blankClass, numClasses,
-                    beamwidth, topPaths, inType, outType, deviceType, tiles,
-                    profile, profileFormat, jsonProfileOut);
+                    beamwidth, topPaths, inType, outType, planOpts, deviceType,
+                    tiles, profile, profileFormat, jsonProfileOut);
 
   for (unsigned i = 0; i < batchSize; i++) {
     if (verbosityLevel == 1) {

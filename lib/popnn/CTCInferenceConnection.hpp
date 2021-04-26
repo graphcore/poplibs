@@ -45,6 +45,14 @@ struct TempTensors {
   std::vector<poplar::Tensor> mergeCandidatesPTotal;
   std::vector<poplar::Tensor> mergeCandidatesParent;
   std::vector<poplar::Tensor> mergeCandidatesAddend;
+
+  // The sorted results from the "Rank" sort method
+  // [batchSize][plan.parallel.sortRanking][beamWidth]
+  poplar::Tensor sortedCandidatesPb;
+  poplar::Tensor sortedCandidatesPnb;
+  poplar::Tensor sortedCandidatesPTotal;
+  poplar::Tensor sortedCandidatesParent;
+  poplar::Tensor sortedCandidatesAddend;
 };
 
 struct BeamTensors {
@@ -65,15 +73,16 @@ struct BeamTensors {
 void generateExtendCandidateVertex(
     poplar::Graph &graph, const poplar::Tensor &data, const BeamTensors &beams,
     const TempTensors &TempTensors, poplar::ComputeSet &cs, unsigned batch,
-    const poplar::Interval &time, unsigned addendPartition, unsigned blankClass,
-    unsigned beamwidth, const poplar::Interval &beamPartition,
-    unsigned addendClass, unsigned tile);
+    const poplar::Interval &time, unsigned addendPartition,
+    unsigned dataPartition, unsigned blankClass, unsigned beamwidth,
+    const poplar::Interval &beamPartition, unsigned addendClass, unsigned tile);
 
 void generateCopyCandidateVertex(
     poplar::Graph &graph, const poplar::Tensor &data, const BeamTensors &beams,
     const TempTensors &TempTensors, poplar::ComputeSet &cs, unsigned batch,
-    const poplar::Interval &time, unsigned beamPartition, unsigned blankClass,
-    unsigned beamwidth, unsigned tile);
+    const poplar::Interval &time, unsigned beamPartition,
+    unsigned dataPartition, unsigned blankClass, unsigned beamwidth,
+    unsigned tile);
 
 void mergeCandidateVertex(poplar::Graph &graph, const BeamTensors &beams,
                           const TempTensors &tempTensors,
@@ -101,6 +110,18 @@ void selectCandidatesVertex(poplar::Graph &graph,
                             poplar::ComputeSet &cs, unsigned batch,
                             unsigned partition, unsigned candidatesToCompare,
                             unsigned beamwidth, unsigned tile);
+
+void rankCandidatesVertex(poplar::Graph &graph, const TempTensors &tempTensors,
+                          poplar::ComputeSet &cs, unsigned batch,
+                          unsigned partition, unsigned candidatesToCompare,
+                          const poplar::Interval &rangeToRank,
+                          unsigned beamwidth, unsigned tile);
+
+void reduceCandidatesVertex(poplar::Graph &graph,
+                            const TempTensors &tempTensors,
+                            poplar::ComputeSet &cs, unsigned batch,
+                            unsigned partition, unsigned candidatesToReduce,
+                            unsigned tile);
 
 void updateVertex(poplar::Graph &graph, const BeamTensors &beams,
                   const TempTensors &tempTensors, poplar::ComputeSet &cs,

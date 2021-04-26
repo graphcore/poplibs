@@ -10,7 +10,6 @@
 #include <poplibs_support/ExternalCodelet.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 
-#include <cassert>
 #include <cmath>
 #include <print.h>
 #include <tuple>
@@ -456,10 +455,10 @@ template class CTCSelectExtendCandidates<float, unsigned>;
 template class CTCSelectExtendCandidates<half, unsigned>;
 
 template <typename PartialsType, typename SymbolType>
-class CTCSelectCandidates : public Vertex {
+class CTCSortSelectCandidates : public Vertex {
 
 public:
-  CTCSelectCandidates();
+  CTCSortSelectCandidates();
   // Inputs have size [totalCandidates]
   InOut<Vector<unsigned, ONE_PTR>> candidateParent;
   InOut<Vector<SymbolType, ONE_PTR>> candidateAddend;
@@ -484,7 +483,7 @@ public:
     }
     // Precondition - candidates to be padded by previous codelets or memory
     // suitably initialized (probability zero)
-    assert(beamwidth <= totalCandidates);
+
     // The input is a flat list of candidates:
     // Copy candidates followed by the extend candidates. Although order isn't
     // important for the input sorting process, the 1st beamwidth candidates
@@ -525,8 +524,164 @@ public:
   }
 };
 
-template class CTCSelectCandidates<float, unsigned>;
-template class CTCSelectCandidates<half, unsigned>;
+template class CTCSortSelectCandidates<float, unsigned>;
+template class CTCSortSelectCandidates<half, unsigned>;
+
+template <typename PartialsType, typename SymbolType>
+class CTCSortRankCandidates : public MultiVertex {
+public:
+  CTCSortRankCandidates();
+  // Inputs have size [totalCandidates]
+  Input<Vector<unsigned, ONE_PTR>> candidateParent;
+  Input<Vector<SymbolType, ONE_PTR>> candidateAddend;
+  Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
+  Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
+  Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbTotal;
+
+  // Outputs have size [beamwidth]
+  // They must have 32 bit data types to avoid sub-word writes
+  InOut<Vector<unsigned, ONE_PTR>> sortedCandidateParent;
+  InOut<Vector<unsigned, ONE_PTR>> sortedCandidateAddend;
+  InOut<Vector<float, ONE_PTR>> sortedCandidateBeamProbNonBlank;
+  InOut<Vector<float, ONE_PTR>> sortedCandidateBeamProbBlank;
+
+  // Only use of current timestep and dataLength is to end early
+  // Index into beamAddend/Parent for HEAD position
+  Input<unsigned> currentTimestep;
+  // The length of the data input (Valid for this specific input)
+  Input<unsigned> dataLength;
+
+  const unsigned beamwidth; // The number of result candidates = beamwidth
+  const unsigned totalCandidates;
+  const unsigned firstCandidateToRank;
+  const unsigned lastCandidateToRank;
+
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute(unsigned workerID) {
+    if (currentTimestep > dataLength) {
+      return true;
+    }
+    // Precondition - candidates to be padded by previous codelets or memory
+    // suitably initialized (probability zero)
+
+    for (unsigned i = workerID + firstCandidateToRank; i < lastCandidateToRank;
+         i += numWorkers()) {
+      const auto toRankProbTotal = candidateBeamProbTotal[i];
+      unsigned rankCount = 0;
+      for (unsigned j = 0; j < i; j++) {
+        rankCount +=
+            static_cast<unsigned>(toRankProbTotal <= candidateBeamProbTotal[j]);
+      }
+      // Use `<` instead of `<=` in the comparison of those ordered after the
+      // one we compare because:
+      // For example, given {1, 3, 4, 3, 2}
+      // We expect: {4, 3, 3, 2, 1}.
+      // However if we use `<` throughout we get {4, 3, ?, 2, 1} as both 3's
+      // are equally ranked (There is only the 4 that is < either of them)
+      // If we use `<=` throughout we get {4, ?, 3, 2, 1} as both 3's
+      // are equally ranked (The other 3 and the 4 is <= either of them)
+      // Using the index of the current candidate as a pivot to change `<=` to
+      // `<` ensures each ranking is unique
+      for (unsigned j = i + 1; j < totalCandidates; j++) {
+        rankCount +=
+            static_cast<unsigned>(toRankProbTotal < candidateBeamProbTotal[j]);
+      }
+      // Ranking of this candidate is low enough (ProbTotal is large) to store
+      if (rankCount < beamwidth) {
+        // Total probablility is not needed as an output.
+        sortedCandidateParent[rankCount] = candidateParent[i];
+        sortedCandidateAddend[rankCount] =
+            static_cast<unsigned>(candidateAddend[i]);
+        sortedCandidateBeamProbNonBlank[rankCount] =
+            static_cast<float>(candidateBeamProbNonBlank[i]);
+        sortedCandidateBeamProbBlank[rankCount] =
+            static_cast<float>(candidateBeamProbBlank[i]);
+      }
+    }
+
+    return true;
+  }
+};
+
+template class CTCSortRankCandidates<float, unsigned>;
+template class CTCSortRankCandidates<half, unsigned>;
+
+template <typename PartialsType, typename SymbolType>
+class CTCSortReduceCandidates : public MultiVertex {
+
+public:
+  CTCSortReduceCandidates();
+  // Inputs have size [totalCandidates]
+  Input<Vector<unsigned, ONE_PTR>> candidateParent;
+  Input<Vector<unsigned, ONE_PTR>> candidateAddend;
+  Input<Vector<float, ONE_PTR>> candidateBeamProbNonBlank;
+  Input<Vector<float, ONE_PTR>> candidateBeamProbBlank;
+
+  // Outputs have size [1]
+  Output<unsigned> reducedCandidateParent;
+  Output<SymbolType> reducedCandidateAddend;
+  Output<PartialsType> reducedCandidateBeamProbNonBlank;
+  Output<PartialsType> reducedCandidateBeamProbBlank;
+
+  // Only use of current timestep and dataLength is to end early
+  // Index into beamAddend/Parent for HEAD position
+  Input<unsigned> currentTimestep;
+  // The length of the data input (Valid for this specific input)
+  Input<unsigned> dataLength;
+
+  const unsigned totalCandidates;
+
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute(unsigned workerID) {
+    if (currentTimestep > dataLength) {
+      return true;
+    }
+    // 4 worker threads are assumed below
+
+    // For each variable we assume only 1 of the `totalCandidates` inputs is
+    // non-zero.  Adding them all together reduces this to a single result.
+    switch (workerID) {
+    case 0: {
+      auto result = candidateParent[0];
+      for (unsigned i = 1; i < totalCandidates; i++) {
+        result += candidateParent[i];
+      }
+      *reducedCandidateParent = result;
+      break;
+    }
+    case 1: {
+      auto result = candidateAddend[0];
+      for (unsigned i = 1; i < totalCandidates; i++) {
+        result += candidateAddend[i];
+      }
+      *reducedCandidateAddend = static_cast<SymbolType>(result);
+      break;
+    }
+    case 2: {
+      auto result = candidateBeamProbNonBlank[0];
+      for (unsigned i = 1; i < totalCandidates; i++) {
+        result += candidateBeamProbNonBlank[i];
+      }
+      *reducedCandidateBeamProbNonBlank = static_cast<PartialsType>(result);
+      break;
+    }
+    case 3: {
+      auto result = candidateBeamProbBlank[0];
+      for (unsigned i = 1; i < totalCandidates; i++) {
+        result += candidateBeamProbBlank[i];
+      }
+      *reducedCandidateBeamProbBlank = static_cast<PartialsType>(result);
+      break;
+    }
+    };
+    return true;
+  }
+};
+
+template class CTCSortReduceCandidates<float, unsigned>;
+template class CTCSortReduceCandidates<half, unsigned>;
 
 // TODO - Consider splitting this up - different field can be done in parallel
 template <typename PartialsType, typename SymbolType>

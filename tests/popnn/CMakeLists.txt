@@ -1276,3 +1276,41 @@ foreach(beam_width 1 2 3 5)
     endforeach()
   endforeach()
 endforeach()
+
+# Verify ctc beam search half operation with both float and half partials
+foreach(partials_type half float)
+  add_multitarget_test(
+    NAME ctc_beam_search_inout_half_partials_${partials_type}
+      COMMAND ctc_beam_search
+        --partials-type=${partials_type}
+        --in-type=half
+        --out-type=half
+      VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()
+
+# Verify ctc beam search sorting methods
+foreach(sort_method rank select)
+  add_multitarget_test(
+    NAME ctc_beam_search_sort_${sort_method}
+      COMMAND ctc_beam_search
+        --options={\"sortMethod\":\"${sort_method}\"}
+      VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()
+
+# Verify ctc beam search with tile constraints
+# Ensure that the number of classes results in tests where
+# tiles < batch_size * num_classes
+# TODO - Add tests to cover cases where tiles < batch_size * beamwidth once this
+# is made to work
+foreach(batch_size 1 2 4)
+  foreach(num_tiles 8 16)
+    add_multitarget_test(
+      NAME ctc_beam_search_tile_constraint_batch${batch_size}_tiles${num_tiles}
+        COMMAND ctc_beam_search
+          --batch=${batch_size}
+          --beamwidth=2
+          --num-classes=16
+          --tiles-per-ipu=${num_tiles}
+        VARIANTS ${IPUMODEL_VARIANTS})
+  endforeach()
+endforeach()

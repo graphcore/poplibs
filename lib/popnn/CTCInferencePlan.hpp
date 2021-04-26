@@ -4,10 +4,15 @@
 #define popnn_CTCInferencePlan_hpp
 
 #include <poplibs_support/Algorithm.hpp>
+#include <poplibs_support/Visitor.hpp>
 #include <popnn/CTCInference.hpp>
+
+#include <boost/variant.hpp>
 
 namespace popnn {
 namespace ctc {
+
+enum class SortMethod { SELECT, RANK };
 
 struct CtcInferencePlannerParams {
   poplar::Type inType;
@@ -18,6 +23,12 @@ struct CtcInferencePlannerParams {
   unsigned maxLabelLength;
   unsigned numClasses;
   unsigned beamWidth;
+};
+
+template <typename T> struct SelectPartitions { T select; };
+template <typename T> struct RankPartitions {
+  T rank;
+  T reduce;
 };
 
 template <typename T> struct CtcInferencePartition {
@@ -98,12 +109,32 @@ template <typename T> struct CtcInferencePartition {
   // ... ('preSelectExtend' partitions)
   T preSelectExtend;
 
-  // ***************** Stage 4 : Select *****************
+  // ***************** Stage 4 : Sort *****************
+  // Two sorting methods are available : SELECT and RANK.
+  // SELECT:
   // There is a single Select vertex in the 1st partition assigned to any
-  // batch entry.  It is attached to all candidates from the pre-select stage:
+  // batch entry.  It is attached to all candidates from the select stage:
   // Partition 0: C[0],C[1],C[2]...E[0..],E[1..],E[2..]...
   // The result is C[0],C[2] ... (beamwidth most probable candidates)
-  T select;
+  //
+  // RANK:
+  // There are sortRanking partitions, each receives a copy all the candidates
+  // from the select stage:
+  // Partition N: C[0],C[1],C[2]...E[0..],E[1..],E[2..]...
+  // Each partition is assigned a number of candidates to "rank", and returns
+  // a vector of beamwidth sorted candidates which are populated where that
+  // partition ranked any candidate in the beamwidth most likely candidates, and
+  // zero otherwise.
+  // Sorted candidates (size beamwidth) denoted S[0..], S'[0..], S"[0..]
+  // Partition 0: Rank candidates [0,6)   Result: S[0..]
+  // Partition 1: Rank candidates [6,12)  Result: S'[0..]
+  // Partition 2: Rank candidates [12,18) Result: S"[0..]
+  // .... ('sort.rank' partitions)
+  // Then a second reduce stage will reduce these results into C[0],C[1]...
+  // Partition 0: C[0] = S[0]+ S'[0] + S"[0] + ...
+  // Partition 1: C[1] = S[1]+ S'[1] + S"[1] + ...
+  // ....('sort.reduce' partitions)
+  boost::variant<SelectPartitions<T>, RankPartitions<T>> sort;
 
   // ***************** Stage 5 : Update *****************
   // The above stages require a per partition copy of the beam information, with
@@ -155,7 +186,15 @@ public:
   // we could choose between overlapping (total=max) or sequential (total=sum)
   // allocation of vertices
   unsigned batchEntryPartitions(void) const {
-    return std::max(parallel.merge, std::max(parallel.extend, parallel.copy));
+    const auto maxCommon =
+        std::max(parallel.merge, std::max(parallel.extend, parallel.copy));
+    return boost::apply_visitor(
+        poplibs_support::make_visitor<unsigned>(
+            [&](const RankPartitions<unsigned> &sort) {
+              return std::max(sort.rank, maxCommon);
+            },
+            [&](const SelectPartitions<unsigned> &sort) { return maxCommon; }),
+        parallel.sort);
   }
 
   poplar::Interval partitionBatchEntry(unsigned size, unsigned index) const {
@@ -176,6 +215,19 @@ public:
 
   poplar::Interval partitionExtend(unsigned extendSize, unsigned index) const {
     return partition(extendSize, parallel.extend, index);
+  }
+
+  poplar::Interval partitionSort(unsigned sortSize, unsigned index) const {
+    return boost::apply_visitor(
+        poplibs_support::make_visitor<poplar::Interval>(
+            [&](const RankPartitions<unsigned> &sort) {
+              return partition(sortSize, sort.rank, index);
+            },
+            [&](const SelectPartitions<unsigned> &sort) {
+              return partition(sortSize, sort.select, index);
+              ;
+            }),
+        parallel.sort);
   }
 
   poplar::Interval partitionExtendVertices(unsigned extendSize,

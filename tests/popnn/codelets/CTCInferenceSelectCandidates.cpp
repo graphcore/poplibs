@@ -56,8 +56,9 @@ std::vector<Candidate<PartialsType>> runSelectCandidatesCodelet(
   graph.setTileMapping(candidateProbTotalScratch, 0);
 
   auto cs = graph.addComputeSet("cs");
-  auto vertex = graph.addVertex(cs, templateVertex("popnn::CTCSelectCandidates",
-                                                   partialsType, UNSIGNED_INT));
+  auto vertex =
+      graph.addVertex(cs, templateVertex("popnn::CTCSortSelectCandidates",
+                                         partialsType, UNSIGNED_INT));
   graph.setTileMapping(vertex, 0);
 
   graph.connect(vertex["candidateParent"], candidateParent);

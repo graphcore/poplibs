@@ -33,7 +33,7 @@ using namespace popops::expr;
 using namespace poputil;
 
 template <unsigned size> using Slice = std::array<std::size_t, size>;
-enum class PartitionType { BATCH_ENTRY, COPY, EXTEND, MERGE, OUTPUT };
+enum class PartitionType { BATCH_ENTRY, COPY, EXTEND, MERGE, SORT, OUTPUT };
 
 namespace {
 
@@ -105,36 +105,44 @@ inline poplar::Interval makePartition(unsigned size, unsigned index,
     return plan.partitionExtend(size, index);
   case PartitionType::COPY:
     return plan.partitionCopy(size, index);
+  case PartitionType::SORT:
+    return plan.partitionSort(size, index);
   default:
     return plan.partitionOutput(size, index);
   };
 }
 
-void mapAccordingToPlanRank3(Graph &graph, const Tensor &tensor,
-                             PartitionType partitionType,
-                             const popnn::ctc::InferencePlan &plan) {
+void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
+                        PartitionType partitionType, unsigned totalPartitions,
+                        const popnn::ctc::InferencePlan &plan) {
   // Map any rank 3 tensors used in this process to the correct tiles according
   // to the plan.
+  assert(tensor.rank() == 3);
+
   const auto batchSize = tensor.dim(0);
-  const auto totalPartitions = tensor.dim(1);
+  const auto partitionedDimSize = tensor.dim(1);
   const auto innermostDimSize = tensor.dim(2);
 
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     for (unsigned partition = 0; partition < totalPartitions; partition++) {
       auto tile = plan.getTile(batch, 0, partition);
       auto b = plan.partitionBatch(batchSize, batch);
-      auto p = makePartition(totalPartitions, partition, partitionType, plan);
+      auto p =
+          makePartition(partitionedDimSize, partition, partitionType, plan);
       graph.setTileMapping(tensor.slice({b.begin(), p.begin(), 0},
                                         {b.end(), p.end(), innermostDimSize}),
                            tile);
     }
   }
 }
-void mapAccordingToPlanRank4(Graph &graph, const Tensor &tensor,
-                             PartitionType partitionType,
-                             const popnn::ctc::InferencePlan &plan) {
+
+void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
+                        PartitionType partitionType,
+                        const popnn::ctc::InferencePlan &plan) {
   // Map any rank 4 tensors used in this process to the correct tiles according
   // to the plan
+  assert(tensor.rank() == 4);
+
   const auto batchSize = tensor.dim(0);
   const auto totalPartitions = tensor.dim(1);
   const auto timeSize = tensor.dim(2);
@@ -158,17 +166,6 @@ void mapAccordingToPlanRank4(Graph &graph, const Tensor &tensor,
   }
 }
 
-void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
-                        PartitionType partitionType,
-                        const popnn::ctc::InferencePlan &plan) {
-  assert(tensor.rank() == 3 || tensor.rank() == 4);
-  if (tensor.rank() == 3) {
-    mapAccordingToPlanRank3(graph, tensor, partitionType, plan);
-  } else if (tensor.rank() == 4) {
-    mapAccordingToPlanRank4(graph, tensor, partitionType, plan);
-  }
-}
-
 TempTensors createAndInitialiseTemporaryTensors(
     Graph &graph, const Tensor &dataLengths,
     const popnn::ctc::InferencePlan &plan, unsigned numClasses,
@@ -186,7 +183,8 @@ TempTensors createAndInitialiseTemporaryTensors(
       UNSIGNED_INT, {batchSize, plan.batchEntryPartitions(), 1},
       {di, "currentTimestep"});
   mapAccordingToPlan(graph, tempTensors.currentTimestep,
-                     PartitionType::BATCH_ENTRY, plan);
+                     PartitionType::BATCH_ENTRY, plan.batchEntryPartitions(),
+                     plan);
   // Initialise the count.  The first timestep is 1, with timestep 0 being an
   // initial state
   auto initialiserZero = graph.addConstant<unsigned>(UNSIGNED_INT, {1}, 1u, di);
@@ -218,15 +216,15 @@ TempTensors createAndInitialiseTemporaryTensors(
       UNSIGNED_INT, extendCandidateShape, {di, "extendCandidatesAddends"});
 
   mapAccordingToPlan(graph, tempTensors.extendCandidatesPb,
-                     PartitionType::EXTEND, plan);
+                     PartitionType::EXTEND, plan.parallel.extend, plan);
   mapAccordingToPlan(graph, tempTensors.extendCandidatesPnb,
-                     PartitionType::EXTEND, plan);
+                     PartitionType::EXTEND, plan.parallel.extend, plan);
   mapAccordingToPlan(graph, tempTensors.extendCandidatesPTotal,
-                     PartitionType::EXTEND, plan);
+                     PartitionType::EXTEND, plan.parallel.extend, plan);
   mapAccordingToPlan(graph, tempTensors.extendCandidatesParent,
-                     PartitionType::EXTEND, plan);
+                     PartitionType::EXTEND, plan.parallel.extend, plan);
   mapAccordingToPlan(graph, tempTensors.extendCandidatesAddend,
-                     PartitionType::EXTEND, plan);
+                     PartitionType::EXTEND, plan.parallel.extend, plan);
 
   // Copy candidates
   const std::vector<std::size_t> copyCandidateShape = {batchSize, beamwidth, 1};
@@ -243,15 +241,15 @@ TempTensors createAndInitialiseTemporaryTensors(
       UNSIGNED_INT, copyCandidateShape, {di, "copyCandidatesAddend"});
 
   mapAccordingToPlan(graph, tempTensors.copyCandidatesPb, PartitionType::COPY,
-                     plan);
+                     plan.parallel.copy, plan);
   mapAccordingToPlan(graph, tempTensors.copyCandidatesPnb, PartitionType::COPY,
-                     plan);
+                     plan.parallel.copy, plan);
   mapAccordingToPlan(graph, tempTensors.copyCandidatesPTotal,
-                     PartitionType::COPY, plan);
+                     PartitionType::COPY, plan.parallel.copy, plan);
   mapAccordingToPlan(graph, tempTensors.copyCandidatesParent,
-                     PartitionType::COPY, plan);
+                     PartitionType::COPY, plan.parallel.copy, plan);
   mapAccordingToPlan(graph, tempTensors.copyCandidatesAddend,
-                     PartitionType::COPY, plan);
+                     PartitionType::COPY, plan.parallel.copy, plan);
 
   // Merge merge candidates vectors of tensors
   tempTensors.mergeCandidatesPb.resize(beamwidth);
@@ -260,9 +258,39 @@ TempTensors createAndInitialiseTemporaryTensors(
   tempTensors.mergeCandidatesParent.resize(beamwidth);
   tempTensors.mergeCandidatesAddend.resize(beamwidth);
 
+  auto mapSortedCandidates = poplibs_support::make_visitor<void>(
+      [&](const popnn::ctc::SelectPartitions<unsigned> &sort) {
+        // Nothing to map
+      },
+      [&](const popnn::ctc::RankPartitions<unsigned> &sort) {
+        // Sorted result candidates
+        const std::vector<std::size_t> sortedCandidateShape = {
+            batchSize, sort.rank, beamwidth};
+        tempTensors.sortedCandidatesPb = graph.addVariable(
+            FLOAT, sortedCandidateShape, {di, "sortedCandidatesPb"});
+        tempTensors.sortedCandidatesPnb = graph.addVariable(
+            FLOAT, sortedCandidateShape, {di, "sortedCandidatesPnb"});
+
+        tempTensors.sortedCandidatesParent = graph.addVariable(
+            UNSIGNED_INT, sortedCandidateShape, {di, "sortedCandidatesParent"});
+        tempTensors.sortedCandidatesAddend = graph.addVariable(
+            UNSIGNED_INT, sortedCandidateShape, {di, "sortedCandidatesAddend"});
+
+        mapAccordingToPlan(graph, tempTensors.sortedCandidatesPb,
+                           PartitionType::SORT, sort.rank, plan);
+        mapAccordingToPlan(graph, tempTensors.sortedCandidatesPnb,
+                           PartitionType::SORT, sort.rank, plan);
+        mapAccordingToPlan(graph, tempTensors.sortedCandidatesParent,
+                           PartitionType::SORT, sort.rank, plan);
+        mapAccordingToPlan(graph, tempTensors.sortedCandidatesAddend,
+                           PartitionType::SORT, sort.rank, plan);
+      });
+
   const std::vector<size_t> mergeTensorsShape = {batchSize, plan.parallel.merge,
                                                  1};
   for (unsigned i = 0; i < beamwidth; i++) {
+
+    boost::apply_visitor(mapSortedCandidates, plan.parallel.sort);
 
     const auto debugStr = std::to_string(i);
     tempTensors.mergeCandidatesPb[i] = graph.addVariable(
@@ -282,17 +310,16 @@ TempTensors createAndInitialiseTemporaryTensors(
                           {di, "mergeCandidatesAddend_" + debugStr});
 
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesPb[i],
-                       PartitionType::MERGE, plan);
+                       PartitionType::MERGE, plan.parallel.merge, plan);
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesPnb[i],
-                       PartitionType::MERGE, plan);
+                       PartitionType::MERGE, plan.parallel.merge, plan);
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesPTotal[i],
-                       PartitionType::MERGE, plan);
+                       PartitionType::MERGE, plan.parallel.merge, plan);
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesParent[i],
-                       PartitionType::MERGE, plan);
+                       PartitionType::MERGE, plan.parallel.merge, plan);
     mapAccordingToPlan(graph, tempTensors.mergeCandidatesAddend[i],
-                       PartitionType::MERGE, plan);
+                       PartitionType::MERGE, plan.parallel.merge, plan);
   }
-
   return tempTensors;
 }
 
@@ -391,6 +418,7 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
                             unsigned beamwidth,
                             const poplar::DebugContext &di) {
 
+  const auto batchSize = data.dim(0);
   const auto maxT = data.dim(2);
   const auto numClasses = data.dim(3);
   const auto numClassesM1 = numClasses - 1;
@@ -400,21 +428,29 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   auto cs1 = graph.addComputeSet(di);
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     // Extend candidates
-    for (unsigned c = 0; c < plan.parallel.extend; c++) {
-      const unsigned addendClass = c >= blankClass ? c + 1 : c;
-      const unsigned tile = plan.getTile(batch, 0, c);
-      for (unsigned v = 0; v < plan.parallel.extendVerticesPerPartition; v++) {
-        const auto beamPartition = plan.partitionExtendVertices(beamwidth, v);
-        generateExtendCandidateVertex(
-            graph, data, beams, tempTensors, cs1, batch, {0, maxT}, c,
-            blankClass, beamwidth, beamPartition, addendClass, tile);
+    for (unsigned p = 0; p < plan.parallel.extend; p++) {
+      const auto partition = plan.partitionExtend(numClassesM1, p);
+      const unsigned tile = plan.getTile(batch, 0, p);
+      for (unsigned c = partition.begin(); c < partition.end(); c++) {
+        const unsigned addendClass = c >= blankClass ? c + 1 : c;
+        for (unsigned v = 0; v < plan.parallel.extendVerticesPerPartition;
+             v++) {
+          const auto beamPartition = plan.partitionExtendVertices(beamwidth, v);
+          generateExtendCandidateVertex(
+              graph, data, beams, tempTensors, cs1, batch, {0, maxT}, c, p,
+              blankClass, beamwidth, beamPartition, addendClass, tile);
+        }
       }
     }
     // Copy candidates
-    for (unsigned c = 0; c < plan.parallel.copy; c++) {
-      const unsigned tile = plan.getTile(batch, 0, c);
-      generateCopyCandidateVertex(graph, data, beams, tempTensors, cs1, batch,
-                                  {0, maxT}, c, blankClass, beamwidth, tile);
+    for (unsigned p = 0; p < plan.parallel.copy; p++) {
+      const auto partition = plan.partitionCopy(beamwidth, p);
+      const unsigned tile = plan.getTile(batch, 0, p);
+      for (unsigned c = partition.begin(); c < partition.end(); c++) {
+        generateCopyCandidateVertex(graph, data, beams, tempTensors, cs1, batch,
+                                    {0, maxT}, c, p, blankClass, beamwidth,
+                                    tile);
+      }
     }
   }
   prog.add(Execute(cs1, di));
@@ -440,7 +476,7 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   // Merge candidates in the 2nd compute set
   auto cs2 = graph.addComputeSet(di);
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
-    for (unsigned copy = 0; copy < plan.parallel.copy; copy++) {
+    for (unsigned copy = 0; copy < beamwidth; copy++) {
       for (unsigned merge = 0; merge < plan.parallel.merge; merge++) {
         const unsigned tile = plan.getTile(batch, 0, merge);
         mergeCandidateVertex(graph, beams, tempTensors, cs2, batch, {0, maxT},
@@ -468,22 +504,80 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   }
   prog.add(Execute(cs3, di));
 
-  // Select candidates in the 4th compute set
-  // TODO - make some of the sorting work more in parallel
-  auto cs4 = graph.addComputeSet(di);
-  const unsigned candidatesToCompare =
-      plan.parallel.copy + plan.parallel.copy * numClassesM1;
-  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
-    for (unsigned select = 0; select < plan.parallel.select; select++) {
-      const unsigned tile = plan.getTile(batch, 0, select);
-      selectCandidatesVertex(graph, tempTensors, cs4, batch, 0,
-                             candidatesToCompare, beamwidth, tile);
-    }
-  }
-  prog.add(Execute(cs4, di));
+  // Sort candidates in the 4th compute set
+  // There are 2 methods: SELECT and RANK which can have benefits depending on
+  // the number of workers available
+  const unsigned candidatesToCompare = beamwidth + beamwidth * numClassesM1;
+  boost::apply_visitor(
+      poplibs_support::make_visitor<void>(
+          [&](const popnn::ctc::SelectPartitions<unsigned> &sort) {
+            auto cs4 = graph.addComputeSet(di);
+            for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+              for (unsigned select = 0; select < sort.select; select++) {
+                const unsigned tile = plan.getTile(batch, 0, select);
+                selectCandidatesVertex(graph, tempTensors, cs4, batch, 0,
+                                       candidatesToCompare, beamwidth, tile);
+              }
+            }
+            prog.add(Execute(cs4, di));
+          },
+          [&](const popnn::ctc::RankPartitions<unsigned> &sort) {
+            const auto numSortedElements = batchSize * beamwidth * sort.rank;
+            // Rank step 1 -  initialise each partition's result to zero
+            auto initialiserFloatZero =
+                graph.addConstant<float>(FLOAT, {1}, 0.0f, di);
+            graph.setTileMapping(initialiserFloatZero, 0);
+            prog.add(Copy(initialiserFloatZero.broadcast(numSortedElements, 0),
+                          tempTensors.sortedCandidatesPnb.flatten(), false,
+                          di));
+            prog.add(Copy(initialiserFloatZero.broadcast(numSortedElements, 0),
+                          tempTensors.sortedCandidatesPb.flatten(), false, di));
+
+            auto initialiserZero =
+                graph.addConstant<unsigned>(UNSIGNED_INT, {1}, 0u, di);
+            graph.setTileMapping(initialiserZero, 0);
+            prog.add(Copy(initialiserZero.broadcast(numSortedElements, 0),
+                          tempTensors.sortedCandidatesParent.flatten(), false,
+                          di));
+            prog.add(Copy(initialiserZero.broadcast(numSortedElements, 0),
+                          tempTensors.sortedCandidatesAddend.flatten(), false,
+                          di));
+
+            // Rank step 2 -  rank each candidate, writing into the partition's
+            // result if in the top beamwidth rankings
+            auto cs4a = graph.addComputeSet(di);
+            for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+              for (unsigned ranking = 0; ranking < sort.rank; ranking++) {
+                const unsigned tile = plan.getTile(batch, 0, ranking);
+                const auto perPartition =
+                    ceildiv(candidatesToCompare, sort.rank);
+                const auto first = perPartition * ranking;
+                const auto last =
+                    std::min(perPartition * (ranking + 1), candidatesToCompare);
+
+                rankCandidatesVertex(graph, tempTensors, cs4a, batch, ranking,
+                                     candidatesToCompare, {first, last},
+                                     beamwidth, tile);
+              }
+            }
+            prog.add(Execute(cs4a, di));
+
+            // Rank step 3 - reduce all the partiton's results down to 1 result
+            // (beamwidth values) per batch entry
+            auto cs4b = graph.addComputeSet(di);
+            for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+              for (unsigned reduce = 0; reduce < sort.reduce; reduce++) {
+                const auto tile = plan.getTile(batch, 0, reduce);
+                reduceCandidatesVertex(graph, tempTensors, cs4b, batch, reduce,
+                                       sort.rank, tile);
+              }
+            }
+            prog.add(Execute(cs4b, di));
+          }),
+      plan.parallel.sort);
+
   // Prepare the copy of the last output for the Update stage
   prog.add(Copy(beams.lastOutput, beams.previousLastOutput));
-
   // Update beam history and probabilities in the 5th compute set
   auto cs5 = graph.addComputeSet(di);
   const unsigned sortedResultOffset = plan.parallel.copy * (beamwidth - 1);
@@ -640,9 +734,12 @@ beamSearchDecoderLogProbabilitiesImpl(
   auto decodedLabels = graph.addVariable(
       UNSIGNED_INT, {batchSize, topPaths, maxT}, {di, "decodedLabels"});
 
-  mapAccordingToPlan(graph, labelProbs, PartitionType::OUTPUT, plan);
-  mapAccordingToPlan(graph, labelLengths, PartitionType::OUTPUT, plan);
-  mapAccordingToPlan(graph, decodedLabels, PartitionType::OUTPUT, plan);
+  mapAccordingToPlan(graph, labelProbs, PartitionType::OUTPUT,
+                     plan.parallel.output, plan);
+  mapAccordingToPlan(graph, labelLengths, PartitionType::OUTPUT,
+                     plan.parallel.output, plan);
+  mapAccordingToPlan(graph, decodedLabels, PartitionType::OUTPUT,
+                     plan.parallel.output, plan);
   // Remove the 3rd dimension that was inserted
   labelProbs.squeeze({2});
   labelLengths.squeeze({2});
