@@ -388,12 +388,13 @@ std::map<std::string, poplar::Type> accumTypeMap{{"half", poplar::HALF},
 // to do the reduction. It accepts either a vector<ComputeSet>& or a Sequence&
 // because it can be a bit faster in the latter case for reductions that
 // don't actually do any reducing.
-void reduceWithOutputProgOrCss(
+static void reduceWithOutputProgOrCss(
     Graph &graph, const Tensor &in, boost::optional<Tensor> &out,
     const poplar::Type &outputType, const std::vector<std::size_t> &dims,
     ReduceParams params,
     boost::variant<std::vector<ComputeSet> &, program::Sequence &> progOrCss,
-    const DebugNameAndId &dnai, const poplar::OptionFlags &options) {
+    ResultTensors &reductionResultTensors, const DebugNameAndId &dnai,
+    const poplar::OptionFlags &options) {
 
   const auto getShape = [](const Tensor &t) {
     std::stringstream ss;
@@ -650,7 +651,6 @@ void reduceWithOutputProgOrCss(
                          input2D.dim(0), input2D.dim(1));
 
   // Do the 2D->1D reduction.
-  ResultTensors reductionResultTensors;
   if (isProg) {
     std::vector<ComputeSet> css;
 
@@ -664,12 +664,14 @@ void reduceWithOutputProgOrCss(
     // The tensors are all concatenated together before being passed to
     // WriteUndef for efficiency.
     if (reductionResultTensors.typeA.size() > 0) {
-      prog.add(
-          program::WriteUndef(concat(reductionResultTensors.typeA), {dnai}));
+      prog.add(program::WriteUndef(
+          concat(reductionResultTensors.typeA),
+          {dnai, "reduce: type A reduction intermediates"}));
     }
     if (reductionResultTensors.typeB.size() > 0) {
-      prog.add(
-          program::WriteUndef(concat(reductionResultTensors.typeB), {dnai}));
+      prog.add(program::WriteUndef(
+          concat(reductionResultTensors.typeB),
+          {dnai, "reduce: type B reduction intermediates"}));
     }
     for (const auto &cs : css) {
       prog.add(program::Execute(cs, {dnai}));
@@ -694,9 +696,10 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in, out_, dims, params, css, options));
 
+  ResultTensors r;
   boost::optional<Tensor> out = out_;
   reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
-                            css, {di}, options);
+                            css, r, {di}, options);
 }
 
 void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
@@ -708,9 +711,10 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in, out_, dims, params, options));
 
+  ResultTensors r;
   boost::optional<Tensor> out = out_;
   reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
-                            prog, {di}, options);
+                            prog, r, {di}, options);
 }
 
 void reduceMany(poplar::Graph &graph,
@@ -745,6 +749,7 @@ void reduceMany(poplar::Graph &graph,
     throw poputil::poplibs_error(
         "reduceMany: outputs must be the same size as reductions");
 
+  ResultTensors reductionResultTensors;
   std::vector<ComputeSet> css;
   css.reserve(reductions.size());
   for (size_t i = 0; i < reductions.size(); ++i) {
@@ -756,9 +761,21 @@ void reduceMany(poplar::Graph &graph,
     if (!shouldCreateOutputs)
       optionalOut = std::move(outputs[i]);
     reduceWithOutputProgOrCss(graph, op.in, optionalOut, outputElementTypes[i],
-                              op.dims, op.params, css, {diInner}, options);
-    assert(optionalOut.has_value());
+                              op.dims, op.params, css, reductionResultTensors,
+                              diInner, options);
     outputs[i] = std::move(*optionalOut);
+  }
+
+  // WriteUndef the intermediate tensors used throughout the reduction.
+  if (css.size() > 1) {
+    if (reductionResultTensors.typeA.size() > 0)
+      prog.add(program::WriteUndef(
+          concat(reductionResultTensors.typeA),
+          {di, "reduceMany: type A reduction intermediates"}));
+    if (reductionResultTensors.typeB.size() > 0)
+      prog.add(program::WriteUndef(
+          concat(reductionResultTensors.typeB),
+          {di, "reduceMany: type B reduction intermediates"}));
   }
 
   // Prog is not modified until all reduction operations have been created.
@@ -807,8 +824,9 @@ Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
   if (params.update)
     throw poputil::poplibs_error("Cannot do an update using reduce(); "
                                  "call reduceWithOutput() instead.");
+  ResultTensors r;
   boost::optional<Tensor> out;
-  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, css, {di},
+  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, css, r, {di},
                             options);
   auto output = out.get();
   di.addOutput(output);
@@ -826,9 +844,10 @@ Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
   if (params.update)
     throw poputil::poplibs_error("Cannot do an update using reduce(); "
                                  "call reduceWithOutput() instead.");
+  ResultTensors r;
   boost::optional<Tensor> out;
-  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, prog, {di},
-                            options);
+  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, prog, r,
+                            {di}, options);
   auto output = out.get();
   di.addOutput(output);
   return output;
