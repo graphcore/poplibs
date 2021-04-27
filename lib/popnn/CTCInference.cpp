@@ -766,8 +766,8 @@ beamSearchDecoderLogProbabilitiesImpl(
       unsigned tile = plan.getTile(batch, 0, path);
       unsigned partition = path;
       generateOutputVertex(graph, beams, tempTensors, decodedLabels,
-                           labelLengths, outputCS, batch, beamwidth, partition,
-                           path, tile);
+                           labelLengths, outputCS, batch, beamwidth, numClasses,
+                           partition, path, tile);
     }
   }
   prog.add(Execute(outputCS, di));

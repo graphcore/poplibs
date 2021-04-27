@@ -810,6 +810,7 @@ public:
   const unsigned beamwidth;
   const unsigned maxT;
   const unsigned beam;
+  const unsigned numClassesIncBlank;
 
   IS_EXTERNAL_CODELET(false);
 
@@ -822,9 +823,14 @@ public:
       SymbolType symbol;
       std::tie(symbol, traceBackBeamIndex) =
           getNextSymbol(&beamAddend[0], &beamParent[0], traceBackBeamIndex);
-      if (symbol == voidSymbol) {
+      if (symbol >= numClassesIncBlank) {
+        // Detected a voidSymbol (Beam 0 initial value), or one of the dummy
+        // symbols assigned to the the other beams so:
         // Beam end reached, not always at t=0 as beams can exist with an
         // empty output for several timesteps
+        if (symbol != voidSymbol) {
+          *outputLength = 0;
+        }
         break;
       }
       // Store the symbol sequence starting at the end of the output (given the

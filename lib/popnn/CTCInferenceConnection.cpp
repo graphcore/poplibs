@@ -550,7 +550,8 @@ void generateOutputVertex(Graph &graph, const BeamTensors &beams,
                           const TempTensors &tempTensors, const Tensor &labels,
                           const Tensor &labelLengths, ComputeSet &cs,
                           unsigned batch, unsigned beamwidth,
-                          unsigned partition, unsigned path, unsigned tile) {
+                          unsigned numClassesIncBlank, unsigned partition,
+                          unsigned path, unsigned tile) {
 
   const auto maxT = labels.dim(2);
 
@@ -578,6 +579,7 @@ void generateOutputVertex(Graph &graph, const BeamTensors &beams,
   graph.setInitialValue(vertex["beam"], path);
   graph.setInitialValue(vertex["maxT"], maxT);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
+  graph.setInitialValue(vertex["numClassesIncBlank"], numClassesIncBlank);
 }
 
 } // namespace ctc_infer

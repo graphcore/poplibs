@@ -1314,3 +1314,18 @@ foreach(batch_size 1 2 4)
         VARIANTS ${IPUMODEL_VARIANTS})
   endforeach()
 endforeach()
+
+# Test empty beams (Edge case for short inputs)
+foreach(seed RANGE 1 5)
+  add_multitarget_test(
+    NAME ctc_beam_search_empty_beam${seed}
+      COMMAND ctc_beam_search
+        --batch=1
+        --seed=${seed}
+        --beamwidth=5
+        --num-classes=3
+        --max-time=1
+        --max-label-length=1
+        --top-paths=5
+      VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()

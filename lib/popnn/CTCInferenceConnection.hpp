@@ -136,8 +136,8 @@ void generateOutputVertex(poplar::Graph &graph, const BeamTensors &beams,
                           const poplar::Tensor &labels,
                           const poplar::Tensor &labelLengths,
                           poplar::ComputeSet &cs, unsigned batch,
-                          unsigned beamwidth, unsigned partition, unsigned path,
-                          unsigned tile);
+                          unsigned beamwidth, unsigned numClassesIncBlank,
+                          unsigned partition, unsigned path, unsigned tile);
 
 } // namespace ctc_infer
 } // end namespace popnn

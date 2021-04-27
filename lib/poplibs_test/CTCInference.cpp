@@ -387,7 +387,14 @@ infer(const boost::multi_array<FPType, 2> &input, unsigned blankSymbol,
   // (implicit)
   std::vector<std::pair<std::vector<unsigned>, FPType>> outputs;
   for (unsigned i = 0; i < topBeams; i++) {
-    const auto sequence = beamHistory.getOutputSequence(i);
+    const auto sequence = [&]() {
+      auto seq = beamHistory.getOutputSequence(i);
+      if (!seq.empty() && seq.back() == blankSymbol) {
+        seq.resize(0);
+      }
+      return seq;
+    }();
+
     auto prob =
         useLog
             ? log::add(beamProbabilities.at(i).pnb, beamProbabilities.at(i).pb)

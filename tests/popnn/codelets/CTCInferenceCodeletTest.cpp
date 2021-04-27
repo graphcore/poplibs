@@ -651,10 +651,10 @@ int main(int argc, char **argv) {
     }
     const auto expectedOutput = beamHistory.getOutputSequence(beam);
 
-    const auto ipuOutput =
-        runGenerateOutputCodelet(graph, device, deviceType, timestep + 1,
-                                 toIpuFormat(beamHistory, timestep),
-                                 expectedOutput.size(), beam, profile);
+    const auto ipuOutput = runGenerateOutputCodelet(
+        graph, device, deviceType, timestep + 1,
+        toIpuFormat(beamHistory, timestep), expectedOutput.size(), beam,
+        numClassesIncBlank, profile);
     if (verbose) {
       std::cout << "Actual:  ";
       print(ipuOutput);

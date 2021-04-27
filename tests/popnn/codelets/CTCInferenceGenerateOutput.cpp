@@ -26,11 +26,10 @@ using namespace poputil;
 namespace poplibs_test {
 namespace ctc {
 
-std::vector<unsigned>
-runGenerateOutputCodelet(Graph &graph, TestDevice &device,
-                         DeviceType deviceType, unsigned timestep,
-                         const BeamHistory &beamHistory, unsigned beamOutLength,
-                         unsigned outputBeam, bool profile) {
+std::vector<unsigned> runGenerateOutputCodelet(
+    Graph &graph, TestDevice &device, DeviceType deviceType, unsigned timestep,
+    const BeamHistory &beamHistory, unsigned beamOutLength, unsigned outputBeam,
+    unsigned numClassesIncBlank, bool profile) {
   const auto target = graph.getTarget();
 
   const auto beamwidth = beamHistory.symbols.size();
@@ -74,6 +73,7 @@ runGenerateOutputCodelet(Graph &graph, TestDevice &device,
   graph.setInitialValue(vertex["beam"], outputBeam);
   graph.setInitialValue(vertex["maxT"], maxT);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
+  graph.setInitialValue(vertex["numClassesIncBlank"], numClassesIncBlank);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
