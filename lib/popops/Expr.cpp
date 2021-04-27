@@ -1,4 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#include <boost/range/numeric.hpp>
 #include <cstdint>
 #include <iomanip>
 #include <popops/Expr.hpp>
@@ -7,6 +8,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 namespace poputil {
 template <> poplar::ProfileValue toProfileValue(const popops::expr::Expr &p) {
@@ -186,65 +188,106 @@ std::string Const::printValue() const {
                                this->getType().toString());
 }
 
-const std::vector<std::string> UnaryOp::UnaryOpNames = {"ABS",
-                                                        "ASIN",
-                                                        "B_NOT",
-                                                        "CBRT",
-                                                        "CEIL",
-                                                        "COS",
-                                                        "COUNT_LEADING_ZEROS",
-                                                        "EXP",
-                                                        "EXP_M_1",
-                                                        "FLOOR",
-                                                        "INV",
-                                                        "IS_FINITE",
-                                                        "IS_INF",
-                                                        "IS_NAN",
-                                                        "LOG",
-                                                        "LOG_ONE_PLUS",
-                                                        "NOT",
-                                                        "NEG",
-                                                        "POPCOUNT",
-                                                        "SIGNUM",
-                                                        "SIN",
-                                                        "TAN",
-                                                        "TANH",
-                                                        "ROUND",
-                                                        "SQRT",
-                                                        "SQU",
-                                                        "SIGMOID",
-                                                        "RSQRT",
-                                                        "RELU"};
+using namespace std::string_view_literals;
+constexpr std::array UnaryOpNames = {"ABS"sv,
+                                     "ASIN"sv,
+                                     "B_NOT"sv,
+                                     "CBRT"sv,
+                                     "CEIL"sv,
+                                     "COS"sv,
+                                     "COUNT_LEADING_ZEROS"sv,
+                                     "EXP"sv,
+                                     "EXP_M_1"sv,
+                                     "FLOOR"sv,
+                                     "INV"sv,
+                                     "IS_FINITE"sv,
+                                     "IS_INF"sv,
+                                     "IS_NAN"sv,
+                                     "LOG"sv,
+                                     "LOG_ONE_PLUS"sv,
+                                     "NOT"sv,
+                                     "NEG"sv,
+                                     "POPCOUNT"sv,
+                                     "SIGNUM"sv,
+                                     "SIN"sv,
+                                     "TAN"sv,
+                                     "TANH"sv,
+                                     "ROUND"sv,
+                                     "SQRT"sv,
+                                     "SQU"sv,
+                                     "SIGMOID"sv,
+                                     "RSQRT"sv,
+                                     "RELU"sv};
 
-const std::vector<std::string> BinaryOp::BinaryOpNames = {
-    "ADD",
-    "ATAN2",
-    "B_AND",
-    "B_OR",
-    "B_XOR",
-    "B_XNOR",
-    "DIV",
-    "EQU",
-    "G_T_EQ",
-    "G_T",
-    "INV_STD_DEV_TO_VARIANCE",
-    "L_T_EQ",
-    "AND",
-    "OR",
-    "L_T",
-    "MAX",
-    "MIN",
-    "MUL",
-    "N_EQ",
-    "POW",
-    "REM",
-    "SHIFT_LEFT",
-    "SHIFT_RIGHT",
-    "SHIFT_RIGHT_SIGN_EXTEND",
-    "SUB",
-    "VARIANCE_TO_INV_STD_DEV"};
+constexpr std::array BinaryOpNames = {"ADD"sv,
+                                      "ATAN2"sv,
+                                      "B_AND"sv,
+                                      "B_OR"sv,
+                                      "B_XOR"sv,
+                                      "B_XNOR"sv,
+                                      "DIV"sv,
+                                      "EQU"sv,
+                                      "G_T_EQ"sv,
+                                      "G_T"sv,
+                                      "INV_STD_DEV_TO_VARIANCE"sv,
+                                      "L_T_EQ"sv,
+                                      "AND"sv,
+                                      "OR"sv,
+                                      "L_T"sv,
+                                      "MAX"sv,
+                                      "MIN"sv,
+                                      "MUL"sv,
+                                      "N_EQ"sv,
+                                      "POW"sv,
+                                      "REM"sv,
+                                      "SHIFT_LEFT"sv,
+                                      "SHIFT_RIGHT"sv,
+                                      "SHIFT_RIGHT_SIGN_EXTEND"sv,
+                                      "SUB"sv,
+                                      "VARIANCE_TO_INV_STD_DEV"sv};
 
-const std::vector<std::string> TernaryOp::TernaryOpNames = {"CLAMP", "SELECT"};
+constexpr std::array TernaryOpNames = {"CLAMP"sv, "SELECT"sv};
+
+static std::string
+buildName(std::string_view opName,
+          std::initializer_list<std::string_view> inputNames) {
+  auto plusLength = [](size_t length, const std::string_view &value) {
+    return length + value.size();
+  };
+
+  std::string_view first = "u_", mid = "_", last = "_d";
+
+  size_t length = opName.size() + first.size() + last.size() +
+                  mid.size() * (inputNames.size() - 1);
+  length = boost::accumulate(inputNames, length, plusLength);
+
+  std::string result;
+  result.reserve(length);
+  result.append(opName);
+
+  auto nIt = inputNames.begin(), nEnd = inputNames.end();
+  result.append(first).append(*nIt++);
+  while (nIt != nEnd) {
+    result.append(mid).append(*nIt++);
+  }
+  result.append(last);
+  return result;
+}
+
+std::string UnaryOp::name(const std::vector<poplar::Tensor> &inputs) const {
+  return buildName(UnaryOpNames[static_cast<unsigned>(type)],
+                   {a->name(inputs)});
+}
+
+std::string BinaryOp::name(const std::vector<poplar::Tensor> &inputs) const {
+  return buildName(BinaryOpNames[static_cast<unsigned>(type)],
+                   {a->name(inputs), b->name(inputs)});
+}
+
+std::string TernaryOp::name(const std::vector<poplar::Tensor> &inputs) const {
+  return buildName(TernaryOpNames[static_cast<unsigned>(type)],
+                   {a->name(inputs), b->name(inputs), c->name(inputs)});
+}
 
 std::string Const::name(const std::vector<poplar::Tensor> &) const {
   // can't have . or - in class names need to remove these from the

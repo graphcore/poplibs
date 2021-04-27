@@ -200,7 +200,6 @@ const PlaceHolder _20(20);
 
 /// A class to represent expressions with unary operators.
 class UnaryOp : public ExprType<UnaryOp> {
-  static const std::vector<std::string> UnaryOpNames;
   UnaryOpType type;
   std::unique_ptr<Expr> a;
 
@@ -214,10 +213,7 @@ public:
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new UnaryOp(type, *a));
   }
-  std::string name(const std::vector<poplar::Tensor> &inputs) const override {
-    return UnaryOpNames[static_cast<unsigned>(type)] + "u_" + a->name(inputs) +
-           "_d";
-  }
+  std::string name(const std::vector<poplar::Tensor> &inputs) const override;
   std::string exprName(const std::vector<poplar::Tensor> &inputs) const {
     return a->name(inputs);
   };
@@ -262,7 +258,6 @@ POPLIBS_DEFINE_EXPR_UNARY_OP(Rsqrt, RSQRT)
 
 /// A class to represent expressions with binary operators.
 class BinaryOp : public ExprType<BinaryOp> {
-  static const std::vector<std::string> BinaryOpNames;
   BinaryOpType type;
   std::unique_ptr<Expr> a, b;
 
@@ -278,10 +273,7 @@ public:
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new BinaryOp(type, *a, *b));
   }
-  std::string name(const std::vector<poplar::Tensor> &inputs) const override {
-    return BinaryOpNames[static_cast<unsigned>(type)] + "u_" + a->name(inputs) +
-           "_" + b->name(inputs) + "_d";
-  }
+  std::string name(const std::vector<poplar::Tensor> &inputs) const override;
   std::string exprName(const std::vector<poplar::Tensor> &inputs) const {
     return a->name(inputs) + "_" + b->name(inputs);
   }
@@ -336,7 +328,6 @@ POPLIBS_DEFINE_EXPR_BINARY_OP(VarianceToInvStdDev, VARIANCE_TO_INV_STD_DEV)
 
 /// A class to represent expressions with ternary operators.
 class TernaryOp : public ExprType<TernaryOp> {
-  static const std::vector<std::string> TernaryOpNames;
   TernaryOpType type;
   std::unique_ptr<Expr> a, b, c;
 
@@ -353,10 +344,7 @@ public:
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new TernaryOp(type, *a, *b, *c));
   }
-  std::string name(const std::vector<poplar::Tensor> &inputs) const override {
-    return TernaryOpNames[static_cast<unsigned>(type)] + "u_" +
-           exprName(inputs) + "_d";
-  }
+  std::string name(const std::vector<poplar::Tensor> &inputs) const override;
   std::string exprName(const std::vector<poplar::Tensor> &inputs) const {
     return a->name(inputs) + "_" + b->name(inputs) + "_" + c->name(inputs);
   }
