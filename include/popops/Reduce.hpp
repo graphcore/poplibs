@@ -184,20 +184,19 @@ struct SingleReduceOp {
   /// empty when calling reduceMany().
   bool useOutType;
   poplar::Type outType;
-  poplar::DebugContext debugContext;
+  std::string debugName;
 
   SingleReduceOp(poplar::Tensor in, std::vector<std::size_t> dims,
                  ReduceParams params, poplar::Type outType,
-                 poplar::DebugContext debugContext = {})
+                 std::string debugName = "")
       : in(std::move(in)), dims(std::move(dims)), params(std::move(params)),
-        useOutType(true), outType(outType),
-        debugContext(std::move(debugContext)) {}
+        useOutType(true), outType(outType), debugName(std::move(debugName)) {}
 
   SingleReduceOp(poplar::Tensor in, std::vector<std::size_t> dims,
-                 ReduceParams params, poplar::DebugContext debugContext = {})
+                 ReduceParams params, std::string debugName = "")
       : in(std::move(in)), dims(std::move(dims)), params(std::move(params)),
         useOutType(false), outType(poplar::BOOL),
-        debugContext(std::move(debugContext)) {}
+        debugName(std::move(debugName)) {}
 };
 
 /// Perform many reductions (in parallel if possible).

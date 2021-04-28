@@ -52,6 +52,18 @@ template <> poplar::ProfileValue toProfileValue(const popops::ReduceParams &t) {
   }
   return v;
 }
+template <>
+poplar::ProfileValue toProfileValue(const popops::SingleReduceOp &op) {
+  poplar::ProfileValue::Map v;
+  v.emplace("in", toProfileValue(op.in));
+  v.emplace("dims", toProfileValue(op.dims));
+  v.emplace("params", toProfileValue(op.params));
+  v.emplace("useOutType", toProfileValue(op.useOutType));
+  if (op.useOutType)
+    v.emplace("outType", toProfileValue(op.outType));
+  v.emplace("debugName", toProfileValue(op.debugName));
+  return v;
+}
 } // namespace poputil
 
 namespace popops {
@@ -724,7 +736,7 @@ void reduceMany(poplar::Graph &graph,
                 const poplar::DebugContext &debugContext,
                 const poplar::OptionFlags &options) {
   POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(options));
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(reductions, options));
 
   const bool shouldCreateOutputs = outputs.empty();
   std::vector<Type> outputElementTypes;
@@ -754,17 +766,21 @@ void reduceMany(poplar::Graph &graph,
   css.reserve(reductions.size());
   for (size_t i = 0; i < reductions.size(); ++i) {
     const SingleReduceOp &op = reductions[i];
-    poputil::PoplibsOpDebugInfo diInner(
-        op.debugContext,
-        DI_ARGS(op.in, outputs[i], op.dims, op.params, options));
+
     boost::optional<Tensor> optionalOut;
     if (!shouldCreateOutputs)
       optionalOut = std::move(outputs[i]);
+
+    std::string debugName =
+        !op.debugName.empty() ? op.debugName : "reduction-" + std::to_string(i);
+    DebugNameAndId dnai = {di, std::move(debugName)};
+
     reduceWithOutputProgOrCss(graph, op.in, optionalOut, outputElementTypes[i],
                               op.dims, op.params, css, reductionResultTensors,
-                              diInner, options);
+                              std::move(dnai), options);
     outputs[i] = std::move(*optionalOut);
   }
+  di.addOutputs(DI_ARGS(outputs));
 
   // WriteUndef the intermediate tensors used throughout the reduction.
   if (css.size() > 1) {
@@ -780,7 +796,7 @@ void reduceMany(poplar::Graph &graph,
 
   // Prog is not modified until all reduction operations have been created.
   for (auto &cs : css)
-    prog.add(program::Execute(cs));
+    prog.add(program::Execute(cs, di));
 }
 
 Tensor reduce(Graph &graph, const Tensor &in,

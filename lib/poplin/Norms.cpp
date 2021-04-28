@@ -205,16 +205,14 @@ normStatisticsImpl(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
   } else {
     std::vector<poplar::Tensor> outputs = {std::move(mean), std::move(power)};
     std::vector<popops::SingleReduceOp> reductions = {
-        popops::SingleReduceOp{
-            /*in     = */ acts,
-            /*dims   = */ dims,
-            /*params = */ std::move(meanParams),
-            /*debugContext = */ poplar::DebugContext{dnai, layer + "/mean"}},
-        popops::SingleReduceOp{
-            /*in     = */ acts,
-            /*dims   = */ std::move(dims),
-            /*params = */ std::move(powerParams),
-            /*debugContext = */ poplar::DebugContext{dnai, layer + "/power"}}};
+        popops::SingleReduceOp{/*in     = */ acts,
+                               /*dims   = */ dims,
+                               /*params = */ std::move(meanParams),
+                               /*debugName = */ "mean"},
+        popops::SingleReduceOp{/*in     = */ acts,
+                               /*dims   = */ std::move(dims),
+                               /*params = */ std::move(powerParams),
+                               /*debugName = */ "power"}};
     popops::reduceMany(graph, reductions, outputs, prog,
                        {dnai, layer + "/reduceMany"});
     mean = std::move(outputs[0]);
