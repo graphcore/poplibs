@@ -422,19 +422,231 @@ static float reductionInitialValue(const popops::Operation &op) {
   }
 }
 
+static void validateReductionParams(ReduceParams const &params) {
+  if (params.useScale && !(params.op == popops::Operation::ADD ||
+                           params.op == popops::Operation::SQUARE_ADD ||
+                           params.op == popops::Operation::LOG_ADD)) {
+    throw poputil::poplibs_error("Scale can only be used with ADD, LOG_ADD or "
+                                 "SQUARE_ADD");
+  }
+  if (params.useScale) {
+    if (params.scale.elementType() != FLOAT) {
+      throw poputil::poplibs_error("Scale must be of type poplar::FLOAT");
+    }
+  }
+  if (params.update && !(params.op == popops::Operation::ADD ||
+                         params.op == popops::Operation::SQUARE_ADD ||
+                         params.op == popops::Operation::LOG_ADD)) {
+    throw poputil::poplibs_error("Update can only be used with ADD, LOG_ADD or "
+                                 "SQUARE_ADD");
+  }
+}
+
+struct ReductionAnalysis {
+  // True if the reduction can be replaced with a simpler expression,
+  // because the dimensions being reduced in the input tensor are all
+  // length 1. For example, reducing [2, 2, 1] along the 3rd dimension,
+  // produces just [2, 2] so we can just copy the elements. False otherwise.
+  bool canReduceWithMap;
+  // The unique set of dimensions that we want to reduce from the input tensor.
+  std::set<unsigned> reducedDims;
+  // The dimensions of the output tensor; equivalent to the input tensor
+  // without the dimensions that have been reduced.
+  std::vector<size_t> outputShape;
+  // The total number of elements in the output tensor. When the output
+  // tensor's shape is empty this is 1. This can be zero if the output
+  // shape has a dimension that is zero.
+  size_t numOutputElements;
+  // The total number of elements in the input tensor. This can be zero
+  // if the input shape has a dimension that is zero.
+  size_t numInputElements;
+};
+static ReductionAnalysis analyzeReduction(std::vector<size_t> const &dims,
+                                          poplar::Tensor const &in,
+                                          boost::optional<Tensor> &out) {
+  bool canReduceWithMap = true;
+
+  // Convert the dimensions into a unique set.
+  std::set<unsigned> reducedDims(dims.begin(), dims.end());
+
+  // Check that all the dimensions are actual dimensions of the input.
+  for (auto dim : reducedDims) {
+    if (dim >= in.rank())
+      throw poputil::poplibs_error("Invalid dimension " + std::to_string(dim) +
+                                   " for tensor rank " +
+                                   std::to_string(in.rank()));
+    else if (in.dim(dim) >= 2)
+      canReduceWithMap = false;
+  }
+
+  std::size_t numInputElements = 1;
+  std::size_t numOutputElements = 1;
+  std::vector<std::size_t> outputShape;
+  outputShape.reserve(in.rank() - reducedDims.size());
+  for (std::size_t d = 0; d < in.rank(); ++d) {
+    std::size_t dim = in.dim(d);
+    if (reducedDims.count(d) == 0) {
+      outputShape.push_back(dim);
+      numOutputElements *= dim;
+    }
+    numInputElements *= dim;
+  }
+
+  // If we have one, check that the output tensor has the right shape.
+  if (out && out.get().shape() != outputShape) {
+    std::stringstream s;
+    s << "Dimension mismatch in output. Input shape: ";
+    printContainer(in.shape(), s);
+    s << " Output shape: ";
+    printContainer(out.get().shape(), s);
+    s << " Reduced dimensions: ";
+    printContainer(dims, s);
+    throw poputil::poplibs_error(s.str());
+  }
+
+  return {canReduceWithMap, reducedDims, outputShape, numOutputElements,
+          numInputElements};
+}
+
+static void convertCssToProg(const std::vector<ComputeSet> &css,
+                             program::Sequence &prog,
+                             const ResultTensors &reductionResultTensors,
+                             DebugNameAndId dnai) {
+  // WriteUndef the intermediate tensors used throughout the reduction.
+  // Note that if there's only one compute set the liveness analysis can
+  // figure it out and there's no need for the WriteUndef(s).
+  if (css.size() > 1) {
+    if (reductionResultTensors.typeA.size() > 0)
+      prog.add(program::WriteUndef(
+          concat(reductionResultTensors.typeA),
+          {dnai, "reduceMany: type A reduction intermediates"}));
+    if (reductionResultTensors.typeB.size() > 0)
+      prog.add(program::WriteUndef(
+          concat(reductionResultTensors.typeB),
+          {dnai, "reduceMany: type B reduction intermediates"}));
+  }
+
+  // Prog is not modified until all reduction operations have been created.
+  for (auto &cs : css)
+    prog.add(program::Execute(cs, dnai));
+}
+
+static bool canReduceWithMap(const Tensor &in,
+                             const std::vector<std::size_t> &dims) {
+  if (in.numElements() == 0)
+    return false;
+  for (auto dim : dims)
+    if (in.dim(dim) >= 2)
+      return false;
+  return true;
+}
+
+static void reduceWithMap(Graph &graph, const Tensor &in,
+                          boost::optional<Tensor> &out,
+                          const poplar::Type &outputType,
+                          const std::vector<std::size_t> &dims,
+                          ReduceParams params, program::Sequence &prog,
+                          const DebugNameAndId &dnai,
+                          const poplar::OptionFlags &options) {
+  // If the input only reduces dimensions of size 1, we don't need to
+  // do a reduction - just copy the input tensor to the output. A copy is
+  // returned (using cast) rather than just returning the original because
+  // then the user can be sure that the returned tensor refers to a distinct
+  // variable and changing the tile mapping won't affect anything else.
+  validateReductionParams(params);
+  if (params.op == Operation::LOG_ADD) {
+    throw poputil::poplibs_error(
+        "Reduction operation LOG_ADD doesn't"
+        " support reductions where there is no reduction required");
+  }
+
+  auto analysis = analyzeReduction(dims, in, out);
+  if (!analysis.canReduceWithMap)
+    throw poputil::poplibs_error(
+        "reduceWithMap cannot be used with inputs that cannot be reduced "
+        "with a map or cast expression.");
+
+  logging::popops::debug("No reduction required");
+
+  if (out) {
+    // If the graph mapping isn't complete, set it to the same as the input.
+    bool mappingComplete;
+    graph.getTileMapping(out.get(), &mappingComplete);
+    if (!mappingComplete) {
+      graph.setTileMapping(out.get(), graph.getTileMapping(in));
+    }
+  } else {
+    // Create the output Tensor
+    out = graph.clone(outputType, in, {dnai}).reshape(analysis.outputShape);
+  }
+
+  // If it is a scale or update, or SQUARE_ADD we still need to do that.
+  if (params.update || params.useScale || params.op == Operation::SQUARE_ADD) {
+    // Calculate the necessary expression. E.g. the most complex case,
+    //
+    //   x += f * v^2
+    //
+    // is
+    //
+    //   Add(_1, Mul(Square(_2), params.scale))
+    //
+    // And the simplest, x = f * v, is
+    //
+    //   Mul(_2, params.scale)
+    using namespace popops::expr;
+    Type arithmeticType = outputType;
+    Any expr = _2;
+    if (in.elementType() == HALF && params.op == Operation::SQUARE_ADD) {
+      // Do square add in higher precision as per normal reductions
+      arithmeticType = FLOAT;
+      expr = Cast(expr, arithmeticType);
+    } else if (in.elementType() != outputType) {
+      expr = Cast(expr, arithmeticType);
+    }
+    if (params.op == Operation::SQUARE_ADD) {
+      expr = Square(expr);
+    }
+    if (params.useScale) {
+      if (params.scale.elementType() != arithmeticType) {
+        expr = Mul(expr, Cast(_3, arithmeticType));
+      } else {
+        expr = Mul(expr, _3);
+      }
+    }
+    if (arithmeticType != outputType) {
+      expr = Cast(expr, outputType);
+    }
+    if (params.update) {
+      expr = Add(expr, _1);
+    }
+    if (params.useScale) {
+      mapInPlace(graph, expr, {out.get().flatten(), in.flatten(), params.scale},
+                 prog, {dnai, "ReduceExpression"});
+    } else {
+      mapInPlace(graph, expr, {out.get().flatten(), in.flatten()}, prog,
+                 {dnai, "ReduceExpression"});
+    }
+
+  } else {
+    // Cast is used here rather than copy because the type could be different
+    // if ADD or MUL are used. If the type is the same cast() will
+    // automatically switch to copy.
+    auto castProg =
+        cast(graph, in.flatten(), out.get().flatten(), {dnai, "ReduceCast"});
+    prog.add(castProg);
+  }
+}
+
 std::map<std::string, poplar::Type> accumTypeMap{{"half", poplar::HALF},
                                                  {"float", poplar::FLOAT}};
 
 // This wangles the tensors into a 2D matrix so that the reduction only
 // has to be done on the first dimension. Then it calls reduceFirstDim2D
-// to do the reduction. It accepts either a vector<ComputeSet>& or a Sequence&
-// because it can be a bit faster in the latter case for reductions that
-// don't actually do any reducing.
-static void reduceWithOutputProgOrCss(
+// to do the reduction.
+static void reduceWithOutputCss(
     Graph &graph, const Tensor &in, boost::optional<Tensor> &out,
     const poplar::Type &outputType, const std::vector<std::size_t> &dims,
-    ReduceParams params,
-    boost::variant<std::vector<ComputeSet> &, program::Sequence &> progOrCss,
+    ReduceParams params, std::vector<ComputeSet> &css,
     ResultTensors &reductionResultTensors, const DebugNameAndId &dnai,
     const poplar::OptionFlags &options) {
 
@@ -446,7 +658,6 @@ static void reduceWithOutputProgOrCss(
   logging::popops::info("reduce in={}, out={}, dims={}, name={}", in.shape(),
                         fmap(out, getShape), dims, dnai.getPathName());
   logging::popops::debug("Reduce begin DebugStr: {}", dnai.getPathName());
-  bool isProg = progOrCss.which() == 1;
 
   // Decide the reduction types for each stage.
   ReductionTypes reductionTypes;
@@ -468,67 +679,23 @@ static void reduceWithOutputProgOrCss(
     reductionSpec.parse(entry.first, entry.second);
   }
 
-  if (params.useScale && !(params.op == popops::Operation::ADD ||
-                           params.op == popops::Operation::SQUARE_ADD ||
-                           params.op == popops::Operation::LOG_ADD)) {
-    throw poputil::poplibs_error("Scale can only be used with ADD, LOG_ADD or "
-                                 "SQUARE_ADD");
-  }
-  if (params.useScale) {
-    if (params.scale.elementType() != FLOAT) {
-      throw poputil::poplibs_error("Scale must be of type poplar::FLOAT");
-    }
-  }
-  if (params.update && !(params.op == popops::Operation::ADD ||
-                         params.op == popops::Operation::SQUARE_ADD ||
-                         params.op == popops::Operation::LOG_ADD)) {
-    throw poputil::poplibs_error("Update can only be used with ADD, LOG_ADD or "
-                                 "SQUARE_ADD");
-  }
+  validateReductionParams(params);
 
-  // Convert the dimensions into a unique set.
-  std::set<unsigned> reducedDims(dims.begin(), dims.end());
-
-  // Check that all the dimensions are actual dimensions of the input.
-  for (auto dim : reducedDims) {
-    if (dim >= in.rank())
-      throw poputil::poplibs_error("Invalid dimension " + std::to_string(dim) +
-                                   " for tensor rank " +
-                                   std::to_string(in.rank()));
+  auto [canReduceWithMap_, reducedDims, outputShape, numOutputElements,
+        numInputElements] = analyzeReduction(dims, in, out);
+  if (canReduceWithMap_) {
+    logging::popops::warn(
+        "A reduction could be replaced with a simpler expression if using a "
+        "program instead of a compute set");
   }
-
-  std::vector<std::size_t> outputShape;
-  for (std::size_t d = 0; d < in.rank(); ++d) {
-    if (reducedDims.count(d) == 0) {
-      outputShape.push_back(in.dim(d));
-    }
-  }
-  if (out) {
-    // If we have one, check that the output tensor has the right shape.
-    if (out.get().shape() != outputShape) {
-      std::stringstream s;
-      s << "Dimension mismatch in output. Input shape: ";
-      printContainer(in.shape(), s);
-      s << " Output shape: ";
-      printContainer(out.get().shape(), s);
-      s << " Reduced dimensions: ";
-      printContainer(dims, s);
-
-      throw poputil::poplibs_error(s.str());
-    }
-  }
-  const auto numOutputElements = std::accumulate(
-      outputShape.begin(), outputShape.end(), 1U, std::multiplies<>());
 
   // If there are no output elements... this is easy!
   // But we still need to produce an output Tensor if there isn't one.
   if (numOutputElements == 0) {
     logging::popops::debug("Empty output tensor");
-    if (params.update) {
-      if (!out) {
-        out = graph.addVariable(outputType, {0}, {dnai, "emptyOutput"});
-      }
-    }
+    if (!out)
+      out = graph.addVariable(outputType, outputShape, {dnai, "emptyOutput"});
+    return;
   }
 
   // If the number of input elements is zero we definitely don't need
@@ -536,7 +703,7 @@ static void reduceWithOutputProgOrCss(
   // but some elements in the output. This is possible for example when
   // reducing a 10x10x0 tensor in the third dimension to 10x10. It's a bit
   // weird but it makes sense. This is how Tensorflow works.
-  if (in.numElements() == 0) {
+  if (numInputElements == 0) {
     if (params.op == Operation::LOG_ADD) {
       throw poputil::poplibs_error(
           "Reduction operation LOG_ADD doesn't"
@@ -566,120 +733,15 @@ static void reduceWithOutputProgOrCss(
 
     float initVal = reductionInitialValue(params.op);
 
-    if (isProg) {
-      auto &prog = boost::get<program::Sequence &>(progOrCss);
-      popops::fill(graph, out.get(), prog, initVal,
-                   {dnai, "ReductionOnEmptyInputsFillOutput"});
-      return;
-    }
-
-    auto &computeSets = boost::get<std::vector<ComputeSet> &>(progOrCss);
-    if (computeSets.empty())
-      computeSets.push_back(
+    if (css.empty())
+      css.push_back(
           graph.addComputeSet({dnai, "ReductionOnEmptyInputsFillOutputCS"}));
-    auto &fillCS = computeSets.front();
+    auto &fillCS = css.front();
 
     auto outFlat = out.get().flatten();
     graph.reorderToSimplify(&outFlat, {}, false);
     popops::fill(graph, outFlat, graph.getTileMapping(outFlat), fillCS,
                  initVal);
-    return;
-  }
-
-  // If the input only reduces dimensions of size 1, we don't need to
-  // do a reduction - just copy the input tensor to the output. A copy is
-  // returned (using cast) rather than just returning the original because
-  // then the user can be sure that the returned tensor refers to a distinct
-  // variable and changing the tile mapping won't affect anything else.
-  bool reductionRequired = false;
-
-  for (auto dim : reducedDims) {
-    if (in.dim(dim) >= 2) {
-      reductionRequired = true;
-      break;
-    }
-  }
-
-  if (params.op == Operation::LOG_ADD && !reductionRequired) {
-    throw poputil::poplibs_error(
-        "Reduction operation LOG_ADD doesn't"
-        " support reductions where there is no reduction required");
-  }
-
-  if (!reductionRequired && isProg) {
-    logging::popops::debug("No reduction required");
-    auto &prog = boost::get<program::Sequence &>(progOrCss);
-
-    if (out) {
-      // If the graph mapping isn't complete, set it to the same as the input.
-      bool mappingComplete;
-      graph.getTileMapping(out.get(), &mappingComplete);
-      if (!mappingComplete) {
-        graph.setTileMapping(out.get(), graph.getTileMapping(in));
-      }
-    } else {
-      // Create the output Tensor
-      out = graph.clone(outputType, in, {dnai}).reshape(outputShape);
-    }
-
-    // If it is a scale or update, or SQUARE_ADD we still need to do that.
-    if (params.update || params.useScale ||
-        params.op == Operation::SQUARE_ADD) {
-
-      // Calculate the necessary expression. E.g. the most complex case,
-      //
-      //   x += f * v^2
-      //
-      // is
-      //
-      //   Add(_1, Mul(Square(_2), params.scale))
-      //
-      // And the simplest, x = f * v, is
-      //
-      //   Mul(_2, params.scale)
-      using namespace popops::expr;
-      Type arithmeticType = outputType;
-      Any expr = _2;
-      if (in.elementType() == HALF && params.op == Operation::SQUARE_ADD) {
-        // Do square add in higher precision as per normal reductions
-        arithmeticType = FLOAT;
-        expr = Cast(expr, arithmeticType);
-      } else if (in.elementType() != outputType) {
-        expr = Cast(expr, arithmeticType);
-      }
-      if (params.op == Operation::SQUARE_ADD) {
-        expr = Square(expr);
-      }
-      if (params.useScale) {
-        if (params.scale.elementType() != arithmeticType) {
-          expr = Mul(expr, Cast(_3, arithmeticType));
-        } else {
-          expr = Mul(expr, _3);
-        }
-      }
-      if (arithmeticType != outputType) {
-        expr = Cast(expr, outputType);
-      }
-      if (params.update) {
-        expr = Add(expr, _1);
-      }
-      if (params.useScale) {
-        mapInPlace(graph, expr,
-                   {out.get().flatten(), in.flatten(), params.scale}, prog,
-                   {dnai, "ReduceExpression"});
-      } else {
-        mapInPlace(graph, expr, {out.get().flatten(), in.flatten()}, prog,
-                   {dnai, "ReduceExpression"});
-      }
-
-    } else {
-      // Cast is used here rather than copy because the type could be different
-      // if ADD or MUL are used. If the type is the same cast() will
-      // automatically switch to copy.
-      auto castProg =
-          cast(graph, in.flatten(), out.get().flatten(), {dnai, "ReduceCast"});
-      prog.add(castProg);
-    }
     return;
   }
 
@@ -693,38 +755,29 @@ static void reduceWithOutputProgOrCss(
                          input2D.dim(0), input2D.dim(1));
 
   // Do the 2D->1D reduction.
-  if (isProg) {
+  reduceFirstDim2D(graph, input2D, out, outputShape, outputType, params,
+                   reductionTypes, css, reductionResultTensors, {dnai});
+}
+
+// Same as reduceWithOutputCss except it takes a program instead of a compute
+// set and it supports additional optimisations that are only possible with
+// programs.
+static void reduceWithOutputProg(Graph &graph, const Tensor &in,
+                                 boost::optional<Tensor> &out,
+                                 const poplar::Type &outputType,
+                                 const std::vector<std::size_t> &dims,
+                                 ReduceParams params, program::Sequence &prog,
+                                 const DebugNameAndId &dnai,
+                                 const poplar::OptionFlags &options) {
+  if (canReduceWithMap(in, dims))
+    reduceWithMap(graph, in, out, outputType, dims, params, prog, dnai,
+                  options);
+  else {
     std::vector<ComputeSet> css;
-
-    reduceFirstDim2D(graph, input2D, out, outputShape, outputType, params,
-                     reductionTypes, css, reductionResultTensors, {dnai});
-    auto &prog = boost::get<program::Sequence &>(progOrCss);
-    // First mark with 'WriteUndef' any tensor that will be completely written
-    // by this whole reduction, but may be written internally in two different
-    // compute sets. This causes the tensor to unnecessarily become always live,
-    // which is rectified by using WriteUndef.
-    // The tensors are all concatenated together before being passed to
-    // WriteUndef for efficiency.
-    if (reductionResultTensors.typeA.size() > 0) {
-      prog.add(program::WriteUndef(
-          concat(reductionResultTensors.typeA),
-          {dnai, "reduce: type A reduction intermediates"}));
-    }
-    if (reductionResultTensors.typeB.size() > 0) {
-      prog.add(program::WriteUndef(
-          concat(reductionResultTensors.typeB),
-          {dnai, "reduce: type B reduction intermediates"}));
-    }
-    for (const auto &cs : css) {
-      prog.add(program::Execute(cs, {dnai}));
-    }
-
-  } else {
-    // For this variant we ignore the list of Tensors to be 'WriteUndef'd.
-    reduceFirstDim2D(graph, input2D, out, outputShape, outputType, params,
-                     reductionTypes,
-                     boost::get<std::vector<ComputeSet> &>(progOrCss),
-                     reductionResultTensors, {dnai});
+    ResultTensors reductionResultTensors;
+    reduceWithOutputCss(graph, in, out, outputType, dims, params, css,
+                        reductionResultTensors, dnai, options);
+    convertCssToProg(css, prog, reductionResultTensors, dnai);
   }
 }
 } // end anonymous namespace
@@ -739,8 +792,8 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
                                  DI_ARGS(in, out_, dims, params, css, options));
   ResultTensors r;
   boost::optional<Tensor> out = out_;
-  reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
-                            css, r, {di}, options);
+  reduceWithOutputCss(graph, in, out, out_.elementType(), dims, params, css, r,
+                      {di}, options);
 }
 
 void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
@@ -752,10 +805,9 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in, out_, dims, params, options));
 
-  ResultTensors r;
   boost::optional<Tensor> out = out_;
-  reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
-                            prog, r, {di}, options);
+  reduceWithOutputProg(graph, in, out, out_.elementType(), dims, params, prog,
+                       {di}, options);
 }
 
 void reduceMany(poplar::Graph &graph,
@@ -768,64 +820,57 @@ void reduceMany(poplar::Graph &graph,
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(reductions, options));
 
   const bool shouldCreateOutputs = outputs.empty();
-  std::vector<Type> outputElementTypes;
-  if (shouldCreateOutputs) {
-    for (const SingleReduceOp &op : reductions)
-      if (op.params.update)
-        throw poputil::poplibs_error(
-            "reduceMany: outputs must be provided to do a reduction "
-            "with the update flag set");
+  if (shouldCreateOutputs)
     outputs.resize(reductions.size());
-    outputElementTypes.reserve(outputs.size());
-    for (const SingleReduceOp &op : reductions)
-      outputElementTypes.push_back(op.useOutType ? op.outType
-                                                 : op.in.elementType());
-  } else {
-    outputElementTypes.reserve(outputs.size());
-    for (const Tensor &out : outputs)
-      outputElementTypes.push_back(out.elementType());
-  }
-
-  if (outputs.size() != reductions.size())
+  else if (outputs.size() != reductions.size())
     throw poputil::poplibs_error(
         "reduceMany: outputs must be the same size as reductions");
 
   ResultTensors reductionResultTensors;
+
   std::vector<ComputeSet> css;
   css.reserve(reductions.size());
+
   for (size_t i = 0; i < reductions.size(); ++i) {
     const SingleReduceOp &op = reductions[i];
 
+    Type outputType;
     boost::optional<Tensor> optionalOut;
-    if (!shouldCreateOutputs)
+    if (shouldCreateOutputs) {
+      if (op.params.update)
+        throw poputil::poplibs_error(
+            "reduceMany: outputs must be provided to do a "
+            "reduction with the update flag set");
+      outputType = op.useOutType ? op.outType : op.in.elementType();
+    } else {
+      outputType = outputs[i].elementType();
       optionalOut = std::move(outputs[i]);
+    }
 
     std::string debugName =
         !op.debugName.empty() ? op.debugName : "reduction-" + std::to_string(i);
     DebugNameAndId dnai = {di, std::move(debugName)};
 
-    reduceWithOutputProgOrCss(graph, op.in, optionalOut, outputElementTypes[i],
-                              op.dims, op.params, css, reductionResultTensors,
-                              std::move(dnai), options);
+    if (!canReduceWithMap(op.in, op.dims))
+      reduceWithOutputCss(graph, op.in, optionalOut, outputType, op.dims,
+                          op.params, css, reductionResultTensors,
+                          std::move(dnai), options);
+    else {
+      // Convert all the compute sets we've created so far into programs,
+      // so that the simplified program can be added in the right order.
+      convertCssToProg(css, prog, reductionResultTensors, di);
+      css.clear();
+      reductionResultTensors.typeA.clear();
+      reductionResultTensors.typeB.clear();
+
+      reduceWithMap(graph, op.in, optionalOut, outputType, op.dims, op.params,
+                    prog, std::move(dnai), options);
+    }
+
     outputs[i] = std::move(*optionalOut);
   }
   di.addOutputs(DI_ARGS(outputs));
-
-  // WriteUndef the intermediate tensors used throughout the reduction.
-  if (css.size() > 1) {
-    if (reductionResultTensors.typeA.size() > 0)
-      prog.add(program::WriteUndef(
-          concat(reductionResultTensors.typeA),
-          {di, "reduceMany: type A reduction intermediates"}));
-    if (reductionResultTensors.typeB.size() > 0)
-      prog.add(program::WriteUndef(
-          concat(reductionResultTensors.typeB),
-          {di, "reduceMany: type B reduction intermediates"}));
-  }
-
-  // Prog is not modified until all reduction operations have been created.
-  for (auto &cs : css)
-    prog.add(program::Execute(cs, di));
+  convertCssToProg(css, prog, reductionResultTensors, di);
 }
 
 Tensor reduce(Graph &graph, const Tensor &in,
@@ -871,8 +916,8 @@ Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
                                  "call reduceWithOutput() instead.");
   ResultTensors r;
   boost::optional<Tensor> out;
-  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, css, r, {di},
-                            options);
+  reduceWithOutputCss(graph, in, out, outType, dims, params, css, r, {di},
+                      options);
   auto output = out.get();
   di.addOutput(output);
   return output;
@@ -889,10 +934,9 @@ Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
   if (params.update)
     throw poputil::poplibs_error("Cannot do an update using reduce(); "
                                  "call reduceWithOutput() instead.");
-  ResultTensors r;
   boost::optional<Tensor> out;
-  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, prog, r,
-                            {di}, options);
+  reduceWithOutputProg(graph, in, out, outType, dims, params, prog, {di},
+                       options);
   auto output = out.get();
   di.addOutput(output);
   return output;

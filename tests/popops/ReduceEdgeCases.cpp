@@ -23,17 +23,45 @@ using namespace poplibs_support;
 
 const OptionFlags options;
 
-BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
+struct TestCase {
+  std::vector<std::size_t> inShape;
+  std::vector<std::size_t> dims;
+  std::vector<std::size_t> outShape;
+};
 
+std::ostream &operator<<(std::ostream &os, const std::vector<size_t> &test) {
+  os << '[';
+  StringRef sep = "";
+  for (size_t item : test) {
+    os << sep << item;
+    sep = ", ";
+  }
+  return os << ']';
+}
+
+std::ostream &operator<<(std::ostream &os, const TestCase &test) {
+  return os << "TestCase{inShape=" << test.inShape << ", dims=" << test.dims
+            << ", outShape=" << test.outShape << "}";
+}
+
+// Call popops::reduce or popops::reduceMany depending on `useReduceMany` with
+// a single input tensor and expect a single output tensor.
+static Tensor reduceWrapper(bool useReduceMany, Graph &graph, const Tensor &in,
+                            const std::vector<size_t> &dims, Sequence &prog) {
+  if (!useReduceMany)
+    return popops::reduce(graph, in, FLOAT, dims, popops::Operation::ADD, prog);
+  else {
+    std::vector<Tensor> outs;
+    SingleReduceOp op = {in, dims, popops::Operation::ADD, FLOAT};
+    popops::reduceMany(graph, {std::move(op)}, outs, prog);
+    BOOST_TEST(outs.size() == 1);
+    return outs[0];
+  }
+}
+
+BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
   // Tests for nop reductions, where the reduced dimension is 1, or
   // any of the input dimensions are 0.
-
-  // Workaround GCC 5 bug.
-  using TestCase =
-      std::tuple<std::vector<std::size_t>,  // Input shape
-                 std::vector<std::size_t>,  // Reduced dimensions
-                 std::vector<std::size_t>>; // Expected output shape
-
   std::vector<TestCase> testCases = {
       TestCase{{2, 1, 2, 3}, {1, 2}, {2, 3}},
       TestCase{{2, 3, 4, 0}, {3}, {2, 3, 4}},
@@ -42,6 +70,7 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
       TestCase{{1, 1, 1, 0}, {0, 1}, {1, 0}},
       TestCase{{0, 1, 2}, {}, {0, 1, 2}},
       TestCase{{0, 1, 2, 3}, {3}, {0, 1, 2}},
+      TestCase{{2, 2}, {0, 1}, {}},
   };
 
   auto device = createTestDevice(TEST_TARGET, 1, 64);
@@ -49,17 +78,115 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
   popops::addCodelets(graph);
 
   Sequence prog;
-  for (const auto &testCase : testCases) {
-    const auto &inShape = std::get<0>(testCase);
-    const auto &dims = std::get<1>(testCase);
-    const auto &outShape = std::get<2>(testCase);
-
+  for (const auto &[inShape, dims, outShape] : testCases) {
     auto in = graph.addVariable(FLOAT, inShape, "in");
     poputil::mapTensorLinearly(graph, in);
+    for (bool useReduceMany : {false, true}) {
+      Tensor out = reduceWrapper(useReduceMany, graph, in, dims, prog);
+      BOOST_TEST(out.shape() == outShape);
+    }
+  }
+}
 
-    auto out =
-        popops::reduce(graph, in, FLOAT, dims, popops::Operation::ADD, prog);
-    BOOST_TEST(out.shape() == outShape);
+BOOST_AUTO_TEST_CASE(ReduceCheckProgsAreOptimised) {
+  // Any reduction that only removes dimensions of size 1 will leave the number
+  // of output elements the same and so should be optimised to a simpler
+  // expression such as a copy/cast or map expression. Unless the compute set
+  // overload of reduce is used.
+  const std::array<TestCase, 2> tests = {
+      TestCase{{1}, {0}, {}},
+      TestCase{{2, 2, 1}, {2}, {2, 2}},
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 64);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  for (const auto &test : tests) {
+    for (bool useReduceMany : {false, true}) {
+      std::string reduceName = (useReduceMany ? "reduceMany" : "reduce");
+      Sequence prog({}, DebugContext{reduceName + "CheckProgsAreOptimised"});
+      Tensor in = graph.addVariable(FLOAT, test.inShape,
+                                    VariableMappingMethod::LINEAR, "in");
+      Tensor out = reduceWrapper(useReduceMany, graph, in, test.dims, prog);
+      BOOST_TEST(out.shape() == test.outShape);
+      // This is quicker and simpler than compiling the graph and iterating
+      // through the execution profile. However this is a terrible test
+      // because it will still pass if there's a copy and a bunch of junk.
+      // TODO: deserialize the JSON and check the results properly.
+      std::stringstream s;
+      dumpProgram(graph, prog, s);
+      auto progJson = s.str();
+      BOOST_TEST_MESSAGE(test << " with " << reduceName
+                              << " => progJson=" << progJson);
+      BOOST_TEST(progJson.find("Copy") != std::string::npos);
+      BOOST_TEST(progJson.find("Execute") == std::string::npos);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(ReduceCheckNoProgsNeeded) {
+  // When the output tensor is empty no reduction needs to happen.
+  const std::array<TestCase, 2> tests = {
+      TestCase{{2, 0, 1}, {2}, {2, 0}},
+      TestCase{{0, 1, 2}, {}, {0, 1, 2}},
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 64);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  for (const auto &test : tests) {
+    for (bool useReduceMany : {false, true}) {
+      std::string reduceName = (useReduceMany ? "reduceMany" : "reduce");
+      Sequence prog({}, DebugContext{reduceName + "CheckNoProgsNeeded"});
+      Tensor in = graph.addVariable(FLOAT, test.inShape,
+                                    VariableMappingMethod::LINEAR, "in");
+      Tensor out = reduceWrapper(useReduceMany, graph, in, test.dims, prog);
+      BOOST_TEST(out.shape() == std::vector<size_t>(test.outShape));
+      BOOST_TEST(out.numElements() == 0);
+      std::stringstream s;
+      dumpProgram(graph, prog, s);
+      auto progJson = s.str();
+      BOOST_TEST_MESSAGE(test << " with " << reduceName
+                              << " => progJson=" << progJson);
+      BOOST_TEST(progJson.find("Copy") == std::string::npos);
+      BOOST_TEST(progJson.find("Execute") == std::string::npos);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(ReduceCheckOutputFromEmptyInputIsFilled) {
+  // When the inputs are empty but the output tensor is not empty the
+  // output tensor needs to be created and filled with starting values
+  // using an Execute program.
+  const std::array<TestCase, 2> tests = {
+      TestCase{{0}, {0}, {}},
+      TestCase{{2, 0, 1}, {1}, {2, 1}},
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 64);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  for (const auto &test : tests) {
+    for (bool useReduceMany : {false, true}) {
+      std::string reduceName = (useReduceMany ? "reduceMany" : "reduce");
+      Sequence prog(
+          {}, DebugContext{reduceName + "CheckOutputFromEmptyInputIsFilled"});
+      Tensor in = graph.addVariable(FLOAT, test.inShape,
+                                    VariableMappingMethod::LINEAR, "in");
+      Tensor out = reduceWrapper(useReduceMany, graph, in, test.dims, prog);
+      BOOST_TEST(out.shape() == std::vector<size_t>(test.outShape));
+      BOOST_TEST(out.numElements() != 0);
+      std::stringstream s;
+      dumpProgram(graph, prog, s);
+      auto progJson = s.str();
+      BOOST_TEST_MESSAGE(test << " with " << reduceName
+                              << " => progJson=" << progJson);
+      BOOST_TEST(progJson.find("Copy") == std::string::npos);
+      BOOST_TEST(progJson.find("Execute") != std::string::npos);
+    }
   }
 }
 
