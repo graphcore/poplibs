@@ -742,23 +742,15 @@ beamSearchDecoderLogProbabilitiesImpl(
 
   // Create results and map, inserting a 3rd dimension so mapping functions can
   // be used
-  // TODO - More flexible mapping functions would remove the need for this
-  auto labelProbs = graph.addVariable(outType, {batchSize, topPaths, 1},
-                                      {di, "labelProbabilities"});
-  auto labelLengths = graph.addVariable(UNSIGNED_INT, {batchSize, topPaths, 1},
+  auto labelLengths = graph.addVariable(UNSIGNED_INT, {batchSize, topPaths},
                                         {di, "labelLengths"});
   auto decodedLabels = graph.addVariable(
       UNSIGNED_INT, {batchSize, topPaths, maxT}, {di, "decodedLabels"});
 
-  mapAccordingToPlan(graph, labelProbs, PartitionType::OUTPUT,
-                     plan.parallel.output, plan);
-  mapAccordingToPlan(graph, labelLengths, PartitionType::OUTPUT,
+  mapAccordingToPlan(graph, labelLengths.expand({2}), PartitionType::OUTPUT,
                      plan.parallel.output, plan);
   mapAccordingToPlan(graph, decodedLabels, PartitionType::OUTPUT,
                      plan.parallel.output, plan);
-  // Remove the 3rd dimension that was inserted
-  labelProbs.squeeze({2});
-  labelLengths.squeeze({2});
 
   auto outputCS = graph.addComputeSet({di, "output"});
   for (unsigned batch = 0; batch < batchSize; batch++) {
@@ -772,8 +764,13 @@ beamSearchDecoderLogProbabilitiesImpl(
   }
   prog.add(Execute(outputCS, di));
   // Combine probabilities for output (Log add of pb,pnb)
-  auto pb = beams.pb.slice(0, 1, 1);
-  auto pnb = beams.pnb.slice(0, 1, 1);
+  auto transform = [&](const Tensor &in) {
+    return in.slice(0, 1, 1)
+        .slice(0, topPaths, 2)
+        .reshape({batchSize, topPaths});
+  };
+  auto pb = transform(beams.pb);
+  auto pnb = transform(beams.pnb);
   // Implement a log add using elementwise operations,
   // when doing a logAdd(a,b) , we use min = min(a,b), max = max (a,b)
   // result =  exp( max + log(1 + exp(min - max)))
@@ -784,26 +781,24 @@ beamSearchDecoderLogProbabilitiesImpl(
   popops::mapInPlace(graph, _3 + Log(_4 + Exp(Min(_1, _2) - _3)),
                      {pb, pnb, max, plusOne}, prog, di);
 
-  labelProbs = pb;
-
-  auto labelProbsOut = [&]() {
+  auto labelProbs = [&]() {
     if (partialsType != outType) {
       poplar::DebugContext castDebug{di, "Cast"};
       auto castCS = graph.addComputeSet(castDebug);
-      auto probs = popops::cast(graph, labelProbs, outType, castCS, castDebug);
+      auto probs = popops::cast(graph, pb, outType, castCS, castDebug);
       prog.add(Execute(castCS, castDebug));
       return probs;
     } else {
-      return labelProbs;
+      return pb;
     };
   }();
 
-  di.addOutputs({{"labelProbs", poputil::toProfileValue(labelProbsOut)},
+  di.addOutputs({{"labelProbs", poputil::toProfileValue(labelProbs)},
                  {"labelLengths", poputil::toProfileValue(labelLengths)},
                  {"decodedLabels", poputil::toProfileValue(labelLengths)}});
 
   poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, di);
-  return {labelProbsOut, labelLengths, decodedLabels};
+  return {labelProbs, labelLengths, decodedLabels};
 }
 
 void printOp(std::string name, const poplar::Type &partialsType,

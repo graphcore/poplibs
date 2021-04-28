@@ -105,6 +105,24 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
           "BeamSearchLogProbabilities");
     }
   }();
+  // Check output dimensions
+  if (probsResult.rank() != 2 || lengthsResult.rank() != 2 ||
+      labelResult.rank() != 3) {
+    throw poputil::poplibs_error("Result tensor has the wrong rank");
+  }
+  if (probsResult.dim(0) != batchSize || probsResult.dim(1) != topPaths) {
+    throw poputil::poplibs_error(
+        "Result tensor probsResult has the wrong shape");
+  }
+  if (lengthsResult.dim(0) != batchSize || lengthsResult.dim(1) != topPaths) {
+    throw poputil::poplibs_error(
+        "Result tensor lengthsResult has the wrong shape");
+  }
+  if (labelResult.dim(0) != batchSize || labelResult.dim(1) != topPaths ||
+      labelResult.dim(2) != maxTime) {
+    throw poputil::poplibs_error(
+        "Result tensor labelResult has the wrong shape");
+  }
 
   // Create handles for reading the result
   std::vector<std::unique_ptr<char[]>> rawLabelResult(batchSize);
