@@ -281,21 +281,7 @@ void performCast(const bool isIpuModel, const HostSrcType a,
   if (devDstType == BOOL) {
     result = (a != 0);
   } else {
-    if constexpr (std::is_floating_point<HostSrcType>::value &&
-                  std::is_integral<HostDstType>::value) {
-      // On the device, the vertices that convert to a char type use directly
-      // f32to(u)i32 instruction (Round-To-Nearest, Ties-To-Even), while the
-      // vertices that convert to another integer type use 'f32int; f32toi32'
-      if (!isIpuModel && (devDstType == UNSIGNED_CHAR ||
-                          devDstType == SIGNED_CHAR || devDstType == CHAR)) {
-        // Note that 'nearbyint()' does Ties-To-Even, unlike 'round()'
-        result = static_cast<HostDstType>(std::nearbyint(a));
-      } else {
-        result = static_cast<HostDstType>(a);
-      }
-    } else {
-      result = static_cast<HostDstType>(a);
-    }
+    result = static_cast<HostDstType>(a);
   }
 }
 

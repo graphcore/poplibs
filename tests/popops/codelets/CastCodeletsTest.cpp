@@ -138,15 +138,6 @@ bool verifyTest(const Target &target, bool isIpuModel,
                 test.out.offsets);
   }
 
-  if (isIpuModel) {
-    std::fesetround(FE_TOWARDZERO);
-  } else {
-    // Currently the IPU has only 1 rounding mode for floating point to int
-    // conversions (f32toi32/f32toui32 instructions): Round-To-Nearest,
-    // Ties-To-Even (see use of 'nearbyint()' in 'performCast'
-    std::fesetround(FE_TONEAREST);
-  }
-
   // Check for mismatches on computed values
   unsigned errCount = 0; // how many mismatched elements we find
   unsigned numRows = sizes.size();

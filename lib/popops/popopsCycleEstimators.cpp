@@ -1641,9 +1641,9 @@ static uint64_t castWorkerCycles(const Target &target, const unsigned numElems,
       cycles += workCycles(2, 9, 7, 10, 0, 0);
       // CastToInt8.S:
     } else if (fromType == HALF) {
-      cycles += clampSetupCycles + workCycles(4, 15, 12, 13, 19, 26);
+      cycles += clampSetupCycles + workCycles(4, 19, 16, 14, 21, 29);
     } else if (fromType == FLOAT) {
-      cycles += clampSetupCycles + workCycles(4, 14, 10, 12, 19, 25);
+      cycles += clampSetupCycles + workCycles(4, 18, 14, 13, 21, 28);
     }
   } else {
     const auto dataPathWidth = target.getDataPathWidth() / 8;
