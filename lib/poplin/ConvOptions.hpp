@@ -65,7 +65,8 @@ public:
   bool insertTransformsCycleCountProgs = false;
   // Enables conversion table for transforms estimates
   bool enableTransformsConvTable = false;
-
+  // Gather convolution output to a single variable
+  bool gatherConvOutput = false;
   void parseConvOptions(const poplar::OptionFlags &options);
 
 private:
@@ -80,7 +81,7 @@ private:
       &ConvOptions::remapOutputTensor, &ConvOptions::enableConvDithering,
       &ConvOptions::disableTransformations,
       &ConvOptions::insertTransformsCycleCountProgs,
-      &ConvOptions::enableTransformsConvTable);
+      &ConvOptions::enableTransformsConvTable, &ConvOptions::gatherConvOutput);
 
 public:
   bool operator<(const ConvOptions &other) const {

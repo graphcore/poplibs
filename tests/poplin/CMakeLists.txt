@@ -2868,6 +2868,16 @@ add_multitarget_test(
                  --tiles-per-ipu=16)
 
 add_multitarget_test(
+         NAME conv_simple_gather_output
+         COMMAND single_conv_layer
+                 --field={45}
+                 --batch-size=4
+                 --input-channels=123
+                 --output-channels=63
+                 --convolution-options={\"gatherConvOutput\":\"true\"}
+                 --tiles-per-ipu=16)
+
+add_multitarget_test(
          NAME conv1d_simple
          COMMAND single_conv_layer
                   --field={40}
@@ -3388,6 +3398,17 @@ add_multitarget_test(
                 --tiles-per-ipu 16
                 --data-type=half
                 --matmul-options={\"use128BitConvUnitLoad\":\"true\"})
+
+
+add_multitarget_test(
+        NAME fully_connected_half_fwd_gather_output
+        COMMAND fully_connected_layer
+                --single-phase=fwd
+                --input-size 300
+                --output-size 100
+                --tiles-per-ipu 16
+                --data-type=half
+                --matmul-options={\"gatherOutput\":\"true\"})
 
 add_test(
          NAME fully_connected_half_two_ipu

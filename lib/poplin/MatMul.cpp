@@ -79,6 +79,7 @@ struct MatMulOptions {
   bool enableMultiStageReduce = true;
   bool enableFastReduce = false;
   bool remapOutputTensor = true;
+  bool gatherOutput = false;
   bool operator<(const MatMulOptions &other) const {
     using poplibs_support::makeStructHelper;
 
@@ -89,7 +90,8 @@ struct MatMulOptions {
         &MatMulOptions::inputRHSIsPreArranged,
         &MatMulOptions::use128BitConvUnitLoad,
         &MatMulOptions::enableMultiStageReduce,
-        &MatMulOptions::enableFastReduce, &MatMulOptions::remapOutputTensor);
+        &MatMulOptions::enableFastReduce, &MatMulOptions::remapOutputTensor,
+        &MatMulOptions::gatherOutput);
 
     return helper.lt(*this, other);
   }
@@ -149,6 +151,8 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
            matMulOptions.availableMemoryProportion)},
       {"planConstraints",
        OptionHandler::createWithString(matMulOptions.planConstraints)},
+      {"gatherOutput",
+       OptionHandler::createWithBool(matMulOptions.gatherOutput)},
   };
   for (const auto &entry : options) {
     matMulSpec.parse(entry.first, entry.second);
@@ -169,6 +173,7 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
                   options.enableFastReduce ? "true" : "false");
   convOptions.set("remapOutputTensor",
                   options.remapOutputTensor ? "true" : "false");
+  convOptions.set("gatherConvOutput", options.gatherOutput ? "true" : "false");
   convOptions.set("planConstraints", options.planConstraints);
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:

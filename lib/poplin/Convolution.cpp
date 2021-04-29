@@ -2597,6 +2597,15 @@ convolutionInternal(Graph &graph, const poplar::Tensor &in_,
                                  params->outputChannelsPerConvGroup, {dnai});
     }
   }
+
+  if (options.gatherConvOutput) {
+    logging::poplin::debug("Gathering output for {}", dnai.getPathName());
+    // If the output tensor is a slice of the output partials then this should
+    // be a copy to a clone. Otherwise should be elided by poplar.
+    output = poputil::duplicate(
+        graph, output, cpt.finalizeProg, {dnai, "outputGather"},
+        TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
+  }
   return output;
 }
 

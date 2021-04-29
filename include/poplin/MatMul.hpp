@@ -100,6 +100,9 @@ class PlanningCache;
  *    * `useAggressiveRegrouping` (true, false) [=false]
  *
  *      See createWeights().
+ *
+ *   * `gatherOutput` (true, false) [=false]
+ *     Gather output of the matrix multipy into a single variable
  */
 /** Matrix multiply with explicitly defined output type. */
 poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &A,
