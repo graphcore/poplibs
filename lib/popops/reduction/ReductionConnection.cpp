@@ -406,6 +406,45 @@ extractPartials(const RegionReductionRange reductions) {
   return result;
 }
 
+// Return a single tensor with all partials in the given range flattened
+// and concatenated.
+poplar::Tensor extractFlatPartials(const RegionReductionRange reductions) {
+  std::vector<poplar::Tensor> toConcat;
+  for (auto &red : reductions) {
+    if (red.regularPartials()) {
+      const auto partials = red.getPartials()[0];
+      for (unsigned i = 0; i < red.getNumOuterStrides(); ++i) {
+        const auto baseOffset = red.getOffset() + i * red.getOuterStride();
+        // innerElems is the number of contiguous elements we reference
+        // between each stride.
+        const auto innerElems = red.output.numElements() * red.innerFactor;
+        // We form a 2-dimensional shape from the stride and outerFactor
+        // and slice that to get all the partials. Because the partials
+        // tensor may be of length < outerFactor * stride we actually
+        // take 1 slice for (outerFactor - 1) of the contiguous regions
+        // and 1 slice for the last contiguous region.
+        const auto sizeOfFirstRegionToSlice =
+            (red.outerFactor - 1) * red.getStride();
+        if (sizeOfFirstRegionToSlice > 0) {
+          const auto regionToSlice =
+              partials.slice(baseOffset, baseOffset + sizeOfFirstRegionToSlice)
+                  .reshape({red.outerFactor - 1, red.getStride()});
+          toConcat.emplace_back(
+              regionToSlice.slice(0, innerElems, 1).flatten());
+        }
+        toConcat.emplace_back(
+            partials.slice(baseOffset + sizeOfFirstRegionToSlice,
+                           baseOffset + sizeOfFirstRegionToSlice + innerElems));
+      }
+    } else {
+      for (const auto &partial : red.getPartials()) {
+        toConcat.emplace_back(partial);
+      }
+    }
+  }
+  return concat(toConcat);
+}
+
 poplar::Tensor flattenAndCheckPartials(const poplar::Graph &graph,
                                        const RegionReductionRange reductions) {
   // Check that the partials can be received via exchange without
@@ -423,7 +462,7 @@ poplar::Tensor flattenAndCheckPartials(const poplar::Graph &graph,
       numBytes += p.numElements() * target.getTypeSize(p.elementType());
     }
   }
-  return concat(extractPartials({reductions.begin(), reductions.begin() + 1}));
+  return extractFlatPartials({reductions.begin(), reductions.begin() + 1});
 }
 
 static void createStridedReduceVertex(
@@ -623,7 +662,7 @@ createContinuousReductionVertex(poplar::Graph &graph,
   for (const auto &red : reductions) {
     outputs.push_back(red.output);
   }
-  auto singlePartials = concat(extractPartials(reductions));
+  auto singlePartials = extractFlatPartials(reductions);
   auto singleOutput = concat(outputs);
   graph.connect(vertex["partials"], singlePartials.flatten());
   graph.connect(vertex["out"], singleOutput.flatten());
@@ -2049,9 +2088,11 @@ static bool isStridedReduction(const poplar::Graph &graph,
     return true;
   }
 }
+
 static bool allRegionsContinuous(const poplar::Graph &graph,
                                  const RegionReductionRange regions,
                                  const ReduceParams &params,
+                                 const poplar::Type &partialsType,
                                  const bool reductionUsesInput) {
   boost::optional<unsigned> requiredPartialsElements;
   std::vector<poplar::Tensor> outputs;
@@ -2081,24 +2122,38 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
     outputs.push_back(red.output);
   }
   const auto singleOut = concat(outputs).isContiguous();
-  const auto allPartials = extractPartials(regions);
 
   bool nextIsMisaligned = false;
   bool partialsCopyIsCheap = true;
-  if (!concat(allPartials).isContiguous()) {
+  if (!extractFlatPartials(regions).isContiguous()) {
     const auto &target = graph.getTarget();
     const auto atomicWriteSize = target.getAtomicStoreGranularity();
-    for (const auto &p : allPartials) {
+    const auto bytesPerPartial = target.getTypeSize(partialsType);
+    for (const auto &red : regions) {
       // If not contiguous it should be possible to copy all the partials
       // together cheaply. This could be worthwhile even if the copy isn't this
       // cheap.
-      if (nextIsMisaligned) {
-        partialsCopyIsCheap = false;
-        break;
+      if (red.regularPartials()) {
+        if (nextIsMisaligned) {
+          partialsCopyIsCheap = false;
+          break;
+        }
+
+        const auto elemsPerRegion = red.innerFactor * red.output.numElements();
+        nextIsMisaligned = (elemsPerRegion * bytesPerPartial) % atomicWriteSize;
+      } else {
+        for (const auto &p : red.getPartials()) {
+          if (nextIsMisaligned) {
+            partialsCopyIsCheap = false;
+            break;
+          }
+          nextIsMisaligned =
+              (p.numElements() * bytesPerPartial) % atomicWriteSize;
+        }
+        if (!partialsCopyIsCheap) {
+          break;
+        }
       }
-      nextIsMisaligned =
-          (p.numElements() * target.getTypeSize(p.elementType())) %
-          atomicWriteSize;
     }
   }
   return singleOut && (partialsCopyIsCheap || (!reductionUsesInput));
@@ -2120,7 +2175,8 @@ ReductionSpecialisation getReductionVertexSpecialisation(
   // For LOG_ADD there is no assembler - don't let this restrict its use
   bool opIsLogAdd = params.op == Operation::LOG_ADD;
 
-  if (allRegionsContinuous(graph, regions, params, reductionUsesInput) &&
+  if (allRegionsContinuous(graph, regions, params, partialType,
+                           reductionUsesInput) &&
       (opIsAddOrSquareAdd || opIsMaxOrMin || opIsLogAdd)) {
     return ReductionSpecialisation::ALL_REGIONS_CONTINUOUS;
   } else if (isScalarOutputReduction(graph, params, regions) &&
