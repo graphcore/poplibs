@@ -153,50 +153,60 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
 
   poplibs_support::logging::popnn::debug("Planning CTCInference with:\n{}\n{}",
                                          plan.params, opts);
-  // Cannot split by time at the moment
-  plan.parallel.time = 1;
-  // Each batch occupies a separate set of tiles
-  plan.parallel.batch = batchSize;
 
-  // In place of a proper planner, the following parameters aid with scaling
-  // the tile allocation so that more things will fit, although can be slow.
-  // This allows for the cases where `tiles < batchSize * (numClasses-1)
-  //
-  // TODO: At the moment we require `tiles >= batchSize * beamwidth`
-  // for any input to fit.  The implementation and this partitioning will need
-  // to be modified to make that work.
   const auto target = graph.getTarget();
   const auto numWorkers = target.getNumWorkerContexts();
   const auto tiles = target.getTilesPerIPU();
+
+  // Cannot split by time at the moment
+  plan.parallel.time = 1;
+
+  // Plan using the following functions which aid with scaling the number of
+  // partitions. Ideally spread as much as possible for speed, but otherwise
+  // fewer partitions so that things will fit at the cost of speed.
+  auto findMaxPartitions = [](unsigned size, unsigned divisor) {
+    auto perPartition = poplibs_support::ceildiv(size, divisor);
+    return poplibs_support::ceildiv(size, perPartition);
+  };
+
+  auto findMaxBatchPartitions = [](unsigned size, unsigned divisor) {
+    auto perPartition = std::max(poplibs_support::ceildiv(size, divisor), 1u);
+    return poplibs_support::ceildiv(size, perPartition);
+  };
+
+  // Each batch entry occupies a separate set of tiles if possible but does
+  // not have to when the number of tiles is a limiting factor
+  plan.parallel.batch = findMaxBatchPartitions(batchSize, tiles);
   const auto tilesPerBatchEntry = tiles / plan.parallel.batch;
 
   // Extend candidate generation is partitioned by class. The blank class is
   // not part of an extend operation so use 1 class per partition.
   // 1 to `beamwidth` extend candidates are generated per partition
-  auto classesPerPartition =
-      poplibs_support::ceildiv(numClasses - 1, tilesPerBatchEntry);
-  plan.parallel.extend =
-      poplibs_support::ceildiv(numClasses - 1, classesPerPartition);
+  plan.parallel.extend = findMaxPartitions(numClasses - 1, tilesPerBatchEntry);
+
   // Within the extend partition we can choose how many vertices to use,
   // beamwidth is the most fragmented this can be.
   // For test, code the rule that we can use up to 5 workers, which is
   // efficient as we have used 1 worker to generate a copy candidate
   plan.parallel.extendVerticesPerPartition =
       std::min(beamwidth, numWorkers - 1);
+
   // Copy candidate generation is partitioned by beam.  One copy candidate is
   // generated per beam output
-  plan.parallel.copy = beamwidth;
+  plan.parallel.copy = findMaxPartitions(beamwidth, tilesPerBatchEntry);
 
   // Merge candidate generation is partitioned by beam
   // TODO - could be beam - 1 ?
-  plan.parallel.merge = beamwidth;
+  plan.parallel.merge = findMaxPartitions(beamwidth, tilesPerBatchEntry);
 
   // Selection of copy and extend beams spread over this many tiles for the
   // extend beam dimension
-  plan.parallel.preSelectExtend = beamwidth;
+  plan.parallel.preSelectExtend =
+      findMaxPartitions(beamwidth, tilesPerBatchEntry);
   // Selection of copy and extend beams spread over this many vertices for the
   // copy beam dimension
-  plan.parallel.preSelectCopy = beamwidth;
+  plan.parallel.preSelectCopy =
+      findMaxPartitions(beamwidth, tilesPerBatchEntry);
 
   // Sort - by most probable candidate
   if (opts.sortMethod == popnn::ctc::SortMethod::RANK) {
@@ -207,13 +217,13 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
 
     plan.parallel.sort = popnn::ctc::RankPartitions<unsigned>(
         {poplibs_support::ceildiv(candidatesToRank, rankingsPerPartition),
-         beamwidth});
+         findMaxPartitions(beamwidth, tilesPerBatchEntry)});
   } else {
     plan.parallel.sort = popnn::ctc::SelectPartitions<unsigned>({1});
   }
 
   // For output generation
-  plan.parallel.output = beamwidth;
+  plan.parallel.output = findMaxPartitions(beamwidth, tilesPerBatchEntry);
 
   return std::make_unique<ctc::Plan::Impl>(ctc::Plan::Impl{std::move(plan)});
 }

@@ -1299,11 +1299,9 @@ endforeach()
 
 # Verify ctc beam search with tile constraints
 # Ensure that the number of classes results in tests where
-# tiles < batch_size * num_classes
-# TODO - Add tests to cover cases where tiles < batch_size * beamwidth once this
-# is made to work
-foreach(batch_size 1 2 4)
-  foreach(num_tiles 8 16)
+# tiles < batch_size
+foreach(batch_size 1 2 4 8)
+  foreach(num_tiles 1 2 3 )
     add_multitarget_test(
       NAME ctc_beam_search_tile_constraint_batch${batch_size}_tiles${num_tiles}
         COMMAND ctc_beam_search

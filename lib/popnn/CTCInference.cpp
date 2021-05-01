@@ -33,7 +33,18 @@ using namespace popops::expr;
 using namespace poputil;
 
 template <unsigned size> using Slice = std::array<std::size_t, size>;
-enum class PartitionType { BATCH_ENTRY, COPY, EXTEND, MERGE, SORT, OUTPUT };
+enum class PartitionType {
+  BATCH,
+  BATCH_ENTRY,
+  COPY,
+  EXTEND,
+  MERGE,
+  PRE_SELECT_COPY,
+  PRE_SELECT_EXTEND,
+  SORT,
+  SORT_REDUCE,
+  OUTPUT
+};
 
 namespace {
 
@@ -93,23 +104,33 @@ void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
   }
 }
 
-inline poplar::Interval makePartition(unsigned size, unsigned index,
-                                      PartitionType partitionType,
-                                      const popnn::ctc::InferencePlan &plan) {
-  switch (partitionType) {
+using PartitionFn = Interval (popnn::ctc::InferencePlan::*)(unsigned,
+                                                            unsigned) const;
+
+PartitionFn getPartitionFunction(PartitionType type) {
+  switch (type) {
+  case PartitionType::BATCH:
+    return &popnn::ctc::InferencePlan::partitionBatch;
   case PartitionType::BATCH_ENTRY:
-    return plan.partitionBatchEntry(size, index);
-  case PartitionType::MERGE:
-    return plan.partitionMerge(size, index);
-  case PartitionType::EXTEND:
-    return plan.partitionExtend(size, index);
+    return &popnn::ctc::InferencePlan::partitionBatchEntry;
   case PartitionType::COPY:
-    return plan.partitionCopy(size, index);
+    return &popnn::ctc::InferencePlan::partitionCopy;
+  case PartitionType::EXTEND:
+    return &popnn::ctc::InferencePlan::partitionExtend;
+  case PartitionType::MERGE:
+    return &popnn::ctc::InferencePlan::partitionMerge;
+  case PartitionType::PRE_SELECT_COPY:
+    return &popnn::ctc::InferencePlan::partitionPreSelectCopy;
+  case PartitionType::PRE_SELECT_EXTEND:
+    return &popnn::ctc::InferencePlan::partitionPreSelectExtend;
   case PartitionType::SORT:
-    return plan.partitionSort(size, index);
-  default:
-    return plan.partitionOutput(size, index);
+    return &popnn::ctc::InferencePlan::partitionSort;
+  case PartitionType::SORT_REDUCE:
+    return &popnn::ctc::InferencePlan::partitionSortReduce;
+  case PartitionType::OUTPUT:
+    return &popnn::ctc::InferencePlan::partitionOutput;
   };
+  POPLIB_UNREACHABLE();
 }
 
 void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
@@ -122,13 +143,13 @@ void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
   const auto batchSize = tensor.dim(0);
   const auto partitionedDimSize = tensor.dim(1);
   const auto innermostDimSize = tensor.dim(2);
+  const auto partitionFunction = getPartitionFunction(partitionType);
 
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     for (unsigned partition = 0; partition < totalPartitions; partition++) {
       auto tile = plan.getTile(batch, 0, partition);
       auto b = plan.partitionBatch(batchSize, batch);
-      auto p =
-          makePartition(partitionedDimSize, partition, partitionType, plan);
+      auto p = (plan.*partitionFunction)(partitionedDimSize, partition);
       graph.setTileMapping(tensor.slice({b.begin(), p.begin(), 0},
                                         {b.end(), p.end(), innermostDimSize}),
                            tile);
@@ -147,6 +168,7 @@ void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
   const auto totalPartitions = tensor.dim(1);
   const auto timeSize = tensor.dim(2);
   const auto innermostDimSize = tensor.dim(3);
+  const auto partitionFunction = getPartitionFunction(partitionType);
 
   for (unsigned partition = 0; partition < plan.batchEntryPartitions();
        partition++) {
@@ -155,7 +177,7 @@ void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
 
         auto tile = plan.getTile(batch, time, partition);
         auto b = plan.partitionBatch(batchSize, batch);
-        auto p = makePartition(totalPartitions, partition, partitionType, plan);
+        auto p = (plan.*partitionFunction)(totalPartitions, partition);
         auto t = plan.partitionTime(timeSize, time);
         graph.setTileMapping(
             tensor.slice({b.begin(), p.begin(), t.begin(), 0},
@@ -286,8 +308,7 @@ TempTensors createAndInitialiseTemporaryTensors(
                            PartitionType::SORT, sort.rank, plan);
       });
 
-  const std::vector<size_t> mergeTensorsShape = {batchSize, plan.parallel.merge,
-                                                 1};
+  const std::vector<size_t> mergeTensorsShape = {batchSize, beamwidth, 1};
   for (unsigned i = 0; i < beamwidth; i++) {
 
     boost::apply_visitor(mapSortedCandidates, plan.parallel.sort);
@@ -425,6 +446,50 @@ BeamTensors createAndInitialiseBeamTensors(
   }
   return beamTensors;
 }
+// A class to manage incrementing a variable and providing the partition that
+// variable's value is in.  For example:
+// batchSize =  5, 3 partitions with size 2, 2, 1
+// [partitionIdx = 0,idx = 0], [0,1], [1,2], [1,3], [2,4]
+struct PartitionIdx {
+  unsigned partitionIdx;
+  unsigned idx;
+};
+bool operator!=(PartitionIdx a, PartitionIdx b) { return a.idx != b.idx; }
+
+class PartitionCounter {
+  Interval partition;
+  const popnn::ctc::InferencePlan &plan;
+  const unsigned size;
+  PartitionFn partitionFunction;
+  PartitionIdx indices;
+
+public:
+  PartitionCounter(const popnn::ctc::InferencePlan &inPlan, unsigned inSize,
+                   PartitionType partitionType)
+      : plan(inPlan), size(inSize) {
+    indices.partitionIdx = 0;
+    indices.idx = 0;
+    partitionFunction = getPartitionFunction(partitionType);
+    partition = (plan.*partitionFunction)(size, indices.partitionIdx);
+  };
+
+  PartitionIdx next(void) {
+    indices.idx++;
+    if (indices.idx == partition.end()) {
+      indices.partitionIdx++;
+      partition = (plan.*partitionFunction)(size, indices.partitionIdx);
+    }
+    return indices;
+  }
+  PartitionIdx begin(void) {
+    indices.partitionIdx = 0;
+    indices.idx = 0;
+    partition = (plan.*partitionFunction)(size, indices.partitionIdx);
+    return indices;
+  }
+
+  PartitionIdx end(void) { return PartitionIdx{size, size}; }
+};
 
 Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
                             const Tensor &data, const BeamTensors &beams,
@@ -432,7 +497,7 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
                             unsigned beamwidth,
                             const poplar::DebugContext &di) {
 
-  const auto batchSize = data.dim(0);
+  const unsigned batchSize = data.dim(0);
   const auto maxT = data.dim(2);
   const auto numClasses = data.dim(3);
   const auto numClassesM1 = numClasses - 1;
@@ -440,38 +505,35 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
 
   // Generate candidates in the 1st compute set
   auto cs1 = graph.addComputeSet(di);
-  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+  PartitionCounter batch(plan, batchSize, PartitionType::BATCH);
+  for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
     // Extend candidates
-    for (unsigned p = 0; p < plan.parallel.extend; p++) {
-      const auto partition = plan.partitionExtend(numClassesM1, p);
-      const unsigned tile = plan.getTile(batch, 0, p);
-      for (unsigned c = partition.begin(); c < partition.end(); c++) {
-        const unsigned addendClass = c >= blankClass ? c + 1 : c;
-        for (unsigned v = 0; v < plan.parallel.extendVerticesPerPartition;
-             v++) {
-          const auto beamPartition = plan.partitionExtendVertices(beamwidth, v);
-          generateExtendCandidateVertex(
-              graph, data, beams, tempTensors, cs1, batch, {0, maxT}, c, p,
-              blankClass, beamwidth, beamPartition, addendClass, tile);
-        }
+    PartitionCounter extend(plan, numClassesM1, PartitionType::EXTEND);
+    for (auto e = extend.begin(); e != extend.end(); e = extend.next()) {
+      const unsigned tile = plan.getTile(b.partitionIdx, 0, e.partitionIdx);
+      const unsigned addendClass = e.idx >= blankClass ? e.idx + 1 : e.idx;
+      for (unsigned v = 0; v < plan.parallel.extendVerticesPerPartition; v++) {
+        const auto beamPartition = plan.partitionExtendVertices(beamwidth, v);
+        generateExtendCandidateVertex(graph, data, beams, tempTensors, cs1,
+                                      b.idx, {0, maxT}, e.idx, e.partitionIdx,
+                                      blankClass, beamwidth, beamPartition,
+                                      addendClass, tile);
       }
     }
     // Copy candidates
-    for (unsigned p = 0; p < plan.parallel.copy; p++) {
-      const auto partition = plan.partitionCopy(beamwidth, p);
-      const unsigned tile = plan.getTile(batch, 0, p);
-      for (unsigned c = partition.begin(); c < partition.end(); c++) {
-        generateCopyCandidateVertex(graph, data, beams, tempTensors, cs1, batch,
-                                    {0, maxT}, c, p, blankClass, beamwidth,
-                                    tile);
-      }
+    PartitionCounter copy(plan, beamwidth, PartitionType::COPY);
+    for (auto c = copy.begin(); c != copy.end(); c = copy.next()) {
+      const unsigned tile = plan.getTile(b.partitionIdx, 0, c.partitionIdx);
+      generateCopyCandidateVertex(graph, data, beams, tempTensors, cs1, b.idx,
+                                  {0, maxT}, c.idx, c.partitionIdx, blankClass,
+                                  beamwidth, tile);
     }
   }
   prog.add(Execute(cs1, di));
 
   // Broadcast the copy candidates into the vectors of merge candidates
   auto transform = [=](const Tensor &in, unsigned i) {
-    return in.slice(i, i + 1, 1).expand({1}).broadcast(plan.parallel.merge, 1);
+    return in.slice(i, i + 1, 1).expand({1}).broadcast(beamwidth, 1);
   };
 
   for (unsigned i = 0; i < beamwidth; i++) {
@@ -489,12 +551,14 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
 
   // Merge candidates in the 2nd compute set
   auto cs2 = graph.addComputeSet(di);
-  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+  for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
     for (unsigned copy = 0; copy < beamwidth; copy++) {
-      for (unsigned merge = 0; merge < plan.parallel.merge; merge++) {
-        const unsigned tile = plan.getTile(batch, 0, merge);
-        mergeCandidateVertex(graph, beams, tempTensors, cs2, batch, {0, maxT},
-                             merge, copy, blankClass, beamwidth, tile);
+      PartitionCounter merge(plan, beamwidth, PartitionType::MERGE);
+      for (auto m = merge.begin(); m != merge.end(); m = merge.next()) {
+        const unsigned tile = plan.getTile(b.partitionIdx, 0, m.partitionIdx);
+        mergeCandidateVertex(graph, beams, tempTensors, cs2, b.idx, {0, maxT},
+                             m.idx, copy, m.partitionIdx, blankClass, beamwidth,
+                             tile);
       }
     }
   }
@@ -503,17 +567,18 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   // Select the merged copy candidates, and zero the probability of merged
   // extend candidates in the 3rd compute set
   auto cs3 = graph.addComputeSet(di);
-  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
-    for (unsigned copy = 0; copy < plan.parallel.preSelectCopy; copy++) {
-      const unsigned tile = plan.getTile(batch, 0, copy);
-      selectCopyCandidateVertex(graph, tempTensors, cs3, batch, copy, beamwidth,
-                                tile);
+  for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
+    PartitionCounter copy(plan, beamwidth, PartitionType::PRE_SELECT_COPY);
+    for (auto c = copy.begin(); c != copy.end(); c = copy.next()) {
+      const unsigned tile = plan.getTile(b.partitionIdx, 0, c.partitionIdx);
+      selectCopyCandidateVertex(graph, tempTensors, cs3, b.idx, c.idx,
+                                c.partitionIdx, beamwidth, tile);
     }
-    for (unsigned extend = 0; extend < plan.parallel.preSelectExtend;
-         extend++) {
-      const unsigned tile = plan.getTile(batch, 0, extend);
-      selectExtendCandidateVertex(graph, tempTensors, cs3, batch, extend,
-                                  beamwidth, blankClass, tile);
+    PartitionCounter extend(plan, beamwidth, PartitionType::PRE_SELECT_EXTEND);
+    for (auto e = extend.begin(); e != extend.end(); e = extend.next()) {
+      const unsigned tile = plan.getTile(b.partitionIdx, 0, e.partitionIdx);
+      selectExtendCandidateVertex(graph, tempTensors, cs3, b.idx, e.idx,
+                                  e.partitionIdx, beamwidth, blankClass, tile);
     }
   }
   prog.add(Execute(cs3, di));
@@ -526,10 +591,11 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
       poplibs_support::make_visitor<void>(
           [&](const popnn::ctc::SelectPartitions<unsigned> &sort) {
             auto cs4 = graph.addComputeSet(di);
-            for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+            PartitionCounter batch(plan, batchSize, PartitionType::BATCH);
+            for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
               for (unsigned select = 0; select < sort.select; select++) {
-                const unsigned tile = plan.getTile(batch, 0, select);
-                selectCandidatesVertex(graph, tempTensors, cs4, batch, 0,
+                const unsigned tile = plan.getTile(b.partitionIdx, 0, select);
+                selectCandidatesVertex(graph, tempTensors, cs4, b.idx, 0,
                                        candidatesToCompare, beamwidth, tile);
               }
             }
@@ -560,30 +626,35 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
             // Rank step 2 -  rank each candidate, writing into the partition's
             // result if in the top beamwidth rankings
             auto cs4a = graph.addComputeSet(di);
-            for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+            PartitionCounter batch(plan, batchSize, PartitionType::BATCH);
+            for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
               for (unsigned ranking = 0; ranking < sort.rank; ranking++) {
-                const unsigned tile = plan.getTile(batch, 0, ranking);
+                const unsigned tile = plan.getTile(b.partitionIdx, 0, ranking);
                 const auto perPartition =
                     ceildiv(candidatesToCompare, sort.rank);
                 const auto first = perPartition * ranking;
                 const auto last =
                     std::min(perPartition * (ranking + 1), candidatesToCompare);
 
-                rankCandidatesVertex(graph, tempTensors, cs4a, batch, ranking,
+                rankCandidatesVertex(graph, tempTensors, cs4a, b.idx, ranking,
                                      candidatesToCompare, {first, last},
                                      beamwidth, tile);
               }
             }
             prog.add(Execute(cs4a, di));
 
-            // Rank step 3 - reduce all the partiton's results down to 1 result
+            // Rank step 3 - reduce all the partition's results down to 1 result
             // (beamwidth values) per batch entry
             auto cs4b = graph.addComputeSet(di);
-            for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
-              for (unsigned reduce = 0; reduce < sort.reduce; reduce++) {
-                const auto tile = plan.getTile(batch, 0, reduce);
-                reduceCandidatesVertex(graph, tempTensors, cs4b, batch, reduce,
-                                       sort.rank, tile);
+            for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
+              PartitionCounter reduce(plan, beamwidth,
+                                      PartitionType::SORT_REDUCE);
+              for (auto r = reduce.begin(); r != reduce.end();
+                   r = reduce.next()) {
+                const auto tile =
+                    plan.getTile(b.partitionIdx, 0, r.partitionIdx);
+                reduceCandidatesVertex(graph, tempTensors, cs4b, b.idx, r.idx,
+                                       r.partitionIdx, sort.rank, tile);
               }
             }
             prog.add(Execute(cs4b, di));
@@ -597,10 +668,10 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   // Update beam history and probabilities in the 5th compute set
   auto cs5 = graph.addComputeSet(di);
   const unsigned sortedResultOffset = plan.parallel.copy * (beamwidth - 1);
-  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+  for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
     for (unsigned beam = 0; beam < plan.batchEntryPartitions(); beam++) {
-      const unsigned tile = plan.getTile(batch, 0, beam);
-      updateVertex(graph, beams, tempTensors, cs5, batch, {0, maxT}, beam,
+      const unsigned tile = plan.getTile(b.partitionIdx, 0, beam);
+      updateVertex(graph, beams, tempTensors, cs5, b.idx, {0, maxT}, beam,
                    sortedResultOffset, beamwidth, tile);
     }
   }
@@ -753,13 +824,14 @@ beamSearchDecoderLogProbabilitiesImpl(
                      plan.parallel.output, plan);
 
   auto outputCS = graph.addComputeSet({di, "output"});
-  for (unsigned batch = 0; batch < batchSize; batch++) {
-    for (unsigned path = 0; path < topPaths; path++) {
-      unsigned tile = plan.getTile(batch, 0, path);
-      unsigned partition = path;
+  PartitionCounter batch(plan, batchSize, PartitionType::BATCH);
+  for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
+    PartitionCounter output(plan, topPaths, PartitionType::OUTPUT);
+    for (auto o = output.begin(); o != output.end(); o = output.next()) {
+      const unsigned tile = plan.getTile(b.partitionIdx, 0, o.partitionIdx);
       generateOutputVertex(graph, beams, tempTensors, decodedLabels,
-                           labelLengths, outputCS, batch, beamwidth, numClasses,
-                           partition, path, tile);
+                           labelLengths, outputCS, b.idx, o.idx, o.partitionIdx,
+                           beamwidth, numClasses, tile);
     }
   }
   prog.add(Execute(outputCS, di));

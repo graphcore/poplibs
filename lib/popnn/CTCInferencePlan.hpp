@@ -4,6 +4,7 @@
 #define popnn_CTCInferencePlan_hpp
 
 #include <poplibs_support/Algorithm.hpp>
+#include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/Visitor.hpp>
 #include <popnn/CTCInference.hpp>
 
@@ -41,7 +42,7 @@ template <typename T> struct CtcInferencePartition {
   // Extend candidates from a beam with all classes: E[0..], E[1..]
 
   // ***************** Overall parameters  *****************
-  // At present this is simply the batch size
+  // Number of partitions to divide the batchSize into.
   T batch;
   // The number of partitions of the time dimension in the implementation.
   // At present this is always 1
@@ -213,6 +214,15 @@ public:
     return partition(copySize, parallel.copy, index);
   }
 
+  poplar::Interval partitionPreSelectCopy(unsigned copySize,
+                                          unsigned index) const {
+    return partition(copySize, parallel.preSelectCopy, index);
+  }
+  poplar::Interval partitionPreSelectExtend(unsigned extendSize,
+                                            unsigned index) const {
+    return partition(extendSize, parallel.preSelectExtend, index);
+  }
+
   poplar::Interval partitionExtend(unsigned extendSize, unsigned index) const {
     return partition(extendSize, parallel.extend, index);
   }
@@ -225,7 +235,21 @@ public:
             },
             [&](const SelectPartitions<unsigned> &sort) {
               return partition(sortSize, sort.select, index);
-              ;
+            }),
+        parallel.sort);
+  }
+
+  poplar::Interval partitionSortReduce(unsigned sortSize,
+                                       unsigned index) const {
+    return boost::apply_visitor(
+        poplibs_support::make_visitor<poplar::Interval>(
+            [&](const RankPartitions<unsigned> &sort) {
+              return partition(sortSize, sort.reduce, index);
+            },
+            [&](const SelectPartitions<unsigned> &sort) {
+              // No member to partition
+              POPLIB_UNREACHABLE();
+              return partition(0, 0, 0);
             }),
         parallel.sort);
   }

@@ -90,20 +90,21 @@ void mergeCandidateVertex(poplar::Graph &graph, const BeamTensors &beams,
                           const TempTensors &tempTensors,
                           poplar::ComputeSet &cs, unsigned batch,
                           const poplar::Interval &time,
-                          unsigned extendPartition, unsigned beamPartition,
-                          unsigned blankClass, unsigned beamwidth,
-                          unsigned tile);
+                          unsigned extendPartition, unsigned copyPartition,
+                          unsigned beamPartition, unsigned blankClass,
+                          unsigned beamwidth, unsigned tile);
 
 void selectCopyCandidateVertex(poplar::Graph &graph,
                                const TempTensors &tempTensors,
                                poplar::ComputeSet &cs, unsigned batch,
-                               unsigned copyPartition,
+                               unsigned copyPartition, unsigned beamPartition,
                                unsigned numCopyCandidates, unsigned tile);
 
 void selectExtendCandidateVertex(poplar::Graph &graph,
                                  const TempTensors &tempTensors,
                                  poplar::ComputeSet &cs, unsigned batch,
                                  unsigned extendPartition,
+                                 unsigned beamPartition,
                                  unsigned numCopyCandidates,
                                  unsigned blankClass, unsigned tile);
 
@@ -122,8 +123,8 @@ void rankCandidatesVertex(poplar::Graph &graph, const TempTensors &tempTensors,
 void reduceCandidatesVertex(poplar::Graph &graph,
                             const TempTensors &tempTensors,
                             poplar::ComputeSet &cs, unsigned batch,
-                            unsigned partition, unsigned candidatesToReduce,
-                            unsigned tile);
+                            unsigned partition, unsigned beamPartition,
+                            unsigned candidatesToReduce, unsigned tile);
 
 void updateVertex(poplar::Graph &graph, const BeamTensors &beams,
                   const TempTensors &tempTensors, poplar::ComputeSet &cs,
@@ -135,9 +136,9 @@ void generateOutputVertex(poplar::Graph &graph, const BeamTensors &beams,
                           const TempTensors &tempTensors,
                           const poplar::Tensor &labels,
                           const poplar::Tensor &labelLengths,
-                          poplar::ComputeSet &cs, unsigned batch,
-                          unsigned beamwidth, unsigned numClassesIncBlank,
-                          unsigned partition, unsigned path, unsigned tile);
+                          poplar::ComputeSet &cs, unsigned batch, unsigned path,
+                          unsigned partition, unsigned beamwidth,
+                          unsigned numClassesIncBlank, unsigned tile);
 
 } // namespace ctc_infer
 } // end namespace popnn
