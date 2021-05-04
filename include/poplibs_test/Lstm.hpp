@@ -4,6 +4,7 @@
 #define poplibs_test_Lstm_hpp
 
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
 #include <popnn/LstmDef.hpp>
 #include <popnn/NonLinearityDef.hpp>
 
@@ -41,6 +42,10 @@ namespace lstm {
  *                            dimension
  *                            [LSTM_NUM_FWD_STATES][sequenceSize][batchSize]
  *                            [outputSize]
+ * \param lastOutput          Output after the final time step, of shape
+ *                            [batchSize][outputSize]
+ * \param lastCellState       Final cell state, of shape
+ *                            [batchSize][outputSize]
  * \param cellOrder           The order that the weights for each gate are
  *                            stored in the input.
  * \param activation          Activation function.
@@ -52,15 +57,18 @@ void basicLstmCellForwardPass(
     const boost::multi_array_ref<double, 2> prevOutput,
     const boost::multi_array_ref<double, 3> weightsInput,
     const boost::multi_array_ref<double, 3> weightsOutput,
+    const boost::optional<boost::multi_array_ref<unsigned, 1>> &timeSteps,
     boost::multi_array_ref<double, 2> prevCellState,
     boost::multi_array_ref<double, 4> state,
+    boost::multi_array_ref<double, 2> lastOutput,
+    boost::multi_array_ref<double, 2> lastCellState,
     const std::vector<BasicLstmCellUnit> &cellOrder,
     const popnn::NonLinearityType activation,
     const popnn::NonLinearityType recurrentActivation);
 
 /** Run backward pass given forward sequence
  *
- * \param outputFullSequence  if true, the all sequence of outputs will be
+ * \param outputFullSequence  if true, the full sequence of outputs will be
  *                            returned, otherwise, only the output of the last
  *                            cell will be returned.
  * \param weightsInput        Input weights
@@ -77,11 +85,16 @@ void basicLstmCellForwardPass(
  * \param bwdState            Backward state returned by this function
  *                            shape:[LSTM_NUM_BWD_STATES][sequence]
  *                                  [batch][output ch]
- * \param gradsPrevLayer      Gradients for previous layer computed by this
- * function shape: [sequence][batch][input ch] \param cellOrder           The
- * order that the weights for each gate are stored in the input. \param
- * activation          Activation function. \param recurrentActivation Recurrent
- * activation function.
+ * \param gradsPrevIn         Gradients for previous input computed by this
+ *                            function shape: [sequence][batch][input ch]
+ * \param gradsPrevOut        Gradients for previous output computed by this
+ *                            function shape: [sequence][batch][output ch]
+ * \param gradsPrevCellState  Gradients for previous cell state computed by this
+ *                            function shape: [sequence][batch][output ch]
+ * \param cellOrder           The order that the weights for each gate are
+ *                            stored in the input.
+ * \param activation          Activation function.
+ * \param recurrentActivation Recurrent activation function.
  */
 void basicLstmCellBackwardPass(
     bool outputFullSequence,
@@ -90,8 +103,11 @@ void basicLstmCellBackwardPass(
     const boost::multi_array_ref<double, 3> gradsNextLayer,
     const boost::multi_array_ref<double, 2> prevCellState,
     const boost::multi_array_ref<double, 4> fwdState,
+    const boost::optional<boost::multi_array_ref<unsigned, 1>> &timeSteps,
     boost::multi_array_ref<double, 4> bwdState,
-    boost::multi_array_ref<double, 3> gradsPrevLayer,
+    boost::multi_array_ref<double, 3> gradsPrevIn,
+    const boost::multi_array_ref<double, 2> gradPrevOut,
+    const boost::multi_array_ref<double, 2> gradsPrevCellState,
     const std::vector<BasicLstmCellUnit> &cellOrder,
     const popnn::NonLinearityType activation,
     const popnn::NonLinearityType recurrentActivation);

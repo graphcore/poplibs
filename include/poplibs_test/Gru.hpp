@@ -44,6 +44,8 @@ namespace gru {
  *                            dimension
  *                            [GRU_NUM_FWD_STATES][sequenceSize][batchSize]
  *                            [outputSize]
+ * \param lastOutput          Output after the final time step, of shape
+ *                            [batchSize][outputSize]
  * \param cellOrder           The order that the weights for each gate are
  *                            stored in the input
  * \param resetAfter          Whether to apply the reset gate after the matrix
@@ -56,14 +58,15 @@ namespace gru {
  * \param recurrentActivation Recurrent activation function.
  */
 void basicGruCellForwardPass(
-    bool outputFullSequence, const boost::multi_array_ref<double, 3> input,
+    const boost::multi_array_ref<double, 3> input,
     const boost::multi_array_ref<double, 2> biases,
     const boost::multi_array_ref<double, 2> prevOutput,
     const boost::multi_array_ref<double, 3> weightsInput,
     const boost::multi_array_ref<double, 3> weightsOutput,
     const boost::optional<boost::multi_array_ref<double, 2>> &attScoresOpt,
-    const boost::optional<boost::multi_array_ref<int, 1>> &realTimeStepsOpt,
+    const boost::optional<boost::multi_array_ref<unsigned, 1>> &timeSteps,
     boost::multi_array_ref<double, 4> state,
+    boost::multi_array_ref<double, 2> lastOutput,
     const std::vector<BasicGruCellUnit> &cellOrder, bool resetAfter = false,
     const boost::optional<boost::multi_array_ref<double, 2>> recurrantBiases =
         boost::none,
@@ -73,7 +76,7 @@ void basicGruCellForwardPass(
 
 /** Run backward pass given forward sequence
  *
- * \param outputFullSequence if true, the all sequence of outputs will be
+ * \param outputFullSequence if true, the full sequence of outputs will be
  *                           returned, otherwise, only the output of the last
  *                           cell will be returned.
  * \param weightsInput    Input weights
@@ -91,8 +94,11 @@ void basicGruCellForwardPass(
  * \param bwdState        Backward state returned by this function
  *                        shape:[GRU_NUM_BWD_STATES][sequence]
  *                              [batch][output ch]
- * \param gradsPrevLayer  Gradients for previous layer computed by this function
+ * \param gradsPrevIn     Gradients for previous layer computed by this function
  *                        shape: [sequence][batch][input ch]
+ * \param gradsPrevOut    The gradient computed by this function of the layer
+ *                        that precedes the earliest layer computed.
+ *                        shape: [batch][output ch]
  * \param cellOrder       The order that the weights for each gate are
  *                        stored in the input
  * \param resetAfter      Whether the reset gate was applied after the matrix
@@ -111,11 +117,12 @@ void basicGruCellBackwardPass(
     const boost::multi_array_ref<double, 3> gradsNextLayer,
     const boost::multi_array_ref<double, 4> fwdState,
     const boost::multi_array_ref<double, 2> outputActsInit,
-    const boost::optional<boost::multi_array_ref<int, 1>> &realTimeStepsOpt,
+    const boost::optional<boost::multi_array_ref<unsigned, 1>> &timeSteps,
     const boost::optional<boost::multi_array_ref<double, 2>> &attScoresOpt,
     const boost::optional<boost::multi_array_ref<double, 2>> &attScoresGradsOpt,
     boost::multi_array_ref<double, 4> bwdState,
-    boost::multi_array_ref<double, 3> gradsPrevLayer,
+    boost::multi_array_ref<double, 3> gradsPrevIn,
+    boost::multi_array_ref<double, 2> gradsPrevOut,
     const std::vector<BasicGruCellUnit> &cellOrder, bool resetAfter = false,
     const boost::optional<boost::multi_array_ref<double, 2>> recurrantBiases =
         boost::none,

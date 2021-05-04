@@ -134,6 +134,7 @@ int main(int argc, char **argv) {
   unsigned runs = 1;
   std::string profileDir = ".";
   double availableMemoryProportion;
+  ShapeOption<std::size_t> variableTimeStepsOption;
   ShapeOption<std::string> cellOrder;
   boost::optional<std::string> jsonProfileOut;
   boost::optional<std::string> profileFormat;
@@ -164,6 +165,10 @@ int main(int argc, char **argv) {
      "Profile formats: v1 | experimental | unstable")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
+    ("variable-time-steps",
+     po::value<ShapeOption<std::size_t>>(&variableTimeStepsOption),
+     "Variable time steps could either be a scalar value or tensor of "
+     "batch-size length")
     ("shards", po::value<unsigned>(&numShards),
      "The number of shards")
     ("code-reuse",
@@ -287,8 +292,21 @@ int main(int argc, char **argv) {
       pass == poplibs_test::Pass::ALL || pass == poplibs_test::Pass::WU;
   bool fwdOnly = !doBwdPass && !doWuPass;
 
+  auto &varTimeSteps = variableTimeStepsOption.val;
+  if ((varTimeSteps.size() > 1) && (varTimeSteps.size() != batchSize)) {
+    throw poputil::poplibs_error("timeSteps must either be a scalar or a "
+                                 "tensor of batch-size length");
+  }
+  Tensor timeSteps;
+  if (varTimeSteps.size()) {
+    timeSteps = graph.addVariable(UNSIGNED_INT, {varTimeSteps.size()},
+                                  "var-time-steps");
+    mapTensorLinearly(graph, timeSteps);
+  }
+
   poplin::matmul::PlanningCache cache;
   lstm::LstmParams params(dataType, batchSize, sequenceSize,
+                          timeSteps.valid() ? &timeSteps : nullptr,
                           {inputSize, outputSize}, activation,
                           recurrentActivation);
   params.outputFullSequence = outputAllSequence;
@@ -349,23 +367,29 @@ int main(int argc, char **argv) {
   Tensor prevLayerGrads;
   Tensor *inputGrad = ignoreInputGradient ? nullptr : &prevLayerGrads;
   lstm::LstmWeights weightGrads;
+  Tensor lastGradLayerOut;
+  Tensor lastGradCellState;
   if (doBwdPass || doWuPass) {
     const Tensor *lastCellStateGradPtr = nullptr;
     const Tensor nextGrad =
         params.outputFullSequence ? nextLayerGrads : nextLayerGrads[0];
+    lstm::LstmState lastGradLayer;
     if (doWuPass) {
-      lstm::lstmBwdWithWU(graph, params, prog, fwdStateInit, fwdIntermediates,
-                          weights, input, fwdOutputSeq, nextGrad,
-                          lastCellStateGradPtr, inputGrad, weightGrads, "bwd",
-                          options, &cache);
+      lastGradLayer = lstm::lstmBwdWithWU(
+          graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
+          fwdOutputSeq, nextGrad, lastCellStateGradPtr, inputGrad, weightGrads,
+          "bwd", options, &cache);
     } else {
-      lstm::lstmBwd(graph, params, prog, fwdStateInit, fwdIntermediates,
-                    weights, input, fwdOutputSeq, nextGrad,
-                    lastCellStateGradPtr, inputGrad, nullptr, "bwd", options,
-                    &cache);
+      lastGradLayer = lstm::lstmBwd(
+          graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
+          fwdOutputSeq, nextGrad, lastCellStateGradPtr, inputGrad, nullptr,
+          "bwd", options, &cache);
     }
+    lastGradLayerOut = lastGradLayer.output;
+    lastGradCellState = lastGradLayer.cellState;
   }
 
+  std::unique_ptr<char[]> rawTimeSteps;
   std::unique_ptr<char[]> rawHostWeightsInput;
   std::unique_ptr<char[]> rawHostWeightsOutput;
   std::unique_ptr<char[]> rawHostPrevLayerAct;
@@ -379,7 +403,14 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostBiasDeltas;
 
   std::unique_ptr<char[]> rawHostNextAct;
+  std::unique_ptr<char[]> rawLastCellState;
+  std::unique_ptr<char[]> rawGradPrevLayerOut;
+  std::unique_ptr<char[]> rawGradPrevCellState;
 
+  if (varTimeSteps.size()) {
+    rawTimeSteps = allocateHostMemoryForTensor(timeSteps, "timeSteps", graph,
+                                               uploadProg, downloadProg, tmap);
+  }
   if (!ignoreData) {
     rawHostWeightsInput =
         allocateHostMemoryForTensor(weights.inputWeights, "weightsInput", graph,
@@ -421,6 +452,16 @@ int main(int argc, char **argv) {
 
     rawHostNextAct = allocateHostMemoryForTensor(
         fwdOutputSeq, "nextAct", graph, uploadProg, downloadProg, tmap);
+    rawLastCellState = allocateHostMemoryForTensor(
+        lastCellState, "lastCellState", graph, uploadProg, downloadProg, tmap);
+    if (doBwdPass || doWuPass) {
+      rawGradPrevLayerOut =
+          allocateHostMemoryForTensor(lastGradLayerOut, "lastGradLayerOut",
+                                      graph, uploadProg, downloadProg, tmap);
+      rawGradPrevCellState =
+          allocateHostMemoryForTensor(lastGradCellState, "lastGradCellState",
+                                      graph, uploadProg, downloadProg, tmap);
+    }
   }
 
   auto engineOptions = defaultEngineOptions;
@@ -437,6 +478,8 @@ int main(int argc, char **argv) {
 
   attachStreams(engine, tmap);
 
+  boost::multi_array<unsigned, 1> hostTimeSteps(
+      boost::extents[varTimeSteps.size()]);
   boost::multi_array<double, 3> hostPrevLayerAct(
       boost::extents[sequenceSize][batchSize][inputSize]);
   boost::multi_array<double, 3> hostWeightsOutput(
@@ -447,7 +490,17 @@ int main(int argc, char **argv) {
       boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize]);
   boost::multi_array<double, 2> hostCellStateInit(
       boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 3> hostNextAct(
+      boost::extents[sequenceSize][batchSize][outputSize]);
   boost::multi_array<double, 2> modelCellState(
+      boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 2> modelLastCellState(
+      boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 2> modelGradPrevLayerOut(
+      boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 2> modelGradPrevCellState(
+      boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 2> modelLastOutput(
       boost::extents[batchSize][outputSize]);
   boost::multi_array<double, 2> hostOutputInit(
       boost::extents[batchSize][outputSize]);
@@ -468,6 +521,11 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 2> hostBiasesDeltas(
       boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize]);
 
+  if (varTimeSteps.size()) {
+    copy(varTimeSteps.begin(), varTimeSteps.end(), hostTimeSteps.data());
+    copy(target, hostTimeSteps, UNSIGNED_INT, rawTimeSteps.get());
+  }
+
   std::mt19937 randomEngine;
 
   if (!ignoreData) {
@@ -482,6 +540,15 @@ int main(int argc, char **argv) {
     writeRandomValues(target, dataType, hostWeightsOutput, -1.0, 1.0,
                       randomEngine);
     writeRandomValues(target, dataType, hostBiases, -1.0, 1.0, randomEngine);
+
+    if (params.outputFullSequence) {
+      writeRandomValues(target, dataType, hostNextAct, -1.0, 1.0, randomEngine);
+    }
+
+    if (!ignoreInputGradient && doBwdPass) {
+      writeRandomValues(target, dataType, hostPrevLayerGrads, -1.0, 1.0,
+                        randomEngine);
+    }
 
     if (doBwdPass) {
       writeRandomValues(target, dataType, hostNextLayerGrads, -2.0, 2.0,
@@ -498,6 +565,14 @@ int main(int argc, char **argv) {
     copy(target, hostWeightsOutput, dataType, rawHostWeightsOutput.get());
     if (doBwdPass) {
       copy(target, hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
+    }
+
+    // Prefill output buffer with random data
+    if (params.outputFullSequence) {
+      copy(target, hostNextAct, dataType, rawHostNextAct.get());
+    }
+    if (!ignoreInputGradient && doBwdPass) {
+      copy(target, hostPrevLayerGrads, dataType, rawHostPrevLayerGrads.get());
     }
   }
 
@@ -530,17 +605,23 @@ int main(int argc, char **argv) {
 
   bool matchesModel = true;
   if (!ignoreData) {
+    boost::optional<boost::multi_array_ref<unsigned, 1>> hostTimeStepsOpt;
+    if (varTimeSteps.size()) {
+      hostTimeStepsOpt = hostTimeSteps;
+    }
     poplibs_test::lstm::basicLstmCellForwardPass(
         hostPrevLayerAct, hostBiases, hostOutputInit, hostWeightsInput,
-        hostWeightsOutput, modelCellState, modelFwdState, params.cellOrder,
-        activation, recurrentActivation);
+        hostWeightsOutput, hostTimeStepsOpt, modelCellState, modelFwdState,
+        modelLastOutput, modelLastCellState, params.cellOrder, activation,
+        recurrentActivation);
 
     if (doBwdPass) {
       poplibs_test::lstm::basicLstmCellBackwardPass(
           params.outputFullSequence, hostWeightsInput, hostWeightsOutput,
-          hostNextLayerGrads, hostCellStateInit, modelFwdState, modelBwdState,
-          modelPrevLayerGrads, params.cellOrder, activation,
-          recurrentActivation);
+          hostNextLayerGrads, hostCellStateInit, modelFwdState,
+          hostTimeStepsOpt, modelBwdState, modelPrevLayerGrads,
+          modelGradPrevLayerOut, modelGradPrevCellState, params.cellOrder,
+          activation, recurrentActivation);
     }
 
     boost::multi_array<double, 3> matImpl(
@@ -556,17 +637,37 @@ int main(int argc, char **argv) {
       }
     } else {
       const boost::multi_array<double, 2> subMatImpl = matImpl[0];
-      const boost::multi_array<double, 2> subMatRef =
-          modelFwdState[LSTM_FWD_STATE_ACTS_IDX][sequenceSize - 1];
-      matchesModel &= checkIsClose("nextLayerAct", subMatImpl, subMatRef,
+      matchesModel &= checkIsClose("nextLayerAct", subMatImpl, modelLastOutput,
                                    relativeTolerance, absoluteTolerance);
     }
 
-    if (doBwdPass && !ignoreInputGradient) {
-      copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
+    boost::multi_array<double, 2> hostLastCellState(
+        boost::extents[batchSize][outputSize]);
+    copy(target, dataType, rawLastCellState.get(), hostLastCellState);
+    matchesModel &=
+        checkIsClose("lastCellState", hostLastCellState, modelLastCellState,
+                     relativeTolerance, absoluteTolerance);
 
-      matchesModel &= checkIsClose("prevLayerGrads", hostPrevLayerGrads,
-                                   modelPrevLayerGrads, relativeTolerance,
+    if (doBwdPass) {
+      if (!ignoreInputGradient) {
+        copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);
+        matchesModel &= checkIsClose("prevLayerGrads", hostPrevLayerGrads,
+                                     modelPrevLayerGrads, relativeTolerance,
+                                     absoluteTolerance);
+      }
+
+      boost::multi_array<double, 2> hostGradPrevLayerOut(
+          boost::extents[batchSize][outputSize]);
+      copy(target, dataType, rawGradPrevLayerOut.get(), hostGradPrevLayerOut);
+      matchesModel &= checkIsClose("lastGradLayerOut", hostGradPrevLayerOut,
+                                   modelGradPrevLayerOut, relativeTolerance,
+                                   absoluteTolerance);
+
+      boost::multi_array<double, 2> hostGradPrevCellState(
+          boost::extents[batchSize][outputSize]);
+      copy(target, dataType, rawGradPrevCellState.get(), hostGradPrevCellState);
+      matchesModel &= checkIsClose("lastGradCellState", hostGradPrevCellState,
+                                   modelGradPrevCellState, relativeTolerance,
                                    absoluteTolerance);
     }
 

@@ -23,8 +23,14 @@ struct RnnParams {
   /// The batch size.
   std::size_t batchSize;
 
-  /// The number of RNN time steps.
+  /// The maximum number of RNN time steps.
+  std::size_t maxTimeSteps;
+
+  /// \deprecated Use RnnParams.maxTimeSteps instead.
   std::size_t timeSteps;
+
+  /// The run-time number of RNN time steps of dimension `{batchSize}`
+  const poplar::Tensor *varTimeSteps;
 
   /// For each RNN layer the layer size parameter need to be specified for the
   /// input and the output. This is done using a 2-element vector of which
@@ -35,6 +41,10 @@ struct RnnParams {
   RnnParams(poplar::Type dataType, std::size_t batchSize, std::size_t timeSteps,
             std::vector<std::size_t> layerSizes);
 
+  RnnParams(poplar::Type dataType, std::size_t batchSize,
+            std::size_t maxTimeSteps, const poplar::Tensor *varTimeSteps,
+            std::vector<std::size_t> layerSizes);
+
   // Return the maximum number of shards
   std::size_t getMaxShards(const poplar::Graph &graph) const;
 
@@ -43,6 +53,12 @@ struct RnnParams {
 
   // Return the number of bytes of the output per tile
   std::size_t getOutputBytesPerTile(const poplar::Graph &graph) const;
+
+  // Check if time steps are determined by tensor variable
+  bool variableTimeSteps() const;
+
+  // Check if time steps are determined by tensor variable for each batch
+  bool batchVariableTimeSteps() const;
 };
 
 /** Create state tensor to be used in all recurrences of the RNN. The tensor
@@ -173,8 +189,9 @@ poplar::Tensor shiftRnnTensor(poplar::Graph &graph, const RnnParams &params,
  */
 using LoopBodyType = std::function<poplar::program::Sequence(
     poplar::Graph &graph, const poplar::Tensor &, const poplar::Tensor &,
-    std::vector<poplar::Tensor> &, const std::vector<poplar::Tensor> &,
-    const poplar::Tensor &, poplar::Tensor &, std::vector<poplar::Tensor> &,
+    const poplar::Tensor &, std::vector<poplar::Tensor> &,
+    const std::vector<poplar::Tensor> &, const poplar::Tensor &,
+    poplar::Tensor &, std::vector<poplar::Tensor> &,
     std::vector<poplar::Tensor> &, poplar::program::Sequence *,
     const poplar::DebugNameAndId &)>;
 

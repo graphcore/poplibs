@@ -1043,7 +1043,7 @@ foreach(REUSE false true)
                         VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
-# Test LSTM/GRU with output-all-sequence=0/1
+# Test variable time-steps for LSTM/GRU
 foreach(ALL_OUTPUT  0 1)
         add_multitarget_test(
                 NAME lstm_16x2x32_seq_601_shards_3_allOutput_${ALL_OUTPUT}
@@ -1102,6 +1102,130 @@ foreach(ALL_OUTPUT  0 1)
                                 --output-all-sequence=${ALL_OUTPUT}
                                 --ignore-input-gradient
                                 VARIANTS "Hw")
+        endforeach()
+endforeach()
+
+# Test variable time-steps for LSTM/GRU
+foreach(ALL_OUTPUT  0 1)
+        add_multitarget_test(
+                NAME lstm_16x2x32_seq_601_shards_3_allOutput_${ALL_OUTPUT}_varTS_253
+                COMMAND lstm_layer
+		        --data-type=float
+                        --input-size 16
+                        --batch-size=2
+                        --output-size 32
+                        --tiles-per-ipu=20
+                        --phase all
+                        --sequence-size 601
+                        --shards=3
+                        --output-all-sequence=${ALL_OUTPUT}
+                        --variable-time-steps={253}
+                        VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+        add_multitarget_test(
+                NAME lstm_16x2x32_seq_601_shards_3_allOutput_${ALL_OUTPUT}_varTS_253_ignore_input_gradient
+                COMMAND lstm_layer
+		        --data-type=float
+                        --input-size 16
+                        --batch-size=2
+                        --output-size 32
+                        --tiles-per-ipu=20
+                        --phase all
+                        --sequence-size 601
+                        --shards=3
+                        --output-all-sequence=${ALL_OUTPUT}
+                        --variable-time-steps={253}
+                        --ignore-input-gradient
+                        VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+        add_multitarget_test(
+                NAME lstm_16x3x32_seq_601_shards_3_allOutput_${ALL_OUTPUT}_varTS_100_200_300
+                COMMAND lstm_layer
+                        --input-size 16
+                        --batch-size=3
+                        --output-size 32
+                        --tiles-per-ipu=20
+                        --phase all
+                        --sequence-size 601
+                        --shards=3
+                        --output-all-sequence=${ALL_OUTPUT}
+                        --variable-time-steps={100,200,300}
+                        VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+        add_multitarget_test(
+                NAME lstm_16x3x32_seq_601_shards_3_allOutput_${ALL_OUTPUT}_varTS_100_200_300_ignore_input_gradient
+                COMMAND lstm_layer
+                        --input-size 16
+                        --batch-size=3
+                        --output-size 32
+                        --tiles-per-ipu=20
+                        --phase all
+                        --sequence-size 601
+                        --shards=3
+                        --output-all-sequence=${ALL_OUTPUT}
+                        --variable-time-steps={100,200,300}
+                        --ignore-input-gradient
+                        VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+        foreach(ATTENTION false true)
+                add_multitarget_test(
+                        NAME augru_16x2x32_seq_99_shards_3_attention_${ATTENTION}_real_time_steps_0_allOutput_${ALL_OUTPUT}_varTS_31
+                        COMMAND gru_layer
+                                --input-size 16
+                                --batch-size=2
+                                --with-attention ${ATTENTION}
+                                --with-real-time-steps 0
+                                --output-size 8
+                                --tiles-per-ipu=20
+                                --phase all
+                                --sequence-size 99
+                                --variable-time-steps={31}
+                                --shards=3
+                                --output-all-sequence=${ALL_OUTPUT}
+                                VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+                add_multitarget_test(
+                        NAME augru_16x2x32_seq_99_shards_3_attention_${ATTENTION}_real_time_steps_0_allOutput_${ALL_OUTPUT}_varTS_31_ignore_input_gradient
+                        COMMAND gru_layer
+                                --input-size 16
+                                --batch-size=2
+                                --with-attention ${ATTENTION}
+                                --with-real-time-steps 0
+                                --output-size 8
+                                --tiles-per-ipu=20
+                                --phase all
+                                --sequence-size 99
+                                --variable-time-steps={31}
+                                --shards=3
+                                --output-all-sequence=${ALL_OUTPUT}
+                                --ignore-input-gradient
+                                VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+                add_multitarget_test(
+                        NAME augru_16x3x32_seq_99_shards_3_attention_${ATTENTION}_real_time_steps_0_allOutput_${ALL_OUTPUT}_varTS_97_67_87
+                        COMMAND gru_layer
+                                --input-size 16
+                                --batch-size=3
+                                --with-attention ${ATTENTION}
+                                --with-real-time-steps 0
+                                --output-size 8
+                                --tiles-per-ipu=20
+                                --phase all
+                                --sequence-size 99
+                                --variable-time-steps={97,67,87}
+                                --shards=3
+                                --output-all-sequence=${ALL_OUTPUT}
+                                VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+                add_multitarget_test(
+                        NAME augru_16x3x32_seq_99_shards_3_attention_${ATTENTION}_real_time_steps_0_allOutput_${ALL_OUTPUT}_varTS_97_67_87_ignore_input_gradient
+                        COMMAND gru_layer
+                                --input-size 16
+                                --batch-size=3
+                                --with-attention ${ATTENTION}
+                                --with-real-time-steps 0
+                                --output-size 8
+                                --tiles-per-ipu=20
+                                --phase all
+                                --sequence-size 99
+                                --variable-time-steps={97,67,87}
+                                --shards=3
+                                --output-all-sequence=${ALL_OUTPUT}
+                                --ignore-input-gradient
+                                VARIANTS "Hw;${IPUMODEL_VARIANTS}")
         endforeach()
 endforeach()
 

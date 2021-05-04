@@ -63,6 +63,12 @@ struct LstmParams {
              std::size_t timeSteps, std::vector<std::size_t> layerSizes,
              NonLinearityType activation = NonLinearityType::TANH,
              NonLinearityType recurrentActivation = NonLinearityType::SIGMOID);
+
+  LstmParams(poplar::Type dataType, std::size_t batchSize,
+             std::size_t maxTimeSteps, const poplar::Tensor *timeSteps,
+             std::vector<std::size_t> layerSizes,
+             NonLinearityType activation = NonLinearityType::TANH,
+             NonLinearityType recurrentActivation = NonLinearityType::SIGMOID);
 };
 
 /**
@@ -343,6 +349,10 @@ LstmState lstmBwd(poplar::Graph &graph, const LstmParams &params,
  *  Run a standalone weight update pass. Takes intermediates and gradients
  *  from the backward pass and calculates and returns weight deltas.
  *
+ *  Note: If the time step limit is variable, the entries above the given time
+ *        step limit must be explicitly set to zero in `fwdIntermediates`, in
+ *        order for the weights to be correctly updated.
+ *
  *  \param graph            Graph to which the LSTM cell belongs.
  *  \param params           The parameters of the LSTM.
  *  \param prog             Program sequence to add operations to.
@@ -378,6 +388,10 @@ LstmWeights lstmWU(poplar::Graph &graph, const LstmParams &params,
  *  backward and weight update pass in preference to `lstmBwd` and `lstmWU`
  *  separately in order to allow the most efficient implementation to be
  *  chosen if you do not need to split the operation.
+ *
+ *  Note: If the time step limit is variable, the entries above the given time
+ *        step limit must be explicitly set to zero in `fwdIntermediates`, in
+ *        order for the weights to be correctly updated.
  *
  * \param graph              Graph to which the LSTM cell belongs.
  * \param params             The parameters of the LSTM.

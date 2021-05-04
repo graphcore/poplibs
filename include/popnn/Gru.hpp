@@ -60,6 +60,13 @@ struct GruParams {
             std::vector<std::size_t> layerSizes,
             NonLinearityType activation = NonLinearityType::TANH,
             NonLinearityType recurrentActivation = NonLinearityType::SIGMOID);
+
+  GruParams(poplar::Type dataType, std::size_t batchSize,
+            std::size_t maxTimeSteps, const poplar::Tensor *timeSteps,
+            std::vector<std::size_t> layerSizes,
+            NonLinearityType activation = NonLinearityType::TANH,
+            NonLinearityType recurrentActivation = NonLinearityType::SIGMOID);
+
   GruParams(const GruParams &other);
 };
 
@@ -197,7 +204,10 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::OptionFlags &options = {},
                       poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Calculate the result of applying a GRU across a sequence.
+/** \deprecated
+ *  **deprecated** Use previously defined popnn::gruFwd() instead.
+ *
+ * Calculate the result of applying a GRU across a sequence.
  *
  * The following are the formulas for a GRU cell:
  *
@@ -301,7 +311,10 @@ poplar::Tensor auGruFwd(poplar::Graph &graph, const GruParams &params,
                         const poplar::OptionFlags &options = {},
                         poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Calculate the result of applying a AUGRU across a sequence.
+/** \deprecated
+ *  **deprecated** Use previously defined popnn::auGruFwd() instead.
+ *
+ * Calculate the result of applying a AUGRU across a sequence.
  *
  * The following are the formulas for a AUGRU cell:
  *
@@ -404,7 +417,9 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
        const poplar::OptionFlags &options_,
        poplin::matmul::PlanningCache *planningCache);
 
-/**
+/** \deprecated
+ *  **deprecated** Use previously defined popnn::gruBwd() instead.
+ *
  *  Run GRU backward pass. The backward pass executes in reverse order compared
  *  to the forward pass. If the forward steps for a GRU layer are sf =
  *  {0, 1, 2, ..., S - 1} then the backward steps run for sb = {S - 1, S - 2,
@@ -505,7 +520,9 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
          const poplar::OptionFlags &options_,
          poplin::matmul::PlanningCache *planningCache);
 
-/**
+/** \deprecated
+ *  **deprecated** Use previously defined popnn::auGruBwd() instead.
+ *
  *  Run AUGRU backward pass. The backward pass executes in reverse order
  * compared to the forward pass. If the forward steps for a AUGRU layer are sf =
  *  {0, 1, 2, ..., S - 1} then the backward steps run for sb = {S - 1, S - 2,
@@ -562,6 +579,10 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
  * Run a standalone weight update pass. Takes intermediates and gradients from
  * the backward pass and calculates and returns weight deltas.
  *
+ * Note: If the time step limit is variable, the entries above the given time
+ *       step limit must be explicitly set to zero in `fwdIntermediates`, in
+ *       order for the weights to be correctly updated.
+ *
  * \param graph            Graph to which the GRU cell belongs.
  * \param params           The parameters of the GRU.
  * \param prog             Program sequence to add operations to.
@@ -595,6 +616,10 @@ GruWeights gruWU(poplar::Graph &graph, const GruParams &params,
 /**
  * Run a standalone weight update pass. Takes intermediates and gradients from
  * the backward pass and calculates and returns weight deltas.
+ *
+ * Note: If the time step limit is variable, the entries above the given time
+ *       step limit must be explicitly set to zero in `fwdIntermediates`, in
+ *       order for the weights to be correctly updated.
  *
  * \param graph            Graph to which the GRU cell belongs.
  * \param params           The parameters of the GRU.
@@ -632,6 +657,10 @@ GruWeights auGruWU(poplar::Graph &graph, const GruParams &params,
  * separately in order to allow the most efficient implementation to be chosen
  * if you do not need to split the operation.
  *
+ * Note: If the time step limit is variable, the entries above the given time
+ *       step limit must be explicitly set to zero in `fwdIntermediates`, in
+ *       order for the weights to be correctly updated.
+ *
  * \param graph              Graph to which the GRU cell belongs.
  * \param params             The parameters of the GRU.
  * \param prog               Program sequence.
@@ -668,11 +697,17 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
              const poplar::OptionFlags &options_,
              poplin::matmul::PlanningCache *planningCache);
 
-/**
+/** \deprecated
+ *  **deprecated** Use previously defined popnn::gruBwdWithWU() instead.
+ *
  * Run a combined GRU backward and weight update pass. Use this combined
  * backward and weight update pass in preference to `gruBwd` and `gruWU`
  * separately in order to allow the most efficient implementation to be chosen
  * if you do not need to split the operation.
+ *
+ * Note: If the time step limit is variable, the entries above the given time
+ *       step limit must be explicitly set to zero in `fwdIntermediates`, in
+ *       order for the weights to be correctly updated.
  *
  * \param graph              Graph to which the GRU cell belongs.
  * \param params             The parameters of the GRU.
@@ -719,6 +754,10 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
  * separately in order to allow the most efficient implementation to be chosen
  * if you do not need to split the operation.
  *
+ * Note: If the time step limit is variable, the entries above the given time
+ *       step limit must be explicitly set to zero in `fwdIntermediates`, in
+ *       order for the weights to be correctly updated.
+ *
  * \param graph              Graph to which the GRU cell belongs.
  * \param params             The parameters of the GRU.
  * \param prog               Program sequence.
@@ -757,11 +796,17 @@ poplar::Tensor auGruBwdWithWU(
     const poplar::OptionFlags &options_,
     poplin::matmul::PlanningCache *planningCache);
 
-/**
+/** \deprecated
+ *  **deprecated** Use previously defined popnn::auGruBwdWithWU() instead.
+ *
  * Run a combined AUGRU backward and weight update pass. Use this combined
  * backward and weight update pass in preference to `augruBwd` and `augruWU`
  * separately in order to allow the most efficient implementation to be chosen
  * if you do not need to split the operation.
+ *
+ * Note: If the time step limit is variable, the entries above the given time
+ *       step limit must be explicitly set to zero in `fwdIntermediates`, in
+ *       order for the weights to be correctly updated.
  *
  * \param graph              Graph to which the GRU cell belongs.
  * \param params             The parameters of the GRU.
