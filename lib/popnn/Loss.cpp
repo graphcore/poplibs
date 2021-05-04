@@ -216,8 +216,9 @@ void argMinMaxSplitFirstReduction(
         numWorkers = quotCeiling(vertexSize, workerMin);
       }
       // Store away the parameters for this vertex
-      vertexInfo.push_back(
-          {tile, row, offsIn, vertexSize, offsOut, workerSize, numWorkers});
+      auto tileToMapVertex = target.getTilesPerIPU() - 1 - tile;
+      vertexInfo.push_back({tileToMapVertex, row, offsIn, vertexSize, offsOut,
+                            workerSize, numWorkers});
       numPartials += numWorkers;
       offsIn += vertexSize;
       offsOut += numWorkers;
@@ -484,7 +485,7 @@ maxMinArgMaxMin(Graph &graph, const Tensor &input, const Type &resultType,
   // For these stages, both the input and the output of each stage are the
   // 1D tensors of max/min (float) values and their corresponding indices.
 
-  unsigned tile = 0;
+  unsigned tile = target.getTilesPerIPU() - 1;
   std::size_t reduceIndex = 1; // stage of the reduction
   // How many data element (max) will be processed by one worker vertex.
   const std::size_t partialsSize = 32;
@@ -523,7 +524,7 @@ maxMinArgMaxMin(Graph &graph, const Tensor &input, const Type &resultType,
           graph.setTileMapping(nextValuePartials[i], tile);
           graph.setTileMapping(nextIndexPartials[i], tile);
           graph.setTileMapping(v, tile);
-          tile = (tile + 1) % tilesPerIPU;
+          tile = (tilesPerIPU + tile - 1) % tilesPerIPU;
         } // for (i,offs)
         // the outputs just generated become the inputs of next stage
         valuePartials[row] = nextValuePartials;
