@@ -717,7 +717,7 @@ template class CTCSortReduceCandidates<half, unsigned>;
 
 // TODO - Consider splitting this up - different fields can be done in parallel
 template <typename PartialsType, typename SymbolType>
-class CTCUpdate : public Vertex {
+class CTCUpdate : public MultiVertex {
 public:
   CTCUpdate();
   // Candidates
@@ -739,13 +739,13 @@ public:
   Input<Vector<unsigned, ONE_PTR>> previousLastBeamOutputs; // [beamwidth]
   Output<Vector<unsigned, ONE_PTR>> lastBeamOutputs;        // [beamwidth]
 
-  InOut<unsigned> currentTimestep;
+  Input<unsigned> currentTimestep;
   // The length of the data input (Valid for this specific input)
   Input<unsigned> dataLength;
   const unsigned beamwidth;
 
   IS_EXTERNAL_CODELET(false);
-  bool compute() {
+  bool compute(unsigned workerID) {
     if (currentTimestep > dataLength) {
       // Early exit here avoids updating beams, probabilities and the count
       // and so nothing will change regardless
@@ -758,36 +758,42 @@ public:
     const unsigned previousBaseOffset = baseOffset - beamwidth;
     const auto previousParent = &beamParent[previousBaseOffset];
 
-    for (unsigned i = 0; i < beamwidth; i++) {
-
-      if (candidateAddend[i] == voidSymbol) {
-        // Candidate addend is voidSymbol - add nothing to the beam:
-        // So there are no more symbols - just the same as the parent beam
-        beamLength[i] = previousBeamLength[candidateParent[i]];
-        // And the output for this beam is that of the parent beam
-        lastBeamOutputs[i] = previousLastBeamOutputs[candidateParent[i]];
-        // Don't change the beam output but maintain parent and last symbol
-        // at the current timestep
-        parent[i] = previousParent[candidateParent[i]];
-        addend[i] = lastBeamOutputs[i];
-      } else {
-        // Adding a non voidSymbol:
-        // So there is 1 more symbol than the parent beam had
-        beamLength[i] = previousBeamLength[candidateParent[i]] + 1;
-        // And the output for this beam is the addend that was added
-        lastBeamOutputs[i] = candidateAddend[i];
-        // The beam has the addend and parent of the candidate
-        parent[i] = candidateParent[i] + previousBaseOffset;
-        addend[i] = candidateAddend[i];
+    // If the candidate addend is voidSymbol - add nothing to the beam,
+    // maintaining parent and last symbol at the current timestep
+    switch (workerID) {
+    case 0:
+      for (unsigned i = 0; i < beamwidth; i++) {
+        beamLength[i] = (candidateAddend[i] == voidSymbol)
+                            ? previousBeamLength[candidateParent[i]]
+                            : previousBeamLength[candidateParent[i]] + 1;
       }
-      beamProbNonBlank[i] = candidateBeamProbNonBlank[i];
-      beamProbBlank[i] = candidateBeamProbBlank[i];
-    }
-    // Increment time, which is used for all the codelets
-    *currentTimestep = *currentTimestep + 1;
-    // TODO - here we could compare to a max count and end the whole poplar
-    // loop early by outputting a "loop end" flag.
-    // Only for 1 of the vertices in the batch though
+      return true;
+    case 1:
+      for (unsigned i = 0; i < beamwidth; i++) {
+        parent[i] = (candidateAddend[i] == voidSymbol)
+                        ? previousParent[candidateParent[i]]
+                        : candidateParent[i] + previousBaseOffset;
+      }
+      return true;
+    case 2:
+      for (unsigned i = 0; i < beamwidth; i++) {
+        lastBeamOutputs[i] = (candidateAddend[i] == voidSymbol)
+                                 ? previousLastBeamOutputs[candidateParent[i]]
+                                 : candidateAddend[i];
+        addend[i] = lastBeamOutputs[i];
+      }
+      return true;
+    case 3:
+      for (unsigned i = 0; i < beamwidth; i++) {
+        beamProbNonBlank[i] = candidateBeamProbNonBlank[i];
+      }
+      return true;
+    case 4:
+      for (unsigned i = 0; i < beamwidth; i++) {
+        beamProbBlank[i] = candidateBeamProbBlank[i];
+      }
+      return true;
+    };
     return true;
   }
 };
@@ -802,7 +808,7 @@ public:
   Input<Vector<unsigned, ONE_PTR>> beamAddend; // [maxT+1, beamwidth]
   Input<Vector<unsigned, ONE_PTR>> beamParent; // [maxT+1, beamwidth]
   Input<Vector<unsigned, ONE_PTR>> beamLength; // [beamwidth]
-  Input<unsigned> currentTimestep;
+  Input<unsigned> dataLength;
   // The actual number of valid symbols found in the beamOutput
   Output<unsigned> outputLength;
   // The valid symbol sequence
@@ -815,7 +821,7 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    auto traceBackBeamIndex = beam + (currentTimestep - 1) * beamwidth;
+    auto traceBackBeamIndex = beam + dataLength * beamwidth;
 
     *outputLength = beamLength[beam];
     auto outIdx = *outputLength - 1;

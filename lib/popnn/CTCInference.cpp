@@ -19,6 +19,8 @@
 #include <popops/ElementWise.hpp>
 #include <popops/Encoding.hpp>
 #include <popops/Expr.hpp>
+#include <popops/Reduce.hpp>
+#include <poputil/Loop.hpp>
 #include <poputil/OptionParsing.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
@@ -193,31 +195,42 @@ TempTensors createAndInitialiseTemporaryTensors(
     const popnn::ctc::InferencePlan &plan, unsigned numClasses,
     unsigned batchSize, unsigned beamwidth, const Type &partialsType,
     Sequence &prog, const poplar::DebugContext &di) {
-  TempTensors tempTensors;
-  // Make a counter per tile for the vertices to use
-  // Note - making these unsigned short would mean the vertex has to do a
-  // subword write.  This slows it down, but more importantly when plans put
-  // 2 vertices on the same tile will result in poplar running the vertices in
-  // series to avoid the subword writes of 2 vertices clashing.  When using
-  // unsigned this won't be an issue
 
+  TempTensors tempTensors;
+
+  // Find the maximum time for any of the inputs in this batch so that we can
+  // stop early if possible
+  // Reduce doesn't support unsigned int, only int
+  auto dataLengthsInt = popops::cast(graph, dataLengths, INT, prog, di);
+  auto maxTimeInBatch = popops::reduce(graph, dataLengthsInt.flatten(), {0},
+                                       {popops::Operation::MAX}, prog, di);
+  // Cast back and add 1 as we have a dummy 1st timestep and so will count
+  // 1,2,3,...maxTimeInBatch   (Loop limit = maxTimeInbatch+1)
+  tempTensors.maxTimeInBatch =
+      popops::map(graph, Cast(Add(_1, Const(1u)), UNSIGNED_INT),
+                  {maxTimeInBatch}, prog, di);
+  graph.setTileMapping(tempTensors.maxTimeInBatch, 0);
+
+  // Add a loop variable timestep
+  tempTensors.loopTimestep =
+      graph.addVariable(UNSIGNED_INT, {}, {di, "loopTimestep"});
+  graph.setTileMapping(tempTensors.loopTimestep, 0);
+
+  // A per tile copy of the loop count to copy into at the start of each loop
+  // pass
   tempTensors.currentTimestep = graph.addVariable(
       UNSIGNED_INT, {batchSize, plan.batchEntryPartitions(), 1},
       {di, "currentTimestep"});
   mapAccordingToPlan(graph, tempTensors.currentTimestep,
                      PartitionType::BATCH_ENTRY, plan.batchEntryPartitions(),
                      plan);
-  // Initialise the count.  The first timestep is 1, with timestep 0 being an
-  // initial state
-  auto initialiserZero = graph.addConstant<unsigned>(UNSIGNED_INT, {1}, 1u, di);
-  graph.setTileMapping(initialiserZero, 0);
-  prog.add(Copy(
-      initialiserZero.broadcast(tempTensors.currentTimestep.numElements(), 0),
-      tempTensors.currentTimestep.flatten(), false, di));
 
   // Data length tensor broadcast per tile
-  tempTensors.dataLengths =
-      graph.clone(tempTensors.currentTimestep, {di, "timesteps"});
+  tempTensors.dataLengths = graph.addVariable(
+      UNSIGNED_INT, {batchSize, plan.batchEntryPartitions(), 1},
+      {di, "dataLengths"});
+  mapAccordingToPlan(graph, tempTensors.dataLengths, PartitionType::BATCH_ENTRY,
+                     plan.batchEntryPartitions(), plan);
   auto dataLengthsBroadcast =
       dataLengths.expand({1, 1}).broadcast(plan.batchEntryPartitions(), 1);
   prog.add(Copy(dataLengthsBroadcast, tempTensors.dataLengths));
@@ -502,6 +515,10 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   const auto numClasses = data.dim(3);
   const auto numClassesM1 = numClasses - 1;
   Sequence prog;
+
+  prog.add(Copy(tempTensors.loopTimestep.flatten().broadcast(
+                    tempTensors.currentTimestep.numElements(), 0),
+                tempTensors.currentTimestep.flatten()));
 
   // Generate candidates in the 1st compute set
   auto cs1 = graph.addComputeSet(di);
@@ -809,7 +826,10 @@ beamSearchDecoderLogProbabilitiesImpl(
   auto loopBody =
       createLoopBodyProg(graph, plan, workingData, beams, tempTensors,
                          blankClass, beamwidth, {di, "beamSearchDecoderLoop"});
-  prog.add(Repeat(maxT, loopBody, di));
+  // The first timestep is 1, with timestep 0 being an initial state so start
+  // counting from 1
+  prog.add(countedForLoop(graph, tempTensors.loopTimestep, 1,
+                          tempTensors.maxTimeInBatch, 1, loopBody, di));
 
   // Create results and map, inserting a 3rd dimension so mapping functions can
   // be used

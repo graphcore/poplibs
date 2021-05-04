@@ -16,9 +16,19 @@ struct TempTensors {
   // [batchSize][batchEntryPartitions][1]
   poplar::Tensor dataLengths;
 
-  // Timestep counter to count loop passes with a counter on each tile
+  // Timestep counter used by the loop program to count loop passes, and end
+  // when enough passes have been taken.
+  // (Scalar)
+  poplar::Tensor loopTimestep;
+  // Per tile copy of `loopTimestep` which is broadcast to all tiles
+  // at the start of each loop and used where vertices need the loop
+  // count.  This avoids repeated exchange of `loopTimestep`
   // [batchSize][batchEntryPartitions][1]
   poplar::Tensor currentTimestep;
+  // Loop count limit - the largest time for all entries in the current batch
+  // (Scalar)
+  poplar::Tensor maxTimeInBatch;
+
   // Extend candidates
   // [batchSize][numClasses-1][beamwidth]
   poplar::Tensor extendCandidatesPb;

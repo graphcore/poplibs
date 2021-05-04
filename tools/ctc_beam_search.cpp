@@ -148,6 +148,7 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
   OptionFlags engineOptions;
   if (profile) {
     engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("debug.instrumentControlFlow", "true");
     if (profileFormat) {
       engineOptions.set("profiler.format", *profileFormat);
     }

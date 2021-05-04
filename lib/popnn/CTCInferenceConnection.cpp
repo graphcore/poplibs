@@ -573,9 +573,9 @@ void generateOutputVertex(Graph &graph, const BeamTensors &beams,
   attachBeamHistory(graph, beams, {0, maxT + 1}, batch, partition, beamwidth,
                     vertex);
 
-  // Timestep connection
-  graph.connect(vertex["currentTimestep"],
-                tempTensors.currentTimestep[batch][partition][0]);
+  // Input data length connection
+  graph.connect(vertex["dataLength"],
+                tempTensors.dataLengths[batch][partition][0]);
 
   // Constants
   graph.setInitialValue(vertex["beam"], path);

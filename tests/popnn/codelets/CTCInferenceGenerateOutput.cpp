@@ -48,7 +48,7 @@ std::vector<unsigned> runGenerateOutputCodelet(
 
   // TODO - this is the length already formed, what will the timestep be
   // when we run for real?
-  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
+  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
 
   graph.setTileMapping(beamOutput, 0);
   graph.setTileMapping(outputLength, 0);
@@ -67,7 +67,7 @@ std::vector<unsigned> runGenerateOutputCodelet(
   graph.connect(vertex["outputLength"], outputLength);
   graph.connect(vertex["beamAddend"], beamAddend.flatten());
   graph.connect(vertex["beamParent"], beamParent.flatten());
-  graph.connect(vertex["currentTimestep"], currentTimestep);
+  graph.connect(vertex["dataLength"], currentTimestep);
   graph.connect(vertex["beamLength"], beamLength);
 
   graph.setInitialValue(vertex["beam"], outputBeam);
