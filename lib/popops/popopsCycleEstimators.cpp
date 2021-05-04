@@ -2209,6 +2209,12 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HistogramSupervisor)(
             convertToTypeFlops(flops, type)};
   }
 }
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ForLoopCounter)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  return {43, 0};
+}
+
 static std::uint64_t clampCycles(const Target &target, const Type &type,
                                  unsigned numElems) {
   unsigned cyclesPerVector = 1;
@@ -3344,6 +3350,9 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, HALF, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, FLOAT, false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, HALF, false, false),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, ForLoopCounter, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, ForLoopCounter, INT),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Clamp, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Clamp, HALF),

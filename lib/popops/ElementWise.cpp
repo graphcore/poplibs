@@ -2515,8 +2515,10 @@ bool createVertexBinaryOpBroadcastScalar(
                                 : "popops::BroadcastScalar1DSupervisor";
       vertexClass = templateVertex(vertexName, op, inType);
     }
-    logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
-                           intervals.size(), vertexClass);
+    if (intervals.size()) {
+      logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
+                             intervals.size(), vertexClass);
+    }
     for (const auto &regions : intervals) {
       const auto outRegion = concat(out.flatten().slices(regions));
       const auto in1Region = concat(in1.flatten().slices(regions));

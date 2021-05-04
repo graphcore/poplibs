@@ -2091,7 +2091,8 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   // looping case
 
   prog.add(poputil::countedLoop(
-      graph, offset.dim(0), {di, dName + "/loop"}, [&](poplar::Tensor sIdx) {
+      graph, offset.dim(0),
+      [&](poplar::Tensor sIdx) {
         Sequence body({}, {di});
         auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
                                  {di, dName + "/sliceIndex"})
@@ -2103,7 +2104,8 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
         dynamicUpdate(graph, sMulti, sI, sIdx, {0}, {1}, body,
                       {di, dName + "/update"});
         return body;
-      }));
+      },
+      {di, dName + "/loop"}));
 
   di.addOutput(sMulti);
   return sMulti;
@@ -2163,20 +2165,23 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
     return;
   }
   // looping case
-  prog.add(countedLoop(
-      graph, offset.dim(0), {di, dName + "/loop"}, [&](poplar::Tensor sIdx) {
-        Sequence body({}, {di});
-        auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
-                                 {di, dName + "/sliceIndex"})
-                        .squeeze({0});
+  prog.add(countedLoop(graph, offset.dim(0),
+                       [&](poplar::Tensor sIdx) {
+                         Sequence body({}, {di});
+                         auto tIdx =
+                             dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
+                                          {di, dName + "/sliceIndex"})
+                                 .squeeze({0});
 
-        auto sI = dynamicSlice(graph, sMulti, sIdx, dims, sizes, body,
-                               {di, dName + "/slice"})
-                      .squeeze({0});
-        dynamicUpdate(graph, t, sI, tIdx, {0}, {1}, body,
-                      {di, dName + "/update"});
-        return body;
-      }));
+                         auto sI =
+                             dynamicSlice(graph, sMulti, sIdx, dims, sizes,
+                                          body, {di, dName + "/slice"})
+                                 .squeeze({0});
+                         dynamicUpdate(graph, t, sI, tIdx, {0}, {1}, body,
+                                       {di, dName + "/update"});
+                         return body;
+                       },
+                       {di, dName + "/loop"}));
 }
 
 // This is derived from multiUpdate, but s is added to t rather than replacing

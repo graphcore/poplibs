@@ -321,7 +321,8 @@ void scatterInternal(
   // The while loop that implements the scatter operation.
   // for (i = 0; i < scatterLoopTripCount; ++i)
   prog.add(poputil::countedLoop(
-      graph, scatterLoopTrip, {dnai}, [&](poplar::Tensor i) {
+      graph, scatterLoopTrip,
+      [&](poplar::Tensor i) {
         poplar::program::Sequence prog({}, {dnai});
 
         // Pick the index to scatter from scatterIndices based on the
@@ -382,7 +383,8 @@ void scatterInternal(
             updateSliceShape, prog, {dnai});
 
         return prog;
-      }));
+      },
+      {dnai}));
 }
 } // namespace
 

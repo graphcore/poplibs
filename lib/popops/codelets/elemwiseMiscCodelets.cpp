@@ -758,6 +758,27 @@ template class HistogramSupervisor<half, true, false>;
 template class HistogramSupervisor<float, false, false>;
 template class HistogramSupervisor<half, false, false>;
 
+template <typename T>
+class ForLoopCounter : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+public:
+  InOut<T> count;
+  Input<T> limit;
+  Output<unsigned> comparisonResult;
+
+  T increment;
+
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    *count += increment;
+    *comparisonResult = static_cast<unsigned>(count != limit);
+    return true;
+  }
+};
+template class ForLoopCounter<int>;
+template class ForLoopCounter<unsigned>;
+template class ForLoopCounter<short>;
+template class ForLoopCounter<unsigned short>;
+
 // This vertex is used for testing, to ensure that a vector is aligned to
 // 8 bytes
 template <unsigned ALIGN, typename T> class NopAlignVertex : public Vertex {

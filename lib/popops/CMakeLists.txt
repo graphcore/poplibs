@@ -127,6 +127,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionNoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CompareAndSwapAtDistanceKeyVal_float_unsigned.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/EncodeOneHot.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ForLoopCounter.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/HasNaN.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NormaliseImage.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSlice.S
