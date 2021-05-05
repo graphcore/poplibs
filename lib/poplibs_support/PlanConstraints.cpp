@@ -1,7 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/PlanConstraints.hpp"
-#include "poputil/exceptions.hpp"
 #include <ostream>
+#include <poplar/exceptions.hpp>
 
 static inline bool pTreeLessThan(const boost::property_tree::ptree &a,
                                  const boost::property_tree::ptree &b) {
@@ -48,8 +48,8 @@ static inline bool pTreeLessThan(const boost::property_tree::ptree &a,
         return *aBool < *bBool;
       }
     } else {
-      throw poputil::poplibs_error("Unhandled child type in property "
-                                   "tree comparison operator");
+      throw poplar::runtime_error(
+          "Unhandled child type in property tree comparison operator");
     }
   }
 

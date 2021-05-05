@@ -1,8 +1,8 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/logging.hpp"
-#include "poputil/exceptions.hpp"
 #include <array>
 #include <iostream>
+#include <poplar/exceptions.hpp>
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/ansicolor_sink.h>
@@ -65,7 +65,7 @@ Level logLevelFromString(const std::string &level) {
   if (level == "OFF" || level == "")
     return Level::Off;
 
-  throw ::poputil::poplibs_error(
+  throw poplar::runtime_error(
       "Unknown POPLIBS_LOG_LEVEL '" + level +
       "'. Valid values are TRACE, DEBUG, INFO, WARN, ERR and OFF.");
 }
