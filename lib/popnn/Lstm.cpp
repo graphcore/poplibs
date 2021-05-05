@@ -972,7 +972,7 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
   std::vector<Tensor> initState = {fwdStateInit.output.expand({0}),
                                    fwdStateInit.cellState.expand({0})};
   auto shardingLoop =
-      [&weights, &params, &numShards, &opt,
+      [&weights, &params, &opt,
        &cache](Graph &graph, const Tensor &shardIdx, const Tensor &seqIdx,
                const Tensor &mask, std::vector<Tensor> &fwdState,
                const std::vector<Tensor> &inputs, const Tensor &interimIn,

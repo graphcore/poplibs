@@ -933,7 +933,7 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
   auto weights = fromCellOrder(weights_, params.cellOrder);
   auto numShards = getNumShards(graph, params, opt, {dnai, "numShards"});
 
-  auto loopFwd = [&params, &weights, &opt, &cache, numShards](
+  auto loopFwd = [&params, &weights, &opt, &cache](
                      Graph &graph, const Tensor &shardSeqIdx,
                      const Tensor &seqIdx, const Tensor &mask,
                      std::vector<Tensor> &fwdState,
@@ -1763,7 +1763,7 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
   }
 
   auto loopBwdWithWU =
-      [&params, &options, &inputGradSeq, &cache, numShards, &weightsRearranged](
+      [&params, &options, &inputGradSeq, &cache, &weightsRearranged](
           GruWeights &weights, GruWeights *weightsGrad, Graph &graph,
           const Tensor &shardSeqIdx, const Tensor &seqIdx, const Tensor &mask,
           std::vector<Tensor> &shardState, const std::vector<Tensor> &bwdInput,
