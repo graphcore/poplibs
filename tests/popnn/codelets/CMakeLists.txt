@@ -98,22 +98,19 @@ endforeach()
 
 add_multi_target_test_executable(CTCInferenceCodeletTest
   CTCInferenceCodeletTest.cpp
+  CTCInferenceCodeletTestConnection.cpp
+  CTCInferenceCodeletTestConnection.hpp
   CTCInferenceGenerateCandidates.cpp
-  CTCInferenceGenerateCandidates.hpp
   CTCInferenceMergeCandidates.cpp
-  CTCInferenceMergeCandidates.hpp
-  CTCInferenceSelectCandidates.cpp
-  CTCInferenceSelectCandidates.hpp
+  CTCInferenceRankCandidates.cpp
+  CTCInferenceSimpleSortCandidates.cpp
   CTCInferenceUpdate.cpp
-  CTCInferenceUpdate.hpp
   CTCInferenceGenerateOutput.cpp
-  CTCInferenceGenerateOutput.hpp
 )
 
-# TODO `select` codelet test is removed
 foreach (SEED RANGE 1 5)
   foreach (TIMESTEP 0 1 4 14)
-    foreach (VERTEX generate_copy generate_extend merge update output)
+    foreach (VERTEX generate_copy generate_extend merge update simple_sort rank output)
       add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${SEED}_timestep_${TIMESTEP}_${VERTEX}"
           COMMAND CTCInferenceCodeletTest
             --seed=${SEED}

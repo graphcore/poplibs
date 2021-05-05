@@ -1,5 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-#include "CTCInferenceUpdate.hpp"
+#include "CTCInferenceCodeletTestConnection.hpp"
 
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
@@ -40,15 +40,6 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   const auto beamwidth = beamHistory.symbols.size();
   const auto maxT = beamHistory.symbols[0].size();
 
-  auto candidateParent =
-      graph.addVariable(UNSIGNED_INT, {totalCandidates}, "candidateParent");
-  auto candidateAddend =
-      graph.addVariable(UNSIGNED_INT, {totalCandidates}, "candidateAddend");
-  auto candidateBeamProbNonBlank = graph.addVariable(
-      partialsType, {totalCandidates}, "candidateBeamProbNonBlank");
-  auto candidateBeamProbBlank = graph.addVariable(
-      partialsType, {totalCandidates}, "candidateBeamProbBlank");
-
   auto beamAddend =
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamAddend");
   auto beamParent =
@@ -68,11 +59,6 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   auto currentTimestep = graph.addVariable(UNSIGNED_INT, {}, "currentTimestep");
   auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);
 
-  graph.setTileMapping(candidateParent, 0);
-  graph.setTileMapping(candidateAddend, 0);
-  graph.setTileMapping(candidateBeamProbNonBlank, 0);
-  graph.setTileMapping(candidateBeamProbBlank, 0);
-
   graph.setTileMapping(beamAddend, 0);
   graph.setTileMapping(beamParent, 0);
   graph.setTileMapping(beamProbNonBlank, 0);
@@ -89,11 +75,6 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   auto vertex = graph.addVertex(
       cs, templateVertex("popnn::CTCUpdate", partialsType, UNSIGNED_INT));
   graph.setTileMapping(vertex, 0);
-
-  graph.connect(vertex["candidateParent"], candidateParent);
-  graph.connect(vertex["candidateAddend"], candidateAddend);
-  graph.connect(vertex["candidateBeamProbNonBlank"], candidateBeamProbNonBlank);
-  graph.connect(vertex["candidateBeamProbBlank"], candidateBeamProbBlank);
 
   graph.connect(vertex["beamAddend"], beamAddend.flatten());
   graph.connect(vertex["beamParent"], beamParent.flatten());
@@ -116,22 +97,12 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   std::vector<std::pair<std::string, char *>> tmap;
 
   // Inputs
-  std::unique_ptr<char[]> rawCandidateParent, rawCandidateAddend,
-      rawCandidateBeamProbNonBlank, rawCandidateBeamProbBlank, rawTimestep,
-      rawPreviousLastBeamOutputs;
+  auto rawCandidates = createAndConnectCandidates(
+      graph, vertex, "candidate", partialsType, {totalCandidates}, uploadProg,
+      downloadProg, tmap, false);
 
-  rawCandidateParent =
-      allocateHostMemoryForTensor(candidateParent, "candidateParent", graph,
-                                  uploadProg, downloadProg, tmap);
-  rawCandidateAddend =
-      allocateHostMemoryForTensor(candidateAddend, "candidateAddend", graph,
-                                  uploadProg, downloadProg, tmap);
-  rawCandidateBeamProbNonBlank = allocateHostMemoryForTensor(
-      candidateBeamProbNonBlank, "candidateBeamProbNonBlank", graph, uploadProg,
-      downloadProg, tmap);
-  rawCandidateBeamProbBlank = allocateHostMemoryForTensor(
-      candidateBeamProbBlank, "candidateBeamProbBlank", graph, uploadProg,
-      downloadProg, tmap);
+  std::unique_ptr<char[]> rawTimestep, rawPreviousLastBeamOutputs;
+
   rawTimestep = allocateHostMemoryForTensor(currentTimestep, "timestep", graph,
                                             uploadProg, downloadProg, tmap);
   rawPreviousLastBeamOutputs = allocateHostMemoryForTensor(
@@ -156,12 +127,12 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
     candidateBeamProbBlankIn.push_back(candidates[c].pb);
   }
 
-  copy(target, candidateParentIn, UNSIGNED_INT, rawCandidateParent.get());
-  copy(target, candidateAddendIn, UNSIGNED_INT, rawCandidateAddend.get());
+  copy(target, candidateParentIn, UNSIGNED_INT, rawCandidates.parent.get());
+  copy(target, candidateAddendIn, UNSIGNED_INT, rawCandidates.addend.get());
   copy(target, candidateBeamProbNonBlankIn, partialsType,
-       rawCandidateBeamProbNonBlank.get());
+       rawCandidates.probNonBlank.get());
   copy(target, candidateBeamProbBlankIn, partialsType,
-       rawCandidateBeamProbBlank.get());
+       rawCandidates.probBlank.get());
   copy(target, timestepIn, UNSIGNED_INT, rawTimestep.get());
   copy(target, previousLastBeamOutputsIn, UNSIGNED_INT,
        rawPreviousLastBeamOutputs.get());

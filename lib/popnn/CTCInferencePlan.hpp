@@ -13,7 +13,7 @@
 namespace popnn {
 namespace ctc {
 
-enum class SortMethod { SELECT, RANK };
+enum class SortMethod { SIMPLE_SORT, RANK };
 
 struct CtcInferencePlannerParams {
   poplar::Type inType;
@@ -26,7 +26,7 @@ struct CtcInferencePlannerParams {
   unsigned beamWidth;
 };
 
-template <typename T> struct SelectPartitions { T select; };
+template <typename T> struct SimpleSortPartitions { T simpleSort; };
 template <typename T> struct RankPartitions {
   T rank;
   T reduce;
@@ -96,24 +96,24 @@ template <typename T> struct CtcInferencePartition {
   // Reduce the broadcast C[0]' C[0]" ... candidates to just C[0], being
   // the single merged candidate (There can only be 1 if any), or just any one
   // of them, given that with no merge they will all be the same.
-  // This occupies `preSelectCopy` partitions
+  // This occupies `selectCopy` partitions
   // Partition 0: Vertex selects C[0] from C[0]',C[0]", C[0]"' ...
   // Partition 1: Vertex selects C[1] from C[1]',C[1]", C[1]"' ...
-  // ... ('preSelectCopy' partitions)
-  T preSelectCopy;
+  // ... ('selectCopy' partitions)
+  T selectCopy;
   // Extend -
   // Mark any extend candidates that were merged as zero probability and so
   // never selected in the next step
   // Partition 0: Use C[0]', C[1]', C[2]',  Change E[0..]
   // Partition 1: Use C[0]", C[1]", C[2]",  Change E[1..]
   // Partition 2: Use C[0]"',C[1]"',C[2]"', Change E[2..]
-  // ... ('preSelectExtend' partitions)
-  T preSelectExtend;
+  // ... ('selectExtend' partitions)
+  T selectExtend;
 
   // ***************** Stage 4 : Sort *****************
-  // Two sorting methods are available : SELECT and RANK.
-  // SELECT:
-  // There is a single Select vertex in the 1st partition assigned to any
+  // Two sorting methods are available : SIMPLE_SORT and RANK.
+  // SIMPLE_SORT:
+  // There is a single simple sort vertex in the 1st partition assigned to any
   // batch entry.  It is attached to all candidates from the select stage:
   // Partition 0: C[0],C[1],C[2]...E[0..],E[1..],E[2..]...
   // The result is C[0],C[2] ... (beamwidth most probable candidates)
@@ -135,7 +135,7 @@ template <typename T> struct CtcInferencePartition {
   // Partition 0: C[0] = S[0]+ S'[0] + S"[0] + ...
   // Partition 1: C[1] = S[1]+ S'[1] + S"[1] + ...
   // ....('sort.reduce' partitions)
-  boost::variant<SelectPartitions<T>, RankPartitions<T>> sort;
+  boost::variant<SimpleSortPartitions<T>, RankPartitions<T>> sort;
 
   // ***************** Stage 5 : Update *****************
   // The above stages require a per partition copy of the beam information, with
@@ -194,7 +194,9 @@ public:
             [&](const RankPartitions<unsigned> &sort) {
               return std::max(sort.rank, maxCommon);
             },
-            [&](const SelectPartitions<unsigned> &sort) { return maxCommon; }),
+            [&](const SimpleSortPartitions<unsigned> &sort) {
+              return maxCommon;
+            }),
         parallel.sort);
   }
 
@@ -214,13 +216,13 @@ public:
     return partition(copySize, parallel.copy, index);
   }
 
-  poplar::Interval partitionPreSelectCopy(unsigned copySize,
-                                          unsigned index) const {
-    return partition(copySize, parallel.preSelectCopy, index);
+  poplar::Interval partitionSelectCopy(unsigned copySize,
+                                       unsigned index) const {
+    return partition(copySize, parallel.selectCopy, index);
   }
-  poplar::Interval partitionPreSelectExtend(unsigned extendSize,
-                                            unsigned index) const {
-    return partition(extendSize, parallel.preSelectExtend, index);
+  poplar::Interval partitionSelectExtend(unsigned extendSize,
+                                         unsigned index) const {
+    return partition(extendSize, parallel.selectExtend, index);
   }
 
   poplar::Interval partitionExtend(unsigned extendSize, unsigned index) const {
@@ -233,8 +235,8 @@ public:
             [&](const RankPartitions<unsigned> &sort) {
               return partition(sortSize, sort.rank, index);
             },
-            [&](const SelectPartitions<unsigned> &sort) {
-              return partition(sortSize, sort.select, index);
+            [&](const SimpleSortPartitions<unsigned> &sort) {
+              return partition(sortSize, sort.simpleSort, index);
             }),
         parallel.sort);
   }
@@ -246,7 +248,7 @@ public:
             [&](const RankPartitions<unsigned> &sort) {
               return partition(sortSize, sort.reduce, index);
             },
-            [&](const SelectPartitions<unsigned> &sort) {
+            [&](const SimpleSortPartitions<unsigned> &sort) {
               // No member to partition
               POPLIB_UNREACHABLE();
               return partition(0, 0, 0);

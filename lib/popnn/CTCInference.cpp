@@ -41,8 +41,8 @@ enum class PartitionType {
   COPY,
   EXTEND,
   MERGE,
-  PRE_SELECT_COPY,
-  PRE_SELECT_EXTEND,
+  SELECT_COPY,
+  SELECT_EXTEND,
   SORT,
   SORT_REDUCE,
   OUTPUT
@@ -121,10 +121,10 @@ PartitionFn getPartitionFunction(PartitionType type) {
     return &popnn::ctc::InferencePlan::partitionExtend;
   case PartitionType::MERGE:
     return &popnn::ctc::InferencePlan::partitionMerge;
-  case PartitionType::PRE_SELECT_COPY:
-    return &popnn::ctc::InferencePlan::partitionPreSelectCopy;
-  case PartitionType::PRE_SELECT_EXTEND:
-    return &popnn::ctc::InferencePlan::partitionPreSelectExtend;
+  case PartitionType::SELECT_COPY:
+    return &popnn::ctc::InferencePlan::partitionSelectCopy;
+  case PartitionType::SELECT_EXTEND:
+    return &popnn::ctc::InferencePlan::partitionSelectExtend;
   case PartitionType::SORT:
     return &popnn::ctc::InferencePlan::partitionSort;
   case PartitionType::SORT_REDUCE:
@@ -294,7 +294,7 @@ TempTensors createAndInitialiseTemporaryTensors(
   tempTensors.mergeCandidatesAddend.resize(beamwidth);
 
   auto mapSortedCandidates = poplibs_support::make_visitor<void>(
-      [&](const popnn::ctc::SelectPartitions<unsigned> &sort) {
+      [&](const popnn::ctc::SimpleSortPartitions<unsigned> &sort) {
         // Nothing to map
       },
       [&](const popnn::ctc::RankPartitions<unsigned> &sort) {
@@ -305,6 +305,8 @@ TempTensors createAndInitialiseTemporaryTensors(
             FLOAT, sortedCandidateShape, {di, "sortedCandidatesPb"});
         tempTensors.sortedCandidatesPnb = graph.addVariable(
             FLOAT, sortedCandidateShape, {di, "sortedCandidatesPnb"});
+        tempTensors.sortedCandidatesPTotal = graph.addVariable(
+            FLOAT, sortedCandidateShape, {di, "sortedCandidatesTotal"});
 
         tempTensors.sortedCandidatesParent = graph.addVariable(
             UNSIGNED_INT, sortedCandidateShape, {di, "sortedCandidatesParent"});
@@ -314,6 +316,8 @@ TempTensors createAndInitialiseTemporaryTensors(
         mapAccordingToPlan(graph, tempTensors.sortedCandidatesPb,
                            PartitionType::SORT, sort.rank, plan);
         mapAccordingToPlan(graph, tempTensors.sortedCandidatesPnb,
+                           PartitionType::SORT, sort.rank, plan);
+        mapAccordingToPlan(graph, tempTensors.sortedCandidatesPTotal,
                            PartitionType::SORT, sort.rank, plan);
         mapAccordingToPlan(graph, tempTensors.sortedCandidatesParent,
                            PartitionType::SORT, sort.rank, plan);
@@ -585,13 +589,13 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   // extend candidates in the 3rd compute set
   auto cs3 = graph.addComputeSet(di);
   for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
-    PartitionCounter copy(plan, beamwidth, PartitionType::PRE_SELECT_COPY);
+    PartitionCounter copy(plan, beamwidth, PartitionType::SELECT_COPY);
     for (auto c = copy.begin(); c != copy.end(); c = copy.next()) {
       const unsigned tile = plan.getTile(b.partitionIdx, 0, c.partitionIdx);
       selectCopyCandidateVertex(graph, tempTensors, cs3, b.idx, c.idx,
                                 c.partitionIdx, beamwidth, tile);
     }
-    PartitionCounter extend(plan, beamwidth, PartitionType::PRE_SELECT_EXTEND);
+    PartitionCounter extend(plan, beamwidth, PartitionType::SELECT_EXTEND);
     for (auto e = extend.begin(); e != extend.end(); e = extend.next()) {
       const unsigned tile = plan.getTile(b.partitionIdx, 0, e.partitionIdx);
       selectExtendCandidateVertex(graph, tempTensors, cs3, b.idx, e.idx,
@@ -601,46 +605,28 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
   prog.add(Execute(cs3, di));
 
   // Sort candidates in the 4th compute set
-  // There are 2 methods: SELECT and RANK which can have benefits depending on
-  // the number of workers available
+  // There are 2 methods: SIMPLE_SORT and RANK which can have benefits depending
+  // on the number of workers available
   const unsigned candidatesToCompare = beamwidth + beamwidth * numClassesM1;
   boost::apply_visitor(
       poplibs_support::make_visitor<void>(
-          [&](const popnn::ctc::SelectPartitions<unsigned> &sort) {
+          [&](const popnn::ctc::SimpleSortPartitions<unsigned> &sort) {
             auto cs4 = graph.addComputeSet(di);
             PartitionCounter batch(plan, batchSize, PartitionType::BATCH);
             for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {
-              for (unsigned select = 0; select < sort.select; select++) {
-                const unsigned tile = plan.getTile(b.partitionIdx, 0, select);
-                selectCandidatesVertex(graph, tempTensors, cs4, b.idx, 0,
-                                       candidatesToCompare, beamwidth, tile);
+              for (unsigned simpleSort = 0; simpleSort < sort.simpleSort;
+                   simpleSort++) {
+                const unsigned tile =
+                    plan.getTile(b.partitionIdx, 0, simpleSort);
+                simpleSortCandidatesVertex(graph, tempTensors, cs4, b.idx, 0,
+                                           candidatesToCompare, beamwidth,
+                                           tile);
               }
             }
             prog.add(Execute(cs4, di));
           },
           [&](const popnn::ctc::RankPartitions<unsigned> &sort) {
-            const auto numSortedElements = batchSize * beamwidth * sort.rank;
-            // Rank step 1 -  initialise each partition's result to zero
-            auto initialiserFloatZero =
-                graph.addConstant<float>(FLOAT, {1}, 0.0f, di);
-            graph.setTileMapping(initialiserFloatZero, 0);
-            prog.add(Copy(initialiserFloatZero.broadcast(numSortedElements, 0),
-                          tempTensors.sortedCandidatesPnb.flatten(), false,
-                          di));
-            prog.add(Copy(initialiserFloatZero.broadcast(numSortedElements, 0),
-                          tempTensors.sortedCandidatesPb.flatten(), false, di));
-
-            auto initialiserZero =
-                graph.addConstant<unsigned>(UNSIGNED_INT, {1}, 0u, di);
-            graph.setTileMapping(initialiserZero, 0);
-            prog.add(Copy(initialiserZero.broadcast(numSortedElements, 0),
-                          tempTensors.sortedCandidatesParent.flatten(), false,
-                          di));
-            prog.add(Copy(initialiserZero.broadcast(numSortedElements, 0),
-                          tempTensors.sortedCandidatesAddend.flatten(), false,
-                          di));
-
-            // Rank step 2 -  rank each candidate, writing into the partition's
+            // Rank step 1 -  rank each candidate, writing into the partition's
             // result if in the top beamwidth rankings
             auto cs4a = graph.addComputeSet(di);
             PartitionCounter batch(plan, batchSize, PartitionType::BATCH);
@@ -660,7 +646,7 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
             }
             prog.add(Execute(cs4a, di));
 
-            // Rank step 3 - reduce all the partition's results down to 1 result
+            // Rank step 2 - reduce all the partition's results down to 1 result
             // (beamwidth values) per batch entry
             auto cs4b = graph.addComputeSet(di);
             for (auto b = batch.begin(); b != batch.end(); b = batch.next()) {

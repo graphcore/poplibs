@@ -1,11 +1,7 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE CTCInferenceCodeletTest
 
-#include "CTCInferenceGenerateCandidates.hpp"
-#include "CTCInferenceGenerateOutput.hpp"
-#include "CTCInferenceMergeCandidates.hpp"
-#include "CTCInferenceSelectCandidates.hpp"
-#include "CTCInferenceUpdate.hpp"
+#include "CTCInferenceCodeletTestConnection.hpp"
 
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
@@ -53,7 +49,8 @@ enum class VertexType {
   GENERATE_COPY,
   GENERATE_EXTEND,
   MERGE,
-  SELECT,
+  SIMPLE_SORT,
+  RANK,
   UPDATE,
   OUTPUT
 };
@@ -65,8 +62,10 @@ std::ostream &operator<<(std::ostream &os, const VertexType &test) {
     return os << "generate_extend";
   } else if (test == VertexType::MERGE) {
     return os << "merge";
-  } else if (test == VertexType::SELECT) {
-    return os << "select";
+  } else if (test == VertexType::SIMPLE_SORT) {
+    return os << "simple_sort";
+  } else if (test == VertexType::RANK) {
+    return os << "rank";
   } else if (test == VertexType::UPDATE) {
     return os << "update";
   } else if (test == VertexType::OUTPUT) {
@@ -85,8 +84,10 @@ std::istream &operator>>(std::istream &is, VertexType &test) {
     test = VertexType::GENERATE_EXTEND;
   } else if (token == "merge") {
     test = VertexType::MERGE;
-  } else if (token == "select") {
-    test = VertexType::SELECT;
+  } else if (token == "simple_sort") {
+    test = VertexType::SIMPLE_SORT;
+  } else if (token == "rank") {
+    test = VertexType::RANK;
   } else if (token == "update") {
     test = VertexType::UPDATE;
   } else if (token == "output") {
@@ -350,7 +351,7 @@ int main(int argc, char **argv) {
     ("seed", po::value(&seed)->default_value(seed),
      "Seed used for random number generators")
     ("vertex-type", po::value(&vertexType)->default_value(vertexType),
-     "Vertex type to test: generate, merge, select, update")
+     "Vertex type to test: generate, merge, simple_sort rank, update")
     ("in-type", po::value(&inType)->default_value(inType),
      "Vertex input data type")
     ("partials-type", po::value(&partialsType)->default_value(partialsType),
@@ -590,10 +591,10 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  if (vertexType == VertexType::SELECT) {
-    const auto sortedCandidates = runSelectCandidatesCodelet<float>(
+  if (vertexType == VertexType::SIMPLE_SORT) {
+    const auto sortedCandidates = runSimpleSortCandidatesCodelet<float>(
         graph, device, deviceType, partialsType, modelMergedCandidates,
-        beamwidth, profile);
+        beamwidth, timestep + 1, profile);
 
     if (verbose) {
       std::cerr << "\nPreviously merged candidates:\n";
@@ -609,7 +610,25 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
+  if (vertexType == VertexType::RANK) {
+    const auto sortedCandidates = runRankCandidatesCodelet<float>(
+        graph, device, deviceType, partialsType, modelMergedCandidates,
+        beamwidth, timestep + 1, profile);
 
+    if (verbose) {
+      std::cerr << "\nPreviously merged candidates:\n";
+      print(modelMergedCandidates, voidSymbol);
+    }
+
+    auto isClose = candidatesAreClose(sortedCandidates, modelPrunedCandidates,
+                                      relTolerance);
+    debugPrint(sortedCandidates, modelPrunedCandidates, isClose, verbose);
+    if (!isClose) {
+      std::cerr << "Data mismatch\n";
+      return 1;
+    }
+    return 0;
+  }
   if (vertexType == VertexType::UPDATE) {
     auto [ipuBeamHistory, ipuBeamProbs] = runUpdateCodelet<float>(
         graph, device, deviceType, inType, partialsType, modelPrunedCandidates,

@@ -1413,7 +1413,7 @@ foreach(partials_type half float)
 endforeach()
 
 # Verify ctc beam search sorting methods
-foreach(sort_method rank select)
+foreach(sort_method rank simple_sort)
   add_multitarget_test(
     NAME ctc_beam_search_sort_${sort_method}
       COMMAND ctc_beam_search

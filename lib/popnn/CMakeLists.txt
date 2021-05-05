@@ -80,6 +80,7 @@ target_include_directories(popnn
 )
 
 set(codelet_asm_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CTCInferenceSort.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/LossTransform.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Pooling.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceClassGather.S

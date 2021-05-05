@@ -1,5 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-#include "CTCInferenceSelectCandidates.hpp"
+#include "CTCInferenceCodeletTestConnection.hpp"
 
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
@@ -9,7 +9,6 @@
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCInference.hpp>
 #include <poplibs_test/Util.hpp>
-#include <popops/TopK.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/VertexTemplates.hpp>
 
@@ -29,85 +28,60 @@ namespace ctc {
 // modified further so leave changing this (as it is not trivial) until the
 // proper solution is found.
 template <typename PartialsType>
-std::vector<Candidate<PartialsType>> runSelectCandidatesCodelet(
+std::vector<Candidate<PartialsType>> runSimpleSortCandidatesCodelet(
     poplar::Graph &graph, poplibs_support::TestDevice &device,
     poplibs_support::DeviceType deviceType, poplar::Type partialsType,
     const std::vector<Candidate<PartialsType>> &unsortedCandidates,
-    unsigned beamwidth, bool profile) {
+    unsigned beamwidth, unsigned timestep, bool profile) {
   const auto target = graph.getTarget();
 
-  const auto totalCandidates = unsortedCandidates.size();
-
-  auto candidateParent =
-      graph.addVariable(UNSIGNED_INT, {totalCandidates}, "candidateParent");
-  auto candidateAddend =
-      graph.addVariable(UNSIGNED_INT, {totalCandidates}, "candidateAddend");
-  auto candidateBeamProbNonBlank = graph.addVariable(
-      partialsType, {totalCandidates}, "candidateBeamProbNonBlank");
-  auto candidateBeamProbBlank = graph.addVariable(
-      partialsType, {totalCandidates}, "candidateBeamProbBlank");
-  auto candidateProbTotalScratch = graph.addVariable(
-      partialsType, {totalCandidates}, "candidateProbTotalScratch");
-
-  graph.setTileMapping(candidateParent, 0);
-  graph.setTileMapping(candidateAddend, 0);
-  graph.setTileMapping(candidateBeamProbNonBlank, 0);
-  graph.setTileMapping(candidateBeamProbBlank, 0);
-  graph.setTileMapping(candidateProbTotalScratch, 0);
+  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);
 
   auto cs = graph.addComputeSet("cs");
   auto vertex =
-      graph.addVertex(cs, templateVertex("popnn::CTCSortSelectCandidates",
+      graph.addVertex(cs, templateVertex("popnn::CTCSimpleSortCandidates",
                                          partialsType, UNSIGNED_INT));
   graph.setTileMapping(vertex, 0);
 
-  graph.connect(vertex["candidateParent"], candidateParent);
-  graph.connect(vertex["candidateAddend"], candidateAddend);
-  graph.connect(vertex["candidateBeamProbNonBlank"], candidateBeamProbNonBlank);
-  graph.connect(vertex["candidateBeamProbBlank"], candidateBeamProbBlank);
-  graph.connect(vertex["candidateProbTotalScratch"], candidateProbTotalScratch);
-
+  const auto totalCandidates = unsortedCandidates.size();
   graph.setInitialValue(vertex["totalCandidates"], totalCandidates);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
 
+  graph.connect(vertex["currentTimestep"], currentTimestep);
+  graph.connect(vertex["dataLength"], dataLength);
+
+  graph.setTileMapping(currentTimestep, 0);
+  graph.setTileMapping(dataLength, 0);
+
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
-
-  // Inputs
-  std::unique_ptr<char[]> rawCandidateParent, rawCandidateAddend,
-      rawCandidateBeamProbNonBlank, rawCandidateBeamProbBlank;
-
-  rawCandidateParent =
-      allocateHostMemoryForTensor(candidateParent, "candidateParent", graph,
-                                  uploadProg, downloadProg, tmap);
-  rawCandidateAddend =
-      allocateHostMemoryForTensor(candidateAddend, "candidateAddend", graph,
-                                  uploadProg, downloadProg, tmap);
-  rawCandidateBeamProbNonBlank = allocateHostMemoryForTensor(
-      candidateBeamProbNonBlank, "candidateBeamProbNonBlank", graph, uploadProg,
-      downloadProg, tmap);
-  rawCandidateBeamProbBlank = allocateHostMemoryForTensor(
-      candidateBeamProbBlank, "candidateBeamProbBlank", graph, uploadProg,
+  auto rawCandidates = createAndConnectCandidates(
+      graph, vertex, "candidate", partialsType, {totalCandidates}, uploadProg,
       downloadProg, tmap);
 
   std::vector<unsigned> candidateParentIn{};
   std::vector<unsigned> candidateAddendIn{};
   std::vector<float> candidateBeamProbNonBlankIn{};
   std::vector<float> candidateBeamProbBlankIn{};
+  std::vector<float> candidateBeamProbTotalIn{};
 
   for (unsigned c = 0; c < totalCandidates; c++) {
     candidateParentIn.push_back(unsortedCandidates[c].beam);
     candidateAddendIn.push_back(unsortedCandidates[c].addend);
     candidateBeamProbNonBlankIn.push_back(unsortedCandidates[c].pnb);
     candidateBeamProbBlankIn.push_back(unsortedCandidates[c].pb);
+    candidateBeamProbTotalIn.push_back(unsortedCandidates[c].pTotal);
   }
 
-  copy(target, candidateParentIn, UNSIGNED_INT, rawCandidateParent.get());
-  copy(target, candidateAddendIn, UNSIGNED_INT, rawCandidateAddend.get());
+  copy(target, candidateParentIn, UNSIGNED_INT, rawCandidates.parent.get());
+  copy(target, candidateAddendIn, UNSIGNED_INT, rawCandidates.addend.get());
   copy(target, candidateBeamProbNonBlankIn, partialsType,
-       rawCandidateBeamProbNonBlank.get());
+       rawCandidates.probNonBlank.get());
   copy(target, candidateBeamProbBlankIn, partialsType,
-       rawCandidateBeamProbBlank.get());
+       rawCandidates.probBlank.get());
+  copy(target, candidateBeamProbTotalIn, partialsType,
+       rawCandidates.probTotal.get().get());
 
   OptionFlags engineOptions;
   if (profile) {
@@ -128,13 +102,17 @@ std::vector<Candidate<PartialsType>> runSelectCandidatesCodelet(
   // TODO partialsType == float
   std::vector<float> candidateBeamProbBlankOut(totalCandidates);
   std::vector<float> candidateBeamProbNonBlankOut(totalCandidates);
+  std::vector<float> candidateBeamProbTotalOut(totalCandidates);
 
-  copy(target, UNSIGNED_INT, rawCandidateParent.get(), candidateParentOut);
-  copy(target, UNSIGNED_INT, rawCandidateAddend.get(), candidateAddendOut);
-  copy(target, partialsType, rawCandidateBeamProbNonBlank.get(),
+  copy(target, UNSIGNED_INT, rawCandidates.parent.get(), candidateParentOut);
+  copy(target, UNSIGNED_INT, rawCandidates.addend.get(), candidateAddendOut);
+  copy(target, partialsType, rawCandidates.probNonBlank.get(),
        candidateBeamProbNonBlankOut);
-  copy(target, partialsType, rawCandidateBeamProbBlank.get(),
+  copy(target, partialsType, rawCandidates.probBlank.get(),
        candidateBeamProbBlankOut);
+  copy(target, partialsType, rawCandidates.probTotal.get().get(),
+       candidateBeamProbTotalOut);
+
   if (profile && deviceType != DeviceType::Cpu) {
     engine.printProfileSummary(std::cout,
                                OptionFlags{{"showExecutionSteps", "true"}});
@@ -143,16 +121,17 @@ std::vector<Candidate<PartialsType>> runSelectCandidatesCodelet(
   for (unsigned i = 0; i < beamwidth; i++) {
     selectedCandidates.push_back({candidateParentOut[i], candidateAddendOut[i],
                                   candidateBeamProbNonBlankOut[i],
-                                  candidateBeamProbBlankOut[i]});
+                                  candidateBeamProbBlankOut[i],
+                                  candidateBeamProbTotalOut[i]});
   }
   return selectedCandidates;
 }
 
-template std::vector<Candidate<float>> runSelectCandidatesCodelet(
+template std::vector<Candidate<float>> runSimpleSortCandidatesCodelet(
     poplar::Graph &graph, poplibs_support::TestDevice &device,
     poplibs_support::DeviceType deviceType, poplar::Type partialsType,
     const std::vector<Candidate<float>> &candidates, unsigned beamwidth,
-    bool profile);
+    unsigned timestep, bool profile);
 
 } // namespace ctc
 } // namespace poplibs_test

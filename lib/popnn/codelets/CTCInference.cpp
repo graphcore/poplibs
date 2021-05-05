@@ -445,10 +445,10 @@ template class CTCSelectExtendCandidates<float, unsigned>;
 template class CTCSelectExtendCandidates<half, unsigned>;
 
 template <typename PartialsType, typename SymbolType>
-class CTCSortSelectCandidates : public Vertex {
+class CTCSimpleSortCandidates : public Vertex {
 
 public:
-  CTCSortSelectCandidates();
+  CTCSimpleSortCandidates();
   // Inputs have size [totalCandidates]
   InOut<Vector<unsigned, ONE_PTR>> candidateParent;
   InOut<Vector<SymbolType, ONE_PTR>> candidateAddend;
@@ -489,10 +489,6 @@ public:
           max = cmp;
         }
       }
-      // Total probablility is not needed as an output, but the displaced
-      // result total probability is needed
-      candidateBeamProbTotal[maxIdx] = candidateBeamProbTotal[b];
-
       unsigned tmpParent = candidateParent[b];
       candidateParent[b] = candidateParent[maxIdx];
       candidateParent[maxIdx] = tmpParent;
@@ -508,32 +504,48 @@ public:
       PartialsType tmpBeamProbBlank = candidateBeamProbBlank[b];
       candidateBeamProbBlank[b] = candidateBeamProbBlank[maxIdx];
       candidateBeamProbBlank[maxIdx] = tmpBeamProbBlank;
+      // Total probablility only needed as an output when supporting 2 stage
+      // sort
+      PartialsType tmpBeamProbTotal = candidateBeamProbTotal[b];
+      candidateBeamProbTotal[b] = candidateBeamProbTotal[maxIdx];
+      candidateBeamProbTotal[maxIdx] = tmpBeamProbTotal;
     }
 
     return true;
   }
 };
 
-template class CTCSortSelectCandidates<float, unsigned>;
-template class CTCSortSelectCandidates<half, unsigned>;
+template class CTCSimpleSortCandidates<float, unsigned>;
+template class CTCSimpleSortCandidates<half, unsigned>;
 
 template <typename PartialsType, typename SymbolType>
-class CTCSortRankCandidates : public MultiVertex {
+class CTCRankCandidates
+    : public SupervisorVertexIf<std::is_same<PartialsType, float>::value &&
+                                std::is_same<SymbolType, unsigned>::value &&
+                                ASM_CODELETS_ENABLED> {
 public:
-  CTCSortRankCandidates();
+  CTCRankCandidates();
+  constexpr static bool isExternal() {
+    return (std::is_same<PartialsType, float>::value &&
+            std::is_same<SymbolType, unsigned>::value);
+  }
+
   // Inputs have size [totalCandidates]
   Input<Vector<unsigned, ONE_PTR>> candidateParent;
   Input<Vector<SymbolType, ONE_PTR>> candidateAddend;
   Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
   Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
-  Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbTotal;
+  // Total requires alignment to 64 bits, due to 64 bit reads in the
+  // assembler vertex
+  Input<Vector<PartialsType, ONE_PTR, 8>> candidateBeamProbTotal;
 
   // Outputs have size [beamwidth]
   // They must have 32 bit data types to avoid sub-word writes
-  InOut<Vector<unsigned, ONE_PTR>> sortedCandidateParent;
-  InOut<Vector<unsigned, ONE_PTR>> sortedCandidateAddend;
-  InOut<Vector<float, ONE_PTR>> sortedCandidateBeamProbNonBlank;
-  InOut<Vector<float, ONE_PTR>> sortedCandidateBeamProbBlank;
+  Output<Vector<unsigned, ONE_PTR>> sortedCandidateParent;
+  Output<Vector<unsigned, ONE_PTR>> sortedCandidateAddend;
+  Output<Vector<float, ONE_PTR>> sortedCandidateBeamProbNonBlank;
+  Output<Vector<float, ONE_PTR>> sortedCandidateBeamProbBlank;
+  Output<Vector<float, ONE_PTR>> sortedCandidateBeamProbTotal;
 
   // Only use of current timestep and dataLength is to end early
   // Index into beamAddend/Parent for HEAD position
@@ -546,17 +558,21 @@ public:
   const unsigned firstCandidateToRank;
   const unsigned lastCandidateToRank;
 
-  IS_EXTERNAL_CODELET(false);
+  IS_EXTERNAL_CODELET(isExternal());
 
-  bool compute(unsigned workerID) {
+  bool compute() {
     if (currentTimestep > dataLength) {
       return true;
     }
-    // Precondition - candidates to be padded by previous codelets or memory
-    // suitably initialized (probability zero)
-
-    for (unsigned i = workerID + firstCandidateToRank; i < lastCandidateToRank;
-         i += numWorkers()) {
+    // Zero the initial content
+    for (unsigned i = 0; i < beamwidth; i++) {
+      sortedCandidateParent[i] = 0;
+      sortedCandidateAddend[i] = 0;
+      sortedCandidateBeamProbNonBlank[i] = 0.0f;
+      sortedCandidateBeamProbBlank[i] = 0.0f;
+      sortedCandidateBeamProbTotal[i] = 0.0f;
+    }
+    for (unsigned i = firstCandidateToRank; i < lastCandidateToRank; i++) {
       const auto toRankProbTotal = candidateBeamProbTotal[i];
       unsigned rankCount = 0;
       for (unsigned j = 0; j < i; j++) {
@@ -579,7 +595,7 @@ public:
       }
       // Ranking of this candidate is low enough (ProbTotal is large) to store
       if (rankCount < beamwidth) {
-        // Total probablility is not needed as an output.
+        // Total probablility is only needed as an output for multi stage sort.
         sortedCandidateParent[rankCount] = candidateParent[i];
         sortedCandidateAddend[rankCount] =
             static_cast<unsigned>(candidateAddend[i]);
@@ -587,6 +603,8 @@ public:
             static_cast<float>(candidateBeamProbNonBlank[i]);
         sortedCandidateBeamProbBlank[rankCount] =
             static_cast<float>(candidateBeamProbBlank[i]);
+        sortedCandidateBeamProbTotal[rankCount] =
+            static_cast<float>(candidateBeamProbTotal[i]);
       }
     }
 
@@ -594,14 +612,14 @@ public:
   }
 };
 
-template class CTCSortRankCandidates<float, unsigned>;
-template class CTCSortRankCandidates<half, unsigned>;
+template class CTCRankCandidates<float, unsigned>;
+template class CTCRankCandidates<half, unsigned>;
 
 template <typename PartialsType, typename SymbolType>
-class CTCSortReduceCandidates : public MultiVertex {
+class CTCReduceCandidates : public MultiVertex {
 
 public:
-  CTCSortReduceCandidates();
+  CTCReduceCandidates();
   // Inputs have size [totalCandidates]
   Input<Vector<unsigned, ONE_PTR>> candidateParent;
   Input<Vector<unsigned, ONE_PTR>> candidateAddend;
@@ -670,8 +688,8 @@ public:
   }
 };
 
-template class CTCSortReduceCandidates<float, unsigned>;
-template class CTCSortReduceCandidates<half, unsigned>;
+template class CTCReduceCandidates<float, unsigned>;
+template class CTCReduceCandidates<half, unsigned>;
 
 // Create the parent and addend data.
 // Data format explanation:

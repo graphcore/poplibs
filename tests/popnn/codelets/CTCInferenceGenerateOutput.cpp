@@ -1,5 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-#include "CTCInferenceGenerateOutput.hpp"
+#include "CTCInferenceCodeletTestConnection.hpp"
 
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>

@@ -40,10 +40,10 @@ std::ostream &operator<<(std::ostream &o, const CtcInferencePlannerParams &p) {
 static auto getTupleOfMembers(const InferencePlan &p) {
 
   using VisitorOutType = std::tuple<unsigned, unsigned, unsigned>;
-  const auto [select, rank, reduce] =
+  const auto [simpleSort, rank, reduce] =
       boost::apply_visitor(poplibs_support::make_visitor<VisitorOutType>(
-                               [&](const SelectPartitions<unsigned> &s) {
-                                 return VisitorOutType({s.select, 0u, 0u});
+                               [&](const SimpleSortPartitions<unsigned> &s) {
+                                 return VisitorOutType({s.simpleSort, 0u, 0u});
                                },
                                [&](const RankPartitions<unsigned> &s) {
                                  return VisitorOutType({0u, s.rank, s.reduce});
@@ -52,8 +52,8 @@ static auto getTupleOfMembers(const InferencePlan &p) {
 
   return std::tie(p.params, p.parallel.batch, p.parallel.time, p.parallel.copy,
                   p.parallel.extend, p.parallel.extendVerticesPerPartition,
-                  p.parallel.merge, p.parallel.preSelectCopy,
-                  p.parallel.preSelectExtend, select, rank, reduce,
+                  p.parallel.merge, p.parallel.selectCopy,
+                  p.parallel.selectExtend, simpleSort, rank, reduce,
                   p.parallel.output);
 }
 bool operator<(const InferencePlan &a, const InferencePlan &b) noexcept {
@@ -72,13 +72,13 @@ std::ostream &operator<<(std::ostream &o, const InferencePlan &p) {
     << p.parallel.extendVerticesPerPartition << "\n";
   o << "    copyPartitions             " << p.parallel.copy << "\n";
   o << "    mergePartitions            " << p.parallel.merge << "\n";
-  o << "    preSelectCopy              " << p.parallel.preSelectCopy << "\n";
-  o << "    preSelectExtend            " << p.parallel.preSelectExtend << "\n";
+  o << "    selectCopy                 " << p.parallel.selectCopy << "\n";
+  o << "    selectExtend               " << p.parallel.selectExtend << "\n";
 
   boost::apply_visitor(
       poplibs_support::make_visitor<void>(
-          [&](const SelectPartitions<unsigned> &s) {
-            o << "    sortSelect                 " << s.select << "\n";
+          [&](const SimpleSortPartitions<unsigned> &s) {
+            o << "    simpleSort                 " << s.simpleSort << "\n";
           },
           [&](const RankPartitions<unsigned> &s) {
             o << "    sortRank                   " << s.rank << "\n";
@@ -104,7 +104,7 @@ parseInferenceOptions(const poplar::OptionFlags &options) {
                                                       {"float", poplar::FLOAT}};
 
   std::map<std::string, SortMethod> sortMethodMap{
-      {"select", SortMethod::SELECT}, {"rank", SortMethod::RANK}};
+      {"simple_sort", SortMethod::SIMPLE_SORT}, {"rank", SortMethod::RANK}};
 
   const poplibs::OptionSpec spec{
       {"sortMethod",
@@ -121,8 +121,8 @@ parseInferenceOptions(const poplar::OptionFlags &options) {
 
 std::ostream &operator<<(std::ostream &o, const SortMethod &m) {
   switch (m) {
-  case SortMethod::SELECT:
-    o << "SELECT";
+  case SortMethod::SIMPLE_SORT:
+    o << "SIMPLE_SORT";
     break;
   case SortMethod::RANK:
     o << "RANK";
@@ -201,12 +201,10 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
 
   // Selection of copy and extend beams spread over this many tiles for the
   // extend beam dimension
-  plan.parallel.preSelectExtend =
-      findMaxPartitions(beamwidth, tilesPerBatchEntry);
+  plan.parallel.selectExtend = findMaxPartitions(beamwidth, tilesPerBatchEntry);
   // Selection of copy and extend beams spread over this many vertices for the
   // copy beam dimension
-  plan.parallel.preSelectCopy =
-      findMaxPartitions(beamwidth, tilesPerBatchEntry);
+  plan.parallel.selectCopy = findMaxPartitions(beamwidth, tilesPerBatchEntry);
 
   // Sort - by most probable candidate
   if (opts.sortMethod == popnn::ctc::SortMethod::RANK) {
@@ -219,7 +217,7 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
         {poplibs_support::ceildiv(candidatesToRank, rankingsPerPartition),
          findMaxPartitions(beamwidth, tilesPerBatchEntry)});
   } else {
-    plan.parallel.sort = popnn::ctc::SelectPartitions<unsigned>({1});
+    plan.parallel.sort = popnn::ctc::SimpleSortPartitions<unsigned>({1});
   }
 
   // For output generation

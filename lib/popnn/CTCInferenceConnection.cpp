@@ -350,13 +350,14 @@ void selectExtendCandidateVertex(Graph &graph, const TempTensors &tempTensors,
   graph.setInitialValue(vertex["numCopyCandidates"], copyCandidates);
 }
 
-void selectCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
-                            ComputeSet &cs, unsigned batch, unsigned partition,
-                            unsigned candidatesToCompare, unsigned beamwidth,
-                            unsigned tile) {
+void simpleSortCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
+                                ComputeSet &cs, unsigned batch,
+                                unsigned partition,
+                                unsigned candidatesToCompare,
+                                unsigned beamwidth, unsigned tile) {
 
   const auto partialsType = tempTensors.mergeCandidatesPb[0].elementType();
-  const auto vertexName = templateVertex("popnn::CTCSortSelectCandidates",
+  const auto vertexName = templateVertex("popnn::CTCSimpleSortCandidates",
                                          partialsType, UNSIGNED_INT);
   const auto vertex = graph.addVertex(cs, vertexName);
   logging::popnn::trace("Making {} vertex on tile {}", vertexName, tile);
@@ -403,8 +404,8 @@ void rankCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
                           unsigned tile) {
 
   const auto partialsType = tempTensors.mergeCandidatesPb[0].elementType();
-  const auto vertexName = templateVertex("popnn::CTCSortRankCandidates",
-                                         partialsType, UNSIGNED_INT);
+  const auto vertexName =
+      templateVertex("popnn::CTCRankCandidates", partialsType, UNSIGNED_INT);
   const auto vertex = graph.addVertex(cs, vertexName);
   logging::popnn::trace(
       "Making {} vertex for candidates in range {} on tile {}", vertexName,
@@ -446,6 +447,8 @@ void rankCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
                 tempTensors.sortedCandidatesPnb[batch][partition].flatten());
   graph.connect(vertex["sortedCandidateBeamProbBlank"],
                 tempTensors.sortedCandidatesPb[batch][partition].flatten());
+  graph.connect(vertex["sortedCandidateBeamProbTotal"],
+                tempTensors.sortedCandidatesPTotal[batch][partition].flatten());
 
   // Timestep, data length connection (Only for early end)
   attachTimeAndLength(graph, tempTensors, batch, partition, vertex);
@@ -464,8 +467,8 @@ void reduceCandidatesVertex(poplar::Graph &graph,
                             unsigned candidatesToReduce, unsigned tile) {
 
   const auto partialsType = tempTensors.mergeCandidatesPb[0].elementType();
-  const auto vertexName = templateVertex("popnn::CTCSortReduceCandidates",
-                                         partialsType, UNSIGNED_INT);
+  const auto vertexName =
+      templateVertex("popnn::CTCReduceCandidates", partialsType, UNSIGNED_INT);
   const auto vertex = graph.addVertex(cs, vertexName);
   logging::popnn::trace("Making {} vertex for beam {} on tile {}", vertexName,
                         partition, tile);

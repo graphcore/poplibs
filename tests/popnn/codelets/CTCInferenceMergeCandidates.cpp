@@ -1,5 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-#include "CTCInferenceMergeCandidates.hpp"
+#include "CTCInferenceCodeletTestConnection.hpp"
 
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
@@ -41,26 +41,6 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   const auto numExtendCandidates = extendCandidates.size();
   const auto maxT = beamHistory.symbols[0].size() - 1;
 
-  auto extendCandidateParent = graph.addVariable(
-      UNSIGNED_INT, {numExtendCandidates}, "extendCandidateParent");
-  auto extendCandidateAddend = graph.addVariable(
-      UNSIGNED_INT, {numExtendCandidates}, "extendCandidateAddend");
-  auto extendCandidateBeamProbNonBlank = graph.addVariable(
-      partialsType, {numExtendCandidates}, "extendCandidateBeamProbNonBlank");
-  auto extendCandidateBeamProbBlank = graph.addVariable(
-      partialsType, {numExtendCandidates}, "extendCandidateBeamProbBlank");
-
-  auto copyCandidateParent =
-      graph.addVariable(UNSIGNED_INT, {}, "copyCandidateParent");
-  auto copyCandidateAddend =
-      graph.addVariable(UNSIGNED_INT, {}, "copyCandidateAddend");
-  auto copyCandidateBeamProbNonBlank =
-      graph.addVariable(partialsType, {}, "copyCandidateBeamProbNonBlank");
-  auto copyCandidateBeamProbBlank =
-      graph.addVariable(partialsType, {}, "copyCandidateBeamProbBlank");
-  auto copyCandidateBeamProbTotal =
-      graph.addVariable(partialsType, {}, "copyCandidateBeamProbTotal");
-
   auto beamAddend =
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamAddend");
   auto beamParent =
@@ -74,17 +54,6 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
   auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);
 
-  graph.setTileMapping(extendCandidateParent, 0);
-  graph.setTileMapping(extendCandidateAddend, 0);
-  graph.setTileMapping(extendCandidateBeamProbNonBlank, 0);
-  graph.setTileMapping(extendCandidateBeamProbBlank, 0);
-
-  graph.setTileMapping(copyCandidateParent, 0);
-  graph.setTileMapping(copyCandidateAddend, 0);
-  graph.setTileMapping(copyCandidateBeamProbNonBlank, 0);
-  graph.setTileMapping(copyCandidateBeamProbBlank, 0);
-  graph.setTileMapping(copyCandidateBeamProbTotal, 0);
-
   graph.setTileMapping(beamAddend, 0);
   graph.setTileMapping(beamParent, 0);
   graph.setTileMapping(lastBeamOutput, 0);
@@ -97,22 +66,6 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   auto vertex = graph.addVertex(cs, templateVertex("popnn::CTCMergeCandidates",
                                                    partialsType, UNSIGNED_INT));
   graph.setTileMapping(vertex, 0);
-
-  graph.connect(vertex["extendCandidateParent"], extendCandidateParent);
-  graph.connect(vertex["extendCandidateAddend"], extendCandidateAddend);
-  graph.connect(vertex["extendCandidateBeamProbNonBlank"],
-                extendCandidateBeamProbNonBlank);
-  graph.connect(vertex["extendCandidateBeamProbBlank"],
-                extendCandidateBeamProbBlank);
-
-  graph.connect(vertex["copyCandidateParent"], copyCandidateParent);
-  graph.connect(vertex["copyCandidateAddend"], copyCandidateAddend);
-  graph.connect(vertex["copyCandidateBeamProbNonBlank"],
-                copyCandidateBeamProbNonBlank);
-  graph.connect(vertex["copyCandidateBeamProbBlank"],
-                copyCandidateBeamProbBlank);
-  graph.connect(vertex["copyCandidateBeamProbTotal"],
-                copyCandidateBeamProbTotal);
 
   graph.connect(vertex["beamAddend"], beamAddend.flatten());
   graph.connect(vertex["beamParent"], beamParent.flatten());
@@ -130,42 +83,14 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   std::vector<std::pair<std::string, char *>> tmap;
 
   // InOut
-  std::unique_ptr<char[]> rawCopyCandidateBeamProbNonBlank,
-      rawCopyCandidateBeamProbBlank, rawCopyCandidateBeamProbTotal;
-
-  rawCopyCandidateBeamProbNonBlank = allocateHostMemoryForTensor(
-      copyCandidateBeamProbNonBlank, "copyCandidateBeamProbNonBlank", graph,
-      uploadProg, downloadProg, tmap);
-  rawCopyCandidateBeamProbBlank = allocateHostMemoryForTensor(
-      copyCandidateBeamProbBlank, "copyCandidateBeamProbBlank", graph,
-      uploadProg, downloadProg, tmap);
-  rawCopyCandidateBeamProbTotal = allocateHostMemoryForTensor(
-      copyCandidateBeamProbTotal, "copyCandidateBeamProbTotal", graph,
-      uploadProg, downloadProg, tmap);
+  auto rawCopyCandidates =
+      createAndConnectCandidates(graph, vertex, "copyCandidate", partialsType,
+                                 {}, uploadProg, downloadProg, tmap);
 
   // Inputs
-  std::unique_ptr<char[]> rawExtendCandidateParent, rawExtendCandidateAddend,
-      rawCopyCandidateParent, rawCopyCandidateAddend,
-      rawExtendCandidateBeamProbNonBlank, rawExtendCandidateBeamProbBlank;
-
-  rawCopyCandidateParent =
-      allocateHostMemoryForTensor(copyCandidateParent, "copyCandidateParent",
-                                  graph, uploadProg, downloadProg, tmap);
-  rawCopyCandidateAddend =
-      allocateHostMemoryForTensor(copyCandidateAddend, "copyCandidateAddend",
-                                  graph, uploadProg, downloadProg, tmap);
-  rawExtendCandidateParent = allocateHostMemoryForTensor(
-      extendCandidateParent, "extendCandidateParent", graph, uploadProg,
-      downloadProg, tmap);
-  rawExtendCandidateAddend = allocateHostMemoryForTensor(
-      extendCandidateAddend, "extendCandidateAddend", graph, uploadProg,
-      downloadProg, tmap);
-  rawExtendCandidateBeamProbNonBlank = allocateHostMemoryForTensor(
-      extendCandidateBeamProbNonBlank, "extendCandidateBeamProbNonBlank", graph,
-      uploadProg, downloadProg, tmap);
-  rawExtendCandidateBeamProbBlank = allocateHostMemoryForTensor(
-      extendCandidateBeamProbBlank, "extendCandidateBeamProbBlank", graph,
-      uploadProg, downloadProg, tmap);
+  auto rawExtendCandidates = createAndConnectCandidates(
+      graph, vertex, "extendCandidate", partialsType, {numExtendCandidates},
+      uploadProg, downloadProg, tmap, false);
 
   // Extend candidate inputs
   std::vector<unsigned> extendCandidateParentIn{};
@@ -181,13 +106,13 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   }
 
   copy(target, extendCandidateParentIn, UNSIGNED_INT,
-       rawExtendCandidateParent.get());
+       rawExtendCandidates.parent.get());
   copy(target, extendCandidateAddendIn, UNSIGNED_INT,
-       rawExtendCandidateAddend.get());
+       rawExtendCandidates.addend.get());
   copy(target, extendCandidateBeamProbNonBlankIn, partialsType,
-       rawExtendCandidateBeamProbNonBlank.get());
+       rawExtendCandidates.probNonBlank.get());
   copy(target, extendCandidateBeamProbBlankIn, partialsType,
-       rawExtendCandidateBeamProbBlank.get());
+       rawExtendCandidates.probBlank.get());
 
   // Copy candidate inputs (A single candidate)
   std::vector<unsigned> copyCandidateParentIn = {copyCandidate.beam};
@@ -197,15 +122,15 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   std::vector<float> copyCandidateBeamProbTotalIn = {copyCandidate.pTotal};
 
   copy(target, copyCandidateParentIn, UNSIGNED_INT,
-       rawCopyCandidateParent.get());
+       rawCopyCandidates.parent.get());
   copy(target, copyCandidateAddendIn, UNSIGNED_INT,
-       rawCopyCandidateAddend.get());
+       rawCopyCandidates.addend.get());
   copy(target, copyCandidateBeamProbNonBlankIn, partialsType,
-       rawCopyCandidateBeamProbNonBlank.get());
+       rawCopyCandidates.probNonBlank.get());
   copy(target, copyCandidateBeamProbBlankIn, partialsType,
-       rawCopyCandidateBeamProbBlank.get());
+       rawCopyCandidates.probBlank.get());
   copy(target, copyCandidateBeamProbTotalIn, partialsType,
-       rawCopyCandidateBeamProbTotal.get());
+       rawCopyCandidates.probTotal.get().get());
 
   std::unique_ptr<char[]> rawBeamAddend, rawBeamParent;
 
@@ -255,13 +180,13 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   // The vector of extend beams can be shared between multiple vertices so is
   // not changed and the copy candidate addend indicates which was merged into
   // the copy.
-  copy(target, partialsType, rawCopyCandidateBeamProbNonBlank.get(),
+  copy(target, partialsType, rawCopyCandidates.probNonBlank.get(),
        copyCandidateBeamProbNonBlankOut);
-  copy(target, partialsType, rawCopyCandidateBeamProbBlank.get(),
+  copy(target, partialsType, rawCopyCandidates.probBlank.get(),
        copyCandidateBeamProbBlankOut);
-  copy(target, partialsType, rawCopyCandidateBeamProbTotal.get(),
+  copy(target, partialsType, rawCopyCandidates.probTotal.get().get(),
        copyCandidateBeamProbTotalOut);
-  copy(target, UNSIGNED_INT, rawCopyCandidateAddend.get(),
+  copy(target, UNSIGNED_INT, rawCopyCandidates.addend.get(),
        copyCandidateAddendOut);
 
   if (profile && deviceType != DeviceType::Cpu) {

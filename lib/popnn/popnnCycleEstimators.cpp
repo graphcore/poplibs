@@ -7,6 +7,7 @@
 #include "popnn/NonLinearity.hpp"
 #include "popnn/NonLinearityDefUtil.hpp"
 #include "popnn/PoolingDef.hpp"
+#include <poplibs_support/Algorithm.hpp>
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/max_element.hpp>
@@ -708,19 +709,41 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSelectExtendCandidates)(
   // TODO: cycle estimator
   return {0, 0};
 }
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSortSelectCandidates)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSimpleSortCandidates)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &partialsType, const Type symbolType) {
   // TODO: cycle estimator
   return {0, 0};
 }
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSortRankCandidates)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCRankCandidates)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &partialsType, const Type symbolType) {
-  // TODO: cycle estimator
-  return {0, 0};
+  CODELET_SCALAR_VAL(totalCandidates, unsigned);
+  CODELET_SCALAR_VAL(firstCandidateToRank, unsigned);
+  CODELET_SCALAR_VAL(lastCandidateToRank, unsigned);
+  CODELET_SCALAR_VAL(beamwidth, unsigned);
+
+  const std::size_t supervisorCycles =
+      14 +                  // Vertex state load
+      (5 + 6) * beamwidth + // Initialise to zero loop
+      8;                    // runall, exit if complete
+
+  const auto numToRank = lastCandidateToRank - firstCandidateToRank;
+  const auto numWorkers = target.getNumWorkerContexts();
+  const auto maxToRankPerWorker =
+      poplibs_support::ceildiv(numToRank, numWorkers);
+
+  std::size_t workerCycles = 13;           // Non loop
+  workerCycles += maxToRankPerWorker * 28; // Outer loop body, including odd one
+  workerCycles +=
+      maxToRankPerWorker * 3 * ((totalCandidates - 1) / 2); // rpt loop content
+
+  workerCycles += 15; // Assume each worker will copy only once
+
+  std::size_t flops = totalCandidates * numToRank * 2;
+  return {supervisorCycles + workerCycles * numWorkers, flops};
 }
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSortReduceCandidates)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCReduceCandidates)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &partialsType, const Type symbolType) {
   // TODO: cycle estimator
@@ -887,16 +910,15 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCSelectExtendCandidates, HALF,
                             UNSIGNED_INT),
 
-      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSortSelectCandidates, FLOAT,
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSimpleSortCandidates, FLOAT,
                             UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSortSelectCandidates, HALF, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSimpleSortCandidates, HALF, UNSIGNED_INT),
 
-      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSortRankCandidates, FLOAT, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSortRankCandidates, HALF, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCRankCandidates, FLOAT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCRankCandidates, HALF, UNSIGNED_INT),
 
-      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSortReduceCandidates, FLOAT,
-                            UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSortReduceCandidates, HALF, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCReduceCandidates, FLOAT, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCReduceCandidates, HALF, UNSIGNED_INT),
 
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCUpdate, HALF, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCUpdate, FLOAT, UNSIGNED_INT),
