@@ -42,8 +42,8 @@ std::vector<unsigned> runGenerateOutputCodelet(
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamAddend");
   auto beamParent =
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamParent");
-  const std::vector<unsigned> length(beamwidth, beamOutLength);
-  auto beamLength = graph.addConstant(UNSIGNED_INT, {beamwidth},
+  const std::vector<unsigned> length(2 * beamwidth, beamOutLength);
+  auto beamLength = graph.addConstant(UNSIGNED_INT, {2 * beamwidth},
                                       ArrayRef(length), "beamLength");
 
   // TODO - this is the length already formed, what will the timestep be

@@ -48,8 +48,8 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   auto lastBeamOutput =
       graph.addConstant(UNSIGNED_INT, {}, lastBeamOutputSym, "lastBeamOutput");
 
-  auto beamLength =
-      graph.addConstant(UNSIGNED_INT, {beamwidth}, outputLengths, "beamLength");
+  auto beamLength = graph.addConstant(UNSIGNED_INT, {2 * beamwidth},
+                                      outputLengths, "beamLength");
 
   auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
   auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);

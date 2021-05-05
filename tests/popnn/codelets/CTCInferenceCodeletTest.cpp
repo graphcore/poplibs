@@ -551,9 +551,14 @@ int main(int argc, char **argv) {
     auto [copyCandidate, extendCandidates] = getCopyAndExtendCandidates(
         modelCandidates, chosenMergeCopyBeam, chosenMergeExtendBeam);
 
-    std::vector<unsigned> expectedOutputLength(beamwidth);
+    std::vector<unsigned> expectedOutputLength(2 * beamwidth);
     for (unsigned i = 0; i < beamwidth; i++) {
-      expectedOutputLength[i] = beamHistory.getOutputSequence(i).size();
+      if (timestep & 1) {
+        expectedOutputLength[i + beamwidth] =
+            beamHistory.getOutputSequence(i).size();
+      } else {
+        expectedOutputLength[i] = beamHistory.getOutputSequence(i).size();
+      }
     }
     const auto lastBeamOutputSym =
         beamHistory.getLastOutput(copyCandidate.beam);

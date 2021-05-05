@@ -261,6 +261,18 @@ TempTensors createAndInitialiseTemporaryTensors(
   mapAccordingToPlan(graph, tempTensors.extendCandidatesAddend,
                      PartitionType::EXTEND, plan.parallel.extend, plan);
 
+  // A tensor, mapped to match tiles used for the input to the Select step, to
+  // hold extend candidates PTotal.  Using this will reduce the copy overhead
+  const std::vector<std::size_t> selectExtendCandidateShape = {
+      batchSize, beamwidth, numClasses - 1};
+  tempTensors.selectExtendCandidatesPTotal =
+      graph.addVariable(partialsType, selectExtendCandidateShape,
+                        {di, "selectExtendCandidatesPTotal"});
+  mapAccordingToPlan(graph, tempTensors.selectExtendCandidatesPTotal,
+                     PartitionType::EXTEND, plan.parallel.extend, plan);
+  tempTensors.selectExtendCandidatesPTotal =
+      tempTensors.selectExtendCandidatesPTotal.dimShuffle({0, 2, 1});
+
   // Copy candidates
   const std::vector<std::size_t> copyCandidateShape = {batchSize, beamwidth, 1};
   tempTensors.copyCandidatesPb = graph.addVariable(
@@ -384,12 +396,6 @@ BeamTensors createAndInitialiseBeamTensors(
       graph.addVariable(partialsType, beamProbsShape, {di, "beamPnb"});
   beamTensors.lastOutput =
       graph.addVariable(UNSIGNED_INT, beamProbsShape, {di, "beamLastOutput"});
-  beamTensors.previousLastOutput = graph.addVariable(
-      UNSIGNED_INT, beamProbsShape, {di, "previousBeamLastOutput"});
-  beamTensors.length =
-      graph.addVariable(UNSIGNED_INT, beamProbsShape, {di, "beamLength"});
-  beamTensors.previousLength = graph.addVariable(UNSIGNED_INT, beamProbsShape,
-                                                 {di, "previousBeamLength"});
 
   mapAccordingToPlan(graph, beamTensors.parent, PartitionType::BATCH_ENTRY,
                      plan);
@@ -400,12 +406,13 @@ BeamTensors createAndInitialiseBeamTensors(
   mapAccordingToPlan(graph, beamTensors.pnb, PartitionType::BATCH_ENTRY, plan);
   mapAccordingToPlan(graph, beamTensors.lastOutput, PartitionType::BATCH_ENTRY,
                      plan);
-  mapAccordingToPlan(graph, beamTensors.previousLastOutput,
-                     PartitionType::BATCH_ENTRY, plan);
+
+  const std::vector<std::size_t> beamLengthShape = {
+      batchSize, plan.batchEntryPartitions(), 2 * beamwidth, 1};
+  beamTensors.length =
+      graph.addVariable(UNSIGNED_INT, beamLengthShape, {di, "beamLength"});
   mapAccordingToPlan(graph, beamTensors.length, PartitionType::BATCH_ENTRY,
                      plan);
-  mapAccordingToPlan(graph, beamTensors.previousLength,
-                     PartitionType::BATCH_ENTRY, plan);
 
   // Initialise the beam probabilities, with only one origin point
   auto initialiserProbZero =
@@ -569,6 +576,11 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
     prog.add(Copy(transform(tempTensors.copyCandidatesPTotal, i),
                   tempTensors.mergeCandidatesPTotal[i]));
   }
+  // Copy to provide the extend candidate total probability on the correct tiles
+  // for the Select stage.  This data isn't used in the Merge stage, so we can
+  // do the copies all together to allow poplar to optimise the operation.
+  prog.add(Copy(tempTensors.extendCandidatesPTotal,
+                tempTensors.selectExtendCandidatesPTotal));
 
   // Merge candidates in the 2nd compute set
   auto cs2 = graph.addComputeSet(di);
@@ -663,10 +675,6 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
             prog.add(Execute(cs4b, di));
           }),
       plan.parallel.sort);
-
-  // Prepare the copy of the last output, length for the Update stage
-  prog.add(Copy(beams.lastOutput, beams.previousLastOutput));
-  prog.add(Copy(beams.length, beams.previousLength));
 
   // Update beam history and probabilities in the 5th compute set
   auto cs5 = graph.addComputeSet(di);

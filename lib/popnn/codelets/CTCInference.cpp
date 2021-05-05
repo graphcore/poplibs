@@ -310,7 +310,12 @@ public:
     const auto addendRhs = extendCandidateAddend[i];
     // To merge the parent of the copy candidate must have 1 less symbol than
     // the parent of the extend candidate
-    if (beamLength[parentLhs] != beamLength[parentRhs] + 1) {
+
+    // Based on the current timestep, extract the current beamLength
+    // from the `beamLength` ping-pong buffer
+    const auto lengthOffset = beamwidth * ((currentTimestep - 1) & 1);
+    const auto currentBeamLength = &beamLength[lengthOffset];
+    if (currentBeamLength[parentLhs] != currentBeamLength[parentRhs] + 1) {
       return true;
     }
 
@@ -751,11 +756,8 @@ public:
   InOut<Vector<unsigned, ONE_PTR>> beamAddend;           // [maxT+1, beamwidth]
   InOut<Vector<unsigned, ONE_PTR>> beamParent;           // [maxT+1, beamwidth]
 
-  Input<Vector<unsigned, ONE_PTR>> previousBeamLength; // [beamwidth]
-  Output<Vector<unsigned, ONE_PTR>> beamLength;        // [beamwidth]
-
-  Input<Vector<unsigned, ONE_PTR>> previousLastBeamOutputs; // [beamwidth]
-  Output<Vector<unsigned, ONE_PTR>> lastBeamOutputs;        // [beamwidth]
+  InOut<Vector<unsigned, ONE_PTR>> beamLength;       // [2*beamwidth]
+  Output<Vector<unsigned, ONE_PTR>> lastBeamOutputs; // [beamwidth]
 
   Input<unsigned> currentTimestep;
   // The length of the data input (Valid for this specific input)
@@ -775,17 +777,24 @@ public:
 
     const unsigned previousBaseOffset = baseOffset - beamwidth;
     const auto previousParent = &beamParent[previousBaseOffset];
+    const auto previousAddend = &beamAddend[previousBaseOffset];
 
     // If the candidate addend is voidSymbol - add nothing to the beam,
     // maintaining parent and last symbol at the current timestep
     switch (workerID) {
-    case 0:
+    case 0: {
+      // Based on the current timestep, reference the previous and new
+      // beamLengths from the `beamLength` ping-pong buffer
+      const auto newLengthOffset = beamwidth * (currentTimestep & 1);
+      const auto newBeamLength = &beamLength[newLengthOffset];
+      const auto previousBeamLength = &beamLength[newLengthOffset ^ beamwidth];
       for (unsigned i = 0; i < beamwidth; i++) {
-        beamLength[i] = (candidateAddend[i] == voidSymbol)
-                            ? previousBeamLength[candidateParent[i]]
-                            : previousBeamLength[candidateParent[i]] + 1;
+        newBeamLength[i] =
+            previousBeamLength[candidateParent[i]] +
+            static_cast<unsigned>(candidateAddend[i] != voidSymbol);
       }
       return true;
+    }
     case 1:
       for (unsigned i = 0; i < beamwidth; i++) {
         parent[i] = (candidateAddend[i] == voidSymbol)
@@ -796,7 +805,7 @@ public:
     case 2:
       for (unsigned i = 0; i < beamwidth; i++) {
         lastBeamOutputs[i] = (candidateAddend[i] == voidSymbol)
-                                 ? previousLastBeamOutputs[candidateParent[i]]
+                                 ? previousAddend[candidateParent[i]]
                                  : candidateAddend[i];
         addend[i] = lastBeamOutputs[i];
       }
@@ -825,7 +834,7 @@ public:
 
   Input<Vector<unsigned, ONE_PTR>> beamAddend; // [maxT+1, beamwidth]
   Input<Vector<unsigned, ONE_PTR>> beamParent; // [maxT+1, beamwidth]
-  Input<Vector<unsigned, ONE_PTR>> beamLength; // [beamwidth]
+  Input<Vector<unsigned, ONE_PTR>> beamLength; // [2 * beamwidth]
   Input<unsigned> dataLength;
   // The actual number of valid symbols found in the beamOutput
   Output<unsigned> outputLength;
@@ -841,7 +850,9 @@ public:
   bool compute() {
     auto traceBackBeamIndex = beam + dataLength * beamwidth;
 
-    *outputLength = beamLength[beam];
+    // Based on the total timesteps processed, extract the current beamLength
+    // from the `beamLength` ping-pong buffer
+    *outputLength = beamLength[beam + (dataLength & 1) * beamwidth];
     auto outIdx = *outputLength - 1;
     while (true) {
       SymbolType symbol;

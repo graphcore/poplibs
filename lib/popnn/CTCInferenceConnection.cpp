@@ -41,16 +41,6 @@ void attachBeamScalars(Graph &graph, const BeamTensors &beams, unsigned batch,
                 beams.lastOutput.slice(begin, end).flatten());
 }
 
-void attachUpdateBeamScalars(Graph &graph, const BeamTensors &beams,
-                             unsigned batch, unsigned partition,
-                             unsigned beamwidth, const VertexRef &vertex) {
-  attachBeamScalars(graph, beams, batch, partition, beamwidth, vertex);
-  Slice<4> begin = {batch, partition, 0, 0};
-  Slice<4> end = {batch + 1, partition + 1, beamwidth, 1};
-  graph.connect(vertex["previousLastBeamOutputs"],
-                beams.previousLastOutput.slice(begin, end).flatten());
-}
-
 void attachBeamHistory(Graph &graph, const BeamTensors &beams,
                        const Interval &time, unsigned batch, unsigned partition,
                        unsigned beamwidth, const VertexRef &vertex) {
@@ -60,7 +50,7 @@ void attachBeamHistory(Graph &graph, const BeamTensors &beams,
   graph.connect(vertex["beamAddend"], beams.addend.slice(begin, end).flatten());
   graph.connect(vertex["beamParent"], beams.parent.slice(begin, end).flatten());
   Slice<4> beginLength = {batch, partition, 0, 0};
-  Slice<4> endLength = {batch + 1, partition + 1, beamwidth, 1};
+  Slice<4> endLength = {batch + 1, partition + 1, 2 * beamwidth, 1};
   graph.connect(vertex["beamLength"],
                 beams.length.slice(beginLength, endLength).flatten());
 }
@@ -340,8 +330,9 @@ void selectExtendCandidateVertex(Graph &graph, const TempTensors &tempTensors,
   const auto numAddends = tempTensors.extendCandidatesParent.dim(1);
   Slice<3> begin = {batch, 0, extendPartition};
   Slice<3> end = {batch + 1, numAddends, extendPartition + 1};
-  graph.connect(vertex["extendCandidateBeamProbTotal"],
-                tempTensors.extendCandidatesPTotal.slice(begin, end).flatten());
+  graph.connect(
+      vertex["extendCandidateBeamProbTotal"],
+      tempTensors.selectExtendCandidatesPTotal.slice(begin, end).flatten());
 
   // Timestep, data length connection
   attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
@@ -380,8 +371,9 @@ void simpleSortCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
                                     tempTensors.extendCandidatesPnb);
   const auto pb = gatherCandidates(tempTensors.copyCandidatesPb,
                                    tempTensors.extendCandidatesPb);
-  const auto pTotal = gatherCandidates(tempTensors.copyCandidatesPTotal,
-                                       tempTensors.extendCandidatesPTotal);
+  const auto pTotal =
+      gatherCandidates(tempTensors.copyCandidatesPTotal,
+                       tempTensors.selectExtendCandidatesPTotal);
 
   graph.connect(vertex["candidateParent"], parents);
   graph.connect(vertex["candidateAddend"], addends);
@@ -429,8 +421,9 @@ void rankCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
                                     tempTensors.extendCandidatesPnb);
   const auto pb = gatherCandidates(tempTensors.copyCandidatesPb,
                                    tempTensors.extendCandidatesPb);
-  const auto pTotal = gatherCandidates(tempTensors.copyCandidatesPTotal,
-                                       tempTensors.extendCandidatesPTotal);
+  const auto pTotal =
+      gatherCandidates(tempTensors.copyCandidatesPTotal,
+                       tempTensors.selectExtendCandidatesPTotal);
 
   graph.connect(vertex["candidateParent"], parents);
   graph.connect(vertex["candidateAddend"], addends);
@@ -518,14 +511,9 @@ void updateVertex(Graph &graph, const BeamTensors &beams,
   graph.setTileMapping(vertex, tile);
 
   // Beam connection
-  attachUpdateBeamScalars(graph, beams, batch, beamPartition, beamwidth,
-                          vertex);
+  attachBeamScalars(graph, beams, batch, beamPartition, beamwidth, vertex);
   attachBeamHistory(graph, beams, time, batch, beamPartition, beamwidth,
                     vertex);
-  Slice<4> beginLength = {batch, beamPartition, 0, 0};
-  Slice<4> endLength = {batch + 1, beamPartition + 1, beamwidth, 1};
-  graph.connect(vertex["previousBeamLength"],
-                beams.previousLength.slice(beginLength, endLength).flatten());
   // Timestep, data length connections
   attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
 
