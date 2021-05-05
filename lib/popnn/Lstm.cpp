@@ -930,7 +930,7 @@ LstmParams::LstmParams(poplar::Type dataType, std::size_t batchSize,
 
 LstmParams::LstmParams(poplar::Type dataType, std::size_t batchSize,
                        std::size_t maxTimeSteps,
-                       const poplar::Tensor *timeSteps,
+                       const poplar::Tensor &timeSteps,
                        std::vector<std::size_t> layerSizes,
                        NonLinearityType activation,
                        NonLinearityType recurrentActivation)

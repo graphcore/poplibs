@@ -304,8 +304,7 @@ int main(int argc, char **argv) {
   }
 
   poplin::matmul::PlanningCache cache;
-  gru::GruParams params(dataType, batchSize, sequenceSize,
-                        timeSteps.valid() ? &timeSteps : nullptr,
+  gru::GruParams params(dataType, batchSize, sequenceSize, timeSteps,
                         {inputSize, outputSize}, activation,
                         recurrentActivation);
   params.outputFullSequence = outputAllSequence;

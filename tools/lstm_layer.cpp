@@ -305,8 +305,7 @@ int main(int argc, char **argv) {
   }
 
   poplin::matmul::PlanningCache cache;
-  lstm::LstmParams params(dataType, batchSize, sequenceSize,
-                          timeSteps.valid() ? &timeSteps : nullptr,
+  lstm::LstmParams params(dataType, batchSize, sequenceSize, timeSteps,
                           {inputSize, outputSize}, activation,
                           recurrentActivation);
   params.outputFullSequence = outputAllSequence;

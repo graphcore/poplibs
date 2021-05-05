@@ -26,8 +26,8 @@ poplar::ProfileValue toProfileValue(const popnn::rnn::RnnParams &t) {
   v.insert({"dataType", toProfileValue(t.dataType)});
   v.insert({"batchSize", toProfileValue(t.batchSize)});
   v.insert({"maxTimeSteps", toProfileValue(t.maxTimeSteps)});
-  if (t.varTimeSteps != nullptr) {
-    v.insert({"varTimeSteps", toProfileValue(*t.varTimeSteps)});
+  if (t.varTimeSteps.valid()) {
+    v.insert({"varTimeSteps", toProfileValue(t.varTimeSteps)});
   }
   v.insert({"layerSizes", toProfileValue(t.layerSizes)});
   return v;
@@ -266,15 +266,15 @@ static std::vector<Tensor> copyStateShard(std::vector<Tensor> &prevStateShard,
   return newShard;
 }
 
-static void validateTimeSteps(const Tensor *timeSteps, std::size_t batchSize) {
+static void validateTimeSteps(const Tensor timeSteps, std::size_t batchSize) {
   // if timeSteps tensor is invalid, use maxTimeSteps for the RNN
-  if (timeSteps == nullptr) {
+  if (!timeSteps.valid()) {
     return;
   }
-  if (timeSteps->rank() != 1) {
+  if (timeSteps.rank() != 1) {
     throw poputil::poplibs_error("Invalid RNN timeSteps tensor (rank != 1)");
   }
-  if (timeSteps->dim(0) != 1 && timeSteps->dim(0) != batchSize) {
+  if (timeSteps.dim(0) != 1 && timeSteps.dim(0) != batchSize) {
     throw poputil::poplibs_error("Invalid RNN timeSteps tensor "
                                  "(size != batchSize) && (size != 1)");
   }
@@ -331,11 +331,11 @@ private:
 RnnParams::RnnParams(poplar::Type dataType, std::size_t batchSize,
                      std::size_t timeSteps, std::vector<std::size_t> layers)
     : dataType(dataType), batchSize(batchSize), maxTimeSteps(timeSteps),
-      timeSteps(timeSteps), varTimeSteps(nullptr), layerSizes(layers) {}
+      timeSteps(timeSteps), layerSizes(layers) {}
 
 RnnParams::RnnParams(poplar::Type dataType, std::size_t batchSize,
                      std::size_t maxTimeSteps,
-                     const poplar::Tensor *varTimeSteps,
+                     const poplar::Tensor &varTimeSteps,
                      std::vector<std::size_t> layers)
     : dataType(dataType), batchSize(batchSize), maxTimeSteps(maxTimeSteps),
       timeSteps(maxTimeSteps), varTimeSteps(varTimeSteps), layerSizes(layers) {
@@ -411,10 +411,10 @@ std::size_t RnnParams::getOutputBytesPerTile(const Graph &graph) const {
   return bytes;
 }
 
-bool RnnParams::variableTimeSteps() const { return varTimeSteps != nullptr; }
+bool RnnParams::variableTimeSteps() const { return varTimeSteps.valid(); }
 
 bool RnnParams::batchVariableTimeSteps() const {
-  return varTimeSteps != nullptr && varTimeSteps->numElements() > 1;
+  return varTimeSteps.valid() && varTimeSteps.numElements() > 1;
 }
 
 void RnnState::next() {
@@ -710,7 +710,7 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
   logging::popnn::debug("'{}': numShards={} code-reuse={} reverse={} "
                         "varTimeSteps={}",
                         debugContext.getPathName(), numShards, codeReuse,
-                        reverse, params.varTimeSteps != nullptr);
+                        reverse, params.varTimeSteps.valid());
 
   // Create a state tensor in every shard.
   const auto tilesPerShard = getTilesPerShard(graph, params);
@@ -728,8 +728,8 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
 
   RnnState shard(graph, params.maxTimeSteps, numShards, reverse, di);
 
-  if (params.varTimeSteps != nullptr) {
-    initProg.add(shard.useVariableTimeSteps(*params.varTimeSteps));
+  if (params.varTimeSteps.valid()) {
+    initProg.add(shard.useVariableTimeSteps(params.varTimeSteps));
   }
 
   // create the forward convolution as a tensor function as we may be able to
@@ -859,7 +859,7 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
       auto seqIdxAbsolute = (numShards > 1) ? add(graph, index, counter, loop,
                                                   {di, "sequenceIndex"})
                                             : counter;
-      auto mask = gt(graph, *params.varTimeSteps, seqIdxAbsolute, loop, {di});
+      auto mask = gt(graph, params.varTimeSteps, seqIdxAbsolute, loop, {di});
       maskBatchwise =
           cast(graph, mask, params.dataType, loop, {di, "varTimeMask"});
       maskOut = maskBatchwise.expand({1}).broadcast(params.layerSizes[1], 1);

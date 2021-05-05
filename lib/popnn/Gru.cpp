@@ -134,7 +134,7 @@ GruParams::GruParams(poplar::Type dataType, std::size_t batchSize,
       activation(activation), recurrentActivation(recurrentActivation) {}
 
 GruParams::GruParams(poplar::Type dataType, std::size_t batchSize,
-                     std::size_t maxTimeSteps, const poplar::Tensor *timeSteps,
+                     std::size_t maxTimeSteps, const poplar::Tensor &timeSteps,
                      std::vector<std::size_t> layerSizes,
                      NonLinearityType activation,
                      NonLinearityType recurrentActivation)
@@ -1076,7 +1076,7 @@ Tensor gruFwd(Graph &graph, const GruParams &params_,
   }
 
   GruParams params = params_;
-  params.rnn.varTimeSteps = &realTimeSteps;
+  params.rnn.varTimeSteps = realTimeSteps;
 
   return gruFwd(graph, params, fwdOutputInit, prevLayerActs, weights_,
                 intermediatesSeq, fwdProg, debugContext, std::move(options),
@@ -1124,7 +1124,7 @@ Tensor auGruFwd(Graph &graph, const GruParams &params_,
   }
 
   GruParams params = params_;
-  params.rnn.varTimeSteps = &realTimeSteps;
+  params.rnn.varTimeSteps = realTimeSteps;
 
   return auGruFwd(graph, params, fwdOutputInit, prevLayerActs, weights,
                   intermediatesSeq, attScores, fwdProg, debugContext,
@@ -1960,7 +1960,7 @@ Tensor gruBwd(Graph &graph, const GruParams &params_, program::Sequence &prog,
   }
 
   GruParams params = params_;
-  params.rnn.varTimeSteps = &realTimeSteps;
+  params.rnn.varTimeSteps = realTimeSteps;
 
   return gruBwd(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
                 weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
@@ -2025,7 +2025,7 @@ Tensor auGruBwd(Graph &graph, const GruParams &params_, program::Sequence &prog,
   }
 
   GruParams params = params_;
-  params.rnn.varTimeSteps = &realTimeSteps;
+  params.rnn.varTimeSteps = realTimeSteps;
 
   return auGruBwd(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
                   weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
@@ -2251,7 +2251,7 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params_,
   }
 
   GruParams params = params_;
-  params.rnn.varTimeSteps = &realTimeSteps;
+  params.rnn.varTimeSteps = realTimeSteps;
 
   return gruBwdWithWU(graph, params, prog, fwdOutputInit, fwdIntermediates,
                       weights, input, output, outputGrad, inputGrad,
@@ -2343,7 +2343,7 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params_,
   }
 
   GruParams params = params_;
-  params.rnn.varTimeSteps = &realTimeSteps;
+  params.rnn.varTimeSteps = realTimeSteps;
 
   return auGruBwdWithWU(graph, params, prog, fwdOutputInit, fwdIntermediates,
                         weights, input, output, outputGrad, inputGrad,

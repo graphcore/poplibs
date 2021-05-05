@@ -65,7 +65,7 @@ struct LstmParams {
              NonLinearityType recurrentActivation = NonLinearityType::SIGMOID);
 
   LstmParams(poplar::Type dataType, std::size_t batchSize,
-             std::size_t maxTimeSteps, const poplar::Tensor *timeSteps,
+             std::size_t maxTimeSteps, const poplar::Tensor &timeSteps,
              std::vector<std::size_t> layerSizes,
              NonLinearityType activation = NonLinearityType::TANH,
              NonLinearityType recurrentActivation = NonLinearityType::SIGMOID);

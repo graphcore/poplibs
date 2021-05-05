@@ -30,7 +30,10 @@ struct RnnParams {
   std::size_t timeSteps;
 
   /// The run-time number of RNN time steps of dimension `{batchSize}`
-  const poplar::Tensor *varTimeSteps;
+  /// If this tensor is default constructed, the number of time steps
+  /// for the sequence corresponding to each batch will be set
+  /// according to the `maxTimeSteps` member.
+  poplar::Tensor varTimeSteps;
 
   /// For each RNN layer the layer size parameter need to be specified for the
   /// input and the output. This is done using a 2-element vector of which
@@ -42,7 +45,7 @@ struct RnnParams {
             std::vector<std::size_t> layerSizes);
 
   RnnParams(poplar::Type dataType, std::size_t batchSize,
-            std::size_t maxTimeSteps, const poplar::Tensor *varTimeSteps,
+            std::size_t maxTimeSteps, const poplar::Tensor &varTimeSteps,
             std::vector<std::size_t> layerSizes);
 
   // Return the maximum number of shards
