@@ -19,11 +19,15 @@ class BroadcastVectorInner2DInPlace : public Vertex {
 public:
   BroadcastVectorInner2DInPlace();
 
-  // The half float code for this inplace operation requires the 'acts' tensor
-  // to be in an interleaved region, to be able to use the ldst64pace
-  // instruction. This is really needed only if addend.size() is a multiple of
-  // of four (fast optimized code)
-  static const bool needsInterleave = std::is_same<FPType, half>::value;
+  // The half float code for the ADD and SUBTRACT inplace operation requires
+  // the 'acts' tensor to be in an interleaved region, to be able to use the
+  // ldst64pace instruction. This is really needed only if addend.size() is a
+  // multiple of four (fast optimized code), but we cannot keep that into
+  // account, as the 'interleave' flag is a compile time constant.
+  static const bool needsInterleave =
+      std::is_same<FPType, half>::value &&
+      (op == expr::BinaryOpType::ADD || op == expr::BinaryOpType::MULTIPLY ||
+       op == expr::BinaryOpType::SUBTRACT);
 
   // n is equal to B.size(), B.size(), data.size()
   // and dataBlockCount.size()

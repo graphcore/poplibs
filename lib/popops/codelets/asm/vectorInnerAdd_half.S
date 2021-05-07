@@ -15,8 +15,7 @@
 // Acts:   [0 1 2 3 4 5 6 7 8 9 10 11]
 // Addend: [0 1 2]
 //
-// Repeat addend, and add it to acts (after scaling it in the case of
-// Scaled_Add).
+// Repeat addend, and add/subtract it to/from acts.
 //
 // Acts = [0 1 2  3 4 5  6 7 8  9 10 11] +
 //        [0 1 2][0 1 2][0 1 2][0  1  2]
@@ -25,98 +24,113 @@
 // 1.0 or -1.0 respectively (for the fast paths, this is done using the
 // f16v4mix instruction with $TAS register).
 //
-// ## Fast Paths
+// --------------------------------------------------------------------------
+// ## Slow Path
 //
-// If the addend_len is a multiple of 4, we can use pipelined code that can
-// process 4 halves per cycle.
+// If the addend_len ('B length') is a multiple of 4, we can use pipelined code
+// that can process 4 halves per cycle (see below).
 //
-// If it is a multiple of 2 there is probably a "medium speed path" but is
+// If it is a multiple of 2 there is a "medium speed path" but is
 // not coded to keep the code size small. Also if the addend_len is
 // exactly 1 or 2 we could duplicate the addend and use one of the fast paths
 // but this turns out to be rather complex. If the addend_len is 1 we can use
-// a different vertex anyway.
+// a different vertex anyway (BroadcastScalar).
 //
-// Otherwise, e.g. if it is odd we must take the slow path. This is a little
-// inconvienient because of misaligned accesses, e.g. if the addend length it
-// is 5, then we have:
+// So in all cases where B length is not a multiple of four we take a slow path,
+// that must work also for B length being odd. This is a little inconvienient
+// because of misaligned accesses, e.g. if the addend length is 5, we have:
 //
 // [0 1 2 3 4][0 1 2 3 4][0  1  2  3  4] +
 // [0 1 2 3 4  5 6 7 8 9 10 11 12 13 14]
 //             ^---- Annoying unaligned access.
 //
-// In that case we use st16, which is very slow.
+// Note that there is a very much faster way to do the case of odd addend
+// length, that is implemented in the vectorInnerDiv_half.S file but has not
+// being coded here.
 //
-// ## Addend Length is a Multiple of 4, but not of 8
 //
-// We can use a 4-stage pipline to avoid memory conflicts by delaying the
-// store one cycle.
+// --------------------------------------------------------------------------
+// ## Addend ('B') Length is a Multiple of 4 half (Nx4), but not of 8
+//    (i.e. N is odd)
 //
-//  0:         Load 0
-//  1:         Load 1      Add 0
-//  2:         Load 2      Add 1
-//  3:         Load 3      Add 2      Store 0
-//  4:         Load 4      Add 3      Store 1
-//  5:         Load 5      Add 4      Store 2
-//  6:        (Load 6)     Add 5      Store 3
-//  7:        (Load 7)    (Add 6)     Store 4
-//  8:        (Load 8)    (Add 7)     Store 5
+// This code is used both for the not-InPlace ('data' and 'out' are in different
+// memory elements) and InPlace cases (the in/out 'data' is in an interleaved
+// element)
 //
-// To delay the store we can use f16v4mix, which stores and loads values
-// from the temporary accumulator ($AACC[0, 2]). This also gives us the scale
-// for free by setting the $TAS register.
+// We load the first 4 elements of addend ('B0') and run the inner rpt loop with
+// that, then the second 4 elements (B1) and run the inner loop with that, etc.
 //
-// So we use a scheme like this (shown for cycles 3 and 4).
+// To do this, we need a 4-stage pipeline (instead of just 3: load, add, store)
+// to avoid memory conflicts for the in-place case, because, for the ldst64
+// instruction, the load and store pointers must be at different even/odd
+// multiples of 8 bytes (in the interleaved memory element).
 //
-//  rpt {
+//  For instance: first inner loop (note that N is odd)
+//   0:    Load   0
+//   1:    Load Nx1    Add   0 to B0
+//   2:    Load Nx2    Add Nx1 to B0      *-- need an extra delay before storing
+//   3:    Load Nx3    Add Nx2 to B0    Store   0 <= load/store on odd/even
+//   4:    Load Nx4    Add Nx3 to B0    Store Nx1 <= load/store on even/odd
+//   5:    Load Nx5    Add Nx4 to B0    Store Nx2
+//   6:   (Load Nx6)   Add Nx5 to B0    Store Nx3
+//   7:   (Load Nx7)  (Add Nx6 to B0)   Store Nx4
+//   8:   (Load Nx8)  (Add Nx7 to B0)   Store Nx5
+//
+// 0, Nx1, Nx2, Nx3, ... refer to atoms of 4 half (8 bytes, 64 bits).
+// B0 refers to the first 4 elements of 'addend' ('B')
+//
+// The second inner loop will process at 1, Nx1+1, Nx2+1, Nx3+1 etc, adding to
+// B1 and the even/odd relationship is maintained on the ldst64
+//
+// We can use f16v4mix to have a 4-stage pipeline, as it stores and loads values
+// from the temporary accumulator ($AACC[0, 2]) with 1-cycle delay. This also
+// gives us the +1/-1 scale for ADD/SUB for free by setting the $TAS register.
+//
+// So we use a RPT kernel like this (shown for cycles 3 above).
+//
+//  rpt
 //    {
-//       acts[0] = tmp1, tmp1 = acts[3]
-//       tmp0 = $AACC, $AACC = tmp0 + addend
+//     tmp0 = acts[Nx3], acts[0] = tmp1
+//     tmp1 = $AACC, $AACC = tmp0 + B0
+//    }
+//
+// There is a specialized path for 'B' length = exactly 4, which uses the very
+// same code described above for the inner loop, but runs it only once (no outer
+// loop), and so saves a few cycles in this case.
+//
+// --------------------------------------------------------------------------
+// ## Addend (B) Length is a Multiple of 8
+//
+// When addend_len is a also a multiple of 8 (N even), for instance 16 (N=2), in
+// the sequence shown above the ldst64 would have load and store on the SAME
+// even/odd multiple of eight bytes. For instance, in cycle 5 above both Nx5 and
+// Nx2 would be even, as N itself is even; in the second inner loop we would
+// have Nx5+1 and Nx2+1 both being odd..
+// To avoid this, we process in each inner loop TWO blocks of 4 elements of
+// 'addend' ('B0' and 'B1')
+//
+//  0:   Load   0
+//  1:   Load   1       Add   0     to B0
+//  2:   Load Nx1       Add   1     to B1
+//  3:   Load Nx1 + 1   Add Nx1     to B0   Store 0 <= load/store on odd/even
+//  4:   Load Nx2       Add Nx1 + 1 to B1   Store 1 <= load/store on even/odd
+//  5:   Load Nx2 + 2   Add Nx2     to B0   Store Nx1
+//  6:  (Load Nx3    )  Add Nx2 + 1 to B1   Store Nx1 + 1
+//  7:  (Load Nx3 + 1) (Add Nx3     to B0)  Store Nx2
+//  8:  (Load Nx4    ) (Add Nx3 + 1 to B1)  Store Nx2 + 1
+//
+// So the inner loop for this case has two bundles, to add B0 and B1 (cycles
+// 3 & 4 above):
+//  rpt
+//    {
+//     tmp1 = acts[Nx1+1], acts[0] = tmp1
+//     tmp0 = $AACC, $AACC = tmp0 + B0
 //    }
 //    {
-//       acts[1] = tmp0, tmp0 = acts[4]
-//       tmp1 = $AACC, $AACC = tmp1 + addend
+//     tmp0 = acts[Nx2], acts[1] = tmp0
+//     tmp1 = $AACC, $AACC = tmp1 + B1
 //    }
-//  }
-//
-// ## Addend Length is a Multiple of 8
-//
-// When addend_len is a multiple of 4, but not a multiple of 8, we could
-// process data like this.
-//
-// addend[0:3]   += acts[0:3]
-// addend[12:15] += acts[0:3]
-// addend[24:27] += acts[0:3]
-// addend[36:39] += acts[0:3]
-// addend[4:7]   += acts[4:7]
-// addend[16:19] += acts[4:7]
-// addend[28:31] += acts[4:7]
-// addend[40:43] += acts[4:7]
-// addend[8:11]  += acts[8:11]
-// addend[20:23] += acts[8:11]
-// addend[32:35] += acts[8:11]
-// addend[44:47] += acts[8:11]
-//
-// However this would result in memory conflicts for multiples of 8. Instead
-// we need to instead process it like this:
-//
-// addend[0:3]   += acts[0:3]
-// addend[4:7]   += acts[4:7]
-// addend[16:19] += acts[0:3]
-// addend[20:23] += acts[4:7]
-// addend[32:35] += acts[0:3]
-// addend[36:39] += acts[4:7]
-// addend[8:11]  += acts[8:11]
-// addend[12:15] += acts[12:15]
-// addend[24:27] += acts[8:11]
-// addend[28:31] += acts[12:15]
-// addend[40:43] += acts[8:11]
-// addend[44:47] += acts[12:15]
-//
-// In some ways this is simpler than the multiple-of-four case since each loop
-// only processes one block so we don't need to check if acts_block_count is
-// odd at the end of the loop, and there is no minimum number of blocks
-// required to use the pipeline. Also this processes more data in one loop
-// so the overhead tends to be slightly lower.
+
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
@@ -168,15 +182,13 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace,SUBTRACT)
 // All input registers are clobbered. $m10 ($lr) is used for
 // the return address. It also uses the following scratch registers.
 // The lifetime of packed_ldst_addrs does not overlap mscratch0
-// so it can share the same registers. Similarly for acts_block_count_was_odd
-// and acts_rpt_count, which are used in different pipelines.
+// so it can share the same registers.
 //
 #define mscratch0 m4
 #define outer_stride m8
 #define packed_ldst_addrs m4:5
 #define stride m6
 #define addend_loop_count m6
-#define acts_block_count_was_odd m7
 #define acts_rpt_count m7
 
 #define tmp0 a0:1
@@ -189,15 +201,29 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace,SUBTRACT)
 #define scale a6
 #define ascratch0 a7
 
+///////////////////////////////////////////////////////////////////////////////
+// Entry code that dispatches to the correct code paths, given B length and
+// in-place/not-in-place
+///////////////////////////////////////////////////////////////////////////////
 .section .text.VectorInnerAdd_core_half
 .align 8
 VectorInnerAdd_core_half:
   // If we have no blocks to do, exit.
-  brz $acts_block_count, .Lreturn
+  {
+    brz $acts_block_count, .Lreturn
+    setzi  $a0, 1 << CSR_W_FP_CLR__ZAACC__SHIFT  // Need to clear AACC regs
+  }
 
   // Now we are prepared to do the computation, but we have different
   // code paths depending on whether the addend_len is a multiple of 8,
   // or 4, or otherwise.
+
+  // There is an optimisation for a length of exactly 4
+  {
+    cmpeq $mscratch0, $addend_len, 4
+    uput   $FP_CLR, $a0   // Need to clear AACC regs because we use f16v4mix
+  }
+  brnz  $mscratch0, .Lfour_addends_pipeline
 
   // The current multiple of 4 and 8 pipelines use ldst64pace. The
   // stride of that instruction is a signed 10-bit number of 64-bit words. So
@@ -336,11 +362,76 @@ VectorInnerAdd_core_half:
 
 ///////////////////////////////////////////////////////////////////////////////
 //                                                                           //
+//                           Exactly Four                                    //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+
+// This is the same as 'multiple of four' below, except it doesn't have the
+// overhead of the outer loop (the inner loop is executed only once)
+.align 8
+nop
+.Lfour_addends_pipeline:
+
+  setzi $stride, 1
+
+  // Subtract 2 as we do two blocks in the loop prologue+epilogue (fill+drain).
+  add $acts_block_count, $acts_block_count, -2
+
+  // Load the 4 addend values.
+  ld64 $current_addend0, $mzero, $addend, 0
+
+  // Cycle 0:      Load 0
+  ld64step $tmp0, $mzero, $acts+=, 1
+
+  // If $acts_block_count had gone negative, the original value was only 1 block
+  // so we need to process separately.
+  brneg $acts_block_count, .Lfour_addend_one_block
+
+  // Cycle 1:      Load 1    Add 0
+  {
+    ld64step $tmp1, $mzero, $acts+=, 1
+    f16v4mix $azeros, $current_addend0, $tmp0
+  }
+
+  // Cycle 2:      Load 2    Add 1
+  {
+    ld64step $tmp0, $mzero, $acts+=, 1
+    f16v4mix $tmp1, $current_addend0, $tmp1
+  }
+
+  // First address is the load pointer. Second is ignored. Third is the store
+  // pointer.
+  tapack $packed_ldst_addrs, $acts, $mzero, $out
+
+  rpt $acts_block_count, (2f - 1f)/8-1
+1:
+  {
+    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mix $tmp1, $current_addend0, $tmp0
+  }
+2:
+
+  {
+    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
+    f16v4mix $tmp1, $current_addend0, $azeros
+  }
+  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
+
+  br $lr
+.Lfour_addend_one_block:
+  // The first 'f16v4mix' adds, the second puts results in tmp1
+  f16v4mix $azeros, $current_addend0, $tmp0
+  f16v4mix $tmp1, $current_addend0, $azeros
+  st64 $tmp1, $mzero, $out, 0
+  br $lr
+
+
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
 //                           Multiple of Four                                //
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
-nop  # to align following 'rpt'
-
+.align 8
 .Lmultiple_of_four_pipeline:
 
   // Work out the stride, in units of 64-bits. It's addend_len / 4.
@@ -350,14 +441,8 @@ nop  # to align following 'rpt'
   // subtract 1 so we can use brnzdec.
   add $addend_len, $stride, -1
 
-  // Note if $acts_block_count is odd.
-  and $acts_block_count_was_odd, $acts_block_count, 0x01
-  // Work out how many of the main cycles we need to do.
-  // We process 2 blocks per loop.
-  shr $acts_block_count, $acts_block_count, 1
-  // Also subtract 1 so we don't process past the end.
-  // The minimum number of blocks required for this pipeline is 2.
-  add $acts_block_count, $acts_block_count, -1
+  // Subtract 2 as we do two blocks in the loop prologue+epilogue (fill+drain).
+  add $acts_block_count, $acts_block_count, -2
 
   // Loop over the 4-element blocks in the addend.
 .Lmultiple_of_four_pipeline_addend_loop:
@@ -391,28 +476,16 @@ nop  # to align following 'rpt'
   rpt $acts_block_count, (2f - 1f)/8-1
 1:
   {
-    ldst64pace $tmp1, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mix $tmp0, $current_addend0, $tmp0
-  }
-  {
-    ldst64pace $tmp0, $tmp0, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mix $tmp1, $current_addend0, $tmp1
+    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mix $tmp1, $current_addend0, $tmp0
   }
 2:
 
-  brz $acts_block_count_was_odd, 1f
-  // If it's odd, do this:
   {
     st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
-    f16v4mix $tmp1, $current_addend0, $tmp0
+    f16v4mix $tmp1, $current_addend0, $azeros
   }
-
-1:
-  {
-    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
-    f16v4mix $tmp0, $current_addend0, $azeros
-  }
-  st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x01
+  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
 
   // Move to the next 4 elements of acts and out (could use a dummy ldst64 here?).
   add $acts, $acts, 8
@@ -423,7 +496,7 @@ nop  # to align following 'rpt'
 
   br $lr
 
-
+nop
 ///////////////////////////////////////////////////////////////////////////////
 //                                                                           //
 //                           Multiple of Eight                               //
@@ -460,13 +533,13 @@ nop  # to align following 'rpt'
   // Cycle 0:      Load 0
   ld64step $tmp0, $mzero, $mscratch0+=, 1
 
-  // Cycle 1:      Load 1    Add 0
+  // Cycle 1:      Load 1    Add 0 to B0
   {
     ld64step $tmp1, $mzero, $mscratch0+=, $stride
     f16v4mix $azeros, $current_addend0, $tmp0
   }
 
-  // Cycle 2:      Load 2    Add 1
+  // Cycle 2:      Load 2    Add 1 to B1
   {
     ld64step $tmp0, $mzero, $mscratch0+=, 1
     f16v4mix $tmp1, $current_addend1, $tmp1
@@ -558,7 +631,6 @@ FN_SIZE VectorInnerAdd_core_half
 #undef mscratch0
 #undef packed_ldst_addrs
 #undef stride
-#undef acts_block_count_was_odd
 #undef tmp0
 #undef tmp1
 #undef tmp0_lower
@@ -882,7 +954,7 @@ CPP_FUNCNAME(2DInPlace,ADD):
   ld32 $workList_iterator,        $mvertex_base, $mzero, VERTEX2D_DATA_WORKLIST_OFFSET
   ldz16step $nM1, $mzero, $workList_iterator+=, 1
 { ld32 $addend_iterator,           $mvertex_base, $mzero, VERTEX2D_DATA_ADDEND_OFFSET
- 
+
   // Set $TAS to the $scale. This isn't used for the slow path but it is
   // bundled so doesn't cost an extra cycle in that case.
   put $TAS, $scale }

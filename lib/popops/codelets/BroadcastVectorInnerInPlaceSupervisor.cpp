@@ -27,7 +27,8 @@ public:
   // account, as the 'interleave' flag is a compile time constant.
   static const bool needsInterleave =
       std::is_same<FPType, half>::value &&
-      (op == expr::BinaryOpType::ADD || op == expr::BinaryOpType::SUBTRACT);
+      (op == expr::BinaryOpType::ADD || op == expr::BinaryOpType::MULTIPLY ||
+       op == expr::BinaryOpType::SUBTRACT);
 
   Input<Vector<FPType, SPAN, 8>> B;
   InOut<Vector<FPType, ONE_PTR, 8, needsInterleave>> data;

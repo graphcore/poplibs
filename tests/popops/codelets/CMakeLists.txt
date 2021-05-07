@@ -177,6 +177,15 @@ COMMAND BinaryCodeletsTest
         --size2  1  4  8  5      [1,4,8,5]
         --group-tests
 LABELS codelet)
+add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorInner_long"
+COMMAND BinaryCodeletsTest
+        --vertexRE VectorInner
+        --data-type half
+        --operation add mul
+        --size   4080 4088 4096
+        --size2  2040 2044 2048
+        --group-tests
+LABELS codelet)
 
 # Vector Outer vertices are exercised with these sizes as well.
 # When 'allowMisaligned' is false, the rows must be a multiple of atom size

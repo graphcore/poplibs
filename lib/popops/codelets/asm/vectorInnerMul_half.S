@@ -26,18 +26,18 @@
 // and non-inplace, where they are different (in different memory banks, so
 // ldst64pace can load/store without conflicts).
 //
-// The core routine has three code paths that can be followed:
+// The core routine has several code paths that can be followed:
 // Fast, Medium Speed, and Slow.
 //
-// ####### Fast Path
+// ####### Fast Pipelined Paths
 // If the scale_len is a multiple of 4 halves (i.e. 8 bytes), we can use
 // pipelined code that can process 4 halves per cycle (ldst64 and f16v4mul in
 // one cycle).
-// This cannot be used for inplace opereation as this will cause address
-// error in ldst64pace (load/store at the same address).
-// Also, we cannot use this if scale len is too big (limitiation in the length
+// We cannot use this if scale len is too big (limitiation in the length
 // of the immediate increment field in ldst64pace or if we have less than two
-// 'blocks' (rows) to process
+// 'blocks' (rows) to process.
+// There are two variants of this path, to be used depending on in-place/not-in-
+// place and the B length being also multiple of 8 (see below)
 //
 // ####### Medium Speed Path
 // If scale_len is a multiple of 4 halves, but we cannot use the fast path, as
@@ -53,7 +53,6 @@
 // [0 1 2 3 4][0 1 2 3 4][0  1  2  3  4]
 //             ^---- Annoying unaligned access.
 //
-//
 // If it is a multiple of 2 there is probably another "medium speed path" but
 // it is not coded to keep the code size small. Also if the scale_len is
 // exactly 1 or 2 we could duplicate it and use one of the fast paths
@@ -61,34 +60,85 @@
 // a different vertex anyway.
 //
 //
-// Description of the 'Multiple of four pipelined' path
-// This describes the inner loop only.
+// --------------------------------------------------------------------------
+// Description of the 'fast pipelined' path.
 //
-// In the following, for ease of notation we use:
+// We load the first 4 elements of 'scale' ('B0') and run the inner rpt loop
+// with that, then the second 4 elements (B1) and run the inner loop with that,
+// etc.
+//
+// In the following description of the inner loop, for ease of notation we use:
 //   A0, A1, B0 are '64 bit registers' (i.e. pairs of 'a' ARF registers).
-//   'acts_in' (1st operand) data begins at 0x40000.
+//   'acts_in' (1st operand) begins at 0x40000.
 //   'acts_out' (result) begins at 0x50000.
 //   'S' is the stride, i.e. the length of the full 2nd operand (scale len).
 //   Each line is a single cycle with up to three operations (LOAD/STORE + MUL).
 //
-// Stride is multiple of 4 halves (8 bytes), e.g. 64 halves = 0x40 bytes
+// Stride is is the length of 'scale' ('B'), a multiple of 4 halves (8 bytes).
+// In this example is 28 halves = 56 (0x38) bytes
 //
-// All pointer postincrements are by 'S' (stride), except first two stores.
+// All pointer postincrements are by 'S' (stride).
 //
-//      MOV B0 <- 4 elements from 'scale'
+//  MOV B0 <- first 4 elements from 'scale'
 //
-//  0:  LOAD A0  from [40000]+=S;    STORE A1 to [50000]+=0
+//  0:  LOAD A0  from [40000]+=S;
 //  1:                                                          MUL A1  <- A0*B0
-//  2:  LOAD A0' from [40040]+=S;    STORE A1 to [50000]+=0;    MUL A1' <- A0*B0
-//  3:  LOAD A0' from [40080]+=S;    STORE A1 to [50000]+=S;    MUL A1' <- A0*B0
-//  4:  LOAD A0' from [400c0]+=S;    STORE A1 to [50040]+=S;    MUL A1' <- A0*B0
-//  5:  LOAD A0' from [40100]+=S;    STORE A1 to [50080]+=S;    MUL A1' <- A0*B0
-//  6:  LOAD A0' from [40140]+=S;    STORE A1 to [500c0]+=S;    MUL A1' <- A0*B0
-//  7:  LOAD A0' from [40180]+=S;    STORE A1 to [50100]+=S;    MUL A1' <- A0*B0
-//  8:  LOAD A0' from [401c0]+=S;    STORE A1 to [50140]+=S;    MUL A1' <- A0*B0
-//  9:                               STORE A1 to [50180]+=S;    MUL A1' <- A0*B0
-//  9:                               STORE A1 to [501c0]+=S;
-
+//  2:  LOAD A0  from [40038]+=S;
+//  3:  LOAD A0' from [40070]+=S;    STORE A1 to [50000]+=S;    MUL A1' <- A0*B0
+//  4:  LOAD A0' from [400a8]+=S;    STORE A1 to [40038]+=S;    MUL A1' <- A0*B0
+//  5:  LOAD A0' from [400e0]+=S;    STORE A1 to [40070]+=S;    MUL A1' <- A0*B0
+//  6:  LOAD A0' from [40118]+=S;    STORE A1 to [400a8]+=S;    MUL A1' <- A0*B0
+//  7:  LOAD A0' from [40150]+=S;    STORE A1 to [400e0]+=S;    MUL A1' <- A0*B0
+//  8:  LOAD A0' from [40188]+=S;    STORE A1 to [40118]+=S;    MUL A1' <- A0*B0
+//  9:  LOAD A0' from [401c0]+=S;    STORE A1 to [40150]+=S;    MUL A1' <- A0*B0
+// 10:                               STORE A1 to [40188]+=S;    MUL A1' <- A0*B0
+// 11:                               STORE A1 to [401c0]+=S;
+//
+// This cannot be used for the in-place case, because the ldst64 instruction
+// would be loading and storing at the same even-odd multiple of 8-byte (64-bit)
+// in the interleaved memory element, causing an exception.
+//
+//
+// --------------------------------------------------------------------------
+// Description of the 'fast pipelined delayed' path.
+//
+// If we can delay by one cycle the store, we can do a 'full pipeline' for the
+// in place as well. The delay can be done by using another pair of ARF
+// registers ('A2' below):
+//
+//  0:  LOAD A0 from [40000]+=S;
+//  1:  LOAD A1 from [40038]+=S;                               MUL A0 <- A0*B0
+//  2:  LOAD A2 from [40070]+=S;                               MUL A1 <- A0*B0
+//  3:  LOAD A0 from [400a8]+=S;    STORE A0 to [40000]+=S;    MUL A2 <- A0*B0
+//  4:  LOAD A1 from [400e0]+=S;    STORE A1 to [40038]+=S;    MUL A0 <- A0*B0
+//  5:  LOAD A2 from [40118]+=S;    STORE A2 to [40070]+=S;    MUL A1 <- A0*B0
+//  6:  LOAD A0 from [40150]+=S;    STORE A0 to [400a8]+=S;    MUL A2 <- A0*B0
+//  7:  LOAD A1 from [40188]+=S;    STORE A1 to [400e0]+=S;    MUL A0 <- A0*B0
+//  8:  LOAD A2 from [401c0]+=S;    STORE A2 to [40118]+=S;    MUL A1 <- A0*B0
+//  9:  LOAD A0 from [401f8]+=S;    STORE A0 to [40150]+=S;    MUL A2 <- A0*B0
+// 10:                              STORE A1 to [40188]+=S;    MUL A0 <- A0*B0
+// 11:                              STORE A2 to [401c0]+=S;
+// 11:                              STORE A0 to [401f8]+=S;
+//
+// In this case the ldst64 will be operating of different even/odd multiple of
+// 8 bytes for load and store pointers.
+//
+// There are two drawbacks with this:
+// 1. This works only if 'B' length is a multiple of 4 but not of 8 (like in the
+//    example: B length = 28 halves = 56 (0x38) bytes). If the length was 32
+//    halves (0x40 bytes) the ldst64 will be operating on the same multiple of
+//    8 boundaries, causing an exception.
+// 2. The loop kernel needs to be 3 bundles long, which complicates the coding
+//    of prologue and epilogue (more overhead in code size and cycles). Cannot
+//    be done with 4 bundles, as we don't have enough ARF registers.
+//
+// because of the above reasons, the 'fast pipelined delayed' is used only for
+// the specific case of 'B' length = exactly 4 (see below).
+//
+// There is a specialized path for 'B' length = exactly 4, which uses the very
+// same code described above for the inner loop (both 'fast pipelined' and
+// 'fast pipelined delayed'), but runs it only once (no outer loop), and so
+// saves a few cycles in this case.
 
 
 #include "poplar/TileConstants.hpp"
@@ -121,6 +171,13 @@ EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor)
 EXPORT_FN   CPP_FUNCNAME(2D)
 EXPORT_FN   CPP_FUNCNAME(2DInPlace)
 
+// Scratch area is used to save saome registers
+#define SCRATCH_OFFSET_SCALE_ITERATOR 0
+#define SCRATCH_OFFSET_ACTS_IN_ITERATOR 1
+#define SCRATCH_OFFSET_ACTS_OUT_ITERATOR 2
+#define SCRATCH_OFFSET_QUOTIENT 3
+#define SCRATCH_OFFSET_LOOP_COUNT 4
+
 
 // This is the main function that does the actual work. It takes the following
 // register arguments:
@@ -144,11 +201,15 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace)
 #define outer_stride m7              // Only used in scalar path.
 #define acts_loop_count m8           // Only used in scalar path.
 #define stride m5                    // Only used in multiple-of-4 path.
-#define acts_block_count_was_odd m8  // Only used in multiple-of-4 path.
 // 'packed_ldst_addrs' MUST BE 'in_ptr:out_ptr'
 #define packed_ldst_addrs m6:7       // Only used in multiple-of-4 path.
 #define in_ptr m6                    // Only used in multiple-of-8 path.
 #define out_ptr m7                   // Only used in multiple-of-8 path.
+
+#define quotient m11
+#define remainder m8
+#define loop_count m9
+#define mscratch1 m9
 
 #define tmp0 a0:1
 #define tmp1 a2:3
@@ -159,9 +220,185 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace)
 #define current_scale_lower a4
 #define ascratch0 a7
 
+// -------------------------------------------------------------------------
+// Macro for the inner loop for the case where:
+//   Not-in-place ('data' and 'out' are in different memory elements)
+//   'B' size is any multiple of 4 ('B' size = 4, 8, 12, 16, 20, 24, 28, ...)
+//   4 <= 'B' size <= 2044
+// The inner RPT loop is the fastest possible (1 cycles/4 half)
+//    INPUTS:  $acts_in, $acts_out :
+//             $current_scale      :
+//             $acts_block_count   : counter for RPT loop
+//             $stride             :
+// -------------------------------------------------------------------------
+.macro FAST_PIPELINED_CORE
+  tapack $packed_ldst_addrs, $acts_in, $mzero, $acts_out
 
+  // Cycle 0:      Load 0
+  // dummy store without incrementing store pointer. It is safe to do so
+  // because that address will be over-written with a valid value
+  ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
+  // Cycle 1                 Mul 0
+  {
+    brneg $acts_block_count, .Lstore_final\@
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
+  // Cycle 2:      Load 1
+  // dummy store again
+  ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
+
+  rpt $acts_block_count, (2f - 1f)/8-1
+1:
+  {
+    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
+2:
+  // end of rpt
+  {
+    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp1, $current_scale, $tmp0
+  }
+.Lstore_final\@:
+  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+.endm
+
+
+// -------------------------------------------------------------------------
+// Preparation for using FAST_PIPELINED_DELAYED_CORE
+// Get quotient and remainder of acts_block_count/3. The fixed point division
+// gives the correct results only when $acts_block_count range is [0..32768]
+//
+//    INPUT:   $acts_block_count : number of blocks to process
+//
+//    OUTPUT:  $quotient         : blocks / 3
+//             $remainder        : blocks % 3
+//             $acts_block_count : quotient -1 (i.e. counter for RPT loop)
+//
+// -------------------------------------------------------------------------
+.macro DIVIDE_BLOCKS_BY_3
+  mul $quotient, $acts_block_count, 0x5556;
+  shr $quotient, $quotient, 16
+  mul $mscratch0, $quotient, 3
+  sub $remainder, $acts_block_count, $mscratch0
+  sub $acts_block_count, $quotient, 1
+.endm
+
+// -------------------------------------------------------------------------
+// Macro for the inner loop for the case where:
+//   In-place (the in/out 'data' is in an interleaved memory element)
+//   'B' size is multiple of 4, but not of 8 ('B' size = 4, 12, 20, 28, 36, ...)
+//   4 <= 'B' size <= 2044
+//
+// The inner RPT loop is the fastest possible (1 cycles/4 half)
+//    INPUTS:  $acts_in, $acts_out :
+//             $current_scale      :
+//             $acts_block_count   : counter for RPT loop
+//             $stride             :
+//             $quotient           :
+//             $remainder          :
+// -------------------------------------------------------------------------
+.macro FAST_PIPELINED_DELAYED_CORE
+  brnz   $quotient, 2f
+
+  // -- we have only 1 or 2 atoms to process (can't go to RPT loop)
+
+  # Move two regs in one instr.: ($acts_in, $acts_out) => ($in_ptr, $out_ptr)
+  tapack $packed_ldst_addrs, $acts_in, $acts_out, $mzero
+  mov    $loop_count, $remainder // need to preserve remainder
+1:
+  ld64step $tmp0, $mzero, $in_ptr+=, $stride
+  {
+    add $loop_count, $loop_count, -1
+    f16v4mul $tmp0, $tmp0, $current_scale
+  }
+  st64step $tmp0,  $mzero, $out_ptr+=, $stride
+  brnz $loop_count, 1b
+  bri .Lend_fast_in_place\@
+2:
+  // -- We have at least 3 atoms to process: prepare RPT loop
+  mov $in_ptr, $acts_in // need to preserve $acts_in
+
+  ld64step $tmp0, $mzero, $in_ptr+=, $stride
+  {
+    ld64step $tmp1, $mzero, $in_ptr+=, $stride
+    f16v4mul $tmp0, $tmp0, $current_scale
+  }
+  {
+    ld64step $tmp2, $mzero, $in_ptr+=, $stride
+    f16v4mul $tmp1, $tmp1, $current_scale
+  }
+
+  tapack $packed_ldst_addrs, $in_ptr, $mzero, $acts_out
+
+  // Inner RPT loop processing 3 atoms of 4 half values
+  rpt $acts_block_count, (2f - 1f)/8-1
+1:
+  {
+    ldst64pace $tmp0, $tmp0, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp2, $tmp2, $current_scale
+  }
+  {
+    ldst64pace $tmp1, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp0, $tmp0, $current_scale
+  }
+  {
+    ldst64pace $tmp2, $tmp2, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp1, $tmp1, $current_scale
+  }
+2:
+  // Epilogue of pipelined loop ('Drain'). We have 3 different epilogues
+  // to process the possible remainder elements (0, 1 or 2)
+  brnz $remainder, 1f
+  // remainder = 0
+  {
+    st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x01
+    f16v4mul $tmp2, $tmp2, $current_scale
+  }
+  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
+  st64pace $tmp2, $packed_ldst_addrs+=, $stride, 0x01
+  bri .Lend_fast_in_place\@
+1:
+  // remainder = 1 or 2
+  {
+    ldst64pace $tmp0, $tmp0, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp2, $tmp2, $current_scale
+  }
+  cmpeq $mscratch1, $remainder,1
+  brz $mscratch1, 2f
+  // remainder = 1
+  {
+    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
+    f16v4mul $tmp0, $tmp0, $current_scale
+  }
+  st64pace $tmp2, $packed_ldst_addrs+=, $stride, 0x01
+  st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x01
+
+  bri .Lend_fast_in_place\@
+2:
+  // remainder = 2
+  {
+    ldst64pace $tmp1, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
+    f16v4mul $tmp0, $tmp0, $current_scale
+  }
+  {
+    st64pace $tmp2, $packed_ldst_addrs+=, $stride, 0x01
+    f16v4mul $tmp1, $tmp1, $current_scale
+  }
+  st64pace $tmp0, $packed_ldst_addrs+=, $stride, 0x01
+  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x01
+
+.Lend_fast_in_place\@:
+.endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Entry code that dispatches to the correct code paths, given B length and
+// in-place/not-in-place
+///////////////////////////////////////////////////////////////////////////////
 .section .text.VectorInnerMul_core_half
 .align 8
+nop
 VectorInnerMul_core_half:
   // If we have no blocks to do, exit.
   brz $acts_block_count, .Lreturn
@@ -170,13 +407,17 @@ VectorInnerMul_core_half:
   // code paths depending on whether the scale_len is a multiple of 4 halves
   // or not, & other considerations.
 
+  // There is an optimisation for a length of exactly 4
+  cmpeq $mscratch0, $scale_len, 4
+  brnz $mscratch0, .Lexactly_four
+
   // If scale len is not a multiple of 4 halves we use the slow path.
   and $mscratch0, $scale_len, 0x03
   brnz $mscratch0, .Lscale_scalar
 
   // It's a multiple of 4
 
-  // If inplace we jump to the medium speed path
+  // If inplace we jump to the appropriate path
   cmpeq $mscratch0, $acts_in, $acts_out   // Check if in place (i.e. in==out)
   brnz $mscratch0, .Lmultiple_of_four
 
@@ -188,7 +429,7 @@ VectorInnerMul_core_half:
   cmpult $mscratch0, $scale_len, 2045
   brz $mscratch0, .Lmultiple_of_four
 
-  // We also need to use the medium speed path if there are too few blocks to
+  // We need to use the medium speed path if there are too few blocks to
   // fill the multiple-of-four pipeline.
   cmpult $mscratch0, $acts_block_count, 2
   brnz $mscratch0, .Lmultiple_of_four
@@ -214,39 +455,8 @@ VectorInnerMul_core_half:
 .Lmultiple_of_four_pipeline_scale_loop:
   // Load the next 4 scales.
   ld64step $current_scale, $mzero, $scale+=, 1
-  // Cycle 0:      Load 0
-  tapack $packed_ldst_addrs, $acts_in, $mzero, $acts_out
 
-  // dummy store without incrementing store pointer. It is safe to do so
-  // because that address will be over-written with a valid value
-  ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
-  {
-    brneg $acts_block_count, store_final
-    f16v4mul $tmp1, $current_scale, $tmp0
-  }
-
-  // Cycle 1:      Load 1    Add 0
-  {
-    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x0D
-    f16v4mul $tmp1, $current_scale, $tmp0
-  }
-
-  rpt $acts_block_count, (2f - 1f)/8-1
-1:
-  {
-    ldst64pace $tmp0, $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mul $tmp1, $current_scale, $tmp0
-  }
-2:
-  // end of rpt
-  {
-    st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-    f16v4mul $tmp1, $current_scale, $tmp0
-  }
-
-store_final:
-  st64pace $tmp1, $packed_ldst_addrs+=, $stride, 0x05
-
+  FAST_PIPELINED_CORE
 
   // Dummy load to increment by 1 atom (4 bytes) 'acts_in' and 'acts_out'.
   ld2x64pace $azeros, $dummy, $acts_in_out+=, $mzero, 0
@@ -254,12 +464,12 @@ store_final:
   brnzdec $scale_len, .Lmultiple_of_four_pipeline_scale_loop
   br $lr
 
-
 ///////////////////////////////////////////////////////////////////////////////
 //                                                                           //
 //                    Multiple of Four medium speed                          //
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
+.align 8
 .Lmultiple_of_four:
 
   // Work out the stride, in units of 64-bits. It's scale_len / 4.
@@ -309,6 +519,41 @@ store_final:
   // Loop and process the next 4 values of scale, if there are any.
   brnzdec $scale_len, .Lmultiple_of_four_scale_loop
 
+  br $lr
+
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
+//                             Exactly Four                                  //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+.align 8
+nop
+.Lexactly_four:
+  // Load the 4 scales.
+  ld64step $current_scale, $mzero, $scale+=, 1
+
+  setzi $stride, 1
+
+  cmpeq $mscratch0, $acts_in, $acts_out   // Check if in place (i.e. in==out)
+  brnz $mscratch0, .Lexactly_four_in_place
+  // ===== NOT-IN-PLACE
+
+  // Work out how many of the main cycles we need to do.
+  // We process 1 block per loop.
+  add $acts_block_count, $acts_block_count, -2
+
+  FAST_PIPELINED_CORE
+  br $lr
+
+.align 8
+.Lexactly_four_in_place:
+  // =====  IN-PLACE
+  st32 $quotient,   $mworker_base, $mzero, SCRATCH_OFFSET_QUOTIENT
+  st32 $loop_count, $mworker_base, $mzero, SCRATCH_OFFSET_LOOP_COUNT
+  DIVIDE_BLOCKS_BY_3
+  FAST_PIPELINED_DELAYED_CORE
+  ld32 $quotient,   $mworker_base, $mzero, SCRATCH_OFFSET_QUOTIENT
+  ld32 $loop_count, $mworker_base, $mzero, SCRATCH_OFFSET_LOOP_COUNT
   br $lr
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -406,7 +651,6 @@ FN_SIZE VectorInnerMul_core_half
 #undef scale_loop_count
 #undef outer_stride
 #undef acts_loop_count
-#undef acts_block_count_was_odd
 #undef packed_ldst_addrs
 #undef tmp0
 #undef tmp1
@@ -575,9 +819,6 @@ update_acts_ptrs:
 #define workList_iterator m9
 #define nM1 m11
 
-#define SCRATCH_OFFSET_SCALE_ITERATOR 0
-#define SCRATCH_OFFSET_ACTS_IN_ITERATOR 1
-#define SCRATCH_OFFSET_ACTS_OUT_ITERATOR 2
 
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace)
