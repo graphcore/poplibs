@@ -1421,6 +1421,24 @@ foreach(sort_method rank simple_sort)
       VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
+# Test with non-zero blank class
+foreach(seed RANGE 1 10)
+  add_multitarget_test(
+    NAME ctc_beam_search_non_zero_blank${seed}
+      COMMAND ctc_beam_search
+        --batch=8
+        --seed=${seed}
+        --beamwidth=5
+        --num-classes=11
+        --max-time=100
+        --min-time=40
+        --max-label-length=40
+        --min-label-length=20
+        --top-paths=5
+        --blank-class=${seed}
+      VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()
+
 # Verify ctc beam search with tile constraints
 # Ensure that the number of classes results in tests where
 # tiles < batch_size

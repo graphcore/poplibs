@@ -339,6 +339,7 @@ void selectExtendCandidateVertex(Graph &graph, const TempTensors &tempTensors,
 
   // Constants
   graph.setInitialValue(vertex["numCopyCandidates"], copyCandidates);
+  graph.setInitialValue(vertex["blankClass"], blankClass);
 }
 
 void simpleSortCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
