@@ -108,7 +108,8 @@ void mergeCandidateVertex(poplar::Graph &graph, const BeamTensors &beams,
                           const poplar::Interval &time,
                           unsigned extendPartition, unsigned copyPartition,
                           unsigned beamPartition, unsigned blankClass,
-                          unsigned beamwidth, unsigned tile);
+                          unsigned beamwidth, unsigned numClasses,
+                          unsigned tile);
 
 void selectCopyCandidateVertex(poplar::Graph &graph,
                                const TempTensors &tempTensors,

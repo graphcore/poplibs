@@ -566,7 +566,7 @@ int main(int argc, char **argv) {
         graph, device, deviceType, inType, partialsType, extendCandidates,
         copyCandidate, timestep + 1, blankClass,
         toIpuFormat(beamHistory, timestep - 1), expectedOutputLength,
-        lastBeamOutputSym, profile);
+        lastBeamOutputSym, numClassesIncBlank, profile);
 
     extendCandidates.insert(extendCandidates.begin(), copyCandidate);
     const auto modelMergedCandidates =

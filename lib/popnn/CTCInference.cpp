@@ -591,7 +591,7 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
         const unsigned tile = plan.getTile(b.partitionIdx, 0, m.partitionIdx);
         mergeCandidateVertex(graph, beams, tempTensors, cs2, b.idx, {0, maxT},
                              m.idx, copy, m.partitionIdx, blankClass, beamwidth,
-                             tile);
+                             numClasses, tile);
       }
     }
   }

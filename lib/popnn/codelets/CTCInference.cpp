@@ -83,7 +83,7 @@ public:
 
     // By appending the same symbol as at the end of the beam
     // e.g. beam: "a", addend: "a" -> output: "a"
-    if (prevSymbol != voidSymbol) {
+    if (prevSymbol < numClassesIncBlank) {
       const auto addendProb =
           static_cast<PartialsType>(logProbs[baseOffset + prevSymbol]);
       const auto nonBlankProb =
@@ -267,6 +267,7 @@ public:
   // The length of the data input (Valid for this specific input)
   Input<unsigned> dataLength;
 
+  const unsigned numClassesIncBlank;
   const unsigned extendCandidates;
   const unsigned beamwidth;
   const SymbolType blankClass;
@@ -300,7 +301,7 @@ public:
     // beam.  The extend candidate with the same addend is the only one that
     // need be compared.
     const auto copyCandidateLastOut = lastBeamOutput;
-    if (copyCandidateLastOut == voidSymbol) {
+    if (copyCandidateLastOut >= numClassesIncBlank) {
       return true;
     }
     const auto i = copyCandidateLastOut > blankClass ? copyCandidateLastOut - 1

@@ -205,7 +205,8 @@ void mergeCandidateVertex(Graph &graph, const BeamTensors &beams,
                           unsigned batch, const Interval &time,
                           unsigned extendPartition, unsigned copyPartition,
                           unsigned beamPartition, unsigned blankClass,
-                          unsigned beamwidth, unsigned tile) {
+                          unsigned beamwidth, unsigned numClasses,
+                          unsigned tile) {
 
   const auto partialsType = beams.pb.elementType();
   const auto extendCandidates = tempTensors.extendCandidatesParent.dim(1);
@@ -251,6 +252,7 @@ void mergeCandidateVertex(Graph &graph, const BeamTensors &beams,
   attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
 
   // Constants
+  graph.setInitialValue(vertex["numClassesIncBlank"], numClasses);
   graph.setInitialValue(vertex["extendCandidates"], extendCandidates);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
   graph.setInitialValue(vertex["blankClass"], blankClass);

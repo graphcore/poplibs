@@ -1354,9 +1354,9 @@ add_multitarget_test(
   VARIANTS ${IPUMODEL_VARIANTS})
 
 # CTC inference beam search.  Batch size provides multiple random inputs
-foreach(beam_width 1 2 3)
+foreach(beam_width 1 2 3 10 15)
   foreach(num_classes 3 5 10)
-    foreach(blank_class 0 1)
+    foreach(blank_class 0 2)
       set(top_paths 2)
       if(beam_width EQUAL 1)
         set(top_paths 1)
@@ -1400,6 +1400,19 @@ foreach(beam_width 1 2 3 5)
     endforeach()
   endforeach()
 endforeach()
+
+# Check case where empty beams exist for a few timesteps
+add_multitarget_test(
+  NAME ctc_beam_search_empty_beam_propagates
+    COMMAND ctc_beam_search
+      --batch=4
+      --beamwidth=15
+      --num-classes=3
+      --max-time=6
+      --disable-always-satisfiable-error
+      --max-label-length=4
+      --blank-class=2
+    VARIANTS ${IPUMODEL_VARIANTS})
 
 # Verify ctc beam search half operation with both float and half partials
 foreach(partials_type half float)

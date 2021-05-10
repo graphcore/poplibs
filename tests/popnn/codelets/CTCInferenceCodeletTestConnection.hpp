@@ -42,7 +42,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
     const Candidate<PartialsType> &copyCandidate, unsigned timestep,
     unsigned blankClass, const BeamHistory &beamHistory,
     const poplar::ArrayRef<unsigned> &outputLengths, unsigned lastBeamOutputSym,
-    bool profile);
+    unsigned numClasses, bool profile);
 
 template <typename PartialsType>
 std::vector<Candidate<PartialsType>> runSimpleSortCandidatesCodelet(

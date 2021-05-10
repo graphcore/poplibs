@@ -34,7 +34,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
     const Candidate<PartialsType> &copyCandidate, unsigned timestep,
     unsigned blankClass, const BeamHistory &beamHistory,
     const ArrayRef<unsigned> &outputLengths, unsigned lastBeamOutputSym,
-    bool profile) {
+    unsigned numClasses, bool profile) {
 
   const auto target = graph.getTarget();
   const auto beamwidth = beamHistory.symbols.size();
@@ -75,6 +75,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   graph.connect(vertex["currentTimestep"], currentTimestep);
   graph.connect(vertex["dataLength"], dataLength);
 
+  graph.setInitialValue(vertex["numClassesIncBlank"], numClasses);
   graph.setInitialValue(vertex["extendCandidates"], numExtendCandidates);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
   graph.setInitialValue(vertex["blankClass"], blankClass);
@@ -219,7 +220,7 @@ template std::vector<Candidate<float>> runMergeCandidatesCodelet(
     const Candidate<float> &copyCandidate, unsigned timestep,
     unsigned blankClass, const BeamHistory &beamHistory,
     const ArrayRef<unsigned> &outputLengths, unsigned lastBeamOutputSym,
-    bool profile);
+    unsigned numClasses, bool profile);
 
 } // namespace ctc
 } // namespace poplibs_test
