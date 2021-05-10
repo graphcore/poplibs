@@ -74,24 +74,10 @@ struct TestRecord {
   /// \param[in] fillValue The value to fill the tensor with
   TestRecord(std::shared_ptr<VertexDesc> v, unsigned seq, const SizeDesc &sz,
              float fillValue)
-      : size(sz), vertex(std::move(v)), fillValue(fillValue) {
+      : vertex(std::move(v)), fillValue(fillValue) {
     streamName = "out_" + to_string(seq);
     // Adjust size specified on cmd line to vertex type
-    if (size.isRowsByCols) {
-      size.isRowsByCols = false;
-      unsigned rows = size.val.at(0);
-      unsigned cols = size.val.at(1);
-      size.val.clear();
-      if (vertex->is2D) {
-        size.val.resize(rows, cols);
-      } else {
-        size.val.push_back(rows * cols);
-      }
-    } else {
-      if (!vertex->is2D) {
-        size.val.resize(1);
-      }
-    }
+    size = sz.adjust(vertex->is2D);
   }
   TestRecord(TestRecord &&) = default;
 

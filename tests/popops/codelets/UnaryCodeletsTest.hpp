@@ -521,24 +521,10 @@ template <typename VertexDesc> struct TestRecord {
   /// \param[in] seq    A sequential index, different for each test
   /// \param[in] tSizes The data sizes to use for the test.
   TestRecord(std::unique_ptr<VertexDesc> v, unsigned seq, const SizeDesc &sz)
-      : size(sz), vertex(std::move(v)) {
+      : vertex(std::move(v)) {
     writeName = vertex->inName + "_" + to_string(seq);
     readName = vertex->outName + "_" + to_string(seq);
-    if (size.isRowsByCols) {
-      size.isRowsByCols = false;
-      unsigned rows = size.val.at(0);
-      unsigned cols = size.val.at(1);
-      size.val.clear();
-      if (vertex->is2D) {
-        size.val.resize(rows, cols);
-      } else {
-        size.val.push_back(rows * cols);
-      }
-    } else {
-      if (!vertex->is2D) {
-        size.val.resize(1);
-      }
-    }
+    size = sz.adjust(vertex->is2D);
   }
   TestRecord(TestRecord &&) = default;
 

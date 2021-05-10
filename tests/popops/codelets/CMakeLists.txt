@@ -259,6 +259,22 @@ runRptLoopCycleTest("binary_float_half" BinaryCodeletsTest "BinaryOp1DSupervisor
                     "maximum;minimum" "float;half")
 
 
+# This run tests on all the vertices of the 'ScaledAdd' family, checking for
+# overruns at the end of the data
+add_multi_target_test_executable(ScaledAddCodeletsTest ScaledAddCodeletsTest.cpp)
+add_multitarget_test(NAME "ScaledAddCodeletsTests_low_tolerance"
+                     COMMAND ScaledAddCodeletsTest
+                             --group-tests
+                             --tolerance 0.00001
+                             --size 1 2 3 4 8 12
+                     TEST_IPUMODEL "true")
+add_multitarget_test(NAME "ScaledAddCodeletsTests_high_tolerance"
+                     COMMAND ScaledAddCodeletsTest
+                             --group-tests
+                             --tolerance 0.001
+                             --size 23 24 25 [47,48,49]
+                     TEST_IPUMODEL "true")
+
 
 add_unit_test(ScaledAdd2D_fp
               ScaledAdd2D_fp.cpp

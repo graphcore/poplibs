@@ -245,6 +245,36 @@ void fillBuffer(const Type &dataType, RandomEngine &rndEng,
 struct SizeDesc {
   bool isRowsByCols = false;
   std::vector<unsigned> val;
+  // Return a new DescSize adjusted for a 'standard' vertex that can be only
+  // 1D or 2D. Note that the Broadcast/VectorInner/VectorOuter have a more
+  // complex bespoke 'adjustment' of the command-line-specified size.
+  SizeDesc adjust(bool vertexIs2D) const {
+    SizeDesc adjusted = *this;
+    if (isRowsByCols) {
+      // If specified on the command line as "NxM", for instance "7x5", we will
+      // change it:
+      //  If 2D into:  [7,7,7,7,7]
+      //  If 1D into:  [35]
+      adjusted.isRowsByCols = false;
+      unsigned rows = val.at(0);
+      unsigned cols = val.at(1);
+      adjusted.val.clear();
+      if (vertexIs2D) {
+        adjusted.val.resize(rows, cols);
+      } else {
+        adjusted.val.push_back(rows * cols);
+      }
+    } else {
+      // Otherwise, if it the vertex is 1D, we keep only the first size
+      // (for example, if we start with [21,12,5], we change into [21]).
+      // Dropping silently the 'extra' row sizes make it easier to test both
+      // 1D and 2D vertices with a single command.
+      if (!vertexIs2D) {
+        adjusted.val.resize(1);
+      }
+    }
+    return adjusted;
+  }
   std::string toString() const {
     std::string s;
     unsigned n = val.size();
