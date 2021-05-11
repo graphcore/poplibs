@@ -2,29 +2,23 @@
 #ifdef __IPU__
 
 #include "poplar/TileConstants.hpp"
+#include "SliceCopyFunction_8bit.inc"
 
 /* -------------------------------------------------------------------------- */
 // Common copy function used bt next codelets:
-// - DynamicSlice2d, 
+// - DynamicSlice2d,
 // - DynamicUpdateSlice2d
 // - MultiSlice
 // - MultiUpdate
 /* -------------------------------------------------------------------------- */
-// Register aliases
-#define mReturnAddress m7
-#define mSrcPtr        m8
-#define mDstPtr        m9
-#define mRegionSize    m10
-#define mScratch       m11
 
-#define VAL12   a0:1
-#define VAL1    a0
-#define VAL2    a1
-#define VAL3    a2
 
 //******************************************************************************
 // Labels names for each variant
 //******************************************************************************
+.globl Slice_copy_function_8bit
+.type Slice_copy_function_8bit, @function
+
 .globl Slice_copy_function_half
 .type Slice_copy_function_half, @function
 
@@ -32,8 +26,64 @@
 .type Slice_copy_function_float_int @function
 
 //******************************************************************************
+// Copy function for 8 bit values
+// Inputs:
+//    mReturnAddress (m7)  - return address
+//    mSrcPtr        (m8)  - source address
+//    mDstPtr        (m9)  - destination address
+//    mRegionSize    (m10) - region size in elements (bytes)
+//
+// This function is allowed to use/modify m8, m9, m10, m11 (mScratch)
+// and all ARF registers but must preserve all other MRF registers (m0..m7).
+//
+// To save/restore the registers used here, this function uses a few words in
+// the scratch area, at offsets WOFF_SAVE_REG1..n
+//******************************************************************************
+.section .text.Slice_copy_8bit
+.align 8
+Slice_copy_function_8bit:
+    brz         $mRegionSize, Slice_copy_8bit_end
+
+    // Save previous value of used registers in scratch area
+    st32        $diff, $mzero, $mworker_base, WOFF_SAVE_REGS1
+    st32        $mMemVal, $mzero, $mworker_base, WOFF_SAVE_REGS2
+    st32        $mVal, $mzero, $mworker_base, WOFF_SAVE_REGS3
+    st32        $remainder, $mzero, $mworker_base, WOFF_SAVE_REGS4
+    // Is destination aligned to 4 bytes boundary?
+    and         $diff, $mDstPtr, 3
+    brz         $diff, .Ldst_4byte_aligned
+
+    SLICE_COPY_START_BYTES
+
+.Ldst_4byte_aligned:
+    // How many 4-byte words do we need to process and how many bytes of
+    // remainder (0,1,2,3)?
+    and         $remainder, $mRegionSize, 3
+    shr         $numWords, $mRegionSize, 2
+    brz         $numWords, .Lzero_full_words
+
+    // Here destination pointer is aligned to 4 bytes.
+    SLICE_COPY_ALIGN32  1
+.Lzero_full_words:
+
+    // If 0 bytes of remainder, bail out
+    brz         $remainder, .Lrestore_regs
+    SLICE_COPY_REMAINDER
+
+.Lrestore_regs:
+    // Restore previous registers from scratch area
+    ld32        $diff, $mzero, $mworker_base, WOFF_SAVE_REGS1
+    ld32        $mMemVal, $mzero, $mworker_base, WOFF_SAVE_REGS2
+    ld32        $mVal, $mzero, $mworker_base, WOFF_SAVE_REGS3
+    ld32        $remainder, $mzero, $mworker_base, WOFF_SAVE_REGS4
+Slice_copy_8bit_end:
+    br          $mReturnAddress
+.size Slice_copy_function_8bit, .-Slice_copy_function_8bit
+
+
+//******************************************************************************
 // Copy function for half
-// Inputs (will/migth be reused insode copy function): 
+// Inputs (will/migth be reused inside copy function):
 //         m7  - return address (from call m7, imm)
 //         m8  - source address
 //         m9  - destination address
@@ -43,6 +93,8 @@
 //         a0  - temp register
 //         a1  - temp register
 //         a2  - temp register
+// This function is allowed to use/modify m8, m9, m10 (above), m11 (mScratch)
+// and all ARF registers but must preserve all other MRF registers (m0..m7).
 //******************************************************************************
 .section .text.Slice_copy_half
 
@@ -61,7 +113,7 @@ Slice_copy_function_half:
     ldb16step $VAL1,        $mzero,       $mSrcPtr+=, 1
     add       $mDstPtr,     $mDstPtr,     -2
     ldb16     $VAL2,        $mzero,       $mDstPtr, 0
-    {add      $mRegionSize, $mRegionSize, -1; 
+    {add      $mRegionSize, $mRegionSize, -1;
      roll16   $VAL1,        $VAL2,        $VAL1}
     st32step  $VAL1,        $mzero,       $mDstPtr+=, 1
 1:
@@ -125,7 +177,7 @@ Slice_copy_half_end:
 
 //******************************************************************************
 // Copy function for float and int
-// Inputs (will/migth be reused insode copy function): 
+// Inputs (will/migth be reused inside copy function):
 //         m7  - return address (from call m7, imm)
 //         m8  - source address
 //         m9  - destination address
@@ -135,6 +187,8 @@ Slice_copy_half_end:
 //         a0  - temp register
 //         a1  - temp register
 //         a2  - temp register
+// This function is allowed to use/modify m8, m9, m10 (above), m11 (mScratch)
+// and all ARF registers but must preserve all other MRF registers (m0..m7).
 //******************************************************************************
 .section .text.Slice_copy_float_int
 

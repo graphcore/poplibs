@@ -57,5 +57,9 @@ template class MultiUpdate<float>;
 template class MultiUpdate<half>;
 template class MultiUpdate<int>;
 template class MultiUpdate<unsigned>;
+template class MultiUpdate<bool>;
+template class MultiUpdate<char>;
+template class MultiUpdate<unsigned char>;
+template class MultiUpdate<signed char>;
 
 } // namespace popops

@@ -26,6 +26,9 @@ struct TestParams {
   unsigned numRegions;
   unsigned rows;
   unsigned columns;
+  // Note that 'dstColumn' is NOT a field of the vertex, but is used to offset
+  // the destination (subT) inside the bigger tensor that is allocated for it,
+  // for the purpose of testing different alignment.
   unsigned dstColumn;
   bool update;
 };
@@ -112,17 +115,15 @@ void DynamicSliceCodeletTest(const Type &dataType) {
   // determine the sizes of arrays required
   auto test_count = TestList.size();
 
-  const auto maxRows = std::max_element(TestList.begin(), TestList.end(),
-                                        [](TestParams &a, TestParams &b) {
-                                          return (a.rows < b.rows);
-                                        })
-                           ->rows;
-
-  const auto maxColumns = std::max_element(TestList.begin(), TestList.end(),
-                                           [](TestParams &a, TestParams &b) {
-                                             return (a.columns < b.columns);
-                                           })
-                              ->columns;
+  unsigned maxRows = 0, maxColumns = 0;
+  for (const TestParams &t : TestList) {
+    if (t.rows > maxRows) {
+      maxRows = t.rows;
+    }
+    if (t.columns + t.dstColumn > maxColumns) {
+      maxColumns = t.columns + t.dstColumn;
+    }
+  }
 
   // Check max sizes of regions so that the test method generates legal copies
   const auto maxBaseRegions = std::max_element(
@@ -156,9 +157,13 @@ void DynamicSliceCodeletTest(const Type &dataType) {
 
   // Initialise input pattern, dummy data to check its overwritten when
   // it should be, and not when its not. Also need to limit data range otherwise
-  // it will fail a check on small data types (HALF)
+  // it will fail a check on small data types (HALF and 8 bit types)
+  unsigned limit =
+      (dataType == CHAR || dataType == UNSIGNED_CHAR || dataType == SIGNED_CHAR)
+          ? 127
+          : 2048;
   for (unsigned i = 0; i < total_size; i++)
-    inTest[i] = (i + 1) % 65519;
+    inTest[i] = (dataType == BOOL) ? 1 : (i + 1) % limit;
 
   auto device = createTestDevice(TEST_TARGET);
   Target target = device.getTarget();
@@ -297,4 +302,16 @@ BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_int) {
 }
 BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_unsigned) {
   DynamicSliceCodeletTest(UNSIGNED_INT);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_uchar) {
+  DynamicSliceCodeletTest(UNSIGNED_CHAR);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_schar) {
+  DynamicSliceCodeletTest(SIGNED_CHAR);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_char) {
+  DynamicSliceCodeletTest(CHAR);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_bool) {
+  DynamicSliceCodeletTest(BOOL);
 }

@@ -13,10 +13,6 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 namespace popops {
 
-template <typename InType> constexpr bool isBool() {
-  return std::is_same<InType, bool>::value;
-}
-
 // Copy each \numSubElements regions from \a in to
 // \a out regions [\a offset : \a offset + \a numInElements)
 // This variant takes a 2d input and calculates the offsets given the start
@@ -27,8 +23,7 @@ template <typename InType> constexpr bool isBool() {
 // properly specified.  Options could be baseSlice=offset % numBaseElements,
 // or as implemented if(offset>=numBaseElements) baseSlice=0;
 template <typename InType>
-class DynamicUpdateSlice1d
-    : public SupervisorVertexIf<!isBool<InType>() && ASM_CODELETS_ENABLED> {
+class DynamicUpdateSlice1d : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   DynamicUpdateSlice1d();
 
@@ -39,7 +34,7 @@ public:
   const unsigned numSubElements;  // in the slice dimension
   const unsigned regionSize;      // stride between slices
 
-  IS_EXTERNAL_CODELET(!isBool<InType>());
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     const unsigned numWorkers = CTXT_WORKERS;
@@ -71,5 +66,8 @@ template class DynamicUpdateSlice1d<half>;
 template class DynamicUpdateSlice1d<int>;
 template class DynamicUpdateSlice1d<unsigned>;
 template class DynamicUpdateSlice1d<bool>;
+template class DynamicUpdateSlice1d<char>;
+template class DynamicUpdateSlice1d<unsigned char>;
+template class DynamicUpdateSlice1d<signed char>;
 
 } // namespace popops

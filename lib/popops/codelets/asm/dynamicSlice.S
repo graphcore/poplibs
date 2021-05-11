@@ -4,10 +4,11 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "dynamicSlice.inc"
 
 /* -------------------------------------------------------------------------- */
-// Dynamic Slice and Dynamic Update Slice vertex code for int, half and float
-// variants
+// Dynamic Slice and Dynamic Update Slice vertex code for int, half, float
+// and 8bit types variants
 /* -------------------------------------------------------------------------- */
 // Register aliases
 #define COPY_PTR        m0
@@ -53,14 +54,17 @@
 #define VOFF_OFFSET       0
 #define VOFF_BASET        4
 #define VOFF_BASET_DELTAN 8
-#define VOFF_SUB_ELEM     12      
+#define VOFF_SUB_ELEM     12
 #define VOFF_SUBT         16
-#define VOFF_SUBT_DELTAN  20      
-#define VOFF_REGIONS      24      
+#define VOFF_SUBT_DELTAN  20
+#define VOFF_REGIONS      24
 #define VOFF_BASE_ELEM    28
 
 #define DELTAN_BASE_PTR_BITS        24
 #define DELTAN_BASE_PTR_MASK        ((1 << DELTAN_BASE_PTR_BITS) - 1)
+#define DELTAN_OFFSET_BITS_CHAR     21
+#define DELTAN_COUNT_BITS_CHAR      (32 - DELTAN_OFFSET_BITS_CHAR)
+#define ELEM_TO_BYTES_CONV_CHAR     (21 - DELTAN_OFFSET_BITS_CHAR)
 #define DELTAN_OFFSET_BITS_HALF     20
 #define DELTAN_COUNT_BITS_HALF      (32 - DELTAN_OFFSET_BITS_HALF)
 #define ELEM_TO_BYTES_CONV_HALF     (21 - DELTAN_OFFSET_BITS_HALF)
@@ -69,16 +73,22 @@
 #define ELEM_TO_BYTES_CONV_FLOAT    (21 - DELTAN_OFFSET_BITS_FLOAT)
 #endif
 
-//****************************************************************************
-// Worker base local variable storage
-//****************************************************************************
-#define WOFF_REGIONS         0
-#define WOFF_BASET_BASE      1
-#define WOFF_SUBT_BASE       2
 
 //******************************************************************************
 // Labels names for each variant
 //******************************************************************************
+#define DS_BOOL_FUNC __runCodelet_popops__DynamicSlice2d___bool
+#define DUS_BOOL_FUNC __runCodelet_popops__DynamicUpdateSlice2d___bool
+
+#define DS_CHAR_FUNC __runCodelet_popops__DynamicSlice2d___char
+#define DUS_CHAR_FUNC __runCodelet_popops__DynamicUpdateSlice2d___char
+
+#define DS_UCHAR_FUNC __runCodelet_popops__DynamicSlice2d___unsigned_char
+#define DUS_UCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice2d___unsigned_char
+
+#define DS_SCHAR_FUNC __runCodelet_popops__DynamicSlice2d___signed_char
+#define DUS_SCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice2d___signed_char
+
 #define DS_HALF_FUNC __runCodelet_popops__DynamicSlice2d___half
 #define DUS_HALF_FUNC __runCodelet_popops__DynamicUpdateSlice2d___half
 
@@ -90,6 +100,30 @@
 
 #define DS_UNSIGNED_FUNC __runCodelet_popops__DynamicSlice2d___unsigned_int
 #define DUS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSlice2d___unsigned_int
+
+.globl DS_BOOL_FUNC
+.type DS_BOOL_FUNC, @function
+
+.globl DUS_BOOL_FUNC
+.type DUS_BOOL_FUNC, @function
+
+.globl DS_CHAR_FUNC
+.type DS_CHAR_FUNC, @function
+
+.globl DUS_CHAR_FUNC
+.type DUS_CHAR_FUNC, @function
+
+.globl DS_UCHAR_FUNC
+.type DS_UCHAR_FUNC, @function
+
+.globl DUS_UCHAR_FUNC
+.type DUS_UCHAR_FUNC, @function
+
+.globl DS_SCHAR_FUNC
+.type DS_SCHAR_FUNC, @function
+
+.globl DUS_SCHAR_FUNC
+.type DUS_SCHAR_FUNC, @function
 
 .globl DUS_HALF_FUNC
 .type DUS_HALF_FUNC, @function
@@ -119,6 +153,24 @@
 // Entry points for each function, each setting up a pointer to the copy
 // function and then using common code
 //******************************************************************************
+DEF_STACK_USAGE 0 .text.DynamicSlice2d_8_entry
+.section .text.DynamicSlice2d_8_entry
+.align 4
+DUS_BOOL_FUNC:
+DUS_CHAR_FUNC:
+DUS_UCHAR_FUNC:
+DUS_SCHAR_FUNC:
+   setzi   $COPY_PTR, copy_loop_DUS_8
+   bri     DynamicSlice2d_common
+
+DS_BOOL_FUNC:
+DS_CHAR_FUNC:
+DS_UCHAR_FUNC:
+DS_SCHAR_FUNC:
+   setzi   $COPY_PTR, copy_loop_DS_8
+   bri     DynamicSlice2d_common
+
+.size DynamicSlice2d_8_entry, .-DynamicSlice2d_8_entry
 
 DEF_STACK_USAGE 0 .text.DynamicSlice2d_half_entry
 .section .text.DynamicSlice2d_half_entry
@@ -176,7 +228,7 @@ DynamicSlice2d_common:
     and      $SUBT, $SUBT, $mSCRATCH2
     st32     $SUBT, $mzero, $mworker_base, WOFF_SUBT_BASE
 
-#if defined(VECTORLIST_AVAIL_DELTAN) 
+#if defined(VECTORLIST_AVAIL_DELTAN)
     // DeltaN table pointer is a ScaledPtr32, gives offset in
     // 32-bit units from TMEM_REGION0_BASE_ADDR.
     // Actually added offset to reclaim a register rather than
@@ -291,8 +343,8 @@ DynamicSlice2d_unpack_addr_and_copy:
 // Addresses unpacking macro
 //******************************************************************************
 // UNPACK_DELTAN_LAYOUT will extract next region size ($REGION_SIZE)
-// accordingly as well as unpack offsets to BaseT($mSCRATCH) and 
-// SubT($mSCRATCH2) addresses. 
+// accordingly as well as unpack offsets to BaseT($mSCRATCH) and
+// SubT($mSCRATCH2) addresses.
 .macro UNPACK_DELTAN_LAYOUT offset_bits_shift count_bits_shift elem_to_bytes_conversion_shift
     // Get a region size = BaseT[baseIdx]
     ld32     $mSCRATCH, $mzero, $BASET_DELTA_PTR, $BASE_IDX
@@ -301,16 +353,16 @@ DynamicSlice2d_unpack_addr_and_copy:
     // Unpack BaseT offset
     ld32     $mSCRATCH, $mzero, $BASET_DELTA_PTR, $BASE_SLICE
     shl      $mSCRATCH2, $mSCRATCH, \count_bits_shift
-    // Offset needs to be converted from elements to bytes. 
-    // Hence shift right is less by ELEM_TO_BYTES_CONV    
+    // Offset needs to be converted from elements to bytes.
+    // Hence shift right is less by ELEM_TO_BYTES_CONV
     shr      $mSCRATCH, $mSCRATCH2, (\count_bits_shift - \elem_to_bytes_conversion_shift)
 
     // Extact SubT offset
     // Load next SubT DeltaN (next subSlice info)
     ld32step $mSCRATCH2, $mzero, $SUBT_DELTAN_PTR+=, 1
     shl      $mSCRATCH2, $mSCRATCH2, \count_bits_shift
-    // Offset needs to be converted from elements to bytes. 
-    // Hence shift right is less by ELEM_TO_BYTES_CONV    
+    // Offset needs to be converted from elements to bytes.
+    // Hence shift right is less by ELEM_TO_BYTES_CONV
     shr      $mSCRATCH2, $mSCRATCH2, (\count_bits_shift - \elem_to_bytes_conversion_shift)
 
     // Load base addresses
@@ -390,5 +442,40 @@ copy_loop_DS_16:
 
 .size DynamicSlice2d_16_copy, .-DynamicSlice2d_16_copy
 
+//******************************************************************************
+// copy loop for DynamicSlice2d and DynamicUpdateSlice2d (8 bit)
+//******************************************************************************
+.section .text.DynamicSlice2d_8_copy
+.align 4
+DynamicSlice2d_8_copy:
+
+// load the next SUBT pointer to use as a source
+// Index to load the next BASET pointer to use as a destination
+copy_loop_DUS_8:
+#if !defined(VECTORLIST_AVAIL_DELTAN)
+    // Get next region size ($REGION_SIZE), source offset($mSCRATCH) and
+    // destination offset ($mSCRATCH2)
+    UNPACK_DELTAN_LAYOUT DELTAN_OFFSET_BITS_CHAR DELTAN_COUNT_BITS_CHAR ELEM_TO_BYTES_CONV_CHAR
+#endif
+    add      $mSCRATCH, $BASET, $mSCRATCH
+    add      $mSRC_PTR, $SUBT, $mSCRATCH2
+    mov      $mDST_PTR, $mSCRATCH
+    setzi    $mSCRATCH2, DynamicSlice_loop_resume
+    bri      Slice_copy_function_8bit
+
+// load the next SUBT pointer to use as a destination
+// Index to load the next BASET input pointer
+copy_loop_DS_8:
+#if !defined(VECTORLIST_AVAIL_DELTAN)
+    // Get next region size ($REGION_SIZE), source offset($mSCRATCH) and
+    // destination offset ($mSCRATCH2)
+    UNPACK_DELTAN_LAYOUT DELTAN_OFFSET_BITS_CHAR DELTAN_COUNT_BITS_CHAR ELEM_TO_BYTES_CONV_CHAR
+#endif
+    add      $mDST_PTR, $SUBT, $mSCRATCH2
+    add      $mSRC_PTR, $BASET, $mSCRATCH
+    setzi    $mSCRATCH2, DynamicSlice_loop_resume
+    bri      Slice_copy_function_8bit
+
+.size DynamicSlice2d_8_copy, .-DynamicSlice2d_8_copy
 #endif
 /* -------------------------------------------------------------------------- */

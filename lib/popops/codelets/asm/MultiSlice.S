@@ -3,6 +3,7 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "dynamicSlice.inc"
 
 /* -------------------------------------------------------------------------- */
 // Dynamic Slice and Dynamic Update Slice vertex code for int, half and float
@@ -16,15 +17,8 @@
 #define mSubTPtr           m4
 #define mBaseElem          m5
 #define mRegionSizeInBytes m6
-#define mBaseIdx           m8
-#define mSubIdx            m9
-
-// Copy function arguments and registers
-#define mReturnAddress     m7
-#define mSrcPtr            m8 // Alias to mBaseIdx. Re-use m8
-#define mDstPtr            m9 // Alias to mSubIdx. Re-use m9
-#define mRegionSize        m10
-#define mScratch           m11
+#define mBaseIdx           m8 // Alias to mSrcPtr. Re-use m8
+#define mSubIdx            m9 // Alias to mDstPtr. Re-use m9
 
 //****************************************************************************
 // The input structure parameters:
@@ -46,6 +40,18 @@
 //******************************************************************************
 // Labels names for each variant
 //******************************************************************************
+#define MS_BOOL_FUNC __runCodelet_popops__MultiSlice___bool
+#define MU_BOOL_FUNC __runCodelet_popops__MultiUpdate___bool
+
+#define MS_CHAR_FUNC __runCodelet_popops__MultiSlice___char
+#define MU_CHAR_FUNC __runCodelet_popops__MultiUpdate___char
+
+#define MS_UCHAR_FUNC __runCodelet_popops__MultiSlice___unsigned_char
+#define MU_UCHAR_FUNC __runCodelet_popops__MultiUpdate___unsigned_char
+
+#define MS_SCHAR_FUNC __runCodelet_popops__MultiSlice___signed_char
+#define MU_SCHAR_FUNC __runCodelet_popops__MultiUpdate___signed_char
+
 #define MS_HALF_FUNC __runCodelet_popops__MultiSlice___half
 #define MU_HALF_FUNC __runCodelet_popops__MultiUpdate___half
 
@@ -57,6 +63,30 @@
 
 #define MS_UNSIGNED_FUNC __runCodelet_popops__MultiSlice___unsigned_int
 #define MU_UNSIGNED_FUNC __runCodelet_popops__MultiUpdate___unsigned_int
+
+.globl MU_BOOL_FUNC
+.type MU_BOOL_FUNC, @function
+
+.globl MS_BOOL_FUNC
+.type MS_BOOL_FUNC, @function
+
+.globl MU_CHAR_FUNC
+.type MU_CHAR_FUNC, @function
+
+.globl MS_CHAR_FUNC
+.type MS_CHAR_FUNC, @function
+
+.globl MU_UCHAR_FUNC
+.type MU_UCHAR_FUNC, @function
+
+.globl MS_UCHAR_FUNC
+.type MS_UCHAR_FUNC, @function
+
+.globl MU_SCHAR_FUNC
+.type MU_SCHAR_FUNC, @function
+
+.globl MS_SCHAR_FUNC
+.type MS_SCHAR_FUNC, @function
 
 .globl MU_HALF_FUNC
 .type MU_HALF_FUNC, @function
@@ -86,6 +116,28 @@
 // Entry points for each function, each setting up a pointer to the copy
 // function and then using common code
 //******************************************************************************
+DEF_STACK_USAGE 0 .text.MultiSlice_8_entry
+.section .text.MultiSlice_8_entry
+.align 4
+MultiSlice_8_entry:
+MU_BOOL_FUNC:
+MU_CHAR_FUNC:
+MU_UCHAR_FUNC:
+MU_SCHAR_FUNC:
+   setzi   $mCopyPtr, copy_loop_MU_8
+   setzi   $mRegionSize, 0
+   bri     MultiSlice_common
+
+MS_BOOL_FUNC:
+MS_CHAR_FUNC:
+MS_UCHAR_FUNC:
+MS_SCHAR_FUNC:
+   setzi   $mCopyPtr, copy_loop_MS_8
+   setzi   $mRegionSize, 0
+   bri     MultiSlice_common
+
+.size MultiSlice_8_entry, .-MultiSlice_8_entry
+
 DEF_STACK_USAGE 0 .text.MultiSlice_16_entry
 .section .text.MultiSlice_16_entry
 MultiSlice_16_entry:
@@ -137,23 +189,23 @@ MultiSlice_common:
     ldz16 $mScratch, $mzero, $mvertex_base, VOFF_REGION_SIZE
     shl   $mRegionSizeInBytes, $mScratch, $mRegionSize
 
-    // Load vectors pointers 
+    // Load vectors pointers
     ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
     ld32  $mBaseTPtr, $mzero, $mvertex_base, VOFF_BASET_PTR
     ld32  $mSubTPtr, $mzero, $mvertex_base, VOFF_SUBT_PTR
-    
+
     // Load states
     ld32  $mBaseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
 
 MultiSlice_common_outer_loop_begin:
 
-    // Load next offset 
+    // Load next offset
     ld32step $mScratch,    $mzero, $mOffsetPtr+=, 1
 
     // Reload states
     ld32   $mBaseIdx, $mzero, $mvertex_base, VOFF_BASE_OFFSET
     ldz16  $mRegionSize, $mzero, $mvertex_base, VOFF_REGION_SIZE
-    
+
     // Check if offset is a part of BaseT;
     sub    $mBaseIdx, $mScratch, $mBaseIdx
     cmpult $mScratch, $mBaseElem, $mBaseIdx
@@ -177,6 +229,30 @@ MultiSlice_common_exit:
 
 
 //******************************************************************************
+// Pre copy step for MultiSlice and MultiUpdate (bool, signed/unsigned char)
+//******************************************************************************
+.section .text.MultiSlice_common_copy_8
+.align 4
+MultiSlice_common_copy_8:
+// Load the next SUBT pointer to use as a source
+// Index to load the next BASET pointer to use as a destination
+copy_loop_MU_8:
+    add      $mDstPtr, $mBaseIdx, $mBaseTPtr
+    mov      $mSrcPtr, $mSubTPtr
+    call     $mReturnAddress, Slice_copy_function_8bit
+    bri      MultiSlice_common_outer_loop_resume
+
+// Index to create the next BASET input pointer
+// Load the next SUBT pointer to use as a destination
+copy_loop_MS_8:
+    add      $mSrcPtr, $mBaseIdx, $mBaseTPtr
+    mov      $mDstPtr, $mSubTPtr
+    call     $mReturnAddress, Slice_copy_function_8bit
+    bri      MultiSlice_common_outer_loop_resume
+
+.size MultiSlice_common_copy_8, .-MultiSlice_common_copy_8
+
+//******************************************************************************
 // Pre copy step for MultiSlice and MultiUpdate (half)
 //******************************************************************************
 .section .text.MultiSlice_common_copy_16
@@ -195,7 +271,7 @@ copy_loop_MU_16:
 copy_loop_MS_16:
     add      $mSrcPtr, $mBaseIdx, $mBaseTPtr
     mov      $mDstPtr, $mSubTPtr
-    call     $mReturnAddress, Slice_copy_function_half     
+    call     $mReturnAddress, Slice_copy_function_half
     bri      MultiSlice_common_outer_loop_resume
 
 .size MultiSlice_common_copy_16, .-MultiSlice_common_copy_16

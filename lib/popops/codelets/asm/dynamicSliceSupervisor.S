@@ -17,13 +17,16 @@
 #define DST         m2
 #define BASE_ELEM   m3
 #define SUB_ELEM    m4
-#define ELEMENTS_PER_WORKER m5
+#define ATOMS_PER_WORKER m5
 
-#define mSCRATCH    m6
-#define mSCRATCH2   m7
+#define SRC_OFFS    m6
+#define DST_OFFS    m7
+
+#define RETURN_ADDRESS1  m6
+#define RETURN_ADDRESS2  m7
 
 #define BASE_SLICE  m8
-#define mSCRATCH3   m9
+#define mSCRATCH    m9
 #define SUB_REGION  m10
 #define REGION_SIZE m11
 
@@ -41,22 +44,24 @@
 // 32 ptr baseT
 // 32 ptr subT
 // 32 bit numBaseElements
-// 16 bit numSubElements
-// 16 bit regionSize
+// 32 bit numSubElements
+// 32 bit regionSize
 //****************************************************************************
 #define VOFF_OFFSET      0
 #define VOFF_BASET       1
 #define VOFF_SUBT        2
 #define VOFF_BASE_ELEM   3
-// 16 bit - offsets for use with 16 bit loads
 #define VOFF_SUB_ELEM    4
 #define VOFF_REGION_SIZE 5
 
 //****************************************************************************
 // Worker base local variable storage
 //****************************************************************************
-#define WOFF_ELEMENTS 0
-#define WOFF_ELEMENTS_DEC 1
+// Number of full atoms (i.e. 2 words for the 32-bit elements, or 1 word for the
+// 16-bit elements) to copy when the region starts at a full atom boundary or
+// when there is one starting element to align to a full atom boundary.
+#define WOFF_ATOMS 0
+#define WOFF_ATOMS_DEC 1
 
 
 #include "poplar/TileConstants.hpp"
@@ -124,7 +129,7 @@ DUSS_FLOAT_FUNC:
   sync         TEXCH_SYNCZONE_LOCAL
   br           $lr
 // ************************************************* //
-// Worker thread execution for supervisor vertex
+// Worker thread execution for supervisor vertex (32-bit types)
 // Update version: set a flag for update,
 // load base, sub array pointers
 // Src = Sub
@@ -137,7 +142,7 @@ DUSS_FLOAT_FUNC:
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
   bri       .Lds_super_common_32
 // ************************************************* //
-// Worker thread execution for supervisor vertex
+// Worker thread execution for supervisor vertex (32-bit types)
 // Non Update version: clear a flag for no update,
 // load base, sub array pointers
 // Src = Base
@@ -150,57 +155,57 @@ DUSS_FLOAT_FUNC:
 
 .Lds_super_common_32:
   // Call pre-loop calculation, common between all variants
-  call      $mSCRATCH2, load_and_preprocess
+  call      $RETURN_ADDRESS1, load_and_preprocess
 
   // Region size converted into bytes
   ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
   shl       $REGION_SIZE, $REGION_SIZE, 2
 
 .Lsub_loop:
-  // Calculate temporary incrementing pointers for the copy
-  mov   $mSCRATCH2, $SUB_REGION
-  mul   $mSCRATCH, $REGION_SIZE, $BASE_SLICE
-  // Pointers swapped for the update version
-  atom  $mSCRATCH3, $UPDATE
-  brz   $mSCRATCH3, 1f
-  mov   $mSCRATCH, $SUB_REGION
-  mul   $mSCRATCH2, $REGION_SIZE, $BASE_SLICE
+  // Calculate temporary incrementing offsets for the copy
+  mov   $DST_OFFS, $SUB_REGION
+  mul   $SRC_OFFS, $REGION_SIZE, $BASE_SLICE
+  // Offsets swapped for the update version
+  atom  $mSCRATCH, $UPDATE
+  brz   $mSCRATCH, 1f
+  mov   $SRC_OFFS, $SUB_REGION
+  mul   $DST_OFFS, $REGION_SIZE, $BASE_SLICE
 1:
   // Is a 32 bit copy needed to align the output to 64 bits?
-  ld32      $ELEMENTS_PER_WORKER, $mzero, $mworker_base, WOFF_ELEMENTS
-  add       $mSCRATCH3, $mSCRATCH2, $DST
-  and       $mSCRATCH3, $mSCRATCH3, 4
-  brz       $mSCRATCH3, .Lout_aligned_f
+  ld32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS
+  add       $mSCRATCH, $DST_OFFS, $DST
+  and       $mSCRATCH, $mSCRATCH, 4
+  brz       $mSCRATCH, .Lout_aligned_f
 
   // Misaligned for 64  bit copies.  Worker 0 copies 1x32 bits. All workers
   // need the base source and destination addresses to be incremented
   // The remaining code needs to know that 1 less item is now to be copied,
   // which is done by selecting the decremented elements per worker
   // value which was pre-computed.
-  ld32      $ELEMENTS_PER_WORKER, $mzero, $mworker_base, WOFF_ELEMENTS_DEC
-  ld32step  $VAL1, $SRC, $mSCRATCH+=, 1
+  ld32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS_DEC
+  ld32step  $VAL1, $SRC, $SRC_OFFS+=, 1
   brnz      $WKR_ID, 5f
-  st32      $VAL1, $DST, $mSCRATCH2, 0
+  st32      $VAL1, $DST, $DST_OFFS, 0
 5:
-  ld32step  $VAL1, $DST, $mSCRATCH2+=, 1
+  ld32step  $VAL1, $DST, $DST_OFFS+=, 1
 .Lout_aligned_f:
   // Output is now aligned, is the input aligned?
-  add       $mSCRATCH3, $mSCRATCH, $SRC
-  and       $mSCRATCH3, $mSCRATCH3, 4
-  brz       $mSCRATCH3, .Lin_out_aligned
+  add       $mSCRATCH, $SRC_OFFS, $SRC
+  and       $mSCRATCH, $mSCRATCH, 4
+  brz       $mSCRATCH, .Lin_out_aligned
   // Dummy load, advancing in ptr and out ptr by wkr_id * 64 bits
   // knowing that the destination is misaligned.
   // Now all workers have a different pointer, offset by 64 bits
   // Repeat loop maintains this difference
-  ld32step   $VAL1, $SRC, $mSCRATCH+=, $WKR_ID
-  ld32step   $VAL1, $SRC, $mSCRATCH+=, $WKR_ID
-  ld64step   $VAL12, $DST, $mSCRATCH2+=, $WKR_ID
+  ld32step   $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
+  ld32step   $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
+  ld64step   $VAL12, $DST, $DST_OFFS+=, $WKR_ID
 
-  rpt        $ELEMENTS_PER_WORKER, (2f-1f)/8 -1;
+  rpt        $ATOMS_PER_WORKER, (2f-1f)/8 -1;
 1:
-  {ld32step  $VAL1, $SRC , $mSCRATCH+=, 1; fnop}
-  {ld32step  $VAL2, $SRC , $mSCRATCH+=, (2 * CTXT_WORKERS -1); fnop}
-  {st64step  $VAL12, $DST, $mSCRATCH2+=, CTXT_WORKERS; fnop}
+  {ld32step  $VAL1, $SRC , $SRC_OFFS+=, 1; fnop}
+  {ld32step  $VAL2, $SRC , $SRC_OFFS+=, (2 * CTXT_WORKERS -1); fnop}
+  {st64step  $VAL12, $DST, $DST_OFFS+=, CTXT_WORKERS; fnop}
 2:
   bri   .Lcontinue
 
@@ -208,37 +213,37 @@ DUSS_FLOAT_FUNC:
   // Dummy load, advancing in ptr and out ptr by wkr_id * 64 bits
   // Now all workers have a different pointer, offset by 64 bits
   // Repeat loop maintains this difference
-  ld64step   $VAL12, $SRC, $mSCRATCH+=, $WKR_ID
-  ld64step   $VAL12, $DST, $mSCRATCH2+=, $WKR_ID
+  ld64step   $VAL12, $SRC, $SRC_OFFS+=, $WKR_ID
+  ld64step   $VAL12, $DST, $DST_OFFS+=, $WKR_ID
 
-  rpt       $ELEMENTS_PER_WORKER, (2f-1f)/8 -1
+  rpt       $ATOMS_PER_WORKER, (2f-1f)/8 -1
 1:
-  {ld64step  $VAL12, $SRC , $mSCRATCH+=, CTXT_WORKERS; fnop}
-  {st64step  $VAL12, $DST, $mSCRATCH2+=, CTXT_WORKERS; fnop}
+  {ld64step  $VAL12, $SRC , $SRC_OFFS+=, CTXT_WORKERS; fnop}
+  {st64step  $VAL12, $DST, $DST_OFFS+=, CTXT_WORKERS; fnop}
 2:
 .Lcontinue:
   // Is there a last item to copy?
   // If so, select the worker that is pointing to it to copy it.  This is OK
   // in the case of float, but not half due to the half word writes being
   // non atomic.
-  atom      $mSCRATCH3, $UPDATE
-  brz       $mSCRATCH3, 1f
+  atom      $mSCRATCH, $UPDATE
+  brz       $mSCRATCH, 1f
   // Update version of the code
-  add       $mSCRATCH3, $REGION_SIZE, $SUB_REGION
-  sub       $mSCRATCH3, $mSCRATCH3, $mSCRATCH
-  add       $mSCRATCH3, $mSCRATCH3, -4
-  brnz      $mSCRATCH3, 3f
+  add       $mSCRATCH, $REGION_SIZE, $SUB_REGION
+  sub       $mSCRATCH, $mSCRATCH, $SRC_OFFS
+  add       $mSCRATCH, $mSCRATCH, -4
+  brnz      $mSCRATCH, 3f
   bri       2f
 1:
   // Non update version of the code
-  add       $mSCRATCH3, $REGION_SIZE, $SUB_REGION
-  sub       $mSCRATCH3, $mSCRATCH3, $mSCRATCH2
-  add       $mSCRATCH3, $mSCRATCH3, -4
-  brnz      $mSCRATCH3, 3f
+  add       $mSCRATCH, $REGION_SIZE, $SUB_REGION
+  sub       $mSCRATCH, $mSCRATCH, $DST_OFFS
+  add       $mSCRATCH, $mSCRATCH, -4
+  brnz      $mSCRATCH, 3f
 2:
   // Do the last copy
-  ld32      $VAL1, $SRC, $mSCRATCH, 0
-  st32      $VAL1, $DST, $mSCRATCH2, 0
+  ld32      $VAL1, $SRC, $SRC_OFFS, 0
+  st32      $VAL1, $DST, $DST_OFFS, 0
 3:
   // Increment base slice and wrap to start if required
   add        $BASE_SLICE, $BASE_SLICE, 1
@@ -274,7 +279,7 @@ DUSS_HALF_FUNC:
   sync         TEXCH_SYNCZONE_LOCAL
   br           $lr
 // ************************************************* //
-// Worker thread execution for supervisor vertex
+// Worker thread execution for supervisor vertex (16-bit types)
 // Update version: set a flag for update,
 // load base, sub array pointers
 // Src = Sub
@@ -287,7 +292,7 @@ DUSS_HALF_FUNC:
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
   bri       .Lds_super_common_16
 // ************************************************* //
-// Worker thread execution for supervisor vertex
+// Worker thread execution for supervisor vertex (16-bit types)
 // Non Update version: clear a flag for update,
 // load base, sub array pointers
 // Src = Base
@@ -300,28 +305,28 @@ DUSS_HALF_FUNC:
 
 .Lds_super_common_16:
   // Call pre-loop calculation, common between all variants
-  call      $mSCRATCH2, load_and_preprocess
+  call      $RETURN_ADDRESS1, load_and_preprocess
 
   // Region size converted into bytes
   ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
   shl       $REGION_SIZE, $REGION_SIZE, 1
 .Lsub_loop2:
-  // Calculate temporary incrementing pointers for the copy
-  mov   $mSCRATCH2, $SUB_REGION
-  mul   $mSCRATCH, $REGION_SIZE, $BASE_SLICE
+  // Calculate temporary incrementing offsets for the copy
+  mov   $DST_OFFS, $SUB_REGION
+  mul   $SRC_OFFS, $REGION_SIZE, $BASE_SLICE
 
-  // Update/ non update versions require source/dest to be swapped
-  atom  $mSCRATCH3, $UPDATE
-  brz   $mSCRATCH3, 1f
-  mov   $mSCRATCH, $SUB_REGION
-  mul   $mSCRATCH2, $REGION_SIZE, $BASE_SLICE
+  // Update/ non update versions require source/dest offs to be swapped
+  atom  $mSCRATCH, $UPDATE
+  brz   $mSCRATCH, 1f
+  mov   $SRC_OFFS, $SUB_REGION
+  mul   $DST_OFFS, $REGION_SIZE, $BASE_SLICE
 1:
 
   // Is a 16 bit copy needed to align the output to 32 bits?
-  ld32      $ELEMENTS_PER_WORKER, $mzero, $mworker_base, WOFF_ELEMENTS
-  add       $mSCRATCH3, $mSCRATCH2, $DST
-  and       $mSCRATCH3, $mSCRATCH3, 2
-  brz       $mSCRATCH3, .Lout_aligned_h
+  ld32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS
+  add       $mSCRATCH, $DST_OFFS, $DST
+  and       $mSCRATCH, $mSCRATCH, 2
+  brz       $mSCRATCH, .Lout_aligned_h
 
   // Misaligned for 32  bit copies.  Worker 5 copies 1x16 bit. All workers
   // need the base source and destination addresses to be incremented.
@@ -329,45 +334,45 @@ DUSS_HALF_FUNC:
   // The remaining code needs to know that 1 less item is now to be copied,
   // which is done by selecting the decremented elements per worker
   // value which was pre-computed.
-  ld32       $ELEMENTS_PER_WORKER, $mzero, $mworker_base, WOFF_ELEMENTS_DEC
-  ldb16step  $VAL1, $SRC, $mSCRATCH+=, 1
-  cmpeq      $mSCRATCH3, $WKR_ID, (CTXT_WORKERS-1)
-  brz        $mSCRATCH3, 5f
+  ld32       $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS_DEC
+  ldb16step  $VAL1, $SRC, $SRC_OFFS+=, 1
+  cmpeq      $mSCRATCH, $WKR_ID, (CTXT_WORKERS-1)
+  brz        $mSCRATCH, 5f
 
-  add        $mSCRATCH2, $mSCRATCH2, -2
-  ldb16      $VAL2, $DST, $mSCRATCH2,0
+  add        $DST_OFFS, $DST_OFFS, -2
+  ldb16      $VAL2, $DST, $DST_OFFS,0
   roll16     $VAL1, $VAL2, $VAL1
-  st32step   $VAL1, $DST, $mSCRATCH2+=, 1
+  st32step   $VAL1, $DST, $DST_OFFS+=, 1
   bri        .Lout_aligned_h
 5:
-  ldb16step  $VAL1, $DST, $mSCRATCH2+=, 1
+  ldb16step  $VAL1, $DST, $DST_OFFS+=, 1
 .Lout_aligned_h:
   // Output is now aligned, is the input aligned?
-  add       $mSCRATCH3, $mSCRATCH, $SRC
-  and       $mSCRATCH3, $mSCRATCH3, 2
-  brz       $mSCRATCH3, .Lin_out_aligned2
+  add       $mSCRATCH, $SRC_OFFS, $SRC
+  and       $mSCRATCH, $mSCRATCH, 2
+  brz       $mSCRATCH, .Lin_out_aligned2
   // Dummy load, advancing in ptr and out ptr by wkr_id * 32 bits
   // knowing that the destination is misaligned
   // Now all workers have a different pointer, offset by 32 bits
   // Repeat loop maintains this difference
-  ldb16step $VAL1, $SRC, $mSCRATCH+=, $WKR_ID
-  ldb16step $VAL1, $SRC, $mSCRATCH+=, $WKR_ID
-  ld32step  $VAL1, $DST, $mSCRATCH2+=, $WKR_ID
+  ldb16step $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
+  ldb16step $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
+  ld32step  $VAL1, $DST, $DST_OFFS+=, $WKR_ID
 
   // Prepare the 1st value to store so that we can use a bundle in the loop
-  ldb16step  $VAL1, $SRC , $mSCRATCH+=, 1
-  ldb16step  $VAL2, $SRC , $mSCRATCH+=, (2 * CTXT_WORKERS -1)
+  ldb16step  $VAL1, $SRC , $SRC_OFFS+=, 1
+  ldb16step  $VAL2, $SRC , $SRC_OFFS+=, (2 * CTXT_WORKERS -1)
 
-  {ldb16step  $VAL1, $SRC , $mSCRATCH+=, 1
+  {ldb16step  $VAL1, $SRC , $SRC_OFFS+=, 1
    roll16     $VAL3, $VAL1, $VAL2}
-  ldb16step   $VAL2, $SRC , $mSCRATCH+=, (2 * CTXT_WORKERS -1)
+  ldb16step   $VAL2, $SRC , $SRC_OFFS+=, (2 * CTXT_WORKERS -1)
 
-  rpt        $ELEMENTS_PER_WORKER, (2f-1f)/8 -1
+  rpt        $ATOMS_PER_WORKER, (2f-1f)/8 -1
 1:
-  {st32step   $VAL3, $DST, $mSCRATCH2+=, CTXT_WORKERS
+  {st32step   $VAL3, $DST, $DST_OFFS+=, CTXT_WORKERS
    roll16     $VAL3, $VAL1, $VAL2}
-  {ldb16step  $VAL1, $SRC , $mSCRATCH+=, 1; fnop}
-  {ldb16step  $VAL2, $SRC , $mSCRATCH+=, (2 * CTXT_WORKERS -1); fnop}
+  {ldb16step  $VAL1, $SRC , $SRC_OFFS+=, 1; fnop}
+  {ldb16step  $VAL2, $SRC , $SRC_OFFS+=, (2 * CTXT_WORKERS -1); fnop}
 2:
   bri   .Lcontinue2
 
@@ -375,13 +380,13 @@ DUSS_HALF_FUNC:
   // Dummy load, advancing in ptr and out ptr by wkr_id * 32 bits
   // Now all workers have a different pointer, offset by 32 bits
   // Repeat loop maintains this difference
-  ld32step   $VAL1, $SRC, $mSCRATCH+=, $WKR_ID
-  ld32step   $VAL1, $DST, $mSCRATCH2+=, $WKR_ID
+  ld32step   $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
+  ld32step   $VAL1, $DST, $DST_OFFS+=, $WKR_ID
 
-  rpt        $ELEMENTS_PER_WORKER, (2f-1f)/8 -1
+  rpt        $ATOMS_PER_WORKER, (2f-1f)/8 -1
 1:
-  {ld32step  $VAL1, $SRC , $mSCRATCH+=, CTXT_WORKERS; fnop}
-  {st32step  $VAL1, $DST, $mSCRATCH2+=, CTXT_WORKERS; fnop}
+  {ld32step  $VAL1, $SRC , $SRC_OFFS+=, CTXT_WORKERS; fnop}
+  {st32step  $VAL1, $DST, $DST_OFFS+=, CTXT_WORKERS; fnop}
 2:
 .Lcontinue2:
   // Is there a last item to copy?
@@ -389,33 +394,33 @@ DUSS_HALF_FUNC:
   // BUT if worker 5 is dealing with the read modify write of a 1st
   // misaligned item the accesses could clash.  So instead make worker
   // 5 do this despite having to calculate the pointers
-  cmpeq     $mSCRATCH3, $WKR_ID, (CTXT_WORKERS -1)
-  brz       $mSCRATCH3, 3f
-  atom      $mSCRATCH3, $UPDATE
-  brnz      $mSCRATCH3, 1f
+  cmpeq     $mSCRATCH, $WKR_ID, (CTXT_WORKERS -1)
+  brz       $mSCRATCH, 3f
+  atom      $mSCRATCH, $UPDATE
+  brnz      $mSCRATCH, 1f
   // non-update version
-  add       $mSCRATCH2, $REGION_SIZE, $SUB_REGION
-  add       $mSCRATCH, $BASE_SLICE, 1
-  mul       $mSCRATCH, $REGION_SIZE, $mSCRATCH
+  add       $DST_OFFS, $REGION_SIZE, $SUB_REGION
+  add       $SRC_OFFS, $BASE_SLICE, 1
+  mul       $SRC_OFFS, $REGION_SIZE, $SRC_OFFS
   bri       2f
   // update version
 1:
-  add       $mSCRATCH, $REGION_SIZE, $SUB_REGION
-  add       $mSCRATCH2, $BASE_SLICE, 1
-  mul       $mSCRATCH2, $REGION_SIZE, $mSCRATCH2
+  add       $SRC_OFFS, $REGION_SIZE, $SUB_REGION
+  add       $DST_OFFS, $BASE_SLICE, 1
+  mul       $DST_OFFS, $REGION_SIZE, $DST_OFFS
 2:
-  add       $mSCRATCH2, $mSCRATCH2, $DST
+  add       $DST_OFFS, $DST_OFFS, $DST
   // There will be no last one to copy if the store pointer generated is
   // 32 bit aligned
-  add       $mSCRATCH2, $mSCRATCH2, -2
-  and       $mSCRATCH3, $mSCRATCH2, 2
-  brnz      $mSCRATCH3, 3f
+  add       $DST_OFFS, $DST_OFFS, -2
+  and       $mSCRATCH, $DST_OFFS, 2
+  brnz      $mSCRATCH, 3f
   // do the last copy
-  add        $mSCRATCH, $mSCRATCH, -2
-  ldb16step  $VAL1, $SRC, $mSCRATCH+=, 1
-  ldb16      $VAL2, $mzero, $mSCRATCH2, 1
+  add        $SRC_OFFS, $SRC_OFFS, -2
+  ldb16step  $VAL1, $SRC, $SRC_OFFS+=, 1
+  ldb16      $VAL2, $mzero, $DST_OFFS, 1
   roll16     $VAL1, $VAL1, $VAL2
-  st32       $VAL1, $mzero, $mSCRATCH2, 0
+  st32       $VAL1, $mzero, $DST_OFFS, 0
 3:
   // Increment base slice and wrap to start if required
   add        $BASE_SLICE, $BASE_SLICE, 1
@@ -468,15 +473,15 @@ load_and_preprocess:
   // Get region size, use to calculate the elements for this worker for the
   // case where there is no pre loop copy to align
   ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
-  call      $mSCRATCH, divide_work
-  st32      $ELEMENTS_PER_WORKER, $mzero, $mworker_base, WOFF_ELEMENTS
+  call      $RETURN_ADDRESS2, divide_work
+  st32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS
 
   // and the case where there is a loop copy to align
   add       $REGION_SIZE, $REGION_SIZE, -1
-  call      $mSCRATCH, divide_work
-  st32      $ELEMENTS_PER_WORKER, $mzero, $mworker_base, WOFF_ELEMENTS_DEC
+  call      $RETURN_ADDRESS2, divide_work
+  st32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS_DEC
 
-  br        $mSCRATCH2
+  br        $RETURN_ADDRESS1
 
 //******************************************************************************
 // Macro and constants to divide by 12 (12 is the number of items
@@ -510,15 +515,14 @@ load_and_preprocess:
 //******************************************************************************
 divide_work:
 
-  SPLIT_BETWEEN_WORKERS $REGION_SIZE $ELEMENTS_PER_WORKER $mSCRATCH3
+  SPLIT_BETWEEN_WORKERS $REGION_SIZE $ATOMS_PER_WORKER $mSCRATCH
 
   // Use the (remainder/2) - worker id to check if we need to copy an
   // extra element compared to the (rounded down) division result
-  shr       $mSCRATCH3, $mSCRATCH3, 1
-  cmpult    $mSCRATCH3, $WKR_ID, $mSCRATCH3
-  add       $ELEMENTS_PER_WORKER, $ELEMENTS_PER_WORKER, $mSCRATCH3
-
-  br        $mSCRATCH
+  shr       $mSCRATCH, $mSCRATCH, 1
+  cmpult    $mSCRATCH, $WKR_ID, $mSCRATCH
+  add       $ATOMS_PER_WORKER, $ATOMS_PER_WORKER, $mSCRATCH
+  br        $RETURN_ADDRESS2
 
 .size DynamicSlice1d_common, .-load_and_preprocess
 #endif

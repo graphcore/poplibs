@@ -31,8 +31,7 @@ public:
   const unsigned short numRegions;
   const unsigned numBaseElements; // in the slice dimension
 
-  static const bool isBool = std::is_same<InType, bool>::value;
-  IS_EXTERNAL_CODELET(!isBool);
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     for (unsigned r = 0; r != numRegions; ++r) {
@@ -61,5 +60,8 @@ template class DynamicUpdateSlice2d<half>;
 template class DynamicUpdateSlice2d<int>;
 template class DynamicUpdateSlice2d<unsigned>;
 template class DynamicUpdateSlice2d<bool>;
+template class DynamicUpdateSlice2d<char>;
+template class DynamicUpdateSlice2d<unsigned char>;
+template class DynamicUpdateSlice2d<signed char>;
 
 } // namespace popops

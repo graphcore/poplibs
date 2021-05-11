@@ -20,8 +20,7 @@ template <typename Type> class MultiSlice : public Vertex {
 public:
   MultiSlice();
 
-  static const bool isBool = std::is_same<Type, bool>::value;
-  IS_EXTERNAL_CODELET(!isBool);
+  IS_EXTERNAL_CODELET(true);
 
   Input<Vector<unsigned>> offsets; // in \a baseT
   Input<Vector<Type, ONE_PTR>> baseT;
@@ -56,5 +55,8 @@ template class MultiSlice<half>;
 template class MultiSlice<int>;
 template class MultiSlice<unsigned>;
 template class MultiSlice<bool>;
+template class MultiSlice<char>;
+template class MultiSlice<unsigned char>;
+template class MultiSlice<signed char>;
 
 } // namespace popops

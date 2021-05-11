@@ -115,11 +115,15 @@ void MultiSliceCodeletTest(const Type &dataType) {
 
   // Initialise input pattern, dummy data to check its overwritten when
   // it should be, and not when its not. Also need to limit data range otherwise
-  // it will fail a check on small data types (HALF). 2048 is reperesenting
+  // it will fail a check on small data types (8bit types and HALF). 2048 is the
   // lagest integer number that can be represented bit-exact by HALFs
   // (significant)
+  unsigned limit =
+      (dataType == CHAR || dataType == UNSIGNED_CHAR || dataType == SIGNED_CHAR)
+          ? 127
+          : 2048;
   for (unsigned i = 0; i < total_size; i++)
-    inTest[i] = (i + 1) % 2048;
+    inTest[i] = (dataType == BOOL) ? 1 : (i + 1) % limit;
 
   auto device = createTestDevice(TEST_TARGET);
   Target target = device.getTarget();
@@ -247,4 +251,16 @@ BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_float) {
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_int) { MultiSliceCodeletTest(INT); }
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_unsigned) {
   MultiSliceCodeletTest(UNSIGNED_INT);
+}
+BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_uchar) {
+  MultiSliceCodeletTest(UNSIGNED_CHAR);
+}
+BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_schar) {
+  MultiSliceCodeletTest(SIGNED_CHAR);
+}
+BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_char) {
+  MultiSliceCodeletTest(CHAR);
+}
+BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_bool) {
+  MultiSliceCodeletTest(BOOL);
 }

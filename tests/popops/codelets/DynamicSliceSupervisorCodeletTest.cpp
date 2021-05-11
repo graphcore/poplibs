@@ -23,12 +23,17 @@ struct TestParams {
   unsigned offset;
   unsigned numBaseElements;
   unsigned numSubElements;
-  unsigned columns;
+  unsigned regionSize;
+
+  // Note that 'dstOffset' is NOT a field of the vertex, but is used to offset
+  // the destination (subT) inside the bigger tensor that is allocated for it,
+  // for the purpose of testing different alignment.
   unsigned dstOffset;
   bool update;
 };
 
-std::vector<TestParams> TestList = {
+// For float, half, int and unsigned char we run these common tests.
+std::vector<TestParams> tests = {
     {0, 1, 2, 1, 1, false},  {0, 1, 2, 2, 1, false},  {0, 1, 2, 3, 1, false},
     {0, 1, 2, 4, 1, false},  {0, 1, 2, 5, 1, false},  {0, 1, 2, 6, 1, false},
     {1, 3, 2, 7, 0, false},  {0, 4, 4, 8, 1, false},  {2, 4, 5, 9, 0, false},
@@ -38,6 +43,26 @@ std::vector<TestParams> TestList = {
     {0, 1, 1, 6, 1, true},   {1, 2, 2, 7, 0, true},   {0, 4, 4, 8, 1, true},
     {2, 4, 4, 9, 0, true},   {0, 2, 2, 12, 1, true},  {3, 5, 5, 13, 0, true},
 };
+// For 8 bit types we run a few more tests to tests some more of the
+// combinations of offsets and sizes. We break them down among different 8 bit
+// types, despite the code being common for all of them, but we still want to
+// test that the C++ declaration and assembly label entry points are all there.
+std::vector<TestParams> testsSchar = {
+    {1, 1, 2, 1, 1, false}, {1, 1, 2, 2, 1, false}, {1, 1, 2, 3, 1, false},
+    {1, 1, 2, 4, 1, false}, {1, 1, 2, 5, 1, false}, {1, 1, 2, 6, 1, false},
+    {1, 1, 2, 7, 1, false}, {1, 1, 2, 8, 1, false}, {1, 1, 2, 9, 1, false},
+};
+std::vector<TestParams> testsChar = {
+    {2, 1, 2, 1, 1, false}, {2, 1, 2, 2, 1, false}, {2, 1, 2, 3, 1, false},
+    {2, 1, 2, 4, 1, false}, {2, 1, 2, 5, 1, false}, {2, 1, 2, 6, 1, false},
+    {2, 1, 2, 7, 1, false}, {2, 1, 2, 8, 1, false}, {2, 1, 2, 9, 1, false},
+};
+std::vector<TestParams> testsBool = {
+    {3, 1, 2, 1, 1, false}, {3, 1, 2, 2, 1, false}, {3, 1, 2, 3, 1, false},
+    {3, 1, 2, 4, 1, false}, {3, 1, 2, 5, 1, false}, {3, 1, 2, 6, 1, false},
+    {3, 1, 2, 7, 1, false}, {3, 1, 2, 8, 1, false}, {3, 1, 2, 9, 1, false},
+};
+
 //*************************************************
 // C test function, based on the original C version of the vertex
 //*************************************************
@@ -95,36 +120,39 @@ void DynamicUpdateSliceSupervisorHost(
 // hold the largest test result, so often the other items are
 // expected to be zero.  This is checked as well as the "wanted" data.
 //*************************************************
-void DynamicSliceCodeletTest(const Type &dataType) {
+void DynamicSliceCodeletTest(const Type &dataType,
+                             const std::vector<TestParams> &TestList = tests) {
 
   // determine the sizes of arrays required
   auto test_count = TestList.size();
 
-  const auto maxColumns = std::max_element(TestList.begin(), TestList.end(),
-                                           [](TestParams &a, TestParams &b) {
-                                             return (a.columns < b.columns);
-                                           })
-                              ->columns;
+  const auto maxRegionSize =
+      std::max_element(TestList.begin(), TestList.end(),
+                       [](const TestParams &a, const TestParams &b) {
+                         return (a.regionSize < b.regionSize);
+                       })
+          ->regionSize;
 
   const auto maxDstOffset =
       std::max_element(TestList.begin(), TestList.end(),
-                       [](TestParams &a, TestParams &b) {
+                       [](const TestParams &a, const TestParams &b) {
                          return (a.dstOffset < b.dstOffset);
                        })
           ->dstOffset;
 
   // Check max sizes of regions so that the test method generates legal copies
-  const auto maxElements = std::max_element(
-      TestList.begin(), TestList.end(), [](TestParams &a, TestParams &b) {
-        return (std::max(a.numSubElements, a.numBaseElements) <
-                std::max(b.numSubElements, b.numBaseElements));
-      });
+  const auto maxElements =
+      std::max_element(TestList.begin(), TestList.end(),
+                       [](const TestParams &a, const TestParams &b) {
+                         return (std::max(a.numSubElements, a.numBaseElements) <
+                                 std::max(b.numSubElements, b.numBaseElements));
+                       });
 
   const auto maxRows =
       std::max(maxElements->numBaseElements, maxElements->numSubElements);
   // Whole data array size - oversize foe the smaller tests
   // so we verify areas not overwritten
-  auto total_size = maxColumns * maxRows + maxDstOffset;
+  auto total_size = maxRegionSize * maxRows + maxDstOffset;
 
   // Program generated test data
   std::vector<double> outTest(total_size);
@@ -133,7 +161,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
   // Initialise input pattern, dummy data to check its overwritten when
   // it should be, and not when its not
   for (unsigned i = 0; i < total_size; i++)
-    inTest[i] = i + 1;
+    inTest[i] = (dataType == BOOL) ? 1 : i + 1;
 
   auto device = createTestDevice(TEST_TARGET);
   Target target = device.getTarget();
@@ -164,7 +192,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
     auto offset = TestList[tests].offset;
     auto numBaseElements = TestList[tests].numBaseElements;
     auto numSubElements = TestList[tests].numSubElements;
-    auto columns = TestList[tests].columns;
+    auto regionSize = TestList[tests].regionSize;
     auto dstOffset = TestList[tests].dstOffset;
     auto update = TestList[tests].update;
 
@@ -173,12 +201,12 @@ void DynamicSliceCodeletTest(const Type &dataType) {
     ComputeSet testComputeSet = graph.addComputeSet("computeDynamicSlice");
 
     auto vertexClass = templateVertex("popops::DynamicSlice1d", dataType);
-    auto base = in.slice(0, numBaseElements * columns);
-    auto sub = out.slice(dstOffset, numSubElements * columns + dstOffset);
+    auto base = in.slice(0, numBaseElements * regionSize);
+    auto sub = out.slice(dstOffset, numSubElements * regionSize + dstOffset);
     if (update) {
       vertexClass = templateVertex("popops::DynamicUpdateSlice1d", dataType);
-      base = out.slice(dstOffset, numBaseElements * columns + dstOffset);
-      sub = in.slice(0, numSubElements * columns);
+      base = out.slice(dstOffset, numBaseElements * regionSize + dstOffset);
+      sub = in.slice(0, numSubElements * regionSize);
     }
 
     auto dsVertex =
@@ -186,7 +214,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
                         {{"offset", offset}, {"baseT", base}, {"subT", sub}});
     graph.setInitialValue(dsVertex["numBaseElements"], numBaseElements);
     graph.setInitialValue(dsVertex["numSubElements"], numSubElements);
-    graph.setInitialValue(dsVertex["regionSize"], columns);
+    graph.setInitialValue(dsVertex["regionSize"], regionSize);
     graph.setTileMapping(dsVertex, 0);
 
     popops::zero(graph, out, sequence, "Zero output");
@@ -212,7 +240,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
       auto offset = TestList[tests].offset;
       auto numBaseElements = TestList[tests].numBaseElements;
       auto numSubElements = TestList[tests].numSubElements;
-      auto columns = TestList[tests].columns;
+      auto regionSize = TestList[tests].regionSize;
       auto dstOffset = TestList[tests].dstOffset;
       auto update = TestList[tests].update;
 
@@ -233,10 +261,10 @@ void DynamicSliceCodeletTest(const Type &dataType) {
       if (update) {
         DynamicUpdateSliceSupervisorHost(offset, outTest, inTest,
                                          numBaseElements, numSubElements,
-                                         columns, dstOffset);
+                                         regionSize, dstOffset);
       } else {
         DynamicSliceSupervisorHost(offset, inTest, outTest, numBaseElements,
-                                   numSubElements, columns, dstOffset);
+                                   numSubElements, regionSize, dstOffset);
       }
 
       // Check the result, in the outTest array
@@ -256,4 +284,16 @@ BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_half) {
 }
 BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_int) {
   DynamicSliceCodeletTest(INT);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_uchar) {
+  DynamicSliceCodeletTest(UNSIGNED_CHAR);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_schar) {
+  DynamicSliceCodeletTest(SIGNED_CHAR, testsSchar);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_char) {
+  DynamicSliceCodeletTest(CHAR, testsChar);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_bool) {
+  DynamicSliceCodeletTest(BOOL, testsBool);
 }

@@ -13,8 +13,10 @@ static constexpr auto COMPACT_DELTAN = poplar::VectorListLayout::COMPACT_DELTAN;
 
 namespace popops {
 
-// Copy slices [\a offset : \a offset + \a numOutElements) of regions of
+// Copy slices [\a offset : \a offset + \a numSubElements) of regions of
 // \a baseT to \a subT.
+// This variant takes a 2d input and calculates the offsets given the start
+// address of the base and sub Tensors.
 // The slice calculation is currently performed modulo \a numBaseElements but
 // this is subject to change.
 // Where the offset given is larger than numBaseElements, behaviour is not
@@ -33,8 +35,7 @@ public:
   const unsigned short numRegions;
   const unsigned numBaseElements; // in the slice dimension
 
-  static const bool isBool = std::is_same<InType, bool>::value;
-  IS_EXTERNAL_CODELET(!isBool);
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     for (unsigned r = 0; r != numRegions; ++r) {
@@ -63,5 +64,8 @@ template class DynamicSlice2d<half>;
 template class DynamicSlice2d<int>;
 template class DynamicSlice2d<unsigned>;
 template class DynamicSlice2d<bool>;
+template class DynamicSlice2d<char>;
+template class DynamicSlice2d<signed char>;
+template class DynamicSlice2d<unsigned char>;
 
 } // namespace popops

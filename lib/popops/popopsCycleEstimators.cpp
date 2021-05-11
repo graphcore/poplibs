@@ -2055,9 +2055,15 @@ std::uint64_t getDynamicSlice1dEstimate(const poplar::Target &target,
                                         const Type &type,
                                         const unsigned regionSize,
                                         const unsigned numSubElements) {
+  bool is8bit = target.getTypeSize(type) == 1;
   const unsigned numWorkers = target.getNumWorkerContexts();
   const unsigned elementsPerWorker = (regionSize + numWorkers - 1) / numWorkers;
-  unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
+  unsigned vectorWidth = 0;
+  if (is8bit) {
+    vectorWidth = 4;
+  } else {
+    vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
+  }
 
   // Supervisor overhead.
   auto superCycles = basicOpSupervisorOverhead() + 1 + 6 + 1 + 6;
@@ -2065,7 +2071,9 @@ std::uint64_t getDynamicSlice1dEstimate(const poplar::Target &target,
   // This is the more optimistic path - where the inner loop is copying
   // aligned data
   unsigned nCopies = elementsPerWorker / vectorWidth;
-  auto workerCycles = 41 + (27 + nCopies) * numSubElements;
+
+  auto workerCycles = is8bit ? 72 + (70 + 2 * nCopies) * numSubElements
+                             : 41 + (27 + nCopies) * numSubElements;
   auto cycles = superCycles + workerCycles * numWorkers;
 
   return cycles;
@@ -2319,20 +2327,29 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastClampInPlace)(
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice2d)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  bool is8bit = target.getTypeSize(type) == 1;
   const auto baseT = vertex.getFieldInfo("baseT");
   const unsigned numBaseElements =
       vertex.getFieldInfo("numBaseElements").getInitialValue<unsigned>(target);
   const unsigned numSubElements =
       vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
-
-  unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   const unsigned numRegions =
       vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
+
+  unsigned vectorWidth = 0;
+  if (is8bit) {
+    vectorWidth = 4;
+  } else {
+    vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
+  }
   auto cycles = 23;
+
   for (unsigned r = 0; r != numRegions; ++r) {
     auto regionSize = baseT[r * numBaseElements].size();
     unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
-    if (type == HALF)
+    if (is8bit) {
+      cycles += (50 + 2 * nVectors) * numSubElements + 13;
+    } else if (type == HALF)
       cycles += (31 + 2 * nVectors) * numSubElements + 13;
     else
       cycles += (29 + nVectors) * numSubElements + 13;
@@ -2342,20 +2359,28 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice2d)(
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  bool is8bit = target.getTypeSize(type) == 1;
   const auto baseT = vertex.getFieldInfo("baseT");
   const unsigned numBaseElements =
       vertex.getFieldInfo("numBaseElements").getInitialValue<unsigned>(target);
   const unsigned numSubElements =
       vertex.getFieldInfo("numSubElements").getInitialValue<unsigned>(target);
-
-  unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   const unsigned numRegions =
       vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
+
+  unsigned vectorWidth = 0;
+  if (is8bit) {
+    vectorWidth = 4;
+  } else {
+    vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
+  }
   auto cycles = 23;
   for (unsigned r = 0; r != numRegions; ++r) {
     auto regionSize = baseT[r * numBaseElements].size();
     unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
-    if (type == HALF)
+    if (is8bit) {
+      cycles += (50 + 23 * nVectors) * numSubElements + 13;
+    } else if (type == HALF)
       cycles += (31 + 2 * nVectors) * numSubElements + 13;
     else
       cycles += (29 + nVectors) * numSubElements + 13;
@@ -2388,20 +2413,27 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice1d)(
 static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
                                  const Target &target, const Type &type,
                                  bool /*isUpdate*/) {
+  bool is8bit = target.getTypeSize(type) == 1;
   const auto regionSize =
       vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
   const auto offsets = vertex.getFieldInfo("offsets");
 
   auto numOffsets = offsets.size();
   assert(numOffsets > 0);
-  unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
+  unsigned vectorWidth = 0;
+  if (is8bit) {
+    vectorWidth = 4;
+  } else {
+    vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
+  }
   auto copiesPerOffset = (regionSize + vectorWidth - 1) / vectorWidth;
 
   std::uint64_t callOverhead = 16;
 
   // load offset, compare, cond-branch, mpy to get idx, (load, store) per entry,
   // outer loop
-  std::uint64_t coreCycles = numOffsets * (19 + copiesPerOffset * 3);
+  std::uint64_t coreCycles = is8bit ? numOffsets * (19 + copiesPerOffset * 3)
+                                    : numOffsets * (50 + copiesPerOffset * 2);
 
   return callOverhead + coreCycles;
 }
@@ -3262,35 +3294,55 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, INT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, INT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, INT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, INT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, INT),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, INT),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, HALF, true),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, HALF, false),

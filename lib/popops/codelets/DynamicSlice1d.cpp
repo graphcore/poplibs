@@ -13,22 +13,15 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 namespace popops {
 
-template <typename InType> constexpr bool isBool() {
-  return std::is_same<InType, bool>::value;
-}
-
-// Copy slices [\a offset : \a offset + \a numOutElements) of regions of
+// Copy slices [\a offset : \a offset + \a numSubElements) of regions of
 // \a baseT to \a subT.
-// This variant takes a 2d input and calculates the offsets given the start
-// address of the base and sub Tensors.
 // The slice calculation is currently performed modulo \a numBaseElements but
 // this is subject to change
 // Where the offset given is larger than numBaseElements, behaviour is not
 // properly specified.  Options could be baseSlice=offset % numBaseElements,
 // or as implemented if(offset>=numBaseElements) baseSlice=0;
 template <typename InType>
-class DynamicSlice1d
-    : public SupervisorVertexIf<!isBool<InType>() && ASM_CODELETS_ENABLED> {
+class DynamicSlice1d : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   DynamicSlice1d();
 
@@ -39,7 +32,7 @@ public:
   const unsigned numSubElements;  // in the slice dimension
   const unsigned regionSize;      // stride between slices
 
-  IS_EXTERNAL_CODELET(!isBool<InType>());
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     const unsigned numWorkers = CTXT_WORKERS;
@@ -71,5 +64,8 @@ template class DynamicSlice1d<half>;
 template class DynamicSlice1d<int>;
 template class DynamicSlice1d<unsigned>;
 template class DynamicSlice1d<bool>;
+template class DynamicSlice1d<char>;
+template class DynamicSlice1d<unsigned char>;
+template class DynamicSlice1d<signed char>;
 
 } // namespace popops

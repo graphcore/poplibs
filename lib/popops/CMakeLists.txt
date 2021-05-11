@@ -157,6 +157,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unarySupervisorOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor_8bit.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/elementwiseStubs.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_bool.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_half.S
@@ -224,6 +225,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.inc
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOpsOps.h.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SliceCopyFunction_8bit.inc
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp
