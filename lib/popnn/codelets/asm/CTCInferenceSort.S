@@ -190,10 +190,22 @@ VERTEX_NAME:
   {ld64step $a6:7, $mzero, $mptr+=, 1
    f32v2add $atotal01, $atotal01, $a6:7}
 2:
-  // If we are ranking the last one, we are done
-  sub  $mscratch, $mtotal, $mfirst
-  cmpeq $mscratch, $mscratch, 1
-  brnz $mscratch, .Lcheck_ranking\@
+  // Find the number of items to process in the second loop if we ran it.
+  // 2ndLoopElements = totalElements - 1stLoopElements - 2
+  // (The code between the loops would deal with 2 elements if run).
+  // However if there would be < 0 elements to process then we can exit now:
+  // < 0 : The one we are ranking is the last item, we processed all
+  //       those before it in the first loop, so we are done
+  // = 0 : The one we are ranking is one of the 2 to process in the code between
+  //       loops, then we are done. So we continue (And will run 0 passes of the
+  //       second loop)
+  // > 0 : Valid number to process in the 2nd loop and/or as the odd one at the
+  //       end
+  shl  $mscratch, $mscratch, 1
+  sub  $mtotal, $mtotal, $mscratch
+  sub  $mtotal, $mtotal, 2
+  brneg $mtotal, .Lcheck_ranking\@
+
   // The last input loaded contains the one we compare to, and another.
   // Avoid using a ld32 to ensure input data alignment for the next loop.
 
@@ -210,15 +222,12 @@ VERTEX_NAME:
   // This is used when taking the input AFTER the one we are ranking, held in $a7
   and $a6, $a7, $aconst0
 4:
-  // Remaining loops, avoid processing a last one that isn't part of a pair
-  {sub $mscratch, $mtotal, $mfirst
+  // Remaining loops, 2 items per loop
+  {shr $mscratch, $mtotal, 1
    f32add $atotal0, $atotal0, $a6}
-  shr $mscratch, $mscratch, 1
   // Load the next pair to process
   {ld64step $a6:7, $mzero, $mptr+=, 1
    fnop} // Rpt alignment
-  brz  $mscratch, 2f
-  sub $mscratch, $mscratch, 1
 
   rpt $mscratch, (2f - 1f)/8 - 1
 1:
@@ -230,12 +239,13 @@ VERTEX_NAME:
   {ld64step $a6:7, $mzero, $mptr+=, 1
    f32v2add $atotal01, $atotal01, $a6:7}
 2:
-  // Deal with a last one if the total candidates is odd
-  and  $mscratch, $mtotal, 1
-  brz  $mscratch, .Lcheck_ranking\@
+  // Subtract the number processed by the second loop
+  shl  $mscratch, $mscratch, 1
+  sub  $mscratch, $mtotal, $mscratch
+  brz $mscratch, .Lcheck_ranking\@
   // Last one to process, already read at the end of the last loop.
-  // But don't process it unless we need to in case of invalid inputs
-  // For anything after the one to rank > as the inequality
+  // But don't process it unless we need to in case of invalid inputs.
+  // For anything after the one to rank use > as the inequality
   f32cmpgt $a6, $a6, $ato_rank0
   and      $a6, $a6, $aconst0
   f32add   $atotal0, $atotal0, $a6
@@ -243,7 +253,9 @@ VERTEX_NAME:
 .Lcheck_ranking\@:
   // Combine the 2 halves of the accumulators to find the ranking and decide
   // if ranked well enough to store
-  f32add $atotal0, $atotal0, $atotal1
+  // Reload the total for the next pass
+  {ld32 $mtotal, $mvertex_base, $mzero, VERTEX_STATE_OFFSET_TOTAL_CANDIDATES/4
+   f32add $atotal0, $atotal0, $atotal1}
   {ld32 $mscratch, $mvertex_base, $mzero, VERTEX_STATE_OFFSET_BEAMWIDTH/4
    f32toi32 $atotal0, $atotal0}
   atom $mrank, $atotal0

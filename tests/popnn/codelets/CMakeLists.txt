@@ -123,3 +123,24 @@ foreach (SEED RANGE 1 5)
     endforeach()
   endforeach()
 endforeach()
+
+# More specific tests for codelets with assembler
+foreach (SEED RANGE 1 5)
+  foreach (TIMESTEP 0 10)
+    foreach (BEAMWIDTH 4 5)
+      foreach (CLASSES RANGE 5 8)
+        foreach (VERTEX rank)
+          add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${SEED}_${TIMESTEP}_${VERTEX}_${CLASSES}_${BEAMWIDTH}"
+              COMMAND CTCInferenceCodeletTest
+                --seed=${SEED}
+                --beamwidth=${BEAMWIDTH}
+                --num-classes=${CLASSES}
+                --max-time=15
+                --timestep=${TIMESTEP}
+                --vertex-type=${VERTEX}
+              LABELS codelet)
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
