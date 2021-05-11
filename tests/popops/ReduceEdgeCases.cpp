@@ -1,5 +1,6 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ReduceEdgeCases
+#include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/unit_test.hpp>
@@ -125,4 +126,45 @@ BOOST_AUTO_TEST_CASE(Reduce_Huge_ADD_float) {
     Engine e(graph, prog, {{"debug.allowOutOfMemory", "true"}});
   } catch (const poplar::graph_memory_allocation_error &) {
   };
+}
+
+BOOST_AUTO_TEST_CASE(Avoid_subword_mapping_single_element_per_tile) {
+  const unsigned numOutputs = 4;
+  auto device = createTestDevice(TEST_TARGET, 1, numOutputs);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  auto inHalf = graph.addVariable(HALF, {{numOutputs, 100}}, "inH");
+  auto inFloat = graph.addVariable(HALF, {{numOutputs, 100}}, "inF");
+
+  for (unsigned i = 0; i != numOutputs; ++i) {
+    graph.setTileMapping(inHalf[i], i);
+    graph.setTileMapping(inFloat[i], i);
+  }
+
+  Sequence prog;
+  auto outHalf =
+      popops::reduce(graph, inHalf, HALF, {1}, popops::Operation::ADD, prog);
+  auto outFloat =
+      popops::reduce(graph, inHalf, FLOAT, {1}, popops::Operation::ADD, prog);
+
+  // check over how many tiles the output is mapped
+  auto tMap = graph.getTileMapping(outHalf);
+  auto tilesContainingOutHalf =
+      std::accumulate(tMap.begin(), tMap.end(), 0U,
+                      [](unsigned num, const std::vector<Interval> &mapping) {
+                        return num + !mapping.empty();
+                      });
+
+  tMap = graph.getTileMapping(outFloat);
+  auto tilesContainingOutFloat =
+      std::accumulate(tMap.begin(), tMap.end(), 0U,
+                      [](unsigned num, const std::vector<Interval> &mapping) {
+                        return num + !mapping.empty();
+                      });
+
+  // The output should be remapped
+  BOOST_CHECK_NE(tilesContainingOutHalf, numOutputs);
+  // The output should not be remapped
+  BOOST_CHECK_EQUAL(tilesContainingOutFloat, numOutputs);
 }

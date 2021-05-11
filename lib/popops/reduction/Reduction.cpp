@@ -6,13 +6,13 @@
 #include "ReductionIntrospection.hpp"
 #include "ReductionPlan.hpp"
 #include "ReductionStages.hpp"
-
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poputil/OptionParsing.hpp"
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/ContiguousRegionsByTile.hpp>
+#include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_support/print.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
@@ -274,7 +274,36 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
       updateGroupedPartials();
       groupedPartialsValid = true;
     }
+
+    auto numMappedTiles = std::accumulate(
+        contiguousRegionsByTile.begin(), contiguousRegionsByTile.end(), 0U,
+        [](unsigned num, const poplar::Graph::TileToTensorMapping &mapping) {
+          return num + !mapping.empty();
+        });
+
     // Do the entire reduction on each tile with no exchange at all.
+
+    // Remap output if reduction produces 1 element per tile and would
+    // cause a subword write.
+    const auto &target = graph.getTarget();
+    const auto typeSize = target.getTypeSize(outputType);
+    const auto storeGranularityBytes = target.getAtomicStoreGranularity();
+    if ((typeSize < storeGranularityBytes) &&
+        product(outputShape) == numMappedTiles) {
+      if (!withOutput) {
+        logging::popops::debug("Remap reduction output {}", dnai.getPathName());
+        auto remappedOutput = graph.addVariable(outputType, outputShape,
+                                                {dnai, "remappedOutput"});
+        poputil::mapTensorLinearly(graph, remappedOutput, 0,
+                                   storeGranularityBytes / typeSize);
+        outCopy = remappedOutput;
+      } else {
+        logging::popops::warn(
+            "Reduction output layout for {} mapped with "
+            "single element per tile that could result in subword-writes",
+            dnai.getPathName());
+      }
+    }
 
     inputToOutputNoExchange(graph, in, contiguousRegionsByTile, groupedPartials,
                             outCopy, originalOutput, outputShape,
@@ -356,8 +385,9 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
     }
   }
 
-  if (!withOutput)
+  if (!withOutput) {
     out = outCopy;
+  }
 }
 
 bool opBenefitsFromHigherIntermediatePrecision(const popops::Operation &op) {
@@ -707,7 +737,6 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in, out_, dims, params, css, options));
-
   ResultTensors r;
   boost::optional<Tensor> out = out_;
   reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
