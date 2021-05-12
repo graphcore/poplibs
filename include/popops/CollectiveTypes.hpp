@@ -17,6 +17,7 @@ namespace popops {
  */
 enum class CollectiveOperator {
   ADD,
+  MEAN,
   MUL,
   MIN,
   MAX,

@@ -11,6 +11,8 @@ std::istream &operator>>(std::istream &in, CollectiveOperator &op) {
 
   if (opStr == "ADD") {
     op = CollectiveOperator::ADD;
+  } else if (opStr == "MEAN") {
+    op = CollectiveOperator::MEAN;
   } else if (opStr == "MUL") {
     op = CollectiveOperator::MUL;
   } else if (opStr == "MIN") {
@@ -36,6 +38,8 @@ std::ostream &operator<<(std::ostream &os, const CollectiveOperator &op) {
   switch (op) {
   case CollectiveOperator::ADD:
     return os << "ADD";
+  case CollectiveOperator::MEAN:
+    return os << "MEAN";
   case CollectiveOperator::MUL:
     return os << "MUL";
   case CollectiveOperator::MIN:

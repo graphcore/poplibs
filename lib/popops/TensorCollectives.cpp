@@ -425,6 +425,9 @@ static void opInPlace(Graph &graph, popops::CollectiveOperator op,
   switch (op) {
   case CollectiveOperator::ADD:
     return addInPlace(graph, a, b, prog, {dnai});
+  case CollectiveOperator::MEAN:
+    throw poputil::poplibs_error("Collective reduction using the MEAN "
+                                 "operation is not yet supported");
   case CollectiveOperator::MUL:
     return mulInPlace(graph, a, b, prog, {dnai});
   case CollectiveOperator::MIN:
