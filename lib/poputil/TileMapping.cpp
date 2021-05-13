@@ -114,6 +114,49 @@ poplar::Tensor cloneToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
   return tLocal;
 }
 
+poplar::Tensor cloneToGraph(poplar::Graph &srcGraph, poplar::Graph &dstGraph,
+                            const poplar::Tensor &t,
+                            const poplar::DebugContext &debugContext,
+                            poplar::TensorCloneMethod method) {
+  POPUTIL_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, method));
+
+  if (srcGraph.getReplicationFactor() != dstGraph.getReplicationFactor()) {
+    throw poputil::poplibs_error(
+        "Cannot clone a tensor to a graph with a different replication factor. "
+        "The source graph has replication factor " +
+        std::to_string(srcGraph.getReplicationFactor()) +
+        " and the destination graph has replication factor " +
+        std::to_string(dstGraph.getReplicationFactor()) + ".");
+  }
+
+  auto tLocal = srcGraph.clone(t, {di}, method);
+  auto tSimple = t.flatten();
+  auto tLocalSimple = tLocal.flatten();
+  srcGraph.reorderToSimplify(&tSimple, {&tLocalSimple});
+
+  auto mapping = srcGraph.getTileMapping(tSimple);
+
+  for (std::size_t tile = dstGraph.getTarget().getNumTiles();
+       tile < mapping.size(); ++tile) {
+    if (!mapping[tile].empty()) {
+      throw poputil::poplibs_error(
+          "Cannot clone a tensor to a graph with fewer tiles than required by "
+          "the input tensor mapping. There are elements mapped to "
+          "tile " +
+          std::to_string(tile) +
+          " in the source graph, but the destination graph only has " +
+          std::to_string(dstGraph.getTarget().getNumTiles()) + " tiles.");
+    }
+  }
+
+  mapping.resize(dstGraph.getTarget().getNumTiles());
+  dstGraph.setTileMapping(tLocalSimple, mapping);
+
+  di.addOutput(tLocal);
+  return tLocal;
+}
+
 poplar::Tensor createIpuCopy(poplar::Graph &masterGraph,
                              const poplar::Tensor &t, unsigned dstIpu,
                              poplar::Tensor &copySrc, poplar::Tensor &copyDst,

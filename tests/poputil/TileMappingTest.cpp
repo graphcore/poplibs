@@ -340,3 +340,63 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerResolve) {
     BOOST_CHECK_EQUAL(getTileImbalance(graph, t[s], grainSize, grainSize), 0);
   }
 }
+
+BOOST_AUTO_TEST_CASE(CloneToGraph) {
+  constexpr std::size_t numTiles = 8;
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+
+  auto vgraph1 = graph.createVirtualGraph(0, 4);
+  auto vgraph2 = graph.createVirtualGraph(4, 8);
+
+  auto t1 = vgraph1.addVariable(poplar::FLOAT, {1024});
+  poputil::mapTensorLinearly(vgraph1, t1);
+
+  auto t2 = poputil::cloneToGraph(vgraph1, vgraph2, t1);
+
+  // The tile mappings within the virtual graphs should be the same.
+  BOOST_CHECK(vgraph1.getTileMapping(t1) == vgraph2.getTileMapping(t2));
+
+  auto t1_mapping = graph.getTileMapping(t1);
+  auto t2_mapping = graph.getTileMapping(t2);
+
+  // Rotating the tile mapping of t2 by 4 should be the same as the tile mapping
+  // of t1 on the top-level graph.
+  std::rotate(t2_mapping.begin(), t2_mapping.begin() + 4, t2_mapping.end());
+  BOOST_CHECK(t1_mapping == t2_mapping);
+}
+
+BOOST_AUTO_TEST_CASE(CloneToGraphBadRange) {
+  constexpr std::size_t numTiles = 8;
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+
+  auto vgraph1 = graph.createVirtualGraph(0, 4);
+  auto vgraph2 = graph.createVirtualGraph(4, 5);
+
+  auto t1 = vgraph1.addVariable(poplar::FLOAT, {1024});
+  poputil::mapTensorLinearly(vgraph1, t1);
+
+  // vgraph2 doesn't have enough tiles. Expect an exception here.
+  BOOST_CHECK_THROW(poputil::cloneToGraph(vgraph1, vgraph2, t1),
+                    poputil::poplibs_error);
+}
+
+BOOST_AUTO_TEST_CASE(CloneToGraphBadReplication) {
+  constexpr std::size_t numTiles = 8;
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+
+  auto vgraph1 = graph.createVirtualGraph(0, 4).createReplicatedGraph(2);
+  auto vgraph2 = graph.createVirtualGraph(4, 5);
+
+  auto t1 = vgraph1.addVariable(poplar::FLOAT, {1024});
+  poputil::mapTensorLinearly(vgraph1, t1);
+
+  // vgraph2 doesn't have the same replication factor. Expect an exception here.
+  BOOST_CHECK_THROW(poputil::cloneToGraph(vgraph1, vgraph2, t1),
+                    poputil::poplibs_error);
+}

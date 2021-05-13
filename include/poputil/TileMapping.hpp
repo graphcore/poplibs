@@ -216,6 +216,30 @@ cloneToIpu(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIPU,
            poplar::TensorCloneMethod method =
                poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 
+/** Create a clone of the specified tensor on the specified graph.
+ *
+ * The cloned tensor is mapped to the destination graph in such a way that the
+ * mapping of tensor elements to tiles is preserved.
+ *
+ * \param srcGraph     The graph representing the source tiles.
+ * \param dstGraph     The graph representing the destination tiles.
+ * \param t            The tensor to clone.
+ * \param debugContext Optional debug information
+ * \param method       The method to use for the cloning.
+ * \return The cloned tensor.
+ *
+ * \note It is assumed that the destination graph has enough tiles to clone the
+ * input tensor. This includes any gaps in the tile mapping. This means the
+ * maximum mapped tile of `t` in the source graph must be less than
+ * `dstGraph.getTarget().getNumTiles()`.
+ */
+poplar::Tensor
+cloneToGraph(poplar::Graph &srcGraph, poplar::Graph &dstGraph,
+             const poplar::Tensor &t,
+             const poplar::DebugContext &debugContext = {},
+             poplar::TensorCloneMethod method =
+                 poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
+
 /** Move a tensor from one IPU to another.
  *
  * The tensor is moved by duplicating it, mapping the clone onto another IPU,
