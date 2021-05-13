@@ -86,7 +86,6 @@ int main(int argc, char **argv) {
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
-    ("use-unstable-format", "Deprecated: use \"--profile-format experimental\"")
     ("profile-format",
      po::value<decltype(profileFormat)>(&profileFormat)
       ->default_value(boost::none),
@@ -168,10 +167,6 @@ int main(int argc, char **argv) {
   }
 
   bool ignoreData = vm.count("ignore-data");
-  if (vm.count("use-unstable-format")) {
-    throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
-                                 "\"--profile-format experimental\" instead");
-  }
   bool inferenceOnly = vm.count("inference-only");
   if (inferenceOnly && pass != Pass::ALL && pass != Pass::FWD) {
     std::cerr << "pass=" << pass << " specified with --inference-only\n";

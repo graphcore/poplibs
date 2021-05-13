@@ -296,7 +296,6 @@ int main(int argc, char **argv) {
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
-    ("use-unstable-format", "Deprecated: use \"--profile-format experimental\"")
     ("profile-format",
      po::value<decltype(profileFormat)>(&profileFormat)
       ->default_value(boost::none),
@@ -372,10 +371,6 @@ int main(int argc, char **argv) {
   randomEngine.seed(seed);
 
   const bool ignoreData = vm.count("ignore-data");
-  if (vm.count("use-unstable-format")) {
-    throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
-                                 "\"--profile-format experimental\" instead");
-  }
 
   // Set the random model parameters if --seed was specified and they
   // weren't overridden with --tiles-per-ipu or --ipus.

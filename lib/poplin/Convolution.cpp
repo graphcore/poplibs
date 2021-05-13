@@ -1970,7 +1970,7 @@ static void lowerAndAddCycleCount(Graph &graph, Sequence &prog,
   Sequence seq{{dnai}};
   tpp.lower(seq, {dnai});
   if (insertCycleCount == true) {
-    cycleCount(graph, seq, 0, dnai.getPathName());
+    cycleCount(graph, seq, 0, SyncType::INTERNAL, dnai.getPathName());
   }
   prog.add(seq);
 }
@@ -2012,7 +2012,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
     Sequence reduceTransformPostSeq{{dnai}};
     add(reduceTransformPostSeq, transformPost[level]);
     if (insertCycleCount == true) {
-      cycleCount(graph, reduceTransformPostSeq, 0,
+      cycleCount(graph, reduceTransformPostSeq, 0, SyncType::INTERNAL,
                  dnai.getPathName() + "/transformPost" + std::to_string(level));
     }
     body.add(reduceTransformPostSeq);

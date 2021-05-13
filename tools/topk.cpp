@@ -333,7 +333,8 @@ int main(int argc, char **argv) try {
 
   Tensor cycleCounter;
   if (reportTotalCycles) {
-    cycleCounter = cycleCount(graph, prog, 0, "measure-total-cycles");
+    cycleCounter =
+        cycleCount(graph, prog, 0, SyncType::INTERNAL, "measure-total-cycles");
     graph.createHostRead("totalCycleCount", cycleCounter);
   }
 

@@ -407,7 +407,7 @@ int main(int argc, char **argv) {
   Tensor cycleCount;
   std::unique_ptr<char[]> rawHostCycleCount;
   if (measureCycles) {
-    cycleCount = poplar::cycleCount(graph, prog, 0);
+    cycleCount = poplar::cycleCount(graph, prog, 0, SyncType::INTERNAL);
     rawHostCycleCount = allocateHostMemoryForTensor(
         cycleCount, "cycleCount", graph, uploadProg, downloadProg, tmap);
   }

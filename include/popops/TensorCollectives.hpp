@@ -79,16 +79,6 @@ Chunks reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
                      poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext = {},
                      const poplar::OptionFlags &options = {});
-/** \deprecated Use reduceScatter() with popops::CollectiveOperator instead. */
-inline Chunks reduceScatter(poplar::Graph &graph,
-                            const poplar::Tensor &toReduce,
-                            popops::Operation op,
-                            poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
-                            const poplar::OptionFlags &options = {}) {
-  return reduceScatter(graph, toReduce, operationToCollectiveOperator(op), prog,
-                       debugPrefix, options);
-}
 
 /** Broadcast data distributed over all IPUs. This function assumes
  *  chunk \c i is mapped to IPU \c i.
@@ -132,17 +122,6 @@ poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {});
-/** \deprecated Use allReduce() with popops::CollectiveOperator instead. */
-
-inline poplar::Tensor allReduce(poplar::Graph &graph,
-                                const poplar::Tensor &toReduce,
-                                popops::Operation op,
-                                poplar::program::Sequence &prog,
-                                const poplar::DebugContext &debugContext = {},
-                                const poplar::OptionFlags &options = {}) {
-  return allReduce(graph, toReduce, operationToCollectiveOperator(op), prog,
-                   debugContext, options);
-}
 
 } // End namespace popops
 

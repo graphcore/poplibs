@@ -132,7 +132,6 @@ int main(int argc, char **argv) {
      po::value<decltype(opts.jsonProfileOut)>(&opts.jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
-    ("use-unstable-format", "Deprecated: use \"--profile-format experimental\"")
     ("profile-format",
      po::value<decltype(opts.profileFormat)>(&opts.profileFormat)
       ->default_value(boost::none),
@@ -231,16 +230,12 @@ int main(int argc, char **argv) {
   }
 
   opts.ignoreData = vm.count("ignore-data");
-  if (vm.count("use-unstable-format")) {
-    throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
-                                 "\"--profile-format experimental\" instead");
-  }
 
   const std::vector<std::size_t> &numIndices = opts.numIndices;
 
-  logging::poplibs::info("Embedding matrix shape: {}", opts.shape);
-  logging::poplibs::info("Number of indices to process: {}", numIndices);
-  logging::poplibs::info("Performing pass: {}", opts.pass);
+  logging::popops::info("Embedding matrix shape: {}", opts.shape);
+  logging::popops::info("Number of indices to process: {}", numIndices);
+  logging::popops::info("Performing pass: {}", opts.pass);
 
   Graph graph(target);
   popops::addCodelets(graph);
@@ -260,15 +255,15 @@ int main(int argc, char **argv) {
   popops::SlicePlan plan;
   Tensor embeddingMatrix;
   if (opts.useEmbeddingPlan) {
-    logging::poplibs::info("Graph construction: Planning embedding layer");
+    logging::popops::info("Graph construction: Planning embedding layer");
     plan = popops::embedding::plan(graph, opts.dataType, opts.shape[0],
                                    opts.shape[1], numIndices, sliceOptions);
-    logging::poplibs::info("Graph construction: create embedding matrix");
+    logging::popops::info("Graph construction: create embedding matrix");
     embeddingMatrix =
         popops::createSliceableTensor(graph, opts.dataType, opts.shape, {0},
                                       {1}, plan, sliceOptions, "embedding");
   } else {
-    logging::poplibs::info(
+    logging::popops::info(
         "Graph construction: create embedding matrix, grain size {}",
         opts.grainSize);
     embeddingMatrix =
@@ -306,7 +301,7 @@ int main(int argc, char **argv) {
                       static_cast<unsigned>(opts.shape->at(0) - 1),
                       randomEngine);
     const std::string handle = "indices_" + std::to_string(i);
-    logging::poplibs::trace("Indices[{}]: {}", i, perIndexSet[i].hostIdxs);
+    logging::popops::trace("Indices[{}]: {}", i, perIndexSet[i].hostIdxs);
     perIndexSet[i].idxs = createIndicesTensor(graph, {0}, numIndices[i], plan,
                                               sliceOptions, handle);
     perIndexSet[i].rawIdxs = allocateHostMemoryForTensor(
@@ -315,8 +310,8 @@ int main(int argc, char **argv) {
 
   if (passEnabled(opts.pass, Pass::FWD)) {
     for (std::size_t i = 0; i < numIndices.size(); ++i) {
-      logging::poplibs::info("Graph construction: create gather operation {}",
-                             i);
+      logging::popops::info("Graph construction: create gather operation {}",
+                            i);
       const std::string handle = "extracted_" + std::to_string(i);
       const auto extractedData =
           popops::multiSlice(graph, embeddingMatrix, perIndexSet[i].idxs, {0},
@@ -331,7 +326,7 @@ int main(int argc, char **argv) {
         graph.addConstant(opts.dataType, {}, opts.scale, "scale");
     graph.setTileMapping(scale, 0);
     for (std::size_t i = 0; i < numIndices.size(); ++i) {
-      logging::poplibs::info("Graph construction: create update operation");
+      logging::popops::info("Graph construction: create update operation");
       Tensor deltas;
       const std::string handle = "deltas_" + std::to_string(i);
       if (opts.useEmbeddingPlan) {
@@ -369,7 +364,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  logging::poplibs::info("Create engine");
+  logging::popops::info("Create engine");
   Engine engine(graph, ctrlProg, engineOptions);
 
   if (vm.count("compile-only"))
@@ -380,7 +375,7 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 2> hostEmbeddingMatrix(embeddingMatrixExtents);
 
   if (!opts.ignoreData) {
-    logging::poplibs::info("Generating the embedding matrix on the host");
+    logging::popops::info("Generating the embedding matrix on the host");
     attachStreams(engine, tmap);
 
     writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, -10., 10.,
@@ -399,7 +394,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  logging::poplibs::info("Run program");
+  logging::popops::info("Run program");
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -419,7 +414,7 @@ int main(int argc, char **argv) {
           boost::extents[numIndices[i]][opts.shape->at(1)]);
 
       if (passEnabled(opts.pass, Pass::FWD)) {
-        logging::poplibs::info("Validate gather operation against model");
+        logging::popops::info("Validate gather operation against model");
         poplibs_test::embedding::multiSlice(
             hostEmbeddingMatrix, perIndexSet[i].hostIdxs, modelExtractedData);
 
@@ -431,7 +426,7 @@ int main(int argc, char **argv) {
       }
 
       if (passEnabled(opts.pass, Pass::WU)) {
-        logging::poplibs::info("Validate update operation against model");
+        logging::popops::info("Validate update operation against model");
 
         poplibs_test::embedding::multiUpdateAdd(
             perIndexSet[i].hostDeltas, perIndexSet[i].hostIdxs, opts.scale,

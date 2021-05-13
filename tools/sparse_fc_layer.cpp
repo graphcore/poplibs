@@ -491,14 +491,15 @@ int main(int argc, char **argv) try {
 
   Tensor fwdCycles, bwdCycles, wuCycles;
   if (reportTotalCycleCounts) {
-    fwdCycles = cycleCount(graph, fwdProg, 0, "fwdCycles");
+    fwdCycles = cycleCount(graph, fwdProg, 0, SyncType::INTERNAL, "fwdCycles");
     graph.createHostRead("fwdCycles", fwdCycles);
     if (doBwdPass) {
-      bwdCycles = cycleCount(graph, bwdProg, 0, "bwdCycles");
+      bwdCycles =
+          cycleCount(graph, bwdProg, 0, SyncType::INTERNAL, "bwdCycles");
       graph.createHostRead("bwdCycles", bwdCycles);
     }
     if (doWuPass) {
-      wuCycles = cycleCount(graph, wuProg, 0, "wuCycles");
+      wuCycles = cycleCount(graph, wuProg, 0, SyncType::INTERNAL, "wuCycles");
       graph.createHostRead("wuCycles", wuCycles);
     }
   }

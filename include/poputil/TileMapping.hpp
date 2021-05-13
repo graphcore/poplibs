@@ -100,29 +100,6 @@ unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
                           unsigned minElementsPerTile = 0,
                           unsigned grainSize = 1);
 
-/** Update a tensor's tile mapping for use as the output of an elementwise
- *  operation.
- *
- *  \deprecated Use createOutputForElementWiseOp() instead.
- *
- *  You can then use the mapping of this tensor to map elementwise operations to
- *  tiles in order to produce an operation that is computationally balanced
- *  across tiles and which minimises exchange.
- *
- *  \param graph     The graph which contains the tensor.
- *  \param inputs    A list of input tensors for the operation.
- *  \param output    The output tensor for the operation which will be remapped.
- *  \param grainSize The number of elements mapped to each tile will be an
- *                   integer multiple of the grain size.
- *  \param minGrainsPerTile
- *                   The minimum number of grains to be mapped to a tile.
- */
-void mapOutputForElementWiseOp(poplar::Graph &graph,
-                               const std::vector<poplar::Tensor> &inputs,
-                               const poplar::Tensor &output,
-                               unsigned grainSize = 1,
-                               unsigned minGrainsPerTile = 0);
-
 class TensorUseTrackerState;
 
 /** Class that tracks the usage of data on different tiles.

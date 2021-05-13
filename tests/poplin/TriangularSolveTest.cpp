@@ -68,8 +68,11 @@ void deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
   popops::addCodelets(graph);
   poplin::addCodelets(graph);
 
+  poplar::OptionFlags options;
+  options.set("blockSize", std::to_string(block_size));
+
   auto matmuls = getTriangularSolveMatMulPrePlanParameters(
-      type, type, a_shape, b_shape, left_side, lower, block_size, {});
+      type, type, a_shape, b_shape, left_side, lower, options);
 
   matmul::PlanningCache cache;
   std::set<MatMulPlanParams> params;
@@ -104,7 +107,7 @@ void deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
 
   Sequence seq;
   Tensor tX = triangularSolve(graph, tA, tB, left_side, lower, unit_diagonal,
-                              block_size, seq, "triangular-solve", {}, &cache);
+                              seq, "triangular-solve", options, &cache);
 
   BOOST_TEST(cache.size() == matmuls.size()); // All matmuls were preplanned.
   BOOST_TEST(tX.shape() == tB.shape(), boost::test_tools::per_element());

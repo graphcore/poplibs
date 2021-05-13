@@ -59,7 +59,6 @@ enum class Module {
   popsolver = 5,
   popsparse = 6,
   poputil = 7,
-  poplibs = 8, // Default - deprecated
 
   size = 9
 };
@@ -130,7 +129,6 @@ MAKE_MODULE_TEMPLATE(poprand)
 MAKE_MODULE_TEMPLATE(popsolver)
 MAKE_MODULE_TEMPLATE(popsparse)
 MAKE_MODULE_TEMPLATE(poputil)
-MAKE_MODULE_TEMPLATE(poplibs)
 
 #undef MAKE_MODULE_LOG_TEMPLATE
 #undef MAKE_MODULE_TEMPLATE

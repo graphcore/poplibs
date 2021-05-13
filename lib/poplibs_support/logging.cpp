@@ -95,9 +95,8 @@ std::string moduleName(Module m) {
 
 static std::size_t getModuleMaxLength(Module m) {
   constexpr std::array modules = {
-      Module::popfloat,  Module::poplin,  Module::popnn,
-      Module::popops,    Module::poprand, Module::popsolver,
-      Module::popsparse, Module::poputil, Module::poplibs};
+      Module::popfloat, Module::poplin,    Module::popnn,     Module::popops,
+      Module::poprand,  Module::popsolver, Module::popsparse, Module::poputil};
   std::size_t maxLength = 0;
   for (const auto module : modules) {
     maxLength = std::max(maxLength, moduleName(module).length());
@@ -175,7 +174,6 @@ LoggingContext::LoggingContext() {
   createLogger(Module::popsolver);
   createLogger(Module::popsparse);
   createLogger(Module::poputil);
-  createLogger(Module::poplibs);
 }
 
 spdlog::logger &LoggingContext::getLogger(Module m) {
@@ -197,15 +195,6 @@ void setLogLevel(Module m, Level l) {
 }
 
 void flush(Module m) { LoggingContext::getLogger(m).flush(); }
-
-// Deprecated
-void log(Level l, std::string &&msg) {
-  LoggingContext::getLogger(Module::poplibs).log(translate(l), std::move(msg));
-}
-bool shouldLog(Level l) {
-  return LoggingContext::getLogger(Module::poplibs).should_log(translate(l));
-}
-// End deprecated
 
 } // namespace logging
 } // namespace poplibs_support
