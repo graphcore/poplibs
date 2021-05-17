@@ -102,7 +102,7 @@ add_multi_target_test_executable(CTCInferenceCodeletTest
   CTCInferenceCodeletTestConnection.hpp
   CTCInferenceGenerateCandidates.cpp
   CTCInferenceMergeCandidates.cpp
-  CTCInferenceRankCandidates.cpp
+  CTCInferenceRankAndReduceCandidates.cpp
   CTCInferenceSimpleSortCandidates.cpp
   CTCInferenceUpdate.cpp
   CTCInferenceGenerateOutput.cpp
@@ -129,18 +129,46 @@ foreach (SEED RANGE 1 5)
   foreach (TIMESTEP 0 10)
     foreach (BEAMWIDTH 4 5)
       foreach (CLASSES RANGE 5 8)
-        foreach (VERTEX rank)
-          add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${SEED}_${TIMESTEP}_${VERTEX}_${CLASSES}_${BEAMWIDTH}"
-              COMMAND CTCInferenceCodeletTest
-                --seed=${SEED}
-                --beamwidth=${BEAMWIDTH}
-                --num-classes=${CLASSES}
-                --max-time=15
-                --timestep=${TIMESTEP}
-                --vertex-type=${VERTEX}
-              LABELS codelet)
-        endforeach()
+        add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${SEED}_${TIMESTEP}_${CLASSES}_${BEAMWIDTH}_rank"
+            COMMAND CTCInferenceCodeletTest
+              --seed=${SEED}
+              --beamwidth=${BEAMWIDTH}
+              --num-classes=${CLASSES}
+              --max-time=15
+              --timestep=${TIMESTEP}
+              --vertex-type=rank
+            LABELS codelet)
       endforeach()
     endforeach()
+  endforeach()
+endforeach()
+
+foreach (SEED RANGE 1 5)
+  foreach (PARTITIONS 1 2 3 4 5)
+    add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${SEED}_partitions_${PARTITIONS}_reduce"
+        COMMAND CTCInferenceCodeletTest
+          --seed=${SEED}
+          --beamwidth=5
+          --num-classes=25
+          --max-time=15
+          --timestep=4
+          --vertex-type=reduce
+          --reduce-partitions=${PARTITIONS}
+        LABELS codelet)
+  endforeach()
+endforeach()
+
+foreach (BEAMWIDTH 3 4 8)
+  foreach (INVALID 1 2 3)
+    add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${BEAMWIDTH}_invalid_${INVALID}_update"
+        COMMAND CTCInferenceCodeletTest
+          --seed=4
+          --beamwidth=${BEAMWIDTH}
+          --num-classes=25
+          --max-time=8
+          --timestep=4
+          --vertex-type=update
+          --update-invalid-candidate=${INVALID}
+        LABELS codelet)
   endforeach()
 endforeach()

@@ -746,14 +746,35 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCRankCandidates)(
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCReduceCandidates)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &partialsType, const Type symbolType) {
-  // TODO: cycle estimator
-  return {0, 0};
+  CODELET_SCALAR_VAL(totalCandidates, unsigned);
+
+  const std::size_t supervisorCycles = 24 + // Exit if complete
+                                       12;  // runall, exit
+
+  std::size_t workerCycles = 13 + // Pre loop, processing 1
+                             (totalCandidates - 1) / 2 + // Actual loop
+                             6;                          // Post loop
+
+  const auto numWorkers = target.getNumWorkerContexts();
+  const unsigned numItemsToReduce = 5;
+  return {supervisorCycles + workerCycles * numWorkers,
+          totalCandidates * numItemsToReduce};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCUpdate)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &partialsType, const Type symbolType) {
-  // TODO: cycle estimator
-  return {0, 0};
+
+  CODELET_SCALAR_VAL(beamwidth, unsigned);
+
+  const std::size_t supervisorCycles = 12 + // Load pointers, vertex state
+                                       16;  // Exit branch and function calls
+  // Slowest worker path
+  const std::size_t workerCycles = 16 +            // Pre loop
+                                   beamwidth * 7 + // Loop body
+                                   1;              // Post loop
+
+  const auto numWorkers = target.getNumWorkerContexts();
+  return {supervisorCycles + numWorkers * workerCycles, 0};
 }
 VertexPerfEstimate
 MAKE_PERF_ESTIMATOR_NAME(CTCGenerateOutput)(const VertexIntrospector &vertex,

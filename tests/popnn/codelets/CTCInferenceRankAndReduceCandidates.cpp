@@ -25,11 +25,13 @@ using namespace poputil;
 namespace poplibs_test {
 namespace ctc {
 template <typename PartialsType>
-std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
-    poplar::Graph &graph, poplibs_support::TestDevice &device,
-    poplibs_support::DeviceType deviceType, poplar::Type partialsType,
-    const std::vector<Candidate<PartialsType>> &unsortedCandidates,
-    unsigned beamwidth, unsigned timestep, bool profile) {
+static std::vector<Candidate<PartialsType>>
+runCodeletCommon(poplar::Graph &graph, poplibs_support::TestDevice &device,
+                 poplibs_support::DeviceType deviceType,
+                 poplar::Type partialsType,
+                 const std::vector<Candidate<PartialsType>> &unsortedCandidates,
+                 unsigned beamwidth, unsigned timestep, bool testReduceVertex,
+                 bool profile) {
   const auto target = graph.getTarget();
 
   auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
@@ -39,8 +41,10 @@ std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
   graph.setTileMapping(dataLength, 0);
 
   auto cs = graph.addComputeSet("cs");
-  auto vertex = graph.addVertex(cs, templateVertex("popnn::CTCRankCandidates",
-                                                   partialsType, UNSIGNED_INT));
+  auto vertex = graph.addVertex(
+      cs, templateVertex(testReduceVertex ? "popnn::CTCReduceCandidates"
+                                          : "popnn::CTCRankCandidates",
+                         partialsType, UNSIGNED_INT));
   graph.setTileMapping(vertex, 0);
 
   graph.connect(vertex["currentTimestep"], currentTimestep);
@@ -48,9 +52,12 @@ std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
 
   const auto totalCandidates = unsortedCandidates.size();
   graph.setInitialValue(vertex["totalCandidates"], totalCandidates);
-  graph.setInitialValue(vertex["beamwidth"], beamwidth);
-  graph.setInitialValue(vertex["firstCandidateToRank"], 0);
-  graph.setInitialValue(vertex["lastCandidateToRank"], totalCandidates);
+
+  if (!testReduceVertex) {
+    graph.setInitialValue(vertex["beamwidth"], beamwidth);
+    graph.setInitialValue(vertex["firstCandidateToRank"], 0);
+    graph.setInitialValue(vertex["lastCandidateToRank"], totalCandidates);
+  }
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
@@ -83,10 +90,16 @@ std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
        rawCandidates.probTotal.get().get());
 
   // Outputs
-  auto rawSortedCandidates =
-      createAndConnectCandidates(graph, vertex, "sortedCandidate", partialsType,
-                                 {beamwidth}, uploadProg, downloadProg, tmap);
-
+  CandidateHandles rawSortedCandidates;
+  if (testReduceVertex) {
+    rawSortedCandidates = createAndConnectCandidates(
+        graph, vertex, "reducedCandidate", partialsType, {}, uploadProg,
+        downloadProg, tmap);
+  } else {
+    rawSortedCandidates = createAndConnectCandidates(
+        graph, vertex, "sortedCandidate", partialsType, {beamwidth}, uploadProg,
+        downloadProg, tmap);
+  }
   OptionFlags engineOptions;
   if (profile) {
     engineOptions.set("debug.instrumentCompute", "true");
@@ -100,13 +113,14 @@ std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
     engine.run();
   });
 
-  std::vector<unsigned> candidateParentOut(beamwidth);
-  std::vector<unsigned> candidateAddendOut(beamwidth);
+  const unsigned outSize = testReduceVertex ? 1 : beamwidth;
+  std::vector<unsigned> candidateParentOut(outSize);
+  std::vector<unsigned> candidateAddendOut(outSize);
 
   // TODO partialsType == float
-  std::vector<float> candidateBeamProbBlankOut(beamwidth);
-  std::vector<float> candidateBeamProbNonBlankOut(beamwidth);
-  std::vector<float> candidateBeamProbTotalOut(beamwidth);
+  std::vector<float> candidateBeamProbBlankOut(outSize);
+  std::vector<float> candidateBeamProbNonBlankOut(outSize);
+  std::vector<float> candidateBeamProbTotalOut(outSize);
 
   copy(target, UNSIGNED_INT, rawSortedCandidates.parent.get(),
        candidateParentOut);
@@ -123,7 +137,7 @@ std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
                                OptionFlags{{"showExecutionSteps", "true"}});
   }
   std::vector<Candidate<float>> selectedCandidates;
-  for (unsigned i = 0; i < beamwidth; i++) {
+  for (unsigned i = 0; i < outSize; i++) {
     selectedCandidates.push_back({candidateParentOut[i], candidateAddendOut[i],
                                   candidateBeamProbNonBlankOut[i],
                                   candidateBeamProbBlankOut[i],
@@ -132,7 +146,35 @@ std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
   return selectedCandidates;
 }
 
+template <typename PartialsType>
+std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
+    poplar::Graph &graph, poplibs_support::TestDevice &device,
+    poplibs_support::DeviceType deviceType, poplar::Type partialsType,
+    const std::vector<Candidate<PartialsType>> &candidates, unsigned beamwidth,
+    unsigned timestep, bool profile) {
+
+  return runCodeletCommon(graph, device, deviceType, partialsType, candidates,
+                          beamwidth, timestep, false, profile);
+}
+
+template <typename PartialsType>
+std::vector<Candidate<PartialsType>> runReduceCandidatesCodelet(
+    poplar::Graph &graph, poplibs_support::TestDevice &device,
+    poplibs_support::DeviceType deviceType, poplar::Type partialsType,
+    const std::vector<Candidate<PartialsType>> &candidates, unsigned beamwidth,
+    unsigned timestep, bool profile) {
+
+  return runCodeletCommon(graph, device, deviceType, partialsType, candidates,
+                          beamwidth, timestep, true, profile);
+}
+
 template std::vector<Candidate<float>> runRankCandidatesCodelet(
+    poplar::Graph &graph, poplibs_support::TestDevice &device,
+    poplibs_support::DeviceType deviceType, poplar::Type partialsType,
+    const std::vector<Candidate<float>> &candidates, unsigned beamwidth,
+    unsigned timestep, bool profile);
+
+template std::vector<Candidate<float>> runReduceCandidatesCodelet(
     poplar::Graph &graph, poplibs_support::TestDevice &device,
     poplibs_support::DeviceType deviceType, poplar::Type partialsType,
     const std::vector<Candidate<float>> &candidates, unsigned beamwidth,

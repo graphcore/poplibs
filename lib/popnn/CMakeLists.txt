@@ -81,6 +81,7 @@ target_include_directories(popnn
 
 set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CTCInferenceSort.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CTCInferenceUpdate.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/LossTransform.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Pooling.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceClassGather.S
@@ -129,6 +130,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity.hpp
     ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearitySwishCommon.S
+    ${CMAKE_SOURCE_DIR}/include/poplibs_support/CTCInferenceDefs.hpp
 )
 
 install(TARGETS popnn

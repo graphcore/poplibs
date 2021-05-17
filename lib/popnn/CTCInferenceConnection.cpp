@@ -37,6 +37,8 @@ void attachBeamScalars(Graph &graph, const BeamTensors &beams, unsigned batch,
   graph.connect(vertex["beamProbBlank"], beams.pb.slice(begin, end).flatten());
   graph.connect(vertex["beamProbNonBlank"],
                 beams.pnb.slice(begin, end).flatten());
+  graph.connect(vertex["beamProbTotal"],
+                beams.pTotal.slice(begin, end).flatten());
   graph.connect(vertex["lastBeamOutputs"],
                 beams.lastOutput.slice(begin, end).flatten());
 }
@@ -335,6 +337,9 @@ void selectExtendCandidateVertex(Graph &graph, const TempTensors &tempTensors,
   graph.connect(
       vertex["extendCandidateBeamProbTotal"],
       tempTensors.selectExtendCandidatesPTotal.slice(begin, end).flatten());
+  graph.connect(
+      vertex["extendCandidateAddend"],
+      tempTensors.selectExtendCandidatesAddend.slice(begin, end).flatten());
 
   // Timestep, data length connection
   attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
@@ -418,8 +423,9 @@ void rankCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
   };
   const auto parents = gatherCandidates(tempTensors.copyCandidatesParent,
                                         tempTensors.extendCandidatesParent);
-  const auto addends = gatherCandidates(tempTensors.copyCandidatesAddend,
-                                        tempTensors.extendCandidatesAddend);
+  const auto addends =
+      gatherCandidates(tempTensors.copyCandidatesAddend,
+                       tempTensors.selectExtendCandidatesAddend);
   const auto pnb = gatherCandidates(tempTensors.copyCandidatesPnb,
                                     tempTensors.extendCandidatesPnb);
   const auto pb = gatherCandidates(tempTensors.copyCandidatesPb,
@@ -484,6 +490,8 @@ void reduceCandidatesVertex(poplar::Graph &graph,
                 gatherCandidates(tempTensors.sortedCandidatesPnb));
   graph.connect(vertex["candidateBeamProbBlank"],
                 gatherCandidates(tempTensors.sortedCandidatesPb));
+  graph.connect(vertex["candidateBeamProbTotal"],
+                gatherCandidates(tempTensors.sortedCandidatesPTotal));
 
   // Result candidates
   graph.connect(vertex["reducedCandidateParent"],
@@ -494,6 +502,9 @@ void reduceCandidatesVertex(poplar::Graph &graph,
                 tempTensors.copyCandidatesPnb[batch][partition].reshape({}));
   graph.connect(vertex["reducedCandidateBeamProbBlank"],
                 tempTensors.copyCandidatesPb[batch][partition].reshape({}));
+  graph.connect(vertex["reducedCandidateBeamProbTotal"],
+                tempTensors.copyCandidatesPTotal[batch][partition].reshape({}));
+
   // Timestep, data length connection (Only for early end)
   attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
   // Constants
@@ -536,6 +547,8 @@ void updateVertex(Graph &graph, const BeamTensors &beams,
                 transform(tempTensors.copyCandidatesPnb));
   graph.connect(vertex["candidateBeamProbBlank"],
                 transform(tempTensors.copyCandidatesPb));
+  graph.connect(vertex["candidateBeamProbTotal"],
+                transform(tempTensors.copyCandidatesPTotal));
 
   // Constants
   graph.setInitialValue(vertex["beamwidth"], beamwidth);

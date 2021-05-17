@@ -5,19 +5,24 @@
 #ifdef __IPU__
 
 #include "poplar/TileConstants.hpp"
-#include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 
 // Name mangling
 
-#define VERTEX_NAME __runCodelet_popnn__CTCRankCandidates___\P_TYPE\()_\SYM_TYPE
+#define RANK_VERTEX_NAME __runCodelet_popnn__CTCRankCandidates___\P_TYPE\()_\SYM_TYPE
+#define REDUCE_VERTEX_NAME __runCodelet_popnn__CTCReduceCandidates___\P_TYPE\()_\SYM_TYPE
 
-// Vertex state
+// Vertex state (Common between rank, reduce vertices)
 #define VERTEX_STATE_OFFSET_IN_PARENT 0
 #define VERTEX_STATE_OFFSET_IN_ADDEND 4
 #define VERTEX_STATE_OFFSET_IN_PNB 8
 #define VERTEX_STATE_OFFSET_IN_PB 12
 #define VERTEX_STATE_OFFSET_IN_PTOTAL 16
+
+// The reduce vertex uses the way that both VERTEX_STATE_OFFSET_IN_X and
+// VERTEX_STATE_OFFSET_OUT_x are arranged to pick up pointers to the input and
+// output of the data to reduce
+#define NUM_ITEMS_TO_REDUCE (1+(VERTEX_STATE_OFFSET_IN_PTOTAL-VERTEX_STATE_OFFSET_IN_PARENT)/4)
 
 #define VERTEX_STATE_OFFSET_OUT_PARENT 20
 #define VERTEX_STATE_OFFSET_OUT_ADDEND 24
@@ -27,9 +32,10 @@
 
 #define VERTEX_STATE_OFFSET_CURRENT_TIMESTEP 40
 #define VERTEX_STATE_OFFSET_DATA_LENGTH 44
+#define VERTEX_STATE_OFFSET_TOTAL_CANDIDATES 48
 
-#define VERTEX_STATE_OFFSET_BEAMWIDTH 48
-#define VERTEX_STATE_OFFSET_TOTAL_CANDIDATES 52
+// Vertex state (Reduce vertex only)
+#define VERTEX_STATE_OFFSET_BEAMWIDTH 52
 #define VERTEX_STATE_FIRST_CANDIDATE 56
 #define VERTEX_STATE_LAST_CANDIDATE 60
 
@@ -82,13 +88,13 @@
 // The supervisor initialises the output area to zero and exits if the loop counter
 // indicates that processing is complete.  Otherwise it calls the workers.
 
-.macro INSTANTIATE P_TYPE SYM_TYPE
-.globl VERTEX_NAME
-.type VERTEX_NAME, @function
-.section .text.VERTEX_NAME, "ax"
+.macro INSTANTIATE_RANK P_TYPE SYM_TYPE
+.globl RANK_VERTEX_NAME
+.type RANK_VERTEX_NAME, @function
+.section .text.RANK_VERTEX_NAME, "ax"
 .align 4
 .supervisor
-VERTEX_NAME:
+RANK_VERTEX_NAME:
   // Exit if this input is all processed (compare, branch are later to avoid pipline hits)
   ld32 $mtimestep, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_CURRENT_TIMESTEP/4
   ld32 $mdata_length, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_DATA_LENGTH/4
@@ -279,14 +285,98 @@ VERTEX_NAME:
 .Lreturn_f\@:
     exitz $mzero
 
-.size VERTEX_NAME, .-VERTEX_NAME
+.size RANK_VERTEX_NAME, .-RANK_VERTEX_NAME
 
-DEF_STACK_USAGE 0 VERTEX_NAME
+DEF_STACK_USAGE 0 RANK_VERTEX_NAME
+
+.endm
+
+// *****************************************************************************
+// Supervisor entry point
+
+.macro INSTANTIATE_REDUCE P_TYPE SYM_TYPE
+.globl REDUCE_VERTEX_NAME
+.type REDUCE_VERTEX_NAME, @function
+.section .text.REDUCE_VERTEX_NAME, "ax"
+.align 4
+.supervisor
+REDUCE_VERTEX_NAME:
+  ld32 $mtimestep, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_CURRENT_TIMESTEP/4
+  ld32 $mdata_length, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_DATA_LENGTH/4
+  setzi   $mworker_entry, .Lworker_\P_TYPE\()\@
+  nop     // Avoid pipeline hits for mtimestep, mdata_length
+  nop
+  nop
+  ld32 $mtimestep, $mzero, $mtimestep, 0
+  ld32 $mdata_length, $mzero, $mdata_length, 0
+  // From now on we always use mtimestep and/or mdata_length so we can`t avoid
+  // pipeline hits
+  cmpult  $mdata_length, $mdata_length, $mtimestep
+  // Exit if all processed
+  brnz  $mdata_length, 2f
+  // Run the workers
+  runall  $mworker_entry, $msupervisor_vertex_base, 0
+2:
+  sync    TEXCH_SYNCZONE_LOCAL
+  br      $lr
+
+// Worker code:
+// Workers use their worker ID to choose which item to reduce
+.align 8
+.Lworker_float\@:
+.worker
+  // Get worker ID and find the index of this workers 1st item, and output pointer
+  get $mworker_id, $WSR
+  and $mworker_id, $mworker_id, CSR_W_WSR__CTXTID_M1__MASK
+  // Workers with an ID >= NUM_ITEMS_TO_REDUCE-1 will just exit
+  cmpult $mptr, $mworker_id, NUM_ITEMS_TO_REDUCE
+  brz   $mptr, .Lexit\@
+
+  ld32 $mfirst, $mvertex_base, $mzero, $mworker_id
+  add  $mworker_id, $mworker_id, NUM_ITEMS_TO_REDUCE
+  ld32 $mptr, $mvertex_base, $mzero, $mworker_id
+
+  // Find the number of loops.  2 items per loop, and 2 items are processed
+  // before the loop begins
+  ld32 $mtotal, $mvertex_base, $mzero, VERTEX_STATE_OFFSET_TOTAL_CANDIDATES/4
+  shr  $mcount, $mtotal, 1
+  sub  $mcount, $mcount, 1
+
+  // Load 1st pair, which initialises the result
+  ld64step $atotal01, $mzero, $mfirst+=, 1
+  // Exit if 1 item only
+  brneg  $mcount, .Lwrite_and_exit\@
+  // Load 2nd pair to begin combining, loop and use or64 to combine:
+  // All inputs are zero except for one, but some data is float, some unsigned_int
+  // Using or64 allows the same code to combine the inputs regardless of type,
+  // and is an instruction with 64 bit operands which we can bundle
+  ld64step $a0:1, $mzero, $mfirst+=, 1
+  rpt $mcount, (2f - 1f)/8 -1
+1:
+  {ld64step $a0:1, $mzero, $mfirst+=, 1
+   or64 $atotal01, $atotal01, $a0:1}
+2:
+  // Check if there was an odd number to combine
+  and   $mscratch, $mtotal, 1
+  {brz   $mscratch, 3f
+   or    $atotal0, $atotal0, $atotal1} // Combine 2 halves of the result so far
+  or    $atotal0, $atotal0, $a0        // Combine a last odd numbered one
+3:
+.Lwrite_and_exit\@:
+  st32  $atotal0, $mzero, $mptr, 0
+.Lexit\@:
+  exitz $mzero
+
+.size REDUCE_VERTEX_NAME, .-REDUCE_VERTEX_NAME
+
+DEF_STACK_USAGE 0 REDUCE_VERTEX_NAME
 
 .endm
 //******************************************************************************
-// Use the macro to instantiate the vertex
+// Use the macros to instantiate the vertices
 
-INSTANTIATE float unsigned_int
+INSTANTIATE_RANK float unsigned_int
+INSTANTIATE_REDUCE float unsigned_int
+
 
 #endif

@@ -1482,3 +1482,48 @@ foreach(seed RANGE 1 5)
         --top-paths=5
       VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
+
+# Some coverage in simulation and hardware
+foreach(seed RANGE 10 20)
+  foreach(num_classes 3 5 10)
+    foreach(beamwidth 4 5 50)
+      add_multitarget_test(
+        NAME ctc_beam_search_sim_${beamwidth}_${seed}_${num_classes}
+          COMMAND ctc_beam_search
+            --batch=1
+            --seed=${seed}
+            --num-classes=${num_classes}
+            --beamwidth=${beamwidth}
+            --max-time=4
+            --max-label-length=2
+            --top-paths=4
+            --tiles-per-ipu=16
+          VARIANTS "Hw;Sim2")
+    endforeach()
+  endforeach()
+endforeach()
+
+# Always a large beamwidth, and short time which exposes cases where
+# invalid initial beam state and its treatment is important.
+# Picking specific seeds where the test produced a problem
+foreach(seed 12 15 36 60 64 65 77)
+  foreach(beamwidth 20 50)
+    foreach(classes 2 3 4)
+      foreach(time 4 5 6)
+        add_multitarget_test(
+          NAME ctc_beam_search_large_beamwidth_${beamwidth}_${classes}_${time}_${seed}
+            COMMAND ctc_beam_search
+              --batch=1
+              --seed=${seed}
+              --beamwidth=${beamwidth}
+              --num-classes=${classes}
+              --max-time=${time}
+              --time=${time}
+              --max-label-length=4
+              --disable-always-satisfiable-error
+              --top-paths=2
+            VARIANTS ${IPUMODEL_VARIANTS})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()

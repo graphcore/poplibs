@@ -23,6 +23,13 @@ struct CandidateHandles {
   boost::optional<std::unique_ptr<char[]>> probTotal = boost::none;
 };
 
+struct BeamHandles {
+  std::unique_ptr<char[]> pnb;
+  std::unique_ptr<char[]> pb;
+  std::unique_ptr<char[]> pTotal;
+  std::unique_ptr<char[]> lastOutput;
+};
+
 template <typename InputType, typename PartialsType>
 std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
     poplar::Graph &graph, poplibs_support::TestDevice &device,
@@ -59,12 +66,21 @@ std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
     unsigned timestep, bool profile);
 
 template <typename PartialsType>
-std::pair<BeamHistory, std::vector<BeamProbability<PartialsType>>>
+std::vector<Candidate<PartialsType>> runReduceCandidatesCodelet(
+    poplar::Graph &graph, poplibs_support::TestDevice &device,
+    poplibs_support::DeviceType deviceType, poplar::Type partialsType,
+    const std::vector<Candidate<PartialsType>> &candidates, unsigned beamwidth,
+    unsigned timestep, bool profile);
+
+template <typename PartialsType>
+std::tuple<BeamHistory, std::vector<BeamProbability<PartialsType>>,
+           std::vector<unsigned>>
 runUpdateCodelet(poplar::Graph &graph, poplibs_support::TestDevice &device,
                  poplibs_support::DeviceType deviceType, poplar::Type inType,
                  poplar::Type partialsType,
                  const std::vector<Candidate<PartialsType>> &candidates,
                  unsigned timestep, const BeamHistory &beamHistory,
+                 const std::vector<unsigned> &beamLengthIn,
                  const std::vector<BeamProbability<PartialsType>> &beamProbs,
                  unsigned blankClass, bool profile);
 
@@ -82,6 +98,14 @@ CandidateHandles createAndConnectCandidates(
     poplar::program::Sequence &downloadProg,
     std::vector<std::pair<std::string, char *>> &tmap,
     bool includeTotal = true);
+
+BeamHandles
+createAndConnectBeamProbs(poplar::Graph &graph, const poplar::VertexRef &vertex,
+                          const poplar::Type &probsType,
+                          const poplar::ArrayRef<std::size_t> &shape,
+                          poplar::program::Sequence &uploadProg,
+                          poplar::program::Sequence &downloadProg,
+                          std::vector<std::pair<std::string, char *>> &tmap);
 
 } // namespace ctc
 } // namespace poplibs_test

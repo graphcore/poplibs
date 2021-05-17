@@ -51,6 +51,7 @@ enum class VertexType {
   MERGE,
   SIMPLE_SORT,
   RANK,
+  REDUCE,
   UPDATE,
   OUTPUT
 };
@@ -66,6 +67,8 @@ std::ostream &operator<<(std::ostream &os, const VertexType &test) {
     return os << "simple_sort";
   } else if (test == VertexType::RANK) {
     return os << "rank";
+  } else if (test == VertexType::REDUCE) {
+    return os << "reduce";
   } else if (test == VertexType::UPDATE) {
     return os << "update";
   } else if (test == VertexType::OUTPUT) {
@@ -88,6 +91,8 @@ std::istream &operator>>(std::istream &is, VertexType &test) {
     test = VertexType::SIMPLE_SORT;
   } else if (token == "rank") {
     test = VertexType::RANK;
+  } else if (token == "reduce") {
+    test = VertexType::REDUCE;
   } else if (token == "update") {
     test = VertexType::UPDATE;
   } else if (token == "output") {
@@ -266,6 +271,23 @@ selectMergeCandidates(const std::vector<Candidate<ExpectedFPType>> &actual) {
   return selected;
 }
 
+template <typename ExpectedFPType>
+std::vector<Candidate<ExpectedFPType>>
+createReduceCandidates(const std::vector<Candidate<ExpectedFPType>> &actual,
+                       unsigned rank, unsigned partitions,
+                       unsigned activePartition) {
+
+  std::vector<Candidate<ExpectedFPType>> toReduce(partitions);
+  for (unsigned i = 0; i < partitions; i++) {
+    if (i == activePartition) {
+      toReduce[i] = actual[rank];
+    } else {
+      toReduce[i] = {0, 0, 0.0, 0.0, 0.0};
+    }
+  }
+  return toReduce;
+}
+
 template <typename FPType>
 std::pair<Candidate<FPType>, std::vector<Candidate<FPType>>>
 getCopyAndExtendCandidates(const std::vector<Candidate<FPType>> &candidates,
@@ -323,6 +345,21 @@ BeamHistory toIpuFormat(const BeamHistory &beamHistory, unsigned timestep) {
   return ipuHistory;
 }
 
+std::vector<unsigned> currentBeamOutputLengths(const BeamHistory &beamHistory,
+                                               unsigned timestep) {
+  const auto beamwidth = beamHistory.symbols.size();
+  std::vector<unsigned> expectedOutputLength(2 * beamwidth);
+  for (unsigned i = 0; i < beamwidth; i++) {
+    if (timestep & 1) {
+      expectedOutputLength[i + beamwidth] =
+          beamHistory.getOutputSequence(i).size();
+    } else {
+      expectedOutputLength[i] = beamHistory.getOutputSequence(i).size();
+    }
+  }
+  return expectedOutputLength;
+}
+
 int main(int argc, char **argv) {
   unsigned seed = 42;
   DeviceType deviceType = DeviceType::IpuModel2;
@@ -340,6 +377,9 @@ int main(int argc, char **argv) {
   boost::optional<unsigned> addendClass = boost::none;
   boost::optional<unsigned> mergeCopyBeam = boost::none;
   boost::optional<unsigned> mergeExtendBeam = boost::none;
+  boost::optional<unsigned> reducePartitions = boost::none;
+  boost::optional<unsigned> reduceActivePartition = boost::none;
+  boost::optional<unsigned> updateInvalidCandidate = boost::none;
 
   po::options_description desc("Options");
   // clang-format off
@@ -351,7 +391,7 @@ int main(int argc, char **argv) {
     ("seed", po::value(&seed)->default_value(seed),
      "Seed used for random number generators")
     ("vertex-type", po::value(&vertexType)->default_value(vertexType),
-     "Vertex type to test: generate, merge, simple_sort rank, update")
+     "Vertex type to test: generate, merge, simple_sort rank, reduce, update")
     ("in-type", po::value(&inType)->default_value(inType),
      "Vertex input data type")
     ("partials-type", po::value(&partialsType)->default_value(partialsType),
@@ -382,6 +422,13 @@ int main(int argc, char **argv) {
     ("merge-extend-beam", po::value(&mergeExtendBeam),
      "Parent beam of the extend candidates to choose when merging candidates."
      " Range 0 to (beamwidth-1")
+    ("reduce-partitions", po::value(&reducePartitions),
+     "Number of partitions to split the reduction vertex test input into")
+    ("reduce-active-partition", po::value(&reduceActivePartition),
+     "The active partition of the input to test the ranking vertex with."
+     "  Defaults to the last partition")
+    ("update-invalid-candidate", po::value(&updateInvalidCandidate),
+     "The index of invalid candidate to test the update vertex")
     ("timestep", po::value(&timestep)->default_value(timestep),
      "The timestep (loop count) to process")
     ("profile", "Show profile report")
@@ -416,6 +463,23 @@ int main(int argc, char **argv) {
   if (mergeCopyBeam != mergeExtendBeam) {
     std::cerr << "Select either both or neither of merge-copy-beam and"
                  " merge-extend-beam\n";
+    return 1;
+  }
+  if (vertexType == VertexType::REDUCE) {
+    if (!reducePartitions) {
+      std::cerr << "Number of partitions to use when testing reduce vertex is"
+                   " not defined\n";
+      return 1;
+    }
+    if (reduceActivePartition && *reduceActivePartition >= reducePartitions) {
+      std::cerr << "The reduce partition specified must be less than the"
+                   " number of reduce partitions\n";
+      return 1;
+    }
+  }
+  if (vertexType != VertexType::UPDATE && updateInvalidCandidate) {
+    std::cerr << "Specifying an invalid candidate is specific to the update"
+                 " vertex test\n";
     return 1;
   }
   if (!addendClass) {
@@ -551,15 +615,8 @@ int main(int argc, char **argv) {
     auto [copyCandidate, extendCandidates] = getCopyAndExtendCandidates(
         modelCandidates, chosenMergeCopyBeam, chosenMergeExtendBeam);
 
-    std::vector<unsigned> expectedOutputLength(2 * beamwidth);
-    for (unsigned i = 0; i < beamwidth; i++) {
-      if (timestep & 1) {
-        expectedOutputLength[i + beamwidth] =
-            beamHistory.getOutputSequence(i).size();
-      } else {
-        expectedOutputLength[i] = beamHistory.getOutputSequence(i).size();
-      }
-    }
+    auto expectedOutputLength = currentBeamOutputLengths(beamHistory, timestep);
+
     const auto lastBeamOutputSym =
         beamHistory.getLastOutput(copyCandidate.beam);
     auto candidates = runMergeCandidatesCodelet<float>(
@@ -634,17 +691,59 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
-  if (vertexType == VertexType::UPDATE) {
-    auto [ipuBeamHistory, ipuBeamProbs] = runUpdateCodelet<float>(
-        graph, device, deviceType, inType, partialsType, modelPrunedCandidates,
-        timestep + 1, toIpuFormat(beamHistory, timestep - 1), beamProbs,
-        blankClass, profile);
+  if (vertexType == VertexType::REDUCE) {
+    if (!reduceActivePartition) {
+      reduceActivePartition = *reducePartitions - 1;
+    }
+    const auto candidatesToReduce = createReduceCandidates(
+        modelPrunedCandidates, 0, *reducePartitions, *reduceActivePartition);
+    const auto reducedCandidates = runReduceCandidatesCodelet<float>(
+        graph, device, deviceType, partialsType, candidatesToReduce, beamwidth,
+        timestep + 1, profile);
+    std::vector<Candidate<float>> expectedReducedCandidate(1);
+    expectedReducedCandidate[0] = modelPrunedCandidates[0];
 
+    if (verbose) {
+      std::cerr << "\nCandidates to reduce:\n";
+      print(candidatesToReduce, voidSymbol);
+    }
+
+    auto isClose = candidatesAreClose(reducedCandidates,
+                                      expectedReducedCandidate, relTolerance);
+    debugPrint(reducedCandidates, expectedReducedCandidate, isClose, verbose);
+    if (!isClose) {
+      std::cerr << "Data mismatch\n";
+      return 1;
+    }
+    return 0;
+  }
+
+  if (vertexType == VertexType::UPDATE) {
+    const auto previousOutputLength =
+        currentBeamOutputLengths(beamHistory, timestep);
+    auto candidatesToUpdate = modelPrunedCandidates;
+    if (updateInvalidCandidate) {
+      candidatesToUpdate[*updateInvalidCandidate].addend = invalidSymbol;
+    }
+    auto [ipuBeamHistory, ipuBeamProbs, ipuBeamLength] =
+        runUpdateCodelet<float>(
+            graph, device, deviceType, inType, partialsType, candidatesToUpdate,
+            timestep + 1, toIpuFormat(beamHistory, timestep - 1),
+            previousOutputLength, beamProbs, blankClass, profile);
     // Complete the model implementation for comparison, now the beam history
     // has been used by the codelet
-    applyCandidates(beamHistory, beamProbs, modelPrunedCandidates, true);
+    applyCandidates(beamHistory, beamProbs, candidatesToUpdate, true);
     // Convert to the same form that we expect the IPU output to be in
+    if (updateInvalidCandidate) {
+      beamProbs[*updateInvalidCandidate].pb = log::probabilityZero;
+      beamProbs[*updateInvalidCandidate].pnb = log::probabilityZero;
+    }
     auto modelBeamHistory = toIpuFormat(beamHistory, timestep);
+    auto modelOutputLength =
+        currentBeamOutputLengths(beamHistory, timestep + 1);
+    for (unsigned i = 0; i < modelOutputLength.size(); i++) {
+      modelOutputLength[i] += previousOutputLength[i];
+    }
     if (verbose) {
       std::cout << "\nPruned Candidates:\n";
       print(modelPrunedCandidates, voidSymbol);
@@ -658,9 +757,24 @@ int main(int argc, char **argv) {
         std::cout << " Output: [pnb: " << ipuBeamProbs[i].pnb
                   << ", pb: " << ipuBeamProbs[i].pb << "]\n";
       }
+      std::cout << "Previous lengths: ";
+      for (unsigned i = 0; i < previousOutputLength.size(); i++) {
+        std::cout << previousOutputLength[i] << ", ";
+      }
+      std::cout << "\nModel lengths:    ";
+      for (unsigned i = 0; i < modelOutputLength.size(); i++) {
+        std::cout << modelOutputLength[i] << ", ";
+      }
+      std::cout << "\nOutput lengths:   ";
+      for (unsigned i = 0; i < ipuBeamLength.size(); i++) {
+        std::cout << ipuBeamLength[i] << ", ";
+      }
+      std::cout << "\n";
     }
     if (!beamHistoryIsClose(modelBeamHistory, ipuBeamHistory) ||
-        !beamProbabilitiesAreClose(beamProbs, ipuBeamProbs, relTolerance)) {
+        !beamProbabilitiesAreClose(beamProbs, ipuBeamProbs, relTolerance) ||
+        !checkEqual("Lengths", ipuBeamLength.data(), {ipuBeamLength.size()},
+                    modelOutputLength.data(), modelOutputLength.size())) {
       std::cerr << "Data mismatch\n";
       return 1;
     }

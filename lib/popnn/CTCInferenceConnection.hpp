@@ -38,9 +38,10 @@ struct TempTensors {
   poplar::Tensor extendCandidatesAddend;
 
   // A tensor mapped to the correct tiles for the Select stage,
-  // containing a copy of the extendCandidatesPTotal data
+  // containing a copy of the extendCandidatesPTotal and addend data
   // [batchSize][numClasses-1][beamwidth]
   poplar::Tensor selectExtendCandidatesPTotal;
+  poplar::Tensor selectExtendCandidatesAddend;
 
   // Copy candidates - used for both the original generation of copy candidates
   // and the result from the `CTCSelectCopyCandidates` vertices which are the
@@ -81,6 +82,7 @@ struct BeamTensors {
   // [batchSize][batchEntryPartitions][beamWidth][1]
   poplar::Tensor pb;
   poplar::Tensor pnb;
+  poplar::Tensor pTotal;
   poplar::Tensor lastOutput;
   // Length of each beam output, use a dimension of 2 * beamWidth to achieve
   // a ping-pong length/previousLength while being updated

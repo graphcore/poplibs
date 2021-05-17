@@ -6,6 +6,7 @@
 #include <poplar/IPUModel.hpp>
 #include <poplar/Type.hpp>
 
+#include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCInference.hpp>
 #include <poplibs_test/Util.hpp>
@@ -40,12 +41,6 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
 
   auto logProbs =
       graph.addVariable(inType, {maxT, numClassesIncBlank}, "logProbs");
-  auto lastBeamOutputs =
-      graph.addVariable(UNSIGNED_INT, {beamwidth}, "lastBeamOutputs");
-  auto beamProbNonBlank =
-      graph.addVariable(partialsType, {beamwidth}, "beamProbNonBlank");
-  auto beamProbBlank =
-      graph.addVariable(partialsType, {beamwidth}, "beamProbBlank");
 
   // Codelet tests don't add an extra timestep = 0 initial state like the
   // main implementation does. The effect of this is that we need to provide
@@ -54,10 +49,6 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
 
   graph.setTileMapping(logProbs, 0);
-  graph.setTileMapping(lastBeamOutputs, 0);
-  graph.setTileMapping(beamProbNonBlank, 0);
-  graph.setTileMapping(beamProbBlank, 0);
-
   graph.setTileMapping(currentTimestep, 0);
   graph.setTileMapping(dataLength, 0);
 
@@ -70,10 +61,6 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   graph.setTileMapping(vertex, 0);
 
   graph.connect(vertex["logProbs"], logProbs.flatten());
-  graph.connect(vertex["lastBeamOutputs"], lastBeamOutputs);
-  graph.connect(vertex["beamProbNonBlank"], beamProbNonBlank);
-  graph.connect(vertex["beamProbBlank"], beamProbBlank);
-
   graph.connect(vertex["currentTimestep"], currentTimestep);
   graph.connect(vertex["dataLength"], dataLength);
 
@@ -104,35 +91,30 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   }
 
   // Inputs
-  std::unique_ptr<char[]> rawLogProbs, rawLastBeamOutputs, rawBeamProbNonBlank,
-      rawBeamProbBlank;
-
+  std::unique_ptr<char[]> rawLogProbs;
   rawLogProbs = allocateHostMemoryForTensor(logProbs, "logProbs", graph,
                                             uploadProg, downloadProg, tmap);
-  rawLastBeamOutputs =
-      allocateHostMemoryForTensor(lastBeamOutputs, "lastBeamOutputs", graph,
-                                  uploadProg, downloadProg, tmap);
-  rawBeamProbNonBlank =
-      allocateHostMemoryForTensor(beamProbNonBlank, "beamProbNonBlank", graph,
-                                  uploadProg, downloadProg, tmap);
-  rawBeamProbBlank = allocateHostMemoryForTensor(
-      beamProbBlank, "beamProbBlank", graph, uploadProg, downloadProg, tmap);
+
+  auto rawBeamProbs = createAndConnectBeamProbs(
+      graph, vertex, partialsType, {beamwidth}, uploadProg, downloadProg, tmap);
 
   // Initialise inputs
-
   std::vector<unsigned> lastBeamOutputsIn{};
   std::vector<double> beamProbNonBlankIn{};
   std::vector<double> beamProbBlankIn{};
+  std::vector<double> beamProbTotalIn{};
   for (unsigned i = 0; i < beamwidth; i++) {
     lastBeamOutputsIn.push_back(beamHistory.getLastOutput(i));
     beamProbNonBlankIn.push_back(beamProbs[i].pnb);
     beamProbBlankIn.push_back(beamProbs[i].pb);
+    beamProbTotalIn.push_back(log::add(beamProbs[i].pb, beamProbs[i].pnb));
   }
 
   copy(target, logProbsIn, inType, rawLogProbs.get());
-  copy(target, lastBeamOutputsIn, UNSIGNED_INT, rawLastBeamOutputs.get());
-  copy(target, beamProbNonBlankIn, partialsType, rawBeamProbNonBlank.get());
-  copy(target, beamProbBlankIn, partialsType, rawBeamProbBlank.get());
+  copy(target, lastBeamOutputsIn, UNSIGNED_INT, rawBeamProbs.lastOutput.get());
+  copy(target, beamProbNonBlankIn, partialsType, rawBeamProbs.pnb.get());
+  copy(target, beamProbBlankIn, partialsType, rawBeamProbs.pb.get());
+  copy(target, beamProbTotalIn, partialsType, rawBeamProbs.pTotal.get());
 
   // TODO Need to initialise outputs?
 

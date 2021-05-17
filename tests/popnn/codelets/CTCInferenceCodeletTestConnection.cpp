@@ -11,11 +11,10 @@ namespace poplibs_test {
 namespace ctc {
 
 CandidateHandles createAndConnectCandidates(
-    poplar::Graph &graph, const poplar::VertexRef &vertex,
-    const std::string &prefix, const Type &partialsType,
-    const ArrayRef<std::size_t> &shape, Sequence &uploadProg,
-    Sequence &downloadProg, std::vector<std::pair<std::string, char *>> &tmap,
-    bool includeTotal) {
+    Graph &graph, const VertexRef &vertex, const std::string &prefix,
+    const Type &partialsType, const ArrayRef<std::size_t> &shape,
+    Sequence &uploadProg, Sequence &downloadProg,
+    std::vector<std::pair<std::string, char *>> &tmap, bool includeTotal) {
 
   auto candidateParent =
       graph.addVariable(UNSIGNED_INT, shape, "candidateParent");
@@ -59,6 +58,42 @@ CandidateHandles createAndConnectCandidates(
         candidateBeamProbTotal, prefix + "BeamProbTotal", graph, uploadProg,
         downloadProg, tmap);
   }
+  return handles;
+}
+
+BeamHandles createAndConnectBeamProbs(
+    Graph &graph, const VertexRef &vertex, const Type &probsType,
+    const ArrayRef<std::size_t> &shape, Sequence &uploadProg,
+    Sequence &downloadProg, std::vector<std::pair<std::string, char *>> &tmap) {
+  auto lastBeamOutputs =
+      graph.addVariable(UNSIGNED_INT, shape, "lastBeamOutputs");
+  auto beamProbNonBlank =
+      graph.addVariable(probsType, shape, "beamProbNonBlank");
+  auto beamProbBlank = graph.addVariable(probsType, shape, "beamProbBlank");
+  auto beamProbTotal = graph.addVariable(probsType, shape, "beamProbTotal");
+
+  graph.setTileMapping(lastBeamOutputs, 0);
+  graph.setTileMapping(beamProbNonBlank, 0);
+  graph.setTileMapping(beamProbBlank, 0);
+  graph.setTileMapping(beamProbTotal, 0);
+
+  graph.connect(vertex["lastBeamOutputs"], lastBeamOutputs);
+  graph.connect(vertex["beamProbNonBlank"], beamProbNonBlank);
+  graph.connect(vertex["beamProbBlank"], beamProbBlank);
+  graph.connect(vertex["beamProbTotal"], beamProbTotal);
+
+  BeamHandles handles;
+  handles.lastOutput =
+      allocateHostMemoryForTensor(lastBeamOutputs, "lastBeamOutputs", graph,
+                                  uploadProg, downloadProg, tmap);
+  handles.pnb =
+      allocateHostMemoryForTensor(beamProbNonBlank, "beamProbNonBlank", graph,
+                                  uploadProg, downloadProg, tmap);
+  handles.pb = allocateHostMemoryForTensor(
+      beamProbBlank, "beamProbBlank", graph, uploadProg, downloadProg, tmap);
+  handles.pTotal = allocateHostMemoryForTensor(
+      beamProbTotal, "beamProbTotal", graph, uploadProg, downloadProg, tmap);
+
   return handles;
 }
 

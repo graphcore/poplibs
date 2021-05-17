@@ -20,8 +20,7 @@ using namespace poplibs_support;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto voidSymbol = popnn::ctc_infer::voidSymbol;
-
-inline constexpr auto invalidParent = std::numeric_limits<unsigned>::max();
+static constexpr auto invalidSymbol = popnn::ctc_infer::invalidSymbol;
 
 namespace popnn {
 
@@ -34,6 +33,7 @@ public:
   Input<Vector<SymbolType, ONE_PTR>> lastBeamOutputs;    // [beamwidth]
   Input<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
   Input<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
+  Input<Vector<PartialsType, ONE_PTR>> beamProbTotal;    // [beamwidth]
 
   // Index into logProbs for HEAD position
   Input<unsigned> currentTimestep;
@@ -58,9 +58,9 @@ public:
     if (currentTimestep > dataLength) {
       return true;
     }
-    const unsigned baseOffset = (*currentTimestep - 1) * numClassesIncBlank;
-    const auto blankProb =
-        static_cast<PartialsType>(logProbs[baseOffset + blankClass]);
+    const auto logProbsBase =
+        &logProbs[(*currentTimestep - 1) * numClassesIncBlank];
+    const auto blankProb = static_cast<PartialsType>(logProbsBase[blankClass]);
 
     const auto prevSymbol = lastBeamOutputs[beamIdx];
     // Create the copy candidate from the specific beam
@@ -68,13 +68,9 @@ public:
     // Copy beams are where we maintain the same beam output sequence
     // By appending a blank to beam ending in a blank
     // e.g. beam: "a-", addend: "-" -> output: "a"
-    const auto prevBlankProb =
-        logMul<PartialsType>(beamProbBlank[beamIdx], blankProb);
-    // By appending a blank to a beam ending in a non blank
+    // Or by appending a blank to a beam ending in a non blank
     // e.g. beam: "a", addend: "-" -> output: "a"
-    const auto prevNonBlankProb =
-        logMul<PartialsType>(beamProbNonBlank[beamIdx], blankProb);
-    const auto prob = logAdd<PartialsType>(prevBlankProb, prevNonBlankProb);
+    const auto prob = logMul<PartialsType>(beamProbTotal[beamIdx], blankProb);
     *candidateParent = beamIdx;
     *candidateAddend = voidSymbol;
     *candidateBeamProbNonBlank = log::probabilityZero;
@@ -83,9 +79,9 @@ public:
 
     // By appending the same symbol as at the end of the beam
     // e.g. beam: "a", addend: "a" -> output: "a"
-    if (prevSymbol < numClassesIncBlank) {
+    if (prevSymbol < invalidSymbol) {
       const auto addendProb =
-          static_cast<PartialsType>(logProbs[baseOffset + prevSymbol]);
+          static_cast<PartialsType>(logProbsBase[prevSymbol]);
       const auto nonBlankProb =
           logMul<PartialsType>(beamProbNonBlank[beamIdx], addendProb);
       // Note: We don't need to create a new candidate as this will have the
@@ -111,6 +107,7 @@ public:
   Input<Vector<SymbolType, ONE_PTR>> lastBeamOutputs;    // [beamwidth]
   Input<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
   Input<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
+  Input<Vector<PartialsType, ONE_PTR>> beamProbTotal;    // [beamwidth]
 
   // Index into logProbs for HEAD position
   Input<unsigned> currentTimestep;
@@ -139,9 +136,9 @@ public:
     if (currentTimestep > dataLength) {
       return true;
     }
-    const unsigned baseOffset = (*currentTimestep - 1) * numClassesIncBlank;
-    const auto blankProb =
-        static_cast<PartialsType>(logProbs[baseOffset + blankClass]);
+    const auto logProbsBase =
+        &logProbs[(*currentTimestep - 1) * numClassesIncBlank];
+    const auto blankProb = static_cast<PartialsType>(logProbsBase[blankClass]);
     unsigned outIdx = 0;
     for (unsigned beamIdx = startBeam; beamIdx < endBeam; ++beamIdx) {
       // Extend beams ---
@@ -149,31 +146,27 @@ public:
       // Extending a beam ending in a blank with a non-blank symbol
       // e.g. beam: "a-", addend: "a" -> output: "aa" (extended by the
       // same symbol)
+      // Extending a beam ending in a non-blank with a different
+      // non-blank symbol
+      // e.g. beam: "a", addend: "b" -> output: "ab"
       extendCandidateParent[outIdx] = beamIdx;
       extendCandidateAddend[outIdx] = addendSymbol;
       extendCandidateBeamProbBlank[outIdx] = log::probabilityZero;
 
       const auto addendProb =
-          static_cast<PartialsType>(logProbs[baseOffset + addendSymbol]);
-      auto extendingBlankProb =
-          logMul<PartialsType>(beamProbBlank[beamIdx], addendProb);
+          static_cast<PartialsType>(logProbsBase[addendSymbol]);
 
-      // Extending a beam ending in a non-blank with a different
-      // non-blank symbol
-      // e.g. beam: "a", addend: "b" -> output: "ab"
       const auto prevSymbol = lastBeamOutputs[beamIdx];
-      if (prevSymbol != addendSymbol) {
-        const auto extendingNonBlankProb =
-            logMul<PartialsType>(beamProbNonBlank[beamIdx], addendProb);
-        // Note: We don't need to create a new candidate as this will have the
-        // same output sequence as the previous extend beam candidate
-        // "(extended by a different symbol)". Here we append the new
-        // symbol which is different to the symbol the beam ended with to the
-        // non-blank beam.
 
-        extendingBlankProb =
-            logAdd<PartialsType>(extendingBlankProb, extendingNonBlankProb);
-      }
+      // If prevSymbol == addendSymbol we extend only the beam ending in blank,
+      // and so use beamProbBlank.
+      // If prevSymbol != addendSymbol we extend both the beam ending in blank
+      // and in non-blank, and so use beamProbTotal.
+      const auto extendingBlankProb =
+          (prevSymbol == addendSymbol)
+              ? logMul<PartialsType>(beamProbBlank[beamIdx], addendProb)
+              : logMul<PartialsType>(beamProbTotal[beamIdx], addendProb);
+
       extendCandidateBeamProbNonBlank[outIdx] = extendingBlankProb;
       extendCandidateBeamProbTotal[outIdx] = extendingBlankProb;
       outIdx++;
@@ -301,7 +294,7 @@ public:
     // beam.  The extend candidate with the same addend is the only one that
     // need be compared.
     const auto copyCandidateLastOut = lastBeamOutput;
-    if (copyCandidateLastOut >= numClassesIncBlank) {
+    if (copyCandidateLastOut >= invalidSymbol) {
       return true;
     }
     const auto i = copyCandidateLastOut > blankClass ? copyCandidateLastOut - 1
@@ -413,6 +406,7 @@ public:
   // The extend candidates, which can have their total probability zeroed if
   // a merge took place
   InOut<Vector<PartialsType>> extendCandidateBeamProbTotal; // [numSymbols-1]
+  InOut<Vector<SymbolType>> extendCandidateAddend;          // [numSymbols-1]
 
   // Only use of current timestep and dataLength is to end early
   // Index into beamAddend/Parent for HEAD position
@@ -436,10 +430,11 @@ public:
       if (copyCandidateAddend[i] != voidSymbol) {
         // There was a merge among the group of broadcast copy candidates
         // so 'discard' the corresponding extend candidate by zeroing its
-        // sum probability
+        // sum probability and setting the addend to invalidSymbol
         const auto symbol = copyCandidateAddend[i];
         const auto idx = symbol > blankClass ? symbol - 1 : symbol;
         extendCandidateBeamProbTotal[idx] = log::probabilityZero;
+        extendCandidateAddend[idx] = invalidSymbol;
         // Don't exit, there could be several merges to pick up
       }
     }
@@ -558,9 +553,9 @@ public:
   Input<unsigned> currentTimestep;
   // The length of the data input (Valid for this specific input)
   Input<unsigned> dataLength;
+  const unsigned totalCandidates;
 
   const unsigned beamwidth; // The number of result candidates = beamwidth
-  const unsigned totalCandidates;
   const unsigned firstCandidateToRank;
   const unsigned lastCandidateToRank;
 
@@ -622,21 +617,29 @@ template class CTCRankCandidates<float, unsigned>;
 template class CTCRankCandidates<half, unsigned>;
 
 template <typename PartialsType, typename SymbolType>
-class CTCReduceCandidates : public MultiVertex {
-
+class CTCReduceCandidates
+    : public SupervisorVertexIf<std::is_same<PartialsType, float>::value &&
+                                std::is_same<SymbolType, unsigned>::value &&
+                                ASM_CODELETS_ENABLED> {
 public:
   CTCReduceCandidates();
+  constexpr static bool isExternal() {
+    return (std::is_same<PartialsType, float>::value &&
+            std::is_same<SymbolType, unsigned>::value);
+  }
   // Inputs have size [totalCandidates]
-  Input<Vector<unsigned, ONE_PTR>> candidateParent;
-  Input<Vector<unsigned, ONE_PTR>> candidateAddend;
-  Input<Vector<float, ONE_PTR>> candidateBeamProbNonBlank;
-  Input<Vector<float, ONE_PTR>> candidateBeamProbBlank;
+  Input<Vector<unsigned, ONE_PTR, 8>> candidateParent;
+  Input<Vector<unsigned, ONE_PTR, 8>> candidateAddend;
+  Input<Vector<float, ONE_PTR, 8>> candidateBeamProbNonBlank;
+  Input<Vector<float, ONE_PTR, 8>> candidateBeamProbBlank;
+  Input<Vector<float, ONE_PTR, 8>> candidateBeamProbTotal;
 
   // Outputs have size [1]
   Output<unsigned> reducedCandidateParent;
   Output<SymbolType> reducedCandidateAddend;
   Output<PartialsType> reducedCandidateBeamProbNonBlank;
   Output<PartialsType> reducedCandidateBeamProbBlank;
+  Output<PartialsType> reducedCandidateBeamProbTotal;
 
   // Only use of current timestep and dataLength is to end early
   // Index into beamAddend/Parent for HEAD position
@@ -646,50 +649,33 @@ public:
 
   const unsigned totalCandidates;
 
-  IS_EXTERNAL_CODELET(false);
+  IS_EXTERNAL_CODELET(isExternal());
 
-  bool compute(unsigned workerID) {
+  bool compute() {
     if (currentTimestep > dataLength) {
       return true;
     }
-    // 4 worker threads are assumed below
-
     // For each variable we assume only 1 of the `totalCandidates` inputs is
     // non-zero.  Adding them all together reduces this to a single result.
-    switch (workerID) {
-    case 0: {
-      auto result = candidateParent[0];
-      for (unsigned i = 1; i < totalCandidates; i++) {
-        result += candidateParent[i];
-      }
-      *reducedCandidateParent = result;
-      break;
+    auto parent = candidateParent[0];
+    auto addend = candidateAddend[0];
+    auto probNonBlank = candidateBeamProbNonBlank[0];
+    auto probBlank = candidateBeamProbBlank[0];
+    auto probTotal = candidateBeamProbTotal[0];
+
+    for (unsigned i = 1; i < totalCandidates; i++) {
+      parent += candidateParent[i];
+      addend += candidateAddend[i];
+      probNonBlank += candidateBeamProbNonBlank[i];
+      probBlank += candidateBeamProbBlank[i];
+      probTotal += candidateBeamProbTotal[i];
     }
-    case 1: {
-      auto result = candidateAddend[0];
-      for (unsigned i = 1; i < totalCandidates; i++) {
-        result += candidateAddend[i];
-      }
-      *reducedCandidateAddend = static_cast<SymbolType>(result);
-      break;
-    }
-    case 2: {
-      auto result = candidateBeamProbNonBlank[0];
-      for (unsigned i = 1; i < totalCandidates; i++) {
-        result += candidateBeamProbNonBlank[i];
-      }
-      *reducedCandidateBeamProbNonBlank = static_cast<PartialsType>(result);
-      break;
-    }
-    case 3: {
-      auto result = candidateBeamProbBlank[0];
-      for (unsigned i = 1; i < totalCandidates; i++) {
-        result += candidateBeamProbBlank[i];
-      }
-      *reducedCandidateBeamProbBlank = static_cast<PartialsType>(result);
-      break;
-    }
-    };
+
+    *reducedCandidateParent = parent;
+    *reducedCandidateAddend = static_cast<SymbolType>(addend);
+    *reducedCandidateBeamProbNonBlank = static_cast<PartialsType>(probNonBlank);
+    *reducedCandidateBeamProbBlank = static_cast<PartialsType>(probBlank);
+    *reducedCandidateBeamProbTotal = static_cast<PartialsType>(probTotal);
     return true;
   }
 };
@@ -739,21 +725,29 @@ template class CTCReduceCandidates<half, unsigned>;
 // Beam 3: Output 4,3
 // Beam 4: Output 4,2,4
 
-// TODO - Consider splitting this up - different fields can be done in parallel
 template <typename PartialsType, typename SymbolType>
-class CTCUpdate : public MultiVertex {
+class CTCUpdate
+    : public SupervisorVertexIf<std::is_same<PartialsType, float>::value &&
+                                std::is_same<SymbolType, unsigned>::value &&
+                                ASM_CODELETS_ENABLED> {
 public:
   CTCUpdate();
+  constexpr static bool isExternal() {
+    return (std::is_same<PartialsType, float>::value &&
+            std::is_same<SymbolType, unsigned>::value);
+  }
   // Candidates
   // [beamWidth] in size, or larger but only beamWidth entries are used
   Input<Vector<unsigned, ONE_PTR>> candidateParent;
   Input<Vector<SymbolType, ONE_PTR>> candidateAddend;
   Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbNonBlank;
   Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
+  Input<Vector<PartialsType, ONE_PTR>> candidateBeamProbTotal;
 
   // Beams
   InOut<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
   InOut<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
+  InOut<Vector<PartialsType, ONE_PTR>> beamProbTotal;    // [beamwidth]
   InOut<Vector<unsigned, ONE_PTR>> beamAddend;           // [maxT+1, beamwidth]
   InOut<Vector<unsigned, ONE_PTR>> beamParent;           // [maxT+1, beamwidth]
 
@@ -765,8 +759,8 @@ public:
   Input<unsigned> dataLength;
   const unsigned beamwidth;
 
-  IS_EXTERNAL_CODELET(false);
-  bool compute(unsigned workerID) {
+  IS_EXTERNAL_CODELET(isExternal());
+  bool compute() {
     if (currentTimestep > dataLength) {
       // Early exit here avoids updating beams, probabilities and the count
       // and so nothing will change regardless
@@ -780,48 +774,41 @@ public:
     const auto previousParent = &beamParent[previousBaseOffset];
     const auto previousAddend = &beamAddend[previousBaseOffset];
 
-    // If the candidate addend is voidSymbol - add nothing to the beam,
-    // maintaining parent and last symbol at the current timestep
-    switch (workerID) {
-    case 0: {
-      // Based on the current timestep, reference the previous and new
-      // beamLengths from the `beamLength` ping-pong buffer
-      const auto newLengthOffset = beamwidth * (currentTimestep & 1);
-      const auto newBeamLength = &beamLength[newLengthOffset];
-      const auto previousBeamLength = &beamLength[newLengthOffset ^ beamwidth];
-      for (unsigned i = 0; i < beamwidth; i++) {
-        newBeamLength[i] =
-            previousBeamLength[candidateParent[i]] +
-            static_cast<unsigned>(candidateAddend[i] != voidSymbol);
+    // Based on the current timestep, reference the previous and new
+    // beamLengths from the `beamLength` ping-pong buffer
+    const auto newLengthOffset = beamwidth * (currentTimestep & 1);
+    const auto newBeamLength = &beamLength[newLengthOffset];
+    const auto previousBeamLength = &beamLength[newLengthOffset ^ beamwidth];
+
+    for (unsigned i = 0; i < beamwidth; i++) {
+      if (candidateAddend[i] == voidSymbol) {
+        // If the candidate addend is voidSymbol - add nothing to the beam,
+        // maintaining parent and last symbol at the current timestep
+        newBeamLength[i] = previousBeamLength[candidateParent[i]];
+        parent[i] = previousParent[candidateParent[i]];
+        lastBeamOutputs[i] = previousAddend[candidateParent[i]];
+      } else {
+        newBeamLength[i] = previousBeamLength[candidateParent[i]] + 1;
+        parent[i] = candidateParent[i] + previousBaseOffset;
+        lastBeamOutputs[i] = candidateAddend[i];
       }
-      return true;
-    }
-    case 1:
-      for (unsigned i = 0; i < beamwidth; i++) {
-        parent[i] = (candidateAddend[i] == voidSymbol)
-                        ? previousParent[candidateParent[i]]
-                        : candidateParent[i] + previousBaseOffset;
-      }
-      return true;
-    case 2:
-      for (unsigned i = 0; i < beamwidth; i++) {
-        lastBeamOutputs[i] = (candidateAddend[i] == voidSymbol)
-                                 ? previousAddend[candidateParent[i]]
-                                 : candidateAddend[i];
-        addend[i] = lastBeamOutputs[i];
-      }
-      return true;
-    case 3:
-      for (unsigned i = 0; i < beamwidth; i++) {
+      addend[i] = lastBeamOutputs[i];
+      if (addend[i] == invalidSymbol) {
+        // Where a candidate was merged it was marked as invalidSymbol and
+        // its probTotal set to log::probabilityZero.  Complete the task of
+        // nulling it by setting ProbBlank, ProgNonBlank to log::probabilityZero
+        // for the beam it is used to update. (Only the case in early timesteps,
+        // where the beamwidth is large compared to the number of candidates
+        // generated)
+        beamProbNonBlank[i] = log::probabilityZero;
+        beamProbBlank[i] = log::probabilityZero;
+        beamProbTotal[i] = log::probabilityZero;
+      } else {
         beamProbNonBlank[i] = candidateBeamProbNonBlank[i];
-      }
-      return true;
-    case 4:
-      for (unsigned i = 0; i < beamwidth; i++) {
         beamProbBlank[i] = candidateBeamProbBlank[i];
+        beamProbTotal[i] = candidateBeamProbTotal[i];
       }
-      return true;
-    };
+    }
     return true;
   }
 };
@@ -859,7 +846,7 @@ public:
       SymbolType symbol;
       std::tie(symbol, traceBackBeamIndex) =
           getNextSymbol(&beamAddend[0], &beamParent[0], traceBackBeamIndex);
-      if (symbol >= numClassesIncBlank) {
+      if (symbol >= invalidSymbol) {
         // Detected a voidSymbol (Beam 0 initial value), or one of the dummy
         // symbols assigned to the the other beams so:
         // Beam end reached, not always at t=0 as beams can exist with an

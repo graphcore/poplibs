@@ -3,6 +3,7 @@
 #ifndef poplibs_support_log_arithmetic_hpp
 #define poplibs_support_log_arithmetic_hpp
 
+#ifndef INCLUDE_IN_ASSEMBLER
 // Conditionally avoid including functions that use multi_array
 #ifndef __POPC__
 #include <boost/multi_array.hpp>
@@ -85,5 +86,8 @@ boost::multi_array<FPType, 2> exp(const boost::multi_array<FPType, 2> &in) {
 #endif // ifndef __POPC__
 } // namespace log
 } // namespace poplibs_support
+#endif // ifndef INCLUDE_IN_ASSEMBLER
+
+#define LOG_PROBABILITY_ZERO_FLOAT 0xC77FE000
 
 #endif // poplibs_support_log_arithmetic_hpp

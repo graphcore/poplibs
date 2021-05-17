@@ -6,6 +6,7 @@
 #include <poplar/IPUModel.hpp>
 #include <poplar/Type.hpp>
 
+#include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCInference.hpp>
 #include <poplibs_test/Util.hpp>
@@ -27,11 +28,13 @@ namespace poplibs_test {
 namespace ctc {
 
 template <typename PartialsType>
-std::pair<BeamHistory, std::vector<BeamProbability<PartialsType>>>
+std::tuple<BeamHistory, std::vector<BeamProbability<PartialsType>>,
+           std::vector<unsigned>>
 runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
                  Type inType, Type partialsType,
                  const std::vector<Candidate<PartialsType>> &candidates,
                  unsigned timestep, const BeamHistory &beamHistory,
+                 const std::vector<unsigned> &beamLengthIn,
                  const std::vector<BeamProbability<PartialsType>> &beamProbs,
                  unsigned blankClass, bool profile) {
   const auto target = graph.getTarget();
@@ -44,23 +47,15 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamAddend");
   auto beamParent =
       graph.addVariable(UNSIGNED_INT, {maxT, beamwidth}, "beamParent");
-  auto beamProbNonBlank =
-      graph.addVariable(partialsType, {beamwidth}, "beamProbNonBlank");
-  auto beamProbBlank =
-      graph.addVariable(partialsType, {beamwidth}, "beamProbBlank");
-  auto lastBeamOutputs =
-      graph.addVariable(UNSIGNED_INT, {beamwidth}, "lastBeamOutputs");
   auto beamLength =
       graph.addVariable(UNSIGNED_INT, {2 * beamwidth}, "beamLength");
 
-  auto currentTimestep = graph.addVariable(UNSIGNED_INT, {}, "currentTimestep");
+  auto currentTimestep =
+      graph.addConstant(UNSIGNED_INT, {}, timestep, "currentTimestep");
   auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);
 
   graph.setTileMapping(beamAddend, 0);
   graph.setTileMapping(beamParent, 0);
-  graph.setTileMapping(beamProbNonBlank, 0);
-  graph.setTileMapping(beamProbBlank, 0);
-  graph.setTileMapping(lastBeamOutputs, 0);
   graph.setTileMapping(beamLength, 0);
 
   graph.setTileMapping(currentTimestep, 0);
@@ -73,11 +68,6 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
 
   graph.connect(vertex["beamAddend"], beamAddend.flatten());
   graph.connect(vertex["beamParent"], beamParent.flatten());
-  graph.connect(vertex["beamProbNonBlank"], beamProbNonBlank);
-  graph.connect(vertex["beamProbBlank"], beamProbBlank);
-  // TODO - the content of lastBeamOutputs and beamLength aren't verified
-  // by this test.
-  graph.connect(vertex["lastBeamOutputs"], lastBeamOutputs);
   graph.connect(vertex["beamLength"], beamLength);
 
   graph.connect(vertex["currentTimestep"], currentTimestep);
@@ -91,17 +81,12 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   // Inputs
   auto rawCandidates = createAndConnectCandidates(
       graph, vertex, "candidate", partialsType, {totalCandidates}, uploadProg,
-      downloadProg, tmap, false);
-
-  std::unique_ptr<char[]> rawTimestep;
-  rawTimestep = allocateHostMemoryForTensor(currentTimestep, "timestep", graph,
-                                            uploadProg, downloadProg, tmap);
+      downloadProg, tmap, true);
 
   std::vector<unsigned> candidateParentIn{};
   std::vector<unsigned> candidateAddendIn{};
   std::vector<float> candidateBeamProbNonBlankIn{};
   std::vector<float> candidateBeamProbBlankIn{};
-  std::vector<unsigned> timestepIn = {timestep};
 
   for (unsigned c = 0; c < totalCandidates; c++) {
     candidateParentIn.push_back(candidates[c].beam);
@@ -116,26 +101,27 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
        rawCandidates.probNonBlank.get());
   copy(target, candidateBeamProbBlankIn, partialsType,
        rawCandidates.probBlank.get());
-  copy(target, timestepIn, UNSIGNED_INT, rawTimestep.get());
 
   // InOut
-  std::unique_ptr<char[]> rawBeamAddend, rawBeamParent, rawBeamProbNonBlank,
-      rawBeamProbBlank;
+  std::unique_ptr<char[]> rawBeamAddend, rawBeamParent, rawBeamLength;
 
   rawBeamAddend = allocateHostMemoryForTensor(beamAddend, "beamAddend", graph,
                                               uploadProg, downloadProg, tmap);
   rawBeamParent = allocateHostMemoryForTensor(beamParent, "beamParent", graph,
                                               uploadProg, downloadProg, tmap);
-  rawBeamProbNonBlank =
-      allocateHostMemoryForTensor(beamProbNonBlank, "beamProbNonBlank", graph,
-                                  uploadProg, downloadProg, tmap);
-  rawBeamProbBlank = allocateHostMemoryForTensor(
-      beamProbBlank, "beamProbBlank", graph, uploadProg, downloadProg, tmap);
+  rawBeamLength = allocateHostMemoryForTensor(beamLength, "beamLength", graph,
+                                              uploadProg, downloadProg, tmap);
+
+  // TODO last beam output isn't verified by this test, but will probably be
+  // optimised out in future
+  auto rawBeamProbs = createAndConnectBeamProbs(
+      graph, vertex, partialsType, {beamwidth}, uploadProg, downloadProg, tmap);
 
   std::vector<unsigned> beamAddendIn{};
   std::vector<unsigned> beamParentIn{};
   std::vector<double> beamProbNonBlankIn{};
   std::vector<double> beamProbBlankIn{};
+  std::vector<double> beamProbTotalIn{};
 
   for (unsigned t = 0; t < maxT; t++) {
     for (unsigned b = 0; b < beamwidth; b++) {
@@ -152,12 +138,15 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   for (unsigned b = 0; b < beamwidth; b++) {
     beamProbNonBlankIn.push_back(beamProbs[b].pnb);
     beamProbBlankIn.push_back(beamProbs[b].pb);
+    beamProbTotalIn.push_back(log::add(beamProbs[b].pb, beamProbs[b].pnb));
   }
 
   copy(target, beamAddendIn, UNSIGNED_INT, rawBeamAddend.get());
   copy(target, beamParentIn, UNSIGNED_INT, rawBeamParent.get());
-  copy(target, beamProbNonBlankIn, partialsType, rawBeamProbNonBlank.get());
-  copy(target, beamProbBlankIn, partialsType, rawBeamProbBlank.get());
+  copy(target, beamProbNonBlankIn, partialsType, rawBeamProbs.pnb.get());
+  copy(target, beamProbBlankIn, partialsType, rawBeamProbs.pb.get());
+  copy(target, beamProbTotalIn, partialsType, rawBeamProbs.pTotal.get());
+  copy(target, beamLengthIn, UNSIGNED_INT, rawBeamLength.get());
 
   OptionFlags engineOptions;
   if (profile) {
@@ -177,11 +166,13 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   // TODO partialsType == float
   std::vector<float> beamProbNonBlankOut(beamwidth);
   std::vector<float> beamProbBlankOut(beamwidth);
+  std::vector<unsigned> beamLengthOut(2 * beamwidth);
 
   copy(target, UNSIGNED_INT, rawBeamAddend.get(), beamAddendOut);
   copy(target, UNSIGNED_INT, rawBeamParent.get(), beamParentOut);
-  copy(target, partialsType, rawBeamProbNonBlank.get(), beamProbNonBlankOut);
-  copy(target, partialsType, rawBeamProbBlank.get(), beamProbBlankOut);
+  copy(target, partialsType, rawBeamProbs.pnb.get(), beamProbNonBlankOut);
+  copy(target, partialsType, rawBeamProbs.pb.get(), beamProbBlankOut);
+  copy(target, UNSIGNED_INT, rawBeamLength.get(), beamLengthOut);
 
   if (profile && deviceType != DeviceType::Cpu) {
     engine.printProfileSummary(std::cout,
@@ -199,14 +190,16 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
       beamHistoryOut.parents[b][t] = beamParentOut[b + beamwidth * t];
     }
   }
-  return std::make_pair(beamHistoryOut, beamProbOut);
+  return {beamHistoryOut, beamProbOut, beamLengthOut};
 }
 
-template std::pair<BeamHistory, std::vector<BeamProbability<float>>>
+template std::tuple<BeamHistory, std::vector<BeamProbability<float>>,
+                    std::vector<unsigned>>
 runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
                  Type inType, Type partialsType,
                  const std::vector<Candidate<float>> &candidates,
                  unsigned timestep, const BeamHistory &beamHistory,
+                 const std::vector<unsigned> &beamLengthIn,
                  const std::vector<BeamProbability<float>> &beamProbs,
                  unsigned blankClass, bool profile);
 

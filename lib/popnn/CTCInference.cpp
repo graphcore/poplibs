@@ -53,6 +53,7 @@ namespace {
 using TempTensors = popnn::ctc_infer::TempTensors;
 using BeamTensors = popnn::ctc_infer::BeamTensors;
 static constexpr auto voidSymbol = popnn::ctc_infer::voidSymbol;
+static constexpr auto invalidSymbol = popnn::ctc_infer::invalidSymbol;
 
 void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
                                  const popnn::ctc::InferencePlan &plan) {
@@ -261,17 +262,22 @@ TempTensors createAndInitialiseTemporaryTensors(
   mapAccordingToPlan(graph, tempTensors.extendCandidatesAddend,
                      PartitionType::EXTEND, plan.parallel.extend, plan);
 
-  // A tensor, mapped to match tiles used for the input to the Select step, to
-  // hold extend candidates PTotal.  Using this will reduce the copy overhead
-  const std::vector<std::size_t> selectExtendCandidateShape = {
-      batchSize, beamwidth, numClasses - 1};
+  // Tensors, mapped to match tiles used for the input to the Select step, to
+  // hold extend candidates PTotal and addend.  Using these will reduce the copy
+  // overhead
+  auto makeSelectExtendCandidates = [&](const Type &type,
+                                        const std::string &debugName) {
+    const std::vector<std::size_t> shape = {batchSize, beamwidth,
+                                            numClasses - 1};
+    auto result = graph.addVariable(type, shape, {di, debugName});
+    mapAccordingToPlan(graph, result, PartitionType::EXTEND,
+                       plan.parallel.extend, plan);
+    return result.dimShuffle({0, 2, 1});
+  };
   tempTensors.selectExtendCandidatesPTotal =
-      graph.addVariable(partialsType, selectExtendCandidateShape,
-                        {di, "selectExtendCandidatesPTotal"});
-  mapAccordingToPlan(graph, tempTensors.selectExtendCandidatesPTotal,
-                     PartitionType::EXTEND, plan.parallel.extend, plan);
-  tempTensors.selectExtendCandidatesPTotal =
-      tempTensors.selectExtendCandidatesPTotal.dimShuffle({0, 2, 1});
+      makeSelectExtendCandidates(partialsType, "selectExtendCandidatesPTotal");
+  tempTensors.selectExtendCandidatesAddend =
+      makeSelectExtendCandidates(UNSIGNED_INT, "selectExtendCandidatesAddend");
 
   // Copy candidates
   const std::vector<std::size_t> copyCandidateShape = {batchSize, beamwidth, 1};
@@ -394,6 +400,8 @@ BeamTensors createAndInitialiseBeamTensors(
       graph.addVariable(partialsType, beamProbsShape, {di, "beamPb"});
   beamTensors.pnb =
       graph.addVariable(partialsType, beamProbsShape, {di, "beamPnb"});
+  beamTensors.pTotal =
+      graph.addVariable(partialsType, beamProbsShape, {di, "beamPTotal"});
   beamTensors.lastOutput =
       graph.addVariable(UNSIGNED_INT, beamProbsShape, {di, "beamLastOutput"});
 
@@ -404,6 +412,8 @@ BeamTensors createAndInitialiseBeamTensors(
 
   mapAccordingToPlan(graph, beamTensors.pb, PartitionType::BATCH_ENTRY, plan);
   mapAccordingToPlan(graph, beamTensors.pnb, PartitionType::BATCH_ENTRY, plan);
+  mapAccordingToPlan(graph, beamTensors.pTotal, PartitionType::BATCH_ENTRY,
+                     plan);
   mapAccordingToPlan(graph, beamTensors.lastOutput, PartitionType::BATCH_ENTRY,
                      plan);
 
@@ -418,26 +428,20 @@ BeamTensors createAndInitialiseBeamTensors(
   auto initialiserProbZero =
       graph.addConstant<float>(partialsType, {1}, log::probabilityZero, di);
   graph.setTileMapping(initialiserProbZero, 0);
-  prog.add(Copy(initialiserProbZero.broadcast(beamTensors.pb.numElements(), 0),
-                beamTensors.pb.flatten(), false, di));
-  prog.add(Copy(initialiserProbZero.broadcast(beamTensors.pnb.numElements(), 0),
-                beamTensors.pnb.flatten(), false, di));
-
   auto initialiserProbOne =
       graph.addConstant<float>(partialsType, {1}, log::probabilityOne, di);
   graph.setTileMapping(initialiserProbOne, 0);
-  auto pnbSlice = beamTensors.pnb.slice(
-      {0, 0, 0, 0}, {batchSize, plan.batchEntryPartitions(), 1, 1});
-  prog.add(Copy(initialiserProbOne.broadcast(pnbSlice.numElements(), 0),
-                pnbSlice.flatten(), false, di));
 
-  // last symbol = voidSymbol initial state
-  auto initialiserVoidSymbol =
-      graph.addConstant(UNSIGNED_INT, {1}, voidSymbol, di);
-  graph.setTileMapping(initialiserVoidSymbol, 0);
-  prog.add(Copy(
-      initialiserVoidSymbol.broadcast(beamTensors.lastOutput.numElements(), 0),
-      beamTensors.lastOutput.flatten(), false, di));
+  auto initialiseBeamProbZero = [&](const Tensor &t) {
+    auto tSliceOne = t.slice(0, 1, 2);
+    auto tSliceZero = t.slice(1, beamwidth, 2);
+    prog.add(Copy(initialiserProbOne.broadcast(tSliceOne.numElements(), 0),
+                  tSliceOne.flatten(), false, di));
+    prog.add(Copy(initialiserProbZero.broadcast(tSliceZero.numElements(), 0),
+                  tSliceZero.flatten(), false, di));
+  };
+  initialiseBeamProbZero(beamTensors.pnb);
+  initialiseBeamProbZero(beamTensors.pTotal);
 
   // Zero symbols per beam to start with
   auto initialiserZero = graph.addConstant(UNSIGNED_INT, {1}, 0u, di);
@@ -448,26 +452,44 @@ BeamTensors createAndInitialiseBeamTensors(
   // Setup the initial beam history with a zero time slice with:
   // beam   parent addend
   // 0      0      voidSymbol      (This is valid, but void)
-  // 1      1      voidSymbol-1    (These are invalid symbols and won't merge)
-  // 2      2      voidSymbol-2
+  // 1      1      invalidSymbol   (These are invalid symbols and won't merge)
+  // 2      1      invalidSymbol
+  // 3      1      invalidSymbol
   // ...
-  const auto addendSlice = beamTensors.addend.slice(0, 1, 2).slice(0, 1, 3);
-  prog.add(Copy(initialiserVoidSymbol.broadcast(addendSlice.numElements(), 0),
-                addendSlice.flatten()));
+  auto initialiserVoidSymbol =
+      graph.addConstant(UNSIGNED_INT, {1}, voidSymbol, di);
+  graph.setTileMapping(initialiserVoidSymbol, 0);
+  auto initialiserInvalidSymbol =
+      graph.addConstant(UNSIGNED_INT, {1}, invalidSymbol, di);
+  graph.setTileMapping(initialiserInvalidSymbol, 0);
 
-  const auto numBeamsInstances = batchSize * plan.batchEntryPartitions();
-  const auto parentZeroTimeSlice =
-      beamTensors.parent.slice(0, 1, 2).reshapePartial(0, 2,
-                                                       {numBeamsInstances, 1});
-  const auto addendZeroTimeSlice =
-      beamTensors.addend.slice(0, 1, 2)
-          .slice(1, beamwidth, 3)
-          .reshapePartial(0, 2, {numBeamsInstances, 1});
-  for (unsigned i = 0; i < numBeamsInstances; i++) {
-    iota(graph, parentZeroTimeSlice.slice(i, i + 1, 0).flatten(), 0u, prog, di);
-    iota(graph, addendZeroTimeSlice.slice(i, i + 1, 0).flatten(),
-         voidSymbol - beamwidth, prog, di);
-  }
+  auto initialiseTimestep0 = [&](const Tensor &t, const Tensor &init0,
+                                 const Tensor &initOthers) {
+    auto tSliceBeam0 = t.slice(0, 1, 2).slice(0, 1, 3);
+    auto tSliceOtherBeams = t.slice(0, 1, 2).slice(1, beamwidth, 3);
+    prog.add(Copy(init0.broadcast(tSliceBeam0.numElements(), 0),
+                  tSliceBeam0.flatten()));
+    prog.add(Copy(initOthers.broadcast(tSliceOtherBeams.numElements(), 0),
+                  tSliceOtherBeams.flatten()));
+  };
+
+  auto initialiserOne = graph.addConstant(UNSIGNED_INT, {1}, 1u, di);
+  graph.setTileMapping(initialiserOne, 0);
+  initialiseTimestep0(beamTensors.parent, initialiserZero, initialiserOne);
+  initialiseTimestep0(beamTensors.addend, initialiserVoidSymbol,
+                      initialiserInvalidSymbol);
+
+  // Last symbol[beam0] = voidSymbol initial state, others = invalidSymbol.
+  // TODO - This is the same as the addend and may be optimised out
+  const auto lastOutBeam0 = beamTensors.lastOutput.slice(0, 1, 2);
+  const auto lastOutOtherBeams = beamTensors.lastOutput.slice(1, beamwidth, 2);
+
+  prog.add(Copy(initialiserVoidSymbol.broadcast(lastOutBeam0.numElements(), 0),
+                lastOutBeam0.flatten(), false, di));
+  prog.add(Copy(
+      initialiserInvalidSymbol.broadcast(lastOutOtherBeams.numElements(), 0),
+      lastOutOtherBeams.flatten(), false, di));
+
   return beamTensors;
 }
 // A class to manage incrementing a variable and providing the partition that
@@ -576,11 +598,14 @@ Sequence createLoopBodyProg(Graph &graph, const popnn::ctc::InferencePlan &plan,
     prog.add(Copy(transform(tempTensors.copyCandidatesPTotal, i),
                   tempTensors.mergeCandidatesPTotal[i]));
   }
-  // Copy to provide the extend candidate total probability on the correct tiles
-  // for the Select stage.  This data isn't used in the Merge stage, so we can
-  // do the copies all together to allow poplar to optimise the operation.
+  // Copy to provide the extend candidate total probability and addend on the
+  // correct tiles for the Select stage.  This data isn't changed in the Merge
+  // stage, so we can do the copies all together to allow poplar to optimise
+  // the operation.
   prog.add(Copy(tempTensors.extendCandidatesPTotal,
                 tempTensors.selectExtendCandidatesPTotal));
+  prog.add(Copy(tempTensors.extendCandidatesAddend,
+                tempTensors.selectExtendCandidatesAddend));
 
   // Merge candidates in the 2nd compute set
   auto cs2 = graph.addComputeSet(di);
