@@ -582,7 +582,7 @@ void fillBuffers(TestRecord &test, unsigned randomSeed,
       maxBScale = 10;
     } else if (vertex.isSubtract) {
       minAScale = 1;
-      minAScale = 10;
+      maxAScale = 10;
       minBScale = -10;
       maxBScale = -1;
     } else {
