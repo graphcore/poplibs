@@ -4,8 +4,10 @@
 #include "ReductionStages.hpp"
 #include "RegionWrapping.hpp"
 
+#include "poplibs_support/ContiguousRegionsByTile.hpp"
+#include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
-#include <poplibs_support/ContiguousRegionsByTile.hpp>
+#include "poplibs_support/print.hpp"
 
 #include <tbb/parallel_for.h>
 
@@ -28,15 +30,18 @@ struct ElementRef {
   unsigned offset;
 };
 
-std::vector<ElementRef> createElementRefsFromRegions(
-    const std::vector<std::vector<Interval>> &regions,
-    std::vector<PartialsDescription> &partialsDescription,
-    const unsigned columns, bool detectColumns) {
+std::pair<std::vector<ElementRef>, std::vector<StridedRegionList>>
+preprocessRegions(const std::vector<std::vector<Interval>> &regions,
+                  std::vector<PartialsDescription> &partialsDescription,
+                  const unsigned columns, bool detectColumns) {
 
+  std::vector<StridedRegionList> stridedRegions(regions.size());
   std::vector<ElementRef> elementRefs;
   for (unsigned r = 0; r < regions.size(); r++) {
     unsigned regionStartOffset = 0;
+    stridedRegions[r].reserve(regions[r].size());
     for (const auto &region : regions[r]) {
+      stridedRegions[r].emplace_back(region);
       for (unsigned e = region.begin(); e < region.end(); e++) {
         // Examine the column number of every element on tile, and record it.
         const unsigned column = e % columns;
@@ -45,6 +50,11 @@ std::vector<ElementRef> createElementRefsFromRegions(
       }
     }
   }
+
+  for (auto &contiguousRegion : stridedRegions) {
+    mergeStridedRegions(contiguousRegion);
+  }
+
   // Sort so that columns are together and then then elements are in the order
   // found on tile
   std::sort(elementRefs.begin(), elementRefs.end(),
@@ -76,7 +86,7 @@ std::vector<ElementRef> createElementRefsFromRegions(
       }
     }
   }
-  return elementRefs;
+  return std::make_pair(elementRefs, stridedRegions);
 }
 
 // updatePartialsDescription: Given a "signal" indicating that the column
@@ -279,15 +289,16 @@ namespace popops {
 // Note: the purpose of only finding selected column's data is for test, as the
 //       results are clearer.
 
-void gatherReductionPatterns(
-    std::vector<PartialsDescription> &partialsDescription,
-    const std::vector<std::vector<Interval>> &regions, unsigned columns) {
+std::vector<StridedRegionList>
+gatherReductionPatterns(std::vector<PartialsDescription> &partialsDescription,
+                        const std::vector<std::vector<Interval>> &regions,
+                        unsigned columns) {
 
   // First list all references to each column in a vector of vectors: One outer
   // vector per column (ie output element from the reduction)
   const bool detectColumns = (partialsDescription.size() == 0);
-  auto elementRefs = createElementRefsFromRegions(regions, partialsDescription,
-                                                  columns, detectColumns);
+  auto [elementRefs, stridedRegions] =
+      preprocessRegions(regions, partialsDescription, columns, detectColumns);
 
   // Looking at each vector in turn, build a pattern for each column we find.
   unsigned index = 0;
@@ -351,17 +362,21 @@ void gatherReductionPatterns(
       pat.stride = pat.stride == 0 ? 1 : pat.stride;
     }
   }
+  return stridedRegions;
 }
 
 // Cleaner function for use below, which returns a PartialsDescription vector
 // and therefore will always automatically determine all columns referenced in
 // the  "regions".  The function above is mostly useful for test.
-static std::vector<PartialsDescription>
+static std::pair<std::vector<PartialsDescription>,
+                 std::vector<StridedRegionList>>
 gatherReductionPatterns(const std::vector<std::vector<Interval>> &regions,
                         unsigned columns) {
   std::vector<PartialsDescription> partialsDescription;
-  gatherReductionPatterns(partialsDescription, regions, columns);
-  return partialsDescription;
+  auto stridedRegions =
+      gatherReductionPatterns(partialsDescription, regions, columns);
+  return std::make_pair(std::move(partialsDescription),
+                        std::move(stridedRegions));
 }
 
 // Consider several patterns, which need to describe the same data layout
@@ -394,13 +409,14 @@ static bool patternsAreRegular(const std::vector<PartialsPattern> &patterns) {
 // "reductions" structure.
 std::vector<RegionReduction> listPartialsUsingPatterns(
     const std::vector<PartialsDescription> &partialsDescription,
-    const Tensor &input, const std::vector<std::vector<Interval>> &inputRegions,
+    const Tensor &input, const std::vector<StridedRegionList> &inputRegions,
     unsigned tile) {
   // For speed, prepare a vector of tensors for each on tile region, each of
   // which will be referenced many times in the loop below.
   std::vector<Tensor> regionTensors(inputRegions.size());
+  const auto inputFlat = input.flatten();
   for (unsigned i = 0; i < inputRegions.size(); i++) {
-    regionTensors[i] = concat(input.flatten().slices(inputRegions[i]));
+    regionTensors[i] = sliceStridedRegions(inputFlat, inputRegions[i]);
   }
 
   std::vector<RegionReduction> reductions(partialsDescription.size());
@@ -655,20 +671,25 @@ dividePartials(const std::vector<PartialsDescription> &groupedPartials,
 
 // Analyse the contiguousRegionsPer tile, gather reduction patterns and produce
 // groups of partials for all tiles
-TilePartialsDescription
-allTileGroupedPartials(const RegionsByTile &contiguousRegionsByTile,
+std::pair<TilePartialsDescription, StridedRegionsByTile>
+allTileGroupedPartials(const Graph &graph, const Tensor &t,
+                       const std::vector<std::vector<Interval>> &mapping,
                        unsigned columns, bool showLogging) {
 
-  TilePartialsDescription result(contiguousRegionsByTile.size());
+  TilePartialsDescription result(mapping.size());
+  StridedRegionsByTile stridedRegionsByTile(mapping.size());
   // Loop through the tiles. We can process each tile independently.
-  const unsigned numTiles = contiguousRegionsByTile.size();
+  const unsigned numTiles = mapping.size();
   tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
-    const auto &contiguousRegionsThisTile = contiguousRegionsByTile[tile];
+    const auto contiguousRegionsThisTile =
+        graph.getSortedContiguousRegions(t, mapping[tile]);
     // Ignore empty tiles.
     if (!contiguousRegionsThisTile.empty()) {
       // Make a pattern for each column that is detected in the regions on tile
-      auto partialsDescription =
+      auto [partialsDescription, stridedRegions] =
           gatherReductionPatterns(contiguousRegionsThisTile, columns);
+
+      stridedRegionsByTile[tile] = std::move(stridedRegions);
 
       // Grouping works by identifying a compatible patterns that follow a base
       // pattern in memory.  This requires them to be in memory order.
@@ -714,7 +735,7 @@ allTileGroupedPartials(const RegionsByTile &contiguousRegionsByTile,
     }
   }
   // logging end
-  return result;
+  return std::make_pair(std::move(result), std::move(stridedRegionsByTile));
 }
 
 // Struct to record the columns seen before or after a given column.

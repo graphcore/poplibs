@@ -7,6 +7,7 @@
 
 #include <boost/optional.hpp>
 #include <poplar/Interval.hpp>
+#include <poplibs_support/StridedRegions.hpp>
 
 namespace popops {
 
@@ -58,12 +59,12 @@ struct PartialsDescription {
 std::vector<popops::RegionReduction> listPartialsUsingPatterns(
     const std::vector<PartialsDescription> &partialsDescription,
     const poplar::Tensor &input,
-    const std::vector<std::vector<poplar::Interval>> &inputRegions,
+    const std::vector<poplibs_support::StridedRegionList> &inputRegions,
     unsigned tile);
 
 // Given a set of contiguous regions for a tensor with shape {rows, columns},
 // fills partialsDescription with patterns describing each column individually.
-void gatherReductionPatterns(
+std::vector<poplibs_support::StridedRegionList> gatherReductionPatterns(
     std::vector<PartialsDescription> &partialsDescription,
     const std::vector<std::vector<poplar::Interval>> &regions,
     unsigned columns);
@@ -84,12 +85,15 @@ dividePartials(const std::vector<PartialsDescription> &groupedPartials,
 
 using TilePartialsDescription = std::vector<std::vector<PartialsDescription>>;
 using RegionsByTile = std::vector<std::vector<std::vector<poplar::Interval>>>;
+using StridedRegionsByTile =
+    std::vector<std::vector<poplibs_support::StridedRegionList>>;
 
 // Analyse the contiguousRegionsPer tile, gather reduction patterns and produce
 // groups of partials for all tiles
-TilePartialsDescription
-allTileGroupedPartials(const RegionsByTile &contiguousRegionsByTile,
-                       unsigned columns, bool showLogging = false);
+std::pair<TilePartialsDescription, StridedRegionsByTile> allTileGroupedPartials(
+    const poplar::Graph &graph, const poplar::Tensor &in,
+    const std::vector<std::vector<poplar::Interval>> &tileMapping,
+    unsigned columns, bool showLogging = false);
 
 // Analyse over all tiles to see if the layout of columns in memory is
 // consistent and not a simple consecutive column number order.

@@ -144,19 +144,10 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
   // Get the tile mapping at the start of this function because it can be
   // slow and we really don't want to call it more often than we need to.
   auto mapping = graph.getTileMapping(in);
-  // Get the set of contiguous regions on each tile (splitting them if
-  // necessary at tile mapping boundaries). The region indices here are in
-  // the flattened input tensor.
-  const auto numTiles = graph.getTarget().getNumTiles();
-  RegionsByTile contiguousRegionsByTile(numTiles);
-  tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
-    contiguousRegionsByTile[tile] =
-        graph.getSortedContiguousRegions(in, mapping[tile]);
-  });
   // Introspect to find the groups of columns and their ordering on all the
   // tiles.
-  auto groupedPartials =
-      allTileGroupedPartials(contiguousRegionsByTile, columns);
+  auto [groupedPartials, contiguousRegionsByTile] =
+      allTileGroupedPartials(graph, in, mapping, columns);
   // Analyse over all tiles to see if the layout of columns in memory is
   // consistent.  There are 3 possibilities
   // a) Sequential column ordering: 0,1,2... on all tiles
@@ -260,26 +251,17 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
     }
   };
 
-  auto updateGroupedPartials = [&](void) {
-    tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
-      contiguousRegionsByTile[tile] =
-          graph.getSortedContiguousRegions(in, mapping[tile]);
-    });
-    groupedPartials = allTileGroupedPartials(contiguousRegionsByTile, columns);
-  };
-
   if (maxTileSpread == 1) {
     logging::popops::debug("Reduction is completely tile local");
     if (groupedPartialsValid == false) {
-      updateGroupedPartials();
+      std::tie(groupedPartials, contiguousRegionsByTile) =
+          allTileGroupedPartials(graph, in, mapping, columns);
       groupedPartialsValid = true;
     }
 
     auto numMappedTiles = std::accumulate(
-        contiguousRegionsByTile.begin(), contiguousRegionsByTile.end(), 0U,
-        [](unsigned num, const poplar::Graph::TileToTensorMapping &mapping) {
-          return num + !mapping.empty();
-        });
+        mapping.begin(), mapping.end(), 0U,
+        [](unsigned num, const auto &m) { return num + !m.empty(); });
 
     // Do the entire reduction on each tile with no exchange at all.
 
@@ -323,7 +305,8 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
       // partials. We don't scale or update here.
       logging::popops::debug("Reduce locally with no exchange");
       if (groupedPartialsValid == false) {
-        updateGroupedPartials();
+        std::tie(groupedPartials, contiguousRegionsByTile) =
+            allTileGroupedPartials(graph, in, mapping, columns);
         groupedPartialsValid = true;
       }
       ip = inputToIntermediateNoExchange(

@@ -79,7 +79,7 @@ void storeReductionResultTensors(ResultTensors &results, const Tensor &data) {
 void createInputReductions(
     Graph &graph, const Tensor &in,
     boost::variant<Tensor &, IntermediatePartials &> out, bool createOutput,
-    const RegionsByTile &contiguousRegionsByTile,
+    const StridedRegionsByTile &contiguousRegionsByTile,
     const TilePartialsDescription &groupedPartials, ReduceParams params,
     Type inputType, Type inVertexType, Type outputType, ComputeSetList &css,
     ResultTensors &reductionResultTensors, const DebugNameAndId &dnai) {
@@ -261,16 +261,15 @@ void createInputReductions(
   }
 }
 
-void inputToOutputNoExchange(Graph &graph, const Tensor &in,
-                             const RegionsByTile &contiguousRegionsByTile,
-                             const TilePartialsDescription &groupedPartials,
-                             boost::optional<Tensor> &finalOutput,
-                             boost::optional<Tensor> &originalOutput,
-                             const std::vector<std::size_t> outputShape,
-                             Type inVertexType, Type outputType,
-                             ReduceParams params, ComputeSetList &css,
-                             ResultTensors &reductionResultTensors,
-                             const DebugNameAndId &dnai) {
+void inputToOutputNoExchange(
+    Graph &graph, const Tensor &in,
+    const StridedRegionsByTile &contiguousRegionsByTile,
+    const TilePartialsDescription &groupedPartials,
+    boost::optional<Tensor> &finalOutput,
+    boost::optional<Tensor> &originalOutput,
+    const std::vector<std::size_t> outputShape, Type inVertexType,
+    Type outputType, ReduceParams params, ComputeSetList &css,
+    ResultTensors &reductionResultTensors, const DebugNameAndId &dnai) {
   // If we have an output, create the output Tensor for the
   // createInputReductions function. If we don't have an output,
   // createInputReductions will create its own output
@@ -305,7 +304,7 @@ void inputToOutputNoExchange(Graph &graph, const Tensor &in,
 
 IntermediatePartials inputToIntermediateNoExchange(
     Graph &graph, const Tensor &in,
-    const RegionsByTile &contiguousRegionsByTile,
+    const StridedRegionsByTile &contiguousRegionsByTile,
     const TilePartialsDescription &groupedPartials, Operation op,
     const Type &inVertexType, const Type &outputType, ComputeSetList &css,
     ResultTensors &reductionResultTensors, const poplar::DebugNameAndId &dnai) {

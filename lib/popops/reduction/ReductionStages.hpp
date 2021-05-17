@@ -57,16 +57,15 @@ struct ResultTensors {
 ///                       any tensor that is written to with a reduction result.
 /// \param dnai
 ///
-void inputToOutputNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
-                             const RegionsByTile &contiguousRegionsByTile,
-                             const TilePartialsDescription &groupedPartials,
-                             boost::optional<poplar::Tensor> &out,
-                             boost::optional<poplar::Tensor> &originalOutput,
-                             const std::vector<std::size_t> outputShape,
-                             poplar::Type inVertexType, poplar::Type outputType,
-                             ReduceParams params, ComputeSetList &css,
-                             ResultTensors &reductionResultTensors,
-                             const poplar::DebugNameAndId &dnai);
+void inputToOutputNoExchange(
+    poplar::Graph &graph, const poplar::Tensor &in,
+    const StridedRegionsByTile &contiguousRegionsByTile,
+    const TilePartialsDescription &groupedPartials,
+    boost::optional<poplar::Tensor> &out,
+    boost::optional<poplar::Tensor> &originalOutput,
+    const std::vector<std::size_t> outputShape, poplar::Type inVertexType,
+    poplar::Type outputType, ReduceParams params, ComputeSetList &css,
+    ResultTensors &reductionResultTensors, const poplar::DebugNameAndId &dnai);
 
 /// Take an input tensor and reduce it as much as possible on each tile without
 /// doing any exchange.
@@ -90,14 +89,13 @@ void inputToOutputNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
 /// \param dnai
 ///
 /// \returns A structure containing the intermediate partials.
-IntermediatePartials
-inputToIntermediateNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
-                              const RegionsByTile &contiguousRegionsByTile,
-                              const TilePartialsDescription &groupedPartials,
-                              Operation op, const poplar::Type &inVertexType,
-                              const poplar::Type &outType, ComputeSetList &css,
-                              ResultTensors &reductionResultTensors,
-                              const poplar::DebugNameAndId &dnai);
+IntermediatePartials inputToIntermediateNoExchange(
+    poplar::Graph &graph, const poplar::Tensor &in,
+    const StridedRegionsByTile &contiguousRegionsByTile,
+    const TilePartialsDescription &groupedPartials, Operation op,
+    const poplar::Type &inVertexType, const poplar::Type &outType,
+    ComputeSetList &css, ResultTensors &reductionResultTensors,
+    const poplar::DebugNameAndId &dnai);
 
 /// Reduce an intermediate result to another intermediate result by the given
 /// ratio. This is the most difficult of the stages.

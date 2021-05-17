@@ -280,6 +280,7 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
+    ("graph-construction-only", "Stop after graph construction")
     ("compile-only", "Stop after compilation; don't run the program")
     ("seed", po::value(&seed),
       "Do a random reduction with the given seed. No other options "
@@ -613,6 +614,10 @@ int main(int argc, char **argv) {
     } else {
       output = popops::reduce(graph, input, dims, reductionParams, prog);
     }
+  }
+
+  if (vm.count("graph-construction-only")) {
+    return 0;
   }
   double absoluteTolerance = FLOAT_ABS_TOL;
   double relativeTolerance = FLOAT_REL_TOL;
