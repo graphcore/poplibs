@@ -823,7 +823,8 @@ public:
 // operators, so require separate templates.
 #define DEFINE_UNARY_OP_NL_SV(op, PTR_TYPE)                                    \
   template <typename T>                                                        \
-  class UnaryOp1DInPlaceSupervisor<op, T> : public SupervisorVertex {          \
+  class UnaryOp1DInPlaceSupervisor<op, T>                                      \
+      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
     typedef typename UnaryOpOutputType<op, T>::type outputType;                \
     static_assert(std::is_same<T, outputType>::value,                          \
                   "In, Out types must match for in place operations");         \
