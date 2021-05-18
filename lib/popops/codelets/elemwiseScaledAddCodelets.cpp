@@ -227,14 +227,10 @@ DEF_SCALED_ADD_SUPER_VERTEX(const ScaleType, scaleB, , true, false)
 DEF_SCALED_ADD_SUPER_VERTEX(InputScaleType<ScaleType>, scaleB[0], , false,
                             false)
 
-// Note that the <half, float, half, IS_CONSTANT, IS_CONSTRAINED> variant
-// is not used at present as there is no 2D version.  It is tested however.
 #define INSTANTIATE_SCALED_ADD_SUPER_VERTICES(IS_CONSTANT, IS_CONSTRAINED)     \
   template class ScaledAddSupervisor<float, float, float, IS_CONSTANT,         \
                                      IS_CONSTRAINED>;                          \
   template class ScaledAddSupervisor<half, half, half, IS_CONSTANT,            \
-                                     IS_CONSTRAINED>;                          \
-  template class ScaledAddSupervisor<half, float, half, IS_CONSTANT,           \
                                      IS_CONSTRAINED>;
 
 INSTANTIATE_SCALED_ADD_SUPER_VERTICES(true, true)
@@ -249,6 +245,11 @@ template class ScaledAddSupervisor<float, half, half, false, false>;
 template class ScaledAddSupervisor<float, half, half, true, false>;
 template class ScaledAddSupervisor<float, half, float, false, false>;
 template class ScaledAddSupervisor<float, half, float, true, false>;
+
+template class ScaledAddSupervisor<half, float, half, true, false>;
+template class ScaledAddSupervisor<half, float, half, false, false>;
+template class ScaledAddSupervisor<half, float, float, true, false>;
+template class ScaledAddSupervisor<half, float, float, false, false>;
 
 #define DEF_SCALED_ADD_FLOAT_SCALE_SUPER_VERTEX(CONSTRAINTS, IS_CONSTRAINED)   \
   template <>                                                                  \
@@ -361,19 +362,29 @@ DEF_SCALED_ADD_2D_VERTEX(const ScaleType, scaleB, , true, false)
 DEF_SCALED_ADD_2D_VERTEX(Input<ScaleType>, *scaleB, , false, false)
 
 template class ScaledAdd2D<float, float, float, true, true>;
-template class ScaledAdd2D<half, half, half, true, true>;
-template class ScaledAdd2D<float, float, float, false, true>;
-template class ScaledAdd2D<half, half, half, false, true>;
-
-template class ScaledAdd2D<float, float, float, false, false>;
-template class ScaledAdd2D<half, half, half, false, false>;
 template class ScaledAdd2D<float, float, float, true, false>;
-template class ScaledAdd2D<half, half, half, true, false>;
+template class ScaledAdd2D<float, float, float, false, true>;
+template class ScaledAdd2D<float, float, float, false, false>;
 
-template class ScaledAdd2D<float, half, half, false, false>;
+template class ScaledAdd2D<half, half, half, true, true>;
+template class ScaledAdd2D<half, half, half, true, false>;
+template class ScaledAdd2D<half, half, half, false, true>;
+template class ScaledAdd2D<half, half, half, false, false>;
+
+template class ScaledAdd2D<half, half, float, true, true>;
+template class ScaledAdd2D<half, half, float, true, false>;
+
+template class ScaledAdd2D<half, float, float, true, false>;
+template class ScaledAdd2D<half, float, float, false, false>;
+
+template class ScaledAdd2D<half, float, half, true, false>;
+template class ScaledAdd2D<half, float, half, false, false>;
+
 template class ScaledAdd2D<float, half, half, true, false>;
-template class ScaledAdd2D<float, half, float, false, false>;
+template class ScaledAdd2D<float, half, half, false, false>;
+
 template class ScaledAdd2D<float, half, float, true, false>;
+template class ScaledAdd2D<float, half, float, false, false>;
 
 #define DEF_SCALED_ADD_FLOAT_SCALE_2D_VERTEX(CONSTRAINTS, IS_CONSTRAINED)      \
   template <>                                                                  \
@@ -419,9 +430,6 @@ template class ScaledAdd2D<float, half, float, true, false>;
 DEF_SCALED_ADD_FLOAT_SCALE_2D_VERTEX(
     [[poplar::constraint("elem(**A) != elem(**B)")]], true)
 DEF_SCALED_ADD_FLOAT_SCALE_2D_VERTEX(, false)
-
-template class ScaledAdd2D<half, half, float, true, true>;
-template class ScaledAdd2D<half, half, float, true, false>;
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it

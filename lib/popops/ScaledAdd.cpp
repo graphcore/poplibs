@@ -2,6 +2,7 @@
 #include "popops/ScaledAdd.hpp"
 #include "poplar/Program.hpp"
 #include "poplibs_support/Tracepoint.hpp"
+#include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Rearrange.hpp"
@@ -10,6 +11,8 @@
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
+
+#include <optional>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -81,8 +84,11 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
                                Sequence &prog, bool attemptRegroup,
                                const DebugNameAndId &dnai,
                                const ScaledAddOptions &opts) {
+  // <half,float> vertices are unconstrained
   const auto addConstraints =
       (A.elementType() == HALF || A.elementType() == FLOAT) &&
+      !(A.elementType() == HALF && B.elementType() == FLOAT &&
+        speciality == ScaledAddSpecialisation::DEFAULT) &&
       opts.optimizeForSpeed;
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
@@ -160,6 +166,7 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
                                               maxSupervisorElements)) {
       const auto aContiguous = concat(aFlat.slices(tileContiguousRegions));
       const auto bContiguous = concat(bFlat.slices(tileContiguousRegions));
+
       auto v = graph.addVertex(cs, codeletNameSupervisor,
                                {{"A", aContiguous}, {"B", bContiguous}});
       graph.setTileMapping(v, tile);
@@ -193,16 +200,21 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   prog.add(Execute(cs, {dnai}));
 }
 
-void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
+void scaledArithmeticTensorImpl(Graph &graph, Tensor A,
+                                std::optional<Tensor> scaleA, Tensor B,
                                 Tensor scaleB, const bool doSubtract,
                                 const bool doaXPlusbY,
                                 const ScaledAddSpecialisation speciality,
                                 Sequence &prog, bool attemptRegroup,
                                 const DebugNameAndId &dnai,
                                 const ScaledAddOptions &opts) {
+  // <half,float> vertices are unconstrained
+
   const auto addConstraints =
       (A.elementType() == HALF || A.elementType() == FLOAT) &&
       !(A.elementType() == FLOAT && B.elementType() == HALF) &&
+      !(A.elementType() == HALF && B.elementType() == FLOAT &&
+        speciality == ScaledAddSpecialisation::DEFAULT) &&
       opts.optimizeForSpeed;
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
@@ -210,9 +222,10 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   if (A.shape() != B.shape())
     throw poputil::poplibs_error("Input Tensors for scaled arithmetic must"
                                  " have the same shape");
-  if (scaleA.elementType() != scaleB.elementType())
-    throw poputil::poplibs_error("Scale factors must be of the same type");
 
+  // `scaleA` is only used when `doaXPlusbY==true`
+  if (doaXPlusbY && scaleA->elementType() != scaleB.elementType())
+    throw poputil::poplibs_error("Scale factors must be of the same type");
   if (speciality == ScaledAddSpecialisation::X_MINUS_AX_PLUS_BY) {
     if (!doaXPlusbY)
       throw poputil::poplibs_error(
@@ -225,7 +238,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   const auto &target = graph.getTarget();
   const auto dataType = A.elementType();
   const auto deltaType = B.elementType();
-  const auto scaleType = scaleA.elementType();
+  const auto scaleType = scaleB.elementType();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet({dnai, "AddTo"});
   const auto vectorWidth = target.getVectorWidth(dataType);
@@ -316,12 +329,13 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
                                               maxSupervisorElements)) {
       const auto aContiguous = concat(aFlat.slices(tileContiguousRegions));
       const auto bContiguous = concat(bFlat.slices(tileContiguousRegions));
+
       VertexRef v = graph.addVertex(cs, codeletNameSupervisor,
                                     {{"A", aContiguous},
                                      {"B", bContiguous},
                                      {"scaleB", scaleB.reshape({1})}});
       if (doaXPlusbY) {
-        graph.connect(v["scaleA"], scaleA.reshape({1}));
+        graph.connect(v["scaleA"], scaleA->reshape({1}));
       }
 
       graph.setInitialValue(v["size"], aContiguous.numElements());
@@ -340,7 +354,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
                                        {"scaleB", scaleB}});
 
         if (doaXPlusbY) {
-          graph.connect(v["scaleA"], scaleA);
+          graph.connect(v["scaleA"], *scaleA);
         }
 
         if (vertexHasTolerance) {
@@ -359,14 +373,14 @@ void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
                           const DebugNameAndId &dnai,
                           const poplar::OptionFlags &options) {
   const auto opts = parseOptionFlags(options);
-  const auto dataType = A.elementType();
+  const auto dataTypeA = A.elementType();
   const auto scaleAType = scaleA.elementType();
   const auto scaleBType = scaleB.elementType();
   const std::string layer = subtract ? "scaledSubtract" : "scaledAdd";
   bool axpby = true;
 
   auto scaleType =
-      (scaleAType == FLOAT || scaleBType == FLOAT) ? FLOAT : dataType;
+      (scaleAType == FLOAT || scaleBType == FLOAT) ? FLOAT : dataTypeA;
 
   if (scaleAType != scaleType) {
     scaleA = cast(graph, scaleA, scaleType, prog, {dnai, layer + "scaleA"});
@@ -378,19 +392,24 @@ void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   }
 
   bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), dataType);
+      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), dataTypeA);
   if (regroupBeforeCast) {
     B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
                                                {dnai, layer + "/regroupB"});
   }
-  const auto cs = graph.addComputeSet({dnai, layer + "cast"});
-  if (dataType != B.elementType()) {
-    B = cast(graph, B, dataType, cs, {dnai, layer + "/B"});
+  if (dataTypeA == HALF && B.elementType() == FLOAT && !subtract &&
+      speciality == ScaledAddSpecialisation::DEFAULT) {
+    // There is a specialisation for these vertices so don't cast.
+  } else {
+    const auto cs = graph.addComputeSet({dnai, layer + "cast"});
+    if (dataTypeA != B.elementType()) {
+      B = cast(graph, B, dataTypeA, cs, {dnai, layer + "/B"});
+    }
+    if (scaleBType != scaleType) {
+      scaleB = cast(graph, scaleB, scaleType, cs, {dnai, layer + "/scaleB"});
+    }
+    prog.add(Execute(cs, {dnai}));
   }
-  if (scaleBType != scaleType) {
-    scaleB = cast(graph, scaleB, scaleType, cs, {dnai, layer + "/scaleB"});
-  }
-  prog.add(Execute(cs, {dnai}));
   scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, subtract, axpby,
                              speciality, prog, !regroupBeforeCast, {dnai},
                              opts);
@@ -422,7 +441,8 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
                                                {dnai, layer + "/regroupB"});
   }
 
-  if (B.elementType() != targetType) {
+  if (B.elementType() != targetType &&
+      !(targetType == HALF && B.elementType() == FLOAT)) {
     B = cast(graph, B, targetType, prog, {dnai, layer + "/B"});
   }
   if (subtract) {
@@ -445,8 +465,14 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
 }
 
 bool specialisedVertexExists(const Tensor &A, const Tensor &B,
-                             const Tensor &scaleB) {
-  return A.elementType() == FLOAT && B.elementType() == HALF &&
+                             const Tensor &scaleB, bool subtract) {
+  // There are specialisations for
+  // float,half,float * add/subtract
+  // float,half,half  * add/subtract
+  // half,float,float * add
+  // half,float,half  * add
+  return ((A.elementType() == FLOAT && B.elementType() == HALF) ||
+          (A.elementType() == HALF && B.elementType() == FLOAT && !subtract)) &&
          (scaleB.elementType() == HALF || scaleB.elementType() == FLOAT);
 }
 
@@ -464,12 +490,12 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
       scaleB.elementType() == FLOAT) {
     // The vertex will select float or half scale based on the accuracy of the
     // scale, using the tolerance option
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
+    scaledArithmeticTensorImpl(graph, A, std::nullopt, B, scaleB, false, false,
                                ScaledAddSpecialisation::DEFAULT, prog,
                                /* attemptRegroup */ true, {di}, opts);
   } else {
     bool regroupBeforeCast = false;
-    if (!specialisedVertexExists(A, B, scaleB)) {
+    if (!specialisedVertexExists(A, B, scaleB, false)) {
       regroupBeforeCast = shouldRegroupBeforeCast(graph.getTarget(),
                                                   B.elementType(), targetType);
       if (regroupBeforeCast) {
@@ -485,7 +511,7 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
       }
       prog.add(Execute(cs, {di}));
     }
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
+    scaledArithmeticTensorImpl(graph, A, std::nullopt, B, scaleB, false, false,
                                ScaledAddSpecialisation::DEFAULT, prog,
                                !regroupBeforeCast, {di}, opts);
   }
@@ -506,12 +532,13 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
     B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
                                                {di, "scaledAdd/regroupB"});
   }
-  if (B.elementType() != targetType && !specialisedVertexExists(A, B, B)) {
+  if (B.elementType() != targetType &&
+      !specialisedVertexExists(A, B, B, false)) {
     B = cast(graph, B, targetType, prog, {di, "scaledAdd/B"});
   }
   bool useFloatScale = false;
   auto scaleType =
-      specialisedVertexExists(A, B, B) ? B.elementType() : targetType;
+      specialisedVertexExists(A, B, B, false) ? B.elementType() : targetType;
   if ((A.elementType() == HALF || A.elementType() == FLOAT) &&
       B.elementType() == HALF) {
     // Consider doing arithmetic as float internally to the codelet if scale
@@ -539,7 +566,7 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
       scaleB.elementType() == FLOAT) {
     // The vertex will select float or half scale based on the accuracy of the
     // scale, using the tolerance option
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
+    scaledArithmeticTensorImpl(graph, A, std::nullopt, B, scaleB, true, false,
                                ScaledAddSpecialisation::DEFAULT, prog,
                                /* attemptRegroup */ true, {di}, opts);
   } else {
@@ -558,7 +585,7 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
     }
     prog.add(Execute(cs, {di}));
 
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
+    scaledArithmeticTensorImpl(graph, A, std::nullopt, B, scaleB, true, false,
                                ScaledAddSpecialisation::DEFAULT, prog,
                                !regroupBeforeCast, {di}, opts);
   }
@@ -586,7 +613,7 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
 
   bool useFloatScale = false;
   auto scaleType =
-      specialisedVertexExists(A, B, B) ? B.elementType() : targetType;
+      specialisedVertexExists(A, B, B, true) ? B.elementType() : targetType;
   if ((A.elementType() == HALF || A.elementType() == FLOAT) &&
       B.elementType() == HALF) {
 

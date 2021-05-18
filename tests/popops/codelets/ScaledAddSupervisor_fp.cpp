@@ -84,6 +84,7 @@ void testScaledAddSupervisor(
   outs.reserve(N);
 
   // put a test case on each tile.
+  // We test each length from 1 to N
   auto cs = graph.addComputeSet("cs");
   for (unsigned i = 1; i <= N; ++i) {
     const unsigned tile = (i - 1) % target.getTilesPerIPU();
@@ -209,9 +210,6 @@ BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfFloatHalfConst)
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfFloatHalfConst) {
   testScaledAddSupervisor(
-      "popops::ScaledAddSupervisor<half,float,half,true,true>", HALF, FLOAT,
-      HALF, true, 1.0, k);
-  testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,float,half,true,false>", HALF, FLOAT,
       HALF, true, 1.0, k);
 }
@@ -308,17 +306,25 @@ BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatTensor) {
 
 BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorFloatHalfTensor)
-
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorFloatHalfTensor) {
-  testScaledAddSupervisor(
-      "popops::ScaledAddSupervisor<half,float,half,false,true>", HALF, FLOAT,
-      HALF, false, 1.0, k);
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfFloatHalfTensor)
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfFloatHalfTensor) {
   testScaledAddSupervisor(
       "popops::ScaledAddSupervisor<half,float,half,false,false>", HALF, FLOAT,
       HALF, false, 1.0, k);
 }
+BOOST_AUTO_TEST_SUITE_END()
 
+BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfFloatFloat)
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfFloatFloatTensor) {
+  testScaledAddSupervisor(
+      "popops::ScaledAddSupervisor<half,float,float,false,false>", HALF, FLOAT,
+      FLOAT, false, 1.0, k);
+}
+BOOST_AUTO_TEST_CASE(ScaledAddSupervisorHalfFloatFloatConst) {
+  testScaledAddSupervisor(
+      "popops::ScaledAddSupervisor<half,float,float,true,false>", HALF, FLOAT,
+      FLOAT, true, 1.0, k);
+}
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorHalfTensor)

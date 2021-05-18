@@ -197,88 +197,74 @@ struct TestRecord {
 //***************************************************************************
 // Return true if the combination for the vertex (vertex name, data types and
 // [scaleIsConstant, constrainedAB] flag pair) is implemented.
-//                             |   Data types:    |    Flags     |    total |
-//          Vertex name        |  A     B   scale | Const Constr | variants |
-//  +--------------------------+------------------+--------------+----------|
-//  | ScaledAddSupervisor      |float float float | false false  |          |
-//  |                          |half  half  half  | false true   | 3x4 = 12 |
-//  |                          |half  float half  | true  false  |          |
-//  |                          |                  | true  true   |          |
-//  |                          +------------------+--------------+----------+
-//  |                          |half  half  float | true  false  |       2  |
-//  |                          |                  | true  true   |          |
-//  |                          +------------------+--------------+----------+
-//  |                          |float half  half  |              |          |
-//  |                          |float half  float | false false  | 4x2 = 8  |
-//  |                          |int   int   int   | true  false  |          |
-//  |                          |uint  uint  uint  |              |          |
-//  +--------------------------+------------------+--------------+----------+
-//  | ScaledAdd2D              |float float float | false false  |          |
-//  |                          |half  half  half  | false true   | 2x4 = 8  |
-//  |                          |                  | true  false  |          |
-//  |                          |                  | true  true   |          |
-//  |                          +------------------+--------------+----------+
-//  |                          |half  half  float | true  false  |       2  |
-//  |                          |                  | true  true   |          |
-//  |                          +------------------+--------------+----------+
-//  |                          |float half  half  |              |          |
-//  |                          |float half  float | false false  | 4x2 = 8  |
-//  |                          |int   int   int   | true  false  |          |
-//  |                          |uint  uint  uint  |              |          |
-//  +--------------------------+------------------+--------------+----------+
-//  | ScaledSubtractSupervisor |float float float |              |          |
-//  |                          |half  half  half  | -     false  | 4x2 = 8  |
-//  |                          |half  float half  |       true   |          |
-//  |                          |half  half  float |              |          |
-//  |                          +------------------+--------------+----------+
-//  |                          |int   int   int   | -     false  |       2  |
-//  |                          |uint  uint  uint  |              |          |
-//  +--------------------------+------------------+--------------+----------+
-//  | ScaledSubtract2D         |half  -     half  |       false  | 3x2 = 6  |
-//  |                          |float -     float | -     true   |          |
-//  |                          |half  -     float |              |          |
-//  |                          +------------------+--------------+----------+
-//  |                          |int   -     int   | -     false  |       2  |
-//  |                          |uint  -     uint  |              |          |
-//  +--------------------------+------------------+--------------+----------+
-//  | aXPlusbYSupervisor       |half  -     half  | false false  |          |
-//  |                          |                  | false true   |       4  |
-//  |                          |                  | true  false  |          |
-//  |                          |                  | true  true   |          |
-//  |                          +------------------+--------------+----------+
-//  |                          |half  -     float | false false  |          |
-//  |                          |                  | false true   |       3  |
-//  |                          |                  | true  false  |          |
-//  +--------------------------+------------------+--------------+----------+
-//  | aXPlusbY2D               |half  -     half  | false false  |          |
-//  |                          |                  | false true   |       4  |
-//  |                          |                  | true  false  |          |
-//  |                          |                  | true  true   |          |
-//  |                          +------------------+--------------+----------+
-//  |                          |half  -     float | false false  |          |
-//  |                          |                  | false true   |       3  |
-//  |                          |                  | true  false  |          |
-//  +--------------------------+------------------+--------------+----------+
-//  | aXMinusbYSupervisor      |half  -     half  | false false  | 2x2 = 4  |
-//  |                          |half  -     float | false true   |          |
-//  +--------------------------+------------------+--------------+----------+
-//  | aXMinusbY2D              |half  -     half  | false false  | 2x2 = 4  |
-//  |                          |half  -     float | false true   |          |
-//  +--------------------------+------------------+--------------+----------+
-//  | XMinusaXPlusbYSupervisor |half  -     -     | false false  |          |
-//  |                          |                  | false true   |       4  |
-//  |                          |                  | true  false  |          |
-//  |                          |                  | true  true   |          |
-//  +--------------------------+------------------+--------------+----------+
-//  | XMinusaXPlusbY2D         |half  -     -     | false false  |          |
-//  |                          |                  | false true   |       4  |
-//  |                          |                  | true  false  |          |
-//  |                          |                  | true  true   |          |
-//  +--------------------------+------------------+--------------+----------+
-//                                                                      88
-// For each vertex variant, we have one or more groups of data types combos
-// that go together with certain combos of the wo boolean flags.
-// Some of the data types and one of the flags can be present or not.
+//                             |   Data types:    |    flags      |    total |
+//                             |  A     B   scale | const  constr | variants |
+//  +--------------------------+------------------+---------------+----------|
+//  | ScaledAddSupervisor      |float float float | false  false  |          |
+//  | ScaledAdd2D              |half  half  half  | false  true   | 2x4 = 8  |
+//  |                          |                  | true   false  |          |
+//  |                          |                  | true   true   |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |half  half  float | true   false  |       2  |
+//  |                          |                  | true   true   |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |float half  half  |               |          |
+//  |                          |float half  float |               |          |
+//  |                          |half  float half  | false  false  |          |
+//  |                          |half  float float | true   false  | 6x2 = 12 |
+//  |                          |int   int   int   |               |          |
+//  |                          |uint  uint  uint  |               |          |
+//  +--------------------------+------------------+---------------+----------+
+//  | ScaledSubtractSupervisor |float float float |               |          |
+//  |                          |half  half  half  | -      false  | 4x2 = 8  |
+//  |                          |half  float half  |        true   |          |
+//  |                          |half  half  float |               |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |int   int   int   | -      false  |       2  |
+//  |                          |uint  uint  uint  |               |          |
+//  +--------------------------+------------------+---------------+----------+
+//  | ScaledSubtract2D         |half  -     half  |        false  | 3x2 = 6  |
+//  |                          |float -     float | -      true   |          |
+//  |                          |half  -     float |               |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |int   -     int   | -      false  |       2  |
+//  |                          |uint  -     uint  |               |          |
+//  +--------------------------+------------------+---------------+----------+
+//  | aXPlusbYSupervisor       |half  -     half  | false  false  |          |
+//  |                          |                  | false  true   |       4  |
+//  |                          |                  | true   false  |          |
+//  |                          |                  | true   true   |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |half  -     float | false  false  |          |
+//  |                          |                  | false  true   |       3  |
+//  |                          |                  | true   false  |          |
+//  +--------------------------+------------------+---------------+----------+
+//  | aXPlusbY2D               |half  -     half  | false  false  |          |
+//  |                          |                  | false  true   |       4  |
+//  |                          |                  | true   false  |          |
+//  |                          |                  | true   true   |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |half  -     float | false  false  |          |
+//  |                          |                  | false  true   |       3  |
+//  |                          |                  | true   false  |          |
+//  +--------------------------+------------------+---------------+----------+
+//  | aXMinusbYSupervisor      |half  -     half  | false  false  | 2x2 = 4  |
+//  |                          |half  -     float | false  true   |          |
+//  +--------------------------+------------------+---------------+----------+
+//  | aXMinusbY2D              |half  -     half  | false  false  | 2x2 = 4  |
+//  |                          |half  -     float | false  true   |          |
+//  +--------------------------+------------------+---------------+----------+
+//  | XMinusaXPlusbYSupervisor |half  -     -     | false  false  |          |
+//  |                          |                  | false  true   |       4  |
+//  |                          |                  | true   false  |          |
+//  |                          |                  | true   true   |          |
+//  +--------------------------+------------------+---------------+----------+
+//  | XMinusaXPlusbY2D         |half  -     -     | false  false  |          |
+//  |                          |                  | false  true   |       4  |
+//  |                          |                  | true   false  |          |
+//  |                          |                  | true   true   |          |
+//  +--------------------------+------------------+---------------+----------+
+//                                                                        92
 bool isImplementedCombination(const std::string &name, const Type AType,
                               const Type BType, const Type scaleType,
                               const std::optional<bool> scaleIsConstant,
@@ -312,33 +298,12 @@ bool isImplementedCombination(const std::string &name, const Type AType,
     return false;
   };
   // clang-format off
-  if (name == "ScaledAddSupervisor") {
+  if (name == "ScaledAddSupervisor" || name == "ScaledAdd2D") {
     static const Combinations cs= {
     //  A      B    scale
     {{{FLOAT, FLOAT, FLOAT},
-      {HALF,  HALF,  HALF },
-      {HALF,  FLOAT, HALF }},
-    // constant  constraint
-     {{false,     false},
-      {false,     true },
-      {true,      false},
-      {true,      true }}},
-
-    {{{HALF,  HALF,  FLOAT}},
-     {{true,      false},
-      {true,      true }}},
-
-    {{{FLOAT, HALF,  HALF },
-      {FLOAT, HALF,  FLOAT},
-      {INT,   INT,   INT  },
-      {UNSIGNED_INT, UNSIGNED_INT, UNSIGNED_INT}},
-     {{false,     false},
-      {true,      false}}}};
-    return isValid(cs);
-  } else if (name == "ScaledAdd2D") {
-    static const Combinations cs = {
-    {{{FLOAT, FLOAT, FLOAT},
       {HALF,  HALF,  HALF }},
+    // constant  constraint
      {{false,     false},
       {false,     true },
       {true,      false},
@@ -350,10 +315,13 @@ bool isImplementedCombination(const std::string &name, const Type AType,
 
     {{{FLOAT, HALF,  HALF },
       {FLOAT, HALF,  FLOAT},
+      {HALF,  FLOAT,  HALF},
+      {HALF,  FLOAT,  FLOAT},
       {INT,   INT,   INT  },
       {UNSIGNED_INT, UNSIGNED_INT, UNSIGNED_INT}},
      {{false,     false},
-      {true,      false}}}};
+      {true,      false}}}
+    };
     return isValid(cs);
   } else if (name == "ScaledSubtractSupervisor") {
     static const Combinations cs = {

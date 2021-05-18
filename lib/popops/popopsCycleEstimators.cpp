@@ -394,29 +394,24 @@ VertexPerfEstimate scaledArithmeticSupervisorCycleEstimate(
   workerCycles.reserve(numWorkers);
   // Specific mixed precision half, float version
   if (dataType == HALF && dataBType == FLOAT) {
-    const auto innerLoopCycles = memConstrained ? 2 : 3;
+    const auto innerLoopCycles = 4;
     for (unsigned wid = 0; wid < numWorkers; ++wid) {
       std::uint64_t cycles = 16; // constant worker prologue cycles
       const auto numVectors = vectorsPerWorker + (wid < remainingVectors);
       if (numVectors != 0) {
-        if (numVectors < 3) {
-          cycles += 8 // inner loop for < 3 constant overhead (processes 1)
-                    + (4 * (numVectors - 1)); // loop cycles
-        } else {
-          cycles += 16 // inner loop for >= 3 constant overhead (processes 3)
-                    + (innerLoopCycles * (numVectors - 3)); // loop cycles
-        }
+        cycles += 8 + (innerLoopCycles * (numVectors - 1));
       }
       cycles += 2; // workerID == rem
       if (wid == remainingVectors) {
         cycles += 1; // final == 0?
         if (remainingElems != 0) {
-          cycles += 5; // unpack triPtr and check if at least 2 remain
+          cycles += 2; // check if at least 2 remain
           if (remainingElems >= 2) {
-            cycles += 7; // process 2 of the remainder.
-            if (remainingElems == 3) {
-              cycles += 6; // process final half
-            }
+            cycles += 5; // process 2 of the remainder.
+          }
+          cycles += 2; // check if 1 remains
+          if (remainingElems % 2) {
+            cycles += 7; // process final half
           }
         }
       }
@@ -3106,7 +3101,6 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
   poplibs::PerfEstimatorTable table = {
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, FLOAT, FLOAT, FLOAT),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, HALF, HALF),
-      SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, FLOAT, HALF),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, HALF, FLOAT),
 
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, HALF, HALF,
@@ -3131,6 +3125,23 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAdd2D, FLOAT, FLOAT, FLOAT),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAdd2D, HALF, HALF, HALF),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAdd2D, HALF, HALF, FLOAT),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, HALF, true,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, HALF, false,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, FLOAT, true,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, FLOAT, false,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, HALF,
+                            true, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, HALF,
+                            false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, FLOAT,
+                            true, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, FLOAT,
+                            false, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, HALF, HALF, true,
                             false),

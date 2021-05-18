@@ -158,7 +158,6 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
   // create tensors for each of the input rows.
   assert(scaledData.size() == scaledDeltas.size());
 
-  // The sizes of Tensors "data" and "delta" are assumed identical
   for (unsigned i = 0; i < scaledData.size(); ++i) {
     Interval interval = {0, data[i].size()};
     auto datumTensor = graph.addVariable(dataType, {tensorLength});
@@ -179,22 +178,22 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
     e.load(d);
 
     // write tensors to the device.
+    std::vector<char> dataBuffer(scaledData.size() *
+                                 target.getTypeSize(dataType));
+    std::vector<char> deltaBuffer(scaledData.size() *
+                                  target.getTypeSize(deltaType));
     for (unsigned i = 0; i < scaledData.size(); ++i) {
       const auto &datum = scaledData[i];
       const auto &delta = scaledDeltas[i];
 
-      // The sizes of Tensors "data" and "delta" are assumed identical
       const auto size = datum.size();
+      copy(target, datum.data(), size, dataType, &dataBuffer[0]);
+      e.writeTensor("datum" + std::to_string(i), &dataBuffer[0],
+                    &dataBuffer[size * target.getTypeSize(dataType)]);
 
-      auto bufferSize = size * target.getTypeSize(dataType);
-      std::unique_ptr<char[]> dst(new char[bufferSize]);
-      copy(target, datum.data(), size, dataType, dst.get());
-      e.writeTensor("datum" + std::to_string(i), dst.get(),
-                    dst.get() + bufferSize);
-
-      copy(target, delta.data(), size, deltaType, dst.get());
-      e.writeTensor("delta" + std::to_string(i), dst.get(),
-                    dst.get() + bufferSize);
+      copy(target, delta.data(), size, deltaType, &deltaBuffer[0]);
+      e.writeTensor("delta" + std::to_string(i), &deltaBuffer[0],
+                    &deltaBuffer[size * target.getTypeSize(deltaType)]);
     }
 
     e.run();
@@ -238,6 +237,38 @@ BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfTensor) {
                   HALF, false, 1.0, k);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfFloatConst)
+
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfFloatConst) {
+  testScaledAdd2D("popops::ScaledAdd2D<half,float,half,true,false>", HALF,
+                  FLOAT, HALF, true, 1.0, k);
+}
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfFloatTensor)
+
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfTFloatensor) {
+  testScaledAdd2D("popops::ScaledAdd2D<half,float,half,false,false>", HALF,
+                  FLOAT, HALF, false, 1.0, k);
+}
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfFloatFloatConst)
+
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfFloatFloatConst) {
+  testScaledAdd2D("popops::ScaledAdd2D<half,float,float,true,false>", HALF,
+                  FLOAT, FLOAT, true, 1.0, k);
+}
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(ScaledAdd2DHalfFloatFloatTensor)
+
+BOOST_AUTO_TEST_CASE(ScaledAdd2DHalfFloatFloatTensor) {
+  testScaledAdd2D("popops::ScaledAdd2D<half,float,float,false,false>", HALF,
+                  FLOAT, FLOAT, false, 1.0, k);
+}
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(ScaledSubtract2DHalfTensor)

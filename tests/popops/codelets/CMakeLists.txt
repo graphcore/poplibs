@@ -281,6 +281,8 @@ add_unit_test(ScaledAdd2D_fp
               SUITES ScaledAdd2DHalfConst ScaledAdd2DHalfTensor ScaledSubtract2DHalfTensor
                      ScaledAdd2DFloatConst ScaledAdd2DFloatTensor ScaledAdd2DHalfHalfFloatConst
                      ScaledAdd2DFloatHalfHalf ScaledAdd2DFloatHalfFloat
+                     ScaledAdd2DHalfFloatConst ScaledAdd2DHalfFloatTensor
+                     ScaledAdd2DHalfFloatFloatConst ScaledAdd2DHalfFloatFloatTensor
                      ScaledAdd2DHalfHalfFloatTensorHighTol ScaledAdd2DHalfHalfFloatTensorLowTol
                      ScaledSubtract2DFloatTensor aXPlusbYHalfConst aXPlusbYHalfTensor
 										 ScaledSubtract2DHalfHalfFloatTensorHighTol ScaledSubract2DHalfHalfFloatTensorLowTol
@@ -300,7 +302,8 @@ add_unit_test(ScaledAddSupervisor_fp
                      ScaledAddSupervisorHalfFloatHalfConst ScaledAddSupervisorHalfHalfFloatConst
                      ScaledAddSupervisorHalfHalfFloatTensorHighTol ScaledAddSupervisorHalfHalfFloatTensorLowTol
                      ScaledAddSupervisorHalfTensor ScaledAddSupervisorFloatTensor
-                     ScaledAddSupervisorFloatHalfTensor ScaledSubtractSupervisorHalfTensor
+                     ScaledAddSupervisorHalfFloatHalfTensor ScaledSubtractSupervisorHalfTensor
+                     ScaledAddSupervisorHalfFloatFloat
                      ScaledSubtractSupervisorFloatTensor ScaledSubtractSupervisorFloatHalfTensor
 										 ScaledSubtractSupervisorHalfHalfFloatTensorHighTol ScaledSubtractSupervisorHalfHalfFloatTensorLowTol
                      aXPlusbYSupervisorHalfConst aXPlusbYSupervisorHalfTensor

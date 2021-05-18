@@ -173,7 +173,7 @@ VERTEX(float_scale).kernel:
   ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET/4
   ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET/4
   {
-    ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET
+    ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET/4
     setzi $ascratch, ZAACC_BITMASK
   }
   {

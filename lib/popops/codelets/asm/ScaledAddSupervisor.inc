@@ -15,9 +15,10 @@
 
 #define SV_STATE_COUNT_OFFSET     4 // All workers do at least 'count' elements.
 
-#define SV_STATE_REMM1_OFFSET     8 // Workers [0..remM1] will do count+2 elems
+#define SV_STATE_REMM1_OFFSET     8 // Workers [0..remM1] will do count+2 or
+                                    // count+4 elems
 
-#define SV_STATE_FINAL_OFFSET    12 // Last worker adds this many elems (0 or 1)
+#define SV_STATE_FINAL_OFFSET    12 // Last worker adds this many elems [0:3)
 
 // Contains scaleA offset only (HALF or FLOAT), or both scaleA & scaleB for the
 // aX+bY vertex, when the scale values are HALF
