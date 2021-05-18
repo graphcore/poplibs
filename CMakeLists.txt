@@ -10,6 +10,7 @@ include(AddGPLibrary)
 
 enable_testing()
 
+find_package(pva REQUIRED)
 find_package(libpvti REQUIRED)
 find_package(poplar REQUIRED)
 

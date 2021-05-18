@@ -36,7 +36,7 @@ if __name__ == "__main__":
         import subprocess
         import itertools
         import tempfile
-        import json
+        import pva
 
         def collect(codelet, common_args, params, ranks):
             params = list(params.items())
@@ -52,17 +52,16 @@ if __name__ == "__main__":
                         return f"{k}={v}"
                     args += map(format, zip(keys, v))
                     args += rank_opts
-                    with tempfile.NamedTemporaryFile() as f:
-                        args.append("--profile-json=" + f.name)
+                    with tempfile.TemporaryDirectory() as d:
+                        args.append("--profile-dir=" + d.name)
                         print("Running", " ".join(args))
                         subprocess.call(args)
-                        f.seek(0)
-                        data = json.load(f)
-                    steps = data["executionProfile"]["simulation"]["steps"]
-                    steps = list(filter(lambda step: "name" in step and step["name"].endswith("/" + codelet), steps))
+                        data = pva.openReport(d.name + "/profile.pop")
+                    steps = data.executionProfile.steps
+                    steps = list(filter(lambda step: step.name.endswith("/" + codelet), steps))
                     if len(steps) != 1:
                         raise Exception("Can't find codelet in steps")
-                    cycles = steps[0]["cycles"]
+                    cycles = steps[0].cycles
                     samples.append((x, cycles))
 
                 x, y = list(zip(*samples))

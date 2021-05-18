@@ -95,8 +95,7 @@ int main(int argc, char **argv) {
   bool remapOutputTensor;
   bool enableFastReduce;
 
-  boost::optional<std::string> jsonProfileOut;
-  boost::optional<std::string> profileFormat;
+  boost::optional<std::string> profileDir;
 
   po::options_description desc("Options");
   // clang-format off
@@ -107,14 +106,10 @@ int main(int argc, char **argv) {
       po::value<DeviceType>(&deviceType)->default_value(deviceType),
       deviceTypeHelp)
     ("profile", "Output profiling report to standard output")
-    ("profile-json",
-     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
       ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
-    ("profile-format",
-     po::value<decltype(profileFormat)>(&profileFormat)
-      ->default_value(boost::none),
-     "Profile formats: v1 | experimental | unstable")
+     "Write profile files to the specified directory.")
     ("ignore-data", "Don't upload and download the results from the device. "
      "Note that this means the result is not validated against the model.")
     ("m", po::value<unsigned>(&m)->required(),
@@ -341,10 +336,11 @@ int main(int argc, char **argv) {
       matC, "matC", graph, uploadProg, downloadProg, tmap);
 
   auto engineOptions = defaultEngineOptions;
-  if (profile || jsonProfileOut) {
+  if (profile || profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (profileFormat) {
-      engineOptions.set("profiler.format", *profileFormat);
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
     }
   }
 
@@ -398,13 +394,6 @@ int main(int argc, char **argv) {
 
     matchesModel = checkIsClose("gemm", hostMatC, refMatC, relativeTolerance,
                                 absoluteTolerance);
-  }
-
-  if (jsonProfileOut) {
-    const auto pr = engine.getProfile();
-
-    std::ofstream os(*jsonProfileOut);
-    poplar::serializeToJSON(os, pr);
   }
 
   if (profile) {

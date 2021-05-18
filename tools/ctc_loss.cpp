@@ -152,8 +152,7 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
         OptionFlags planOpts, OptionFlags debugOpts,
         const DeviceType &deviceType, boost::optional<unsigned> tiles,
         bool ignoreData, bool profile,
-        const boost::optional<std::string> &profileFormat,
-        const boost::optional<std::string> &jsonProfileOut) {
+        boost::optional<std::string> &profileDir) {
 
   auto device = createTestDevice(deviceType, 1, tiles);
   const auto &target = device.getTarget();
@@ -243,10 +242,11 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
 
   // Run input, gradient, output
   OptionFlags engineOptions;
-  if (profile) {
+  if (profile || profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (profileFormat) {
-      engineOptions.set("profiler.format", *profileFormat);
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
     }
   }
 
@@ -278,13 +278,6 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
     }
   }
 
-  if (jsonProfileOut) {
-    const auto pr = engine.getProfile();
-
-    std::ofstream os(*jsonProfileOut);
-    poplar::serializeToJSON(os, pr);
-  }
-
   if (profile && deviceType != DeviceType::Cpu) {
     engine.printProfileSummary(std::cout,
                                OptionFlags{{"showExecutionSteps", "true"}});
@@ -295,8 +288,7 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
 int main(int argc, char **argv) {
   // Default input parameters.
   DeviceType deviceType = DeviceType::IpuModel2;
-  boost::optional<std::string> jsonProfileOut;
-  boost::optional<std::string> profileFormat;
+  boost::optional<std::string> profileDir;
   boost::optional<std::string> planConstraints;
   boost::optional<unsigned> minRandomTime = boost::none;
   boost::optional<unsigned> fixedTime = boost::none;
@@ -324,14 +316,10 @@ int main(int argc, char **argv) {
     ("tiles-per-ipu",po::value<boost::optional<unsigned>>(&tiles),
       "Number of tiles per IPU")
     ("profile", "Show profile report")
-    ("profile-format",
-     po::value<decltype(profileFormat)>(&profileFormat)
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
       ->default_value(boost::none),
-     "Profile formats: v1 | experimental | unstable")
-    ("profile-json",
-     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
-      ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
+     "Write profile files to the specified directory.")
     ("plan-constraints", po::value(&planConstraints),
      "JSON constraints for planner, e.g. {\"parallel\": {\"batch\": 1}}")
     ("in-type", po::value(&inType)->default_value(inType),
@@ -482,7 +470,7 @@ int main(int argc, char **argv) {
   }
   auto outputs = gradIPU(tests, maxLabelLength, blankClass, numClasses, inType,
                          outType, planOpts, debugOpts, deviceType, tiles,
-                         ignoreData, profile, profileFormat, jsonProfileOut);
+                         ignoreData, profile, profileDir);
 
   for (unsigned i = 0; i < batchSize; i++) {
     outputs[i].second = maskResults(outputs[i].second, tests[i].inputLength);

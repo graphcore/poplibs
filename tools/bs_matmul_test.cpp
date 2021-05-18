@@ -350,22 +350,6 @@ BSMatMulParams createBsMatMul(const std::array<int, 3> &dim,
                           dataType, dataType, numGroups);
 }
 
-void savePoplarReport(poplar::Engine &engine, std::string &dir) {
-  // Graph Report
-  poplar::ProfileValue graphProfile = engine.getGraphProfile();
-  std::ofstream graphReport;
-  graphReport.open(dir + "/graph.json");
-  poplar::serializeToJSON(graphReport, graphProfile);
-  graphReport.close();
-
-  // Execution Report
-  poplar::ProfileValue execProfile = engine.getExecutionProfile();
-  std::ofstream execReport;
-  execReport.open(dir + "/execution.json");
-  poplar::serializeToJSON(execReport, execProfile);
-  execReport.close();
-}
-
 enum class OperandsType {
   null,
   d,   // 1 operand: dense
@@ -1443,6 +1427,10 @@ int main(int argc, char **argv) {
       engineOptions.set("debug.loweredVarDumpFile", profileDir + "/vars.capnp");
     }
   }
+  if (vm.count("profile-dir")) {
+    engineOptions.set("autoReport.all", "true");
+    engineOptions.set("autoReport.directory", profileDir);
+  }
   engineOptions.set("exchange.multicastPolicy", "balanced");
 
   Sequence allSequence;
@@ -1490,9 +1478,6 @@ int main(int argc, char **argv) {
         OptionFlags{
             {"showExecutionSteps", doProfilingExecution ? "true" : "false"},
             {"showVarStorage", doProfilingVars ? "true" : "false"}});
-    if (vm.count("profile-dir")) {
-      savePoplarReport(engine, profileDir);
-    }
   }
 
   if (!checkResult) {

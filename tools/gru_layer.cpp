@@ -89,22 +89,6 @@ std::vector<BasicGruCellUnit> getCellOrder(const std::vector<std::string> &in) {
   return cellOrder;
 }
 
-void savePoplarReport(poplar::Engine &engine, std::string &dir) {
-  // Graph Report
-  poplar::ProfileValue graphProfile = engine.getGraphProfile();
-  std::ofstream graphReport;
-  graphReport.open(dir + "/graph.json");
-  poplar::serializeToJSON(graphReport, graphProfile);
-  graphReport.close();
-
-  // Execution Report
-  poplar::ProfileValue execProfile = engine.getExecutionProfile();
-  std::ofstream execReport;
-  execReport.open(dir + "/execution.json");
-  poplar::serializeToJSON(execReport, execProfile);
-  execReport.close();
-}
-
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
   DeviceType deviceType = DeviceType::IpuModel2;
@@ -129,8 +113,6 @@ int main(int argc, char **argv) {
   double availableMemoryProportion;
   ShapeOption<std::size_t> variableTimeStepsOption;
   ShapeOption<std::string> cellOrder;
-  boost::optional<std::string> jsonProfileOut;
-  boost::optional<std::string> profileFormat;
   bool resetAfter = false;
   popnn::NonLinearityType activation = popnn::NonLinearityType::TANH;
   popnn::NonLinearityType recurrentActivation =
@@ -148,14 +130,6 @@ int main(int argc, char **argv) {
     ("profile-dir",
       po::value<std::string>(&profileDir)->default_value(profileDir),
       "The directory to output profiling report")
-    ("profile-json",
-     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
-      ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
-    ("profile-format",
-     po::value<decltype(profileFormat)>(&profileFormat)
-      ->default_value(boost::none),
-     "Profile formats: v1 | experimental | unstable")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("variable-time-steps",
@@ -586,10 +560,11 @@ int main(int argc, char **argv) {
   }
 
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile") || jsonProfileOut) {
+  if (vm.count("profile") || vm.count("profile-dir")) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (profileFormat) {
-      engineOptions.set("profiler.format", *profileFormat);
+    if (vm.count("profile-dir")) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", profileDir);
     }
   }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
@@ -734,19 +709,12 @@ int main(int argc, char **argv) {
   });
 
   if (deviceType != DeviceType::Cpu) {
-    if (jsonProfileOut) {
-      const auto pr = engine.getProfile();
-      std::ofstream os(*jsonProfileOut);
-      poplar::serializeToJSON(os, pr);
-    }
     if (vm.count("profile")) {
       engine.printProfileSummary(std::cout,
                                  OptionFlags{
                                      //{ "showExecutionSteps", "true" }
                                      //{ "showVarStorage",     "true" }
                                  });
-      if (vm.count("profile-dir"))
-        savePoplarReport(engine, profileDir);
     }
   }
 

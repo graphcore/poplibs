@@ -52,8 +52,7 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
               std::size_t numClasses, unsigned beamwidth, unsigned topPaths,
               Type inType, Type outType, OptionFlags planOpts,
               const DeviceType &deviceType, boost::optional<unsigned> tiles,
-              bool profile, const boost::optional<std::string> &profileFormat,
-              const boost::optional<std::string> &jsonProfileOut) {
+              bool profile, boost::optional<std::string> &profileDir) {
 
   auto device = createTestDevice(deviceType, 1, tiles);
   const auto &target = device.getTarget();
@@ -146,11 +145,12 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
 
   // Run it
   OptionFlags engineOptions;
-  if (profile) {
+  if (profile || profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
     engineOptions.set("debug.instrumentControlFlow", "true");
-    if (profileFormat) {
-      engineOptions.set("profiler.format", *profileFormat);
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
     }
   }
   auto s = Sequence(uploadProg, prog, downloadProg);
@@ -188,12 +188,6 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
     results.push_back(result);
   }
 
-  if (jsonProfileOut) {
-    const auto pr = engine.getProfile();
-
-    std::ofstream os(*jsonProfileOut);
-    poplar::serializeToJSON(os, pr);
-  }
   if (profile && deviceType != DeviceType::Cpu) {
     engine.printProfileSummary(std::cout,
                                OptionFlags{{"showExecutionSteps", "true"}});
@@ -230,8 +224,7 @@ int main(int argc, char **argv) {
   boost::optional<std::string> planConstraints;
   boost::optional<std::string> options;
 
-  boost::optional<std::string> jsonProfileOut;
-  boost::optional<std::string> profileFormat;
+  boost::optional<std::string> profileDir;
 
   po::options_description desc("Options");
   // clang-format off
@@ -288,14 +281,10 @@ int main(int argc, char **argv) {
      "JSON options, e.g. {\"sortMethod\":\"rank\"}}")
 
     ("profile", "Show profile report")
-    ("profile-format",
-     po::value<decltype(profileFormat)>(&profileFormat)
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
       ->default_value(boost::none),
-     "Profile formats: v1 | experimental | unstable")
-    ("profile-json",
-     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
-      ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
+     "Write profile files to the specified directory.")
 
     ("disable-always-satisfiable-error", "Disable the check when validating time"
     " and the imposed labelLength before generating random labels to superimpose"
@@ -423,10 +412,9 @@ int main(int argc, char **argv) {
     }
   }
 
-  const auto outputs =
-      beamSearchIPU(tests, maxTime, batchSize, blankClass, numClasses,
-                    beamwidth, topPaths, inType, outType, planOpts, deviceType,
-                    tiles, profile, profileFormat, jsonProfileOut);
+  const auto outputs = beamSearchIPU(
+      tests, maxTime, batchSize, blankClass, numClasses, beamwidth, topPaths,
+      inType, outType, planOpts, deviceType, tiles, profile, profileDir);
 
   for (unsigned i = 0; i < batchSize; i++) {
     if (verbosityLevel == 1) {

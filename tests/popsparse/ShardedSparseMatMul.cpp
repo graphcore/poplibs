@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
   DeviceType deviceType = DeviceType::IpuModel2;
   unsigned numShards = 2;
   boost::optional<unsigned> tilesPerIPU;
-  std::string profileJsonPath;
+  boost::optional<std::string> profileDir;
   // matrix multi is is mxm and mxn
   unsigned groups = 1, m = 16, n = 16;
   double sparsityFactor = 0.1;
@@ -68,8 +68,10 @@ int main(int argc, char **argv) {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      deviceTypeHelp)
     ("profile", "Enable profiling and print profiling report")
-    ("profile-json", po::value<std::string>(&profileJsonPath)->default_value(profileJsonPath),
-     "Path to a file into which the profiling report will be output in json format")
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
+      ->default_value(boost::none),
+     "Write profile files to the specified directory.")
     ("left-square-matrix-size", po::value<unsigned>(&m)->default_value(m),
      "Square matrix size for the left matrix")
     ("num-shards", po::value<unsigned>(&numShards)->default_value(numShards),
@@ -97,7 +99,7 @@ int main(int argc, char **argv) {
   }
 
   bool profile = vm.count("profile");
-  bool profilingEnabled = profile || !profileJsonPath.empty();
+  bool profilingEnabled = profile || profileDir;
   const std::size_t blockRows = 1;
   const std::size_t blockCols = 1;
   const auto blockArea = blockRows * blockCols;
@@ -197,7 +199,11 @@ int main(int argc, char **argv) {
 
   OptionFlags engineOptions;
   if (profilingEnabled) {
-    engineOptions.set("debug.instrument", "true");
+    engineOptions.set("debug.instrumentCompute", "true");
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
+    }
   }
   Engine engine(mainGraph, std::move(controlProg), engineOptions);
   attachStreams(engine, tmap);

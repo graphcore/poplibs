@@ -49,7 +49,7 @@ int main(int argc, char **argv) try {
   DeviceType deviceType = DeviceType::IpuModel2;
   constexpr unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
-  std::string profileJsonPath;
+  boost::optional<std::string> profileDir;
   unsigned groups = 1, m, k, n;
   double sparsityFactor;
   Type dataType = HALF;
@@ -73,8 +73,10 @@ int main(int argc, char **argv) try {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      deviceTypeHelp)
     ("profile", "Enable profiling and print profiling report")
-    ("profile-json", po::value<std::string>(&profileJsonPath)->default_value(profileJsonPath),
-     "Path to a file into which the profiling report will be output in json format")
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
+      ->default_value(boost::none),
+     "Write profile files to the specified directory.")
     ("ignore-data", "Don't validate results")
     ("data-type", po::value(&dataType)->default_value(dataType), "Data type of operands")
     ("groups", po::value(&groups)->default_value(groups), "Number of groups")
@@ -124,7 +126,7 @@ int main(int argc, char **argv) try {
   }
 
   bool profile = vm.count("profile");
-  bool profilingEnabled = profile || !profileJsonPath.empty();
+  bool profilingEnabled = profile || profileDir;
   bool ignoreData = vm.count("ignore-data");
 
   const std::size_t blockRows = blockSize[0];
@@ -224,6 +226,10 @@ int main(int argc, char **argv) try {
   OptionFlags engineOptions;
   if (profilingEnabled) {
     engineOptions.set("debug.instrument", "true");
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
+    }
   }
   Engine engine(graph, std::move(controlProg), engineOptions);
 
@@ -313,11 +319,6 @@ int main(int argc, char **argv) try {
 
   if (profile) {
     engine.printProfileSummary(std::cout, {{"showExecutionSteps", "true"}});
-  }
-  if (!profileJsonPath.empty()) {
-    std::ofstream os(profileJsonPath, std::ios_base::out);
-    const auto &pr = engine.getProfile();
-    poplar::serializeToJSON(os, pr);
   }
 
   if (!matchesModel) {

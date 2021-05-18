@@ -59,7 +59,7 @@ re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+_?[A-Z]+?): Cost\
 
 planner_info_fields_names = ['method', 'cost', 'memory', 'tiles', 'training', 'phase',
                  'parallelSplit', 'serialSplit', 'rearrangeBeforeSlice', 'memsetZeroBeforeAddInPlace',
-                 'dynamicSlice', 'transformsCopyCycles', 'transformsExchangeCycles', 'transformsBytes', 
+                 'dynamicSlice', 'transformsCopyCycles', 'transformsExchangeCycles', 'transformsBytes',
                  'transformsCopyInputBytes', 'transformsCopyWeightsBytes', 'exchange', 'inputExchange',
                  'weightsExchange', 'reduceExchange', 'reduceExchangePlus', 'tileTransforms',
                  'compute', 'reduce', 'dynamicUpdate', 'addInPlace', 'cast']
@@ -148,7 +148,7 @@ re_plan_info = re.compile(r'^\s+convGroupsPerGroup\s+(\d+)' + NEW_LINE_CHAR +
                            '\s+totalTiles\s+(\d+)$',
                            re.MULTILINE)
 
-plan_info_fields_names = ['inChansPerGroup', 'convGroupsPerGroup', 'partialChansPerGroup', 
+plan_info_fields_names = ['inChansPerGroup', 'convGroupsPerGroup', 'partialChansPerGroup',
     'method', 'isJointPlan', 'startTile', 'linearizeTileDirection', 'totalTiles']
 PlanInfoFields = collections.namedtuple(
     'PlanInfoFields', plan_info_fields_names
@@ -226,7 +226,7 @@ ConvParamsInfoFields = collections.namedtuple(
 
 # Execution (Profile) capture
 re_execution_profile = re.compile(r"^\s+([a-zA-Z]+): (.+)" + NEW_LINE_CHAR +
-                               "\s+Cycles:\s+(.+):.+" + NEW_LINE_CHAR +
+                               "\s+Cycles:\s+IPU 0:\s+(.+) \(.+" + NEW_LINE_CHAR +
                                "\s+Active Tiles:"
                               , re.MULTILINE)
 
@@ -244,7 +244,7 @@ Profile2PlannerRatioFields = collections.namedtuple(
 # Benchmark names and params capture
 # 407: Test command: /usr/bin/python3 "/scratch/oleksiik/poplar/poplibs/tools/bench.py" "--name" "resnet50_tr_bs1_cnv_reduce" "--config" "default"
 #                                      "--expected_csv" "/scratch/oleksiik/poplar/poplibs/tests/benchmark_results.csv" "/scratch/oleksiik/poplar/build_release/build/poplibs/tools/reduce_op"
-#                                      "--shape=4,25088,8" "--dims=1" "--type=half" "--scale=1.0" "--update=false" "--operation=SQUARE_ADD" "--ignore-data" "--profile-format" "experimental" "--device-type=IpuModel"
+#                                      "--shape=4,25088,8" "--dims=1" "--type=half" "--scale=1.0" "--update=false" "--operation=SQUARE_ADD" "--ignore-data" "--device-type=IpuModel"
 # Labels: benchmarks python3
 #   Test #407: IpuModel_default_resnet50_tr_bs1_cnv_reduce_benchmark
 benchmarks_info = re.compile(r"^(\d+).+\"--name\"\s\"(\S+)\"\s\"--config\"\s\"([a-zA-z]+)\"\s\"--expected_csv\"\s\"(\S+)\"\s\"(\S+)\"\s(.+)$")
@@ -413,7 +413,7 @@ def transform_constraints(phase, so, ed, ocfd, ccgf):
         constraints.append(f'"outChanFlattenDims":{ocfd}')
     if ccgf:
         constraints.append(f'"combineConvGroupsFactor":[{ccgf}]')
-    
+
     phase_constraints = ''
     if constraints:
         phase_constraints = f'--{phase.lower()}-plan-constraints='
@@ -482,9 +482,12 @@ class BenchmarksBar(Bar):
 def open_proc(file_path, cmd):
     # Skip run if log file already exists
     if not os.path.exists(file_path):
+        # Prevent colour codes as they cause problems with the regex matches
+        env = os.environ.copy()
+        env["CLICOLOR_FORCE"] = "0"
+        env["CLICOLOR"] = "0"
         with open(file_path, mode="w", encoding='utf-8') as log_file:
-            subprocess.call(cmd, stdout=log_file, stderr=log_file)
-
+            subprocess.call(cmd, stdout=log_file, stderr=log_file, env=env)
 
 def run_tests(tests_dict, output_path, runtime_timeout):
     os.environ["POPLIBS_LOG_LEVEL"] = "DEBUG"
@@ -621,7 +624,7 @@ def capture_logs_info(tests_dict, output_path, remove_log_files):
         if remove_log_files is True:
             os.remove(filepath)
 
-        # NOTE: When adding new match need to update NUMBER_OF_MATCHES define to allow 
+        # NOTE: When adding new match need to update NUMBER_OF_MATCHES define to allow
         #       CI test successfully validate number of matches for each test
         match_planner_info = re_planner_info.findall(all_of_it)
         match_transform_info = re_transform_info.findall(all_of_it)
@@ -773,7 +776,7 @@ def generate_ci_tests(workspace, test_binary, device_type):
         ci_test_dict[test_name] = [test_binary,
                         '--field', '{7,7}', '--kernel-size', '3', '--padding', '1', '--input-channels', '1',
                         '--output-channels', '1', '--conv-groups', '64', '--batch-size', '2', '--bias', '0',
-                        '--ignore-data', '--profile-format', 'experimental', f'--device-type={device_type}',
+                        '--ignore-data', f'--device-type={device_type}',
                         '--profile', f'--single-phase={phase}', '--tiles-per-ipu=2',
                         '--convolution-options={"insertTransformsCycleCountProgs":true}',
                         '--preplan', '0',

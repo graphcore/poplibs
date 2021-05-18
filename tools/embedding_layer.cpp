@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
     bool profile = false;
     bool showExecutionSteps = false;
     bool showVarStorage = false;
-    boost::optional<std::string> jsonProfileOut;
+    boost::optional<std::string> profileDir;
 
     DeviceType deviceType = DeviceType::IpuModel2;
     unsigned numIPUs = 1;
@@ -115,7 +115,6 @@ int main(int argc, char **argv) {
 
     Pass pass = Pass::BOTH;
     bool ignoreData;
-    boost::optional<std::string> profileFormat;
   };
 
   Options opts;
@@ -128,14 +127,10 @@ int main(int argc, char **argv) {
     ("profile",
      po::value<bool>(&opts.profile)->default_value(opts.profile),
      "Output profiling report")
-    ("profile-json",
-     po::value<decltype(opts.jsonProfileOut)>(&opts.jsonProfileOut)
+    ("profile-dir",
+     po::value<boost::optional<std::string>>(&opts.profileDir)
       ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
-    ("profile-format",
-     po::value<decltype(opts.profileFormat)>(&opts.profileFormat)
-      ->default_value(boost::none),
-     "Profile formats: v1 | experimental | unstable")
+     "Write profile files to the specified directory.")
     ("show-execution-steps",
      po::value<bool>(&opts.showExecutionSteps)
        ->default_value(opts.showExecutionSteps),
@@ -356,11 +351,12 @@ int main(int argc, char **argv) {
   }
 
   OptionFlags engineOptions;
-  if (opts.profile || opts.jsonProfileOut) {
+  if (opts.profile || opts.profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
     engineOptions.set("debug.computeInstrumentationLevel", "device");
-    if (opts.profileFormat) {
-      engineOptions.set("profiler.format", *opts.profileFormat);
+    if (opts.profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *opts.profileDir);
     }
   }
 
@@ -436,13 +432,6 @@ int main(int argc, char **argv) {
     copy(target, opts.dataType, rawEmbeddingMatrix.get(), hostEmbeddingMatrix);
     matchesModel &= checkIsClose("multiUpdateAdd", hostEmbeddingMatrix,
                                  modelEmbeddingMatrix, relTol, absTol);
-  }
-
-  if (opts.jsonProfileOut) {
-    const auto pr = engine.getProfile();
-
-    std::ofstream os(*opts.jsonProfileOut);
-    poplar::serializeToJSON(os, pr);
   }
 
   if (opts.profile) {

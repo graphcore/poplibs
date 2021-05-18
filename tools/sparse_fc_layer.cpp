@@ -94,7 +94,7 @@ int main(int argc, char **argv) try {
   unsigned outputSize;
   unsigned batchSize;
   bool reportPlan;
-  std::string profileJsonPath;
+  boost::optional<std::string> profileDir;
   Type dataType;
   Type partialsType;
   unsigned numIPUs = 1;
@@ -148,8 +148,10 @@ int main(int argc, char **argv) try {
     ("plan-only", "Whether to perform planning only and skip creation "
      "and running of the program")
     ("profile", "Enable profiling and print profiling report")
-    ("profile-json", po::value<std::string>(&profileJsonPath)->default_value(profileJsonPath),
-     "Path to a file into which the profiling report will be output in json format")
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
+      ->default_value(boost::none),
+     "Write profile files to the specified directory.")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
     ("report-total-cycle-counts", "Report total cycle count ignoring upload/download for "
@@ -194,7 +196,7 @@ int main(int argc, char **argv) try {
   }
 
   bool profile = vm.count("profile");
-  bool profilingEnabled = profile || !profileJsonPath.empty();
+  bool profilingEnabled = profile || profileDir;
   bool reportTotalCycleCounts =
       vm.count("report-total-cycle-counts") && deviceType == DeviceType::Hw;
   bool ignoreData = vm.count("ignore-data");
@@ -203,7 +205,7 @@ int main(int argc, char **argv) try {
 
   if (reportTotalCycleCounts && profilingEnabled) {
     throw poputil::poplibs_error(
-        "--report-total-cycle-counts and --profile or --profile-json specified "
+        "--report-total-cycle-counts and --profile or --profile-dr specified "
         "at the same time. This is not allowed as one affects the other");
   }
 
@@ -513,6 +515,10 @@ int main(int argc, char **argv) try {
   OptionFlags engineOptions;
   if (profilingEnabled) {
     engineOptions.set("debug.instrument", "true");
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
+    }
   }
   Engine engine(graph, std::move(controlProg), engineOptions);
 
@@ -664,11 +670,6 @@ int main(int argc, char **argv) try {
 
   if (profile) {
     engine.printProfileSummary(std::cout, {{"showExecutionSteps", "true"}});
-  }
-  if (!profileJsonPath.empty()) {
-    std::ofstream os(profileJsonPath, std::ios_base::out);
-    const auto &pr = engine.getProfile();
-    poplar::serializeToJSON(os, pr);
   }
 
   if (!matchesModel) {

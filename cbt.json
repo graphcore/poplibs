@@ -1,6 +1,7 @@
 {
-  "dependencies" : [ 
+  "dependencies" : [
     "boost",
+    "libpva",
     "libpvti",
     "poplar",
     "spdlog",

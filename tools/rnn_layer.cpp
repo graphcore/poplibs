@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
   Type dataType;
   Type partialsType;
   double relativeTolerance, absoluteTolerance;
-  boost::optional<std::string> jsonProfileOut;
+  boost::optional<std::string> profileDir;
 
   popnn::NonLinearityType nonLinearityType = popnn::NonLinearityType::SIGMOID;
 
@@ -123,10 +123,10 @@ int main(int argc, char **argv) {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      deviceTypeHelp)
     ("profile", "Output profiling report")
-    ("profile-json",
-     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
       ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
+     "Write profile files to the specified directory.")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("input-size", po::value<unsigned>(&inputSize)->default_value(inputSize),
@@ -376,8 +376,12 @@ int main(int argc, char **argv) {
   }
 
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile") || vm.count("profile-json")) {
+  if (vm.count("profile") || profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
+    }
   }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
 
@@ -543,13 +547,6 @@ int main(int argc, char **argv) {
     matchesModel &= checkIsClose("BiasesDeltasAcc", hostBiasesDeltasAcc,
                                  modelBiasesDeltasAcc, relativeTolerance,
                                  absoluteTolerance);
-  }
-
-  if (jsonProfileOut) {
-    const auto pr = engine.getProfile();
-
-    std::ofstream os(*jsonProfileOut);
-    poplar::serializeToJSON(os, pr);
   }
 
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {

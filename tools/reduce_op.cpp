@@ -274,8 +274,7 @@ int main(int argc, char **argv) {
 
   unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
-  boost::optional<std::string> jsonProfileOut;
-  boost::optional<std::string> profileFormat;
+  boost::optional<std::string> profileDir;
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -293,14 +292,10 @@ int main(int argc, char **argv) {
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
        deviceTypeHelp)
     ("profile", "Output profiling report")
-    ("profile-json",
-     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
       ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
-    ("profile-format",
-     po::value<decltype(profileFormat)>(&profileFormat)
-      ->default_value(boost::none),
-     "Profile formats: v1 | experimental | unstable")
+     "Write profile files to the specified directory.")
     ("file", po::value(&file),
       "If specified, load the input and optionally output tensors from "
       "a file. The file must be a binary serialisation of the tensors "
@@ -705,10 +700,11 @@ int main(int argc, char **argv) {
   }
 
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile") || jsonProfileOut) {
+  if (vm.count("profile") || profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (profileFormat) {
-      engineOptions.set("profiler.format", *profileFormat);
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
     }
   }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
@@ -734,12 +730,6 @@ int main(int argc, char **argv) {
     matchesModel = checkIsClose("reduce", outputTensor.data(), output.shape(),
                                 outputRef.data(), outputRef.numElements(),
                                 relativeTolerance, absoluteTolerance);
-  }
-  if (jsonProfileOut) {
-    const auto pr = engine.getProfile();
-
-    std::ofstream os(*jsonProfileOut);
-    poplar::serializeToJSON(os, pr);
   }
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printProfileSummary(std::cout,

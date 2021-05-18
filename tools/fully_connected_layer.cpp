@@ -67,8 +67,7 @@ int main(int argc, char **argv) {
   Pass pass = Pass::ALL;
   bool reportVarStorage = false;
   std::string matmulOptionsString;
-  boost::optional<std::string> jsonProfileOut;
-  boost::optional<std::string> profileFormat;
+  boost::optional<std::string> profileDir;
   bool remapOutputTensor;
   bool mapBiasesByUse;
   bool useCreateInput;
@@ -82,14 +81,10 @@ int main(int argc, char **argv) {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      deviceTypeHelp)
     ("profile", "Output profiling report")
-    ("profile-json",
-     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
       ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
-    ("profile-format",
-     po::value<decltype(profileFormat)>(&profileFormat)
-      ->default_value(boost::none),
-     "Profile formats: v1 | experimental | unstable")
+     "Write profile files to the specified directory.")
     ("ignore-data", "Don't upload and download the results from the device. "
      "Note that this means the result is not validated against the model.")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
@@ -387,10 +382,11 @@ int main(int argc, char **argv) {
   const auto downloadProgIndex = programs.size();
   programs.push_back(std::move(downloadProg));
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile")) {
+  if (vm.count("profile") || profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (profileFormat) {
-      engineOptions.set("profiler.format", *profileFormat);
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
     }
   }
   Engine engine(graph, std::move(programs), engineOptions);
@@ -502,13 +498,6 @@ int main(int argc, char **argv) {
                                      relativeTolerance, absoluteTolerance);
       }
     }
-  }
-
-  if (jsonProfileOut) {
-    const auto pr = engine.getProfile();
-
-    std::ofstream os(*jsonProfileOut);
-    poplar::serializeToJSON(os, pr);
   }
 
   if (vm.count("profile")) {

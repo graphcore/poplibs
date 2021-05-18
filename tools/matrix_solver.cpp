@@ -107,8 +107,7 @@ int main(int argc, char **argv) try {
   boost::optional<unsigned> blockSizeParam;
   bool lower = true;
   bool unitDiagonal = true;
-  boost::optional<std::string> profileFormat;
-  boost::optional<std::string> jsonProfileOut;
+  boost::optional<std::string> profileDir;
 
   // clang-format off
   desc.add_options()
@@ -118,14 +117,10 @@ int main(int argc, char **argv) try {
       po::value<DeviceType>(&deviceType)->default_value(DeviceType::IpuModel2),
       deviceTypeHelp)
     ("profile", "Output profiling report to standard output")
-    ("profile-json",
-     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
       ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
-    ("profile-format",
-     po::value<decltype(profileFormat)>(&profileFormat)
-      ->default_value(boost::none),
-     "Profile formats: v1 | experimental | unstable")
+     "Write profile files to the specified directory.")
     ("cholesky", "Run cholesky solver")
     ("ignore-data", "Don't upload and download the results from the device. "
      "Note that this means the result is not validated against the model.")
@@ -175,10 +170,11 @@ int main(int argc, char **argv) try {
   }
 
   poplar::OptionFlags engineOptions;
-  if (vm.count("profile") || jsonProfileOut) {
+  if (vm.count("profile") || profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (profileFormat) {
-      engineOptions.set("profiler.format", *profileFormat);
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
     }
   }
 
@@ -408,12 +404,6 @@ int main(int argc, char **argv) try {
         "AX vs B: ", *testOutput, modelOutput, tolerance, tolerance);
   }
 
-  if (jsonProfileOut) {
-    const auto pr = engine.getProfile();
-
-    std::ofstream os(*jsonProfileOut);
-    poplar::serializeToJSON(os, pr);
-  }
   if (deviceType != DeviceType::Cpu && vm.count("profile")) {
     engine.printProfileSummary(
         std::cout, poplar::OptionFlags{{"showExecutionSteps", "true"}});

@@ -771,8 +771,7 @@ int main(int argc, char **argv) try {
   Pass pass = Pass::ALL;
   poplin::PlanningCache cache;
 
-  boost::optional<std::string> jsonProfileOut;
-  boost::optional<std::string> profileFormat;
+  boost::optional<std::string> profileDir;
 
   po::options_description desc("Options");
   // clang-format off
@@ -783,14 +782,10 @@ int main(int argc, char **argv) try {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type")
     ("profile", "Output profiling report")
-    ("profile-format",
-     po::value<decltype(profileFormat)>(&profileFormat)
+    ("profile-dir",
+     po::value<decltype(profileDir)>(&profileDir)
       ->default_value(boost::none),
-     "Profile formats: v1 | experimental | unstable")
-    ("profile-json",
-     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
-      ->default_value(boost::none),
-     "Write the profile report as JSON to the specified file.")
+     "Write profile files to the specified directory.")
     ("print",
      po::value<bool>(&doPrintTensors)->default_value(doPrintTensors),
      "Print the tensors")
@@ -1092,7 +1087,7 @@ int main(int argc, char **argv) try {
       // the normal createTestDevice factory function.
       IPUModel ipuModel(deviceTypeToIPUName(deviceType));
       ipuModel.numIPUs = numIPUs;
-      if (vm.count("profile") || jsonProfileOut) {
+      if (vm.count("profile") || profileDir) {
         ipuModel.compileIPUCode = true;
       }
       if (vm.count("workers-per-tile"))
@@ -1309,10 +1304,11 @@ int main(int argc, char **argv) try {
   programs.push_back(std::move(downloadProg));
 
   OptionFlags engineOptions;
-  if (vm.count("profile") || jsonProfileOut) {
+  if (vm.count("profile") || profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (profileFormat) {
-      engineOptions.set("profiler.format", *profileFormat);
+    if (profileDir) {
+      engineOptions.set("autoReport.all", "true");
+      engineOptions.set("autoReport.directory", *profileDir);
     }
   }
 
@@ -1407,11 +1403,6 @@ int main(int argc, char **argv) try {
   if (!ignoreData && !matchesModel) {
     std::cerr << "Validation failed\n";
     return 1;
-  }
-  if (jsonProfileOut) {
-    const auto pr = engine.getProfile();
-    std::ofstream os(*jsonProfileOut);
-    poplar::serializeToJSON(os, pr);
   }
   if (vm.count("profile")) {
     auto reportOptions = OptionFlags{{"showExecutionSteps", "true"}};
