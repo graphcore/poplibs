@@ -19,20 +19,75 @@ BeamHistory::BeamHistory(unsigned beamwidth, unsigned t)
     : symbols(boost::extents[beamwidth][t]),
       parents(boost::extents[beamwidth][t]) {}
 
-std::vector<unsigned> BeamHistory::getOutputSequence(unsigned beamIndex) const {
-  std::vector<unsigned> reversedSequence;
-
-  for (int i = nextIndexToAssign - 1; i >= 0; i--) {
-    if (symbols[beamIndex][i] != popnn::ctc_infer::voidSymbol) {
-      reversedSequence.push_back(symbols[beamIndex][i]);
+// Returning tuple<symbol, beamIndex, timeIndex>
+std::tuple<unsigned, unsigned, int>
+BeamHistory::getNextSymbol(unsigned beamIndex, int timeIndex) const {
+  unsigned result = popnn::ctc_infer::voidSymbol;
+  while (timeIndex >= 0 && result == popnn::ctc_infer::voidSymbol) {
+    if (symbols[beamIndex][timeIndex] != popnn::ctc_infer::voidSymbol) {
+      result = symbols[beamIndex][timeIndex];
     }
-    if (parents[beamIndex][i]) {
-      beamIndex = *parents[beamIndex][i];
+    if (parents[beamIndex][timeIndex]) {
+      beamIndex = *parents[beamIndex][timeIndex];
+    }
+    timeIndex--;
+  }
+  return {result, beamIndex, timeIndex};
+}
+
+// For speed, and use when comparing/merging return the sequence in reverse
+std::vector<unsigned>
+BeamHistory::getReversedOutputSequence(unsigned beamIndex,
+                                       unsigned addend) const {
+  std::vector<unsigned> reversedSequence;
+  // Start with the addend if there was one - the last symbol
+  if (addend != popnn::ctc_infer::voidSymbol) {
+    reversedSequence.push_back(addend);
+  }
+  int timeIndex = nextIndexToAssign - 1;
+  while (timeIndex >= 0) {
+    unsigned symbol;
+    std::tie(symbol, beamIndex, timeIndex) =
+        getNextSymbol(beamIndex, timeIndex);
+    if (symbol != popnn::ctc_infer::voidSymbol) {
+      reversedSequence.push_back(symbol);
     }
   }
-  // We traversed backwards
-  std::reverse(reversedSequence.begin(), reversedSequence.end());
   return reversedSequence;
+}
+
+// For speed, compare a reversed output sequence to another beams history
+// symbol by symbol
+bool BeamHistory::compareReversedOutputSequence(
+    unsigned beamIndex, unsigned addend,
+    const std::vector<unsigned> &reversedSequence) const {
+  unsigned reversedSequenceIndex = 0;
+  // First the addend if non void
+  if (addend != popnn::ctc_infer::voidSymbol) {
+    if (reversedSequence.size() == 0) {
+      return false;
+    }
+    if (addend != reversedSequence[reversedSequenceIndex]) {
+      return false;
+    }
+    reversedSequenceIndex++;
+  }
+  int timeIndex = nextIndexToAssign - 1;
+  while (timeIndex >= 0) {
+    unsigned symbol;
+    std::tie(symbol, beamIndex, timeIndex) =
+        getNextSymbol(beamIndex, timeIndex);
+    if (symbol != popnn::ctc_infer::voidSymbol) {
+      if (reversedSequenceIndex == reversedSequence.size()) {
+        return false;
+      }
+      if (reversedSequence[reversedSequenceIndex] != symbol) {
+        return false;
+      }
+      reversedSequenceIndex++;
+    }
+  }
+  return (reversedSequenceIndex == reversedSequence.size());
 }
 
 // Find the last symbol in the beam output sequence
@@ -191,8 +246,11 @@ mergeEquivalentCandidates(const std::vector<Candidate<FPType>> &candidates,
   std::vector<Candidate<FPType>> mergedCandidates = candidates;
 
   for (size_t j = 0; j < mergedCandidates.size(); j++) {
+    // Get the whole of this sequence once, as we compare it to many other
+    // sequences
+    auto &lhs = mergedCandidates[j];
+    const auto lhsSequence = beamHistory.getReversedOutputSequence(lhs);
     for (size_t i = j + 1; i < mergedCandidates.size(); i++) {
-      auto &lhs = mergedCandidates[j];
       const auto &rhs = mergedCandidates[i];
       // The only way for candidates to become mergeable is if one is a copy
       // beam (same output sequence from parent beam), and the other extension
@@ -204,10 +262,8 @@ mergeEquivalentCandidates(const std::vector<Candidate<FPType>> &candidates,
       if (lhs.beam == rhs.beam) {
         continue;
       }
-
-      // TODO improve merge check efficiency
-      if (beamHistory.getOutputSequence(lhs) ==
-          beamHistory.getOutputSequence(rhs)) {
+      if (beamHistory.compareReversedOutputSequence(rhs.beam, rhs.addend,
+                                                    lhsSequence)) {
         lhs.pnb = useLog ? log::add(lhs.pnb, rhs.pnb) : lhs.pnb + rhs.pnb;
         lhs.pb = useLog ? log::add(lhs.pb, rhs.pb) : lhs.pb + rhs.pb;
         lhs.pTotal = useLog ? log::add(lhs.pb, lhs.pnb) : lhs.pb + lhs.pnb;

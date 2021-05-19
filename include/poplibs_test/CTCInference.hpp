@@ -48,19 +48,39 @@ struct BeamHistory {
 
   BeamHistory(unsigned beamwidth, unsigned t);
 
-  std::vector<unsigned> getOutputSequence(unsigned beamIndex) const;
+  bool compareReversedOutputSequence(
+      unsigned beamIndex, unsigned addend,
+      const std::vector<unsigned> &reversedSequence) const;
+
   template <typename FPType>
   std::vector<unsigned>
   getOutputSequence(const Candidate<FPType> &candidate) const {
-    auto output = getOutputSequence(candidate.beam);
-    if (candidate.addend != popnn::ctc_infer::voidSymbol) {
-      output.push_back(candidate.addend);
-    }
-    return output;
+    auto reversedSequence =
+        getReversedOutputSequence(candidate.beam, candidate.addend);
+
+    std::reverse(reversedSequence.begin(), reversedSequence.end());
+    return reversedSequence;
   }
+
+  std::vector<unsigned> getOutputSequence(unsigned beamIndex) const {
+    Candidate<double> candidate = {beamIndex, popnn::ctc_infer::voidSymbol};
+    return getOutputSequence(candidate);
+  }
+
+  template <typename FPType>
+  std::vector<unsigned>
+  getReversedOutputSequence(const Candidate<FPType> &candidate) const {
+    return getReversedOutputSequence(candidate.beam, candidate.addend);
+  }
+
+  std::vector<unsigned> getReversedOutputSequence(unsigned beamIndex,
+                                                  unsigned addend) const;
 
   // Find the last symbol in the beam output sequence
   unsigned getLastOutput(unsigned beamIndex) const;
+  // Returning tuple<symbol, beamIndex, timeIndex>
+  std::tuple<unsigned, unsigned, int> getNextSymbol(unsigned beamIndex,
+                                                    int timeIndex) const;
   void assignParent(unsigned beamIndex, unsigned parentBeamIndex);
   void assignSymbol(unsigned beamIndex, unsigned addend);
   void incrementIndex();
