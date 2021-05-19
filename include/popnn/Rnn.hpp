@@ -170,6 +170,20 @@ poplar::Tensor shiftRnnTensor(poplar::Graph &graph, const RnnParams &params,
                               unsigned numShards,
                               const poplar::DebugContext &debugContext = {});
 
+/** Tensors required for processing a single time step.
+ *
+ * \param inputs             Input tensor sequences.
+ * \param interimIn          Intermediate input sequence.
+ * \param interimOut         Intermediate output sequence.
+ * \param outputs            Output tensor sequences.
+ */
+struct RnnSlice {
+  std::vector<poplar::Tensor> inputs;
+  poplar::Tensor interimIn;
+  poplar::Tensor interimOut;
+  std::vector<poplar::Tensor> outputs;
+};
+
 /** Loop body function wrapper with the following arguments:
  *
  * \param graph              Graph Object
@@ -178,25 +192,35 @@ poplar::Tensor shiftRnnTensor(poplar::Graph &graph, const RnnParams &params,
  * \param seqIdx             Tensor that iterates over the range of input
  *                           sequences that are mapped on the current shard,
  *                           beginning from 0.
+ * \param mask               Tensor of either 0 or 1 in `dataType` type.
+ *                           shaped `{multiple * batchSize, outputSize}`
  * \param state              state tensors
- * \param inputs             Input tensors
- * \param interimIn          Collated interim input tensors
- * \param interimOut         Collated interim outputs tensors
- * \param output             Pre-defined output tensors
+ * \param slice              Input/Output tensors for a specific shard
  * \param created            Output tensors which are created by this function.
  * \param prog               Program initialization sequence
  * \param dnai               Debug name and Id
  *
  * \return  Program for the given shard
- *
  */
 using LoopBodyType = std::function<poplar::program::Sequence(
     poplar::Graph &graph, const poplar::Tensor &, const poplar::Tensor &,
     const poplar::Tensor &, std::vector<poplar::Tensor> &,
-    const std::vector<poplar::Tensor> &, const poplar::Tensor &,
-    poplar::Tensor &, std::vector<poplar::Tensor> &,
-    std::vector<poplar::Tensor> &, poplar::program::Sequence *,
-    const poplar::DebugNameAndId &)>;
+    const RnnSlice &slice, std::vector<poplar::Tensor> &,
+    poplar::program::Sequence *, const poplar::DebugNameAndId &)>;
+
+/** Gather body function wrapper with the following arguments:
+ *
+ * \param graph              Graph Object
+ * \param slice              Input/Output tensors for a specific shard
+ * \param stepsPerGather     stepsPerGather for current shard.
+ * \param prog               Program initialization sequence
+ * \param dnai               Debug name and Id
+ *
+ * \return  Program for the given shard
+ */
+using GatherBodyType = std::function<poplar::program::Sequence(
+    poplar::Graph &graph, const RnnSlice &slice, unsigned stepsPerGather,
+    poplar::program::Sequence *, const poplar::DebugNameAndId &)>;
 
 /**
  * Structure that associates a particular state tensor with a user defined
@@ -251,9 +275,58 @@ Rnn(poplar::Graph &graph, const RnnParams &params, bool reverse,
     const std::vector<poplar::Tensor> &initState,
     const StateSequence &stateSequence,
     const std::vector<poplar::Tensor> &inputs, const poplar::Tensor *interimIn,
-    poplar::Tensor *interimOut, std::vector<poplar::Tensor> &outputs,
-    std::vector<poplar::Tensor> &created, poplar::program::Sequence &prog,
+    poplar::Tensor *interimOut, const std::vector<poplar::Tensor> &outputs,
+    const std::vector<poplar::Tensor> &created, poplar::program::Sequence &prog,
     const LoopBodyType &loopFn, unsigned numShards,
+    poplar::OptionFlags &options,
+    const poplar::DebugContext &debugContext = {});
+
+/** Run custom Recurrent Neural Net cell callback every at time step in
+ *  decrementing order. At each time step create a temporary variable and pass
+ *  it to a `Gather` callback which gets called at a cadence determined by
+ *  the  `stepsPerGather` parameter.
+ *
+ * **RNN options**
+ *
+ *    * `codeReuse` (true, false) [=false]
+ *
+ *      If true, the custom RNN implementation defined by the loopFn parameter
+ *      will be reused by every shard. If false the RNN code is duplicated
+ *      for every shard.
+ *
+ * \param graph              Graph to which the RNN cell belongs.
+ * \param params             The parameters of the RNN.
+ * \param initState          state tensors that specify the initial states.
+ * \param stateSequence      Optionally specifies that the recurrent updates of
+ *                           a state Tensor need to be stored to a user defined
+ *                           output tensor.
+ * \param inputs             Input tensors to `loopFn` function.
+ * \param interimIn          Intermediate inputs to Cell computation.
+ * \param numTemps           Number of temporary variables of shape
+ *                           `{batchSize, size}` per time step which are to be
+ *                           passed to the `Gather` callback.
+ * \param prog               Program sequence.
+ * \param loopFn             Function for RNN cell computation which is
+ *                           invoked for every time step.
+ * \param gatherInputs       Input tensors to `gatherFn` function.
+ * \param gatherFn           Function which processes the temporary buffer
+ *                           generated by `loopFn` with cadence determined by
+ *                           the `stepsPerGather` parameter.
+ * \param numShards          The number of shards to be used.
+ * \param stepsPerGather     The time step cadence used for the `gatherFn`
+ *                           callback.
+ * \param options            RNN implementation options. See createInput().
+ * \param debugContext       Optional debug information.
+ *
+ */
+std::vector<poplar::Tensor>
+Rnn(poplar::Graph &graph, const RnnParams &params,
+    const std::vector<poplar::Tensor> &initState,
+    const StateSequence &stateSequence,
+    const std::vector<poplar::Tensor> &inputs, const poplar::Tensor &interimIn,
+    const unsigned numTemps, poplar::program::Sequence &prog,
+    const LoopBodyType &loopFn, const std::vector<poplar::Tensor> &gatherInputs,
+    const GatherBodyType &gatherFn, unsigned numShards, unsigned stepsPerGather,
     poplar::OptionFlags &options,
     const poplar::DebugContext &debugContext = {});
 

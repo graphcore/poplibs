@@ -1105,7 +1105,85 @@ foreach(ALL_OUTPUT  0 1)
         endforeach()
 endforeach()
 
-# Test variable time-steps for LSTM/GRU
+# Test variable time-steps for LSTM/GRU with variable weight update cadence
+foreach(ALL_OUTPUT  0 1)
+        foreach(PARTIALS_TYPE half float)
+                foreach(STEPS_PER_WU 21 217)
+                        add_multitarget_test(
+                                NAME lstm_16x2x32_seq_123_shards_3_allOutput_${ALL_OUTPUT}_partials_${PARTIALS_TYPE}_varTS_57_stepsPerWU_${STEPS_PER_WU}
+                                COMMAND lstm_layer
+                                        --data-type=half
+                                        --input-size 16
+                                        --batch-size=2
+                                        --output-size 32
+                                        --tiles-per-ipu=20
+                                        --phase all
+                                        --sequence-size 123
+                                        --shards=3
+                                        --partials-type=${PARTIALS_TYPE}
+                                        --accumulators-type=${PARTIALS_TYPE}
+                                        --output-all-sequence=${ALL_OUTPUT}
+                                        --variable-time-steps={57}
+                                        --steps-per-wu=${STEPS_PER_WU}
+                                        VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+                        add_multitarget_test(
+                                NAME lstm_16x2x32_seq_123_shards_3_allOutput_${ALL_OUTPUT}_partials_${PARTIALS_TYPE}_varTS_57_stepsPerWU_${STEPS_PER_WU}_ignore_input_gradient
+                                COMMAND lstm_layer
+                                        --data-type=half
+                                        --input-size 16
+                                        --batch-size=2
+                                        --output-size 32
+                                        --tiles-per-ipu=20
+                                        --phase all
+                                        --sequence-size 123
+                                        --shards=3
+                                        --partials-type=${PARTIALS_TYPE}
+                                        --accumulators-type=${PARTIALS_TYPE}
+                                        --output-all-sequence=${ALL_OUTPUT}
+                                        --variable-time-steps={57}
+                                        --steps-per-wu=${STEPS_PER_WU}
+                                        --ignore-input-gradient
+                                        VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+                        add_multitarget_test(
+                                NAME lstm_16x3x32_seq_123_shards_3_allOutput_${ALL_OUTPUT}_partials_${PARTIALS_TYPE}_varTS_23_41_80_stepsPerWU_${STEPS_PER_WU}
+                                COMMAND lstm_layer
+                                        --data-type=half
+                                        --input-size 16
+                                        --batch-size=3
+                                        --output-size 32
+                                        --tiles-per-ipu=20
+                                        --phase all
+                                        --sequence-size 123
+                                        --shards=3
+                                        --partials-type=${PARTIALS_TYPE}
+                                        --accumulators-type=${PARTIALS_TYPE}
+                                        --output-all-sequence=${ALL_OUTPUT}
+                                        --variable-time-steps={23,41,80}
+                                        --steps-per-wu=${STEPS_PER_WU}
+                                        VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+                        add_multitarget_test(
+                                NAME lstm_16x3x32_seq_123_shards_3_allOutput_${ALL_OUTPUT}_partials_${PARTIALS_TYPE}_varTS_23_41_80_stepsPerWU_${STEPS_PER_WU}_ignore_input_gradient
+                                COMMAND lstm_layer
+                                        --data-type=half
+                                        --input-size 16
+                                        --batch-size=3
+                                        --output-size 32
+                                        --tiles-per-ipu=20
+                                        --phase all
+                                        --sequence-size 123
+                                        --shards=3
+                                        --partials-type=${PARTIALS_TYPE}
+                                        --accumulators-type=${PARTIALS_TYPE}
+                                        --output-all-sequence=${ALL_OUTPUT}
+                                        --variable-time-steps={23,41,80}
+                                        --steps-per-wu=${STEPS_PER_WU}
+                                        --ignore-input-gradient
+                                        VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+                endforeach()
+        endforeach()
+endforeach()
+
+# Test LSTM/GRU variable time-steps for larger sequence sizes
 foreach(ALL_OUTPUT  0 1)
         add_multitarget_test(
                 NAME lstm_16x2x32_seq_601_shards_3_allOutput_${ALL_OUTPUT}_varTS_253
@@ -1163,6 +1241,7 @@ foreach(ALL_OUTPUT  0 1)
                         --variable-time-steps={100,200,300}
                         --ignore-input-gradient
                         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+
         foreach(ATTENTION false true)
                 add_multitarget_test(
                         NAME augru_16x2x32_seq_99_shards_3_attention_${ATTENTION}_real_time_steps_0_allOutput_${ALL_OUTPUT}_varTS_31

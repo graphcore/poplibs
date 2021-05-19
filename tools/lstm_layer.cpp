@@ -117,6 +117,7 @@ int main(int argc, char **argv) {
 
   unsigned sequenceSize, inputSize, outputSize;
   unsigned batchSize = 1;
+  unsigned stepsPerWU = 1;
   unsigned numShards = 1;
   bool codeReuse = false;
 
@@ -182,6 +183,8 @@ int main(int argc, char **argv) {
       "Input and output data type")
     ("batch-size", po::value<unsigned>(&batchSize)->default_value(batchSize),
       "Batch size")
+    ("steps-per-wu", po::value<unsigned>(&stepsPerWU)->default_value(stepsPerWU),
+      "Steps per Weight Update")
     ("partials-type",
      po::value<Type>(&partialsType),
      "Type of the partials")
@@ -310,40 +313,46 @@ int main(int argc, char **argv) {
   if (ignoreInputGradient) {
     params.calcInputGradients = false;
   }
-  poplar::OptionFlags options = {
+  poplar::OptionFlags fwdOptions = {
       {"inferenceOnly", fwdOnly ? "true" : "false"},
   };
   if (!vm["shards"].empty()) {
-    options.set("numShards", std::to_string(numShards));
+    fwdOptions.set("numShards", std::to_string(numShards));
   }
   if (!vm["code-reuse"].empty()) {
-    options.set("rnnCodeReuse", codeReuse ? "true" : "false");
+    fwdOptions.set("rnnCodeReuse", codeReuse ? "true" : "false");
   }
   if (!vm["available-memory-proportion"].empty()) {
-    options.set("availableMemoryProportion",
-                std::to_string(availableMemoryProportion));
+    fwdOptions.set("availableMemoryProportion",
+                   std::to_string(availableMemoryProportion));
   }
   if (!vm["partials-type"].empty()) {
-    options.set("partialsType", partialsType.toString());
+    fwdOptions.set("partialsType", partialsType.toString());
   }
   if (!vm["accumulators-type"].empty()) {
-    options.set("weightAccumulatorsType", accumulatorsType.toString());
+    fwdOptions.set("weightAccumulatorsType", accumulatorsType.toString());
   }
   if (!vm["recomputation-mode"].empty()) {
-    options.set("recomputationMode", recompMode);
+    fwdOptions.set("recomputationMode", recompMode);
   }
   if (preweightInput) {
-    options.set({{"preCalcWeights", "true"}});
+    fwdOptions.set({{"preCalcWeights", "true"}});
   }
 
-  auto input = lstm::createInput(graph, params, "input", options, &cache);
+  auto bwdOptions = fwdOptions;
+  if (!vm["steps-per-wu"].empty()) {
+    bwdOptions.set("rnnStepsPerWU", std::to_string(stepsPerWU));
+  }
+
+  auto input = lstm::createInput(graph, params, "input", fwdOptions, &cache);
 
   auto prog = Sequence();
   auto fwdStateInit =
-      lstm::createInitialState(graph, params, "fwdState", options, &cache);
+      lstm::createInitialState(graph, params, "fwdState", fwdOptions, &cache);
   auto outputInit = fwdStateInit.output;
   auto cellStateInit = fwdStateInit.cellState;
-  auto weights = lstm::createWeights(graph, params, "weights", options, &cache);
+  auto weights =
+      lstm::createWeights(graph, params, "weights", fwdOptions, &cache);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
@@ -351,9 +360,9 @@ int main(int argc, char **argv) {
   Tensor fwdOutputSeq, lastCellState, fwdIntermediates;
   Tensor *fwdIntermediatesPtr =
       (doBwdPass || doWuPass) ? &fwdIntermediates : nullptr;
-  std::tie(fwdOutputSeq, lastCellState) =
-      popnn::lstm::lstmFwd(graph, params, fwdStateInit, input, weights,
-                           fwdIntermediatesPtr, prog, "fwd", options, &cache);
+  std::tie(fwdOutputSeq, lastCellState) = popnn::lstm::lstmFwd(
+      graph, params, fwdStateInit, input, weights, fwdIntermediatesPtr, prog,
+      "fwd", fwdOptions, &cache);
   auto nextLayerGrads = graph.addVariable(
       dataType, {sequenceSize, batchSize, outputSize}, "nextLayerGrads");
   mapTensorLinearly(graph, nextLayerGrads);
@@ -372,12 +381,12 @@ int main(int argc, char **argv) {
       lastGradLayer = lstm::lstmBwdWithWU(
           graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
           fwdOutputSeq, nextGrad, lastCellStateGradPtr, inputGrad, weightGrads,
-          "bwd", options, &cache);
+          "bwd", bwdOptions, &cache);
     } else {
       lastGradLayer = lstm::lstmBwd(
           graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
           fwdOutputSeq, nextGrad, lastCellStateGradPtr, inputGrad, nullptr,
-          "bwd", options, &cache);
+          "bwd", bwdOptions, &cache);
     }
     lastGradLayerOut = lastGradLayer.output;
     lastGradCellState = lastGradLayer.cellState;

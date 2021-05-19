@@ -929,34 +929,30 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
 
   validateParams(params);
   auto opt = parseOptions(options);
-
   auto weights = fromCellOrder(weights_, params.cellOrder);
   auto numShards = getNumShards(graph, params, opt, {dnai, "numShards"});
-
   auto loopFwd = [&params, &weights, &opt, &cache](
                      Graph &graph, const Tensor &shardSeqIdx,
                      const Tensor &seqIdx, const Tensor &mask,
-                     std::vector<Tensor> &fwdState,
-                     const std::vector<Tensor> &inputs, const Tensor &interimIn,
-                     Tensor &interimOut, std::vector<Tensor> &outputs,
+                     std::vector<Tensor> &fwdState, const rnn::RnnSlice &slice,
                      std::vector<Tensor> &created, program::Sequence *initProg,
                      const DebugNameAndId &dnai) {
     auto loop = Sequence{{}, {dnai}};
     debug_tensor(loop, "fwdLoop:", seqIdx);
-    auto &fwdInput = inputs[0];
+    auto &fwdInput = slice.inputs[0];
     boost::optional<const Tensor &> sliceAttScoresOpt(boost::none);
-    if (inputs[1].valid()) {
-      sliceAttScoresOpt = inputs[1];
+    if (slice.inputs[1].valid()) {
+      sliceAttScoresOpt = slice.inputs[1];
     }
 
     const Tensor *inputWeightsPtr = &weights.inputWeights;
     auto sliceOutput = fwdState[0].squeeze({0});
-    if (mask.valid() || interimOut.valid()) {
+    if (mask.valid() || slice.interimOut.valid()) {
       auto [newOutput, internalState] = basicGruCellForwardPass(
           graph, fwdInput, weights.biases, sliceOutput, inputWeightsPtr,
           weights.outputWeights, sliceAttScoresOpt, loop, opt, params, {dnai},
           cache);
-      if (interimOut.valid()) {
+      if (slice.interimOut.valid()) {
         if (mask.valid()) {
           mapInPlace(graph, _1 * _2, {newOutput, mask}, loop, {dnai});
           mapInPlace(graph, _1 * _2, {internalState.resetGate, mask}, loop,
@@ -968,7 +964,7 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
         }
         auto fwdIntermediates =
             getFwdIntermediatesToSave(newOutput, internalState, params);
-        loop.add(Copy(fwdIntermediates, interimOut, false, {dnai}));
+        loop.add(Copy(fwdIntermediates, slice.interimOut, false, {dnai}));
       }
 
       // Cease to update the state for batches that have reached their
@@ -1018,19 +1014,16 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
             .reshapePartial(0, 1, {params.rnn.maxTimeSteps, numIntermediates});
     fwdProg.add(WriteUndef(*intermediatesSeq, {dnai}));
   }
-  std::vector<Tensor> dummyOutputs;
-  std::vector<Tensor> dummyCreated;
   const auto shardingLoop = std::bind(
       loopFwd, std::placeholders::_1, std::placeholders::_2,
       std::placeholders::_3, std::placeholders::_4, std::placeholders::_5,
       std::placeholders::_6, std::placeholders::_7, std::placeholders::_8,
-      std::placeholders::_9, std::placeholders::_10, std::placeholders::_11,
-      std::placeholders::_12);
+      std::placeholders::_9);
   auto rnnOptions = getRnnOpts(opt);
   auto updatedState =
       rnn::Rnn(graph, params.rnn, false, initState, stateSequence, inputs,
-               nullptr, intermediatesSeq, dummyOutputs, dummyCreated, fwdProg,
-               shardingLoop, numShards, rnnOptions, {dnai, "rnn"});
+               nullptr, intermediatesSeq, {}, {}, fwdProg, shardingLoop,
+               numShards, rnnOptions, {dnai, "rnn"});
   return params.outputFullSequence ? stateSequence.output
                                    : updatedState[0].squeeze({0});
 }
@@ -1766,17 +1759,17 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
       [&params, &options, &inputGradSeq, &cache, &weightsRearranged](
           GruWeights &weights, GruWeights *weightsGrad, Graph &graph,
           const Tensor &shardSeqIdx, const Tensor &seqIdx, const Tensor &mask,
-          std::vector<Tensor> &shardState, const std::vector<Tensor> &bwdInput,
-          const Tensor &fwdIntermediates, Tensor &interimOut,
-          std::vector<Tensor> &outputs, std::vector<Tensor> &created,
-          program::Sequence *initProg, const DebugNameAndId &dnai) {
+          std::vector<Tensor> &shardState, const rnn::RnnSlice &slice,
+          std::vector<Tensor> &created, program::Sequence *initProg,
+          const DebugNameAndId &dnai) {
         auto loop = Sequence{{}, {dnai}};
         debug_tensor(loop, "bwdLoop:", seqIdx);
+        const auto &fwdIntermediates = slice.interimIn;
         const Tensor *gradLayerNextThisStepPtr =
-            bwdInput[0].valid() ? &bwdInput[0] : nullptr;
-        auto &prevLayerOut = bwdInput[1];
-        auto &prevStepOut = bwdInput[2];
-        auto &attScores = bwdInput[3];
+            slice.inputs[0].valid() ? &slice.inputs[0] : nullptr;
+        auto &prevLayerOut = slice.inputs[1];
+        auto &prevStepOut = slice.inputs[2];
+        auto &attScores = slice.inputs[3];
         auto &attScoresGrads = created[0];
         Tensor inputGrad =
             shardState[0].valid() ? shardState[0].squeeze({0}) : Tensor{};
@@ -1801,8 +1794,8 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
           debug_tensor(loop, "bwd inputGrad", inputGrad);
           loop.add(Copy(nextInputGrad, inputGrad, false, {dnai}));
         }
-        if (interimOut.valid()) {
-          loop.add(Copy(bwdIntermediates, interimOut, false, {dnai}));
+        if (slice.interimOut.valid()) {
+          loop.add(Copy(bwdIntermediates, slice.interimOut, false, {dnai}));
         }
         if (mask.valid()) {
           // update output gradient state if the batchwise time steps is within
@@ -1888,14 +1881,12 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
       loopBwdWithWU, weights, weightsGrad, std::placeholders::_1,
       std::placeholders::_2, std::placeholders::_3, std::placeholders::_4,
       std::placeholders::_5, std::placeholders::_6, std::placeholders::_7,
-      std::placeholders::_8, std::placeholders::_9, std::placeholders::_10,
-      std::placeholders::_11, std::placeholders::_12);
-  std::vector<Tensor> dummyOutputs;
+      std::placeholders::_8, std::placeholders::_9);
   auto rnnOptions = getRnnOpts(options);
-  auto updatedState = rnn::Rnn(
-      graph, params.rnn, true, bwdStateInit, inputGrad, bwdAndWuInputs,
-      &fwdIntermediatesSeq, bwdIntermediatesPtr, dummyOutputs, attOutputs, prog,
-      shardingLoop, numShards, rnnOptions, {dnai, "updatedState"});
+  auto updatedState =
+      rnn::Rnn(graph, params.rnn, true, bwdStateInit, inputGrad, bwdAndWuInputs,
+               &fwdIntermediatesSeq, bwdIntermediatesPtr, {}, attOutputs, prog,
+               shardingLoop, numShards, rnnOptions, {dnai, "updatedState"});
   if (weightsGrad) {
     *weightsGrad = basicGruParamUpdateFinal(graph, weights, *weightsGrad, prog,
                                             {dnai}, params.resetAfter);
@@ -2044,14 +2035,13 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
                     GruWeights &weightGrads, Graph &graph,
                     const Tensor &shardSeqIdx, const Tensor &seqIdx,
                     const Tensor &mask, std::vector<Tensor> &shardState,
-                    const std::vector<Tensor> &wuInput,
-                    const Tensor &fwdIntermediates, Tensor &interimOut,
-                    std::vector<Tensor> &outputs, std::vector<Tensor> &created,
+                    const rnn::RnnSlice &slice, std::vector<Tensor> &created,
                     program::Sequence *initProg, const DebugNameAndId &dnai) {
     auto loop = Sequence{{}, {dnai}};
-    auto &prevLayerOut = wuInput[0];
-    auto &prevStepOut = wuInput[1];
-    auto &bwdIntermediates = wuInput[2];
+    auto &prevLayerOut = slice.inputs[0];
+    auto &prevStepOut = slice.inputs[1];
+    auto &bwdIntermediates = slice.inputs[2];
+    auto &fwdIntermediates = slice.interimIn;
     basicGruParamUpdate(graph, prevLayerOut, prevStepOut, fwdIntermediates,
                         bwdIntermediates, weightGrads, loop, options, {dnai},
                         planningCache, params.resetAfter);
@@ -2080,15 +2070,11 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
       loopWU, weightGrads, std::placeholders::_1, std::placeholders::_2,
       std::placeholders::_3, std::placeholders::_4, std::placeholders::_5,
       std::placeholders::_6, std::placeholders::_7, std::placeholders::_8,
-      std::placeholders::_9, std::placeholders::_10, std::placeholders::_11,
-      std::placeholders::_12);
-  std::vector<Tensor> dummyOutputs;
-  std::vector<Tensor> dummyCreated;
+      std::placeholders::_9);
   auto rnnOptions = getRnnOpts(options);
-  auto updatedState =
-      rnn::Rnn(graph, params.rnn, true, {}, {}, wuInputs, &fwdIntermediatesSeq,
-               nullptr, dummyOutputs, dummyCreated, prog, shardingLoop,
-               numShards, rnnOptions, {dnai, "rnn"});
+  auto updatedState = rnn::Rnn(
+      graph, params.rnn, true, {}, {}, wuInputs, &fwdIntermediatesSeq, nullptr,
+      {}, {}, prog, shardingLoop, numShards, rnnOptions, {dnai, "rnn"});
   weightGrads = basicGruParamUpdateFinal(graph, weights, weightGrads, prog,
                                          {dnai}, params.resetAfter);
   return weightGrads;

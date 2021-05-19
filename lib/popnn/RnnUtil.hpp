@@ -30,8 +30,12 @@ namespace Rnn {
 
 // Flatten a 3D tensor to a 2D tensor such that the innermost dimension is the
 // product of outputs(or inputs) and units
-inline poplar::Tensor flattenUnits(const poplar::Tensor &t) {
-  return t.dimShuffle({1, 0, 2}).reshape({t.dim(1), t.dim(0) * t.dim(2)});
+inline poplar::Tensor flattenUnits(const poplar::Tensor &t,
+                                   const unsigned stepSize = 1) {
+  return t.reshapePartial(0, 1, {stepSize, t.dim(0) / stepSize})
+      .dimShuffle({0, 2, 1, 3})
+      .flatten(0, 2)
+      .flatten(1, 3);
 }
 
 // unflatten a 2D tensor which has units flattened in it's innermost dimension.
