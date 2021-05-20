@@ -60,6 +60,46 @@ template <> struct UnaryLibCall<expr::UnaryOpType::CBRT> {
 #endif
 };
 
+template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
+#ifdef __IPU__
+  float poly(float x) const {
+    constexpr float coeffs[5] = {1.061405429, -1.453152027, 1.421413741,
+                                 -0.284496736, 0.254829592};
+    float y = 0;
+    for (auto c : coeffs) {
+      y = y * x + c;
+    }
+    return y * x;
+  }
+
+  // Approximation of error function
+  // Cecil Hastings Jr : Approximations for Digital Computers Pg 169.
+  // On double precision, error is <1.5e-7 but reduces to < 5e-7 for fp32
+  // Do all computations in fp32 as error introduced due to the polynomial
+  // computation is expected to be significant.
+  float compute(float x) const {
+    const float sign = x >= 0 ? +1.0f : -1.0f;
+    const float p = 0.3275911;
+    const float eta = 1.0f / (1.0f + p * ipu::fabs(x));
+    const auto y = (1.0f - poly(eta) * ipu::exp(-x * x)) * sign;
+    return y;
+  }
+
+  template <typename FPType> FPType operator()(FPType x) const {
+    if constexpr (isVectorType<FPType>::value) {
+      unsigned n = sizeof(x) / sizeof(x[0]);
+      FPType y;
+      for (unsigned i = 0; i != n; ++i) {
+        y[i] = compute(static_cast<float>(x[i]));
+      }
+      return y;
+    } else {
+      return compute(static_cast<float>(x));
+    }
+  }
+#endif
+};
+
 // Structure with template specialization to define the output type
 // of a unary operation
 template <expr::UnaryOpType op, typename T> struct UnaryOpOutputType {
@@ -135,6 +175,9 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::BITWISE_NOT, return ~x;)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::CBRT,
                    return std::cbrt(PromoteHalfsToFloats(x));
                    , return UnaryLibCall<expr::UnaryOpType::CBRT>{}(x);)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::ERF,
+                   return std::erf(PromoteHalfsToFloats(x));
+                   , return UnaryLibCall<expr::UnaryOpType::ERF>{}(x);)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::CEIL, ceil)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::COS, cos)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::COUNT_LEADING_ZEROS,
@@ -908,6 +951,7 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ERF, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::FLOOR, float, half)
@@ -944,6 +988,7 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
                unsigned)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ERF, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::EXPONENT_MINUS_ONE,
                float, half)
@@ -979,6 +1024,7 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ERF, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::FLOOR, float, half)
@@ -1007,6 +1053,7 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
                unsigned)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ERF, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT_MINUS_ONE, float,
                half)
@@ -1044,6 +1091,8 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
                expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
+
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ERF, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::EXPONENT, float,
                half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
@@ -1089,6 +1138,7 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
                unsigned)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ERF, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT_MINUS_ONE, float,
                half)

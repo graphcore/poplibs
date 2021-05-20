@@ -129,6 +129,7 @@ INSTANTIATE_OP UnaryOp UnaryOp1D CBRT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D CEIL, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D COS, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D COUNT___LEADING___ZEROS, int, unsigned_int
+INSTANTIATE_OP UnaryOp UnaryOp1D ERF, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D EXPONENT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D EXPONENT___MINUS___ONE, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1D FLOOR, float, half
@@ -155,6 +156,7 @@ INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, CBRT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, CEIL, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COS, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, COUNT___LEADING___ZEROS, int, unsigned_int
+INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, ERF, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, EXPONENT, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, EXPONENT___MINUS___ONE, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, FLOOR, float, half

@@ -80,6 +80,8 @@ std::string debugName(expr::UnaryOpType op) {
     return "Cos";
   case UnaryOpType::COUNT_LEADING_ZEROS:
     return "CountLeadingZeros";
+  case UnaryOpType::ERF:
+    return "Erf";
   case UnaryOpType::EXPONENT:
     return "Exponent";
   case UnaryOpType::EXPONENT_MINUS_ONE:

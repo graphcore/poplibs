@@ -366,6 +366,8 @@ int main(int argc, char **argv) {
     CHECK((mapTest<10, float>(pe::Round(pe::_1))));
   } else if (test == "Cos") {
     CHECK((mapTest<10, float>(pe::Cos(pe::_1))));
+  } else if (test == "Erf") {
+    CHECK((mapTest<10, float>(pe::Erf(pe::_1))));
   } else if (test == "Exp") {
     CHECK((mapTest<10, float>(pe::Exp(pe::_1))));
   } else if (test == "Expm1") {

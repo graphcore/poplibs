@@ -19,6 +19,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "COS";
   case UnaryOpType::COUNT_LEADING_ZEROS:
     return "COUNT_LEADING_ZEROS";
+  case UnaryOpType::ERF:
+    return "ERF";
   case UnaryOpType::EXPONENT:
     return "EXPONENT";
   case UnaryOpType::EXPONENT_MINUS_ONE:
@@ -350,6 +352,7 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::ASIN:
     return true;
   case UnaryOpType::CBRT:
+  case UnaryOpType::ERF:
   case UnaryOpType::IS_FINITE:
   case UnaryOpType::LOGICAL_NOT:
   case UnaryOpType::NEGATE:
@@ -383,6 +386,8 @@ poplar::StringRef getUnaryOpAsString(UnaryOpType op, poplar::Type type) {
     return "NAMESPACE::cos";
   case UnaryOpType::ASIN:
     return "NAMESPACE::asin";
+  case UnaryOpType::ERF:
+    return "NAMESPACE::erf";
   case UnaryOpType::EXPONENT:
     return "NAMESPACE::exp";
   case UnaryOpType::EXPONENT_MINUS_ONE:

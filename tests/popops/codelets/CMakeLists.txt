@@ -97,7 +97,7 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                        COMMAND UnaryCodeletsTest
                                --vertexRE ${TYPE}
                                --operation ABSOLUTE BITWISE_NOT CEIL CBRT
-                                           COUNT_LEADING_ZEROS EXPONENT
+                                           COUNT_LEADING_ZEROS ERF EXPONENT
                                            EXPONENT_MINUS_ONE FLOOR INVERSE
                                            LOGARITHM LOGARITHM_ONE_PLUS
                                            LOGICAL_NOT NEGATE POPCOUNT RELU

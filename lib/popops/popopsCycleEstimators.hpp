@@ -128,6 +128,16 @@ inline const UnaryOpPerfTable unaryOpPerfInfo = {
     {{UnaryOpType::INVERSE, FLOAT}, {8, false, 2}},
     {{UnaryOpType::COUNT_LEADING_ZEROS, INT}, {1, false}},
     {{UnaryOpType::COUNT_LEADING_ZEROS, UNSIGNED_INT}, {1, false}},
+    // 1 - abs, 2 - max, 3 - sign
+    // 4 to compute eta
+    // 10 macs for polynomial
+    // derivative of Phi function - 3
+    // mul with sign and phi - 2
+    // 5 overhead to load constants
+    {{UnaryOpType::ERF, FLOAT}, {25, false, 1}},
+    // Float + cast in and out
+    {{UnaryOpType::ERF, HALF}, {27, false, 1}},
+
     {{UnaryOpType::EXPONENT, FLOAT}, {8, false, 2}},
     // Use f16v2exp
     {{UnaryOpType::EXPONENT, HALF}, {6, false, 4}},
@@ -217,6 +227,15 @@ inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
     {{UnaryOpType::COUNT_LEADING_ZEROS, UNSIGNED_INT}, {1, false}},
     {{UnaryOpType::INVERSE, HALF}, {19, false, 4}},
     {{UnaryOpType::INVERSE, FLOAT}, {8, false, 2}},
+    // 1 - abs, 2 - max, 3 - sign
+    // 4 to compute eta
+    // 10 macs for polynomial
+    // derivative of Phi function - 3
+    // mul with sign and phi - 2
+    // 5 overhead to load constants
+    {{UnaryOpType::ERF, FLOAT}, {25, false, 1}},
+    // Float + cast in and out
+    {{UnaryOpType::ERF, HALF}, {27, false, 1}},
     {{UnaryOpType::EXPONENT, FLOAT}, {8, false, 2}},
     // Use f16v2exp
     {{UnaryOpType::EXPONENT, HALF}, {6, false, 4}},

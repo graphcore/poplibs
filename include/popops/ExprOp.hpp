@@ -52,6 +52,7 @@ enum class UnaryOpType {
   CEIL,
   COS,
   COUNT_LEADING_ZEROS,
+  ERF,
   EXPONENT,
   EXPONENT_MINUS_ONE,
   FLOOR,

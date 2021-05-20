@@ -31,6 +31,7 @@ const std::map<UnaryOpType, const std::string> unaryOpToString = {
     ONE_OP(CEIL),
     ONE_OP(COS),
     ONE_OP(COUNT_LEADING_ZEROS),
+    ONE_OP(ERF),
     ONE_OP(EXPONENT),
     ONE_OP(EXPONENT_MINUS_ONE),
     ONE_OP(FLOOR),
@@ -192,6 +193,7 @@ void performOp(UnaryOpType op, float a, float &result) {
   ONE_OP(CBRT, std::cbrt(a));
   ONE_OP(CEIL, std::ceil(a));
   ONE_OP(COS, std::cos(a));
+  ONE_OP(ERF, std::erf(a));
   ONE_OP(EXPONENT, std::exp(a));
   ONE_OP(EXPONENT_MINUS_ONE, std::expm1(a));
   ONE_OP(FLOOR, std::floor(a));

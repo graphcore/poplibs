@@ -1900,6 +1900,12 @@ int main(int argc, char **argv) {
     binaryOpTest<bool, bool, bool>(
         static_cast<BinaryOpFnPtr_t>(popops::lteq),
         [](bool x, bool y) -> bool { return x <= y; });
+  } else if (test == "Erf") {
+    unaryOpTest<float, double>(popops::erf, [](float x) -> double {
+      double xd = static_cast<double>(x);
+      double res = std::erf(xd);
+      return res;
+    });
   } else if (test == "Exponent") {
     unaryOpTest<float, float>(popops::exp, [](float x) -> float {
       double res = std::exp(static_cast<double>(x));
