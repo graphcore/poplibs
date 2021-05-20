@@ -9,6 +9,7 @@
 #include "ConvReduce.hpp"
 #include "ConvTransforms.hpp"
 #include "ConvUtilInternal.hpp"
+#include "ConvValidation.hpp"
 #include "ConvVertices.hpp"
 #include "ConvolutionInternal.hpp"
 #include "PerformanceEstimation.hpp"
@@ -3372,7 +3373,9 @@ PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
                                    const ConvParams &params,
                                    const poplar::OptionFlags &options_,
                                    PlanningCache *cache) {
-  const ConvOptions options(options_);
+  ConvOptions options(options_);
+  // Note validateLayerParams may change the options.
+  validateLayerParams(params, graph.getTarget(), options);
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   std::size_t cycles, memory;
   std::tie(cycles, memory) =
@@ -3384,7 +3387,9 @@ PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
                     const poplar::OptionFlags &options_, PlanningCache *cache) {
-  const ConvOptions options(options_);
+  ConvOptions options(options_);
+  // Note validateLayerParams may change the options.
+  validateLayerParams(params, graph.getTarget(), options);
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   if (options.pass != Pass::FC_TRAINING_WU &&
       options.pass != Pass::FC_TRAINING_BWD) {
