@@ -267,7 +267,7 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace)
 // -------------------------------------------------------------------------
 // Preparation for using FAST_PIPELINED_DELAYED_CORE
 // Get quotient and remainder of acts_block_count/3. The fixed point division
-// gives the correct results only when $acts_block_count range is [0..32768]
+// gives the correct results only when $acts_block_count range is [0..98304)
 //
 //    INPUT:   $acts_block_count : number of blocks to process
 //
@@ -277,8 +277,9 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace)
 //
 // -------------------------------------------------------------------------
 .macro DIVIDE_BLOCKS_BY_3
-  mul $quotient, $acts_block_count, 0x5556;
-  shr $quotient, $quotient, 16
+  setzi $mscratch0, 0xaaab
+  mul $quotient, $acts_block_count, $mscratch0
+  shr $quotient, $quotient, 17
   mul $mscratch0, $quotient, 3
   sub $remainder, $acts_block_count, $mscratch0
   sub $acts_block_count, $quotient, 1
@@ -546,6 +547,7 @@ nop
   br $lr
 
 .align 8
+nop
 .Lexactly_four_in_place:
   // =====  IN-PLACE
   st32 $quotient,   $mworker_base, $mzero, SCRATCH_OFFSET_QUOTIENT
