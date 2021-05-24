@@ -79,9 +79,11 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
   // computation is expected to be significant.
   float compute(float x) const {
     const float sign = x >= 0 ? +1.0f : -1.0f;
+    // stabilisation to avoid potential overflows in polynomial evaluation
+    const float xAbs = ipu::fmin(10.0f, ipu::fabs(x));
     const float p = 0.3275911;
-    const float eta = 1.0f / (1.0f + p * ipu::fabs(x));
-    const auto y = (1.0f - poly(eta) * ipu::exp(-x * x)) * sign;
+    const float eta = 1.0f / (1.0f + p * xAbs);
+    const auto y = (1.0f - poly(eta) * ipu::exp(-xAbs * xAbs)) * sign;
     return y;
   }
 
