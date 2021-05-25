@@ -100,6 +100,92 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
 #endif
 };
 
+#ifdef __IPU__
+// Compute Tau function based on Legendre polynomial of the 5th order.
+// (https://mae.ufl.edu/~uhk/IEEETrigpaper8.pdf)
+// The algorithm used here deviates from the one in the paper in that the input
+// range is extended over  (-pi:pi) which simplifies the calculation without
+// having to check ranges that should enable this to be vectorised. Note that
+// the approximation in the range [-pi/4:pi/4] is even better than the native
+// implementation used by the compiler The performance of the algorithm itself
+// is exact in half range but suffers because of the floating point arithmetic
+// done to get the number within [-pi:pi] range for values of input outside
+// +/-8000 in radians. If we wanted to get full acccuracy across the full range
+// the computation of y must be done in a higher precision.
+static float computeTrigTau(float x) {
+  // express pi as a ratio of two numbers which give a closer
+  // approximation to pi.
+  constexpr float piNum = 12742.2998046875;
+  constexpr float piDen = 2028;
+  constexpr float invTwoPi = 0.15915493667125701904296875f;
+  // although the computation of tau4 itself is good enough for half, the
+  // computation of y introduces most of the error for large x. Therefore
+  // values of |x| < 8000 produce exact values at half precision.
+  const auto xNorm = ipu::floor(x * invTwoPi) + 0.5f;
+  const float y = (x * piDen - xNorm * piNum) / (piDen * 2);
+
+  const auto y2 = y * y;
+  constexpr float c0 = 945.0f;
+  constexpr float c1 = -105.0062f;
+  const float c2 = -420.00070f;
+  const float c3 = 14.99822f;
+  const auto tau5 = y * (c0 + y2 * (c1 + y2)) / (c0 + y2 * (c2 + c3 * y2));
+  return tau5;
+}
+#endif
+
+template <> struct UnaryLibCall<expr::UnaryOpType::COS> {
+#ifdef __IPU__
+  float compute(float x) const {
+    const auto tau = computeTrigTau(x);
+    return (tau * tau - 1) / (tau * tau + 1);
+  }
+
+  template <typename FPType> FPType operator()(FPType x) const {
+    if constexpr (isFloatType<FPType>::value) {
+      return ipu::cos(x);
+    } else {
+      if constexpr (isVectorType<FPType>::value) {
+        unsigned n = sizeof(x) / sizeof(x[0]);
+        FPType y;
+        for (unsigned i = 0; i != n; ++i) {
+          y[i] = compute(static_cast<float>(x[i]));
+        }
+        return y;
+      } else {
+        return compute(static_cast<float>(x));
+      }
+    }
+  }
+#endif
+};
+
+template <> struct UnaryLibCall<expr::UnaryOpType::SIN> {
+#ifdef __IPU__
+  float compute(float x) const {
+    const auto tau = computeTrigTau(x);
+    return -2.0f * tau / (tau * tau + 1);
+  }
+
+  template <typename FPType> FPType operator()(FPType x) const {
+    if constexpr (isFloatType<FPType>::value) {
+      return ipu::sin(x);
+    } else {
+      if constexpr (isVectorType<FPType>::value) {
+        unsigned n = sizeof(x) / sizeof(x[0]);
+        FPType y;
+        for (unsigned i = 0; i != n; ++i) {
+          y[i] = compute(static_cast<float>(x[i]));
+        }
+        return y;
+      } else {
+        return compute(static_cast<float>(x));
+      }
+    }
+  }
+#endif
+};
+
 // Structure with template specialization to define the output type
 // of a unary operation
 template <expr::UnaryOpType op, typename T> struct UnaryOpOutputType {
@@ -179,7 +265,10 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::ERF,
                    return std::erf(PromoteHalfsToFloats(x));
                    , return UnaryLibCall<expr::UnaryOpType::ERF>{}(x);)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::CEIL, ceil)
-DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::COS, cos)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::COS,
+                   return std::cos(PromoteHalfsToFloats(x));
+                   , return UnaryLibCall<expr::UnaryOpType::COS>{}(x);)
+
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::COUNT_LEADING_ZEROS,
                    return x ? __builtin_clz(x) : 32;)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT, exp)
@@ -231,7 +320,10 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::SIGNUM, return (0 < x) - (x < 0);
                    , return compareLT(decltype(x){0}, x) -
                             compareLT(x, decltype(x){0});)
 
-DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::SIN, sin)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::SIN,
+                   return std::sin(PromoteHalfsToFloats(x));
+                   , return UnaryLibCall<expr::UnaryOpType::SIN>{}(x);)
+
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::ASIN, asin)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::TAN,
                    return std::tan(PromoteHalfsToFloats(x));
