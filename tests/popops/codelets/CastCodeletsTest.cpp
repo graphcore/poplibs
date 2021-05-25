@@ -352,8 +352,6 @@ int main(int argc, char **argv) {
 
   std::vector<std::string> dstTypeStrs;
   std::vector<std::string> vertices;
-  unsigned groupTests = 1;
-  boost::optional<std::string> cycleCompareDevice;
 
   MiscOptions options;
 
@@ -399,15 +397,9 @@ int main(int argc, char **argv) {
      "square bracket, comma separated list of values for a 2D vertex")
     ;
   // clang-format on
-  addCommonOptions(poDesc, deviceType, cycleCompareDevice, groupTests, options);
+  addCommonOptions(poDesc, deviceType, options);
 
   parseOptions(argc, argv, poDesc);
-
-  // === Some parameter checks
-  if (cycleCompareDevice && groupTests > 1) {
-    std::cout << "When running with --compare-cycle option, the --group-tests "
-                 "option is ignored\n";
-  }
 
   // === If no vertices specified, test 'em all
   if (vertices.empty()) {
@@ -438,16 +430,7 @@ int main(int argc, char **argv) {
     srcTypes.insert(srcTypes.begin(), allTypes.begin(), allTypes.end());
   }
 
-  // If we are comparing cycles, we need a vector with the 2 devices to compare
-  std::vector<DeviceType> devices = {deviceType};
-  if (cycleCompareDevice) {
-    devices.push_back(getCycleCompareDevice(deviceType, *cycleCompareDevice));
-  }
-
-  std::optional<std::vector<std::shared_ptr<TestRecord<VertexDesc>>>> tests;
-  if (!cycleCompareDevice && groupTests > 1) {
-    tests.emplace();
-  }
+  std::vector<std::shared_ptr<TestRecord<VertexDesc>>> tests;
   unsigned numTests = 0;
   unsigned errCount = 0;
   // Loop over all vertices, src type and dst type
@@ -462,13 +445,13 @@ int main(int argc, char **argv) {
             auto testRec = std::make_shared<TestRecord<VertexDesc>>(
                 std::move(vertex), numTests, sz);
             addOneTest<TestRecord<VertexDesc>, VertexDesc>(
-                tests, testRec, devices, errCount, options);
+                tests, testRec, deviceType, errCount, options);
           }
         }
       }
     }
   }
-  runAllTests<TestRecord<VertexDesc>>(tests, numTests, groupTests, deviceType,
-                                      errCount, options);
+  runAllTests<TestRecord<VertexDesc>>(tests, numTests, deviceType, errCount,
+                                      options);
   return (errCount == 0) ? 0 : 1; // returning 1 means an error.
 }

@@ -872,8 +872,6 @@ int main(int argc, char **argv) {
 
   std::vector<std::string> vertices;
   std::string vertexRE; // regular expression for vertex name
-  unsigned groupTests = 1;
-  boost::optional<std::string> cycleCompareDevice;
 
   boost::optional<unsigned> operandOffset;
   MiscOptions options;
@@ -937,7 +935,7 @@ int main(int argc, char **argv) {
      "in memory will be left to poplar")
     ;
   // clang-format on
-  addCommonOptions(poDesc, deviceType, cycleCompareDevice, groupTests, options);
+  addCommonOptions(poDesc, deviceType, options);
 
   parseOptions(argc, argv, poDesc);
 
@@ -945,10 +943,6 @@ int main(int argc, char **argv) {
   if (!vertexRE.empty() && !vertices.empty()) {
     throw std::runtime_error(
         "Cannot specify both --vertexRE and --vertex option");
-  }
-  if (cycleCompareDevice && (groupTests > 1)) {
-    std::cout << "When running with --compare-cycle option, the --group-tests "
-                 "option is ignored\n";
   }
 
   // === If no vertices specified, test 'em all
@@ -979,16 +973,7 @@ int main(int argc, char **argv) {
 
   std::regex vertexRegEx(vertexRE);
 
-  // If we are comparing cycles, we need a vector with the 2 devices to compare
-  std::vector<DeviceType> devices = {deviceType};
-  if (cycleCompareDevice) {
-    devices.push_back(getCycleCompareDevice(deviceType, *cycleCompareDevice));
-  }
-
-  std::optional<std::vector<std::shared_ptr<TestRecord>>> tests;
-  if (!cycleCompareDevice && groupTests > 1) {
-    tests.emplace();
-  }
+  std::vector<std::shared_ptr<TestRecord>> tests;
   unsigned numTests = 0;
   unsigned errCount = 0;
   // Loop over all vertices, types and options
@@ -1010,8 +995,8 @@ int main(int argc, char **argv) {
                     numTests++;
                     auto testRec = std::make_shared<TestRecord>(
                         vertex, numTests, sz, operandOffset, tolerance);
-                    addOneTest<TestRecord, VertexDesc>(tests, testRec, devices,
-                                                       errCount, options);
+                    addOneTest<TestRecord, VertexDesc>(
+                        tests, testRec, deviceType, errCount, options);
                   }
                 }
               }
@@ -1021,7 +1006,6 @@ int main(int argc, char **argv) {
       }
     }
   }
-  runAllTests<TestRecord>(tests, numTests, groupTests, deviceType, errCount,
-                          options);
+  runAllTests<TestRecord>(tests, numTests, deviceType, errCount, options);
   return (errCount == 0) ? 0 : 1; // returning 1 means an error.
 }

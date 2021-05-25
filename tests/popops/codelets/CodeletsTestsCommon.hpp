@@ -3,7 +3,7 @@
 #ifndef popops_codelets_CodeletsTestCommon_hpp
 #define popops_codelets_CodeletsTestCommon_hpp
 
-// Definitions/declarations used in elementwise unarey/binary operation test
+// Definitions/declarations used in elementwise unary/binary operation test
 // code.
 
 #include <poplar/Type.hpp>
@@ -12,6 +12,7 @@
 #include <popops/ElementWise.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <pva/pva.hpp>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
@@ -37,6 +38,8 @@ using boost::format;
 using std::to_string;
 
 namespace po = boost::program_options;
+
+static const std::string estimatedStr = "estimated";
 
 // Overloaded & templated convertToString functions to print correctly
 // from inside the templated 'verifyResult()'  function
@@ -405,11 +408,18 @@ struct MiscOptions {
   // some operands!)
   unsigned randomSeed = 1;
 
+  // How many test to run in a single graph/compute set (one per tile)
+  unsigned groupTests = 1;
+
   // print the number of cycles used by the vertex.
   bool printCycles = false;
 
+  // If not null, we want to compare the execution cycles between the 'current'
+  // device and the device whose name is specified here
+  boost::optional<std::string> cycleCompareDevice;
+
   // Percent of (absolute value of) difference above which a cycle comparison
-  // test will fail
+  // test will fail (if cycleCompareDevice is not null))
   float cycleCompareThreshold = 10;
 
   // Align the start of inputs and outputs on this number of bytes
@@ -429,14 +439,16 @@ struct MiscOptions {
 /// \param[in]    options    Global options.
 /// \param[in]    verbose    Do we want to print a description of each test as
 ///                          it is setup/verified?
-/// \param[inout] cycles     If not null, we want to get back the cycles used
-///                          when running the set of tests.
+/// \param[out]   cycles     If requested in 'options', will be populated with
+///                          the cycles spent running the vertex.
+/// \param[out]   estimatedCycles If requested in 'options', will be populated
+///                               with the cycles estimatation for the vertex.
 /// \return   number of FAILED tests.
 template <typename TestRecord>
 unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
                   unsigned offs, unsigned numTests, const DeviceType deviceType,
-                  const MiscOptions &options, bool verbose,
-                  uint64_t *cycles = nullptr) {
+                  const MiscOptions &options, bool verbose, uint64_t &cycles,
+                  uint64_t &estimatedCycles) {
   // The name of the compute set where we run the vertex under test.
   const static std::string computeSetName = "vertexComputeSet";
 
@@ -466,8 +478,12 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
 
   // === Run the program
   OptionFlags engOpts;
-  if (options.report || cycles) {
+  bool reportCycles = options.printCycles || options.cycleCompareDevice;
+  if (options.report || reportCycles) {
     engOpts.set("debug.instrumentCompute", "true");
+  }
+  if (options.cycleCompareDevice == estimatedStr) {
+    engOpts.set("profiler.includeCycleEstimates", "true");
   }
   if (options.disableFpExceptions) {
     engOpts.set("debug.floatPointOpException", "false");
@@ -501,13 +517,20 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
         errCount++;
     }
   }
-  if (cycles) {
-    // Get the cycles by searching the "simulation"/"steps" vector for an
-    // "OnTileExecute" element having the compute set name we used.
-    poplar::ProfileValue execProfile = engine.getExecutionProfile();
-    for (auto s : execProfile["simulation"]["steps"].asVector()) {
-      if (s["type"] == "OnTileExecute" && s["name"] == computeSetName) {
-        *cycles = s["cycles"].asUint();
+  if (reportCycles) {
+    const pva::Report &report = engine.getReport();
+
+    // Get the cycles by searching the "steps"/"computeSets" vector for a
+    // compute set having the name we used.
+    for (auto const &s : report.execution().steps()) {
+      auto const &computeSets = s.computeSets();
+      for (auto const &cs : computeSets) {
+        if (cs.name() == computeSetName) {
+          auto cyc = cs.cyclesByTile();
+          cycles = (cyc.size() > 0) ? cyc[0] : 0;
+          auto est = cs.estimatedCyclesByTile();
+          estimatedCycles = (est.size() > 0) ? est[0] : 0;
+        }
       }
     }
   }
@@ -515,69 +538,58 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
 }
 
 //*************************************************************************
-/// If we are going to compare cycles between two devices, return the second
-/// device to use, using the string specified on the command line. If that
-/// string was "default", then we try to match 'Sim1' with 'IpuModel1' or
-/// 'Sim2' with 'IpuModel2', otherwise we just use the specified device.
-///
-/// \param mainDevice        The main (first) device to run on, from cmd line
-/// \param compareDeviceStr  The 'cycle-compare' device string, from cmd line
-///
-/// \return The device to use as second device in the comparison
-DeviceType getCycleCompareDevice(const DeviceType &mainDevice,
-                                 const std::string &compareDeviceStr) {
-  std::optional<DeviceType> compDev;
-  if (compareDeviceStr == "default") {
-    if (mainDevice == DeviceType::Sim1) {
-      compDev = DeviceType::IpuModel1;
-    } else if (mainDevice == DeviceType::Sim2) {
-      compDev = DeviceType::IpuModel2;
-    }
-  }
-  if (!compDev) {
-    std::istringstream is(compareDeviceStr);
-    is >> *compDev;
-  }
-  return *compDev;
-}
-
-//*************************************************************************
 /// Compare the cycles used when running the vertex with the two specified
 /// devices. Prints result on standard output.
 ///
-/// \param[in]    devices  Two devices for which we will run the test
-/// \param[in]    test     Test record defining the specific vertex and
-///                        operand(s) size.
-/// \param[in]    options  Global options.
+/// \param[in] device              The 'main' device for which to run the test
+/// \param[in] test                Test record defining the specific vertex and
+///                                operand(s) size.
+/// \param[in] options             Global options.
 ///
 /// \return true   if both run returned successfully and the difference is less
 ///                than 'compareThreshold' % of the run with the first device.
 template <typename TestRecord, typename VertexDesc>
-bool compareCycles(const std::vector<DeviceType> devices,
-                   std::shared_ptr<TestRecord> test,
+bool compareCycles(DeviceType device, std::shared_ptr<TestRecord> test,
                    const MiscOptions &options) {
-  assert(devices.size() == 2);
-
   VertexDesc &vertex = *test->vertex;
 
   std::stringstream devName[2]; // Strings with the name of selected devices
   std::cout << vertex.vClassFmt << std::flush;
 
   bool ok[2];
-  uint64_t cycles[2];
-  // Run with the two devices and get the cycles
-  for (unsigned i = 0; i < 2; i++) {
-    devName[i] << devices[i];
-    uint64_t cyc = 0;
-    std::vector<std::shared_ptr<TestRecord>> testVect = {test};
-    ok[i] = runTests<TestRecord>(testVect, 0, 1, devices[i], options, false,
-                                 &cyc) == 0;
-    if (!ok[i]) {
-      std::cout << "Failed on device " << devName[i].str() << " (see stderr)\n";
-      return false;
+  uint64_t cycles[2] = {0, 0};
+
+  std::vector<std::shared_ptr<TestRecord>> testVect = {test};
+
+  // If was explicitly requested to compare with the "estimated" cycles, we can
+  // just run the test once, and get the both values.
+  if (options.cycleCompareDevice == estimatedStr) {
+    devName[0] << device;
+    devName[1] << "estimated";
+    ok[0] = ok[1] = (runTests<TestRecord>(testVect, 0, 1, device, options,
+                                          false, cycles[0], cycles[1]) == 0);
+  } else {
+    // If an explicit device was specified for the comparison, run with the two
+    // devices and get the cycles from both.
+    DeviceType compDevice;
+    std::istringstream is(*options.cycleCompareDevice);
+    is >> compDevice;
+    DeviceType devices[2] = {device, compDevice};
+    for (unsigned i = 0; i < 2; i++) {
+      devName[i] << devices[i];
+      uint64_t cyc = 0;
+      uint64_t estimatedCyc = 0;
+      ok[i] = runTests<TestRecord>(testVect, 0, 1, devices[i], options, false,
+                                   cyc, estimatedCyc) == 0;
+      if (!ok[i]) {
+        std::cout << "Failed on device " << devName[i].str()
+                  << " (see stderr)\n";
+        return false;
+      }
+      cycles[i] = isIpuModel(devices[i]) ? estimatedCyc : cyc;
     }
-    cycles[i] = cyc;
   }
+
   float diff = static_cast<float>(cycles[1]) - static_cast<float>(cycles[0]);
   float diffPerc = diff / cycles[0] * 100;
   bool compareOk = abs(diffPerc) < options.cycleCompareThreshold;
@@ -594,72 +606,69 @@ bool compareCycles(const std::vector<DeviceType> devices,
 /// \param[inout] tests      A vector where to add the test. Could be 'nullopt'
 ///                          if we need to run the test straight away
 /// \param[in]    newTest    The new tests to add (or run)
-/// \param[in]    devices    Normally contains a single device, or two if we are
-///                          running a cycle comparison.
+/// \param[in]    device     Device to run on
 /// \param[inout] errCount   If the test is run immediatley, will be increased
 ///                          by one if the test fails
 /// \param[in]    options    Global options.
 template <typename TestRecord, typename VertexDesc>
-void addOneTest(std::optional<std::vector<std::shared_ptr<TestRecord>>> &tests,
-                std::shared_ptr<TestRecord> newTest,
-                std::vector<DeviceType> devices, unsigned &errCount,
-                const MiscOptions &options) {
+void addOneTest(std::vector<std::shared_ptr<TestRecord>> &tests,
+                std::shared_ptr<TestRecord> newTest, DeviceType device,
+                unsigned &errCount, const MiscOptions &options) {
   // If:
-  //   1. we are running a cycle comparison (devices has 2 elements), or
-  //   2. we have specfied to run test individually ('tests[]' is empty), or
+  //   1. we are running a cycle comparison, or
+  //   2. we have specfied to run test individually (groupTests == 1), or
   //   3. we want to print the vertex execution cycles
   // then we run the new test straight away here,
   // otherwise we add this test record to 'tests[]', to be run afterwards.
-  if (devices.size() == 2) {
-    errCount += compareCycles<TestRecord, VertexDesc>(devices, newTest, options)
-                    ? 0
-                    : 1;
-  } else if (tests == std::nullopt || options.printCycles) {
-    assert(devices.size() == 1);
+  if (options.cycleCompareDevice) {
+    errCount +=
+        compareCycles<TestRecord, VertexDesc>(device, newTest, options) ? 0 : 1;
+  } else if (options.groupTests == 1 || options.printCycles) {
     std::vector<std::shared_ptr<TestRecord>> testVect = {newTest};
+    uint64_t cycles;
+    uint64_t estimatedCycles;
+    errCount += runTests(testVect, 0, 1, device, options, true, cycles,
+                         estimatedCycles);
     if (options.printCycles) {
-      uint64_t cycles;
-      errCount += runTests(testVect, 0, 1, devices[0], options, false, &cycles);
-      std::cout << newTest->toString() << "  cycles:" << cycles << std::endl;
-    } else {
-      errCount += runTests(testVect, 0, 1, devices[0], options, true);
+      std::cout << newTest->toString() << "  cycles:"
+                << (isIpuModel(device) ? estimatedCycles : cycles) << std::endl;
     }
   } else {
-    tests->emplace_back(std::move(newTest));
+    tests.emplace_back(std::move(newTest));
   }
 }
 
 //*************************************************************************
 /// Run all tests that have been accumulated in 'tests[]' (if any), or do
 /// nothing if the test have already been run individually
-/// \param[inout] tests      A vector with the tests to run. Could be 'nullopt'
-///                          if we have already run the tests
+/// \param[inout] tests      A vector with the tests to run.
 /// \param[in]    numTests   How many tests are in 'tests[]'. If 'tests' is
 ///                          empty, this is the total tests run already.
-/// \param[in]    groupTests how many tests to group together in a single
-///                          graph and compute set
 /// \param[in]    deviceType What type of device to run the tests on
 /// \param[inout] errCount   Will be updated with the number of failed tests.
 /// \param[in]    options    Global options.
 ///
 template <typename TestRecord>
-void runAllTests(std::optional<std::vector<std::shared_ptr<TestRecord>>> &tests,
-                 unsigned numTests, unsigned groupTests, DeviceType deviceType,
-                 unsigned &errCount, const MiscOptions &options) {
+void runAllTests(std::vector<std::shared_ptr<TestRecord>> &tests,
+                 unsigned numTests, DeviceType deviceType, unsigned &errCount,
+                 const MiscOptions &options) {
   if (numTests == 0) {
     throw std::runtime_error("The specified vertex, operand(s) and data "
                              "type(s) do not match any valid combination");
   }
-  if (tests->size() > 0) {
-    assert(numTests == tests->size());
+  if (tests.size() > 0) {
+    assert(numTests == tests.size());
     // Run the tests in batches of up to 'groupTests' together on a single
     // graph/ single CS, each test on a different tile. We limit grouping tests
     // on multiple tile to 'groupTests' because when running on the simulators,
     // if too many tiles are used, execution is slower.
     unsigned offs = 0, n = numTests;
     while (n) {
-      unsigned l = n > groupTests ? groupTests : n;
-      errCount += runTests(*tests, offs, l, deviceType, options, true);
+      uint64_t cycles;
+      uint64_t estimatedCycles;
+      unsigned l = n > options.groupTests ? options.groupTests : n;
+      errCount += runTests(tests, offs, l, deviceType, options, true, cycles,
+                           estimatedCycles);
       offs += l;
       n -= l;
     }
@@ -684,8 +693,7 @@ public:
 /// Add all command line options tha are common among all vertex test
 /// executables.
 void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
-                      boost::optional<std::string> &cycleCompareDevice,
-                      unsigned &groupTests, MiscOptions &options) {
+                      MiscOptions &options) {
   // clang-format off
   poDesc.add_options()
     ("device-type",
@@ -701,8 +709,8 @@ void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
      po::value<bool>(&options.printCycles)->implicit_value(true),
      "Print the number of cycles used by the vector")
     ("compare-cycles",
-     po::value<boost::optional<std::string>>(&cycleCompareDevice)->
-                                         implicit_value(std::string("default")),
+     po::value<boost::optional<std::string>>(&options.cycleCompareDevice)->
+                                       implicit_value(std::string("estimated")),
      "For each specified vertex, compare the cycles reported by the device ("
      "--device-type option) and another device specified by this option")
     ("cycle-threshold",
@@ -730,7 +738,7 @@ void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
      "Do not check correctness of result, useful for benchmarking without "
      "overhead of host-side computation")
     ("group-tests",
-     po::value<unsigned>(&groupTests)->implicit_value(100),
+     po::value<unsigned>(&options.groupTests)->implicit_value(100),
      "Run multiple tests together in a single graph and single compute set, "
      "each test on a separate tile, to increase execution speed")
     ("print-buffers",
@@ -739,6 +747,12 @@ void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
     ("help", "Print help")
     ;
   // clang-format on
+
+  // Print a warning if these two options are both specified
+  if (options.cycleCompareDevice && (options.groupTests > 1)) {
+    std::cout << "When running with --compare-cycle option, the --group-tests "
+                 "option is ignored\n";
+  }
 }
 
 // Utility function to parse the command line options so that you can also

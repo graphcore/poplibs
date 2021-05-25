@@ -12,7 +12,7 @@ function(add_multi_target_test_executable name)
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name}
-    popfloat poprand popnn poputil poplar poplibs_support poplibs_test
+    popfloat poprand popnn poputil poplar poplibs_support poplibs_test pva
     Boost::program_options ${CMAKE_THREAD_LIBS_INIT})
   if(TARGET popsparse)
     target_link_libraries(${name} popsparse)
