@@ -69,7 +69,7 @@ int testDim(unsigned sliceDim) {
   auto &graphProfile = eng.getGraphProfile();
   bool verbose = false;
   if (verbose)
-    poplar::printProfileSummary(std::cerr, graphProfile, {}, options);
+    eng.printProfileSummary(std::cerr, options);
   auto tile0Memory = graphProfile["memory"]["byTile"]["total"][0].asUint();
   BOOST_TEST_FRAMEWORK_MESSAGE("blah");
   BOOST_TEST_MESSAGE("Tile0 memory = " + std::to_string(tile0Memory));
