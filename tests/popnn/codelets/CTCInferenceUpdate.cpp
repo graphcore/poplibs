@@ -53,6 +53,7 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   auto currentTimestep =
       graph.addConstant(UNSIGNED_INT, {}, timestep, "currentTimestep");
   auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  auto complete = graph.addVariable(UNSIGNED_INT, {}, "completeFlag");
 
   graph.setTileMapping(beamAddend, 0);
   graph.setTileMapping(beamParent, 0);
@@ -60,6 +61,7 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
 
   graph.setTileMapping(currentTimestep, 0);
   graph.setTileMapping(dataLength, 0);
+  graph.setTileMapping(complete, 0);
 
   auto cs = graph.addComputeSet("cs");
   auto vertex = graph.addVertex(
@@ -72,6 +74,7 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
 
   graph.connect(vertex["currentTimestep"], currentTimestep);
   graph.connect(vertex["dataLength"], dataLength);
+  graph.connect(vertex["complete"], complete);
 
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
 
@@ -103,7 +106,8 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
        rawCandidates.probBlank.get());
 
   // InOut
-  std::unique_ptr<char[]> rawBeamAddend, rawBeamParent, rawBeamLength;
+  std::unique_ptr<char[]> rawBeamAddend, rawBeamParent, rawBeamLength,
+      rawComplete;
 
   rawBeamAddend = allocateHostMemoryForTensor(beamAddend, "beamAddend", graph,
                                               uploadProg, downloadProg, tmap);
@@ -111,17 +115,21 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
                                               uploadProg, downloadProg, tmap);
   rawBeamLength = allocateHostMemoryForTensor(beamLength, "beamLength", graph,
                                               uploadProg, downloadProg, tmap);
+  rawComplete = allocateHostMemoryForTensor(complete, "complete", graph,
+                                            uploadProg, downloadProg, tmap);
 
   // TODO last beam output isn't verified by this test, but will probably be
   // optimised out in future
   auto rawBeamProbs = createAndConnectBeamProbs(
-      graph, vertex, partialsType, {beamwidth}, uploadProg, downloadProg, tmap);
+      graph, vertex, partialsType, {beamwidth},
+      BeamScalars::BLANK_AND_NON_BLANK, uploadProg, downloadProg, tmap);
 
   std::vector<unsigned> beamAddendIn{};
   std::vector<unsigned> beamParentIn{};
   std::vector<double> beamProbNonBlankIn{};
   std::vector<double> beamProbBlankIn{};
   std::vector<double> beamProbTotalIn{};
+  std::vector<unsigned> completeIn = {0};
 
   for (unsigned t = 0; t < maxT; t++) {
     for (unsigned b = 0; b < beamwidth; b++) {
@@ -147,6 +155,7 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   copy(target, beamProbBlankIn, partialsType, rawBeamProbs.pb.get());
   copy(target, beamProbTotalIn, partialsType, rawBeamProbs.pTotal.get());
   copy(target, beamLengthIn, UNSIGNED_INT, rawBeamLength.get());
+  copy(target, completeIn, UNSIGNED_INT, rawComplete.get());
 
   OptionFlags engineOptions;
   if (profile) {

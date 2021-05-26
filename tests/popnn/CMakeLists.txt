@@ -1563,17 +1563,19 @@ foreach(seed RANGE 1 5)
 endforeach()
 
 # Some coverage in simulation and hardware
+# Batch > 1 and a range of min to max time tests early completion
 foreach(seed RANGE 10 20)
   foreach(num_classes 3 5 10)
     foreach(beamwidth 4 5 50)
       add_multitarget_test(
         NAME ctc_beam_search_sim_${beamwidth}_${seed}_${num_classes}
           COMMAND ctc_beam_search
-            --batch=1
+            --batch=2
             --seed=${seed}
             --num-classes=${num_classes}
             --beamwidth=${beamwidth}
-            --max-time=4
+            --max-time=8
+            --min-time=4
             --max-label-length=2
             --top-paths=4
             --tiles-per-ipu=16

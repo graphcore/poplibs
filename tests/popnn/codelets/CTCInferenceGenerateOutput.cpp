@@ -71,9 +71,7 @@ std::vector<unsigned> runGenerateOutputCodelet(
   graph.connect(vertex["beamLength"], beamLength);
 
   graph.setInitialValue(vertex["beam"], outputBeam);
-  graph.setInitialValue(vertex["maxT"], maxT);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
-  graph.setInitialValue(vertex["numClassesIncBlank"], numClassesIncBlank);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;

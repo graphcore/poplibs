@@ -30,6 +30,8 @@ struct BeamHandles {
   std::unique_ptr<char[]> lastOutput;
 };
 
+enum class BeamScalars { BLANK, NON_BLANK, BLANK_AND_NON_BLANK };
+
 template <typename InputType, typename PartialsType>
 std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
     poplar::Graph &graph, poplibs_support::TestDevice &device,
@@ -97,15 +99,14 @@ CandidateHandles createAndConnectCandidates(
     poplar::program::Sequence &uploadProg,
     poplar::program::Sequence &downloadProg,
     std::vector<std::pair<std::string, char *>> &tmap,
-    bool includeTotal = true);
+    bool includeTotalAndBlank = true);
 
-BeamHandles
-createAndConnectBeamProbs(poplar::Graph &graph, const poplar::VertexRef &vertex,
-                          const poplar::Type &probsType,
-                          const poplar::ArrayRef<std::size_t> &shape,
-                          poplar::program::Sequence &uploadProg,
-                          poplar::program::Sequence &downloadProg,
-                          std::vector<std::pair<std::string, char *>> &tmap);
+BeamHandles createAndConnectBeamProbs(
+    poplar::Graph &graph, const poplar::VertexRef &vertex,
+    const poplar::Type &probsType, const poplar::ArrayRef<std::size_t> &shape,
+    BeamScalars selectBlank, poplar::program::Sequence &uploadProg,
+    poplar::program::Sequence &downloadProg,
+    std::vector<std::pair<std::string, char *>> &tmap);
 
 } // namespace ctc
 } // namespace poplibs_test

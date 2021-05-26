@@ -35,8 +35,7 @@ std::vector<Candidate<PartialsType>> runSimpleSortCandidatesCodelet(
     unsigned beamwidth, unsigned timestep, bool profile) {
   const auto target = graph.getTarget();
 
-  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
-  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  auto complete = graph.addConstant(UNSIGNED_INT, {}, 0u);
 
   auto cs = graph.addComputeSet("cs");
   auto vertex =
@@ -48,11 +47,9 @@ std::vector<Candidate<PartialsType>> runSimpleSortCandidatesCodelet(
   graph.setInitialValue(vertex["totalCandidates"], totalCandidates);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
 
-  graph.connect(vertex["currentTimestep"], currentTimestep);
-  graph.connect(vertex["dataLength"], dataLength);
+  graph.connect(vertex["complete"], complete);
 
-  graph.setTileMapping(currentTimestep, 0);
-  graph.setTileMapping(dataLength, 0);
+  graph.setTileMapping(complete, 0);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;

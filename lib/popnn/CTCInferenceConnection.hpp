@@ -15,6 +15,9 @@ struct TempTensors {
   // dataLengths broadcast, for vertices to access
   // [batchSize][batchEntryPartitions][1]
   poplar::Tensor dataLengths;
+  // Flag to indicate that processing is complete - for each individual
+  // batch entry, when times are < maxT
+  poplar::Tensor complete;
 
   // Timestep counter used by the loop program to count loop passes, and end
   // when enough passes have been taken.

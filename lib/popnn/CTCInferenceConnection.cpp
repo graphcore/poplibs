@@ -28,15 +28,24 @@ namespace {
 using TempTensors = popnn::ctc_infer::TempTensors;
 using BeamTensors = popnn::ctc_infer::BeamTensors;
 
+enum class BeamScalars { BLANK, NON_BLANK, BLANK_AND_NON_BLANK };
+
 void attachBeamScalars(Graph &graph, const BeamTensors &beams, unsigned batch,
                        unsigned partition, unsigned beamwidth,
-                       const VertexRef &vertex) {
+                       BeamScalars selectBlank, const VertexRef &vertex) {
 
   Slice<4> begin = {batch, partition, 0, 0};
   Slice<4> end = {batch + 1, partition + 1, beamwidth, 1};
-  graph.connect(vertex["beamProbBlank"], beams.pb.slice(begin, end).flatten());
-  graph.connect(vertex["beamProbNonBlank"],
-                beams.pnb.slice(begin, end).flatten());
+  if (selectBlank == BeamScalars::BLANK ||
+      selectBlank == BeamScalars::BLANK_AND_NON_BLANK) {
+    graph.connect(vertex["beamProbBlank"],
+                  beams.pb.slice(begin, end).flatten());
+  }
+  if (selectBlank == BeamScalars::NON_BLANK ||
+      selectBlank == BeamScalars::BLANK_AND_NON_BLANK) {
+    graph.connect(vertex["beamProbNonBlank"],
+                  beams.pnb.slice(begin, end).flatten());
+  }
   graph.connect(vertex["beamProbTotal"],
                 beams.pTotal.slice(begin, end).flatten());
   graph.connect(vertex["lastBeamOutputs"],
@@ -110,8 +119,6 @@ void attachMergeExtendCandidates(Graph &graph, const TempTensors &tempTensors,
                 tempTensors.extendCandidatesAddend.slice(begin, end).flatten());
   graph.connect(vertex["extendCandidateBeamProbNonBlank"],
                 tempTensors.extendCandidatesPnb.slice(begin, end).flatten());
-  graph.connect(vertex["extendCandidateBeamProbBlank"],
-                tempTensors.extendCandidatesPb.slice(begin, end).flatten());
 }
 
 void attachData(Graph &graph, const Tensor &data, unsigned batch,
@@ -122,13 +129,25 @@ void attachData(Graph &graph, const Tensor &data, unsigned batch,
   graph.connect(vertex["logProbs"], data.slice(begin, end).flatten());
 }
 
+void attachTimeAndCompleteFlag(Graph &graph, const TempTensors &tempTensors,
+                               unsigned batch, unsigned partition,
+                               const VertexRef &vertex) {
+  graph.connect(vertex["currentTimestep"],
+                tempTensors.currentTimestep[batch][partition][0]);
+  graph.connect(vertex["complete"], tempTensors.complete[batch][partition][0]);
+}
 void attachTimeAndLength(Graph &graph, const TempTensors &tempTensors,
                          unsigned batch, unsigned partition,
                          const VertexRef &vertex) {
-  graph.connect(vertex["currentTimestep"],
-                tempTensors.currentTimestep[batch][partition][0]);
+  attachTimeAndCompleteFlag(graph, tempTensors, batch, partition, vertex);
   graph.connect(vertex["dataLength"],
                 tempTensors.dataLengths[batch][partition][0]);
+}
+
+void attachCompleteFlag(Graph &graph, const TempTensors &tempTensors,
+                        unsigned batch, unsigned partition,
+                        const VertexRef &vertex) {
+  graph.connect(vertex["complete"], tempTensors.complete[batch][partition][0]);
 }
 
 } // namespace
@@ -155,15 +174,15 @@ void generateExtendCandidateVertex(
   const auto numClasses = data.dim(3);
   attachData(graph, data, batch, dataPartition, numClasses, time, vertex);
   // Beam connection
-  attachBeamScalars(graph, beams, batch, dataPartition, beamwidth, vertex);
-  // Timestep, data length connection
-  attachTimeAndLength(graph, tempTensors, batch, dataPartition, vertex);
+  attachBeamScalars(graph, beams, batch, dataPartition, beamwidth,
+                    BeamScalars::BLANK, vertex);
+  // Timestep, complete flag connection
+  attachTimeAndCompleteFlag(graph, tempTensors, batch, dataPartition, vertex);
   // Extend candidate connection
   attachGenerateExtendCandidates(graph, tempTensors, batch, addendPartition,
                                  beamPartition, vertex);
   // Constants
   graph.setInitialValue(vertex["numClassesIncBlank"], numClasses);
-  graph.setInitialValue(vertex["blankClass"], blankClass);
   graph.setInitialValue(vertex["startBeam"], beamPartition.begin());
   graph.setInitialValue(vertex["endBeam"], beamPartition.end());
   graph.setInitialValue(vertex["addendSymbol"], addendClass);
@@ -190,15 +209,15 @@ void generateCopyCandidateVertex(Graph &graph, const Tensor &data,
   const auto numClasses = data.dim(3);
   attachData(graph, data, batch, dataPartition, numClasses, time, vertex);
   // Beam connection
-  attachBeamScalars(graph, beams, batch, dataPartition, beamwidth, vertex);
-  // Timestep, data length connection
-  attachTimeAndLength(graph, tempTensors, batch, dataPartition, vertex);
+  attachBeamScalars(graph, beams, batch, dataPartition, beamwidth,
+                    BeamScalars::NON_BLANK, vertex);
+  // Timestep, complete flag connection
+  attachTimeAndCompleteFlag(graph, tempTensors, batch, dataPartition, vertex);
   // Copy candidate connection
   attachSingleCopyCandidate(graph, tempTensors, batch, beamPartition, vertex);
   // Constants
   graph.setInitialValue(vertex["numClassesIncBlank"], numClasses);
   graph.setInitialValue(vertex["blankClass"], blankClass);
-  graph.setInitialValue(vertex["beamwidth"], beamwidth);
   graph.setInitialValue(vertex["beamIdx"], beamPartition);
 }
 
@@ -250,12 +269,10 @@ void mergeCandidateVertex(Graph &graph, const BeamTensors &beams,
   graph.connect(vertex["lastBeamOutput"],
                 beams.lastOutput[batch][beamPartition][copyPartition][0]);
 
-  // Timestep, data length connection
-  attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
+  // Time and complete flag connection
+  attachTimeAndCompleteFlag(graph, tempTensors, batch, beamPartition, vertex);
 
   // Constants
-  graph.setInitialValue(vertex["numClassesIncBlank"], numClasses);
-  graph.setInitialValue(vertex["extendCandidates"], extendCandidates);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
   graph.setInitialValue(vertex["blankClass"], blankClass);
 }
@@ -295,8 +312,8 @@ void selectCopyCandidateVertex(Graph &graph, const TempTensors &tempTensors,
   // tensor
   attachSingleCopyCandidate(graph, tempTensors, batch, copyPartition, vertex);
 
-  // Timestep, data length connection
-  attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
+  // Complete flag connection
+  attachCompleteFlag(graph, tempTensors, batch, beamPartition, vertex);
 
   // Constants
   graph.setInitialValue(vertex["numCandidates"], copyCandidates);
@@ -341,8 +358,8 @@ void selectExtendCandidateVertex(Graph &graph, const TempTensors &tempTensors,
       vertex["extendCandidateAddend"],
       tempTensors.selectExtendCandidatesAddend.slice(begin, end).flatten());
 
-  // Timestep, data length connection
-  attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
+  // Complete flag connection
+  attachCompleteFlag(graph, tempTensors, batch, beamPartition, vertex);
 
   // Constants
   graph.setInitialValue(vertex["numCopyCandidates"], copyCandidates);
@@ -389,8 +406,8 @@ void simpleSortCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
   graph.connect(vertex["candidateBeamProbBlank"], pb);
   graph.connect(vertex["candidateBeamProbTotal"], pTotal);
 
-  // Timestep, data length connection (Only for early end)
-  attachTimeAndLength(graph, tempTensors, batch, partition, vertex);
+  // Complete flag connection
+  attachCompleteFlag(graph, tempTensors, batch, partition, vertex);
 
   // Constants
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
@@ -452,8 +469,8 @@ void rankCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
   graph.connect(vertex["sortedCandidateBeamProbTotal"],
                 tempTensors.sortedCandidatesPTotal[batch][partition].flatten());
 
-  // Timestep, data length connection (Only for early end)
-  attachTimeAndLength(graph, tempTensors, batch, partition, vertex);
+  // Complete flag connection
+  attachCompleteFlag(graph, tempTensors, batch, partition, vertex);
 
   // Constants
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
@@ -505,8 +522,6 @@ void reduceCandidatesVertex(poplar::Graph &graph,
   graph.connect(vertex["reducedCandidateBeamProbTotal"],
                 tempTensors.copyCandidatesPTotal[batch][partition].reshape({}));
 
-  // Timestep, data length connection (Only for early end)
-  attachTimeAndLength(graph, tempTensors, batch, beamPartition, vertex);
   // Constants
   graph.setInitialValue(vertex["totalCandidates"], candidatesToReduce);
 }
@@ -525,7 +540,8 @@ void updateVertex(Graph &graph, const BeamTensors &beams,
   graph.setTileMapping(vertex, tile);
 
   // Beam connection
-  attachBeamScalars(graph, beams, batch, beamPartition, beamwidth, vertex);
+  attachBeamScalars(graph, beams, batch, beamPartition, beamwidth,
+                    BeamScalars::BLANK_AND_NON_BLANK, vertex);
   attachBeamHistory(graph, beams, time, batch, beamPartition, beamwidth,
                     vertex);
   // Timestep, data length connections
@@ -586,9 +602,7 @@ void generateOutputVertex(Graph &graph, const BeamTensors &beams,
 
   // Constants
   graph.setInitialValue(vertex["beam"], path);
-  graph.setInitialValue(vertex["maxT"], maxT);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
-  graph.setInitialValue(vertex["numClassesIncBlank"], numClassesIncBlank);
 }
 
 } // namespace ctc_infer

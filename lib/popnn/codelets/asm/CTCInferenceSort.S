@@ -29,21 +29,18 @@
 #define VERTEX_STATE_OFFSET_OUT_PNB 28
 #define VERTEX_STATE_OFFSET_OUT_PB 32
 #define VERTEX_STATE_OFFSET_OUT_PTOTAL 36
+#define VERTEX_STATE_OFFSET_TOTAL_CANDIDATES 40
 
-#define VERTEX_STATE_OFFSET_CURRENT_TIMESTEP 40
-#define VERTEX_STATE_OFFSET_DATA_LENGTH 44
-#define VERTEX_STATE_OFFSET_TOTAL_CANDIDATES 48
-
-// Vertex state (Reduce vertex only)
-#define VERTEX_STATE_OFFSET_BEAMWIDTH 52
-#define VERTEX_STATE_FIRST_CANDIDATE 56
-#define VERTEX_STATE_LAST_CANDIDATE 60
+// Vertex state (Rank vertex only)
+#define VERTEX_STATE_OFFSET_COMPLETE 44
+#define VERTEX_STATE_OFFSET_BEAMWIDTH 48
+#define VERTEX_STATE_FIRST_CANDIDATE 52
+#define VERTEX_STATE_LAST_CANDIDATE 56
 
 // Register defines (Supervisor)
 #define msupervisor_vertex_base m0
 #define mworker_entry m1
-#define mdata_length m7
-#define mtimestep m8
+#define mcomplete m7
 
 // Common between Worker and supervisor
 #define mcount m1
@@ -85,8 +82,8 @@
 
 // *****************************************************************************
 // Supervisor entry point
-// The supervisor initialises the output area to zero and exits if the loop counter
-// indicates that processing is complete.  Otherwise it calls the workers.
+// The supervisor initialises the output area to zero and exits if
+// processing is complete.  Otherwise it calls the workers.
 
 .macro INSTANTIATE_RANK P_TYPE SYM_TYPE
 .globl RANK_VERTEX_NAME
@@ -96,24 +93,18 @@
 .supervisor
 RANK_VERTEX_NAME:
   // Exit if this input is all processed (compare, branch are later to avoid pipline hits)
-  ld32 $mtimestep, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_CURRENT_TIMESTEP/4
-  ld32 $mdata_length, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_DATA_LENGTH/4
+  ld32 $mcomplete, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_COMPLETE/4
   ld32 $mcount, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_BEAMWIDTH/4
 
   ld32 $mparent_ptr, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_OUT_PARENT/4
   ld32 $maddend_ptr, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_OUT_ADDEND/4
   ld32 $mpnb_ptr, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_OUT_PNB/4
-
-  ld32 $mtimestep, $mzero, $mtimestep, 0
-  ld32 $mdata_length, $mzero, $mdata_length, 0
-
   ld32 $mpb_ptr, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_OUT_PB/4
   ld32 $mptotal_ptr, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_OUT_PTOTAL/4
 
+  ld32 $mcomplete, $mzero, $mcomplete, 0
   sub  $mcount,$mcount,1
-  nop     // Avoid pipeline hit for mdata_length
-  nop
-  cmpult  $mdata_length, $mdata_length, $mtimestep
+
   // Zero the results, ensuring they are zero before any worker runs, and should
   // be faster in the supervisor context
 1:
@@ -125,8 +116,8 @@ RANK_VERTEX_NAME:
   brnzdec $mcount, 1b
 
   // Exit if all processed
-  setzi   $mworker_entry, .Lworker_\P_TYPE\()\@
-  brnz  $mdata_length, 2f
+  setzi $mworker_entry, .Lworker_\P_TYPE\()\@
+  brnz  $mcomplete, 2f
   // Run the workers
   runall  $mworker_entry, $msupervisor_vertex_base, 0
 2:
@@ -301,19 +292,7 @@ DEF_STACK_USAGE 0 RANK_VERTEX_NAME
 .align 4
 .supervisor
 REDUCE_VERTEX_NAME:
-  ld32 $mtimestep, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_CURRENT_TIMESTEP/4
-  ld32 $mdata_length, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_DATA_LENGTH/4
   setzi   $mworker_entry, .Lworker_\P_TYPE\()\@
-  nop     // Avoid pipeline hits for mtimestep, mdata_length
-  nop
-  nop
-  ld32 $mtimestep, $mzero, $mtimestep, 0
-  ld32 $mdata_length, $mzero, $mdata_length, 0
-  // From now on we always use mtimestep and/or mdata_length so we can`t avoid
-  // pipeline hits
-  cmpult  $mdata_length, $mdata_length, $mtimestep
-  // Exit if all processed
-  brnz  $mdata_length, 2f
   // Run the workers
   runall  $mworker_entry, $msupervisor_vertex_base, 0
 2:

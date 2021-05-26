@@ -236,6 +236,19 @@ TempTensors createAndInitialiseTemporaryTensors(
       dataLengths.expand({1, 1}).broadcast(plan.batchEntryPartitions(), 1);
   prog.add(Copy(dataLengthsBroadcast, tempTensors.dataLengths));
 
+  // A flag to indicate if a batch entry is complete or not.  Initialised to
+  // zero, set to one when the update vertex detects that the end is reached
+  tempTensors.complete = graph.addVariable(
+      UNSIGNED_INT, {batchSize, plan.batchEntryPartitions(), 1},
+      {di, "completeFlags"});
+  mapAccordingToPlan(graph, tempTensors.complete, PartitionType::BATCH_ENTRY,
+                     plan.batchEntryPartitions(), plan);
+  auto initialiserZero = graph.addConstant(UNSIGNED_INT, {1}, 0u, di);
+  graph.setTileMapping(initialiserZero, 0);
+  prog.add(
+      Copy(initialiserZero.broadcast(tempTensors.complete.numElements(), 0),
+           tempTensors.complete.flatten(), false, di));
+
   // Extend candidates
   const std::vector<std::size_t> extendCandidateShape = {
       batchSize, numClasses - 1, beamwidth};
@@ -480,7 +493,11 @@ BeamTensors createAndInitialiseBeamTensors(
                       initialiserInvalidSymbol);
 
   // Last symbol[beam0] = voidSymbol initial state, others = invalidSymbol.
-  // TODO - This is the same as the addend and may be optimised out
+  // Although this is the same as the addend at the end of the beam history and
+  // could be optimised out it doesn't cost much - it's stored on each tile,
+  // never exchanged and updating it is the same speed path as other update
+  // paths in the update vertex.  It speeds up candidate generation marginally
+  // by avoiding indexing into the beam history
   const auto lastOutBeam0 = beamTensors.lastOutput.slice(0, 1, 2);
   const auto lastOutOtherBeams = beamTensors.lastOutput.slice(1, beamwidth, 2);
 
@@ -874,33 +891,22 @@ beamSearchDecoderLogProbabilitiesImpl(
     }
   }
   prog.add(Execute(outputCS, di));
-  // Combine probabilities for output (Log add of pb,pnb)
+  // Slice the correct output and cast if needed
   auto transform = [&](const Tensor &in) {
     return in.slice(0, 1, 1)
         .slice(0, topPaths, 2)
         .reshape({batchSize, topPaths});
   };
-  auto pb = transform(beams.pb);
-  auto pnb = transform(beams.pnb);
-  // Implement a log add using elementwise operations,
-  // when doing a logAdd(a,b) , we use min = min(a,b), max = max (a,b)
-  // result =  exp( max + log(1 + exp(min - max)))
-  auto plusOne = graph.addConstant<float>(partialsType, {1}, 1.0, di);
-  graph.setTileMapping(plusOne, 0);
-  auto max = popops::map(graph, Max(_1, _2), {pb, pnb}, prog, di);
-
-  popops::mapInPlace(graph, _3 + Log(_4 + Exp(Min(_1, _2) - _3)),
-                     {pb, pnb, max, plusOne}, prog, di);
-
+  auto pTotal = transform(beams.pTotal);
   auto labelProbs = [&]() {
     if (partialsType != outType) {
       poplar::DebugContext castDebug{di, "Cast"};
       auto castCS = graph.addComputeSet(castDebug);
-      auto probs = popops::cast(graph, pb, outType, castCS, castDebug);
+      auto probs = popops::cast(graph, pTotal, outType, castCS, castDebug);
       prog.add(Execute(castCS, castDebug));
       return probs;
     } else {
-      return pb;
+      return pTotal;
     };
   }();
 

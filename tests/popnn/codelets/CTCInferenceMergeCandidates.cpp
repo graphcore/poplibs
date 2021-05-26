@@ -52,7 +52,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
                                       outputLengths, "beamLength");
 
   auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
-  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  auto complete = graph.addConstant(UNSIGNED_INT, {}, 0u);
 
   graph.setTileMapping(beamAddend, 0);
   graph.setTileMapping(beamParent, 0);
@@ -60,7 +60,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   graph.setTileMapping(beamLength, 0);
 
   graph.setTileMapping(currentTimestep, 0);
-  graph.setTileMapping(dataLength, 0);
+  graph.setTileMapping(complete, 0);
 
   auto cs = graph.addComputeSet("cs");
   auto vertex = graph.addVertex(cs, templateVertex("popnn::CTCMergeCandidates",
@@ -73,10 +73,8 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   graph.connect(vertex["beamLength"], beamLength);
 
   graph.connect(vertex["currentTimestep"], currentTimestep);
-  graph.connect(vertex["dataLength"], dataLength);
+  graph.connect(vertex["complete"], complete);
 
-  graph.setInitialValue(vertex["numClassesIncBlank"], numClasses);
-  graph.setInitialValue(vertex["extendCandidates"], numExtendCandidates);
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
   graph.setInitialValue(vertex["blankClass"], blankClass);
 
@@ -112,8 +110,6 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
        rawExtendCandidates.addend.get());
   copy(target, extendCandidateBeamProbNonBlankIn, partialsType,
        rawExtendCandidates.probNonBlank.get());
-  copy(target, extendCandidateBeamProbBlankIn, partialsType,
-       rawExtendCandidates.probBlank.get());
 
   // Copy candidate inputs (A single candidate)
   std::vector<unsigned> copyCandidateParentIn = {copyCandidate.beam};

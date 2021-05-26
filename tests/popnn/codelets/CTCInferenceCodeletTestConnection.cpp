@@ -10,11 +10,13 @@ using namespace poplibs_test::util;
 namespace poplibs_test {
 namespace ctc {
 
-CandidateHandles createAndConnectCandidates(
-    Graph &graph, const VertexRef &vertex, const std::string &prefix,
-    const Type &partialsType, const ArrayRef<std::size_t> &shape,
-    Sequence &uploadProg, Sequence &downloadProg,
-    std::vector<std::pair<std::string, char *>> &tmap, bool includeTotal) {
+CandidateHandles
+createAndConnectCandidates(Graph &graph, const VertexRef &vertex,
+                           const std::string &prefix, const Type &partialsType,
+                           const ArrayRef<std::size_t> &shape,
+                           Sequence &uploadProg, Sequence &downloadProg,
+                           std::vector<std::pair<std::string, char *>> &tmap,
+                           bool includeTotalAndBlank) {
 
   auto candidateParent =
       graph.addVariable(UNSIGNED_INT, shape, "candidateParent");
@@ -22,18 +24,14 @@ CandidateHandles createAndConnectCandidates(
       graph.addVariable(UNSIGNED_INT, shape, "candidateAddend");
   auto candidateBeamProbNonBlank =
       graph.addVariable(partialsType, shape, "candidateBeamProbNonBlank");
-  auto candidateBeamProbBlank =
-      graph.addVariable(partialsType, shape, "candidateBeamProbBlank");
 
   graph.setTileMapping(candidateParent, 0);
   graph.setTileMapping(candidateAddend, 0);
   graph.setTileMapping(candidateBeamProbNonBlank, 0);
-  graph.setTileMapping(candidateBeamProbBlank, 0);
 
   graph.connect(vertex[prefix + "Parent"], candidateParent);
   graph.connect(vertex[prefix + "Addend"], candidateAddend);
   graph.connect(vertex[prefix + "BeamProbNonBlank"], candidateBeamProbNonBlank);
-  graph.connect(vertex[prefix + "BeamProbBlank"], candidateBeamProbBlank);
 
   CandidateHandles handles;
   handles.parent =
@@ -45,11 +43,16 @@ CandidateHandles createAndConnectCandidates(
   handles.probNonBlank = allocateHostMemoryForTensor(
       candidateBeamProbNonBlank, prefix + "ProbNonBlank", graph, uploadProg,
       downloadProg, tmap);
-  handles.probBlank =
-      allocateHostMemoryForTensor(candidateBeamProbBlank, prefix + "ProbBlank",
-                                  graph, uploadProg, downloadProg, tmap);
 
-  if (includeTotal) {
+  if (includeTotalAndBlank) {
+    auto candidateBeamProbBlank =
+        graph.addVariable(partialsType, shape, "candidateBeamProbBlank");
+    graph.setTileMapping(candidateBeamProbBlank, 0);
+    graph.connect(vertex[prefix + "BeamProbBlank"], candidateBeamProbBlank);
+    handles.probBlank = allocateHostMemoryForTensor(
+        candidateBeamProbBlank, prefix + "ProbBlank", graph, uploadProg,
+        downloadProg, tmap);
+
     auto candidateBeamProbTotal =
         graph.addVariable(partialsType, shape, "candidateBeamProbTotal");
     graph.setTileMapping(candidateBeamProbTotal, 0);
@@ -63,8 +66,9 @@ CandidateHandles createAndConnectCandidates(
 
 BeamHandles createAndConnectBeamProbs(
     Graph &graph, const VertexRef &vertex, const Type &probsType,
-    const ArrayRef<std::size_t> &shape, Sequence &uploadProg,
-    Sequence &downloadProg, std::vector<std::pair<std::string, char *>> &tmap) {
+    const ArrayRef<std::size_t> &shape, BeamScalars selectBlank,
+    Sequence &uploadProg, Sequence &downloadProg,
+    std::vector<std::pair<std::string, char *>> &tmap) {
   auto lastBeamOutputs =
       graph.addVariable(UNSIGNED_INT, shape, "lastBeamOutputs");
   auto beamProbNonBlank =
@@ -78,8 +82,14 @@ BeamHandles createAndConnectBeamProbs(
   graph.setTileMapping(beamProbTotal, 0);
 
   graph.connect(vertex["lastBeamOutputs"], lastBeamOutputs);
-  graph.connect(vertex["beamProbNonBlank"], beamProbNonBlank);
-  graph.connect(vertex["beamProbBlank"], beamProbBlank);
+  if (selectBlank == BeamScalars::NON_BLANK ||
+      selectBlank == BeamScalars::BLANK_AND_NON_BLANK) {
+    graph.connect(vertex["beamProbNonBlank"], beamProbNonBlank);
+  }
+  if (selectBlank == BeamScalars::BLANK ||
+      selectBlank == BeamScalars::BLANK_AND_NON_BLANK) {
+    graph.connect(vertex["beamProbBlank"], beamProbBlank);
+  }
   graph.connect(vertex["beamProbTotal"], beamProbTotal);
 
   BeamHandles handles;

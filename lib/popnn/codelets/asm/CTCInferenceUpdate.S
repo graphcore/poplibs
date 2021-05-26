@@ -31,7 +31,8 @@
 
 #define VERTEX_STATE_OFFSET_CURRENT_TIMESTEP 48
 #define VERTEX_STATE_OFFSET_DATA_LENGTH 52
-#define VERTEX_STATE_OFFSET_BEAMWIDTH 56
+#define VERTEX_STATE_OFFSET_COMPLETE 56
+#define VERTEX_STATE_OFFSET_BEAMWIDTH 60
 
 
 // Register defines (Supervisor)
@@ -43,10 +44,12 @@
 #define mworker_entry4 m5
 
 #define mworker_entry5 m6
-#define mregion_base m6
+#define mdata_length m6
 
-#define mdata_length m7
+#define mcomplete m7
+
 #define mtimestep m8
+#define mregion_base m8
 
 // Worker
 #define mworker_id m0
@@ -96,37 +99,48 @@ UPDATE_VERTEX_NAME:
   // worker base.
   // Load function pointers to an invividual stub per worker
   // Jumbled up to avoid pipeline bubbles as much as possible
-  ld32 $mtimestep, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_CURRENT_TIMESTEP/4
-  ld32 $mdata_length, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_DATA_LENGTH/4
+  ld32 $mcomplete, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_COMPLETE/4
 
   setzi   $mregion_base, TMEM_REGION0_BASE_ADDR
   setzi   $mworker_entry0, .Laddend\@
   setzi   $mworker_entry1, .Lparent\@
   setzi   $mworker_entry2, .Lbeam_length\@
+  sub     $mregion_base, $msupervisor_vertex_base, $mregion_base
   //----- Pipeline length
-  ld32 $mtimestep, $mzero, $mtimestep, 0
-  ld32 $mdata_length, $mzero, $mdata_length, 0
+  ld32    $mcomplete, $mzero, $mcomplete, 0
 
-  sub  $msupervisor_vertex_base, $msupervisor_vertex_base, $mregion_base
   setzi   $mworker_entry3, .Lprob_pnb\@
   setzi   $mworker_entry4, .Lprob_pb\@
   setzi   $mworker_entry5, .Lprob_ptotal\@
-  //----- Pipeline length
   nop
-  cmpult  $mdata_length, $mdata_length, $mtimestep
-  // No avoiding pipline bubbles now
+  nop
+  //----- Pipeline length
   // Exit if all processed
-  brnz  $mdata_length, 2f
+  brnz  $mcomplete, 2f
   // Run the workers
-  run $mworker_entry0, $msupervisor_vertex_base, 0
-  run $mworker_entry1, $msupervisor_vertex_base, 0
-  run $mworker_entry2, $msupervisor_vertex_base, 0
-  run $mworker_entry3, $msupervisor_vertex_base, 0
-  run $mworker_entry4, $msupervisor_vertex_base, 0
-  run $mworker_entry5, $msupervisor_vertex_base, 0
+  run $mworker_entry0, $mregion_base, 0
+  run $mworker_entry1, $mregion_base, 0
+  run $mworker_entry2, $mregion_base, 0
+  run $mworker_entry3, $mregion_base, 0
+  run $mworker_entry4, $mregion_base, 0
+  run $mworker_entry5, $mregion_base, 0
+
+  // Set the complete flag:
+  // complete = timestep == datalength.
+  // once complete is set we never get here again
+  // Expect this to run while one or more of the workers is still running so
+  // it costs zero cycles
+  ld32   $mdata_length, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_DATA_LENGTH/4
+  ld32   $mtimestep, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_CURRENT_TIMESTEP/4
+  ld32   $mcomplete, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_COMPLETE/4
+  ld32   $mdata_length, $mzero, $mdata_length, 0
+  ld32   $mtimestep, $mzero, $mtimestep, 0
+  cmpeq  $mtimestep, $mdata_length, $mtimestep
+  st32   $mtimestep, $mcomplete, $mzero, 0
 2:
   sync    TEXCH_SYNCZONE_LOCAL
   br      $lr
+
 
 .align 8
 // Worker code:

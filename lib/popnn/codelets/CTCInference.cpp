@@ -32,13 +32,12 @@ public:
   Input<Vector<InType, ONE_PTR>> logProbs; // [maxT, numClassIncBlank]
   Input<Vector<SymbolType, ONE_PTR>> lastBeamOutputs;    // [beamwidth]
   Input<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
-  Input<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
   Input<Vector<PartialsType, ONE_PTR>> beamProbTotal;    // [beamwidth]
 
   // Index into logProbs for HEAD position
   Input<unsigned> currentTimestep;
-  // The length of the data input (Valid for this specific input)
-  Input<unsigned> dataLength;
+  // Complete or not, when this batch entry is finished
+  Input<unsigned> complete;
 
   // Outputs are for a single candidate only
   Output<unsigned> candidateParent;
@@ -49,13 +48,14 @@ public:
 
   const unsigned numClassesIncBlank;
   const SymbolType blankClass;
-  const unsigned beamwidth;
   const unsigned beamIdx;
 
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    if (currentTimestep > dataLength) {
+    if (complete) {
+      // Guard against overprocessing an input that is smaller than maxT for
+      // this batch entry.
       return true;
     }
     const auto logProbsBase =
@@ -104,15 +104,14 @@ class CTCGenerateExtendCandidates : public Vertex {
 public:
   CTCGenerateExtendCandidates();
   Input<Vector<InType, ONE_PTR>> logProbs; // [maxT, numClassIncBlank]
-  Input<Vector<SymbolType, ONE_PTR>> lastBeamOutputs;    // [beamwidth]
-  Input<Vector<PartialsType, ONE_PTR>> beamProbNonBlank; // [beamwidth]
-  Input<Vector<PartialsType, ONE_PTR>> beamProbBlank;    // [beamwidth]
-  Input<Vector<PartialsType, ONE_PTR>> beamProbTotal;    // [beamwidth]
+  Input<Vector<SymbolType, ONE_PTR>> lastBeamOutputs; // [beamwidth]
+  Input<Vector<PartialsType, ONE_PTR>> beamProbBlank; // [beamwidth]
+  Input<Vector<PartialsType, ONE_PTR>> beamProbTotal; // [beamwidth]
 
   // Index into logProbs for HEAD position
   Input<unsigned> currentTimestep;
-  // The length of the data input (Valid for this specific input)
-  Input<unsigned> dataLength;
+  // Complete or not, when this batch entry is finished
+  Input<unsigned> complete;
 
   // Outputs have size[endBeam-startBeam],
   // the vertex generates endBeam-startBeam] candidates
@@ -123,7 +122,6 @@ public:
   Output<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbTotal;
 
   const unsigned numClassesIncBlank;
-  const SymbolType blankClass;
   // Extending beams in this range
   const unsigned startBeam;
   const unsigned endBeam;
@@ -133,12 +131,13 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    if (currentTimestep > dataLength) {
+    if (complete) {
+      // Guard against overprocessing an input that is smaller than maxT for
+      // this batch entry.
       return true;
     }
     const auto logProbsBase =
         &logProbs[(*currentTimestep - 1) * numClassesIncBlank];
-    const auto blankProb = static_cast<PartialsType>(logProbsBase[blankClass]);
     unsigned outIdx = 0;
     for (unsigned beamIdx = startBeam; beamIdx < endBeam; ++beamIdx) {
       // Extend beams ---
@@ -232,7 +231,6 @@ public:
   Input<Vector<unsigned, ONE_PTR>> extendCandidateParent;
   Input<Vector<SymbolType, ONE_PTR>> extendCandidateAddend;
   Input<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbNonBlank;
-  Input<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbBlank;
   // Note - total probability not required for extend candidates, because:
   // 1. They are never modified.
   // 2. When merging, the resulting copy candidate needs a updated pb and pnb
@@ -257,11 +255,9 @@ public:
 
   // Index into beamAddend/Parent for HEAD position
   Input<unsigned> currentTimestep;
-  // The length of the data input (Valid for this specific input)
-  Input<unsigned> dataLength;
+  // Complete or not, when this batch entry is finished
+  Input<unsigned> complete;
 
-  const unsigned numClassesIncBlank;
-  const unsigned extendCandidates;
   const unsigned beamwidth;
   const SymbolType blankClass;
 
@@ -276,7 +272,11 @@ public:
     // outputs match.
     // If the beginning of one beam history is reached and not the other then
     // the lengths are difference so there is no match
-    if (currentTimestep > dataLength) {
+    if (complete) {
+      // Guard against processing an input that is smaller than maxT for
+      // this batch entry. This vertex could take the longest of all batch
+      // merge vertices and therefore slow the process down even when it has
+      // finished the work it needs to do.
       return true;
     }
 
@@ -293,12 +293,11 @@ public:
     // The last symbol of the copy candidate is the last symbol of its parent
     // beam.  The extend candidate with the same addend is the only one that
     // need be compared.
-    const auto copyCandidateLastOut = lastBeamOutput;
-    if (copyCandidateLastOut >= invalidSymbol) {
+    if (lastBeamOutput >= invalidSymbol) {
       return true;
     }
-    const auto i = copyCandidateLastOut > blankClass ? copyCandidateLastOut - 1
-                                                     : copyCandidateLastOut;
+    const auto i =
+        lastBeamOutput > blankClass ? lastBeamOutput - 1 : lastBeamOutput;
 
     const auto parentRhs = extendCandidateParent[i];
     const auto addendRhs = extendCandidateAddend[i];
@@ -319,8 +318,8 @@ public:
 
       *copyCandidateBeamProbNonBlank = logAdd(
           *copyCandidateBeamProbNonBlank, extendCandidateBeamProbNonBlank[i]);
-      *copyCandidateBeamProbBlank =
-          logAdd(*copyCandidateBeamProbBlank, extendCandidateBeamProbBlank[i]);
+      // extendCandidateBeamProbBlank[i] is always log::probabilityZero so
+      // we don't need to add it here
       *copyCandidateBeamProbTotal =
           logAdd(*copyCandidateBeamProbBlank, *copyCandidateBeamProbNonBlank);
       // Preserve the addend and parent of the extend candidate
@@ -340,11 +339,11 @@ class CTCSelectCopyCandidates : public Vertex {
 public:
   CTCSelectCopyCandidates();
   // Shape and size of inputs is [numCandidates]
-  Input<Vector<unsigned>> copyCandidateParent;
-  Input<Vector<SymbolType>> copyCandidateAddend;
-  Input<Vector<PartialsType>> copyCandidateBeamProbNonBlank;
-  Input<Vector<PartialsType>> copyCandidateBeamProbBlank;
-  Input<Vector<PartialsType>> copyCandidateBeamProbTotal;
+  Input<Vector<unsigned, ONE_PTR>> copyCandidateParent;
+  Input<Vector<SymbolType, ONE_PTR>> copyCandidateAddend;
+  Input<Vector<PartialsType, ONE_PTR>> copyCandidateBeamProbNonBlank;
+  Input<Vector<PartialsType, ONE_PTR>> copyCandidateBeamProbBlank;
+  Input<Vector<PartialsType, ONE_PTR>> copyCandidateBeamProbTotal;
 
   // A single result candidate
   Output<unsigned> candidateParent;
@@ -353,36 +352,30 @@ public:
   Output<PartialsType> candidateBeamProbBlank;
   Output<PartialsType> candidateBeamProbTotal;
 
-  // Only use of current timestep and dataLength is to end early
-  // Index into beamAddend/Parent for HEAD position
-  Input<unsigned> currentTimestep;
-  // The length of the data input (Valid for this specific input)
-  Input<unsigned> dataLength;
+  // Complete or not, when this batch entry is finished
+  Input<unsigned> complete;
   unsigned numCandidates;
 
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    if (currentTimestep > dataLength) {
+    if (complete) {
       return true;
     }
     // Select a single copy candidate from those attached, the one that was
     // merged if there is one
-    for (unsigned i = 0; i < numCandidates - 1; i++) {
+    unsigned i;
+    for (i = 0; i < numCandidates - 1; i++) {
       // Loop over each copy candidate
       if (copyCandidateAddend[i] != voidSymbol) {
         // There was a merge among the group of broadcast copy candidates so
-        // select the merged one
-        *candidateParent = copyCandidateParent[i];
-        *candidateAddend = copyCandidateAddend[i];
-        *candidateBeamProbNonBlank = copyCandidateBeamProbNonBlank[i];
-        *candidateBeamProbBlank = copyCandidateBeamProbBlank[i];
-        *candidateBeamProbTotal = copyCandidateBeamProbTotal[i];
-        return true;
+        // select the merged one: i will indicate the merged one
+        break;
       }
     }
-    // No merge, or the last one was merged.  Either way, use the last one
-    const auto i = numCandidates - 1;
+    // Either `i` indicates the merged candidate or if no merge was found -
+    // there was no merge, or the last one was merged.  In both of the
+    // last 2 cases, we want the last one
     *candidateParent = copyCandidateParent[i];
     *candidateAddend = copyCandidateAddend[i];
     *candidateBeamProbNonBlank = copyCandidateBeamProbNonBlank[i];
@@ -402,25 +395,23 @@ public:
   CTCSelectExtendCandidates();
   // The parent from each copy candidate that was compared to the extend
   // candidates.
-  Input<Vector<SymbolType>> copyCandidateAddend; // [numCopyCandidates]
+  Input<Vector<SymbolType, ONE_PTR>> copyCandidateAddend; // [numCopyCandidates]
   // The extend candidates, which can have their total probability zeroed if
   // a merge took place
-  InOut<Vector<PartialsType>> extendCandidateBeamProbTotal; // [numSymbols-1]
-  InOut<Vector<SymbolType>> extendCandidateAddend;          // [numSymbols-1]
+  // [numSymbols-1]
+  InOut<Vector<PartialsType, ONE_PTR>> extendCandidateBeamProbTotal;
+  InOut<Vector<SymbolType, ONE_PTR>> extendCandidateAddend;
 
-  // Only use of current timestep and dataLength is to end early
-  // Index into beamAddend/Parent for HEAD position
-  Input<unsigned> currentTimestep;
-  // The length of the data input (Valid for this specific input)
-  Input<unsigned> dataLength;
+  // Complete or not, when this batch entry is finished
+  Input<unsigned> complete;
   // The number of copy candidates
-  unsigned numCopyCandidates;
+  const unsigned numCopyCandidates;
   const SymbolType blankClass;
 
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    if (currentTimestep > dataLength) {
+    if (complete) {
       return true;
     }
     // Where a copy candidate indicates a merge, zero the total probability
@@ -457,11 +448,8 @@ public:
   InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbBlank;
   InOut<Vector<PartialsType, ONE_PTR>> candidateBeamProbTotal;
 
-  // Only use of current timestep and dataLength is to end early
-  // Index into beamAddend/Parent for HEAD position
-  Input<unsigned> currentTimestep;
-  // The length of the data input (Valid for this specific input)
-  Input<unsigned> dataLength;
+  // Complete or not, when this batch entry is finished
+  Input<unsigned> complete;
 
   const unsigned beamwidth; // The number of result candidates = beamwidth
   const unsigned totalCandidates;
@@ -469,7 +457,7 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    if (currentTimestep > dataLength) {
+    if (complete) {
       return true;
     }
     // Precondition - candidates to be padded by previous codelets or memory
@@ -548,12 +536,9 @@ public:
   Output<Vector<float, ONE_PTR>> sortedCandidateBeamProbBlank;
   Output<Vector<float, ONE_PTR>> sortedCandidateBeamProbTotal;
 
-  // Only use of current timestep and dataLength is to end early
-  // Index into beamAddend/Parent for HEAD position
-  Input<unsigned> currentTimestep;
-  // The length of the data input (Valid for this specific input)
-  Input<unsigned> dataLength;
   const unsigned totalCandidates;
+  // Complete or not, when this batch entry is finished
+  Input<unsigned> complete;
 
   const unsigned beamwidth; // The number of result candidates = beamwidth
   const unsigned firstCandidateToRank;
@@ -562,7 +547,7 @@ public:
   IS_EXTERNAL_CODELET(isExternal());
 
   bool compute() {
-    if (currentTimestep > dataLength) {
+    if (complete) {
       return true;
     }
     // Zero the initial content
@@ -641,20 +626,15 @@ public:
   Output<PartialsType> reducedCandidateBeamProbBlank;
   Output<PartialsType> reducedCandidateBeamProbTotal;
 
-  // Only use of current timestep and dataLength is to end early
-  // Index into beamAddend/Parent for HEAD position
-  Input<unsigned> currentTimestep;
-  // The length of the data input (Valid for this specific input)
-  Input<unsigned> dataLength;
-
   const unsigned totalCandidates;
 
   IS_EXTERNAL_CODELET(isExternal());
 
   bool compute() {
-    if (currentTimestep > dataLength) {
-      return true;
-    }
+    // No complete flag check - There is no downside to running this vertex
+    // every time.  It won't be slower than any vertex doing the same job
+    // for another batch entries data.
+
     // For each variable we assume only 1 of the `totalCandidates` inputs is
     // non-zero.  Adding them all together reduces this to a single result.
     auto parent = candidateParent[0];
@@ -757,15 +737,19 @@ public:
   Input<unsigned> currentTimestep;
   // The length of the data input (Valid for this specific input)
   Input<unsigned> dataLength;
+  // Complete or not, when this batch entry is finished, set by this vertex for
+  // all the others to use
+  InOut<unsigned> complete;
   const unsigned beamwidth;
 
   IS_EXTERNAL_CODELET(isExternal());
   bool compute() {
-    if (currentTimestep > dataLength) {
+    if (complete) {
       // Early exit here avoids updating beams, probabilities and the count
       // and so nothing will change regardless
       return true;
     }
+    *complete = currentTimestep == dataLength;
     const unsigned baseOffset = (*currentTimestep) * beamwidth;
     const auto parent = &beamParent[baseOffset];
     const auto addend = &beamAddend[baseOffset];
@@ -827,11 +811,9 @@ public:
   // The actual number of valid symbols found in the beamOutput
   Output<unsigned> outputLength;
   // The valid symbol sequence
-  Output<Vector<SymbolType>> beamOutput; // [maxT]
+  Output<Vector<SymbolType, ONE_PTR>> beamOutput; // [maxT]
   const unsigned beamwidth;
-  const unsigned maxT;
   const unsigned beam;
-  const unsigned numClassesIncBlank;
 
   IS_EXTERNAL_CODELET(false);
 

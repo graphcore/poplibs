@@ -46,11 +46,11 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
   // main implementation does. The effect of this is that we need to provide
   // timestep + 1 here to compensate
   auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
-  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep + 1);
+  auto complete = graph.addConstant(UNSIGNED_INT, {}, 0u);
 
   graph.setTileMapping(logProbs, 0);
   graph.setTileMapping(currentTimestep, 0);
-  graph.setTileMapping(dataLength, 0);
+  graph.setTileMapping(complete, 0);
 
   auto cs = graph.addComputeSet("cs");
   const auto vertexName = testGenerateCopyVertex
@@ -62,14 +62,13 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
 
   graph.connect(vertex["logProbs"], logProbs.flatten());
   graph.connect(vertex["currentTimestep"], currentTimestep);
-  graph.connect(vertex["dataLength"], dataLength);
+  graph.connect(vertex["complete"], complete);
 
   graph.setInitialValue(vertex["numClassesIncBlank"], numClassesIncBlank);
-  graph.setInitialValue(vertex["blankClass"], blankClass);
 
   if (testGenerateCopyVertex) {
-    graph.setInitialValue(vertex["beamwidth"], beamwidth);
     graph.setInitialValue(vertex["beamIdx"], beam);
+    graph.setInitialValue(vertex["blankClass"], blankClass);
   } else {
     graph.setInitialValue(vertex["startBeam"], 0);
     graph.setInitialValue(vertex["endBeam"], beamwidth);
@@ -96,7 +95,9 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
                                             uploadProg, downloadProg, tmap);
 
   auto rawBeamProbs = createAndConnectBeamProbs(
-      graph, vertex, partialsType, {beamwidth}, uploadProg, downloadProg, tmap);
+      graph, vertex, partialsType, {beamwidth},
+      (testGenerateCopyVertex ? BeamScalars::NON_BLANK : BeamScalars::BLANK),
+      uploadProg, downloadProg, tmap);
 
   // Initialise inputs
   std::vector<unsigned> lastBeamOutputsIn{};

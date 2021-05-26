@@ -34,11 +34,9 @@ runCodeletCommon(poplar::Graph &graph, poplibs_support::TestDevice &device,
                  bool profile) {
   const auto target = graph.getTarget();
 
-  auto currentTimestep = graph.addConstant(UNSIGNED_INT, {}, timestep);
-  auto dataLength = graph.addConstant(UNSIGNED_INT, {}, timestep);
+  auto complete = graph.addConstant(UNSIGNED_INT, {}, 0u);
 
-  graph.setTileMapping(currentTimestep, 0);
-  graph.setTileMapping(dataLength, 0);
+  graph.setTileMapping(complete, 0);
 
   auto cs = graph.addComputeSet("cs");
   auto vertex = graph.addVertex(
@@ -47,9 +45,6 @@ runCodeletCommon(poplar::Graph &graph, poplibs_support::TestDevice &device,
                          partialsType, UNSIGNED_INT));
   graph.setTileMapping(vertex, 0);
 
-  graph.connect(vertex["currentTimestep"], currentTimestep);
-  graph.connect(vertex["dataLength"], currentTimestep);
-
   const auto totalCandidates = unsortedCandidates.size();
   graph.setInitialValue(vertex["totalCandidates"], totalCandidates);
 
@@ -57,6 +52,8 @@ runCodeletCommon(poplar::Graph &graph, poplibs_support::TestDevice &device,
     graph.setInitialValue(vertex["beamwidth"], beamwidth);
     graph.setInitialValue(vertex["firstCandidateToRank"], 0);
     graph.setInitialValue(vertex["lastCandidateToRank"], totalCandidates);
+
+    graph.connect(vertex["complete"], complete);
   }
 
   Sequence uploadProg, downloadProg;
