@@ -110,27 +110,24 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
 // having to check ranges that should enable this to be vectorised. Note that
 // the approximation in the range [-pi/4:pi/4] is even better than the native
 // implementation used by the compiler The performance of the algorithm itself
-// is exact in half range but suffers because of the floating point arithmetic
-// done to get the number within [-pi:pi] range for values of input outside
-// +/-8000 in radians. If we wanted to get full acccuracy across the full range
-// the computation of y must be done in a higher precision.
+// is exact in half range with an absolute error of ~5e-6 before converting the
+// output to half and well within the denorm range.
 static float computeTrigTau(float x) {
-  // express pi as a ratio of two numbers which give a closer
-  // approximation to pi.
-  constexpr float piNum = 12742.2998046875;
-  constexpr float piDen = 2028;
+  // Split the numerator into two parts such that the product of the first part
+  // with xNorm always remains within the mantissa of FP32. After the first
+  // subtraction x * piDen - xNorm * piNum, there is no loss of information but
+  // with range substantially reduced if the number is close to 2*pi. The second
+  // part is then subtracted.
+  constexpr float piNum1 = 6.28125f;
+  constexpr float piNum2 = 0.00193530716933310031890869140625f;
   constexpr float invTwoPi = 0.15915493667125701904296875f;
-  // although the computation of tau4 itself is good enough for half, the
-  // computation of y introduces most of the error for large x. Therefore
-  // values of |x| < 8000 produce exact values at half precision.
   const auto xNorm = ipu::floor(x * invTwoPi) + 0.5f;
-  const float y = (x * piDen - xNorm * piNum) / (piDen * 2);
-
+  const auto y = (x - xNorm * piNum1 - xNorm * piNum2) * 0.5f;
   const auto y2 = y * y;
   constexpr float c0 = 945.0f;
-  constexpr float c1 = -105.0062f;
-  const float c2 = -420.00070f;
-  const float c3 = 14.99822f;
+  constexpr float c1 = -105.00625f;
+  constexpr float c2 = -420.0007f;
+  constexpr float c3 = 14.99822f;
   const auto tau5 = y * (c0 + y2 * (c1 + y2)) / (c0 + y2 * (c2 + c3 * y2));
   return tau5;
 }
