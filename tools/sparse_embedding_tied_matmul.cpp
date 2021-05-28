@@ -567,7 +567,7 @@ int main(int argc, char **argv) try {
 
   return 0;
 } catch (const poplar::graph_memory_allocation_error &e) {
-  if (e.graphProfile.type() == ProfileValue::Type::MAP) {
+  if (!e.profilePath.empty()) {
     poplar::printGraphSummary(std::cerr, e.profilePath,
                               {{"showVarStorage", "true"}});
   }
