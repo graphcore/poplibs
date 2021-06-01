@@ -6,6 +6,8 @@
 #include <poplibs_support/PlanConstraints.hpp>
 #include <poplibs_support/logging.hpp>
 
+using namespace poplibs_support;
+
 namespace popnn {
 namespace ctc {
 
@@ -39,16 +41,18 @@ std::ostream &operator<<(std::ostream &o, const CtcInferencePlannerParams &p) {
 
 static auto getTupleOfMembers(const InferencePlan &p) {
 
-  using VisitorOutType = std::tuple<unsigned, unsigned, unsigned>;
-  const auto [simpleSort, rank, reduce] =
-      boost::apply_visitor(poplibs_support::make_visitor<VisitorOutType>(
-                               [&](const SimpleSortPartitions<unsigned> &s) {
-                                 return VisitorOutType({s.simpleSort, 0u, 0u});
-                               },
-                               [&](const RankPartitions<unsigned> &s) {
-                                 return VisitorOutType({0u, s.rank, s.reduce});
-                               }),
-                           p.parallel.sort);
+  using VisitorOutType =
+      std::tuple<std::vector<unsigned>, std::vector<unsigned>,
+                 std::vector<unsigned>>;
+  const auto [simpleSort, rank, reduce] = boost::apply_visitor(
+      make_visitor<VisitorOutType>(
+          [&](const SimpleSortPartitions<unsigned> &s) {
+            return VisitorOutType({s.simpleSort, {0u}, {0u}});
+          },
+          [&](const RankPartitions<unsigned> &s) {
+            return VisitorOutType({{0u}, s.rank, s.reduce});
+          }),
+      p.parallel.sort);
 
   return std::tie(p.params, p.parallel.batch, p.parallel.time, p.parallel.copy,
                   p.parallel.extend, p.parallel.extendVerticesPerPartition,
@@ -76,13 +80,30 @@ std::ostream &operator<<(std::ostream &o, const InferencePlan &p) {
   o << "    selectExtend               " << p.parallel.selectExtend << "\n";
 
   boost::apply_visitor(
-      poplibs_support::make_visitor<void>(
+      make_visitor<void>(
           [&](const SimpleSortPartitions<unsigned> &s) {
-            o << "    simpleSort                 " << s.simpleSort << "\n";
+            for (unsigned stage = 0; stage < p.parallel.sortStageGroups.size();
+                 stage++) {
+              o << "    Sort stage:" << stage << ", "
+                << p.parallel.sortStageGroups[stage] << " group(s) with "
+                << p.parallel.sortGroupsPerTile[stage] << " groups per tile"
+                << "\n";
+              o << "    Partitions:\n";
+              o << "        simpleSort             " << s.simpleSort[stage]
+                << "\n";
+            }
           },
           [&](const RankPartitions<unsigned> &s) {
-            o << "    sortRank                   " << s.rank << "\n";
-            o << "    sortReduce                 " << s.reduce << "\n";
+            for (unsigned stage = 0; stage < p.parallel.sortStageGroups.size();
+                 stage++) {
+              o << "    Sort stage:" << stage << ", "
+                << p.parallel.sortStageGroups[stage] << " group(s) with "
+                << p.parallel.sortGroupsPerTile[stage] << " groups per tile"
+                << "\n";
+              o << "    Partitions:\n";
+              o << "        sortRank               " << s.rank[stage] << "\n";
+              o << "        sortReduce             " << s.reduce[stage] << "\n";
+            }
           }),
       p.parallel.sort);
 
@@ -95,6 +116,7 @@ std::ostream &operator<<(std::ostream &o, const InferencePlan &p) {
 struct CtcInferenceOpts {
   poplar::Type partialsType = poplar::FLOAT;
   SortMethod sortMethod = SortMethod::RANK;
+  std::vector<unsigned> sortStageGroups;
 };
 
 static CtcInferenceOpts
@@ -111,6 +133,8 @@ parseInferenceOptions(const poplar::OptionFlags &options) {
        poplibs::OptionHandler::createWithEnum(opts.sortMethod, sortMethodMap)},
       {"partialsType", poplibs::OptionHandler::createWithEnum(opts.partialsType,
                                                               partialsTypeMap)},
+      {"sortStageGroups",
+       poplibs::OptionHandler::createWithList(opts.sortStageGroups)},
   };
 
   for (const auto &entry : options) {
@@ -135,6 +159,14 @@ std::ostream &operator<<(std::ostream &o, const CtcInferenceOpts &opt) {
   o << "CTCInference options:\n";
   o << "  sortMethod                   " << opt.sortMethod << "\n";
   o << "  partialsType                 " << opt.partialsType << "\n";
+  o << "  sortStageGroups              {";
+  for (unsigned i = 0; i < opt.sortStageGroups.size(); i++) {
+    o << opt.sortStageGroups[i];
+    if (i != opt.sortStageGroups.size() - 1) {
+      o << ",";
+    }
+  }
+  o << "}\n";
   return o;
 }
 } // namespace ctc
@@ -151,8 +183,8 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   plan.params = {inType,  opts.partialsType, inType,     batchSize,
                  maxTime, maxTime,           numClasses, beamwidth};
 
-  poplibs_support::logging::popnn::debug("Planning CTCInference with:\n{}\n{}",
-                                         plan.params, opts);
+  logging::popnn::debug("Planning CTCInference with:\n{}\n{}", plan.params,
+                        opts);
 
   const auto target = graph.getTarget();
   const auto numWorkers = target.getNumWorkerContexts();
@@ -165,13 +197,13 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   // partitions. Ideally spread as much as possible for speed, but otherwise
   // fewer partitions so that things will fit at the cost of speed.
   auto findMaxPartitions = [](unsigned size, unsigned divisor) {
-    auto perPartition = poplibs_support::ceildiv(size, divisor);
-    return poplibs_support::ceildiv(size, perPartition);
+    auto perPartition = ceildiv(size, divisor);
+    return ceildiv(size, perPartition);
   };
 
   auto findMaxBatchPartitions = [](unsigned size, unsigned divisor) {
-    auto perPartition = std::max(poplibs_support::ceildiv(size, divisor), 1u);
-    return poplibs_support::ceildiv(size, perPartition);
+    auto perPartition = std::max(ceildiv(size, divisor), 1u);
+    return ceildiv(size, perPartition);
   };
 
   // Each batch entry occupies a separate set of tiles if possible but does
@@ -207,17 +239,106 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   plan.parallel.selectCopy = findMaxPartitions(beamwidth, tilesPerBatchEntry);
 
   // Sort - by most probable candidate
-  if (opts.sortMethod == popnn::ctc::SortMethod::RANK) {
-    const auto candidatesToRank = beamwidth * numClasses;
-    const auto rankingsPerPartition =
-        std::max(numWorkers, poplibs_support::ceildiv(candidatesToRank,
-                                                      tilesPerBatchEntry));
 
-    plan.parallel.sort = popnn::ctc::RankPartitions<unsigned>(
-        {poplibs_support::ceildiv(candidatesToRank, rankingsPerPartition),
-         findMaxPartitions(beamwidth, tilesPerBatchEntry)});
+  // Plan in stages
+  // Each stage divides the input candidates into `groups` which are sorted
+  // independently. and will result in `sortStageGroups[stage] * beamwidth`
+  // results to then be sorted again.
+  // The last stage will have sortStageGroups[stage] = 1 and so create a
+  // single result.
+  // Results each contain the beamwidth most probable sort results
+
+  // TODO - A planner may be necessary to get the best out of the choice of
+  // multiple stages, and the number of groups in those stages.  Presently we
+  // apply a heuristc that picks out cases where 2 stages are better
+  // that 1.
+
+  // Use 2 stages if the number of classes is such that 2 stages will be of
+  // benefit.  Observations showed that `singleStageClassLimit` classes was the
+  // point at which a consistent speed benefit was seen by having 2 stages,
+  // more than 2 stages didn't produce an obvious benefit. This isn't a function
+  // of beamwidth as a stage will have to produce groups * beamwidth candidates
+  // so we use numClasses instead of the total number of candidates.
+  const auto singleStageClassLimit = 20;
+  if (opts.sortStageGroups.size() > 0) {
+    // The option defines the stages and the number of groups per stage. It is
+    // possible to select more than 2 stages, and as it is an undocumented test
+    // option it is the users responsibility to make sure it makes sense.
+    plan.parallel.sortStageGroups = opts.sortStageGroups;
   } else {
-    plan.parallel.sort = popnn::ctc::SimpleSortPartitions<unsigned>({1});
+    // Automatically select - the logic here will only ever result in 1 or 2
+    // stages.  If 3 stages are useful then most of this needs to be revisited.
+    if (numClasses >= singleStageClassLimit) {
+      // Sort in 2 stages
+      plan.parallel.sortStageGroups.reserve(2);
+
+      const auto toSort = beamwidth * numClasses;
+      // Form 2 equally balanced stages
+      unsigned numGroups = std::sqrt(numClasses);
+      auto candidatesPerGroup = ceildiv(toSort, numGroups);
+
+      // We need to ensure that every group contains at least beamwidth
+      // candidates otherwise the method of rank, reduce will fail (Reduce will
+      // receive a group of ranked outputs where some weren't written by rank).
+      // Having few items in a group isn't going to be very efficient anyhow,
+      // but this constraint is what the algorithm needs in order to be correct.
+
+      // Check the size of the last group - and make sure it is >= beamwidth
+      while (toSort - (numGroups - 1) * candidatesPerGroup < beamwidth) {
+        numGroups--;
+        candidatesPerGroup = ceildiv(toSort, numGroups);
+      }
+
+      plan.parallel.sortStageGroups.push_back(numGroups);
+      plan.parallel.sortStageGroups.push_back(1);
+    } else {
+      // Sort in 1 stage
+      plan.parallel.sortStageGroups.push_back(1);
+    }
+  }
+
+  // Given the number of stages, and groups within each stage, work out the
+  // number of partitions IN EACH GROUP to use when we do the sort.
+  // Each stage will result in candidates = beamwidth * groupsInTheStage
+  // which is then the number to sort in the next stage.
+  const auto stages = plan.parallel.sortStageGroups.size();
+
+  if (opts.sortMethod == popnn::ctc::SortMethod::RANK) {
+    std::vector<unsigned> rank(stages);
+    std::vector<unsigned> reduce(stages);
+    auto candidatesToRankPerGroup =
+        ceildiv(beamwidth * numClasses, plan.parallel.sortStageGroups[0]);
+    for (unsigned stage = 0; stage < stages; stage++) {
+      // A group has this many tiles available to divide work over
+      const auto tilesPerGroup = std::max(
+          1u, tilesPerBatchEntry / plan.parallel.sortStageGroups[stage]);
+
+      // There is no speed cost in having upto numWorkers candidates ranked
+      // in any partition so choose at least that many to reduce the complexity
+      const auto rankingsPerPartition = std::max(
+          numWorkers, ceildiv(candidatesToRankPerGroup, tilesPerGroup));
+      rank[stage] = ceildiv(candidatesToRankPerGroup, rankingsPerPartition);
+      reduce[stage] = findMaxPartitions(beamwidth, tilesPerGroup);
+
+      plan.parallel.sortGroupsPerTile.push_back(
+          ceildiv(plan.parallel.sortStageGroups[stage], tilesPerBatchEntry));
+
+      if (stage != stages - 1) {
+        // For the next loop, how many candidates will there be after this
+        // stage?
+        candidatesToRankPerGroup =
+            ceildiv(beamwidth * plan.parallel.sortStageGroups[stage],
+                    plan.parallel.sortStageGroups[stage + 1]);
+      }
+    }
+    plan.parallel.sort = popnn::ctc::RankPartitions<unsigned>({rank, reduce});
+  } else {
+    // This is really just a placeholder so the method still works
+    // there's no proper benefit in multistage simple sort that has been tested
+    std::vector<unsigned> simpleSort(stages, 1u);
+
+    plan.parallel.sort =
+        popnn::ctc::SimpleSortPartitions<unsigned>({simpleSort});
   }
 
   // For output generation

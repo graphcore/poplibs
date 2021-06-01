@@ -278,7 +278,8 @@ int main(int argc, char **argv) {
      "JSON constraints for planner, e.g. {\"parallel\": {\"batch\": 1}}")
 
     ("options", po::value(&options),
-     "JSON options, e.g. {\"sortMethod\":\"rank\"}}")
+     "JSON options, e.g. {\"sortMethod\":\"rank\"}}\n"
+     "                   {\"sortStageGroups\":\"16,4,1\"")
 
     ("profile", "Show profile report")
     ("profile-dir",

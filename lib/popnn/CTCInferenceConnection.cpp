@@ -415,8 +415,10 @@ void simpleSortCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
 }
 
 void rankCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
-                          ComputeSet &cs, unsigned batch, unsigned partition,
-                          unsigned candidatesToCompare,
+                          const SortTensors &sortTensors, ComputeSet &cs,
+                          unsigned batch, unsigned partition,
+                          unsigned beamPartition,
+                          const Interval &candidatesToCompare,
                           const Interval &rangeToRank, unsigned beamwidth,
                           unsigned tile) {
 
@@ -424,113 +426,108 @@ void rankCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
   const auto vertexName =
       templateVertex("popnn::CTCRankCandidates", partialsType, UNSIGNED_INT);
   const auto vertex = graph.addVertex(cs, vertexName);
-  logging::popnn::trace(
-      "Making {} vertex for candidates in range {} on tile {}", vertexName,
-      rangeToRank, tile);
+  logging::popnn::trace("Making {} vertex for candidates in range {}"
+                        " ranked against {} on tile {}",
+                        vertexName, rangeToRank, candidatesToCompare, tile);
   graph.setTileMapping(vertex, tile);
 
-  // Connect candidates, the vertex needs correctly ordered slices of the
-  // original copy candidates followed by all extend candidates.
-  // Sorted result is in the original copy candidates
-  auto gatherCandidates = [=](const Tensor &copyIn, const Tensor &extendIn) {
-    Slice<3> copyBegin = {batch, 0, 0};
-    Slice<3> copyEnd = {batch + 1, beamwidth, 1};
-    return concat(copyIn.slice(copyBegin, copyEnd).flatten(),
-                  extendIn[batch].flatten());
+  auto inCandidates = [&](const Tensor &in) {
+    return in[batch]
+        .slice(candidatesToCompare.begin(), candidatesToCompare.end(), 0)
+        .flatten();
   };
-  const auto parents = gatherCandidates(tempTensors.copyCandidatesParent,
-                                        tempTensors.extendCandidatesParent);
-  const auto addends =
-      gatherCandidates(tempTensors.copyCandidatesAddend,
-                       tempTensors.selectExtendCandidatesAddend);
-  const auto pnb = gatherCandidates(tempTensors.copyCandidatesPnb,
-                                    tempTensors.extendCandidatesPnb);
-  const auto pb = gatherCandidates(tempTensors.copyCandidatesPb,
-                                   tempTensors.extendCandidatesPb);
-  const auto pTotal =
-      gatherCandidates(tempTensors.copyCandidatesPTotal,
-                       tempTensors.selectExtendCandidatesPTotal);
 
-  graph.connect(vertex["candidateParent"], parents);
-  graph.connect(vertex["candidateAddend"], addends);
-  graph.connect(vertex["candidateBeamProbNonBlank"], pnb);
-  graph.connect(vertex["candidateBeamProbBlank"], pb);
-  graph.connect(vertex["candidateBeamProbTotal"], pTotal);
+  graph.connect(vertex["candidateParent"],
+                inCandidates(sortTensors.inCandidatesParent));
+  graph.connect(vertex["candidateAddend"],
+                inCandidates(sortTensors.inCandidatesAddend));
+  graph.connect(vertex["candidateBeamProbNonBlank"],
+                inCandidates(sortTensors.inCandidatesPnb));
+  graph.connect(vertex["candidateBeamProbBlank"],
+                inCandidates(sortTensors.inCandidatesPb));
+  graph.connect(vertex["candidateBeamProbTotal"],
+                inCandidates(sortTensors.inCandidatesPTotal));
 
   // Result candidates
-  graph.connect(vertex["sortedCandidateParent"],
-                tempTensors.sortedCandidatesParent[batch][partition].flatten());
-  graph.connect(vertex["sortedCandidateAddend"],
-                tempTensors.sortedCandidatesAddend[batch][partition].flatten());
-  graph.connect(vertex["sortedCandidateBeamProbNonBlank"],
-                tempTensors.sortedCandidatesPnb[batch][partition].flatten());
-  graph.connect(vertex["sortedCandidateBeamProbBlank"],
-                tempTensors.sortedCandidatesPb[batch][partition].flatten());
-  graph.connect(vertex["sortedCandidateBeamProbTotal"],
-                tempTensors.sortedCandidatesPTotal[batch][partition].flatten());
+  graph.connect(vertex["rankedCandidateParent"],
+                sortTensors.rankedCandidatesParent[batch][partition].flatten());
+  graph.connect(vertex["rankedCandidateAddend"],
+                sortTensors.rankedCandidatesAddend[batch][partition].flatten());
+  graph.connect(vertex["rankedCandidateBeamProbNonBlank"],
+                sortTensors.rankedCandidatesPnb[batch][partition].flatten());
+  graph.connect(vertex["rankedCandidateBeamProbBlank"],
+                sortTensors.rankedCandidatesPb[batch][partition].flatten());
+  graph.connect(vertex["rankedCandidateBeamProbTotal"],
+                sortTensors.rankedCandidatesPTotal[batch][partition].flatten());
 
   // Complete flag connection
-  attachCompleteFlag(graph, tempTensors, batch, partition, vertex);
+  attachCompleteFlag(graph, tempTensors, batch, beamPartition, vertex);
 
   // Constants
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
-  graph.setInitialValue(vertex["totalCandidates"], candidatesToCompare);
-  graph.setInitialValue(vertex["firstCandidateToRank"], rangeToRank.begin());
-  graph.setInitialValue(vertex["lastCandidateToRank"], rangeToRank.end());
+  graph.setInitialValue(vertex["totalCandidates"], candidatesToCompare.size());
+  graph.setInitialValue(vertex["firstCandidateToRank"],
+                        rangeToRank.begin() - candidatesToCompare.begin());
+  graph.setInitialValue(vertex["lastCandidateToRank"],
+                        rangeToRank.end() - candidatesToCompare.begin());
 }
 
-void reduceCandidatesVertex(poplar::Graph &graph,
-                            const TempTensors &tempTensors,
-                            poplar::ComputeSet &cs, unsigned batch,
-                            unsigned partition, unsigned beamPartition,
-                            unsigned candidatesToReduce, unsigned tile) {
+void reduceCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
+                            const SortTensors &sortTensors, ComputeSet &cs,
+                            unsigned batch, unsigned group, unsigned partition,
+                            unsigned beamPartition,
+                            const Interval &candidatesToReduce, unsigned tile) {
 
   const auto partialsType = tempTensors.mergeCandidatesPb[0].elementType();
   const auto vertexName =
       templateVertex("popnn::CTCReduceCandidates", partialsType, UNSIGNED_INT);
   const auto vertex = graph.addVertex(cs, vertexName);
-  logging::popnn::trace("Making {} vertex for beam {} on tile {}", vertexName,
-                        partition, tile);
+  logging::popnn::trace("Making {} vertex for beam {} reducing {} on tile {}",
+                        vertexName, partition, candidatesToReduce, tile);
   graph.setTileMapping(vertex, tile);
 
   auto gatherCandidates = [=](const Tensor &in) {
-    Slice<3> begin = {batch, 0, partition};
-    Slice<3> end = {batch + 1, candidatesToReduce, partition + 1};
+    Slice<3> begin = {batch, candidatesToReduce.begin(), partition};
+    Slice<3> end = {batch + 1, candidatesToReduce.end(), partition + 1};
     return in.slice(begin, end).flatten();
   };
 
   graph.connect(vertex["candidateParent"],
-                gatherCandidates(tempTensors.sortedCandidatesParent));
+                gatherCandidates(sortTensors.rankedCandidatesParent));
   graph.connect(vertex["candidateAddend"],
-                gatherCandidates(tempTensors.sortedCandidatesAddend));
+                gatherCandidates(sortTensors.rankedCandidatesAddend));
   graph.connect(vertex["candidateBeamProbNonBlank"],
-                gatherCandidates(tempTensors.sortedCandidatesPnb));
+                gatherCandidates(sortTensors.rankedCandidatesPnb));
   graph.connect(vertex["candidateBeamProbBlank"],
-                gatherCandidates(tempTensors.sortedCandidatesPb));
+                gatherCandidates(sortTensors.rankedCandidatesPb));
   graph.connect(vertex["candidateBeamProbTotal"],
-                gatherCandidates(tempTensors.sortedCandidatesPTotal));
+                gatherCandidates(sortTensors.rankedCandidatesPTotal));
 
   // Result candidates
-  graph.connect(vertex["reducedCandidateParent"],
-                tempTensors.copyCandidatesParent[batch][partition].reshape({}));
-  graph.connect(vertex["reducedCandidateAddend"],
-                tempTensors.copyCandidatesAddend[batch][partition].reshape({}));
-  graph.connect(vertex["reducedCandidateBeamProbNonBlank"],
-                tempTensors.copyCandidatesPnb[batch][partition].reshape({}));
-  graph.connect(vertex["reducedCandidateBeamProbBlank"],
-                tempTensors.copyCandidatesPb[batch][partition].reshape({}));
-  graph.connect(vertex["reducedCandidateBeamProbTotal"],
-                tempTensors.copyCandidatesPTotal[batch][partition].reshape({}));
+  auto resultCandidates = [=](const Tensor &in) {
+    Slice<2> begin = {batch, group};
+    Slice<2> end = {batch + 1, group + 1};
+    return in.slice(begin, end).reshape({});
+  };
 
+  graph.connect(vertex["reducedCandidateParent"],
+                resultCandidates(sortTensors.outCandidatesParent));
+  graph.connect(vertex["reducedCandidateAddend"],
+                resultCandidates(sortTensors.outCandidatesAddend));
+  graph.connect(vertex["reducedCandidateBeamProbNonBlank"],
+                resultCandidates(sortTensors.outCandidatesPnb));
+  graph.connect(vertex["reducedCandidateBeamProbBlank"],
+                resultCandidates(sortTensors.outCandidatesPb));
+  graph.connect(vertex["reducedCandidateBeamProbTotal"],
+                resultCandidates(sortTensors.outCandidatesPTotal));
   // Constants
-  graph.setInitialValue(vertex["totalCandidates"], candidatesToReduce);
+  graph.setInitialValue(vertex["totalCandidates"], candidatesToReduce.size());
 }
 
 void updateVertex(Graph &graph, const BeamTensors &beams,
                   const TempTensors &tempTensors, ComputeSet &cs,
                   unsigned batch, const Interval &time, unsigned beamPartition,
-                  unsigned sortedResultOffset, unsigned beamwidth,
-                  unsigned tile) {
+                  unsigned beamwidth, unsigned tile) {
 
   const auto partialsType = tempTensors.mergeCandidatesPb[0].elementType();
   const auto vertexName =

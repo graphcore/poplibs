@@ -530,11 +530,11 @@ public:
 
   // Outputs have size [beamwidth]
   // They must have 32 bit data types to avoid sub-word writes
-  Output<Vector<unsigned, ONE_PTR>> sortedCandidateParent;
-  Output<Vector<unsigned, ONE_PTR>> sortedCandidateAddend;
-  Output<Vector<float, ONE_PTR>> sortedCandidateBeamProbNonBlank;
-  Output<Vector<float, ONE_PTR>> sortedCandidateBeamProbBlank;
-  Output<Vector<float, ONE_PTR>> sortedCandidateBeamProbTotal;
+  Output<Vector<unsigned, ONE_PTR>> rankedCandidateParent;
+  Output<Vector<unsigned, ONE_PTR>> rankedCandidateAddend;
+  Output<Vector<float, ONE_PTR>> rankedCandidateBeamProbNonBlank;
+  Output<Vector<float, ONE_PTR>> rankedCandidateBeamProbBlank;
+  Output<Vector<float, ONE_PTR>> rankedCandidateBeamProbTotal;
 
   const unsigned totalCandidates;
   // Complete or not, when this batch entry is finished
@@ -552,11 +552,11 @@ public:
     }
     // Zero the initial content
     for (unsigned i = 0; i < beamwidth; i++) {
-      sortedCandidateParent[i] = 0;
-      sortedCandidateAddend[i] = 0;
-      sortedCandidateBeamProbNonBlank[i] = 0.0f;
-      sortedCandidateBeamProbBlank[i] = 0.0f;
-      sortedCandidateBeamProbTotal[i] = 0.0f;
+      rankedCandidateParent[i] = 0;
+      rankedCandidateAddend[i] = 0;
+      rankedCandidateBeamProbNonBlank[i] = 0.0f;
+      rankedCandidateBeamProbBlank[i] = 0.0f;
+      rankedCandidateBeamProbTotal[i] = 0.0f;
     }
     for (unsigned i = firstCandidateToRank; i < lastCandidateToRank; i++) {
       const auto toRankProbTotal = candidateBeamProbTotal[i];
@@ -582,14 +582,14 @@ public:
       // Ranking of this candidate is low enough (ProbTotal is large) to store
       if (rankCount < beamwidth) {
         // Total probablility is only needed as an output for multi stage sort.
-        sortedCandidateParent[rankCount] = candidateParent[i];
-        sortedCandidateAddend[rankCount] =
+        rankedCandidateParent[rankCount] = candidateParent[i];
+        rankedCandidateAddend[rankCount] =
             static_cast<unsigned>(candidateAddend[i]);
-        sortedCandidateBeamProbNonBlank[rankCount] =
+        rankedCandidateBeamProbNonBlank[rankCount] =
             static_cast<float>(candidateBeamProbNonBlank[i]);
-        sortedCandidateBeamProbBlank[rankCount] =
+        rankedCandidateBeamProbBlank[rankCount] =
             static_cast<float>(candidateBeamProbBlank[i]);
-        sortedCandidateBeamProbTotal[rankCount] =
+        rankedCandidateBeamProbTotal[rankCount] =
             static_cast<float>(candidateBeamProbTotal[i]);
       }
     }

@@ -46,9 +46,11 @@ struct TempTensors {
   poplar::Tensor selectExtendCandidatesPTotal;
   poplar::Tensor selectExtendCandidatesAddend;
 
-  // Copy candidates - used for both the original generation of copy candidates
-  // and the result from the `CTCSelectCopyCandidates` vertices which are the
-  // end merged candidates before Select
+  // Copy candidates - used for:
+  // The original generation of copy candidates
+  // The result from the `CTCSelectCopyCandidates` vertices which are the
+  //     end merged candidates before sorting
+  // The sorted results
   // [batchSize][beamwidth][1]
   poplar::Tensor copyCandidatesPb;
   poplar::Tensor copyCandidatesPnb;
@@ -65,14 +67,38 @@ struct TempTensors {
   std::vector<poplar::Tensor> mergeCandidatesPTotal;
   std::vector<poplar::Tensor> mergeCandidatesParent;
   std::vector<poplar::Tensor> mergeCandidatesAddend;
+};
 
-  // The sorted results from the "Rank" sort method
-  // [batchSize][plan.parallel.sortRanking][beamWidth]
-  poplar::Tensor sortedCandidatesPb;
-  poplar::Tensor sortedCandidatesPnb;
-  poplar::Tensor sortedCandidatesPTotal;
-  poplar::Tensor sortedCandidatesParent;
-  poplar::Tensor sortedCandidatesAddend;
+struct SortTensors {
+  // Input candidates to a sort stage
+  // [batchSize][candidates to sort][1]
+  // For the first stage the shape will be the extend and copy candidates
+  // concatenated together:
+  // [batchSize][numClasses * beamwidth][1]
+  poplar::Tensor inCandidatesPb;
+  poplar::Tensor inCandidatesPnb;
+  poplar::Tensor inCandidatesPTotal;
+  poplar::Tensor inCandidatesParent;
+  poplar::Tensor inCandidatesAddend;
+
+  // The results from the "Rank" vertex, before the "Reduce" vertex
+  // when using the Rank sort method
+  // [batchSize][rankingPartitions * groups][beamWidth]
+  poplar::Tensor rankedCandidatesPb;
+  poplar::Tensor rankedCandidatesPnb;
+  poplar::Tensor rankedCandidatesPTotal;
+  poplar::Tensor rankedCandidatesParent;
+  poplar::Tensor rankedCandidatesAddend;
+
+  // Output candidates from a sort stage
+  // [batchSize][groups * beamwidth][1]
+  // The last stage will have groups=1 and so shape
+  // [batchSize][beamwidth][1]
+  poplar::Tensor outCandidatesPb;
+  poplar::Tensor outCandidatesPnb;
+  poplar::Tensor outCandidatesPTotal;
+  poplar::Tensor outCandidatesParent;
+  poplar::Tensor outCandidatesAddend;
 };
 
 struct BeamTensors {
@@ -138,22 +164,23 @@ void simpleSortCandidatesVertex(poplar::Graph &graph,
                                 unsigned beamwidth, unsigned tile);
 
 void rankCandidatesVertex(poplar::Graph &graph, const TempTensors &tempTensors,
+                          const SortTensors &sortTensors,
                           poplar::ComputeSet &cs, unsigned batch,
-                          unsigned partition, unsigned candidatesToCompare,
+                          unsigned partition, unsigned beamPartition,
+                          const poplar::Interval &candidatesToCompare,
                           const poplar::Interval &rangeToRank,
                           unsigned beamwidth, unsigned tile);
 
-void reduceCandidatesVertex(poplar::Graph &graph,
-                            const TempTensors &tempTensors,
-                            poplar::ComputeSet &cs, unsigned batch,
-                            unsigned partition, unsigned beamPartition,
-                            unsigned candidatesToReduce, unsigned tile);
+void reduceCandidatesVertex(
+    poplar::Graph &graph, const TempTensors &tempTensors,
+    const SortTensors &sortTensors, poplar::ComputeSet &cs, unsigned batch,
+    unsigned group, unsigned partition, unsigned beamPartition,
+    const poplar::Interval &candidatesToReduce, unsigned tile);
 
 void updateVertex(poplar::Graph &graph, const BeamTensors &beams,
                   const TempTensors &tempTensors, poplar::ComputeSet &cs,
                   unsigned batch, const poplar::Interval &time,
-                  unsigned beamPartition, unsigned sortedResultOffset,
-                  unsigned beamwidth, unsigned tile);
+                  unsigned beamPartition, unsigned beamwidth, unsigned tile);
 
 void generateOutputVertex(poplar::Graph &graph, const BeamTensors &beams,
                           const TempTensors &tempTensors,

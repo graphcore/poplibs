@@ -94,7 +94,7 @@ runCodeletCommon(poplar::Graph &graph, poplibs_support::TestDevice &device,
         downloadProg, tmap);
   } else {
     rawSortedCandidates = createAndConnectCandidates(
-        graph, vertex, "sortedCandidate", partialsType, {beamwidth}, uploadProg,
+        graph, vertex, "rankedCandidate", partialsType, {beamwidth}, uploadProg,
         downloadProg, tmap);
   }
   OptionFlags engineOptions;

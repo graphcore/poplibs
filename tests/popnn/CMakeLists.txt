@@ -1589,7 +1589,7 @@ endforeach()
 # Picking specific seeds where the test produced a problem
 foreach(seed 12 15 36 60 64 65 77)
   foreach(beamwidth 20 50)
-    foreach(classes 2 3 4)
+    foreach(classes 2 3 4 25)
       foreach(time 4 5 6)
         add_multitarget_test(
           NAME ctc_beam_search_large_beamwidth_${beamwidth}_${classes}_${time}_${seed}
@@ -1605,6 +1605,31 @@ foreach(seed 12 15 36 60 64 65 77)
               --top-paths=2
             VARIANTS ${IPUMODEL_VARIANTS})
       endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+# Force 3 stage sort
+add_multitarget_test(
+  NAME ctc_beam_search_3_stage_sort
+    COMMAND ctc_beam_search
+      --num-classes=400
+        --options={\"sortStageGroups\":\"16,4,1\"}
+    VARIANTS ${IPUMODEL_VARIANTS})
+
+
+# Sweep of number of tiles to check constrained sort cases
+foreach(tiles RANGE 1 20)
+  foreach(batch 1 2 5)
+    foreach(classes 4 37 80)
+      add_multitarget_test(
+        NAME ctc_beam_search_constrained_sort${tiles}_${batch}_${classes}
+          COMMAND ctc_beam_search
+            --batch=${batch}
+            --beamwidth=5
+            --num-classes=${classes}
+            --tiles-per-ipu=${tiles}
+          VARIANTS ${IPUMODEL_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
