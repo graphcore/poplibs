@@ -252,8 +252,9 @@ static void getConvVertexAMPCandidates(
     const bool canUseAmp8 = numConvUnitsOnIpu == 16;
 
     if (canUseAmp4 || canUseAmp8) {
-      numConvUnitsCandidates.push_back(numConvUnitsOnIpu / 2);
-      partialChansCandidates.push_back(numConvUnitsOnIpu / 2);
+      const auto convUnits8Engines = numConvUnitsOnIpu / 2;
+      numConvUnitsCandidates.push_back(convUnits8Engines);
+      partialChansCandidates.push_back(convUnits8Engines);
     }
 
     for (const auto convUnits : numConvUnitsCandidates) {
@@ -672,9 +673,30 @@ getConvVertexTypeCandidates(const poplar::Target &target,
     }
     }
   }
+  // Eliminate duplicate candidates
+  std::sort(convVertexTypeCandidates.begin(), convVertexTypeCandidates.end());
+  convVertexTypeCandidates.erase(std::unique(convVertexTypeCandidates.begin(),
+                                             convVertexTypeCandidates.end()),
+                                 convVertexTypeCandidates.end());
   sortConvVertexTypeCandidates(target, params, options,
                                convVertexTypeCandidates);
   return convVertexTypeCandidates;
+}
+
+static constexpr StructHelper vertexTypeHelper(
+    &ConvVertexType::method, &ConvVertexType::inputType,
+    &ConvVertexType::partialType, &ConvVertexType::convGroupsPerGroup,
+    &ConvVertexType::inChansPerGroup, &ConvVertexType::partialChansPerGroup,
+    &ConvVertexType::slicWindowWidth,
+    &ConvVertexType::numConvUnitsOrChainsRequired,
+    &ConvVertexType::useLimitedVersion);
+
+bool operator<(const ConvVertexType &a, const ConvVertexType &b) {
+  return vertexTypeHelper.lt(a, b);
+}
+
+bool operator==(const ConvVertexType &a, const ConvVertexType &b) {
+  return vertexTypeHelper.eq(a, b);
 }
 
 std::ostream &operator<<(std::ostream &os, const ConvVertexType &cvt) {

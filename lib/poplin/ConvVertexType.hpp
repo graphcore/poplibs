@@ -53,6 +53,9 @@ struct ConvVertexType {
         useLimitedVersion(useLimitedVersion) {}
 };
 
+bool operator<(const ConvVertexType &a, const ConvVertexType &b);
+bool operator==(const ConvVertexType &a, const ConvVertexType &b);
+
 std::ostream &operator<<(std::ostream &os, const ConvVertexType &cvt);
 
 bool canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
