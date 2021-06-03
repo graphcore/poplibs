@@ -517,12 +517,12 @@ inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimate(
       numConvGroups * (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
 }
 
-inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
-    const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
-    unsigned kernelInnerElems, unsigned kernelOuterElems, unsigned filterHeight,
-    unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
-    unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
-    unsigned numWorkerContexts, bool floatActivations, bool floatPartials) {
+// Cycles for a single run of the ConvPartialnx1 vertex worker code
+// with the given worklist and parameters
+static std::uint64_t inline getConvPartialnx1WorkerCycles(
+    const std::vector<unsigned> &worklist, bool floatActivations,
+    bool floatPartials, unsigned numConvUnits, unsigned retentionSavings) {
+
   // Core loop cycles for vertex will all engines in use
   auto coreCycles = floatActivations ? 8 : 4;
   // when using half of AMP engines need to reduce core cycles as well
@@ -530,9 +530,98 @@ inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
     coreCycles /= 2;
   }
 
+  std::uint64_t cycles = 17 + (floatPartials ? 0 : 1);
+  for (auto &numElems : worklist) {
+    switch (numElems) {
+    case 0:
+      cycles += 17;
+      break;
+    case 1:
+      cycles += (floatActivations ? 33 : 29);
+      break;
+    case 2:
+      cycles += (floatActivations ? 44 : 33);
+      break;
+    default:
+      if (floatActivations)
+        cycles += 45 + (numElems - 3) * coreCycles;
+      else
+        cycles += 34 + (numElems - 3) * coreCycles;
+    }
+    cycles -= retentionSavings;
+  }
+
+  return cycles;
+}
+
+// Overload with per kernel position worklists
+static inline std::uint64_t getConvPartialnx1SupervisorKernelLoopCycleEstimate(
+    const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
+    unsigned kernelInnerElems, unsigned kernelOuterElems,
+    unsigned numOutChanPasses, unsigned numWorkerContexts,
+    bool floatActivations, bool floatPartials, unsigned numConvUnits) {
+  unsigned usedContexts = workerPartitions.size();
   const auto retentionSavings =
       convnx1WorkerRetentionSavings(floatActivations, floatPartials);
+  std::uint64_t cycles = 0;
+  for (auto ky = 0U; ky != kernelOuterElems; ++ky) {
+    for (auto kx = 0U; kx != kernelInnerElems; ++kx) {
+      uint64_t maxWorkerCycles = 0;
+      uint64_t minWorkerCycles = usedContexts < numWorkerContexts
+                                     ? 0
+                                     : std::numeric_limits<uint64_t>::max();
+      for (auto context = 0U; context != usedContexts; ++context) {
+        const auto k = ky * kernelInnerElems + kx;
+        const auto thisWorkerCycles = getConvPartialnx1WorkerCycles(
+            workerPartitions[context][k], floatActivations, floatPartials,
+            numConvUnits, retentionSavings);
+        maxWorkerCycles =
+            std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+        minWorkerCycles =
+            std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+      }
+      cycles +=
+          std::max(maxWorkerCycles, minWorkerCycles + 9) * numOutChanPasses;
+    }
+  }
+  return cycles;
+}
+
+// Overload with assumed same worklist for every kernel position.
+static inline std::uint64_t getConvPartialnx1SupervisorKernelLoopCycleEstimate(
+    const std::vector<std::vector<unsigned>> &workerPartitions,
+    unsigned kernelInnerElems, unsigned kernelOuterElems,
+    unsigned numOutChanPasses, unsigned numWorkerContexts,
+    bool floatActivations, bool floatPartials, unsigned numConvUnits) {
   unsigned usedContexts = workerPartitions.size();
+  const auto retentionSavings =
+      convnx1WorkerRetentionSavings(floatActivations, floatPartials);
+  uint64_t maxWorkerCycles = 0;
+  uint64_t minWorkerCycles = usedContexts < numWorkerContexts
+                                 ? 0
+                                 : std::numeric_limits<uint64_t>::max();
+  for (auto context = 0U; context != usedContexts; ++context) {
+    const auto thisWorkerCycles = getConvPartialnx1WorkerCycles(
+        workerPartitions[context], floatActivations, floatPartials,
+        numConvUnits, retentionSavings);
+    maxWorkerCycles =
+        std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+    minWorkerCycles =
+        std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+  }
+  const auto cycles =
+      std::max(maxWorkerCycles, minWorkerCycles + 9) * numOutChanPasses;
+  return cycles * kernelOuterElems * kernelInnerElems;
+}
+
+template <typename WorkerWorklist>
+inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
+    const std::vector<WorkerWorklist> &workerPartitions,
+    unsigned kernelInnerElems, unsigned kernelOuterElems, unsigned filterHeight,
+    unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
+    unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned numWorkerContexts, bool floatActivations, bool floatPartials) {
+
   unsigned numOutChanPasses = outChansPerGroup / numConvUnits;
 
   // innermostLoopCycles is the cycles in the innermost supervisor loop
@@ -560,50 +649,17 @@ inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
 
   innermostLoopCycles += 3;
 
-  uint64_t innerLoopCycles = 0;
-  for (auto ky = 0U; ky != kernelOuterElems; ++ky) {
-    innerLoopCycles += 14;
-    for (auto kx = 0U; kx != kernelInnerElems; ++kx) {
-      // remove cycles for branch in outChanPasses loop for last iteration
-      innerLoopCycles += 17 - 5;
-      const unsigned extraCycles = floatPartials ? 0 : 1;
-      for (auto ocp = 0U; ocp != numOutChanPasses; ++ocp) {
-        uint64_t maxWorkerCycles = 0;
-        uint64_t minWorkerCycles = usedContexts < numWorkerContexts
-                                       ? 0
-                                       : std::numeric_limits<uint64_t>::max();
-        for (auto context = 0U; context != usedContexts; ++context) {
-          uint64_t thisWorkerCycles = 17 + extraCycles;
-          const auto k = ky * kernelInnerElems + kx;
-          for (auto &numElems : workerPartitions[context][k]) {
-            switch (numElems) {
-            case 0:
-              thisWorkerCycles += 17;
-              break;
-            case 1:
-              thisWorkerCycles += (floatActivations ? 33 : 29);
-              break;
-            case 2:
-              thisWorkerCycles += (floatActivations ? 44 : 33);
-              break;
-            default:
-              if (floatActivations)
-                thisWorkerCycles += 45 + (numElems - 3) * coreCycles;
-              else
-                thisWorkerCycles += 34 + (numElems - 3) * coreCycles;
-            }
-            thisWorkerCycles -= retentionSavings;
-          }
-          maxWorkerCycles =
-              std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
-          minWorkerCycles =
-              std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
-        }
-        innerLoopCycles += innermostLoopCycles +
-                           std::max(maxWorkerCycles, minWorkerCycles + 9);
-      }
-    }
-  }
+  // Supervisor cycles for supervisor overhead on each outer loop as
+  // well as loading of weights etc. in the innermost loop.
+  uint64_t innerLoopCycles =
+      kernelOuterElems *
+      (14 +
+       kernelInnerElems * (17 - 5 + numOutChanPasses * innermostLoopCycles));
+
+  innerLoopCycles += getConvPartialnx1SupervisorKernelLoopCycleEstimate(
+      workerPartitions, kernelInnerElems, kernelOuterElems, numOutChanPasses,
+      numWorkerContexts, floatActivations, floatPartials, numConvUnits);
+
   return innerLoopCycles;
 }
 
@@ -1043,25 +1099,24 @@ inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
       inputDilation, stride);
 
   // use conv nx1 vertex
-  // workList is indexed by [context][numKernelPositions][numPartitions]
-  std::vector<std::vector<std::vector<WorklistDataType>>> workList;
   const unsigned positionsOuter = ceildiv(kernelShape[0], filterHeight);
   const unsigned numKernelPositions =
       (positionsOuter * kernelElements / kernelShape[0]);
   const auto outStrideX =
       inputDilation.back() / gcd(inputDilation.back(), stride.back());
 
-  workList.reserve(numWorkerContexts);
-  for (unsigned context = 0; context < numWorkerContexts; ++context) {
+  // workList is indexed by [context][numPartitions]
+  // worklist for each kernel position is assumed to be the same.
+  std::vector<std::vector<WorklistDataType>> workList;
+  workList.reserve(partition.size());
+  for (std::size_t context = 0; context < partition.size(); ++context) {
     workList.emplace_back();
-    for (auto k = 0U; k != numKernelPositions; ++k) {
-      workList.back().emplace_back();
-      for (const auto &partialRow : partition[context]) {
-        const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
-        const auto numFieldPos = ceildiv(workerOutWidth, outStrideX);
-        if (numFieldPos) {
-          workList.back().back().push_back(numFieldPos);
-        }
+    workList.back().reserve(partition[context].size());
+    for (const auto &partialRow : partition[context]) {
+      const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
+      const auto numFieldPos = ceildiv(workerOutWidth, outStrideX);
+      if (numFieldPos) {
+        workList.back().emplace_back(numFieldPos);
       }
     }
   }
