@@ -83,9 +83,11 @@ reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
     bool useSingleInputReduce =
         singleInputReduceIsPossible &&
         (enableFastReduce || singleInputReducePartialsSize);
+    bool useFastReduce = singleInputReduceIsPossible && enableFastReduce;
+
     const auto v = graph.addVertex(
         reduceCS, templateVertex(vertexName, reducedType, partialType,
-                                 useSingleInputReduce, enableFastReduce));
+                                 useSingleInputReduce, useFastReduce));
 
     if (useSingleInputReduce) {
       auto thisRow = tileToRow[tile] % thisStageRows;
