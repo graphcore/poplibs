@@ -396,6 +396,17 @@ static void generateMultiSliceVerticesOnTile(
                               {"subT", workerSlices.flatten()}});
     if (scale) {
       graph.connect(v["scale"], scale.get());
+      // Divide work for multi-update
+      assert(numParallelWorkers == 1);
+      const auto tileElements = base.dim(baseSlicedDim);
+      auto maxElementsPerWorker =
+          atomsPerWord
+              ? std::min(ceildiv(ceildiv(tileElements, atomsPerWord),
+                                 graph.getTarget().getNumWorkerContexts()) *
+                             atomsPerWord,
+                         tileElements)
+              : tileElements;
+      graph.setInitialValue(v["maxElementsPerWorker"], maxElementsPerWorker);
     }
 
     graph.setInitialValue(v["baseOffset"], baseOffset ? *baseOffset : 0u);

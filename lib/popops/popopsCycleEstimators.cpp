@@ -2450,7 +2450,8 @@ MAKE_PERF_ESTIMATOR_NAME(MultiUpdateAdd)(const VertexIntrospector &vertex,
                                          const bool &subWordWritesRequired) {
 
   // based off the assembly (optimistic for integral types which are still
-  // handled by the compiler).
+  // handled by the compiler). Assumes the worst case where all indices are
+  // processed by a single worker.
   CODELET_FIELD(offsets);
   CODELET_SCALAR_VAL(regionSize, unsigned short);
 
@@ -2460,7 +2461,7 @@ MAKE_PERF_ESTIMATOR_NAME(MultiUpdateAdd)(const VertexIntrospector &vertex,
   }
 
   // pre-outer loop overhead.
-  cycles += type == FLOAT ? 14 : 15;
+  cycles += type == FLOAT ? 24 : 25;
 
   // outer loop overhead, before and after the inner loop.
   // cycle cost is data dependent on values of offsets, assuming worst case.
@@ -2484,9 +2485,11 @@ MAKE_PERF_ESTIMATOR_NAME(MultiUpdateAdd)(const VertexIntrospector &vertex,
   }
 
   cycles += outerLoopCycles * offsets.size();
-  return {cycles, static_cast<std::uint64_t>(regionSize) *
-                      (flopsPerBinaryOpElement(BinaryOpType::ADD) +
-                       flopsPerBinaryOpElement(BinaryOpType::MULTIPLY))};
+  const auto supervisorCycles = 25;
+  return {cycles * target.getNumWorkerContexts() + supervisorCycles,
+          static_cast<std::uint64_t>(regionSize) *
+              (flopsPerBinaryOpElement(BinaryOpType::ADD) +
+               flopsPerBinaryOpElement(BinaryOpType::MULTIPLY))};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SequenceSlice)(

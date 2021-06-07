@@ -14,20 +14,25 @@ static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 namespace popops {
 
+template <typename Type, bool subwordWritesSupported>
+constexpr bool hasAssembly() {
+  return std::is_same<Type, float>::value ||
+         (std::is_same<Type, half>::value && !subwordWritesSupported);
+}
+
 // Add single slices from multiple offsets \a baseT to \a subT.
 // This variant takes a 2d input and calculates the offsets given the start
 // address of the base and sub Tensors. the updates are added to the core tensor
 // indices that are not within the range of [baseOffset,
 // baseOffset + numBaseElements) are ignored.
 template <typename Type, bool subwordWritesSupported>
-class MultiUpdateAdd : public Vertex {
+class MultiUpdateAdd
+    : public SupervisorVertexIf<hasAssembly<Type, subwordWritesSupported>() &&
+                                ASM_CODELETS_ENABLED> {
 public:
   MultiUpdateAdd();
 
-  static const bool isExternal =
-      std::is_same<Type, float>::value ||
-      (std::is_same<Type, half>::value && !subwordWritesSupported);
-  IS_EXTERNAL_CODELET(isExternal);
+  IS_EXTERNAL_CODELET((hasAssembly<Type, subwordWritesSupported>()));
   Input<Type> scale;
   Input<Vector<unsigned>> offsets; // in \a baseT
   Input<Vector<Type, ONE_PTR, 4>> subT;
@@ -35,6 +40,9 @@ public:
   const unsigned short regionSize; // stride between slices
   const unsigned baseOffset;       // in the slice dimension
   const unsigned numBaseElements;  // in the slice dimension
+  // in the slice dimension (ceil numBaseElements / numWorkers). Required only
+  // by assembler
+  const unsigned maxElementsPerWorker;
 
   bool compute() {
     // Perform calculation in single precision for half data so that stochastic
