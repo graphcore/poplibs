@@ -36,10 +36,11 @@ function (add_ipu_hw_test version)
         PROPERTIES FIXTURES_SETUP Ipu${version}IsAvailable)
 endfunction()
 
-add_unit_test(WrongSyncZone
-              HangTest.cpp
-              VARIANTS Hw
-              LABELS multicard;CE_reproducers)
+# TODO T35912: re-enable once this test passes on a POD16
+# add_unit_test(WrongSyncZone
+#               HangTest.cpp
+#               VARIANTS Hw
+#               LABELS multicard;CE_reproducers)
 
 add_unit_test(ConsistentExecutableTest
               ConsistentExecutableTest.cpp
