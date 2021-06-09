@@ -380,7 +380,7 @@ VertexPerfEstimate scaledArithmeticSupervisorCycleEstimate(
 
   if (operation == ScaledArithmeticOp::AXPLUSBY && !isConstant) {
     supervisorCycles +=
-        12 + poplibs::getUnpackCost(aLayout) + poplibs::getUnpackCost(bLayout);
+        12 + poputil::getUnpackCost(aLayout) + poputil::getUnpackCost(bLayout);
   }
   if (operation == ScaledArithmeticOp::SUBTRACT && !isConstant) {
     supervisorCycles += 7;
@@ -644,7 +644,7 @@ VertexPerfEstimate ScaledArithmetic2DCycleEstimate(
     // outer loop constant overhead
     cycles += 15;
     if (aLayout == layout::Vector::ShortSpan) {
-      cycles += poplibs::getUnpackCost(bLayout);
+      cycles += poputil::getUnpackCost(bLayout);
     }
 
     cycles += (A[i].size() / grain != 0 ? 5 : 0)         // inner loop overhead
@@ -2138,9 +2138,9 @@ MAKE_PERF_ESTIMATOR_NAME(Histogram2D)(const VertexIntrospector &vertex,
   CODELET_FIELD(limits);
   CODELET_SCALAR_VAL(histogramCount, unsigned);
   const auto unpackCostHistogram =
-      poplibs::getUnpackCost(histogram.getProfilerVectorLayout(0));
+      poputil::getUnpackCost(histogram.getProfilerVectorLayout(0));
   const auto unpackCostLimits =
-      poplibs::getUnpackCost(limits.getProfilerVectorLayout(0));
+      poputil::getUnpackCost(limits.getProfilerVectorLayout(0));
 
   const auto vectorWidth =
       target.getDataPathWidth() / (type == FLOAT ? 32 : 16);
@@ -2191,9 +2191,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HistogramSupervisor)(
   CODELET_FIELD(limits);
   CODELET_SCALAR_VAL(histogramCount, unsigned);
   const auto unpackCostHistogram =
-      poplibs::getUnpackCost(histogram.getProfilerVectorLayout(0));
+      poputil::getUnpackCost(histogram.getProfilerVectorLayout(0));
   const auto unpackCostLimits =
-      poplibs::getUnpackCost(limits.getProfilerVectorLayout(0));
+      poputil::getUnpackCost(limits.getProfilerVectorLayout(0));
 
   const auto vectorWidth =
       target.getDataPathWidth() / (type == FLOAT ? 32 : 16);
@@ -2865,7 +2865,7 @@ static std::uint64_t TransposeWorkerCycles(const unsigned short numSrcRowsD4,
   }
 
   // extra might be needed in the prologue to unpack the pointers
-  cycles += poplibs::getUnpackCost(srcLayout);
+  cycles += poputil::getUnpackCost(srcLayout);
 
   return cycles;
 }
@@ -2913,7 +2913,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TransposeSupervisor)(
   // "Transpose" codelet.
   // transpose_half_from_supervisor does 20 or 21 cycles and jumps
   // the first 7 in the worker codelet.
-  const std::uint64_t overhead = poplibs::getUnpackCost(srcLayout);
+  const std::uint64_t overhead = poputil::getUnpackCost(srcLayout);
   std::uint64_t maxCycles =
       TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, numTranspositions,
                             srcLayout) +
@@ -3100,8 +3100,8 @@ MAKE_PERF_ESTIMATOR_NAME(NormaliseImage)(const VertexIntrospector &vertex,
       CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, FLOAT),                        \
       CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, HALF)
 
-poplibs::PerfEstimatorTable makePerfFunctionTable() {
-  poplibs::PerfEstimatorTable table = {
+poputil::PerfEstimatorTable makePerfFunctionTable() {
+  poputil::PerfEstimatorTable table = {
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, FLOAT, FLOAT, FLOAT),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, HALF, HALF),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, HALF, FLOAT),

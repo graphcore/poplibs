@@ -143,7 +143,7 @@ MAKE_PERF_ESTIMATOR_NAME(SetSeedSupervisor)(const VertexIntrospector &vertex,
   return 14 + 27 * target.getNumWorkerContexts();
 }
 
-poplibs::PerfEstimatorTable makePerfFunctionTable() {
+poputil::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormalSupervisor, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormalSupervisor, HALF),

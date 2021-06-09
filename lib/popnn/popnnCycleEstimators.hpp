@@ -4,11 +4,11 @@
 
 #include "poputil/exceptions.hpp"
 
-#include <poplibs_support/cyclesTables.hpp>
+#include <poputil/cyclesTables.hpp>
 
 namespace popnn {
 
-poplibs::PerfEstimatorTable makePerfFunctionTable();
+poputil::PerfEstimatorTable makePerfFunctionTable();
 }
 
 #endif

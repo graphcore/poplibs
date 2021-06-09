@@ -8,6 +8,7 @@
 
 #include "CodeletsTestsCommon.hpp"
 #include <poplibs_test/Util.hpp>
+#include <poputil/exceptions.hpp>
 
 #include <regex>
 #include <sstream>

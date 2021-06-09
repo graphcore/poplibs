@@ -12,6 +12,7 @@
 #include <popops/ElementWise.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/VertexTemplates.hpp>
 #include <pva/pva.hpp>
 
 #include <boost/algorithm/string.hpp>

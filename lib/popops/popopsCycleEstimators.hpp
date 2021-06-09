@@ -4,7 +4,7 @@
 
 #include "poplar/Type.hpp"
 #include "popops/Expr.hpp"
-#include <poplibs_support/cyclesTables.hpp>
+#include <poputil/cyclesTables.hpp>
 
 #include <map>
 #include <utility>
@@ -16,7 +16,7 @@ using BinaryOpType = popops::expr::BinaryOpType;
 
 namespace popops {
 
-poplibs::PerfEstimatorTable makePerfFunctionTable();
+poputil::PerfEstimatorTable makePerfFunctionTable();
 
 namespace {
 

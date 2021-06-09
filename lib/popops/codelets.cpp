@@ -92,7 +92,7 @@ void addReduceCodelets(poplar::Graph &graph) {
 void addCodelets(poplar::Graph &graph) {
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("popops", "popops.gp", loc));
-  poplibs::registerPerfFunctions(graph, makePerfFunctionTable());
+  poputil::registerPerfFunctions(graph, makePerfFunctionTable());
   addReduceCodelets(graph);
 }
 

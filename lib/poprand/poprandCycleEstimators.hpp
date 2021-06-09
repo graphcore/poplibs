@@ -2,11 +2,11 @@
 #ifndef __poprandCycleEstimators_hpp__
 #define __poprandCycleEstimators_hpp__
 
-#include <poplibs_support/cyclesTables.hpp>
+#include <poputil/cyclesTables.hpp>
 
 namespace poprand {
 
-poplibs::PerfEstimatorTable makePerfFunctionTable();
+poputil::PerfEstimatorTable makePerfFunctionTable();
 }
 
 #endif

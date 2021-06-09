@@ -2,11 +2,11 @@
 #ifndef popsparse_popsparseCycleEstimators_hpp
 #define popsparse_popsparseCycleEstimators_hpp
 
-#include <poplibs_support/cyclesTables.hpp>
+#include <poputil/cyclesTables.hpp>
 
 namespace popsparse {
 
-poplibs::PerfEstimatorTable makePerfFunctionTable();
+poputil::PerfEstimatorTable makePerfFunctionTable();
 
 } // end namespace popsparse
 

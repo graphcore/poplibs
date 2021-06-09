@@ -6,6 +6,8 @@
 #include <popnn/CTCInference.hpp>
 #include <popnn/CTCLoss.hpp>
 
+#include <poputil/exceptions.hpp>
+
 // Common simple plan parameters
 const poplar::Type inType = poplar::FLOAT;
 const poplar::Type outType = poplar::FLOAT;

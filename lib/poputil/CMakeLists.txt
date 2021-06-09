@@ -14,6 +14,7 @@ add_library(poputil SHARED
   Util.cpp
   ${CMAKE_SOURCE_DIR}/include/poputil/DebugInfo.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/Broadcast.hpp
+  ${CMAKE_SOURCE_DIR}/include/poputil/cyclesTables.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/Loop.hpp

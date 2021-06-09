@@ -8,7 +8,7 @@ namespace popnn {
 void addCodelets(poplar::Graph &graph) {
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("popnn", "popnn.gp", loc));
-  poplibs::registerPerfFunctions(graph, makePerfFunctionTable());
+  poputil::registerPerfFunctions(graph, makePerfFunctionTable());
 }
 
 } // namespace popnn

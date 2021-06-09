@@ -6,6 +6,7 @@
 #include "CTCLossPlan.hpp"
 
 #include <poplibs_support/Visitor.hpp>
+#include <poputil/exceptions.hpp>
 
 #include <iostream>
 

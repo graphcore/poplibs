@@ -133,7 +133,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BitIsSet)(
   return 8 * target.getNumWorkerContexts();
 }
 
-poplibs::PerfEstimatorTable makePerfFunctionTable() {
+poputil::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulElementWise, HALF,
                             FLOAT),

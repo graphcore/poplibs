@@ -2,12 +2,12 @@
 #ifndef __popfloatCycleEstimators_hpp__
 #define __popfloatCycleEstimators_hpp__
 
-#include <poplibs_support/cyclesTables.hpp>
+#include <poputil/cyclesTables.hpp>
 
 namespace popfloat {
 namespace experimental {
 
-poplibs::PerfEstimatorTable makePerfFunctionTable();
+poputil::PerfEstimatorTable makePerfFunctionTable();
 
 } // end namespace experimental
 } // end namespace popfloat

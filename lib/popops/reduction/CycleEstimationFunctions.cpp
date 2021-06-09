@@ -5,10 +5,10 @@
 #include "poputil/exceptions.hpp"
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/FlopEstimation.hpp>
-#include <poplibs_support/cyclesTables.hpp>
 #include <poplibs_support/forceInterleavedEstimates.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poputil/VertexTemplates.hpp>
+#include <poputil/cyclesTables.hpp>
 
 using namespace poplibs_support;
 

@@ -8,7 +8,7 @@ namespace poprand {
 void addCodelets(poplar::Graph &graph) {
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("poprand", "poprand.gp", loc));
-  poplibs::registerPerfFunctions(graph, makePerfFunctionTable());
+  poputil::registerPerfFunctions(graph, makePerfFunctionTable());
 }
 
 } // namespace poprand

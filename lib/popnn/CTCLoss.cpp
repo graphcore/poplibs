@@ -19,6 +19,7 @@
 #include <popops/Reduce.hpp>
 #include <poputil/OptionParsing.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
 #include <boost/optional.hpp>

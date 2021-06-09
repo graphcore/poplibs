@@ -21,7 +21,7 @@ void addCodelets(poplar::Graph &graph) {
 
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("poplin", "poplin.gp", loc));
-  poplibs::registerPerfFunctions(graph, makePerfFunctionTable());
+  poputil::registerPerfFunctions(graph, makePerfFunctionTable());
 
   // The winograd codelets are not currently supported and do not have correct
   // cycle estimators.

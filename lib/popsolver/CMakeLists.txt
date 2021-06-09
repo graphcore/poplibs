@@ -16,7 +16,6 @@ target_link_libraries(popsolver
   PRIVATE
     poplar
     poplibs_support
-    poputil # Required because of T22741
     Boost::boost
     spdlog::spdlog_header_only
 )

@@ -10,7 +10,6 @@
 
 #include <poplar/DebugContext.hpp>
 
-#include <popfloat/experimental/CastToGfloat.hpp>
 #include <poplar/GraphElements.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>

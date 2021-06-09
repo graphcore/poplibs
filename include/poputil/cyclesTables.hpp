@@ -1,7 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 
-#ifndef poplibs_support_cyclesTables_hpp
-#define poplibs_support_cyclesTables_hpp
+#ifndef poputil_cyclesTables_hpp
+#define poputil_cyclesTables_hpp
 
 #include <poplar/Graph.hpp>
 #include <poplar/PerfEstimateFunc.hpp>
@@ -30,10 +30,10 @@
 
 #define MAKE_PERF_ESTIMATOR_NAME(codelet) getPerfEstimateFor##codelet
 #define CYCLE_ESTIMATOR_ENTRY_NOPARAMS(ns, codelet)                            \
-  poplibs::makePerfEstimatorEntry(#ns "::" #codelet,                           \
+  poputil::makePerfEstimatorEntry(#ns "::" #codelet,                           \
                                   MAKE_PERF_ESTIMATOR_NAME(codelet))
 #define CYCLE_ESTIMATOR_ENTRY(ns, codelet, ...)                                \
-  poplibs::makePerfEstimatorEntry(                                             \
+  poputil::makePerfEstimatorEntry(                                             \
       #ns "::" #codelet, MAKE_PERF_ESTIMATOR_NAME(codelet), __VA_ARGS__)
 
 // These macros reduce boiler plate code when accessing
@@ -47,7 +47,7 @@
   const auto field =                                                           \
       vertex.getFieldInfo(#field).getInitialValues<std::vector<type>>(target);
 
-namespace poplibs {
+namespace poputil {
 
 using PerfEstimatorTable =
     std::vector<std::pair<std::string, poplar::PerfEstimateFunc>>;
@@ -98,7 +98,7 @@ inline std::uint64_t getUnpackCost(const poplar::layout::VectorList layout) {
   case poplar::layout::VectorList::ScaledPtr128:
     throw poputil::poplibs_error("Unknown cost for this layout");
   case poplar::layout::VectorList::DeltaN:
-    return poplibs::getUnpackCost(poplar::layout::Vector::ScaledPtr32);
+    return poputil::getUnpackCost(poplar::layout::Vector::ScaledPtr32);
   case poplar::layout::VectorList::DeltaNElements:
     // (shl ; and) to get base and nA and again to get deltaN and nB then an
     // add to combine nA and nB
@@ -128,6 +128,6 @@ getVectorListDeltaUnpackCost(const poplar::layout::VectorList layout) {
   throw poputil::poplibs_error("Unknown layout");
 }
 
-} // end namespace poplibs
+} // end namespace poputil
 
-#endif // poplibs_support_cyclesTables_hpp
+#endif // poputil_cyclesTables_hpp

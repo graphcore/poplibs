@@ -2,11 +2,11 @@
 #ifndef __poplinCycleEstimators_hpp__
 #define __poplinCycleEstimators_hpp__
 
-#include <poplibs_support/cyclesTables.hpp>
+#include <poputil/cyclesTables.hpp>
 
 namespace poplin {
 
-poplibs::PerfEstimatorTable makePerfFunctionTable();
+poputil::PerfEstimatorTable makePerfFunctionTable();
 }
 
 #endif

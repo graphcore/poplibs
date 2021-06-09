@@ -7,6 +7,8 @@
 #include <poputil/DebugInfo.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
+#include <poputil/VertexTemplates.hpp>
+#include <poputil/exceptions.hpp>
 
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/VectorUtils.hpp>

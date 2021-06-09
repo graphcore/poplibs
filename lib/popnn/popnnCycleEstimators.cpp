@@ -101,7 +101,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearitySupervisor)(
            opCycles); // Handle remaining element from pipeline
 
   // possibly unpack pointers
-  workerCycles += poplibs::getUnpackCost(data.getProfilerVectorLayout(0));
+  workerCycles += poputil::getUnpackCost(data.getProfilerVectorLayout(0));
 
   // Add remainder handling cycles. This handling could be slightly overlapped
   // with other workers if the worker doing the remainder had less vector
@@ -164,7 +164,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
 
   // get real pointers from scaled pointers
   if (inGradLayout == layout::Vector::ScaledPtr64) {
-    workerCycles += poplibs::getUnpackCost(inGradLayout) + 2;
+    workerCycles += poputil::getUnpackCost(inGradLayout) + 2;
   }
 
   if (isFloat) {
@@ -312,14 +312,14 @@ poolingCycleEstimator(const VertexIntrospector &vertex, const Target &target,
 
   UnpackCosts unpackCosts;
   unpackCosts.outLayout =
-      poplibs::getUnpackCost(out.getProfilerVectorLayout(0));
+      poputil::getUnpackCost(out.getProfilerVectorLayout(0));
 
-  unpackCosts.inLayout = poplibs::getUnpackCost(in.getProfilerVectorLayout(0));
+  unpackCosts.inLayout = poputil::getUnpackCost(in.getProfilerVectorLayout(0));
   unpackCosts.fwdOutLayout = unpackCosts.outLayout;
   unpackCosts.fwdInLayout = unpackCosts.inLayout;
 
-  unpackCosts.startPosLayout = poplibs::getUnpackCost(startPosLayout);
-  unpackCosts.workListLayout = poplibs::getUnpackCost(workListLayout);
+  unpackCosts.startPosLayout = poputil::getUnpackCost(startPosLayout);
+  unpackCosts.workListLayout = poputil::getUnpackCost(workListLayout);
 
   auto cycles = getPoolingCycles(
       initInfo, chansPerGroupDM1 + 1, numChanGroupsM1, startPos, workList,
@@ -784,7 +784,7 @@ MAKE_PERF_ESTIMATOR_NAME(CTCGenerateOutput)(const VertexIntrospector &vertex,
   return {0, 0};
 }
 
-poplibs::PerfEstimatorTable makePerfFunctionTable() {
+poputil::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, HALF),
