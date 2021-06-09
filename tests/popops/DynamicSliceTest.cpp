@@ -176,7 +176,8 @@ static void checkResult(const boost::multi_array<float, 3> &m,
 void sliceTestND(unsigned tilesPerIPU, const std::vector<size_t> &testShape,
                  const std::vector<std::vector<std::vector<float>>> &testBase,
                  const std::vector<std::size_t> &sliceDims,
-                 const std::vector<std::size_t> &sliceSizes) {
+                 const std::vector<std::size_t> &sliceSizes,
+                 std::size_t maxTestedOffsetsPerDim = 25) {
   BOOST_TEST_MESSAGE(
       "Test " << boost::unit_test::framework::current_test_case().p_name);
 
@@ -237,7 +238,7 @@ void sliceTestND(unsigned tilesPerIPU, const std::vector<size_t> &testShape,
 
     std::vector<unsigned> nOffsets(t1.rank(), 1);
     for (auto dim : sliceDims) {
-      nOffsets[dim] = t1.dim(dim);
+      nOffsets[dim] = std::min(t1.dim(dim), maxTestedOffsetsPerDim);
     }
     assert(t1.rank() == NUM_DIMS);
     for (unsigned sliceA = 0; sliceA != nOffsets[0]; ++sliceA) {
