@@ -411,6 +411,10 @@ struct MiscOptions {
   // How many test to run in a single graph/compute set (one per tile)
   unsigned groupTests = 1;
 
+  // Maximum number of tiles to use for a single graph/run of tests.
+  // NOTE: Default was set empirically to reduce test times.
+  unsigned numTiles = 4;
+
   // print the number of cycles used by the vertex.
   bool printCycles = false;
 
@@ -452,7 +456,7 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
   // The name of the compute set where we run the vertex under test.
   const static std::string computeSetName = "vertexComputeSet";
 
-  TestDevice device = createTestDevice(deviceType, 1, numTests + 1);
+  TestDevice device = createTestDevice(deviceType, 1, options.numTiles);
   Target target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -471,7 +475,7 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
       std::cout << tests[offs + i]->toString() << std::endl;
     }
     doSetupTest(target, ipuModel, graph, upload, alignCS, cs, download,
-                streamMap, *tests[offs + i], i, options);
+                streamMap, *tests[offs + i], i % target.getNumTiles(), options);
   }
   program.add(Execute(alignCS));
   program.add(Execute(cs));
@@ -738,9 +742,12 @@ void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
      "Do not check correctness of result, useful for benchmarking without "
      "overhead of host-side computation")
     ("group-tests",
-     po::value<unsigned>(&options.groupTests)->implicit_value(100),
-     "Run multiple tests together in a single graph and single compute set, "
-     "each test on a separate tile, to increase execution speed")
+     po::value<unsigned>(&options.groupTests)->implicit_value(400),
+     "Run multiple tests together in a single graph and single compute set to"
+     " decrease test time")
+    ("num-tiles",
+     po::value<unsigned>(&options.numTiles)->default_value(options.numTiles),
+     "Maximum number of tiles to use for one batch of tests")
     ("print-buffers",
      po::value<bool>(&options.printBuffers)->implicit_value(true),
      "Print the input and output buffers")

@@ -196,6 +196,7 @@ COMMAND BinaryCodeletsTest
         --size  1x4 1x5 1x20 1x28 3x4 3x5 3x20 3x28 8x4 8x5 8x20 8x28 3x9 4x8 80x8 80x11 80x32 80x33 80x8 80x11 80x32 80x33
         --size2   7   7    7   7    7   7    7    7   7   7    7    7   3   4    7     7     7     7    2     2     2     2
         --group-test
+        --num-tiles=8
 LABELS codelet)
 
 add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorOuter_align"
@@ -205,6 +206,7 @@ COMMAND BinaryCodeletsTest
         --size  1x4 1x20 1x28 3x4 3x20 3x28 8x4 8x20 8x28 4x8 80x8 80x11 80x32 80x8 80x32
         --size2   7    7   7    7    7    7   7    7    7   4    7     7     7    2     2
         --group-test
+        --num-tiles=8
 LABELS codelet)
 
 
@@ -221,6 +223,7 @@ function(runFastSlowPathBinaryTests TEST_TAG OPS DATA_TYPES)
                                  --offset-operands ${OFFS}
                                  --size [511,511]
                                  --group-tests
+                                 --num-tiles=16
                          LABELS codelet)
   endforeach()
 endfunction()
