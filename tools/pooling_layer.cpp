@@ -99,6 +99,7 @@ int main(int argc, char **argv) {
   bool useIntrospectiveMapping;
   bool scaledGradientForMaxPool;
   bool optimizeForSpeed;
+  boost::optional<bool> useFloatPartialsWhereBeneficial;
 
   boost::optional<std::string> profileDir;
 
@@ -173,6 +174,8 @@ int main(int argc, char **argv) {
       po::value<bool>(&optimizeForSpeed)->default_value(false),
       "Allow optimisations for speed at the cost of memory allocation"
       " constraints")
+    ("use-float-partials",po::value(&useFloatPartialsWhereBeneficial),
+      "Select the partials type for the pooling operation")
   ;
   // clang-format on
   po::variables_map vm;
@@ -207,6 +210,12 @@ int main(int argc, char **argv) {
                      useIntrospectiveMapping ? "true" : "false");
 
   poolingOptions.set("optimizeForSpeed", optimizeForSpeed ? "true" : "false");
+
+  if (useFloatPartialsWhereBeneficial) {
+    poolingOptions.set("useFloatPartialsWhereBeneficial",
+                       useFloatPartialsWhereBeneficial.get() ? "true"
+                                                             : "false");
+  }
 
   auto &inputFieldSize = inputFieldSizeOption.val;
   const auto numFieldDims = inputFieldSize.size();
