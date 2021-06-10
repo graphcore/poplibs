@@ -22,10 +22,10 @@ foreach(MODE 0 1 2)
 
       if(${PARTIALS_TYPE} STREQUAL "half")
         set(CONV_CHAIN_VARIANTS "2;4")
-        set(SLIC_TEST_VARIANTS "Cpu;IpuModel2;Sim2")
+        set(SLIC_TEST_VARIANTS "Cpu;Sim2")
       else()
         set(CONV_CHAIN_VARIANTS "2")
-        set(SLIC_TEST_VARIANTS "Cpu;IpuModel1;Sim1;Hw")
+        set(SLIC_TEST_VARIANTS "Cpu;Sim1")
       endif()
 
       foreach(CONV_CHAINS ${CONV_CHAIN_VARIANTS})
@@ -149,7 +149,7 @@ foreach(OUT_STRIDE 2 3 4)
       --kernel-size={1,1,4}
       --output-stride={1,${OUT_STRIDE},1}
     LABELS codelet
-    VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+    VARIANTS "Cpu;${DEFAULT_TEST_VARIANTS}")
 
   add_multitarget_test(NAME "ConvPartial1x4SLIC_stride_${OUT_STRIDE}_${OUT_STRIDE}_2"
     COMMAND ConvPartial1xNSLIC
@@ -163,7 +163,7 @@ foreach(OUT_STRIDE 2 3 4)
       --kernel-size={1,1,4}
       --output-stride={${OUT_STRIDE},${OUT_STRIDE},2}
     LABELS codelet
-    VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+    VARIANTS "Cpu;${DEFAULT_TEST_VARIANTS}")
 endforeach() # OUT_STRIDE
 
 foreach(LOWER_TRUNCATION 0 1 2)
@@ -181,7 +181,7 @@ foreach(LOWER_TRUNCATION 0 1 2)
         --output-truncation-lower={0,0,${LOWER_TRUNCATION}}
         --output-truncation-upper={0,0,${UPPER_TRUNCATION}}
       LABELS codelet
-      VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+      VARIANTS "Cpu;${DEFAULT_TEST_VARIANTS}")
 
     add_multitarget_test(NAME "ConvPartial1x4SLIC_truncation2_upper${UPPER_TRUNCATION}_lower${LOWER_TRUNCATION}"
       COMMAND ConvPartial1xNSLIC
@@ -196,6 +196,6 @@ foreach(LOWER_TRUNCATION 0 1 2)
         --output-truncation-upper={0,1,${UPPER_TRUNCATION}}
         --output-truncation-lower={1,${LOWER_TRUNCATION},0}
       LABELS codelet
-      VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+      VARIANTS "Cpu;${DEFAULT_TEST_VARIANTS}")
   endforeach() # UPPER_TRUNCATION
 endforeach() # LOWER_TRUNCATION

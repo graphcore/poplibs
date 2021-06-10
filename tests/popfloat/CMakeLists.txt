@@ -5,7 +5,7 @@ add_multitarget_test(
   COMMAND cast_to_gfloat
           --input-size=40001
           --tiles-per-ipu=16
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_10_bias30_no_inf_RA
@@ -15,7 +15,7 @@ add_multitarget_test(
           --tiles-per-ipu=32
           --bias=30
           --enable-infs-and-nans=0
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_4_11_bias13_no_denorm_RN_quantise
@@ -28,7 +28,7 @@ add_multitarget_test(
           --round-mode=RN
           --tiles-per-ipu=16
           --storage-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_4_11_bias13_no_denorm_RN_gfloat_as_int
@@ -40,7 +40,7 @@ add_multitarget_test(
           --enable-denorms=0
           --round-mode=RN
           --tiles-per-ipu=32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_quantise
@@ -53,7 +53,7 @@ add_multitarget_test(
           --round-mode=RD
           --tiles-per-ipu=16
           --storage-type=FP16
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_gfloat_as_int
@@ -65,7 +65,7 @@ add_multitarget_test(
           --enable-infs-and-nans=0
           --round-mode=RD
           --tiles-per-ipu=16
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_quantise_fp32_calc_type
@@ -79,7 +79,7 @@ add_multitarget_test(
           --tiles-per-ipu=16
           --storage-type=FP16
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_gfloat_as_int_fp32_calc_type
@@ -92,7 +92,7 @@ add_multitarget_test(
           --round-mode=RD
           --tiles-per-ipu=32
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_6_9_bias62_no_inf_no_denorm_RA_quantise
@@ -106,7 +106,7 @@ add_multitarget_test(
           --round-mode=RA
           --tiles-per-ipu=16
           --storage-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_6_9_bias62_no_inf_no_denorm_RA_gfloat_as_int
@@ -119,7 +119,7 @@ add_multitarget_test(
           --enable-denorms=0
           --round-mode=RA
           --tiles-per-ipu=32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_quantise
@@ -132,7 +132,7 @@ add_multitarget_test(
           --round-mode=RD
           --storage-type=FP16
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_gfloat_as_int
@@ -144,7 +144,7 @@ add_multitarget_test(
           --enable-infs-and-nans=0
           --round-mode=RD
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_quantise_fp32_calc_type
@@ -158,7 +158,7 @@ add_multitarget_test(
           --storage-type=FP16
           --calc-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_gfloat_as_int_fp32_calc_type
@@ -171,7 +171,7 @@ add_multitarget_test(
           --round-mode=RD
           --calc-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_quantise
@@ -184,7 +184,7 @@ add_multitarget_test(
           --round-mode=RD
           --tiles-per-ipu=100
           --storage-type=FP16
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_gfloat_as_int
@@ -196,7 +196,7 @@ add_multitarget_test(
           --enable-nanoo-mode=1
           --round-mode=RD
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_quantise_fp32_calc_type
@@ -210,7 +210,7 @@ add_multitarget_test(
           --tiles-per-ipu=100
           --storage-type=FP16
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_gfloat_as_int_fp32_calc_type
@@ -223,7 +223,7 @@ add_multitarget_test(
           --round-mode=RD
           --calc-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_6_9_bias62_no_inf_RZ_quantise
@@ -236,7 +236,7 @@ add_multitarget_test(
           --round-mode=RZ
           --storage-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_6_9_bias62_no_inf_RZ_gfloat_as_int
@@ -248,7 +248,7 @@ add_multitarget_test(
           --enable-infs-and-nans=0
           --round-mode=RZ
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_1_14_bias0_noInf_RU_quantise
@@ -261,7 +261,7 @@ add_multitarget_test(
           --round-mode=RU
           --storage-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_1_14_bias0_noInf_RU_gfloat_as_int
@@ -273,7 +273,7 @@ add_multitarget_test(
           --enable-infs-and-nans=0
           --round-mode=RU
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_quantise
@@ -286,7 +286,7 @@ add_multitarget_test(
           --round-mode=RA
           --storage-type=FP16
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_gfloat_as_int
@@ -298,7 +298,7 @@ add_multitarget_test(
           --enable-infs-and-nans=0
           --round-mode=RA
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_quantise_fp32_calc_type
@@ -312,7 +312,7 @@ add_multitarget_test(
           --storage-type=FP16
           --calc-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_gfloat_as_int_fp32_calc_type
@@ -325,7 +325,7 @@ add_multitarget_test(
           --round-mode=RA
           --calc-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_0_15_bias-1_RA_quantise
@@ -338,7 +338,7 @@ add_multitarget_test(
           --round-mode=RA
           --storage-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_0_15_bias-1_RA_gfloat_as_int
@@ -350,7 +350,7 @@ add_multitarget_test(
           --enable-infs-and-nans=0
           --round-mode=RA
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_6_1_bias31_RU_quantise
@@ -362,7 +362,7 @@ add_multitarget_test(
           --round-mode=RU
           --storage-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_6_1_bias31_RU_gfloat_as_int
@@ -373,7 +373,7 @@ add_multitarget_test(
           --bias=31
           --round-mode=RU
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_7_0_bias63_RN_quantise
@@ -385,7 +385,7 @@ add_multitarget_test(
           --round-mode=RN
           --storage-type=FP32
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_7_0_bias63_RN_gfloat_as_int
@@ -396,7 +396,7 @@ add_multitarget_test(
           --bias=63
           --round-mode=RN
           --tiles-per-ipu=100
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_Uniform
@@ -409,7 +409,7 @@ add_multitarget_test(
           --sr-noise-density=Uniform
           --sr-noise-min=0.65
           --sr-noise-max=0.85
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Uniform
@@ -422,7 +422,7 @@ add_multitarget_test(
           --sr-noise-density=Uniform
           --sr-noise-min=0.05
           --sr-noise-max=0.34
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Uniform_fp32_calc
@@ -436,7 +436,7 @@ add_multitarget_test(
           --sr-noise-min=0.05
           --sr-noise-max=0.34
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_Normal
@@ -449,7 +449,7 @@ add_multitarget_test(
           --sr-noise-density=Normal
           --sr-noise-min=0.0
           --sr-noise-max=0.42
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Normal
@@ -461,7 +461,7 @@ add_multitarget_test(
           --bias=1
           --sr-noise-density=Normal
           --sr-noise-min=0.0 --sr-noise-max=0.22
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Normal_fp32_calc
@@ -475,7 +475,7 @@ add_multitarget_test(
           --sr-noise-min=0.0
           --sr-noise-max=0.22
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_TruncatedNormal
@@ -488,7 +488,7 @@ add_multitarget_test(
           --sr-noise-density=TruncatedNormal
           --sr-noise-min=-0.15
           --sr-noise-max=0.25
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_TruncatedNormal
@@ -501,7 +501,7 @@ add_multitarget_test(
           --sr-noise-density=TruncatedNormal
           --sr-noise-min=-0.1
           --sr-noise-max=0.5
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_TruncatedNormal_fp32_calc
@@ -515,7 +515,7 @@ add_multitarget_test(
           --sr-noise-min=-0.1
           --sr-noise-max=0.5
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_TruncatedLaplace
@@ -528,7 +528,7 @@ add_multitarget_test(
           --sr-noise-density=TruncatedLaplace
           --sr-noise-min=-0.2
           --sr-noise-max=0.5
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_TruncatedLaplace
@@ -541,7 +541,7 @@ add_multitarget_test(
           --sr-noise-density=TruncatedLaplace
           --sr-noise-min=-0.16
           --sr-noise-max=0.43
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_TruncatedLaplace_fp32_calc
@@ -555,7 +555,7 @@ add_multitarget_test(
           --sr-noise-min=-0.16
           --sr-noise-max=0.43
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_Laplace
@@ -568,7 +568,7 @@ add_multitarget_test(
           --sr-noise-density=Laplace
           --sr-noise-min=0.0
           --sr-noise-max=0.5
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Laplace
@@ -581,7 +581,7 @@ add_multitarget_test(
           --sr-noise-density=Laplace
           --sr-noise-min=0.0
           --sr-noise-max=0.3
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Laplace_fp32_calc
@@ -595,7 +595,7 @@ add_multitarget_test(
           --sr-noise-min=-0.41
           --sr-noise-max=0.3
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_TruncatedLogistic
@@ -608,7 +608,7 @@ add_multitarget_test(
           --sr-noise-density=TruncatedLogistic
           --sr-noise-min=-0.35
           --sr-noise-max=-0.15
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_Logistic
@@ -621,7 +621,7 @@ add_multitarget_test(
           --sr-noise-density=Logistic
           --sr-noise-min=-0.35
           --sr-noise-max=0.15
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Logistic
@@ -634,7 +634,7 @@ add_multitarget_test(
           --sr-noise-density=Logistic
           --sr-noise-min=-0.5
           --sr-noise-max=0.15
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Logistic_fp32_calc
@@ -648,7 +648,7 @@ add_multitarget_test(
           --sr-noise-min=-0.5
           --sr-noise-max=0.15
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_TruncatedLogitNormal
@@ -661,7 +661,7 @@ add_multitarget_test(
           --sr-noise-density=TruncatedLogitNormal
           --sr-noise-min=0.15
           --sr-noise-max=0.85
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_TruncatedLogitNormal
@@ -675,7 +675,7 @@ add_multitarget_test(
           --sr-noise-min=0.0
           --sr-noise-max=0.9
           --input-value=2047
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_TruncatedLogitNormal_fp32_calc
@@ -690,7 +690,7 @@ add_multitarget_test(
           --sr-noise-max=0.9
           --input-value=2047
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_LogitNormal
@@ -703,7 +703,7 @@ add_multitarget_test(
           --sr-noise-density=LogitNormal
           --sr-noise-min=0.0
           --sr-noise-max=0.5
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_LogitNormal
@@ -716,7 +716,7 @@ add_multitarget_test(
           --sr-noise-density=LogitNormal
           --sr-noise-min=0.05
           --sr-noise-max=0.45
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_LogitNormal_fp32_calc
@@ -730,7 +730,7 @@ add_multitarget_test(
           --sr-noise-min=0.0
           --sr-noise-max=0.5
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_float_Bernoulli
@@ -742,7 +742,7 @@ add_multitarget_test(
           --bias=127
           --sr-noise-density=Bernoulli
           --sr-prob-truncate=0.45
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Bernoulli
@@ -754,7 +754,7 @@ add_multitarget_test(
          --bias=4
          --sr-noise-density=Bernoulli
          --sr-prob-truncate=0.26
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_sr_half_Bernoulli_fp32_calc
@@ -767,4 +767,4 @@ add_multitarget_test(
           --sr-noise-density=Bernoulli
           --sr-prob-truncate=0.76
           --calc-type=FP32
-          VARIANTS ${SIM_VARIANTS};Hw)
+          VARIANTS Hw)

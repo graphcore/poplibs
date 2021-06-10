@@ -360,14 +360,14 @@ function(add_multitarget_test)
   endforeach()
 endfunction()
 
-# Make an alias for IpuModel that can be used to denote tests that specifically
+# Make an variant list that can be used to denote tests that specifically
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
-set(TimesOutOnSim "${IPUMODEL_VARIANTS};Hw")
+set(TimesOutOnSim "${DEFAULT_TEST_VARIANTS}")
+list(REMOVE_ITEM TimesOutOnSim "Sim1" "Sim2")
 
-# Make an alias for IpuModel that can be used to denote tests that specifically
-# should not be run on the Sim:cpp variant due to test timeouts:
-set(TimesOutOnSimCpp "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+set(TimesOutOnSimCpp "${TimesOutOnSim}")
+list(REMOVE_ITEM TimesOutOnSimCpp "Sim1:cpp" "Sim2:cpp")
 
 # Tests
 add_subdirectory(popfloat)

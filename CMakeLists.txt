@@ -61,7 +61,7 @@ endforeach()
 
 set(ALL_POSSIBLE_TEST_VARIANTS "NoTarget;Cpu;IpuModel1;IpuModel2;Sim1;Sim2;Sim1:cpp;Sim2:cpp;Hw")
 
-set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 # If the user has specified ENABLED_TEST_VARIANTS then validate the values.

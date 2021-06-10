@@ -1913,8 +1913,7 @@ foreach(OUTPUT_STRIDE 1 2)
                    --data-type=half
                    --batch-size=4
                   --convolution-options={\"partialsType\":\"half\"}
-                  --fwd-plan-constraints={\"method\":\"SLIC\"}
-                  VARIANTS "${SIM_VARIANTS};${IPUMODEL_VARIANTS}")
+                  --fwd-plan-constraints={\"method\":\"SLIC\"})
 endforeach()
 
 # conv_batch_float test split into the three component phases
@@ -3287,8 +3286,7 @@ add_multitarget_test(NAME conv5x200_1_in_100_out
                  --batch-size=16
                  --data-type=half
                  --tiles-per-ipu=20
-                 --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":false,\"expandDims\":[1]}}}
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":false,\"expandDims\":[1]}}})
 
 add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
          COMMAND single_conv_layer
@@ -3299,8 +3297,7 @@ add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
                  --batch-size=16
                  --data-type=half
                  --tiles-per-ipu=20
-                 --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":true,\"expandDims\":[1]}}}
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":true,\"expandDims\":[1]}}})
 
 # Test Fwd/Bwd symmetric convolution with code reuse
 add_multitarget_test(NAME conv8x6_8_in_8_out_reuse
@@ -3315,8 +3312,7 @@ add_multitarget_test(NAME conv8x6_8_in_8_out_reuse
                  --data-type=half
                  --tiles-per-ipu=16
                  --enable-convolution-reuse 1
-                 --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":false,\"expandDims\":[1]}}}
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":false,\"expandDims\":[1]}}})
 
 # Test the --use-create-input option
 foreach(USE_CREATE_INPUT "0" "1")
@@ -3694,8 +3690,7 @@ foreach(PLAN_TYPE parallel serial)
                    --data-type=half
                    --tiles-per-ipu=32
                    --alpha=0.5
-                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
-                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4})
 
     add_multitarget_test(NAME octconv_basic_${PLAN_TYPE}_no_reserved_tiles
            COMMAND oct_conv_layer
@@ -3709,8 +3704,7 @@ foreach(PLAN_TYPE parallel serial)
                    --data-type=half
                    --tiles-per-ipu=32
                    --alpha=0.5
-                   --options={\"planType\":\"${PLAN_TYPE}\"}
-                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                   --options={\"planType\":\"${PLAN_TYPE}\"})
 
   add_multitarget_test(NAME octconvLL_${PLAN_TYPE}
            COMMAND oct_conv_layer
@@ -3724,8 +3718,7 @@ foreach(PLAN_TYPE parallel serial)
                    --data-type=half
                    --tiles-per-ipu=16
                    --alpha=1.0
-                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
-                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4})
   add_multitarget_test(NAME octconvLH_${PLAN_TYPE}
            COMMAND oct_conv_layer
                    --input-channels=2
@@ -3739,8 +3732,7 @@ foreach(PLAN_TYPE parallel serial)
                    --tiles-per-ipu=16
                    --alpha-in=1.0
                    --alpha-out=0.0
-                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
-                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4})
   add_multitarget_test(NAME octconvHL_${PLAN_TYPE}
            COMMAND oct_conv_layer
                    --input-channels=2
@@ -3754,8 +3746,7 @@ foreach(PLAN_TYPE parallel serial)
                    --tiles-per-ipu=16
                    --alpha-in=0.0
                    --alpha-out=1.0
-                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
-                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4})
   add_multitarget_test(NAME octconvHH_${PLAN_TYPE}
            COMMAND oct_conv_layer
                    --input-channels=2
@@ -3768,8 +3759,7 @@ foreach(PLAN_TYPE parallel serial)
                    --data-type=half
                    --tiles-per-ipu=16
                    --alpha=0.0
-                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
-                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4})
 endforeach()
 
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/json/depthwise_conv_half.json DEPTHWISE_CONV)

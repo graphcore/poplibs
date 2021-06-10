@@ -31,14 +31,16 @@ add_multitarget_test(NAME "UnaryOpCodeletsTests_all"
                              --size 1
                              --disable-fp-exceptions true
                      LABELS codelet
-                     TEST_IPUMODEL "true")
+                     TEST_IPUMODEL "true"
+                     VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 add_multitarget_test(NAME "BinaryOpCodeletsTests_all"
                      COMMAND BinaryCodeletsTest
                              --group-tests
                              --size 1
                              --disable-fp-exceptions true
                      LABELS codelet
-                     TEST_IPUMODEL "true")
+                     TEST_IPUMODEL "true"
+                     VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
 # Run some tests with big sizes, only on IpuModels
 add_multitarget_test(NAME "UnaryOpCodeletsTests_NoSim"
@@ -47,7 +49,7 @@ add_multitarget_test(NAME "UnaryOpCodeletsTests_NoSim"
                              --size 480 168 24565 8176 8208
                              --disable-fp-exceptions true
                      LABELS codelet
-                     VARIANTS IpuModel1 IpuModel2)
+                     VARIANTS ${IPUMODEL_VARIANTS})
 add_multitarget_test(NAME "BinaryOpCodeletsTests_NoSim"
                      COMMAND BinaryCodeletsTest
                              --group-tests
@@ -55,7 +57,7 @@ add_multitarget_test(NAME "BinaryOpCodeletsTests_NoSim"
                              --size2  8   8     1 2044 2048
                              --disable-fp-exceptions true
                      LABELS codelet
-                     VARIANTS IpuModel1 IpuModel2)
+                     VARIANTS ${IPUMODEL_VARIANTS})
 
 # The operations below (trigonometric, power, remainder and integer division),
 # implemented with a software library, are extremely slow on the Sim devices, so
@@ -67,20 +69,23 @@ add_multitarget_test(NAME "UnaryOpCodeletsTests_slow"
                              --operation ASIN COS SIN TAN
                              --size [5,2,25]
                              --group-tests
-                     LABELS codelet)
+                     LABELS codelet
+                     VARIANTS ${SIM_VARIANTS})
 add_multitarget_test(NAME "BinaryOpCodeletsTests_slow_floating_point"
                      COMMAND BinaryCodeletsTest
                              --operation ATAN2 POWER REMAINDER
                              --size [5,2,25]
                              --group-tests
-                     LABELS codelet)
+                     LABELS codelet
+                     VARIANTS ${SIM_VARIANTS})
 add_multitarget_test(NAME "BinaryOpCodeletsTests_slow_integer"
                      COMMAND BinaryCodeletsTest
                              --operation DIVIDE
                              --data-type int uint
                              --size [5,2,25]
                              --group-tests
-                     LABELS codelet)
+                     LABELS codelet
+                     VARIANTS ${SIM_VARIANTS})
 
 # Main function to test the majority of vertices. Called specifying "Supervisor"
 # or "2D" and different sizes for the operands
@@ -104,7 +109,8 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                                            SIGNUM TANH ROUND RSQRT SQRT SIGMOID
                                --size ${SIZE}
                                --group-tests
-                       LABELS codelet)
+                       LABELS codelet
+                       VARIANTS ${SIM_VARIANTS})
 
   add_multitarget_test(NAME "BinaryOpCodeletsTests_${TEST_TAG}"
                        COMMAND BinaryCodeletsTest
@@ -119,7 +125,8 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                                            VARIANCE_TO_INV_STD_DEV
                                --size ${SIZE}
                                --group-tests
-                       LABELS codelet)
+                       LABELS codelet
+                       VARIANTS ${SIM_VARIANTS})
 endfunction()
 
 # Run ALL the Supervisor elementwise test with various sizes of the operands
@@ -149,14 +156,16 @@ add_multitarget_test(NAME "UnaryOpCodeletsTests_no_fp_except"
                               --disable-fp-exceptions true
                               --size "2;3;4;8;12;16;24;25;26;27;28;44;50;[1,2,23,24]"
                               --group-tests
-                      LABELS codelet)
+                      LABELS codelet
+                      VARIANTS ${SIM_VARIANTS})
 add_multitarget_test(NAME "BinaryOpCodeletsTests_no_fp_except"
                       COMMAND BinaryCodeletsTest
                               --operation INV_STD_DEV_TO_VARIANCE
                               --disable-fp-exceptions true
                               --size "2;3;4;8;12;16;24;25;26;27;28;44;50;[1,2,23,24]"
                               --group-tests
-                      LABELS codelet)
+                      LABELS codelet
+                      VARIANTS ${SIM_VARIANTS})
 
 # DIVIDE is handled separately here for half and float because for int, uint
 # it is handled in the "BinaryOpCodeletsTests_slow_integer" test outside of
@@ -167,7 +176,8 @@ COMMAND BinaryCodeletsTest
         --data-type half float
         --size 2 3 4 5 6 8 9 24 25 26 27 28
         --group-tests
-LABELS codelet)
+LABELS codelet
+VARIANTS ${SIM_VARIANTS})
 
 # Vector Inner vertices are exercised with these sizes as well
 add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorInner"
@@ -176,7 +186,8 @@ COMMAND BinaryCodeletsTest
         --size   8 16 32 15  [15,12,32,15]
         --size2  1  4  8  5      [1,4,8,5]
         --group-tests
-LABELS codelet)
+LABELS codelet
+VARIANTS ${SIM_VARIANTS})
 add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorInner_long"
 COMMAND BinaryCodeletsTest
         --vertexRE VectorInner
@@ -185,7 +196,8 @@ COMMAND BinaryCodeletsTest
         --size   4080 4088 4096
         --size2  2040 2044 2048
         --group-tests
-LABELS codelet)
+LABELS codelet
+VARIANTS ${SIM_VARIANTS})
 
 # Vector Outer vertices are exercised with these sizes as well.
 # When 'allowMisaligned' is false, the rows must be a multiple of atom size
@@ -197,7 +209,8 @@ COMMAND BinaryCodeletsTest
         --size2   7   7    7   7    7   7    7    7   7   7    7    7   3   4    7     7     7     7    2     2     2     2
         --group-test
         --num-tiles=8
-LABELS codelet)
+LABELS codelet
+VARIANTS ${SIM_VARIANTS})
 
 add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorOuter_align"
 COMMAND BinaryCodeletsTest
@@ -207,7 +220,8 @@ COMMAND BinaryCodeletsTest
         --size2   7    7   7    7    7    7   7    7    7   4    7     7     7    2     2
         --group-test
         --num-tiles=8
-LABELS codelet)
+LABELS codelet
+VARIANTS ${SIM_VARIANTS})
 
 
 # Some Binary/Broadcast codelets use different code paths depending if the two
@@ -224,7 +238,8 @@ function(runFastSlowPathBinaryTests TEST_TAG OPS DATA_TYPES)
                                  --size [511,511]
                                  --group-tests
                                  --num-tiles=16
-                         LABELS codelet)
+                         LABELS codelet
+                         VARIANTS ${SIM_VARIANTS})
   endforeach()
 endfunction()
 runFastSlowPathBinaryTests(float "ADD;SUBTRACT;MULTIPLY" "float;half")
@@ -252,7 +267,7 @@ function(runRptLoopCycleTest TEST_TAG CMD VERTEX OPS DATA_TYPES)
             --size 1800
             --compare-cycles
             --cycle-threshold 3
-    VARIANTS Sim1 Sim2)
+    VARIANTS ${SIM_VARIANTS})
 endfunction()
 runRptLoopCycleTest("unary_float" UnaryCodeletsTest "UnaryOp1DSupervisor"
                     "inverse;rsqrt;sqrt" float)
@@ -270,13 +285,15 @@ add_multitarget_test(NAME "ScaledAddCodeletsTests_low_tolerance"
                              --group-tests
                              --tolerance 0.00001
                              --size 1 2 3 4 8 12
-                     TEST_IPUMODEL "true")
+                     TEST_IPUMODEL "true"
+                     VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 add_multitarget_test(NAME "ScaledAddCodeletsTests_high_tolerance"
                      COMMAND ScaledAddCodeletsTest
                              --group-tests
                              --tolerance 0.001
                              --size 23 24 25 [47,48,49]
-                     TEST_IPUMODEL "true")
+                     TEST_IPUMODEL "true"
+                     VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
 
 add_unit_test(ScaledAdd2D_fp
@@ -292,12 +309,14 @@ add_unit_test(ScaledAdd2D_fp
                      aXPlusbYMixedConst aXPlusbYMixedTensor
                      XMinusaXPlusbYHalfConst XMinusaXPlusbYHalfTensor aXMinusbYHalfTensor
 										 aXMinusbYMixedTensor
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 add_unit_test(ScaledAdd2D_integral
               ScaledAdd2D_integral.cpp
               SUITES ScaledAdd2DIntConst ScaledAdd2DUnsignedIntConst ScaledAdd2DIntTensor
                      ScaledAdd2DUnsignedIntTensor ScaledSubtract2DIntTensor ScaledSubtract2DUnsignedIntTensor
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 add_unit_test(ScaledAddSupervisor_fp
               ScaledAddSupervisor_fp.cpp
               SUITES ScaledAddSupervisorHalfConst ScaledAddSupervisorFloatConst
@@ -313,18 +332,21 @@ add_unit_test(ScaledAddSupervisor_fp
                      aXPlusbYSupervisorMixedConst aXPlusbYSupervisorMixedTensor
                      XMinusaXPlusbYSupervisorHalfConst XMinusaXPlusbYSupervisorHalfTensor
 										 aXMinusbYSupervisorHalfTensor aXMinusbYSupervisorMixedTensor
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 add_unit_test(ScaledAddSupervisor_integral
               ScaledAddSupervisor_integral.cpp
               SUITES ScaledAddSupervisorIntConstant ScaledAddSupervisorUnsignedIntConstant
                      ScaledAddSupervisorIntTensor ScaledAddSupervisorUnsignedIntTensor
                      ScaledSubtractSupervisorIntTensor ScaledSubtractSupervisorUnsignedIntTensor
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 add_unit_test(TransposeTest
               TransposeTest.cpp
               SUITES TransposeFast_16bit TransposeFast_Float TransposeFast_Integral
                      Transpose2d T19548 T33035
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 
 # Fill vertices for 8 bit types need to be tested with a lot of different data
 # lengths and start offsets (from 0 to 7), because the assembly code is quite
@@ -343,7 +365,8 @@ function(test_fill_vertex  TYPE  START_ALIGNMENT)
                               --data ${TYPE}
                               --align-start ${START_ALIGNMENT}
                       LABELS codelet
-                      TEST_IPUMODEL "true")
+                      TEST_IPUMODEL "true"
+                      VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 endfunction()
 test_fill_vertex(bool 0)
 test_fill_vertex(bool 1)
@@ -357,16 +380,20 @@ test_fill_vertex(schar 7)
 
 add_unit_test(FillAndZeroTest
               FillAndZeroTest.cpp
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 add_unit_test(DynamicSliceCodeletTest
               DynamicSliceCodeletTest.cpp
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 add_unit_test(DynamicSliceSupervisorCodeletTest
               DynamicSliceSupervisorCodeletTest.cpp
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 add_unit_test(MultiSliceCodeletTest
               MultiSliceCodeletTest.cpp
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 
 #Histogram
 add_multi_target_test_executable(histogramCodeletTest histogramCodeletTest.cpp)
@@ -382,7 +409,8 @@ foreach(DATA_SIZE  1 2 3 4 99)
                              --absolute=${DO_ABS}
                              --supervisor=true
                              --supervisor-by-limit=true
-                             LABELS codelet)
+                             LABELS codelet
+                             VARIANTS ${SIM_VARIANTS})
       endforeach()
     endforeach()
   endforeach()
@@ -400,7 +428,8 @@ foreach(DATA_SIZE  1 2 3 4 5 6 7 8 99)
                              --absolute=${DO_ABS}
                              --supervisor=true
                              --supervisor-by-limit=false
-                             LABELS codelet)
+                             LABELS codelet
+                             VARIANTS ${SIM_VARIANTS})
       endforeach()
     endforeach()
   endforeach()
@@ -419,7 +448,8 @@ foreach(DATA_SIZE  3 4 99)
                                --absolute=${DO_ABS}
                                --supervisor=false
                                --data-rows=${ROWS}
-                               LABELS codelet)
+                               LABELS codelet
+                               VARIANTS ${SIM_VARIANTS})
         endforeach()
       endforeach()
     endforeach()
@@ -434,7 +464,8 @@ foreach(DATA_TYPE half float int)
     string(TOUPPER "${FUNC_TYPE}" FUNC_TYPE_UPPER)
     string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
     configure_file(ClampTest.cpp.in ${VARIANT_SRC})
-    add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet)
+    add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet
+                  VARIANTS ${SIM_VARIANTS})
   endforeach()
 endforeach()
 
@@ -452,7 +483,8 @@ foreach(OUTER_DIM RANGE 1 15)
                                --out-type=${OUT_TYPE}
                                --outer-dim=${OUTER_DIM}
                                --inner-dim=${INNER_DIM}
-                               LABELS codelet)
+                               LABELS codelet
+                               VARIANTS ${SIM_VARIANTS})
         endforeach()
       endforeach()
   endforeach()
@@ -470,7 +502,8 @@ foreach(OUTER_DIM 48 49 50 51 52 53 54 55 56 500)
                                --out-type=${OUT_TYPE}
                                --outer-dim=${OUTER_DIM}
                                --inner-dim=${INNER_DIM}
-                               LABELS codelet)
+                               LABELS codelet
+                               VARIANTS ${SIM_VARIANTS})
         endforeach()
       endforeach()
   endforeach()
@@ -489,7 +522,8 @@ foreach(OUTER_DIM 4 8 20 24 28 48 52)
                              --inner-dim=${INNER_DIM}
                              --single-input=true
                              --constrain-partials=true
-                             LABELS codelet)
+                             LABELS codelet
+                             VARIANTS ${SIM_VARIANTS})
 
       endforeach()
   endforeach()
@@ -508,7 +542,8 @@ foreach(OUTER_DIM 8 16 40 48 56 96 104)
                              --inner-dim=${INNER_DIM}
                              --single-input=true
                              --constrain-partials=true
-                             LABELS codelet)
+                             LABELS codelet
+                             VARIANTS ${SIM_VARIANTS})
       endforeach()
   endforeach()
 endforeach()
@@ -525,7 +560,8 @@ foreach(PARTIALS_TYPE float half)
                            --inner-dim=4
                            --single-input=true
                            --constrain-partials=false
-                           LABELS codelet)
+                           LABELS codelet
+                           VARIANTS ${SIM_VARIANTS})
     endforeach()
   endforeach()
 
@@ -541,7 +577,8 @@ foreach(OUTER_DIM RANGE 1 16)
                             --in-type=${IN_TYPE}
                             --out-type=${OUT_TYPE}
                             --outer-dim=${OUTER_DIM}
-                            LABELS codelet)
+                            LABELS codelet
+                            VARIANTS ${SIM_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
@@ -559,7 +596,8 @@ foreach(OUTER_DIM RANGE 1 4)
                           --outer-dim=${OUTER_DIM}
                           --inner-dim=${INNER_DIM}
                           --operation=${OP}
-                          LABELS codelet)
+                          LABELS codelet
+                          VARIANTS ${SIM_VARIANTS})
       endforeach()
 
       foreach(OUT_TYPE half float)
@@ -571,7 +609,8 @@ foreach(OUTER_DIM RANGE 1 4)
                             --outer-dim=${OUTER_DIM}
                             --inner-dim=${INNER_DIM}
                             --operation=SQUARE_ADD
-                            LABELS codelet)
+                            LABELS codelet
+                            VARIANTS ${SIM_VARIANTS})
       endforeach()
     endforeach()
   endforeach()
@@ -587,7 +626,8 @@ foreach(OPERATION ADD SQUARE_ADD)
                       --outer-dim=4
                       --inner-dim=8
                       --operation=${OPERATION}
-                      LABELS codelet)
+                      LABELS codelet
+                      VARIANTS ${SIM_VARIANTS})
 endforeach()
 
 foreach(IN_TYPE int)
@@ -600,7 +640,8 @@ foreach(IN_TYPE int)
                           --outer-dim=32
                           --inner-dim=32
                           --operation=ADD
-                          LABELS codelet)
+                          LABELS codelet
+                          VARIANTS ${SIM_VARIANTS})
 endforeach()
 
 add_multi_target_test_executable(ReduceSpecial23 ReduceSpecial23.cpp)
@@ -623,7 +664,8 @@ foreach(TYPE half float)
                           --num-outer-strides=1
                           --outer-stride=0
                           --num-partials=5
-                          LABELS codelet)
+                          LABELS codelet
+                          VARIANTS ${SIM_VARIANTS})
       endforeach()
     endforeach()
   endforeach()
@@ -648,7 +690,8 @@ foreach(PARTIALS_TYPE half float)
                           --num-outer-strides=3
                           --outer-stride=2
                           --num-partials=3
-                          LABELS codelet)
+                          LABELS codelet
+                          VARIANTS ${SIM_VARIANTS})
       endforeach()
     endforeach()
   endforeach()
@@ -670,7 +713,8 @@ foreach(TYPE half float)
                         --update=false
                         --specialisation=2
                         --scale=1.0
-                        LABELS codelet)
+                        LABELS codelet
+                        VARIANTS ${SIM_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
@@ -683,7 +727,8 @@ foreach(DATA_TYPE int unsigned_int float half bool)
   set(DATA_HEADER "select/${DATA_TYPE}.hpp")
   configure_file(Select.cpp.in ${VARIANT_SRC})
   configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
-  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet)
+  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet
+                VARIANTS ${SIM_VARIANTS})
 endforeach()
 
 # BroadcastSelect
@@ -694,7 +739,8 @@ foreach(DATA_TYPE int unsigned_int float half bool)
   set(DATA_HEADER "select/${DATA_TYPE}.hpp")
   configure_file(BroadcastSelect.cpp.in ${VARIANT_SRC})
   configure_file(${DATA_HEADER} ${CMAKE_CURRENT_BINARY_DIR}/${DATA_HEADER} COPYONLY)
-  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet)
+  add_unit_test(${VARIANT_NAME} ${VARIANT_SRC} LABELS codelet
+                VARIANTS ${SIM_VARIANTS})
 endforeach()
 
 add_unit_test(FloatPointBehaviour
@@ -711,7 +757,8 @@ foreach(ACTIVATION_TYPE half float int unsigned)
                            --activation-type=${ACTIVATION_TYPE}
                            --divisor=4
                            --size=${SIZE}
-                           LABELS codelet)
+                           LABELS codelet
+                           VARIANTS ${SIM_VARIANTS})
   endforeach()
 endforeach()
 
@@ -725,7 +772,8 @@ foreach(ACTIVATION_TYPE float int unsigned)
                              --activation-type=${ACTIVATION_TYPE}
                              --label-type=${LABEL_TYPE}
                              --size=${SIZE}
-                             LABELS codelet)
+                             LABELS codelet
+                             VARIANTS ${SIM_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
@@ -742,7 +790,8 @@ foreach(ACTIVATION_TYPE float int)
                               --divisor=4
                               --size=${SIZE}
                               --k=${K}
-                              LABELS codelet)
+                              LABELS codelet
+                              VARIANTS ${SIM_VARIANTS})
     endforeach()
   endforeach()
 
@@ -754,7 +803,8 @@ foreach(ACTIVATION_TYPE float int)
                         --divisor=128
                         --size=100
                         --k=8
-                        LABELS codelet)
+                        LABELS codelet
+                        VARIANTS ${SIM_VARIANTS})
 
 
   # Add some larger tests.
@@ -765,7 +815,8 @@ foreach(ACTIVATION_TYPE float int)
                         --divisor=64
                         --size=200
                         --k=162
-                        LABELS codelet)
+                        LABELS codelet
+                        VARIANTS ${SIM_VARIANTS})
 
 endforeach()
 
@@ -779,7 +830,8 @@ foreach(ACTIVATION_TYPE int float)
                               --size=${SIZE}
                               --k=${K}
                               --activation-type=${ACTIVATION_TYPE}
-                              LABELS codelet)
+                              LABELS codelet
+                              VARIANTS ${SIM_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
@@ -790,7 +842,8 @@ add_multitarget_test(NAME ${VARIANT_NAME}
                       --size=200
                       --k=150
                       --activation-type=float
-                      LABELS codelet)
+                      LABELS codelet
+                      VARIANTS ${SIM_VARIANTS})
 
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)
@@ -812,7 +865,8 @@ foreach(IN_TYPE half float)
                           --rows=${ROWS}
                           --columns=${COLUMNS}
                           --out-offset=${OFFSET}
-                          LABELS codelet)
+                          LABELS codelet
+                          VARIANTS ${SIM_VARIANTS})
       endforeach()
     endforeach()
   endforeach()
@@ -830,7 +884,8 @@ foreach(IN_TYPE half float)
                         --columns=${COLUMNS}
                         --out-offset=${OFFSET}
                         --supervisor=${SUPERVISOR}
-                        LABELS codelet)
+                        LABELS codelet
+                        VARIANTS ${SIM_VARIANTS})
   endforeach()
 endforeach()
 
@@ -842,7 +897,8 @@ add_multitarget_test(NAME CastCodeletsTest_to_char
                   --group-tests
                   --size 1 2 3 4 5 22 23 24 25 26 [8,3,6,120]
               LABELS codelet
-              TEST_IPUMODEL "true")
+              TEST_IPUMODEL "true"
+              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
 add_multitarget_test(NAME CastCodeletsTest_from_char
               COMMAND CastCodeletsTest
@@ -851,4 +907,5 @@ add_multitarget_test(NAME CastCodeletsTest_from_char
                   --group-tests
                   --size 1 2 3 4 5 22 23 24 25 26 [8,3,6,120]
               LABELS codelet
-              TEST_IPUMODEL "true")
+              TEST_IPUMODEL "true"
+              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})

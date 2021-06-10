@@ -10,7 +10,8 @@ foreach(NL_VERTEX Supervisor 2D)
                            COMMAND ${TEST_EXECUTABLE}
                              --data-type=${DATA_TYPE}
                              --nl-type=${NL_TYPE}
-                            LABELS codelet)
+                            LABELS codelet
+                            VARIANTS Cpu;${SIM_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
@@ -27,7 +28,8 @@ foreach(NL_VERTEX Supervisor 2D)
                              --data-type=${DATA_TYPE}
                              --nl-type=${NL_TYPE}
                              --test-fwd=false
-                            LABELS codelet)
+                            LABELS codelet
+                            VARIANTS Cpu;${SIM_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
@@ -43,7 +45,8 @@ foreach(DATA_TYPE half float)
       string(TOUPPER "${OUTPUT_SCALE}" OUTPUT_SCALE_UPPER)
       configure_file(LossTransform.cpp.in ${VARIANT_SRC})
       add_unit_test(${VARIANT_NAME} ${VARIANT_SRC}
-                      LABELS codelet)
+                      LABELS codelet
+                      VARIANTS Cpu;${SIM_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
@@ -63,7 +66,8 @@ foreach (FIELD 8 9 10 11 12)
               --pooling-type=${POOLING_TYPE}
               --data-type=${DATA_TYPE}
               --channel-groups=${CHANNEL_GROUPS}
-            LABELS codelet)
+            LABELS codelet
+            VARIANTS Cpu;${SIM_VARIANTS})
           endforeach()
         endforeach()
       endforeach()
@@ -93,7 +97,8 @@ foreach (VERTEX alpha beta gradGivenAlpha gradGivenBeta)
       --time-step=${TIME_STEP}
       --num-classes=4
       --test=${VERTEX}
-    LABELS codelet)
+    LABELS codelet
+    VARIANTS Cpu;${SIM_VARIANTS})
 endforeach()
 
 add_multi_target_test_executable(CTCInferenceCodeletTest
@@ -119,7 +124,8 @@ foreach (SEED RANGE 1 5)
             --max-time=15
             --timestep=${TIMESTEP}
             --vertex-type=${VERTEX}
-          LABELS codelet)
+          LABELS codelet
+          VARIANTS Cpu;${SIM_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
@@ -137,7 +143,8 @@ foreach (SEED RANGE 1 5)
               --max-time=15
               --timestep=${TIMESTEP}
               --vertex-type=rank
-            LABELS codelet)
+            LABELS codelet
+            VARIANTS Cpu;${SIM_VARIANTS})
       endforeach()
     endforeach()
   endforeach()
@@ -154,7 +161,8 @@ foreach (SEED RANGE 1 5)
           --timestep=4
           --vertex-type=reduce
           --reduce-partitions=${PARTITIONS}
-        LABELS codelet)
+        LABELS codelet
+        VARIANTS Cpu;${SIM_VARIANTS})
   endforeach()
 endforeach()
 
@@ -169,6 +177,7 @@ foreach (BEAMWIDTH 3 4 8)
           --timestep=4
           --vertex-type=update
           --update-invalid-candidate=${INVALID}
-        LABELS codelet)
+        LABELS codelet
+        VARIANTS Cpu;${SIM_VARIANTS})
   endforeach()
 endforeach()

@@ -28,7 +28,9 @@ foreach(VERTEX_TYPE ${SPARSE_DENSE_VERTEX_TYPES})
               --sparsity-level=0.5
               --num-buckets=${NUM_BUCKETS}
               --num-splits-per-bucket=${NUM_SPLITS}
-              --vertex-type=${VERTEX_TYPE})
+              --vertex-type=${VERTEX_TYPE}
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
         endforeach()
 
         foreach(Z 4 8 28)
@@ -41,7 +43,9 @@ foreach(VERTEX_TYPE ${SPARSE_DENSE_VERTEX_TYPES})
               --sparsity-level=0.5
               --num-buckets=${NUM_BUCKETS}
               --num-splits=${NUM_SPLITS}
-              --vertex-type=${VERTEX_TYPE})
+              --vertex-type=${VERTEX_TYPE}
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
         endforeach()
       endforeach()
     endforeach()
@@ -57,7 +61,9 @@ foreach(VERTEX_TYPE ${SPARSE_DENSE_VERTEX_TYPES})
       --sparsity-level=0.5
       --num-buckets=1
       --num-splits-per-bucket=2
-      --vertex-type=${VERTEX_TYPE})
+      --vertex-type=${VERTEX_TYPE}
+      LABELS codelet
+      VARIANTS ${SIM_VARIANTS})
 endforeach()
 
 
@@ -68,7 +74,9 @@ foreach(M 1 2 3 4 5 6 7 8 10 13 15 16 20 24 25 40 100)
     add_multitarget_test(NAME SparseGather_Elemwise_${M}_in_${TYPE}
     COMMAND SparseGatherTest
             --data-type=${TYPE}
-            --num-indices=${M})
+            --num-indices=${M}
+            LABELS codelet
+            VARIANTS ${SIM_VARIANTS})
   endforeach()
 endforeach()
 
@@ -109,6 +117,7 @@ foreach(VERTEX_TYPE ${SPARSE_DENSE_BLOCK_VERTEX_TYPES})
               --num-buckets=${NUM_BUCKETS}
               --num-splits-per-bucket=${NUM_SPLITS}
               --vertex-type=${VERTEX_TYPE}
+            LABELS codelet
             VARIANTS ${TimesOutOnSimLocal})
           endif()
         endforeach()
@@ -127,7 +136,9 @@ foreach(VERTEX_TYPE ${SPARSE_DENSE_BLOCK_VERTEX_TYPES})
                   --sparsity-level=0.5
                   --num-buckets=${NUM_BUCKETS}
                   --num-splits=${NUM_SPLITS}
-                  --vertex-type=${VERTEX_TYPE})
+                  --vertex-type=${VERTEX_TYPE}
+                  LABELS codelet
+                  VARIANTS ${SIM_VARIANTS})
             endforeach()
           endif()
         endforeach()
@@ -146,7 +157,9 @@ foreach(VERTEX_TYPE ${SPARSE_DENSE_BLOCK_VERTEX_TYPES})
       --sparsity-level=0.5
       --num-buckets=1
       --num-splits-per-bucket=2
-      --vertex-type=${VERTEX_TYPE})
+      --vertex-type=${VERTEX_TYPE}
+      LABELS codelet
+      VARIANTS ${SIM_VARIANTS})
 endforeach()
 
 
@@ -168,7 +181,9 @@ foreach(BLOCKSIZE 4 8 16)
           --data-type=${TYPE}
           --x-y-size=${XYSIZE}
           --z-size=${ZSIZE}
-          --block-size=${BLOCKSIZE})
+          --block-size=${BLOCKSIZE}
+          LABELS codelet
+          VARIANTS ${SIM_VARIANTS})
       endforeach()
     endforeach()
   endforeach()
@@ -198,7 +213,8 @@ foreach(TYPE half float)
               --initialise-subT=true
               --update-add=${UPDATE}
               --z-size=${ZSIZE}
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
         endforeach()
       endforeach()
     endforeach()
@@ -223,7 +239,8 @@ foreach(TYPE half float)
               --initialise-subT=true
               --update-add=true
               --z-size=4
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
       endforeach()
     endforeach()
   endforeach()
@@ -247,7 +264,8 @@ foreach(TYPE half float)
                 --initialise-subT=true
                 --update-add=${UPDATE}
                 --block-size={${BLOCK_ROWS},${BLOCK_COLUMNS}}
-                LABELS codelet)
+                LABELS codelet
+                VARIANTS ${SIM_VARIANTS})
         endforeach()
       endforeach()
     endforeach()

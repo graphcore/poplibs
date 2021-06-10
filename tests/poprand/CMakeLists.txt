@@ -10,8 +10,7 @@ add_multitarget_test(
                  --half-data-type=true
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_uniform_int
@@ -24,8 +23,7 @@ add_multitarget_test(
                  --seed-modifier=1243547
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=2
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=2)
 
 add_multitarget_test(
          NAME random_gen_uniform_int_max_range
@@ -37,8 +35,7 @@ add_multitarget_test(
                  --seed=4538342
                  --seed-modifier=1243547
                  --in-size=40001
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_uniform_float
@@ -51,8 +48,7 @@ add_multitarget_test(
                  --seed-modifier=1243547
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_uniform_float_1_0
@@ -65,8 +61,7 @@ add_multitarget_test(
                  --seed-modifier=1243547
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_log_uniform_int
@@ -80,8 +75,7 @@ add_multitarget_test(
                  --in-size=20001
                  --fp-checking=true
                  --tiles-per-ipu=1
-                 --percent-error=10.0
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --percent-error=10.0)
 
 add_multitarget_test(
          NAME random_gen_log_uniform_int_base_2
@@ -96,8 +90,7 @@ add_multitarget_test(
                  --fp-checking=true
                  --tiles-per-ipu=1
                  --percent-error=10.0
-                 --base 2
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --base 2)
 
 
 add_multitarget_test(
@@ -112,8 +105,7 @@ add_multitarget_test(
                  --in-size=20001
                  --fp-checking=true
                  --tiles-per-ipu=1
-                 --percent-error=10.0
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --percent-error=10.0)
 
 add_multitarget_test(
          NAME random_gen_log_uniform_int_base_2_offset
@@ -128,8 +120,7 @@ add_multitarget_test(
                  --fp-checking=true
                  --tiles-per-ipu=1
                  --percent-error=10.0
-                 --base 2
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --base 2)
 
 add_multitarget_test(
          NAME random_gen_log_uniform_float
@@ -143,8 +134,7 @@ add_multitarget_test(
                  --in-size=20001
                  --fp-checking=true
                  --tiles-per-ipu=1
-                 --percent-error=5.0
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --percent-error=5.0)
 
 add_multitarget_test(
          NAME random_gen_log_uniform_half
@@ -159,8 +149,7 @@ add_multitarget_test(
                  --in-size=20001
                  --fp-checking=true
                  --tiles-per-ipu=1
-                 --percent-error=5.0
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --percent-error=5.0)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_half
@@ -173,8 +162,7 @@ add_multitarget_test(
                  --seed-modifier=24543
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_float
@@ -186,8 +174,7 @@ add_multitarget_test(
                  --seed-modifier=1234
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_int
@@ -199,8 +186,7 @@ add_multitarget_test(
                  --seed-modifier=8643232
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_float_prob0
@@ -212,8 +198,7 @@ add_multitarget_test(
                  --seed-modifier=6765354
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_int_prob1
@@ -225,8 +210,7 @@ add_multitarget_test(
                  --seed-modifier=89766465
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_normal_half
@@ -240,8 +224,7 @@ add_multitarget_test(
                  --seed-modifier=7665654
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_normal_float
@@ -254,8 +237,7 @@ add_multitarget_test(
                  --seed-modifier=7861245
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_truncated_normal_half
@@ -270,8 +252,7 @@ add_multitarget_test(
                  --seed-modifier=985436
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_truncated_normal_float
@@ -285,8 +266,7 @@ add_multitarget_test(
                  --seed-modifier=249065
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_dropout_float
@@ -298,8 +278,7 @@ add_multitarget_test(
                  --seed-modifier=575329
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=2
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=2)
 
 add_multitarget_test(
          NAME random_gen_dropout_half
@@ -312,8 +291,7 @@ add_multitarget_test(
                  --seed-modifier=709815
                  --in-size=20001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 add_multitarget_test(
          NAME random_gen_dropout_half_rem2
          COMMAND random_generator
@@ -325,8 +303,7 @@ add_multitarget_test(
                  --seed-modifier=709815
                  --in-size=20002
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 add_multitarget_test(
          NAME random_gen_dropout_half_rem3
          COMMAND random_generator
@@ -338,8 +315,7 @@ add_multitarget_test(
                  --seed-modifier=709815
                  --in-size=20003
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_gen_uniform_float_no_seed
@@ -350,8 +326,7 @@ add_multitarget_test(
                  --percent-error=5.0
                  --in-size=40001
                  --fp-checking=true
-                 --tiles-per-ipu=1
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+                 --tiles-per-ipu=1)
 
 add_multitarget_test(
          NAME random_set_seeds
