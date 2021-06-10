@@ -10,6 +10,7 @@
 /* -------------------------------------------------------------------------- */
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "workDivision.h.S"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -23,9 +24,6 @@
 #define VERTEX_INPLACE_INOUT_PTR_OFFSET 0
 #define VERTEX_INPLACE_INOUT_COUNT_OFFSET 4
 
-#define LOG2_FLOAT_ATOM_SIZE 1
-#define LOG2_HALF_ATOM_SIZE 2
-
 // Register aliases
 #define inPtr m0
 #define outPtr m2
@@ -37,7 +35,7 @@
 #define mprocess1Fn m6
 
 #define mloops m8
-#define remainder m9
+#define outPtrConst m9
 #define workerIdM1 m10
 #define mscratch m11
 
@@ -83,7 +81,7 @@ MANGLE_STR:
 .endm
 
 //******************************************************************************
-.macro UNARY_OP_DIVIDE_WORK SHIFTS_TO_DIV DIVISOR SHIFTS_FOR_GRAINSIZE
+.macro UNARY_OP_DIVIDE_WORK DIVISOR SHIFTS_FOR_GRAINSIZE
 .section .text.MANGLE_STR_COMMON(\@)
 .align 4
 fn_divide_work\DIVISOR\():
@@ -91,19 +89,11 @@ fn_divide_work\DIVISOR\():
   get $workerIdM1, $WSR
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
 
-  // Loops for this worker: divide by 12 or 24, find remainder
-  setzi $mscratch, 0xAAAB
-  mul $mscratch, $outCount, $mscratch
-  shr $mscratch, $mscratch, \SHIFTS_TO_DIV
-  mul $remainder, $mscratch, \DIVISOR
-
-  // Compare remainder to total number of items to process
-  sub $remainder, $outCount, $remainder
-
-  shr $remainder, $remainder, \SHIFTS_FOR_GRAINSIZE
-  // add 1 if < remainder
-  cmpult $mloops, $workerIdM1, $remainder
-  add $mloops, $mscratch, $mloops
+  // Loops for this worker: divide by 12 or 24, rounding up according to the workerId
+  DIVIDE_BY_WORKER $outCount $workerIdM1 $mscratch $mloops \SHIFTS_FOR_GRAINSIZE
+  // Hold onto the outPtr to use to decide which worker to process the remainder
+  // results
+  mov $outPtrConst, $outPtr
 
   br  $mlink
 .size MANGLE_STR_COMMON(\@), . -fn_divide_work\DIVISOR\()
@@ -132,12 +122,13 @@ inner_loop_4x16bit_return_1D:
 2:
   // Here we have done all groups of 3 halves for every worker, no overread.
   // Use the worker which is pointing to the next half to process the last 3
-  // (if needed).  This is simple, but would using the last worker
-  //  be faster on average?
+  // (if needed).
 
-  // All workers with id < remainder did one more loop, so the one that
-  // has id == remainder must be pointing at the next piece of work to do
-  cmpeq $mscratch, $remainder, $workerIdM1
+  // Advance outPtrConst to point of the next output if we ignore the remainder,
+  // the worker with that pointer address will do the remainders if any
+  andc $mscratch, $outCount, 3
+  ldb16step $azero, $mzero, $outPtrConst+=, $mscratch
+  cmpeq $mscratch, $outPtrConst, $outPtr
   brz $mscratch, 3f
 
   and $mscratch, $outCount, 2
@@ -178,7 +169,7 @@ INSTANTIATE_UNARY_OP unsigned_short 1D UnaryOp1DInPlace BITWISE___NOT
 // opertations using this framework
 //******************************************************************************
 
-UNARY_OP_DIVIDE_WORK 20 24 LOG2_HALF_ATOM_SIZE
+UNARY_OP_DIVIDE_WORK 24 LOG2_HALF_ATOM_SIZE
 
 //******************************************************************************
 // Use the macros above to create each individual operation code

@@ -66,6 +66,7 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "workDivision.h.S"
 
 #define DSS_FLOAT_FUNC __runCodelet_popops__DynamicSlice1d___float
 #define DUSS_FLOAT_FUNC __runCodelet_popops__DynamicUpdateSlice1d___float
@@ -484,21 +485,6 @@ load_and_preprocess:
   br        $RETURN_ADDRESS1
 
 //******************************************************************************
-// Macro and constants to divide by 12 (12 is the number of items
-// copied in 1 loop pass by all workers combined)
-//******************************************************************************
-#define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
-#define LOG2_24_OVER_3 3
-#define LOG2_12_OVER_3 2
-.macro SPLIT_BETWEEN_WORKERS n size rem
-    setzi \size, RECIPROCAL_3_SHL17
-    mul \size, \n, \size
-    shr \size, \size, (17 + LOG2_12_OVER_3)
-    mul \rem, \size, 12
-    sub \rem, \n, \rem
-.endm
-
-//******************************************************************************
 // Divide work between 6 workers.
 // This work division, and the whole copy function is based on each worker
 // copying pairs of items and then striding over the 5 pairs of items that
@@ -514,14 +500,7 @@ load_and_preprocess:
 // A single last item is dealt with after the loop completes.
 //******************************************************************************
 divide_work:
-
-  SPLIT_BETWEEN_WORKERS $REGION_SIZE $ATOMS_PER_WORKER $mSCRATCH
-
-  // Use the (remainder/2) - worker id to check if we need to copy an
-  // extra element compared to the (rounded down) division result
-  shr       $mSCRATCH, $mSCRATCH, 1
-  cmpult    $mSCRATCH, $WKR_ID, $mSCRATCH
-  add       $ATOMS_PER_WORKER, $ATOMS_PER_WORKER, $mSCRATCH
+  DIVIDE_BY_WORKER $REGION_SIZE $WKR_ID $mSCRATCH $ATOMS_PER_WORKER LOG2_FLOAT_ATOM_SIZE
   br        $RETURN_ADDRESS2
 
 .size DynamicSlice1d_common, .-load_and_preprocess

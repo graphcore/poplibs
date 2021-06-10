@@ -16,6 +16,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "workDivision.h.S"
 
 // This macro associates to the symbol 'label' a size defined as
 // (Current_loc - label)
@@ -44,11 +45,6 @@
 #define OUT_PTR_OFFS  4
 #define N_OFFS        8
 
-
-#define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
-#define LOG2_24_OVER_3 3
-#define LOG2_12_OVER_3 2
-
 // Supervisor register aliases
 #define SUPER_BASE m0
 #define WORKER_ENTRY m1
@@ -76,34 +72,6 @@
 #define RESULTS_PAIR a4:5
 #define ASCRATCH a6
 #define ASCRATCH_PAIR a6:7
-
-// All inputs must be separate registers
-// Splits 64-bit chunks of n elements between workers.
-// The result we want is n / (no. of worker contexts * elements per-64-bits).
-// We achieve this by dividing by 3 first, by multiplying n by the reciprocal
-// of 3 shifted left. This value is then shifted right by the same amount + any
-// further division by powers of 2 to get the actual divisor we want.
-// As an example, in this half case there are 4 halves per-64-bits and
-// 6 worker contexts so the divisor we want is 24.
-// (n / 3) / 8 = n / 24 so the extra divisor is 8, meaning an extra shift of 3.
-.macro HALF_SPLIT_BETWEEN_WORKERS n size rem
-    setzi \size, RECIPROCAL_3_SHL17
-    mul \size, \n, \size
-    shr \size, \size, (17 + LOG2_24_OVER_3)
-    mul \rem, \size, 24
-    sub \rem, \n, \rem
-.endm
-
-// All inputs must be separate registers
-// As described above in HALF_SPLIT_BETWEEN_WORKERS with different
-// divisor.
-.macro FLOAT_SPLIT_BETWEEN_WORKERS n size rem
-    setzi \size, RECIPROCAL_3_SHL17
-    mul \size, \n, \size
-    shr \size, \size, (17 + LOG2_12_OVER_3)
-    mul \rem, \size, 12
-    sub \rem, \n, \rem
-.endm
 
 //------------------------------------------------------------------------------
 .macro INSTANTIATE_HALF NL_TYPE OP OPTIONAL_OPERAND_C=""
@@ -148,7 +116,7 @@ HALF_SYMBOL(InPlace):
 .Lhalf_do_work\@:
     // $SIZE = No. of 64-bit elements each worker should process
     // $REM = No. of remaining elements between workers
-    HALF_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
+    SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM 24
 
 
     // Get worker ID
@@ -309,8 +277,7 @@ FLOAT_SYMBOL(InPlace):
 .Lfloat_do_work\@:
     // $SIZE = No. of 64-bit elements each worker should process
     // $REM = No. of remaining elements between workers
-    FLOAT_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
-
+    SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM 12
     // Get worker ID
     get $WORKER_ID, $WSR
     and $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK

@@ -22,6 +22,7 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "histogramCommon.S"
+#include "workDivision.h.S"
 
 // vertex state, all offsets are 8-bit
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -52,7 +53,6 @@
 #define mscratch m7
 
 #define mloops m8
-#define remainder m9
 
 #define workerIdM1 m10
 
@@ -323,18 +323,8 @@ MANGLE_STR(state_divide_work6):
   get $workerIdM1, $WSR
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
 
-  // Loops for this worker: divide by CTXT_WORKERS find remainder
-  setzi $mscratch, 0xAAAB
-  mul $mscratch, $limCount, $mscratch
-  shr $mscratch, $mscratch, 18
-  mul $remainder, $mscratch, CTXT_WORKERS
-
-  // Compare remainder to total number of items to process
-  sub $remainder, $limCount, $remainder
-
-  // add 1 if < remainder
-  cmpult $mloops, $workerIdM1, $remainder
-  add $mloops, $mscratch, $mloops
+  // Loops for this worker: divide by CTXT_WORKERS rounding up according to workerId
+  DIVIDE_BY_WORKER_PRE_SHIFTED $limCount $workerIdM1 $mscratch $mloops
 
   // Decrement and exit if no work to do
   brnzdec $mloops, 1f

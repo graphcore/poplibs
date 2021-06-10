@@ -39,6 +39,7 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "histogramCommon.S"
+#include "workDivision.h.S"
 
 // vertex state, all offsets are 8-bit
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -69,7 +70,6 @@
 #define mscratch m7
 
 #define mloops m8
-#define remainder m9
 #define dataEndPtr m9
 
 #define workerIdM1 m10
@@ -520,14 +520,10 @@ extract_w0\@:
 .align 4
 .worker
 .ifc "\TYPE", "half"
-  .equ SHIFTS_TO_DIV, 20
-  .equ DIVISOR, 24
   .equ SHIFTS_FOR_GRAINSIZE, 2
   .equ SHIFTS_FOR_REMAINDER, 1
 
 .else
-  .equ SHIFTS_TO_DIV, 19
-  .equ DIVISOR, 12
   .equ SHIFTS_FOR_GRAINSIZE, 1
   .equ SHIFTS_FOR_REMAINDER, 2
 
@@ -561,18 +557,9 @@ MANGLE_STR(state_divide_work_\TYPE\()):
  sub $dataCount, $dataCount, $mscratch
 .endif
 
-  // Loops for this worker: divide by 12 or 24, find remainder
-  setzi $mscratch, 0xAAAB
-  mul $mscratch, $dataCount, $mscratch
-  shr $mscratch, $mscratch, SHIFTS_TO_DIV
-  mul $remainder, $mscratch, DIVISOR
+  // Loops for this worker: divide by 12 or 24, rounding up according to workerId
+  DIVIDE_BY_WORKER $dataCount $workerIdM1 $mscratch $mloops SHIFTS_FOR_GRAINSIZE
 
-  // Compare remainder to total number of items to process
-  sub $remainder, $dataCount, $remainder
-  shr $remainder, $remainder, SHIFTS_FOR_GRAINSIZE
-  // add 1 if < remainder
-  cmpult $mloops, $workerIdM1, $remainder
-  add $mloops, $mscratch, $mloops
   // Minus 1 as we unroll the loop and don't want any overreads
   sub $mloops, $mloops, 1
 1:

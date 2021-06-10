@@ -2,9 +2,77 @@ add_subdirectory(codelets)
 
 add_unit_test(AllTrueTest AllTrueTest.cpp)
 
-# Binary Operator tests - currently not used.
+# Binary, Unary Operator tests
 add_multi_target_test_executable(BinaryOpTest BinaryOpTest.cpp)
 add_multi_target_test_executable(UnaryOpTest UnaryOpTest.cpp)
+
+# Verify large input sizes for Binary/Unary Ops, but only where data actually fits
+  add_multitarget_test(NAME UnaryOpLargeNonLinearity_float
+    COMMAND UnaryOpTest
+    --ope=relu
+    --data=float
+    --shape={40000}
+    --tiles=1
+    --in-place)
+
+foreach(DATA_SIZE 30000 65536)
+  add_multitarget_test(NAME UnaryOpLargeNonLinearity_half_${DATA_SIZE}
+    COMMAND UnaryOpTest
+    --ope=relu
+    --data=half
+    --shape={${DATA_SIZE}}
+    --tiles=1
+    --in-place)
+endforeach()
+
+foreach(DATA_TYPE short ushort)
+  add_multitarget_test(NAME UnaryOpLargeBitwise_${DATA_TYPE}
+    COMMAND UnaryOpTest
+    --ope=bitwise_not
+    --data=${DATA_TYPE}
+    --shape={100000}
+    --tiles=1
+    --in-place)
+endforeach()
+
+foreach(DATA_TYPE short ushort)
+  add_multitarget_test(NAME BinaryOpLargeBitwise_${DATA_TYPE}
+    COMMAND BinaryOpTest
+    --ope=bitwise_xor
+    --data=${DATA_TYPE}
+    --shape1={100000}
+    --shape2={1}
+    --tiles=1
+    --in-place)
+endforeach()
+
+# Would overflow unless the correct divide by 6 method is used to divide work
+# but won't fit on Sim1
+foreach(DATA_TYPE half float)
+  add_multitarget_test(NAME BinaryOpLargeArith_${DATA_TYPE}
+    COMMAND BinaryOpTest
+    --ope=add
+    --data=${DATA_TYPE}
+    --shape1={100000}
+    --shape2={1}
+    --tiles=1
+    --in-place
+    VARIANTS Sim2)
+endforeach()
+
+# This won't fit in memory in a sim, but OK on IpuModel.
+# The size will force the selection of 2D vertices
+foreach(DATA_TYPE half float)
+  add_multitarget_test(NAME BinaryOpVeryLargeArith_${DATA_TYPE}
+    COMMAND BinaryOpTest
+    --ope=add
+    --data=${DATA_TYPE}
+    --shape1={1000000}
+    --shape2={1}
+    --tiles=1
+    --in-place
+    VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()
 
 # Broadcast Optimise tests
 add_multi_target_test_executable(BroadcastOptimiseTest BroadcastOptimiseTest.cpp)

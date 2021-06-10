@@ -8,6 +8,7 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "workDivision.h.S"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -74,7 +75,9 @@ MANGLE_STR_FLOAT:
   ldz16 $mloops, $mzero, $mvertex_base, VERTEX_COLUMNS_OFFSET/2
   // Setup loop function pointer, and jump to work division code
   setzi $functionPtr, outerLoop_float_\BY_STR\()_\OPERATION
-  bri  divide_work_by_\BY_STR\()_float
+  // Work division initial shift
+  shr $mloops, $mloops, LOG2_FLOAT_ATOM_SIZE
+  bri  divide_work_by_\BY_STR\()
 .size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
 .endm
 
@@ -94,7 +97,9 @@ MANGLE_STR_FLOAT:
   mov $outPtr, $in1Ptr
   // Setup loop function pointer, and jump to work division code
   setzi $functionPtr, outerLoop_float_\BY_STR\()_\OPERATION
-  bri  divide_work_by_\BY_STR\()_float
+  // Work division initial shift
+  shr $mloops, $mloops, LOG2_FLOAT_ATOM_SIZE
+  bri  divide_work_by_\BY_STR\()
 .size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
 .endm
 
@@ -118,7 +123,9 @@ MANGLE_STR_HALF:
   ldz16 $mloops, $mzero, $mvertex_base, VERTEX_COLUMNS_OFFSET/2
   // Setup loop function pointer, and jump to work division code
   setzi $functionPtr, outerLoop_half_\BY_STR\()_\OPERATION
-  bri  divide_work_by_\BY_STR\()_half
+  // Work division initial shift
+  shr $mloops, $mloops, LOG2_HALF_ATOM_SIZE
+  bri  divide_work_by_\BY_STR\()
 .size MANGLE_STR_HALF, . -MANGLE_STR_HALF
 .endm
 
@@ -138,7 +145,9 @@ MANGLE_STR_HALF:
   mov $outPtr, $in1Ptr
   // Setup loop function pointer, and jump to work division code
   setzi $functionPtr, outerLoop_half_\BY_STR\()_\OPERATION
-  bri  divide_work_by_\BY_STR\()_half
+  // Work division initial shift
+  shr $mloops, $mloops, LOG2_HALF_ATOM_SIZE
+  bri  divide_work_by_\BY_STR\()
 .size MANGLE_STR_HALF, . -MANGLE_STR_HALF
 .endm
 //******************************************************************************
@@ -228,29 +237,16 @@ outer_loop\@:
 //******************************************************************************
 .section .text.MANGLE_STR_COMMON(divide_work_by_row)
 .align 4
-divide_work_by_row_half:
-  shr $mloops, $mloops, 1
-  // Falls through and uses the shr below, as half requires >>2, float >>1
-divide_work_by_row_float:
-  shr $mloops, $mloops, 1
+divide_work_by_row:
   // Extract worker ID
   get $workerIdM1, $WSR
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
 
   // Dividing work by row
   // Loops for this worker: divide by 6 find remainder
-  setzi $mscratch, 0xAAAB
-  mul $mscratch, $rows, $mscratch
-  shr $mscratch, $mscratch, 18
-  mul $remainder, $mscratch, CTXT_WORKERS
+  DIVIDE_BY_WORKER_PRE_SHIFTED $rows $workerIdM1 $mscratch $rows
 
-  // Compare remainder to total number of items to process
-  sub $remainder, $rows, $remainder
-  // add 1 if < remainder
-  cmpult $rows, $workerIdM1, $remainder
-  add $rows, $mscratch, $rows
-
- // Our initial row = workerIdM1 * rowLength
+  // Our initial row = workerIdM1 * rowLength
   mul $stride, $mloops, CTXT_WORKERS-1
   mul $workerOffset, $mloops, $workerIdM1
   // Dummy load to setup worker offsets.
@@ -265,39 +261,24 @@ divide_work_by_row_float:
   add $stride2, $stride, 1
   shl $stride, $stride, 3
   br $functionPtr
-.size MANGLE_STR_COMMON(divide_work_by_row), . -divide_work_by_row_half
+.size MANGLE_STR_COMMON(divide_work_by_row), . -divide_work_by_row
 
 //******************************************************************************
 // Common code, mainly to divide work by column
 //******************************************************************************
 .section .text.MANGLE_STR_COMMON(divide_work_by_column)
 .align 4
-divide_work_by_column_half:
-  // Falls through and uses the shr below, as half requires >>2, float >>1
-  shr   $mloops, $mloops, 1
-divide_work_by_column_float:
-  shr   $mloops, $mloops, 1
+divide_work_by_column:
   // Extract worker ID
   get $workerIdM1, $WSR
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
 
-  // Dividing work by column
-  // Loops for this worker: divide by 24 or 12 (for halves or floats), find remainder
-  setzi $mscratch, 0xAAAB
-  mul $mscratch, $mloops, $mscratch
-  // Total shift of 20 (for half results in divide by 24)
-  // or 19 (for float results in divide by 12)
-  shr $mscratch, $mscratch, 18
-  mul $remainder, $mscratch, CTXT_WORKERS
-
   // Unadjusted mloops used in the stride calculation below
   mov $stride, $mloops
-  // Compare remainder to total number of items to process
-  sub $remainder, $mloops, $remainder
-
-  // add 1 if < remainder
-  cmpult $mloops, $workerIdM1, $remainder
-  add $mloops, $mscratch, $mloops
+  // Dividing work by column
+  // Loops for this worker: divide by 24 or 12 (for halves or floats), and
+  // round depending on worker ID
+  DIVIDE_BY_WORKER_PRE_SHIFTED $mloops $workerIdM1 $mscratch $mloops
 
   // Our initial column = workerIdM1 * 8
   // Dummy load to setup worker offsets.
@@ -324,7 +305,7 @@ divide_work_by_column_float:
   exitz $mzero
 1:
   br $functionPtr
-.size MANGLE_STR_COMMON(divide_work_by_column), . -divide_work_by_column_float
+.size MANGLE_STR_COMMON(divide_work_by_column), . -divide_work_by_column
 
 //******************************************************************************
 // Use the macros to create inplace and non inplace, float and half entry points

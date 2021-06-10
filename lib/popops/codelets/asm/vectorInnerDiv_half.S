@@ -466,9 +466,9 @@ CPP_FUNCNAME(InPlace,DIVIDE):
   // This has been divided by 6; the quotient and remainder of this division
   // has been packed into 'dataBlockCountPacked'
   //
-  //                         31 30 29 28 27 26            4  3  2  1  0
+  //                         15 14 13 12 11 10            4  3  2  1  0
   //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
-  // dataBlockCountPacked:  |           29 bits               | 3 bits |
+  // dataBlockCountPacked:  |           13 bits               | 3 bits |
   //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
   //
   //                        |                                 |        |

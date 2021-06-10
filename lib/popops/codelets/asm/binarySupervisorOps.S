@@ -6,6 +6,7 @@
 /* -------------------------------------------------------------------------- */
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "workDivision.h.S"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -30,9 +31,6 @@
 #define VERTEX_BROADCAST_INPLACE_OUT_COUNT_OFFSET 4
 #define VERTEX_BROADCAST_INPLACE_IN2_PTR_OFFSET 8
 
-#define LOG2_FLOAT_ATOM_SIZE 1
-#define LOG2_HALF_ATOM_SIZE 2
-
 // Register aliases
 #define in1Ptr m0
 #define in2Ptr m1
@@ -47,7 +45,7 @@
 #define in2PtrTmp m7
 
 #define mloops m8
-#define remainder m9
+#define outPtrConst m9
 #define workerIdM1 m10
 #define mscratch m11
 
@@ -213,19 +211,11 @@ fn_divide_work\DIVISOR\():
   get $workerIdM1, $WSR
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
 
-  // Loops for this worker: divide by 12 or 24, find remainder
-  setzi $mscratch, 0xAAAB
-  mul $mscratch, $outCount, $mscratch
-  shr $mscratch, $mscratch, \SHIFTS_TO_DIV
-  mul $remainder, $mscratch, \DIVISOR
-
-  // Compare remainder to total number of items to process
-  sub $remainder, $outCount, $remainder
-
-  shr $remainder, $remainder, \SHIFTS_FOR_GRAINSIZE
-  // add 1 if < remainder
-  cmpult $mloops, $workerIdM1, $remainder
-  add $mloops, $mscratch, $mloops
+ // Loops for this worker: divide by 12 or 24, rounding up according to workerId
+  DIVIDE_BY_WORKER $outCount $workerIdM1 $mscratch $mloops \SHIFTS_FOR_GRAINSIZE
+  // No remainder calculated, hold onto the unmodified outPtr to use to decide
+  // which worker will process remainder results
+  mov $outPtrConst, $outPtr
 
 // Consider using a faster loop for the operation, relying on fetching the 2
 // input operands at the same time.   To help, here's a summary of the memory map,
@@ -322,13 +312,16 @@ binary_op_worker_float_framework:
 inner_loop_float_return:
   // Here we have done all groups of 2 floats for every worker, no overread.
   // Use the worker which is pointing to the last float to process the last float
-  // (if there is one).  This is simple, but would using the last worker
-  //  be faster on average?
+  // (if there is one).
+
+  // Is there a remainder ?  Exit if not
   and $mscratch, $outCount, 1
   brz $mscratch, 3f
-  // All workers with id < remainder did one more loop, so the one that
-  // has id == remainder must be pointing at the next piece of work to do
-  cmpeq $mscratch, $remainder, $workerIdM1
+  // Advance outPtrConst to the next output if there was no remainder
+  // and use the worker with the matching pointer to do the work
+  andc $mscratch, $outCount, 1
+  ld32step $azero, $mzero, $outPtrConst+=, $mscratch
+  cmpeq $mscratch, $outPtrConst, $outPtr
   brz $mscratch, 3f
 
   ld32 $a0, $mzero, $in1Ptr, 0
@@ -368,14 +361,17 @@ binary_op_worker_4x16bit_framework:
   br $mloopFn
 
 inner_loop_4x16bit_return:
-  // Here we have done all groups of 3 halves for every worker, no overread.
+  // Here we have done all groups of 4 halves for every worker, no overread.
   // Use the worker which is pointing to the next half to process the last 3
-  // (if needed).  This is simple, but would using the last worker
-  //  be faster on average?
+  // (if needed).
 
-  // All workers with id < remainder did one more loop, so the one that
-  // has id == remainder must be pointing at the next piece of work to do
-  cmpeq $mscratch, $remainder, $workerIdM1
+  // Give the worker that is pointing at the next output to write the job of
+  // processing the last 3 elements if any
+  // Advance outPtrConst to the point where we would have processed all but the
+  // remainder - the worker which has this as its output pointer is used
+  andc $mscratch, $outCount, 3
+  ldb16step $azero, $mzero, $outPtrConst+=, $mscratch
+  cmpeq $mscratch, $outPtrConst, $outPtr
   brz $mscratch, 3f
 
   and $mscratch, $outCount, 2

@@ -59,16 +59,10 @@
 #define WOFF_ATOMS_DIFF2 2
 #define WOFF_ATOMS_DIFF3 3
 
-
-// Constants used to divide by 24
-#define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
-#define LOG2_24_OVER_3 3
-#define DIV_24_SHIFT  (17 + LOG2_24_OVER_3)
-
-
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "SliceCopyFunction_8bit.inc"
+#include "workDivision.h.S"
 
 #define DSS_BOOL_FUNC __runCodelet_popops__DynamicSlice1d___bool
 #define DUSS_BOOL_FUNC __runCodelet_popops__DynamicUpdateSlice1d___bool
@@ -191,18 +185,9 @@ DUSS_SCHAR_FUNC:
 divide_work_loop:
   brz       $mRegionSize, 1f // if we went down zero, bail out
   // Compute:
-  //  $mRegionSize / 24 ==> $atomsPerWorker (quotient), $mScratch (remainder)
-  setzi     $mScratch, RECIPROCAL_3_SHL17
-  mul       $atomsPerWorker, $mRegionSize, $mScratch
-  shr       $atomsPerWorker, $atomsPerWorker, DIV_24_SHIFT
-  mul       $mScratch, $atomsPerWorker, 24
-  sub       $mScratch, $mRegionSize, $mScratch
+  //  $mRegionSize / 24 ==> $atomsPerWorker (quotient)
 
-  // Use the (remainder/4) > worker_id to check if we need to copy an
-  // extra element compared to the quotient ($atomsPerWorker)
-  shr       $mScratch, $mScratch, 2
-  cmpult    $mScratch, $workerId, $mScratch
-  add       $atomsPerWorker, $atomsPerWorker, $mScratch
+  DIVIDE_BY_WORKER $mRegionSize $workerId $mScratch $atomsPerWorker LOG2_HALF_ATOM_SIZE
   // store in the right place
   add       $storeOffset, $loopCount, 1
   and       $storeOffset, $storeOffset, 0x3

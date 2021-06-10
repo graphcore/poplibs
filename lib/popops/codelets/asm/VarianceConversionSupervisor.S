@@ -3,6 +3,7 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "workDivision.h.S"
 
 // vertex state (byte increments)
 #define VERTEX_BROADCAST_IN1_PTR_OFFSET 0
@@ -30,7 +31,7 @@
 #define in2 m6
 #define outIncr m8
 #define workerIdM1 m9
-#define remainder m10
+#define outPtrConst m10
 
 // float variables
 #define inData a0
@@ -98,17 +99,24 @@
 
 .LfinalCheck\LABEL_NUM:
   // Here we have done all groups of 2 halves for every worker, no overread.
-  // Use the worker which is pointing to the next half to process the last 1
+  // Use the worker which is pointing to the next output to process the last 1
   // (if needed).
 
-  // All workers with id < remainder did one more loop, so the one that
-  // has id == remainder must be pointing at the next piece of work to do
-  cmpeq $mscratch, $remainder, $workerIdM1
+   // Is there a final 1 ?
+  and $mscratch, $in1Count, 1
   brz $mscratch, 3f
 
-  // Is there a final 1 ?
-  and $in1Count, $in1Count, 1
-  brz $in1Count, 3f
+  // Advance outPtrConst and compare to this worker's pointer to decide if it
+  // needs to do the last one
+  andc $mscratch, $in1Count, 1
+.ifeq \FLOAT_OUT
+  ldb16step $azero, $mzero, $outPtrConst+=, $mscratch
+.else
+  ld32step $azero, $mzero, $outPtrConst+=, $mscratch
+.endif
+  cmpeq $mscratch, $out, $outPtrConst
+  brz $mscratch, 3f
+
   // Deal with the last 1
   // out = (1 / (in * in)) - epsilon
   ldb16 $inData, $mzero, $in1, 0
@@ -160,15 +168,16 @@
   // Here we have done all groups of 2 halves for every worker, no overread.
   // Use the worker which is pointing to the next half to process the last 1
   // (if needed).
-
-  // All workers with id < remainder did one more loop, so the one that
-  // has id == remainder must be pointing at the next piece of work to do
-  cmpeq $mscratch, $remainder, $workerIdM1
+  // Is there a final 1 ?
+  and $mscratch, $in1Count, 1
+  brz $mscratch, 3f
+  // Advance outPtrConst and compare to this worker's pointer to decide if it
+  // needs to do the last one
+  andc $mscratch, $in1Count, 1
+  ldb16step $azero, $mzero, $outPtrConst+=, $mscratch
+  cmpeq $mscratch, $out, $outPtrConst
   brz $mscratch, 3f
 
-  // Is there a final 1 ?
-  and $in1Count, $in1Count, 1
-  brz $in1Count, 3f
   // Deal with the last 1
   // out = (1 / (in * in)) - epsilon
   ld32 $inData, $mzero, $in1, 0
@@ -224,7 +233,6 @@ worker_entry_inplace\@:
 .endif
 
 .align 8
-  nop //rpt body alignment
 .worker
 worker_entry\@:
   ld32 $in1, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_PTR_OFFSET/4
@@ -234,22 +242,13 @@ worker_entry\@:
 
 common\@:
   get $workerIdM1, $WSR
-
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
 
-  // Loops for this worker: divide by 12 and find remainder
-  setzi $mscratch, 0xAAAB
-  mul $mscratch, $in1Count, $mscratch
-  shr $mscratch, $mscratch, 19
-  mul $remainder, $mscratch, 12
-
-  // Compare remainder to total number of items to process
-  sub $remainder, $in1Count, $remainder
-
-  shr $remainder, $remainder, 1
-  // add 1 if < remainder
-  cmpult $mLoops, $workerIdM1, $remainder
-  add $mLoops, $mscratch, $mLoops
+  // Loops for this worker: divide by 12 and round up based on workerID
+  DIVIDE_BY_WORKER $in1Count $workerIdM1 $mscratch $mLoops LOG2_FLOAT_ATOM_SIZE
+  // Keep the unmodified out pointer to use to decide which worker does the
+  // remainder elements
+  mov $outPtrConst, $out
 
   // Dummy loads to advance the pointers for each worker.  32 bit incr for
   // a half operand, 64 bit incr for a float operand (input or output)
