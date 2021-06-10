@@ -1,12 +1,11 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#define BOOST_TEST_MODULE TriangularSolveTest
 #include <poplibs_support/TestDevice.hpp>
 
 #include <iostream>
 
-#include <boost/test/data/monomorphic/generators/xrange.hpp>
-#include <boost/test/data/test_case.hpp>
-#include <boost/test/unit_test.hpp>
+#include <boost/program_options.hpp>
+
+#include <poplibs_test/Util.hpp>
 
 #include <poplar/Engine.hpp>
 #include <poplin/MatMul.hpp>
@@ -21,8 +20,6 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace poplin;
 using namespace poplibs_support;
-namespace bu = boost::unit_test;
-namespace bud = boost::unit_test::data;
 
 namespace {
 
@@ -55,7 +52,7 @@ void readTensor(const poplar::Target &target, poplar::Engine &engine,
 }
 
 template <typename T, std::size_t Tiles = 4>
-void deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
+bool deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
                            std::vector<std::size_t> a_shape,
                            const std::vector<T> &b,
                            std::vector<std::size_t> b_shape, bool left_side,
@@ -76,28 +73,25 @@ void deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
 
   matmul::PlanningCache cache;
   std::set<MatMulPlanParams> params;
-  BOOST_TEST(cache.size() == 0);
+  assert(cache.size() == 0);
   for (auto &param : matmuls) {
     params.emplace(&target, param.first, &param.second);
   }
   preplanMatMuls(params, cache);
-  BOOST_TEST(cache.size() == matmuls.size());
+  assert(cache.size() == matmuls.size());
 
   Tensor tA = graph.addVariable(type, a_shape, "A");
   Tensor tB = graph.addVariable(type, b_shape, "B");
 
-  BOOST_REQUIRE_EQUAL(tA.numElements(), a.size());
-  BOOST_REQUIRE_EQUAL(tB.numElements(), b.size());
+  assert(tA.numElements() == a.size());
+  assert(tB.numElements() == b.size());
 
-  auto aRank = tA.rank();
-  auto bRank = tB.rank();
+  assert(tA.rank() == tB.rank());
+  assert(tA.rank() >= 2);
 
-  BOOST_REQUIRE_EQUAL(aRank, bRank);
-  BOOST_REQUIRE_GE(aRank, 2);
-
-  BOOST_REQUIRE_EQUAL(tA.dim(aRank - 1), tA.dim(aRank - 2));
-  BOOST_REQUIRE_EQUAL(left_side ? tB.dim(bRank - 2) : tB.dim(bRank - 1),
-                      tA.dim(aRank - 1));
+  assert(tA.dim(tA.rank() - 1) == tA.dim(tA.rank() - 2));
+  assert(left_side ? tB.dim(tB.rank() - 2)
+                   : tB.dim(tB.rank() - 1) == tA.dim(tA.rank() - 1));
 
   poputil::mapTensorLinearly(graph, tA);
   poputil::mapTensorLinearly(graph, tB);
@@ -109,8 +103,8 @@ void deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
   Tensor tX = triangularSolve(graph, tA, tB, left_side, lower, unit_diagonal,
                               seq, "triangular-solve", options, &cache);
 
-  BOOST_TEST(cache.size() == matmuls.size()); // All matmuls were preplanned.
-  BOOST_TEST(tX.shape() == tB.shape(), boost::test_tools::per_element());
+  assert(cache.size() == matmuls.size()); // All matmuls were preplanned.
+  assert(tX.shape() == tB.shape());
   tA = poplin::triangularMask(graph, tA, lower, unit_diagonal, seq,
                               "triangular-mask-verify");
 
@@ -137,12 +131,12 @@ void deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
     readTensor(target, eng, type, "r", result);
   });
 
-  // boost test tools limitation: you can't use both tolerance and per_element
-  // decorators
-  for (std::size_t i = 0; i < b.size(); ++i) {
-    BOOST_REQUIRE_CLOSE(b[i], result[i],
-                        type == HALF ? 0.3 : 0.0001); // percentage!
-  }
+  const double absTolerance = type == HALF ? 0.3 : 0.0001;
+  const double relTolerance = type == HALF ? 0.01 : 0.001;
+  bool matchesModel = poplibs_test::util::checkIsClose(
+      "result", b.data(), {b.size()}, result.data(), b.size(), relTolerance,
+      absTolerance);
+  return matchesModel;
 }
 
 template <typename T, typename E>
@@ -157,7 +151,7 @@ std::vector<T> generateIota(std::vector<E> shape) {
 }
 
 template <typename T, std::size_t Tiles = 4>
-void deviceTriangularSolveIota(poplar::Type type,
+bool deviceTriangularSolveIota(poplar::Type type,
                                std::vector<std::size_t> a_shape,
                                std::vector<std::size_t> b_shape, bool left_side,
                                bool lower, bool unit_diagonal,
@@ -171,22 +165,55 @@ void deviceTriangularSolveIota(poplar::Type type,
 
 } // namespace
 
-BOOST_DATA_TEST_CASE(TriangularSolveCase,
-                     bud::make({poplar::HALF, poplar::FLOAT}) * // type
-                         bud::make({false, true}) *             // left_side
-                         bud::make({false, true}) *             // lower
-                         bud::make({false, true}) *             // unit_diagonal
-                         bud::make({false, true}) *             // block_solver
-                         bud::make({1, 2, 3,
-                                    8}), // singleton dim, less than block,
-                                         // larger than block, large than n
-                     type, left_side, lower, unit_diagonal, block_solver, k) {
+int main(int argc, char **argv) {
+  namespace po = boost::program_options;
+
+  DeviceType deviceType = DeviceType::IpuModel2;
+  poplar::Type type = poplar::HALF;
+  bool left_side = false;
+  bool lower = false;
+  bool unit_diagonal = false;
+  bool block_solver = false;
+  unsigned k = 1;
+
+  po::options_description desc("Options");
+  // clang-format off
+  desc.add_options()
+    ("help", "Produce help message")
+    ("device-type", po::value<DeviceType>(&deviceType)->required(), "Device type")
+    ("type", po::value<poplar::Type>(&type)->required(), "Data type")
+    ("left-side", po::value<bool>(&left_side)->required())
+    ("lower", po::value<bool>(&lower)->required())
+    ("unit-diagonal", po::value<bool>(&unit_diagonal)->required())
+    ("block-solver", po::value<bool>(&block_solver)->required())
+    ("k", po::value<unsigned>(&k)->required())
+    ;
+  // clang-format on
+
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cout << desc << "\n\n";
+      return 1;
+    }
+    po::notify(vm);
+  } catch (std::exception &e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
+  }
 
   static constexpr std::size_t n = 5;
   std::size_t block_size = block_solver ? 3 : n;
   using Shape = std::vector<std::size_t>;
   auto bShape = left_side ? Shape{1, 2, n, std::size_t(k)}
                           : Shape{1, 2, std::size_t(k), n};
-  deviceTriangularSolveIota<float>(type, {1, 2, n, n}, bShape, left_side, lower,
-                                   unit_diagonal, block_size);
+  bool success = deviceTriangularSolveIota<float>(
+      type, {1, 2, n, n}, bShape, left_side, lower, unit_diagonal, block_size);
+  if (!success) {
+    std::cerr << "Test failed\n";
+    return 1;
+  }
+
+  return 0;
 }

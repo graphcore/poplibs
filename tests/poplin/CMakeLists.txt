@@ -9,8 +9,31 @@ add_unit_test(MeshGridTest MeshGridTest.cpp)
 add_unit_test(MultiConvolutionPlanTest MultiConvolutionPlanTest.cpp)
 add_unit_test(MultiConvolutionTest MultiConvolutionTest.cpp)
 add_unit_test(RangeTest RangeTest.cpp)
-add_unit_test(TriangularSolveTest TriangularSolveTest.cpp)
 add_unit_test(WinogradConvolution WinogradConv.cpp VARIANTS ${TimesOutOnSim})
+
+# Triangular solver tests
+add_multi_target_test_executable(TriangularSolveTest TriangularSolveTest.cpp)
+foreach(DATA_TYPE half float)
+  foreach(LEFT_SIDE false true)
+    foreach(LOWER_TRIANGLE false true)
+      foreach(UNIT_DIAGONAL false true)
+        foreach(BLOCK_SOLVER false true)
+          foreach(K 1 2 3 8)
+            add_multitarget_test(NAME TriangularSolveTest_${DATA_TYPE}_${LEFT_SIDE}_${LOWER_TRIANGLE}_${UNIT_DIAGONAL}_${BLOCK_SOLVER}_${K}
+              COMMAND TriangularSolveTest
+                --type=${DATA_TYPE}
+                --left-side=${LEFT_SIDE}
+                --lower=${LOWER_TRIANGLE}
+                --unit-diagonal=${UNIT_DIAGONAL}
+                --block-solver=${BLOCK_SOLVER}
+                --k=${K}
+            )
+          endforeach()
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
 
 # Norm layer tests.
 
