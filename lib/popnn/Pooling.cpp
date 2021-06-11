@@ -10,6 +10,7 @@
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/print.hpp"
 #include "poplin/ConvUtil.hpp"
+#include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Pad.hpp"
 #include "popops/Reduce.hpp"
@@ -87,12 +88,15 @@ static PoolOptions parsePoolOptions(const poplar::OptionFlags &options) {
   PoolOptions poolOptions;
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
+
   const OptionSpec poolSpec{
       {"poolUseIntrospectiveMapping",
        OptionHandler::createWithBool(poolOptions.poolUseIntrospectiveMapping)},
       {"optimizeForSpeed",
        OptionHandler::createWithBool(poolOptions.optimizeForSpeed)},
-  };
+      {"useFloatPartialsWhereBeneficial",
+       OptionHandler::createWithBool(
+           poolOptions.useFloatPartialsWhereBeneficial)}};
   for (const auto &option : options) {
     poolSpec.parse(option.first, option.second);
   }
@@ -438,6 +442,7 @@ static Tensor createOutputAndPreprocess(Graph &graph, ConvParams &params,
                                         const Plan &plan, Tensor &in,
                                         Tensor *fwdInputActs,
                                         Tensor *fwdOutputActs,
+                                        const Type &outType,
                                         const DebugNameAndId &dnai) {
   // Check if the params match the input tensor
   assert(params.batchSize == in.dim(0));
@@ -469,8 +474,8 @@ static Tensor createOutputAndPreprocess(Graph &graph, ConvParams &params,
   outTensorShape.insert(outTensorShape.end(), outputShape.begin(),
                         outputShape.end());
   outTensorShape.push_back(plan.partition.chansPerGroup);
-  auto out =
-      graph.addVariable(params.outputType, outTensorShape, {dnai, "out"});
+
+  auto out = graph.addVariable(outType, outTensorShape, {dnai, "out"});
   // Default mapping in case there are padding elements
   // TODO: T12915 Improve the handling of padding elements.
   mapTensorLinearly(graph, out);
@@ -558,13 +563,18 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
   // of implementation is not much more than the optimum
   TransformedInput transformVectorWidth;
   TransformedInput transformGroupedWidth;
+  const auto poolImplDataType = (poolOptions.useFloatPartialsWhereBeneficial &&
+                                 poolCfg.type != PoolingType::MAX)
+                                    ? FLOAT
+                                    : in_.elementType();
   bool isFwdPass =
       (poolCfg.pass == PoolPass::POOL_FWD) && !poolCfg.scaledGradient;
   if (isFwdPass) {
     const auto vectorWidth =
-        getMinChannelGrouping(in_.elementType(), poolCfg.type);
+        getMinChannelGrouping(poolImplDataType, poolCfg.type);
+    // TODO - this can be refined, see comment in function
     const auto groupedWidth =
-        getPreferredChannelGrouping(in_.elementType(), poolCfg.type);
+        getPreferredChannelGrouping(poolImplDataType, poolCfg.type);
     transformVectorWidth = gatherDimsTransformIn(in_, params, vectorWidth);
     transformGroupedWidth = gatherDimsTransformIn(in_, params, groupedWidth);
   } else {
@@ -572,6 +582,7 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
     transformVectorWidth.params = params;
     transformGroupedWidth = transformVectorWidth;
   }
+  // TODO - Should include an estimate for casting for the pooling method
   auto poolMethodResult =
       getPlan(graph, poolCfg, transformVectorWidth, transformGroupedWidth);
   auto &chosenTransform = poolMethodResult.useGroupedWidth
@@ -614,7 +625,7 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
     paramsForConv.outputChannelsPerConvGroup = 1;
 
     const poplar::OptionFlags convOptions = {
-        {"partialsType", in_.elementType() == HALF ? "half" : "float"}};
+        {"partialsType", poolImplDataType == FLOAT ? "float" : "half"}};
     poplin::PlanningCache cache;
     auto convMethodCosts =
         reportPlanEstimatedCosts(graph, paramsForConv, convOptions, &cache);
@@ -667,17 +678,37 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
   if (fwdOutputActs_) {
     fwdOutputActs = *fwdOutputActs_;
   }
-  auto preprocessedParams = chosenTransform.params;
-  // preprocessing may create new tensors
-  auto out = createOutputAndPreprocess(
-      graph, preprocessedParams, poolMethodResult.plan, chosenTransform.in,
+  auto preprocessedParamsImpl = chosenTransform.params;
+  preprocessedParamsImpl.outputType = poolImplDataType;
+  preprocessedParamsImpl.inputType = poolImplDataType;
+  // preprocessing may create new tensors and will modify params and other
+  // passed variables
+  auto poolImplOut = createOutputAndPreprocess(
+      graph, preprocessedParamsImpl, poolMethodResult.plan, chosenTransform.in,
       fwdInputActs_ ? &fwdInputActs : nullptr,
-      fwdOutputActs_ ? &fwdOutputActs : nullptr, {dnai});
-  tilePartitions(graph, poolCfg, chosenTransform.in, out,
+      fwdOutputActs_ ? &fwdOutputActs : nullptr, poolImplDataType, {dnai});
+
+  // When implementing pooling as pooling, we need to cast to the specified
+  // partials type to ensure arithmetic is done in the correct precision
+  auto conditionalCast = [&](const Tensor &t, Type resultType) {
+    if (t.elementType() == resultType) {
+      return t;
+    } else {
+      return popops::cast(graph, t, resultType, prog, {dnai});
+    }
+  };
+
+  auto poolImplIn = conditionalCast(chosenTransform.in, poolImplDataType);
+
+  tilePartitions(graph, poolCfg, poolImplIn, poolImplOut,
                  fwdInputActs_ ? &fwdInputActs : nullptr,
-                 fwdOutputActs_ ? &fwdOutputActs : nullptr, preprocessedParams,
-                 prog, poolMethodResult.plan, {dnai}, poolOptions);
+                 fwdOutputActs_ ? &fwdOutputActs : nullptr,
+                 preprocessedParamsImpl, prog, poolMethodResult.plan, {dnai},
+                 poolOptions);
+
+  auto out = conditionalCast(poolImplOut, chosenTransform.params.outputType);
   postProcess(chosenTransform.params, poolMethodResult.plan, out);
+
   if (isFwdPass) {
     return gatherDimsTransformOut(out, params, chosenTransform);
   } else {

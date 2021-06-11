@@ -268,6 +268,33 @@ add_multitarget_test(NAME max_pool_layer_folded_spatial_dims
                  --data-type=half
                  --use-introspection=1)
 
+foreach(OPTIMIZE_FOR_SPEED true false)
+  foreach(USE_FLOAT_PARTIALS true false)
+  add_multitarget_test(NAME avg_pool_layer_half_${OPTIMIZE_FOR_SPEED}_${USE_FLOAT_PARTIALS}
+           COMMAND pooling_layer
+                   --channels 32
+                   --pooling-type=avg
+                   --field={32,32}
+                   --tiles-per-ipu=16
+                   --kernel-size=4
+                   --stride=2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --use-float-partials=${USE_FLOAT_PARTIALS}
+                   --data-type=half)
+  endforeach()
+endforeach()
+
+# TODO - Reinstate this once T40690 is fixed
+#add_multitarget_test(NAME avg_pool_layer_with_transform
+#           COMMAND pooling_layer
+#                   --channels 1
+#                   --pooling-type=avg
+#                   --field={1,4,4,1}
+#                   --tiles-per-ipu=1
+#                   --kernel-size=1
+#                   --stride={1,2,2,1}
+#                   --use-float-partials=true
+#                  --data-type=half)
 
 foreach(OPTIMIZE_FOR_SPEED true false)
 
