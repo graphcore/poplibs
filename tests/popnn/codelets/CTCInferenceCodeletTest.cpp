@@ -49,7 +49,6 @@ enum class VertexType {
   GENERATE_COPY,
   GENERATE_EXTEND,
   MERGE,
-  SIMPLE_SORT,
   RANK,
   REDUCE,
   UPDATE,
@@ -63,8 +62,6 @@ std::ostream &operator<<(std::ostream &os, const VertexType &test) {
     return os << "generate_extend";
   } else if (test == VertexType::MERGE) {
     return os << "merge";
-  } else if (test == VertexType::SIMPLE_SORT) {
-    return os << "simple_sort";
   } else if (test == VertexType::RANK) {
     return os << "rank";
   } else if (test == VertexType::REDUCE) {
@@ -87,8 +84,6 @@ std::istream &operator>>(std::istream &is, VertexType &test) {
     test = VertexType::GENERATE_EXTEND;
   } else if (token == "merge") {
     test = VertexType::MERGE;
-  } else if (token == "simple_sort") {
-    test = VertexType::SIMPLE_SORT;
   } else if (token == "rank") {
     test = VertexType::RANK;
   } else if (token == "reduce") {
@@ -391,7 +386,7 @@ int main(int argc, char **argv) {
     ("seed", po::value(&seed)->default_value(seed),
      "Seed used for random number generators")
     ("vertex-type", po::value(&vertexType)->default_value(vertexType),
-     "Vertex type to test: generate, merge, simple_sort rank, reduce, update")
+     "Vertex type to test: generate, merge, rank, reduce, update")
     ("in-type", po::value(&inType)->default_value(inType),
      "Vertex input data type")
     ("partials-type", po::value(&partialsType)->default_value(partialsType),
@@ -653,25 +648,6 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  if (vertexType == VertexType::SIMPLE_SORT) {
-    const auto sortedCandidates = runSimpleSortCandidatesCodelet<float>(
-        graph, device, deviceType, partialsType, modelMergedCandidates,
-        beamwidth, timestep + 1, profile);
-
-    if (verbose) {
-      std::cerr << "\nPreviously merged candidates:\n";
-      print(modelMergedCandidates, voidSymbol);
-    }
-
-    auto isClose = candidatesAreClose(sortedCandidates, modelPrunedCandidates,
-                                      relTolerance);
-    debugPrint(sortedCandidates, modelPrunedCandidates, isClose, verbose);
-    if (!isClose) {
-      std::cerr << "Data mismatch\n";
-      return 1;
-    }
-    return 0;
-  }
   if (vertexType == VertexType::RANK) {
     const auto sortedCandidates = runRankCandidatesCodelet<float>(
         graph, device, deviceType, partialsType, modelMergedCandidates,

@@ -709,12 +709,6 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSelectExtendCandidates)(
   // TODO: cycle estimator
   return {0, 0};
 }
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCSimpleSortCandidates)(
-    const VertexIntrospector &vertex, const Target &target,
-    const Type &partialsType, const Type symbolType) {
-  // TODO: cycle estimator
-  return {0, 0};
-}
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCRankCandidates)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &partialsType, const Type symbolType) {
@@ -930,10 +924,6 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
                             UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCSelectExtendCandidates, HALF,
                             UNSIGNED_INT),
-
-      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSimpleSortCandidates, FLOAT,
-                            UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popnn, CTCSimpleSortCandidates, HALF, UNSIGNED_INT),
 
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCRankCandidates, FLOAT, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCRankCandidates, HALF, UNSIGNED_INT),

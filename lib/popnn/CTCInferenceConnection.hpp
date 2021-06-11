@@ -156,13 +156,6 @@ void selectExtendCandidateVertex(poplar::Graph &graph,
                                  unsigned numCopyCandidates,
                                  unsigned blankClass, unsigned tile);
 
-void simpleSortCandidatesVertex(poplar::Graph &graph,
-                                const TempTensors &tempTensors,
-                                poplar::ComputeSet &cs, unsigned batch,
-                                unsigned partition,
-                                unsigned candidatesToCompare,
-                                unsigned beamwidth, unsigned tile);
-
 void rankCandidatesVertex(poplar::Graph &graph, const TempTensors &tempTensors,
                           const SortTensors &sortTensors,
                           poplar::ComputeSet &cs, unsigned batch,

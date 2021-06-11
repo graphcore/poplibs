@@ -40,25 +40,21 @@ std::ostream &operator<<(std::ostream &o, const CtcInferencePlannerParams &p) {
 }
 
 static auto getTupleOfMembers(const InferencePlan &p) {
-
-  using VisitorOutType =
-      std::tuple<std::vector<unsigned>, std::vector<unsigned>,
-                 std::vector<unsigned>>;
-  const auto [simpleSort, rank, reduce] = boost::apply_visitor(
-      make_visitor<VisitorOutType>(
-          [&](const SimpleSortPartitions<unsigned> &s) {
-            return VisitorOutType({s.simpleSort, {0u}, {0u}});
-          },
-          [&](const RankPartitions<unsigned> &s) {
-            return VisitorOutType({{0u}, s.rank, s.reduce});
-          }),
-      p.parallel.sort);
-
+  std::vector<unsigned> groups(p.parallel.sort.size());
+  std::vector<unsigned> tilesPerGroup(p.parallel.sort.size());
+  std::vector<unsigned> rankPartitions(p.parallel.sort.size());
+  std::vector<unsigned> reducePartitions(p.parallel.sort.size());
+  for (unsigned i = 0; i < p.parallel.sort.size(); i++) {
+    groups[i] = p.parallel.sort[i].groups;
+    tilesPerGroup[i] = p.parallel.sort[i].groupsPerTile;
+    rankPartitions[i] = p.parallel.sort[i].rankPartitions;
+    reducePartitions[i] = p.parallel.sort[i].reducePartitions;
+  }
   return std::tie(p.params, p.parallel.batch, p.parallel.time, p.parallel.copy,
                   p.parallel.extend, p.parallel.extendVerticesPerPartition,
                   p.parallel.merge, p.parallel.selectCopy,
-                  p.parallel.selectExtend, simpleSort, rank, reduce,
-                  p.parallel.output);
+                  p.parallel.selectExtend, groups, tilesPerGroup,
+                  rankPartitions, reducePartitions, p.parallel.output);
 }
 bool operator<(const InferencePlan &a, const InferencePlan &b) noexcept {
   return getTupleOfMembers(a) < getTupleOfMembers(b);
@@ -79,34 +75,16 @@ std::ostream &operator<<(std::ostream &o, const InferencePlan &p) {
   o << "    selectCopy                 " << p.parallel.selectCopy << "\n";
   o << "    selectExtend               " << p.parallel.selectExtend << "\n";
 
-  boost::apply_visitor(
-      make_visitor<void>(
-          [&](const SimpleSortPartitions<unsigned> &s) {
-            for (unsigned stage = 0; stage < p.parallel.sortStageGroups.size();
-                 stage++) {
-              o << "    Sort stage:" << stage << ", "
-                << p.parallel.sortStageGroups[stage] << " group(s) with "
-                << p.parallel.sortGroupsPerTile[stage] << " groups per tile"
-                << "\n";
-              o << "    Partitions:\n";
-              o << "        simpleSort             " << s.simpleSort[stage]
-                << "\n";
-            }
-          },
-          [&](const RankPartitions<unsigned> &s) {
-            for (unsigned stage = 0; stage < p.parallel.sortStageGroups.size();
-                 stage++) {
-              o << "    Sort stage:" << stage << ", "
-                << p.parallel.sortStageGroups[stage] << " group(s) with "
-                << p.parallel.sortGroupsPerTile[stage] << " groups per tile"
-                << "\n";
-              o << "    Partitions:\n";
-              o << "        sortRank               " << s.rank[stage] << "\n";
-              o << "        sortReduce             " << s.reduce[stage] << "\n";
-            }
-          }),
-      p.parallel.sort);
-
+  for (unsigned stage = 0; stage < p.parallel.sort.size(); stage++) {
+    o << "    Sort stage:" << stage << ", " << p.parallel.sort[stage].groups
+      << " group(s) with " << p.parallel.sort[stage].groupsPerTile
+      << " groups per tile\n";
+    o << "    Partitions:\n";
+    o << "        sortRank               "
+      << p.parallel.sort[stage].rankPartitions << "\n";
+    o << "        sortReduce             "
+      << p.parallel.sort[stage].reducePartitions << "\n";
+  }
   o << "    outputPartitions           " << p.parallel.output << "\n";
   o << "    (Tiles per batch entry)    " << p.batchEntryPartitions() << "\n";
   o << "    (Tiles)                    " << p.numTiles() << "\n";
@@ -115,7 +93,6 @@ std::ostream &operator<<(std::ostream &o, const InferencePlan &p) {
 
 struct CtcInferenceOpts {
   poplar::Type partialsType = poplar::FLOAT;
-  SortMethod sortMethod = SortMethod::RANK;
   std::vector<unsigned> sortStageGroups;
 };
 
@@ -125,12 +102,7 @@ parseInferenceOptions(const poplar::OptionFlags &options) {
   std::map<std::string, poplar::Type> partialsTypeMap{{"half", poplar::HALF},
                                                       {"float", poplar::FLOAT}};
 
-  std::map<std::string, SortMethod> sortMethodMap{
-      {"simple_sort", SortMethod::SIMPLE_SORT}, {"rank", SortMethod::RANK}};
-
   const poplibs::OptionSpec spec{
-      {"sortMethod",
-       poplibs::OptionHandler::createWithEnum(opts.sortMethod, sortMethodMap)},
       {"partialsType", poplibs::OptionHandler::createWithEnum(opts.partialsType,
                                                               partialsTypeMap)},
       {"sortStageGroups",
@@ -143,21 +115,8 @@ parseInferenceOptions(const poplar::OptionFlags &options) {
   return opts;
 }
 
-std::ostream &operator<<(std::ostream &o, const SortMethod &m) {
-  switch (m) {
-  case SortMethod::SIMPLE_SORT:
-    o << "SIMPLE_SORT";
-    break;
-  case SortMethod::RANK:
-    o << "RANK";
-    break;
-  };
-  return o;
-}
-
 std::ostream &operator<<(std::ostream &o, const CtcInferenceOpts &opt) {
   o << "CTCInference options:\n";
-  o << "  sortMethod                   " << opt.sortMethod << "\n";
   o << "  partialsType                 " << opt.partialsType << "\n";
   o << "  sortStageGroups              {";
   for (unsigned i = 0; i < opt.sortStageGroups.size(); i++) {
@@ -239,12 +198,12 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   plan.parallel.selectCopy = findMaxPartitions(beamwidth, tilesPerBatchEntry);
 
   // Sort - by most probable candidate
-
+  //
   // Plan in stages
   // Each stage divides the input candidates into `groups` which are sorted
   // independently. and will result in `sortStageGroups[stage] * beamwidth`
   // results to then be sorted again.
-  // The last stage will have sortStageGroups[stage] = 1 and so create a
+  // The last stage will have sortStageGroups = 1 and so create a
   // single result.
   // Results each contain the beamwidth most probable sort results
 
@@ -264,13 +223,16 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
     // The option defines the stages and the number of groups per stage. It is
     // possible to select more than 2 stages, and as it is an undocumented test
     // option it is the users responsibility to make sure it makes sense.
-    plan.parallel.sortStageGroups = opts.sortStageGroups;
+    plan.parallel.sort.reserve(opts.sortStageGroups.size());
+    for (unsigned i = 0; i < opts.sortStageGroups.size(); i++) {
+      plan.parallel.sort.push_back({opts.sortStageGroups[i]});
+    }
   } else {
     // Automatically select - the logic here will only ever result in 1 or 2
     // stages.  If 3 stages are useful then most of this needs to be revisited.
     if (numClasses >= singleStageClassLimit) {
       // Sort in 2 stages
-      plan.parallel.sortStageGroups.reserve(2);
+      plan.parallel.sort.reserve(2);
 
       const auto toSort = beamwidth * numClasses;
       // Form 2 equally balanced stages
@@ -289,11 +251,11 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
         candidatesPerGroup = ceildiv(toSort, numGroups);
       }
 
-      plan.parallel.sortStageGroups.push_back(numGroups);
-      plan.parallel.sortStageGroups.push_back(1);
+      plan.parallel.sort.push_back({numGroups});
+      plan.parallel.sort.push_back({1});
     } else {
       // Sort in 1 stage
-      plan.parallel.sortStageGroups.push_back(1);
+      plan.parallel.sort.push_back({1});
     }
   }
 
@@ -301,44 +263,34 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   // number of partitions IN EACH GROUP to use when we do the sort.
   // Each stage will result in candidates = beamwidth * groupsInTheStage
   // which is then the number to sort in the next stage.
-  const auto stages = plan.parallel.sortStageGroups.size();
+  const auto stages = plan.parallel.sort.size();
 
-  if (opts.sortMethod == popnn::ctc::SortMethod::RANK) {
-    std::vector<unsigned> rank(stages);
-    std::vector<unsigned> reduce(stages);
-    auto candidatesToRankPerGroup =
-        ceildiv(beamwidth * numClasses, plan.parallel.sortStageGroups[0]);
-    for (unsigned stage = 0; stage < stages; stage++) {
-      // A group has this many tiles available to divide work over
-      const auto tilesPerGroup = std::max(
-          1u, tilesPerBatchEntry / plan.parallel.sortStageGroups[stage]);
+  auto candidatesToRankPerGroup =
+      ceildiv(beamwidth * numClasses, plan.parallel.sort[0].groups);
+  for (unsigned stage = 0; stage < stages; stage++) {
+    // A group has this many tiles available to divide work over
+    const auto tilesPerGroup =
+        std::max(1u, tilesPerBatchEntry / plan.parallel.sort[stage].groups);
 
-      // There is no speed cost in having upto numWorkers candidates ranked
-      // in any partition so choose at least that many to reduce the complexity
-      const auto rankingsPerPartition = std::max(
-          numWorkers, ceildiv(candidatesToRankPerGroup, tilesPerGroup));
-      rank[stage] = ceildiv(candidatesToRankPerGroup, rankingsPerPartition);
-      reduce[stage] = findMaxPartitions(beamwidth, tilesPerGroup);
+    // There is no speed cost in having upto numWorkers candidates ranked
+    // in any partition so choose at least that many to reduce the complexity
+    const auto rankingsPerPartition =
+        std::max(numWorkers, ceildiv(candidatesToRankPerGroup, tilesPerGroup));
+    plan.parallel.sort[stage].rankPartitions =
+        ceildiv(candidatesToRankPerGroup, rankingsPerPartition);
+    plan.parallel.sort[stage].reducePartitions =
+        findMaxPartitions(beamwidth, tilesPerGroup);
 
-      plan.parallel.sortGroupsPerTile.push_back(
-          ceildiv(plan.parallel.sortStageGroups[stage], tilesPerBatchEntry));
+    plan.parallel.sort[stage].groupsPerTile =
+        ceildiv(plan.parallel.sort[stage].groups, tilesPerBatchEntry);
 
-      if (stage != stages - 1) {
-        // For the next loop, how many candidates will there be after this
-        // stage?
-        candidatesToRankPerGroup =
-            ceildiv(beamwidth * plan.parallel.sortStageGroups[stage],
-                    plan.parallel.sortStageGroups[stage + 1]);
-      }
+    if (stage != stages - 1) {
+      // For the next loop, how many candidates will there be after this
+      // stage?
+      candidatesToRankPerGroup =
+          ceildiv(beamwidth * plan.parallel.sort[stage].groups,
+                  plan.parallel.sort[stage + 1].groups);
     }
-    plan.parallel.sort = popnn::ctc::RankPartitions<unsigned>({rank, reduce});
-  } else {
-    // This is really just a placeholder so the method still works
-    // there's no proper benefit in multistage simple sort that has been tested
-    std::vector<unsigned> simpleSort(stages, 1u);
-
-    plan.parallel.sort =
-        popnn::ctc::SimpleSortPartitions<unsigned>({simpleSort});
   }
 
   // For output generation

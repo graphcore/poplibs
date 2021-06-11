@@ -1504,15 +1504,6 @@ foreach(partials_type half float)
       VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
-# Verify ctc beam search sorting methods
-foreach(sort_method rank simple_sort)
-  add_multitarget_test(
-    NAME ctc_beam_search_sort_${sort_method}
-      COMMAND ctc_beam_search
-        --options={\"sortMethod\":\"${sort_method}\"}
-      VARIANTS ${IPUMODEL_VARIANTS})
-endforeach()
-
 # Test with non-zero blank class
 foreach(seed RANGE 1 10)
   add_multitarget_test(

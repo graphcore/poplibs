@@ -54,13 +54,6 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
     unsigned numClasses, bool profile);
 
 template <typename PartialsType>
-std::vector<Candidate<PartialsType>> runSimpleSortCandidatesCodelet(
-    poplar::Graph &graph, poplibs_support::TestDevice &device,
-    poplibs_support::DeviceType deviceType, poplar::Type partialsType,
-    const std::vector<Candidate<PartialsType>> &candidates, unsigned beamwidth,
-    unsigned timestep, bool profile);
-
-template <typename PartialsType>
 std::vector<Candidate<PartialsType>> runRankCandidatesCodelet(
     poplar::Graph &graph, poplibs_support::TestDevice &device,
     poplibs_support::DeviceType deviceType, poplar::Type partialsType,

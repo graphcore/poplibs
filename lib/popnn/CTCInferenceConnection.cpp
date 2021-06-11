@@ -367,54 +367,6 @@ void selectExtendCandidateVertex(Graph &graph, const TempTensors &tempTensors,
   graph.setInitialValue(vertex["blankClass"], blankClass);
 }
 
-void simpleSortCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
-                                ComputeSet &cs, unsigned batch,
-                                unsigned partition,
-                                unsigned candidatesToCompare,
-                                unsigned beamwidth, unsigned tile) {
-
-  const auto partialsType = tempTensors.mergeCandidatesPb[0].elementType();
-  const auto vertexName = templateVertex("popnn::CTCSimpleSortCandidates",
-                                         partialsType, UNSIGNED_INT);
-  const auto vertex = graph.addVertex(cs, vertexName);
-  logging::popnn::trace("Making {} vertex on tile {}", vertexName, tile);
-  graph.setTileMapping(vertex, tile);
-
-  // Connect candidates, the vertex needs correctly ordered slices of the
-  // original copy candidates followed by all extend candidates.
-  // Sorted result is in the original copy candidates
-  auto gatherCandidates = [=](const Tensor &copyIn, const Tensor &extendIn) {
-    Slice<3> copyBegin = {batch, 0, 0};
-    Slice<3> copyEnd = {batch + 1, beamwidth, 1};
-    return concat(copyIn.slice(copyBegin, copyEnd).flatten(),
-                  extendIn[batch].flatten());
-  };
-  const auto parents = gatherCandidates(tempTensors.copyCandidatesParent,
-                                        tempTensors.extendCandidatesParent);
-  const auto addends = gatherCandidates(tempTensors.copyCandidatesAddend,
-                                        tempTensors.extendCandidatesAddend);
-  const auto pnb = gatherCandidates(tempTensors.copyCandidatesPnb,
-                                    tempTensors.extendCandidatesPnb);
-  const auto pb = gatherCandidates(tempTensors.copyCandidatesPb,
-                                   tempTensors.extendCandidatesPb);
-  const auto pTotal =
-      gatherCandidates(tempTensors.copyCandidatesPTotal,
-                       tempTensors.selectExtendCandidatesPTotal);
-
-  graph.connect(vertex["candidateParent"], parents);
-  graph.connect(vertex["candidateAddend"], addends);
-  graph.connect(vertex["candidateBeamProbNonBlank"], pnb);
-  graph.connect(vertex["candidateBeamProbBlank"], pb);
-  graph.connect(vertex["candidateBeamProbTotal"], pTotal);
-
-  // Complete flag connection
-  attachCompleteFlag(graph, tempTensors, batch, partition, vertex);
-
-  // Constants
-  graph.setInitialValue(vertex["beamwidth"], beamwidth);
-  graph.setInitialValue(vertex["totalCandidates"], candidatesToCompare);
-}
-
 void rankCandidatesVertex(Graph &graph, const TempTensors &tempTensors,
                           const SortTensors &sortTensors, ComputeSet &cs,
                           unsigned batch, unsigned partition,

@@ -5,15 +5,12 @@
 
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/Compiler.hpp>
-#include <poplibs_support/Visitor.hpp>
 #include <popnn/CTCInference.hpp>
 
 #include <boost/variant.hpp>
 
 namespace popnn {
 namespace ctc {
-
-enum class SortMethod { SIMPLE_SORT, RANK };
 
 struct CtcInferencePlannerParams {
   poplar::Type inType;
@@ -26,12 +23,17 @@ struct CtcInferencePlannerParams {
   unsigned beamWidth;
 };
 
-template <typename T> struct SimpleSortPartitions {
-  std::vector<T> simpleSort;
-};
-template <typename T> struct RankPartitions {
-  std::vector<T> rank;
-  std::vector<T> reduce;
+// Structure describing a single sort stage.
+template <typename T> struct SortStage {
+  // The number of independent groups to split the candidates to sort into
+  T groups;
+  // The number of groups to map to each tile
+  T groupsPerTile;
+  // For each group the number of partitions to split the ranking operation into
+  T rankPartitions;
+  // For each group the number of partitions to split the reduction operation
+  // into
+  T reducePartitions;
 };
 
 template <typename T> struct CtcInferencePartition {
@@ -115,25 +117,24 @@ template <typename T> struct CtcInferencePartition {
   // ***************** Stage 4 : Sort *****************
   // Sorting can be completed in multiple stages where there is a speed benefit
   // although 1 or 2 stages are usually all that is needed.  The `sort` plan
-  // variables are vectors, each vector entry specifying the way to carry out
+  // is a vector, each entry specifying the way to carry out
   // the work in a stage: How the candidates to sort will be split into groups
   // (which are sorted independently), how the groups are mapped onto tiles and
   // what partitions the sorting work is divided into. There will always be 1
   // or more groups, and if there is 1 group that stage will produce the final
   // sorted result.
-  // Therefore the number of stages = sortStageGroups.size(), the `sort`,
-  // `sortStageGroups` and `sortGroupsPerTile` vectors will be the same size.
+  // Therefore the number of stages = sort.size().
   // Within a stage, the candidates to sort are divided into
-  // `sortStageGroups[stage]` groups.  Sorting within the group is independent
+  // `sort[stage].groups` groups.  Sorting within the group is independent
   // of all the other groups and so after a stage completes we will have
-  // sortStageGroups[stage] * beamwidth candidates remaining which is the input
+  // sort[stage].groups * beamwidth candidates remaining which is the input
   // to the next stage.  The last stage must have 1 group and will output
   // `beamwidth` candidates.
-  // The `RankPartitions[stage]` and `SimpleSortPartitions[stages]` variables
-  // specify how many tiles the work WITHIN A GROUP is divided between.  In the
-  // case of `RankPartitions` the `rank` and `reduce` variables specify the
-  // division of those 2 operation's work.  So the number of partitions used is
-  // given by: sortStageGroups[stage] * max(rank[stage], reduce[stage])
+  // `sort[stage].rankPartitons` and `sort[stage].reducePartitions` specify
+  // how many partitions the work WITHIN A GROUP is divided into.
+  // So the number of partitions used is given by:
+  // sort[stage].groups *
+  //               max(sort[stage].rankPartitions, sort[stage].reducePartitions)
   //
   // For best speed the operations will be spread over many tiles, but this can
   // become constricted when the number of tiles becomes limited.  Like other
@@ -141,20 +142,13 @@ template <typename T> struct CtcInferencePartition {
   // will begin to reduce as the number of tiles (per batch entry) is limited.
   // When the number of tiles becomes equal to the number of groups the `rank`
   // and `reduce` parameters will both be 1. So when groups > tiles we specify
-  // sortGroupsPerTile[stage] to indicate group overlap.  Until group overlap
-  // is needed sortGroupsPerTile[stage] = 1.
+  // sort[stage].groupsPerTile to indicate group overlap.  Until group overlap
+  // is needed sort[stage].groupsPerTile = 1.
   //
   // This explanation is for a single group:
-  // Two sorting methods are available : SIMPLE_SORT and RANK.
-  // SIMPLE_SORT:
-  // There is a single simple sort vertex in the 1st partition assigned to any
-  // batch entry.  It is attached to all candidates from the select stage:
-  // Partition 0: C[0],C[1],C[2]...E[0..],E[1..],E[2..]...
-  // The result is C[0],C[2] ... (beamwidth most probable candidates)
-  //
   // RANK:
-  // There are sortRanking partitions, each receives a copy all the candidates
-  // from the select stage:
+  // There are rankPartitions partitions, each receives a copy all the
+  // candidates from the select stage:
   // Partition N: C[0],C[1],C[2]...E[0..],E[1..],E[2..]...
   // Each partition is assigned a number of candidates to "rank", and returns
   // a vector of beamwidth sorted candidates which are populated where that
@@ -164,14 +158,12 @@ template <typename T> struct CtcInferencePartition {
   // Partition 0: Rank candidates [0,6)   Result: S[0..]
   // Partition 1: Rank candidates [6,12)  Result: S'[0..]
   // Partition 2: Rank candidates [12,18) Result: S"[0..]
-  // .... ('sort.rank' partitions)
+  // .... ('rankPartitions' partitions)
   // Then a second reduce stage will reduce these results into C[0],C[1]...
   // Partition 0: C[0] = S[0]+ S'[0] + S"[0] + ...
   // Partition 1: C[1] = S[1]+ S'[1] + S"[1] + ...
-  // ....('sort.reduce' partitions)
-  boost::variant<SimpleSortPartitions<T>, RankPartitions<T>> sort;
-  std::vector<T> sortStageGroups;
-  std::vector<T> sortGroupsPerTile;
+  // ....('reducePartitions' partitions)
+  std::vector<SortStage<T>> sort;
 
   // ***************** Stage 5 : Update *****************
   // The above stages require a per partition copy of the beam information, with
@@ -223,23 +215,16 @@ public:
   // we could choose between overlapping (total=max) or sequential (total=sum)
   // allocation of vertices
   unsigned batchEntryPartitions(void) const {
-    const auto maxCommon =
+    const auto maxNonSort =
         std::max(parallel.merge, std::max(parallel.extend, parallel.copy));
-    return boost::apply_visitor(
-        poplibs_support::make_visitor<unsigned>(
-            [&](const RankPartitions<unsigned> &sort) {
-              unsigned largestStage = 0;
-              auto maxSortPartitionsPerGroup =
-                  std::max(sort.reduce[largestStage], sort.rank[largestStage]);
-              auto maxSort = maxSortPartitionsPerGroup *
-                             parallel.sortStageGroups[largestStage] /
-                             parallel.sortGroupsPerTile[largestStage];
-              return std::max(maxSort, maxCommon);
-            },
-            [&](const SimpleSortPartitions<unsigned> &sort) {
-              return maxCommon;
-            }),
-        parallel.sort);
+    unsigned largestStage = 0;
+    auto maxSortPartitionsPerGroup =
+        std::max(parallel.sort[largestStage].reducePartitions,
+                 parallel.sort[largestStage].rankPartitions);
+    auto maxSort = maxSortPartitionsPerGroup *
+                   parallel.sort[largestStage].groups /
+                   parallel.sort[largestStage].groupsPerTile;
+    return std::max(maxSort, maxNonSort);
   }
 
   poplar::Interval partitionBatchEntry(unsigned size, unsigned index) const {
@@ -273,30 +258,12 @@ public:
 
   poplar::Interval partitionSort(unsigned sortSize, unsigned index,
                                  unsigned stage) const {
-    return boost::apply_visitor(
-        poplibs_support::make_visitor<poplar::Interval>(
-            [&](const RankPartitions<unsigned> &sort) {
-              return partition(sortSize, sort.rank[stage], index);
-            },
-            [&](const SimpleSortPartitions<unsigned> &sort) {
-              return partition(sortSize, sort.simpleSort[stage], index);
-            }),
-        parallel.sort);
+    return partition(sortSize, parallel.sort[stage].rankPartitions, index);
   }
 
   poplar::Interval partitionSortReduce(unsigned sortSize, unsigned index,
                                        unsigned stage) const {
-    return boost::apply_visitor(
-        poplibs_support::make_visitor<poplar::Interval>(
-            [&](const RankPartitions<unsigned> &sort) {
-              return partition(sortSize, sort.reduce[stage], index);
-            },
-            [&](const SimpleSortPartitions<unsigned> &sort) {
-              // No member to partition
-              POPLIB_UNREACHABLE();
-              return partition(0, 0, 0);
-            }),
-        parallel.sort);
+    return partition(sortSize, parallel.sort[stage].reducePartitions, index);
   }
 
   poplar::Interval partitionExtendVertices(unsigned extendSize,
@@ -306,20 +273,13 @@ public:
 
   unsigned getTile(unsigned batch, unsigned time, unsigned stage,
                    unsigned group, unsigned partition) const {
-    const auto groupSize = boost::apply_visitor(
-        poplibs_support::make_visitor<unsigned>(
-            [&](const RankPartitions<unsigned> &sort) {
-              return std::max(sort.rank[stage], sort.reduce[stage]);
-            },
-            [&](const SimpleSortPartitions<unsigned> &sort) {
-              return sort.simpleSort[stage];
-            }),
-        parallel.sort);
+    const auto groupSize = std::max(parallel.sort[stage].rankPartitions,
+                                    parallel.sort[stage].reducePartitions);
 
     const auto perBatchEntry = batchEntryPartitions();
-    return batch * (parallel.time * perBatchEntry)                 // Batch
-           + time * perBatchEntry                                  // Time
-           + groupSize * group / parallel.sortGroupsPerTile[stage] // Group
+    return batch * (parallel.time * perBatchEntry)                  // Batch
+           + time * perBatchEntry                                   // Time
+           + groupSize * group / parallel.sort[stage].groupsPerTile // Group
            + partition; // Partitions in a group
   }
   unsigned getTile(unsigned batch, unsigned time, unsigned batchEntry) const {
