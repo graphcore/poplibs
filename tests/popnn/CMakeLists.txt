@@ -268,21 +268,6 @@ add_multitarget_test(NAME max_pool_layer_folded_spatial_dims
                  --data-type=half
                  --use-introspection=1)
 
-foreach(OPTIMIZE_FOR_SPEED true false)
-  foreach(USE_FLOAT_PARTIALS true false)
-  add_multitarget_test(NAME avg_pool_layer_half_${OPTIMIZE_FOR_SPEED}_${USE_FLOAT_PARTIALS}
-           COMMAND pooling_layer
-                   --channels 32
-                   --pooling-type=avg
-                   --field={32,32}
-                   --tiles-per-ipu=16
-                   --kernel-size=4
-                   --stride=2
-                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
-                   --use-float-partials=${USE_FLOAT_PARTIALS}
-                   --data-type=half)
-  endforeach()
-endforeach()
 
 foreach(OPTIMIZE_FOR_SPEED true false)
 

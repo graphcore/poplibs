@@ -14,9 +14,6 @@ struct PoolOptions {
   // The pooling implementation defaults to being optimised to aid memory
   // allocation.  To optimise for speed instead, set this option to true
   bool optimizeForSpeed = false;
-  // Select the data type to use for intermediate results during pooling
-  // calculation, selecting float values where that is beneficial to accuracy
-  bool useFloatPartialsWhereBeneficial = false;
 };
 
 } // namespace pooling
