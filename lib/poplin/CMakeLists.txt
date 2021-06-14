@@ -12,6 +12,8 @@ add_library(poplin SHARED
   ConvOptions.cpp
   ConvOptions.hpp
   ConvParams.cpp
+  ConvPartialsStridesPacking.cpp
+  ConvPartialsStridesPacking.hpp
   ConvPlan.cpp
   ConvPlan.hpp
   ConvPlanTypes.hpp
@@ -134,6 +136,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdKernelTransform.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdPartials.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdReduce.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ConvPartialsStridesPacking.cpp
 
   ASM_SOURCES
     ${ARCH_SOURCES}
