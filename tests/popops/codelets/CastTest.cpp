@@ -90,11 +90,11 @@ bool doTest(const DeviceType &deviceType, const Type &dataTypeIn,
 
   std::string vertexName;
   if (supervisor) {
-    vertexName = "popops::CastSupervisor";
+    vertexName = "popops::Cast1D";
   } else if (rows == 1) {
-    vertexName = "popops::Cast";
+    vertexName = "popops::Cast1DSingleWorker";
   } else {
-    vertexName = "popops::Cast2d";
+    vertexName = "popops::Cast2D";
   }
   auto castVertex = graph.addVertex(
       testComputeSet, templateVertex(vertexName, dataTypeIn, dataTypeOut));

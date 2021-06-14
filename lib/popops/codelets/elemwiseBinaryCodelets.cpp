@@ -35,8 +35,7 @@ struct BinaryOpDispatch {
 /// This processes 4 elements of type T in each cycle of the loop, and writes
 /// the 4 aggregated boolean results (1 full word) at a time, avoiding calls
 /// to __st8/__st16.
-/// This is run both by the '2D' vertices and by the 1D workers started
-/// by the '1DSupervisor'.
+/// This is run both by the '2D' and 'MultiVertex' vertices.
 /// Implemented as as a struct with a static function instead of a templated
 /// function because you cannot partially specialise a templated function
 /// (also, doesn't use operator() because it cannot be static)
@@ -113,8 +112,7 @@ OPTIMIZED_BOOL_OP_BULK(BinaryOpType::LOGICAL_OR, word1 | word2)
 /// Binary 'op' for bool output type ( T op T => BOOL) for the
 /// trailing 0..3 elements of the input data (used in conjunction with
 /// 'binaryBoolOpBulk')
-/// This is run both by the '2D' vertices and by the 1D workers started
-/// by the '1DSupervisor'
+/// This is run both by the '2D' and 'MultiVertex' vertices.
 ///
 ///  \tparam     op        Operation to perform. One of the comparison ops
 ///                        (EQUAL, LESS_THAN, ...)
@@ -248,10 +246,10 @@ binaryShort2Short4Remainder(unsigned size,
 
 template <BinaryOpType op, typename T>
 static void
-binaryShort2_Supervisor(unsigned size, unsigned worker,
-                        const __attribute__((align_value(4))) T *in1,
-                        const __attribute__((align_value(4))) T *in2,
-                        __attribute__((align_value(4))) T *out) {
+binaryShort2_MultiVertex(unsigned size, unsigned worker,
+                         const __attribute__((align_value(4))) T *in1,
+                         const __attribute__((align_value(4))) T *in2,
+                         __attribute__((align_value(4))) T *out) {
   const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
 
   binaryShort2Bulk<op, T, CTXT_WORKERS>(loopCount, in1 + 2 * worker,
@@ -565,10 +563,10 @@ public:
 };
 
 //******************************************************************************
-// Dispatch for use with Binary Operation supervisor vertices
+// Dispatch for use with Binary Operation MultiVertex vertices
 //******************************************************************************
 template <expr::BinaryOpType op, typename inT, typename outT, typename A>
-struct BinaryOpDispatchSupervisor {
+struct BinaryOpDispatchMultiVertex {
 public:
   static void compute(unsigned size, unsigned worker, inT *in1, inT *in2,
                       outT *out) {
@@ -582,9 +580,9 @@ public:
 #ifdef __IPU__
 
 /// Processing for operators that return a bool (comparison: EQUAL, LESS_THAN,
-/// etc plus LOGICAL_AND/OR), for workers started by Supervisor vertices.
+/// etc plus LOGICAL_AND/OR), for MultiVertex vertices.
 template <BinaryOpType op, typename T, typename A>
-class BinaryOpDispatchSupervisor<op, T, bool, A> {
+class BinaryOpDispatchMultiVertex<op, T, bool, A> {
 public:
   static void compute(unsigned size, unsigned worker,
                       const __attribute__((align_value(8))) T *in1,
@@ -604,7 +602,7 @@ public:
 };
 
 template <expr::BinaryOpType op>
-struct BinaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
+struct BinaryOpDispatchMultiVertex<op, half, bool, architecture::ipu> {
 
   static_assert(sizeof(int) == sizeof(char4), "");
   static_assert(sizeof(bool) == sizeof(char), "");
@@ -648,7 +646,7 @@ struct BinaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
 };
 
 template <expr::BinaryOpType op>
-struct BinaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
+struct BinaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
 
   static_assert(sizeof(int) == sizeof(char4), "");
   static_assert(sizeof(bool) == sizeof(char), "");
@@ -697,7 +695,7 @@ struct BinaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
 };
 
 template <expr::BinaryOpType op>
-struct BinaryOpDispatchSupervisor<op, half, half, architecture::ipu> {
+struct BinaryOpDispatchMultiVertex<op, half, half, architecture::ipu> {
 public:
   static void compute(unsigned size, unsigned worker, half *in1, half *in2,
                       typename BinaryOpOutputType<op, half>::type *out) {
@@ -740,7 +738,7 @@ public:
 };
 
 template <expr::BinaryOpType op>
-class BinaryOpDispatchSupervisor<op, float, float, architecture::ipu> {
+class BinaryOpDispatchMultiVertex<op, float, float, architecture::ipu> {
 public:
   static void compute(unsigned size, unsigned worker, float *in1, float *in2,
                       typename BinaryOpOutputType<op, float>::type *out) {
@@ -768,73 +766,29 @@ public:
 
 // This works only (and is instantiated) for BITWISE operators
 template <BinaryOpType op>
-struct BinaryOpDispatchSupervisor<op, short, short, architecture::ipu> {
+struct BinaryOpDispatchMultiVertex<op, short, short, architecture::ipu> {
 public:
   static void compute(unsigned size, unsigned worker, const short *in1,
                       const short *in2, short *out) {
-    binaryShort2_Supervisor<op, short>(size, worker, in1, in2, out);
+    binaryShort2_MultiVertex<op, short>(size, worker, in1, in2, out);
   }
 };
 
 // Works only (and is instantiated) for BITWISE operators for UNSIGNED SHORT
 template <BinaryOpType op>
-struct BinaryOpDispatchSupervisor<op, unsigned short, unsigned short,
-                                  architecture::ipu> {
+struct BinaryOpDispatchMultiVertex<op, unsigned short, unsigned short,
+                                   architecture::ipu> {
 public:
   static void compute(unsigned size, unsigned worker, const unsigned short *in1,
                       const unsigned short *in2, unsigned short *out) {
-    binaryShort2_Supervisor<op, unsigned short>(size, worker, in1, in2, out);
+    binaryShort2_MultiVertex<op, unsigned short>(size, worker, in1, in2, out);
   }
 };
 
 #endif
 
 template <expr::BinaryOpType op, typename T>
-class BinaryOp1DSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
-  typedef typename BinaryOpOutputType<op, T>::type OutputType;
-
-public:
-  Input<Vector<T, ONE_PTR, 8>> in1;
-  Input<Vector<T, ONE_PTR, 8>> in2;
-  Output<Vector<OutputType, SPAN, 8>> out;
-
-  IS_EXTERNAL_CODELET(true);
-
-  bool compute() {
-    for (unsigned j = 0; j != out.size(); ++j) {
-      out[j] = BinaryOpFn<op, T, architecture::generic>::fn(in1[j], in2[j]);
-    }
-    return true;
-  }
-};
-
-template <expr::BinaryOpType op, typename T>
-class BinaryOp1DInPlaceSupervisor
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
-  typedef typename BinaryOpOutputType<op, T>::type OutputType;
-  static_assert(std::is_same<T, OutputType>::value,
-                "In, Out types must match for in place operations");
-
-public:
-  InOut<Vector<OutputType, SPAN, 8>> in1Out;
-  Input<Vector<T, ONE_PTR, 8>> in2;
-
-  IS_EXTERNAL_CODELET(true);
-  bool compute() {
-    for (unsigned j = 0; j != in1Out.size(); ++j) {
-      in1Out[j] =
-          BinaryOpFn<op, T, architecture::generic>::fn(in1Out[j], in2[j]);
-    }
-    return true;
-  }
-};
-
-//******************************************************************************
-// Worker vertex to actually do the work of the operation for the
-// BinaryOp1DSupervisor vertex when it is an external codelet
-//******************************************************************************
-
-template <expr::BinaryOpType op, typename T> class BinaryOp1D : public Vertex {
+class BinaryOp1D : public MultiVertex {
   typedef typename BinaryOpOutputType<op, T>::type outputType;
 
 public:
@@ -843,23 +797,17 @@ public:
   Output<Vector<outputType, SPAN, 8>> out;
 
   IS_EXTERNAL_CODELET((isExternal<op, T>()));
-  bool compute() {
-#ifdef __IPU__
+  bool compute(unsigned wid) {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
 
-    popops::BinaryOpDispatchSupervisor<op, T, outputType, arch>::compute(
-        out.size(), getWsr(), &in1[0], &in2[0], &out[0]);
-#endif
+    popops::BinaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(
+        out.size(), wid, &in1[0], &in2[0], &out[0]);
     return true;
   }
 };
 
-//******************************************************************************
-// Worker vertex to actually do the work of the operation for the
-// BinaryOp1DInPlaceSupervisor vertex when it is an external codelet
-//******************************************************************************
 template <expr::BinaryOpType op, typename T>
-class BinaryOp1DInPlace : public Vertex {
+class BinaryOp1DInPlace : public MultiVertex {
   typedef typename BinaryOpOutputType<op, T>::type outputType;
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");
@@ -869,13 +817,11 @@ public:
   Input<Vector<T, ONE_PTR, 8>> in2;
 
   IS_EXTERNAL_CODELET((isExternal<op, T>()));
-  bool compute() {
-#ifdef __IPU__
+  bool compute(unsigned wid) {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
 
-    popops::BinaryOpDispatchSupervisor<op, T, outputType, arch>::compute(
-        in1Out.size(), getWsr(), &in1Out[0], &in2[0], &in1Out[0]);
-#endif
+    popops::BinaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(
+        in1Out.size(), wid, &in1Out[0], &in2[0], &in1Out[0]);
     return true;
   }
 };
@@ -921,53 +867,6 @@ INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SUBTRACT, float, half, int,
                unsigned)
 
-// BinaryOp1DSupervisor - supervisor stubs for all types.
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ADD, float, half, int,
-               unsigned)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ATAN2, float, half)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_AND, int,
-               unsigned, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_OR, int,
-               unsigned, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_XOR, int,
-               unsigned, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_XNOR, int,
-               unsigned, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::DIVIDE, float, half,
-               int, unsigned)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::EQUAL, float, half,
-               bool, int, unsigned, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::GREATER_THAN_EQUAL,
-               float, half, int, unsigned, bool)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::GREATER_THAN, float,
-               half, int, unsigned, bool)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LESS_THAN_EQUAL, float,
-               half, int, unsigned, bool)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LOGICAL_AND, bool)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LOGICAL_OR, bool)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LESS_THAN, float, half,
-               int, unsigned, bool)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MAXIMUM, float, half,
-               int, unsigned)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MINIMUM, float, half,
-               int, unsigned)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MULTIPLY, float, half,
-               int, unsigned)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::NOT_EQUAL, float, half,
-               int, unsigned, bool, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::POWER, float, half)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::REMAINDER, float, half,
-               int, unsigned)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SHIFT_LEFT, int,
-               unsigned)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SHIFT_RIGHT, int,
-               unsigned)
-INSTANTIATE_OP(BinaryOp1DSupervisor,
-               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
-INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SUBTRACT, float, half,
-               int, unsigned)
-
-// BinaryOp1D  - Worker code for all types.
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ADD, float, half, int, unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_AND, int, unsigned,
@@ -1047,54 +946,6 @@ INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SUBTRACT, float, half,
                int, unsigned)
 
-// Supervisor vertices, creating stubs in the IPU build
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ADD, float,
-               half, int, unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ATAN2, float,
-               half)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_AND,
-               int, unsigned, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_OR, int,
-               unsigned, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_XOR,
-               int, unsigned, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_XNOR,
-               int, unsigned, short, unsigned short)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::DIVIDE, float,
-               half, int, unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::EQUAL, bool)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor,
-               expr::BinaryOpType::GREATER_THAN_EQUAL, bool)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::GREATER_THAN,
-               bool)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LESS_THAN_EQUAL,
-               bool)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LOGICAL_AND,
-               bool)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LOGICAL_OR,
-               bool)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LESS_THAN, bool)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::MAXIMUM, float,
-               half, int, unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::MINIMUM, float,
-               half, int, unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::MULTIPLY, float,
-               half, int, unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::NOT_EQUAL, bool)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::POWER, float,
-               half)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::REMAINDER,
-               float, half, int, unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SHIFT_LEFT, int,
-               unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SHIFT_RIGHT,
-               int, unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor,
-               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
-INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SUBTRACT, float,
-               half, int, unsigned)
-
-// Worker vertices, for the IPU build
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::ADD, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::ATAN2, float, half)

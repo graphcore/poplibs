@@ -158,7 +158,7 @@
 
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
-// TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
+// TYPE needs to be '1D', '1DInPlace', '2D' or '2DInPlace'.
 #define CPP_FUNCNAME(TYPE)  __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BinaryOpType__MULTIPLY_half
 
 // Another similar macro to name the sections where each function is contained
@@ -166,8 +166,8 @@
 
 
 # In this file we have 4 externally visible functions
-EXPORT_FN   CPP_FUNCNAME(Supervisor)
-EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor)
+EXPORT_FN   CPP_FUNCNAME(1D)
+EXPORT_FN   CPP_FUNCNAME(1DInPlace)
 EXPORT_FN   CPP_FUNCNAME(2D)
 EXPORT_FN   CPP_FUNCNAME(2DInPlace)
 
@@ -662,7 +662,7 @@ FN_SIZE VectorInnerMul_core_half
 #undef ascratch0
 
 
-/////////////////// VectorInner Supervisor Vertices ///////////////////////
+/////////////////// VectorInner MultiVertex ///////////////////////
 
 // Vertex state layout
 #define VERTEX_DATA_SCALE_OFFSET 0                 // In 32-bits
@@ -673,63 +673,26 @@ FN_SIZE VectorInnerMul_core_half
 #define VERTEX_DATA_ACTS_OUT_OFFSET 4              // In 32-bits
 
 
-// The following supervisor variables are used. The vertex base is
-// passed in as $m0.
-#define supervisor_vertex_base m0
-#define worker_entry m1
-
-DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor)
-FUNC_SECTION(InPlaceSupervisor)
-.align 4
-.supervisor
-CPP_FUNCNAME(InPlaceSupervisor):
-  setzi $worker_entry, .LvectorInnerMul_inplace_worker
-  bri .Lrun_workers
-
-
-DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor)
-FUNC_SECTION(Supervisor)
-.align 4
-.supervisor
-CPP_FUNCNAME(Supervisor):
-  // Set the entry point for the workers.
-  setzi $worker_entry, .LvectorInnerMul_worker
-
-.Lrun_workers:
-  // Start all workers. Some may have no work to do and just exit.
-  runall $worker_entry, $supervisor_vertex_base, 0
-  // Wait for all the workers to exit.
-  sync TEXCH_SYNCZONE_LOCAL
-  // Return to caller.
-  br $lr
-
-FN_SIZE CPP_FUNCNAME(Supervisor)
-
-#undef supervisor_vertex_base
-#undef worker_entry
-
-// Worker code
-
 #define blocks_per_worker m5
 #define worker_id m6
 #define block_begin m7
 #define remaining_blocks m8
 #define mscratch0 m9
 
-
-FUNC_SECTION(WorkerInPlace)
 .align 4
 .worker
-.LvectorInnerMul_inplace_worker:
+
+DEF_STACK_USAGE 0 CPP_FUNCNAME(1DInPlace)
+FUNC_SECTION(1DInPlace)
+CPP_FUNCNAME(1DInPlace):
   ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   mov $acts_out, $acts_in
   bri .Lworker
 
 
-FUNC_SECTION(Worker):
-.align 4
-.worker
-.LvectorInnerMul_worker:
+DEF_STACK_USAGE 0 CPP_FUNCNAME(1D)
+FUNC_SECTION(1D)
+CPP_FUNCNAME(1D):
   ld32 $acts_in,           $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   ld32 $acts_out,          $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
   // Fall through.

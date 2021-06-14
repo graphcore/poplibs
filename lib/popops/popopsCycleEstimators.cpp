@@ -54,7 +54,7 @@ bool isComparisonOp(BinaryOpType op) {
 }
 
 // Computes the cycles used by the inner loop in one of the binary op codelets,
-// both for supervisor and 2D version, in place or not.
+// both for 1D MultiVertex and 2D version, in place or not.
 std::uint64_t binaryOpInnerLoopCycles(const Target &target,
                                       const BinaryOpType op, const Type &type,
                                       const OpPerformanceInfo &perfInfo,
@@ -113,8 +113,8 @@ static unsigned flopsPerUnaryOpElement(UnaryOpType op) {
   return 1;
 }
 
-// Computes the cycles used by one of the scalar broadcast supervisor codelets
-static VertexPerfEstimate broadcastArithmeticSupervisorCycleEstimate(
+// Computes the cycles used by one of the scalar broadcast MultiVertex codelets
+static VertexPerfEstimate broadcastArithmetic1DCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, const OpPerformanceInfo &perfInfo,
     std::uint64_t overheadPerLoop) {
@@ -145,33 +145,34 @@ static VertexPerfEstimate broadcastArithmeticSupervisorCycleEstimate(
   return {totalCycles, convertToTypeFlops(flops, type)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DInPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const OpPerformanceInfo &perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
   // In the inplace case, if forcing use of interleaved memory, the fast
   // path can always be utilized to reduce the overhead by 1 cycle, making the
   // inner loop one cycle for ADD, SUB and MULTIPLY.
-  return broadcastArithmeticSupervisorCycleEstimate(
+  return broadcastArithmetic1DCycleEstimate(
       vertex, target, op, type, perfInfo,
       hasExternalCodelet(op, type) ? (getForceInterleavedEstimates() ? 0 : 1)
                                    : 4);
 }
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1D)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            BinaryOpType op, const Type &type) {
   const OpPerformanceInfo &perfInfo = broadcastOpPerfInfo.at({op, type});
-  return broadcastArithmeticSupervisorCycleEstimate(
+  return broadcastArithmetic1DCycleEstimate(
       vertex, target, op, type, perfInfo, hasExternalCodelet(op, type) ? 1 : 4);
 }
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2Types1DSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2Types1D)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, const Type &outType) {
   // For vectorisation purposes, treat this as if it always processes float,
   // as it casts internally.  An extra cycle to cast to half output
   const OpPerformanceInfo &perfInfo = broadcastOpPerfInfo.at({op, type});
-  return broadcastArithmeticSupervisorCycleEstimate(
-      vertex, target, op, FLOAT, perfInfo, outType == FLOAT ? 0 : 1);
+  return broadcastArithmetic1DCycleEstimate(vertex, target, op, FLOAT, perfInfo,
+                                            outType == FLOAT ? 0 : 1);
 }
 
 static VertexPerfEstimate BroadcastVectorOuterCycleEstimate(
@@ -205,10 +206,11 @@ static VertexPerfEstimate BroadcastVectorOuterCycleEstimate(
   return {totalCycles, convertToTypeFlops(flops, type)};
 }
 
-VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type, bool allowMisaligned) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
+    BroadcastVectorOuterByColumn1DInPlace)(const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           BinaryOpType op, const Type &type,
+                                           bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   // If forcing use of interleaved memory, and in place, the overhead here
   // can be reduced as we can utilise a ldst64pace in the inner loop.
@@ -216,18 +218,15 @@ MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
       vertex, target, op, type, getForceInterleavedEstimates() ? 0 : 1,
       allowMisaligned ? 25 : 7, false);
 }
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
-    BroadcastVectorOuterByColumnSupervisor)(const VertexIntrospector &vertex,
-                                            const Target &target,
-                                            BinaryOpType op, const Type &type,
-                                            bool allowMisaligned) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByColumn1D)(
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
+    const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
                                            allowMisaligned ? 25 : 7, false);
 }
 
-VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByRowInPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByRow1DInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
@@ -237,11 +236,9 @@ MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByRowInPlaceSupervisor)(
       vertex, target, op, type, getForceInterleavedEstimates() ? 0 : 1,
       allowMisaligned ? 25 : 7, true);
 }
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
-    BroadcastVectorOuterByRowSupervisor)(const VertexIntrospector &vertex,
-                                         const Target &target, BinaryOpType op,
-                                         const Type &type,
-                                         bool allowMisaligned) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByRow1D)(
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
+    const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
                                            allowMisaligned ? 25 : 7, true);
@@ -885,13 +882,13 @@ std::uint64_t vectorInner2DAddCycles(
   return numCycles + 1; // exitnz
 }
 
-// Cycle count for the common part of all the VectorInnerSupervisor ADD and
+// Cycle count for the common part of all the VectorInnerMultiVertex ADD and
 // SUBTRACT codelets
-std::uint64_t vectorInnerSupervisorAddCycles(unsigned numWorkerContexts,
-                                             unsigned vectorWidth,
-                                             uint32_t BLen,
-                                             uint16_t dataBlockCountPacked,
-                                             const Type &type) {
+std::uint64_t vectorInnerMultiVertexAddCycles(unsigned numWorkerContexts,
+                                              unsigned vectorWidth,
+                                              uint32_t BLen,
+                                              uint16_t dataBlockCountPacked,
+                                              const Type &type) {
 
   // Need to get the max number of blocks that a worker will do.
   // Extract quotient and remainder from dataBlockCountPacked. The workers
@@ -1037,12 +1034,12 @@ vectorInner2DDivCycles(uint32_t n, const std::vector<uint32_t> &BLen,
   return numCycles + 1; // exitnz
 }
 
-// Cycle count for the common part of all the VectorInnerSupervisor DIV
+// Cycle count for the common part of all the VectorInnerMultiVertex DIV
 // codelets.
-std::uint64_t vectorInnerSupervisorDivCycles(unsigned numWorkerContexts,
-                                             uint32_t BLen,
-                                             uint16_t dataBlockCountPacked,
-                                             const Type &type) {
+std::uint64_t vectorInnerMultiVertexDivCycles(unsigned numWorkerContexts,
+                                              uint32_t BLen,
+                                              uint16_t dataBlockCountPacked,
+                                              const Type &type) {
   // These numbers may not be exact (e.g. the remainder of
   // dataBlockCountPacked is ignored).
 
@@ -1200,17 +1197,16 @@ std::uint64_t vectorInner2DMulCycles(
   return numCycles;
 }
 
-// Cycle count for the common part of all the VectorInnerSupervisor MUL
+// Cycle count for the common part of all the VectorInnerMultiVertex MUL
 // codelets.
-std::uint64_t vectorInnerSupervisorMulCycles(unsigned numWorkerContexts,
-                                             unsigned vectorWidth,
-                                             uint32_t BLen,
-                                             uint16_t dataBlockCountPacked,
-                                             const Type &type, bool inPlace) {
+std::uint64_t vectorInnerMultiVertexMulCycles(unsigned numWorkerContexts,
+                                              unsigned vectorWidth,
+                                              uint32_t BLen,
+                                              uint16_t dataBlockCountPacked,
+                                              const Type &type, bool inPlace) {
   // These numbers may not be exact (e.g. the remainder of
   // dataBlockCountPacked is ignored).
 
-  // Common supervi
   // Common supervisor overhead:
   // * setzi for worker entry
   // * runall
@@ -1263,7 +1259,7 @@ static std::uint64_t flopsForUnaryOp2D(unsigned numElems, const Type &type,
       static_cast<std::uint64_t>(numElems) * flopsPerUnaryOpElement(op), type);
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1D)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   CODELET_FIELD(B);
@@ -1281,30 +1277,31 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
   case BinaryOpType::ADD: {
     const unsigned addedSuperOverhead = 6;
     const unsigned addedWorkerOverhead = 3;
-    return {vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
-                                           dataBlockCountPacked, type) +
+    return {vectorInnerMultiVertexAddCycles(numWorkerContexts, vectorWidth,
+                                            BLen, dataBlockCountPacked, type) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
   case BinaryOpType::DIVIDE: {
-    return {vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
-                                           dataBlockCountPacked, type) +
+    return {vectorInnerMultiVertexDivCycles(numWorkerContexts, BLen,
+                                            dataBlockCountPacked, type) +
                 1 + 3,
             flops};
   }
   case BinaryOpType::SUBTRACT: {
     const unsigned addedSuperOverhead = 6;
     const unsigned addedWorkerOverhead = 3;
-    return {vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
-                                           dataBlockCountPacked, type) +
+    return {vectorInnerMultiVertexAddCycles(numWorkerContexts, vectorWidth,
+                                            BLen, dataBlockCountPacked, type) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
   case BinaryOpType::MULTIPLY: {
     const unsigned addedSuperOverhead = 0;
     const unsigned addedWorkerOverhead = 2;
-    return {vectorInnerSupervisorMulCycles(numWorkerContexts, vectorWidth, BLen,
-                                           dataBlockCountPacked, type, false) +
+    return {vectorInnerMultiVertexMulCycles(numWorkerContexts, vectorWidth,
+                                            BLen, dataBlockCountPacked, type,
+                                            false) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
@@ -1314,10 +1311,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
   return 0;
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
-    BroadcastVectorInnerInPlaceSupervisor)(const VertexIntrospector &vertex,
-                                           const Target &target,
-                                           BinaryOpType op, const Type &type) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1DInPlace)(
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
+    const Type &type) {
   CODELET_FIELD(B);
   CODELET_SCALAR_VAL(dataBlockCountPacked, uint16_t);
 
@@ -1331,14 +1327,14 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
   switch (op) {
   case BinaryOpType::ADD: {
     const auto addedWorkerOverhead = 2;
-    return {vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
-                                           dataBlockCountPacked, type) +
+    return {vectorInnerMultiVertexAddCycles(numWorkerContexts, vectorWidth,
+                                            BLen, dataBlockCountPacked, type) +
                 addedWorkerOverhead * numWorkerContexts,
             flops};
   }
   case BinaryOpType::DIVIDE: {
-    return {vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
-                                           dataBlockCountPacked, type) +
+    return {vectorInnerMultiVertexDivCycles(numWorkerContexts, BLen,
+                                            dataBlockCountPacked, type) +
                 2,
             flops};
   }
@@ -1346,16 +1342,17 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
     const auto addedSuperOverhead = 6;
     const auto addedWorkerOverhead = 3;
     // Additional branches in the supervisor and worker part.
-    return {vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
-                                           dataBlockCountPacked, type) +
+    return {vectorInnerMultiVertexAddCycles(numWorkerContexts, vectorWidth,
+                                            BLen, dataBlockCountPacked, type) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
   case BinaryOpType::MULTIPLY: {
     const unsigned addedSuperOverhead = 6;
     const unsigned addedWorkerOverhead = 3;
-    return {vectorInnerSupervisorMulCycles(numWorkerContexts, vectorWidth, BLen,
-                                           dataBlockCountPacked, type, true) +
+    return {vectorInnerMultiVertexMulCycles(numWorkerContexts, vectorWidth,
+                                            BLen, dataBlockCountPacked, type,
+                                            true) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
@@ -1702,10 +1699,9 @@ static uint64_t castWorkerCycles(const Target &target, const unsigned numElems,
   return cycles;
 }
 
-VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
-                               const Target &target, const Type &fromType,
-                               const Type &toType) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(Cast1DSingleWorker)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &fromType, const Type &toType) {
   CODELET_SCALAR_VAL(numElems, unsigned);
 
   // Estimate written based on vertices with assembly implementations.
@@ -1718,9 +1714,10 @@ MAKE_PERF_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
   return {cycles, castFlops(fromType, toType, numElems)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastSupervisor)(
-    const VertexIntrospector &vertex, const Target &target,
-    const Type &fromType, const Type &toType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Cast1D)(const VertexIntrospector &vertex,
+                                 const Target &target, const Type &fromType,
+                                 const Type &toType) {
   CODELET_SCALAR_VAL(partitionParams, unsigned);
   const unsigned workerElems = partitionParams >> 9;
   const unsigned workerCount = (partitionParams >> 6) & 0x7;
@@ -1765,7 +1762,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastSupervisor)(
 }
 
 VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
+MAKE_PERF_ESTIMATOR_NAME(Cast2D)(const VertexIntrospector &vertex,
                                  const Target &target, const Type &fromType,
                                  const Type &toType) {
   std::uint64_t cycles = 5;
@@ -1805,9 +1802,10 @@ static std::uint64_t unaryOpInnerLoopCycles(const Target &target,
   return basicOpLoopCycles(numElems, vectorWidth, perfInfo.cyclesPerLoop + 4);
 }
 
-std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
-    const poplar::Target &target, const Type &type,
-    const popops::expr::BinaryOpType op, const unsigned numElems) {
+std::uint64_t getBinaryOp1DInPlaceEstimate(const poplar::Target &target,
+                                           const Type &type,
+                                           const popops::expr::BinaryOpType op,
+                                           const unsigned numElems) {
   auto superviserOverhead = basicOpSupervisorOverhead();
   uint64_t workerCycles = 58;
   const auto &info = binaryOpInPlacePerfInfo.at({op, type});
@@ -1836,11 +1834,11 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2D)(
   return {cycles, flopsForUnaryOp2D(totalElems, type, op)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1D)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
   uint64_t superviserOverhead = basicOpSupervisorOverhead();
-  uint64_t workerCycles = 28;
+  uint64_t workerCycles = 21;
   const auto in = vertex.getFieldInfo("in");
   const auto out = vertex.getFieldInfo("out");
   const auto &info = unaryOpPerfInfo.at({op, type});
@@ -1868,7 +1866,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2DInPlace)(
   return {cycles, flopsForUnaryOp2D(totalElems, type, op)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DInPlace)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
   uint64_t superviserOverhead = basicOpSupervisorOverhead();
@@ -1907,11 +1905,12 @@ MAKE_PERF_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
   return {cycles, flopsForBinaryOp2D(totalElems, type, op)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(BinaryOp1D)(const VertexIntrospector &vertex,
+                                     const Target &target, BinaryOpType op,
+                                     const Type &type) {
   uint64_t supervisorOverhead = basicOpSupervisorOverhead();
-  uint64_t workerCycles = (type == FLOAT) ? 41 : 32;
+  uint64_t workerCycles = (type == FLOAT) ? 29 : 26;
   const auto in1 = vertex.getFieldInfo("in1");
   CODELET_FIELD(in2);
   CODELET_FIELD(out);
@@ -1945,15 +1944,15 @@ MAKE_PERF_ESTIMATOR_NAME(BinaryOp2DInPlace)(const VertexIntrospector &vertex,
   return {cycles, flopsForBinaryOp2D(totalElems, type, op)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DInPlace)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            BinaryOpType op, const Type &type) {
   const auto in1Out = vertex.getFieldInfo("in1Out");
   CODELET_FIELD(in2);
   assert(in1Out.size() == in2.size());
-  return {
-      getBinaryOp1DInPlaceSupervisorEstimate(target, type, op, in1Out.size()),
-      flopsForBinaryOp2D(static_cast<unsigned>(in1Out.size()), type, op)};
+  return {getBinaryOp1DInPlaceEstimate(target, type, op, in1Out.size()),
+          flopsForBinaryOp2D(static_cast<unsigned>(in1Out.size()), type, op)};
 }
 
 static std::uint64_t selectCycles(const Target &target, const Type &type,
@@ -2791,7 +2790,7 @@ MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInf)(const VertexIntrospector &vertex,
 }
 
 VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
+MAKE_PERF_ESTIMATOR_NAME(Transpose2D)(const VertexIntrospector &vertex,
                                       const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
@@ -2846,7 +2845,8 @@ MAKE_PERF_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-// Cycle estimation for the "Transpose" worker (half, fast version)
+// Cycle estimation for the "Transpose1DSingleWorker" worker (half, fast
+// version)
 static std::uint64_t TransposeWorkerCycles(const unsigned short numSrcRowsD4,
                                            const unsigned short numSrcColumnsD4,
                                            const unsigned short numMatrices,
@@ -2870,9 +2870,8 @@ static std::uint64_t TransposeWorkerCycles(const unsigned short numSrcRowsD4,
   return cycles;
 }
 
-VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
-                                    const Target &target, const Type &type) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(Transpose1DSingleWorker)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
@@ -2891,8 +2890,9 @@ MAKE_PERF_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
                                srcLayout);
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TransposeSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Transpose1D)(const VertexIntrospector &vertex,
+                                      const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
@@ -2910,9 +2910,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TransposeSupervisor)(
   // one less matrices (numTranspositions-1). We compute the cycles for
   // the slowest ones (transposing 'numTranspositions' matrices).
   // We also add the additional cycles executed, compared to the 'plain'
-  // "Transpose" codelet.
-  // transpose_half_from_supervisor does 20 or 21 cycles and jumps
-  // the first 7 in the worker codelet.
+  // "Transpose1DSingleWorker" codelet.
   const std::uint64_t overhead = poputil::getUnpackCost(srcLayout);
   std::uint64_t maxCycles =
       TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, numTranspositions,
@@ -3244,8 +3242,8 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, false, false),
 
-      VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerSupervisor),
-      VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInnerInPlaceSupervisor),
+      VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInner1D),
+      VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInner1DInPlace),
       VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInner2D),
       VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInner2DInPlace),
 
@@ -3255,27 +3253,27 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
                             BinaryOpType::INV_STD_DEV_TO_VARIANCE, HALF),
 
       BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(BroadcastScalar2Types2DData),
-      BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(BroadcastScalar2Types1DSupervisor),
+      BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(BroadcastScalar2Types1D),
 
+      BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterByColumn1D,
+                                                 true),
       BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
-          BroadcastVectorOuterByColumnSupervisor, true),
-      BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
-          BroadcastVectorOuterByColumnInPlaceSupervisor, true),
+          BroadcastVectorOuterByColumn1DInPlace, true),
 
+      BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterByRow1D,
+                                                 true),
       BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
-          BroadcastVectorOuterByRowSupervisor, true),
-      BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
-          BroadcastVectorOuterByRowInPlaceSupervisor, true),
+          BroadcastVectorOuterByRow1DInPlace, true),
 
+      BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterByColumn1D,
+                                                 false),
       BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
-          BroadcastVectorOuterByColumnSupervisor, false),
-      BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
-          BroadcastVectorOuterByColumnInPlaceSupervisor, false),
+          BroadcastVectorOuterByColumn1DInPlace, false),
 
+      BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterByRow1D,
+                                                 false),
       BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
-          BroadcastVectorOuterByRowSupervisor, false),
-      BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(
-          BroadcastVectorOuterByRowInPlaceSupervisor, false),
+          BroadcastVectorOuterByRow1DInPlace, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, HALF),
@@ -3298,9 +3296,9 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, UNSIGNED_CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, SIGNED_CHAR),
 
-      CAST_CYCLE_ESTIM_ENTRIES(Cast),
-      CAST_CYCLE_ESTIM_ENTRIES(Cast2d),
-      CAST_CYCLE_ESTIM_ENTRIES(CastSupervisor),
+      CAST_CYCLE_ESTIM_ENTRIES(Cast1DSingleWorker),
+      CAST_CYCLE_ESTIM_ENTRIES(Cast2D),
+      CAST_CYCLE_ESTIM_ENTRIES(Cast1D),
 
       CYCLE_ESTIMATOR_ENTRY(popops, CheckAccuracyWhenCast, FLOAT, HALF),
 
@@ -3502,20 +3500,20 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInfSupervisor, FLOAT, true),
       CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInfSupervisor, HALF, true),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, UNSIGNED_SHORT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, SHORT),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, Transpose, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Transpose, UNSIGNED_SHORT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Transpose, SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose1DSingleWorker, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose1DSingleWorker, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose1DSingleWorker, SHORT),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, UNSIGNED_SHORT),
-      CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose1D, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose1D, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose1D, SHORT),
 
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
@@ -3524,30 +3522,27 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
   for (const auto &entry : unaryOpPerfInfo) {
     table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp2D, entry.first.first,
                                           entry.first.second));
-    table.push_back(CYCLE_ESTIMATOR_ENTRY(
-        popops, UnaryOp1DSupervisor, entry.first.first, entry.first.second));
+    table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp1D, entry.first.first,
+                                          entry.first.second));
   }
   for (const auto &entry : unaryOpInPlacePerfInfo) {
     table.push_back(CYCLE_ESTIMATOR_ENTRY(
         popops, UnaryOp2DInPlace, entry.first.first, entry.first.second));
-    table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp1DInPlaceSupervisor,
-                                          entry.first.first,
-                                          entry.first.second));
+    table.push_back(CYCLE_ESTIMATOR_ENTRY(
+        popops, UnaryOp1DInPlace, entry.first.first, entry.first.second));
   }
 
   for (const auto &entry : binaryOpPerfInfo) {
     BinaryOpType op = entry.first.first;
     Type type = entry.first.second;
     table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp2D, op, type));
-    table.push_back(
-        CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp1DSupervisor, op, type));
+    table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp1D, op, type));
   }
   for (const auto &entry : binaryOpInPlacePerfInfo) {
     BinaryOpType op = entry.first.first;
     Type type = entry.first.second;
     table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp2DInPlace, op, type));
-    table.push_back(
-        CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp1DInPlaceSupervisor, op, type));
+    table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp1DInPlace, op, type));
   }
   for (const auto &entry : broadcastOpPerfInfo) {
     BinaryOpType op = entry.first.first;
@@ -3555,8 +3550,7 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
     table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, BroadcastScalar2D, op, type));
     table.push_back(
         CYCLE_ESTIMATOR_ENTRY(popops, BroadcastScalar2DData, op, type));
-    table.push_back(
-        CYCLE_ESTIMATOR_ENTRY(popops, BroadcastScalar1DSupervisor, op, type));
+    table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, BroadcastScalar1D, op, type));
   }
   for (const auto &entry : broadcastOpInPlacePerfInfo) {
     BinaryOpType op = entry.first.first;
@@ -3565,8 +3559,8 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
         CYCLE_ESTIMATOR_ENTRY(popops, BroadcastScalar2DInPlace, op, type));
     table.push_back(
         CYCLE_ESTIMATOR_ENTRY(popops, BroadcastScalar2DDataInPlace, op, type));
-    table.push_back(CYCLE_ESTIMATOR_ENTRY(
-        popops, BroadcastScalar1DInPlaceSupervisor, op, type));
+    table.push_back(
+        CYCLE_ESTIMATOR_ENTRY(popops, BroadcastScalar1DInPlace, op, type));
   }
 
   table.push_back(

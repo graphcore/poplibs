@@ -3,20 +3,20 @@
 //
 // Tests one or more of the element-wise binary/broadcast codelets:
 //
-//     BinaryOp1D[InPlace]Supervisor
+//     BinaryOp1D[InPlace]
 //     BinaryOp2D[InPlace]
 //
-//     BroadcastScalar1D[InPlace]Supervisor
-//     BroadcastScalar2Types1DSupervisor
+//     BroadcastScalar1D[InPlace]
+//     BroadcastScalar2Types1D
 //     BroadcastScalar2DData[InPlace]
 //     BroadcastScalar2Types2DData
 //     BroadcastScalar2D[InPlace]
 //
-//     BroadcastVectorInner[InPlace]Supervisor
+//     BroadcastVectorInner1D[InPlace]
 //     BroadcastVectorInner2D[InPlace]
 //
-//     BroadcastVectorOuterByRow[InPlace]Supervisor
-//     BroadcastVectorOuterByColumn[InPlace]Supervisor
+//     BroadcastVectorOuterByRow1D[InPlace]
+//     BroadcastVectorOuterByColumn1D[InPlace]
 //
 // One or more combinations of operation/data type can be specified for the
 // vertices under test.
@@ -57,29 +57,29 @@ static const unsigned FLOAT_VECTOR_ELEMS = TARGET_DATAPATH_WIDTH / 32;
 
 // All vertices that can be tested by this code
 const std::vector<std::string> verticesNames = {
-    "BinaryOp1DSupervisor",
-    "BinaryOp1DInPlaceSupervisor",
+    "BinaryOp1D",
+    "BinaryOp1DInPlace",
     "BinaryOp2D",
     "BinaryOp2DInPlace",
 
-    "BroadcastScalar1DSupervisor",
-    "BroadcastScalar1DInPlaceSupervisor",
-    "BroadcastScalar2Types1DSupervisor",
+    "BroadcastScalar1D",
+    "BroadcastScalar1DInPlace",
+    "BroadcastScalar2Types1D",
     "BroadcastScalar2DData",
     "BroadcastScalar2DDataInPlace",
     "BroadcastScalar2Types2DData",
     "BroadcastScalar2D",
     "BroadcastScalar2DInPlace",
 
-    "BroadcastVectorInnerSupervisor",
-    "BroadcastVectorInnerInPlaceSupervisor",
+    "BroadcastVectorInner1D",
+    "BroadcastVectorInner1DInPlace",
     "BroadcastVectorInner2D",
     "BroadcastVectorInner2DInPlace",
 
-    "BroadcastVectorOuterByRowSupervisor",
-    "BroadcastVectorOuterByRowInPlaceSupervisor",
-    "BroadcastVectorOuterByColumnSupervisor",
-    "BroadcastVectorOuterByColumnInPlaceSupervisor",
+    "BroadcastVectorOuterByRow1D",
+    "BroadcastVectorOuterByRow1DInPlace",
+    "BroadcastVectorOuterByColumn1D",
+    "BroadcastVectorOuterByColumn1DInPlace",
 };
 
 // Maps specifying valid (operation, dataType) pairs for the generic binary
@@ -331,7 +331,7 @@ struct TensorSizes {
         nElems2 = std::accumulate(op2RowSizes.begin(), op2RowSizes.end(), 0);
         op2Str = vector2str(op2RowSizes);
       } else {
-        // === Vector Inner Supervisor ===
+        // === Vector Inner  ===
         if (size2) {
           if (size2->isRowsByCols) {
             nElems2 = size2->val[0] * size2->val[1];
@@ -909,13 +909,13 @@ int main(int argc, char **argv) {
   "on two different devices can be compared."
   "Examples of usages:\n"
   "\n"
-  " A binary Supervisor vertex, with operands of 5000 floats; the second\n"
+  " A binary 1D vertex, with operands of 5000 floats; the second\n"
   " operand is automatically set to same size:\n"
-  "   BinaryCodeletsTest --vertex BinaryOp1DSupervisor --operation ADD \\\n"
+  "   BinaryCodeletsTest --vertex BinaryOp1D --operation ADD \\\n"
   "                      --data-type float --size 5000\n"
   "\n"
   " As above, but with multiple data types:\n"
-  "   BinaryCodeletsTest --vertex BinaryOp1DSupervisor --operation ADD \\\n"
+  "   BinaryCodeletsTest --vertex BinaryOp1D --operation ADD \\\n"
   "                      --data-type float half int --size 5000\n"
   "\n"
   " A binary 2D vertex, where operands are 2D vector of vectors of: [[300]\n"
@@ -928,9 +928,9 @@ int main(int argc, char **argv) {
   "   BinaryCodeletsTest --vertex BroadcastScalar2DData --operation ADD \\\n"
   "                      --data-type float --size 300 48 100\n"
   "\n"
-  " A BroadcastVectorOuterByRowSupervisor, with first operand of 30 x 60\n"
+  " A BroadcastVectorOuterByRow, with first operand of 30 x 60\n"
   " floats and second operand of 6 floats:\n"
-  "   BinaryCodeletsTest --vertex BroadcastVectorOuterByRowSupervisor \\\n"
+  "   BinaryCodeletsTest --vertex BroadcastVectorOuterByRow \\\n"
   "                      --operation ADD --data-type float --row 30\\\n"
   "                      --columns 60 --size 6\n"
   "\n"
@@ -941,7 +941,7 @@ int main(int argc, char **argv) {
   "\n"
   "Compare cycles reported between Sim and IpuModel when running a specific\n"
   "vertex:\n"
-  "   BinaryCodeletsTest --vertex BinaryOp1DSupervisor --operation ADD \\\n"
+  "   BinaryCodeletsTest --vertex BinaryOp1D --operation ADD \\\n"
   "                      --data-type float --size 5000 --device-type Sim \\\n"
   "                      --compare-cycles IpuModel\n"
   "\n"
