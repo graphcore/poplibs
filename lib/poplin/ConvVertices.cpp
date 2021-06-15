@@ -1,7 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-
 #include "ConvVertices.hpp"
-#include "ConvPartialsStridesPacking.hpp"
 #include "ConvTransforms.hpp"
 #include "ConvUtilInternal.hpp"
 #include "poplibs_support/VectorUtils.hpp"
@@ -61,6 +59,16 @@ static bool fitsMachineStride(const Target &target, int stride) {
   int64_t maxLimit = (1 << target.getNumStrideBits()) / 2 - 1;
   int64_t minLimit = -(1 << target.getNumStrideBits()) / 2;
   return stride >= minLimit && stride <= maxLimit;
+}
+
+static int
+getInRowStrideRangeForAmpVertices(const int inRowStride,
+                                  const unsigned convUnitWeightHeight) {
+  // Increase inRowStride here by 2 to get a correct split. That essential
+  // cause we pass inRowStride to supervisor that will build a stride
+  // register to create next pattern:
+  // [2*inRowStride, inRowStride, -2*inRowStride, -inStride+1, ...]
+  return inRowStride * ((convUnitWeightHeight == 4) ? 2 : 1);
 }
 
 // Weights for output channel groups is reordered to be reverse order
@@ -382,6 +390,16 @@ static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
   return in;
 }
 
+static int getTransformedInStride(unsigned convUnitWeightHeight,
+                                  unsigned inStrideX, int inRowStride,
+                                  unsigned numInputLoads) {
+  if ((convUnitWeightHeight == 2) || (convUnitWeightHeight == 4)) {
+    return (static_cast<int>(inStrideX) - 1 - inRowStride) * numInputLoads + 1;
+  } else {
+    return (static_cast<int>(inStrideX) - 1) * numInputLoads + 1;
+  }
+}
+
 static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                                        unsigned tile,
                                        const CanonicalConvParams &params,
@@ -560,25 +578,27 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
           (inputBatchAndFieldShape[0] * inputBatchAndFieldShape[1]),
       useConvPartial1x1OutVertex, convUnitWeightHeight);
 
-  int transformedInStride =
-      getTransformedInStride(convUnitWeightHeight, inStrideX, inRowStride,
-                             convInputLoadElems, inChansPerGroup);
+  auto numInputLoads = static_cast<int>(inChansPerGroup / convInputLoadElems);
+  int transformedInStride = getTransformedInStride(
+      convUnitWeightHeight, inStrideX, inRowStride, numInputLoads);
 
   // fill in worklist
   unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
-  int transformedOutStride = getTransformedOutStride(
-      outStrideToUse, outChansPerGroup, numConvUnitsRequired,
-      plan.types.back().partialType == poplar::FLOAT, flipOut);
-
-  int transformedInRowStride = getTransformedInRowStride(
-      inRowStride, convInputLoadElems, inChansPerGroup);
-
-  // Need to adjust inStride because AMP Nx1 codelet uses different stride
-  // strategy compared to AMP 1x1 codelet
-  if (!useConvPartial1x1OutVertex) {
-    transformedInStride = getTransformedInStrideNx1(
-        convUnitWeightHeight, transformedInStride, transformedInRowStride);
+  int scaledOutStride = static_cast<int>(outStrideToUse * outChansPerGroup);
+  int halfStrideAdj = -4;
+  int floatStrideAdj = -6;
+  // For dual AMP codelets need to offset output stride by extra 8 elements
+  if (numConvUnitsRequired > 8) {
+    halfStrideAdj += -8;
+    floatStrideAdj += -8;
   }
+
+  int transformedOutStride =
+      (plan.types.back().partialType == poplar::FLOAT ? floatStrideAdj
+                                                      : halfStrideAdj) +
+      (flipOut ? -scaledOutStride : scaledOutStride);
+
+  int transformedInRowStride = (inRowStride - 1) * numInputLoads + 1;
 
   // Limits for field and worklist elements
   const auto unsignedMax = std::numeric_limits<unsigned short>::max();
@@ -587,21 +607,13 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
 
   bool useLimitedVer = true;
   const auto zerosInfo = outWindow[0].numElements();
-  const int convOutputStoreElems =
-      target.getConvUnitInputLoadElemsPerCycle(out.elementType() == FLOAT);
-
-  if (!fitsMachineStride(target, transformedOutStride / convOutputStoreElems) ||
+  const auto inRowStrideAmpVertex = getInRowStrideRangeForAmpVertices(
+      transformedInRowStride, convUnitWeightHeight);
+  if (!fitsMachineStride(target, transformedOutStride / 2) ||
       !fitsMachineStride(target, transformedInStride) ||
-      !fitsMachineStride(target, transformedInRowStride)) {
+      !fitsMachineStride(target, inRowStrideAmpVertex) ||
+      !fitsMachineStride(target, -inRowStrideAmpVertex))
     useLimitedVer = false;
-
-    if (!useConvPartial1x1OutVertex) {
-      // If not using limited version need to revert back to original inStride
-      transformedInStride =
-          getTransformedInStride(convUnitWeightHeight, inStrideX, inRowStride,
-                                 convInputLoadElems, inChansPerGroup);
-    }
-  }
 
   if ((numConvGroupGroups - 1 > unsignedMax) ||
       (numOutChanGroups - 1 > unsignedMax) || (numInChanGroups > unsignedMax) ||
@@ -674,7 +686,11 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   graph.setInitialValue(v["numInGroups"], numInChanGroups);
   assert(inChansPerGroup % convInputLoadElems == 0);
 
+  graph.setInitialValue(v["transformedInStride"], transformedInStride);
+
   graph.setInitialValue(v["numConvGroupsM1"], numConvGroupGroups - 1);
+
+  graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
 
   // Subtract numFieldElems by 3 to avoid computing this within the vertex
   auto numFieldElemsLessThree = [worklistEntryType](
@@ -711,70 +727,6 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       graph.connect(v["worklists"][i], t);
     }
   }
-
-  // if using AMP Nx1 limited version, pack stride registers to favour
-  // supervisor performance and reduce its complexity
-  if (!useConvPartial1x1OutVertex && useLimitedVer) {
-    // Input and output strides are packed into:
-    // inoutstrides1 = [out-stride-back][  in-stride  ][out-stride-pX]
-    // inoutstrides2 = [       0       ][in-row-stride][  out-stride ]
-
-    // Convert elements stride into a load/store stride
-    transformedOutStride /= convOutputStoreElems;
-
-    int inStride = transformedInStride;
-    int inRowStride = transformedInRowStride;
-    int outStride = transformedOutStride;
-
-    // stepOverSecondPtr represent how many loads/stores worker done from Ptr1
-    // before using Ptr2 ans so on. The default stepOverSecondPtr equal to 2
-    // indicates following pattern:
-    // 1: load/store from/to ptr1
-    // 2: load/store from/to ptr1
-    // 3: load/store from/to ptr2
-    // 4: load/store from/to ptr2
-    // 5: load/store from/to ptr1
-    // and so on ...
-    auto stepOverSecondPtr = 2u;
-
-    int outStridePlusX = transformedOutStride + stepOverSecondPtr;
-    int outStrideStep = 1 + stepOverSecondPtr;
-
-    // Some workers require diffrent strides to load/store partials
-    // due to unique load/store patterns constrained by load/store bandwidth
-    if ((numConvUnitsRequired == 8) && (in.elementType() == HALF) &&
-        (out.elementType() == HALF)) {
-      stepOverSecondPtr = 1;
-      outStridePlusX = transformedOutStride + stepOverSecondPtr;
-      outStride = transformedOutStride + stepOverSecondPtr;
-      outStrideStep = 0;
-
-    } else if ((numConvUnitsRequired == 16) && (in.elementType() == FLOAT)) {
-      stepOverSecondPtr = 4;
-      outStridePlusX = transformedOutStride + stepOverSecondPtr;
-      outStrideStep = 1 + stepOverSecondPtr;
-    }
-
-    // For AMP height 1 and 2 - inRowStride is already built into second
-    // pointer offset so set it to 1
-    if (convUnitWeightHeight < 4) {
-      inRowStride = 1;
-    }
-
-    const unsigned strideBits = target.getNumStrideBits();
-    transformedInStride =
-        packAmpNx1Stride(strideBits, outStrideStep, inStride, outStridePlusX);
-    transformedOutStride =
-        packAmpNx1Stride(strideBits, 0, inRowStride, outStride);
-
-    // Re-use <transformedInRowStride> state as the transformedInRowStride is
-    // already packed
-    transformedInRowStride =
-        getSecondPtrOffset(convUnitWeightHeight, transformedInRowStride);
-  }
-
-  graph.setInitialValue(v["transformedInStride"], transformedInStride);
-  graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
 
   if (!useConvPartial1x1OutVertex) {
     graph.setInitialValue(v["kernelInnerElementsM1"], kernelInnerElements - 1);
@@ -834,21 +786,15 @@ static void createConvPartialAmpVertices(
       useConvPartial1x1OutVertex, convUnitWeightHeight);
   const auto convInputLoadElems =
       target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
-
+  auto numInputLoads = static_cast<int>(inChansPerGroup / convInputLoadElems);
   int transformedInStrideBeforeSplit = getTransformedInStride(
-      convUnitWeightHeight, inStrideX, inRowStrideBeforeSplit,
-      convInputLoadElems, inChansPerGroup);
+      convUnitWeightHeight, inStrideX, inRowStrideBeforeSplit, numInputLoads);
 
-  int transformedInRowStrideBeforeSplit = getTransformedInRowStride(
-      inRowStrideBeforeSplit, convInputLoadElems, inChansPerGroup);
+  int transformedInRowStrideBeforeSplit =
+      (inRowStrideBeforeSplit - 1) * numInputLoads + 1;
 
-  // Need to adjust inStride because AMP Nx1 codelet uses different stride
-  // strategy comparing to AMP 1x1 codelet
-  if (nx1Vertex) {
-    transformedInStrideBeforeSplit = getTransformedInStrideNx1(
-        convUnitWeightHeight, transformedInStrideBeforeSplit,
-        transformedInRowStrideBeforeSplit);
-  }
+  transformedInRowStrideBeforeSplit = getInRowStrideRangeForAmpVertices(
+      transformedInRowStrideBeforeSplit, convUnitWeightHeight);
 
   // Find field split that satisfies machine stride bit-widths
   // Only use input striding to decide to split field as it is most likely to

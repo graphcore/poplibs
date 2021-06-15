@@ -6,7 +6,6 @@
 #include <poplar/Vertex.hpp>
 #include <type_traits>
 
-#include "ConvPartialsStridesPacking.hpp"
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
@@ -81,17 +80,10 @@ public:
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
-
-    const int inStride = reverseTransfromedInStride(
-        transformedInStride, convInputLoadElems, inChansPerGroup);
-
-    // For AMP 1x1 output stride is always 1 hence calling
-    // reverseTransfromedOutStride just to get flipOut parameter
-    const bool flipOut =
-        reverseTransfromedOutStride(transformedOutStride,
-                                    std::is_same<AccumType, float>(),
-                                    numConvUnits, outChansPerGroup)
-            .first;
+    const int inStride =
+        (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1;
+    bool flipOut =
+        transformedOutStride < (std::is_same<AccumType, float>() ? -6 : -4);
 
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {
