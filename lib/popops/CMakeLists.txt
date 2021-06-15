@@ -155,15 +155,15 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SliceCopyFunction.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Transpose.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversion2D.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversionSupervisor.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversion1D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Fill.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binaryOps.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binarySupervisorOps.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOps.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unarySupervisorOps.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binaryOps2D.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binaryOps1D.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOps2D.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOps1D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor_8bit.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice1D.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice1D_8bit.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_bool.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_int_float.S
@@ -173,12 +173,12 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerDiv_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerMul_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerMul_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterSupervisorOps.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisorByLimit.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisorByData.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterOps1D.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByLimit.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByData.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram2D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unary2DNonLinearity.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unarySupervisorNonLinearity.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOps1DNonLinearity.S
 )
 
 add_gp_library(
@@ -188,16 +188,16 @@ add_gp_library(
   CPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInner2D.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInner2DInPlace.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInnerInPlaceSupervisor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInnerSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInner1DInPlace.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInner1D.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CircBufIncrIndex.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CircOffset.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CompareAndSwapAtDistance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicSlice1d.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicSlice2d.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicUpdateSlice1d.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicUpdateSlice2d.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicSlice1D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicSlice2D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicUpdateSlice1D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicUpdateSlice2D.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/EncodeOneHot.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/EncodeOneHotCustomValues.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HasNaN.cpp
@@ -216,8 +216,8 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromRowsInColumns.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SeqSlice.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2d.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TransposeSupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose1D.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateColumnsDEC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalDEC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalsDEC.cpp
