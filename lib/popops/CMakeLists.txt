@@ -160,6 +160,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor_8bit.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/elementwiseStubs.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_bool.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_int_float.S

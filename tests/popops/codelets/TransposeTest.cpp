@@ -56,7 +56,7 @@ std::vector<TestParams> T33035TestList = {{2052, 16, 1, false}};
 // hold max_matrices of max_rowsxMAX_COLUMNS but often much of the data
 // is expected to be zero.  This is checked as well as the "wanted" data.
 //*************************************************
-void TransposeTest(const Type &dataType, bool useMultiVertex,
+void TransposeTest(const Type &dataType, bool useSupervisorVertex,
                    const std::vector<TestParams> &testList) {
 
   // determine the sizes of arrays required
@@ -146,10 +146,10 @@ void TransposeTest(const Type &dataType, bool useMultiVertex,
         canUseFastTranspose(target, dataType, rows, cols, matrices) &&
         !testList[test].force2d;
 
-    std::string vertexName = "popops::Transpose2D";
+    std::string vertexName = "popops::Transpose2d";
     if (fastVariant) {
-      vertexName = useMultiVertex ? "popops::Transpose1D"
-                                  : "popops::Transpose1DSingleWorker";
+      vertexName = useSupervisorVertex ? "popops::TransposeSupervisor"
+                                       : "popops::Transpose";
     }
 
     const auto vertexClass = templateVertex(vertexName, dataType);
@@ -166,7 +166,7 @@ void TransposeTest(const Type &dataType, bool useMultiVertex,
       graph.connect(transVertex["dst"], sliceOut.flatten());
       graph.setInitialValue(transVertex["numSrcColumnsD4"], cols / 4);
       graph.setInitialValue(transVertex["numSrcRowsD4"], rows / 4);
-      if (!useMultiVertex) {
+      if (!useSupervisorVertex) {
         graph.setInitialValue(transVertex["numTranspositionsM1"], matrices - 1);
       } else {
         // We will run one supervisor vertex, starting the 6 workers.

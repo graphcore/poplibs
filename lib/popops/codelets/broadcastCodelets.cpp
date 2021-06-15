@@ -20,16 +20,12 @@ template <BinaryOpType op, typename dType> constexpr static bool hasAssembly() {
       (std::is_same<dType, float>::value || std::is_same<dType, half>::value) &&
       (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT ||
        op == BinaryOpType::MULTIPLY);
-  const bool isInvStdDevToVarianceOp =
-      std::is_same<dType, half>::value &&
-      op == expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE;
   const bool isExternalBitwiseOp =
       (std::is_same<dType, short>::value ||
        std::is_same<dType, unsigned short>::value) &&
       (op == expr::BinaryOpType::BITWISE_AND ||
        op == expr::BinaryOpType::BITWISE_OR);
-  return isExternalArithmeticOp || isInvStdDevToVarianceOp ||
-         isExternalBitwiseOp;
+  return isExternalArithmeticOp || isExternalBitwiseOp;
 }
 
 //******************************************************************************
@@ -51,10 +47,12 @@ struct BroadcastOpDispatch {
   }
 };
 
+// Note: run in the context of one of the worker (started by the supervisor),
+// not the supervisor itself.
 template <BinaryOpType op, typename inT, typename outT,
           bool allowUnaligned, // Allow input/output that isn't 64-bit aligned.
           bool allowRemainder>
-struct BroadcastOpDispatchMultiVertex {
+struct BroadcastOpDispatchSupervisor {
 public:
   static void compute(unsigned size, unsigned worker, const inT *in, outT *out,
                       const inT K) {
@@ -72,7 +70,8 @@ public:
 /// This processes 4 elements of type T in each cycle of the loop, and writes
 /// the 4 aggregated boolean results (1 full word) at a time, avoiding calls
 /// to __st8/__st16.
-/// This is run by both the '2DData' and the 'MultiVertex' vertices.
+/// This is run both by the '2DData' vertices and by the 1D workers started
+/// by the '1DSupervisor'.
 /// Implemented as as a struct with a static function instead of a templated
 /// function because you cannot partially specialise a templated function
 /// (also, doesn't use operator() because it cannot be static)
@@ -191,7 +190,8 @@ struct broadcastBoolOpBulk<op, half, stride> {
 /// Broadcast scalar 'op' for bool output type ( T op T => BOOL) for the
 /// trailing 0..3 elements of the input data (used in conjunction with
 /// 'broadcastBoolOpBulk')
-/// This is run by both the '2DData' and the 'MultiVertex' vertices.
+/// This is run both by the '2DData' vertices and by the 1D workers started
+/// by the '1DSupervisor'
 ///
 ///  \tparam     op        Operation to perform. One of the comparison ops
 ///                        (EQUAL, LESS_THAN, ...)
@@ -319,9 +319,9 @@ static void broadcastShort2Short4Remainder(
 
 template <BinaryOpType op, typename T>
 static void
-broadcastShort2_MultiVertex(unsigned size, unsigned worker,
-                            const __attribute__((align_value(4))) T *in,
-                            __attribute__((align_value(4))) T *out, const T K) {
+broadcastShort2_Supervisor(unsigned size, unsigned worker,
+                           const __attribute__((align_value(4))) T *in,
+                           __attribute__((align_value(4))) T *out, const T K) {
   const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
 
   broadcastShort2Bulk<op, T, CTXT_WORKERS>(loopCount, in + 2 * worker,
@@ -517,9 +517,9 @@ struct BroadcastOpDispatch<op, unsigned short, unsigned short, allowUnaligned,
 };
 
 /// Processing for operators that return a bool (comparison: EQUAL, LESS_THAN,
-/// etc plus LOGICAL_AND/OR), for the MultiVertex vertices.
+/// etc plus LOGICAL_AND/OR), for workers started by Supervisor vertices.
 template <BinaryOpType op, typename T, bool allowRemainder>
-class BroadcastOpDispatchMultiVertex<op, T, bool, false, allowRemainder> {
+class BroadcastOpDispatchSupervisor<op, T, bool, false, allowRemainder> {
 public:
   static void compute(unsigned size, unsigned worker,
                       const __attribute__((align_value(8))) T *in,
@@ -538,11 +538,11 @@ public:
   }
 };
 
-// Specialisation of 'BroadcastOpDispatchMultiVertex' for float, float => float.
+// Specialisation of 'BroadcastOpDispatchSupervisor' for float, float => float.
 // Optimised to perform vector read/writes.
 template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
-class BroadcastOpDispatchMultiVertex<op, float, float, allowUnaligned,
-                                     allowRemainder> {
+class BroadcastOpDispatchSupervisor<op, float, float, allowUnaligned,
+                                    allowRemainder> {
 public:
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(float) : 8;
   // Assumes in and out both point to the same memory (or at least have
@@ -588,11 +588,11 @@ public:
   }
 };
 
-// Specialisation of 'BroadcastOpDispatchMultiVertex' for half, half => half.
+// Specialisation of 'BroadcastOpDispatchSupervisor' for half, half => half.
 // Optimised to perform vector read/writes.
 template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
-struct BroadcastOpDispatchMultiVertex<op, half, half, allowUnaligned,
-                                      allowRemainder> {
+struct BroadcastOpDispatchSupervisor<op, half, half, allowUnaligned,
+                                     allowRemainder> {
 public:
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(half) : 8;
   // Assumes in and out both point to the same memory (or at least have
@@ -683,27 +683,27 @@ public:
 
 // This works only (and is instantiated) for BITWISE operators
 template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
-struct BroadcastOpDispatchMultiVertex<op, short, short, allowUnaligned,
-                                      allowRemainder> {
+struct BroadcastOpDispatchSupervisor<op, short, short, allowUnaligned,
+                                     allowRemainder> {
 public:
   static void compute(unsigned size, unsigned worker,
                       const __attribute__((align_value(4))) short *in,
                       __attribute__((align_value(4))) short *out,
                       const short K) {
-    broadcastShort2_MultiVertex<op, short>(size, worker, in, out, K);
+    broadcastShort2_Supervisor<op, short>(size, worker, in, out, K);
   }
 };
 
 // Works only (and is instantiated) for BITWISE operators for UNSIGNED SHORT
 template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
-struct BroadcastOpDispatchMultiVertex<op, unsigned short, unsigned short,
-                                      allowUnaligned, allowRemainder> {
+struct BroadcastOpDispatchSupervisor<op, unsigned short, unsigned short,
+                                     allowUnaligned, allowRemainder> {
 public:
   static void compute(unsigned size, unsigned worker,
                       const __attribute__((align_value(4))) unsigned short *in,
                       __attribute__((align_value(4))) unsigned short *out,
                       const short K) {
-    broadcastShort2_MultiVertex<op, unsigned short>(size, worker, in, out, K);
+    broadcastShort2_Supervisor<op, unsigned short>(size, worker, in, out, K);
   }
 };
 
@@ -902,8 +902,161 @@ INSTANTIATE_OP(BroadcastScalar2D, BinaryOpType::INV_STD_DEV_TO_VARIANCE, half,
 INSTANTIATE_OP(BroadcastScalar2DInPlace, BinaryOpType::INV_STD_DEV_TO_VARIANCE,
                half, float)
 
+#define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(vertexName, inOutType,       \
+                                                  outDef, outName, isInPlace)  \
+  template <BinaryOpType op, typename dType, bool allowMisaligned>             \
+  class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
+    static constexpr std::size_t inputAlign =                                  \
+        (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
+                                                                               \
+  public:                                                                      \
+    inOutType<Vector<dType, ONE_PTR, inputAlign>> data;                        \
+    outDef Input<Vector<dType, SPAN>> B;                                       \
+    short columns;                                                             \
+    short rows;                                                                \
+    IS_EXTERNAL_CODELET(true);                                                 \
+    bool compute() {                                                           \
+      std::size_t bIndex = 0;                                                  \
+      auto bLen = B.size();                                                    \
+      for (unsigned i = 0; i < rows; i++) {                                    \
+        BroadcastOpDispatch<op, dType, dType, allowMisaligned,                 \
+                            allowMisaligned>::compute(columns,                 \
+                                                      &data[i * columns],      \
+                                                      &outName[i * columns],   \
+                                                      B[bIndex]);              \
+        ++bIndex;                                                              \
+        if (bIndex == bLen) {                                                  \
+          bIndex = 0;                                                          \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(
+    BroadcastVectorOuterByColumnSupervisor, Input, OUT_1D_DEF, out, false)
+DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(
+    BroadcastVectorOuterByColumnInPlaceSupervisor, InOut, , data, true)
+
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnSupervisor);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlaceSupervisor);
+
+#define DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(vertexName, inOutType, outDef,  \
+                                               outName, isInPlace)             \
+  template <BinaryOpType op, typename dType, bool allowMisaligned>             \
+  class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
+    static constexpr std::size_t inputAlign =                                  \
+        (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
+                                                                               \
+  public:                                                                      \
+    inOutType<Vector<dType, ONE_PTR, inputAlign>> data;                        \
+    outDef Input<Vector<dType, SPAN>> B;                                       \
+    short columns;                                                             \
+    short rows;                                                                \
+    IS_EXTERNAL_CODELET(true);                                                 \
+    bool compute() {                                                           \
+      std::size_t bIndex = 0;                                                  \
+      auto bLen = B.size();                                                    \
+      for (unsigned i = 0; i < rows; i++) {                                    \
+        BroadcastOpDispatch<op, dType, dType, allowMisaligned,                 \
+                            allowMisaligned>::compute(columns,                 \
+                                                      &data[i * columns],      \
+                                                      &outName[i * columns],   \
+                                                      B[bIndex]);              \
+        ++bIndex;                                                              \
+        if (bIndex == bLen) {                                                  \
+          bIndex = 0;                                                          \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(BroadcastVectorOuterByRowSupervisor,
+                                       Input, OUT_1D_DEF, out, false)
+DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(
+    BroadcastVectorOuterByRowInPlaceSupervisor, InOut, , data, true)
+
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowSupervisor);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlaceSupervisor);
+
 template <BinaryOpType op, typename dType>
-class BroadcastScalar1D : public MultiVertex {
+class BroadcastScalar1DSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  typedef typename BinaryOpOutputType<op, dType>::type OutputType;
+
+public:
+  Input<Vector<dType, SPAN, 8>> data;
+  Output<Vector<OutputType, ONE_PTR, 8>> out;
+  Input<dType> B;
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
+        data.size(), &data[0], &out[0], *B);
+    return true;
+  }
+};
+
+template <BinaryOpType op, typename dType>
+class BroadcastScalar1DInPlaceSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  typedef typename BinaryOpOutputType<op, dType>::type OutputType;
+
+public:
+  InOut<Vector<OutputType, SPAN, 8>> data;
+  Input<dType> B;
+  IS_EXTERNAL_CODELET(true);
+  bool compute() {
+    BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
+        data.size(), &data[0], &data[0], *B);
+    return true;
+  }
+};
+
+// Ensure that internal arithmetic is always done in full precision for
+// INV_STD_DEV_TO_VARIANCE
+#define DEF_BROADCAST_1D_VERTEX_FP(vertexName, inOutType, outDef, outName)     \
+  template <>                                                                  \
+  class vertexName<BinaryOpType::INV_STD_DEV_TO_VARIANCE, half>                \
+      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+  public:                                                                      \
+    inOutType<Vector<half, SPAN, 8>> data;                                     \
+    outDef Input<half> B;                                                      \
+    IS_EXTERNAL_CODELET(true);                                                 \
+    bool compute() {                                                           \
+      unsigned limI = data.size();                                             \
+      for (unsigned i = 0; i < limI; i++) {                                    \
+        outName[i] = static_cast<half>(                                        \
+            BinaryOpFn<BinaryOpType::INV_STD_DEV_TO_VARIANCE, float,           \
+                       architecture::active>::fn(static_cast<float>(data[i]),  \
+                                                 static_cast<float>(*B)));     \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_BROADCAST_1D_VERTEX_FP(BroadcastScalar1DSupervisor, Input, OUT_1D_DEF_HALF,
+                           out)
+DEF_BROADCAST_1D_VERTEX_FP(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
+
+template class BroadcastScalar1DInPlaceSupervisor<
+    BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+template class BroadcastScalar1DSupervisor<
+    BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+
+INSTANTIATE_SCALAR(BroadcastScalar1DSupervisor);
+INSTANTIATE_SCALAR_RELOP(BroadcastScalar1DSupervisor);
+INSTANTIATE_SCALAR(BroadcastScalar1DInPlaceSupervisor);
+INSTANTIATE_SCALAR_RELOP_IN_PLACE(BroadcastScalar1DInPlaceSupervisor);
+
+#ifdef __IPU__
+
+// Create worker vertex code, which will do the actual work, when the
+// supervisor vertices compile to an external codelet.  Called via an
+// assembly stub.
+
+template <BinaryOpType op, typename dType>
+class BroadcastScalar1D : public Vertex {
   using OutType = typename BinaryOpOutputType<op, dType>::type;
 
 public:
@@ -911,29 +1064,26 @@ public:
   Output<Vector<OutType, ONE_PTR, 8>> out;
   Input<dType> B;
   IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
-  bool compute(unsigned wid) {
-    BroadcastOpDispatchMultiVertex<op, dType, OutType, false, true>::compute(
-        data.size(), wid, &data[0], &out[0], *B);
+  bool compute() {
+    BroadcastOpDispatchSupervisor<op, dType, OutType, false, true>::compute(
+        data.size(), getWsr(), &data[0], &out[0], *B);
     return true;
   }
 };
 
 template <BinaryOpType op, typename dType>
-class BroadcastScalar1DInPlace : public MultiVertex {
+class BroadcastScalar1DInPlace : public Vertex {
 public:
   InOut<Vector<dType, SPAN, 8>> data;
   Input<dType> B;
   IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
-  bool compute(unsigned wid) {
-    BroadcastOpDispatchMultiVertex<op, dType, dType, false, true>::compute(
-        data.size(), wid, &data[0], &data[0], *B);
+  bool compute() {
+    BroadcastOpDispatchSupervisor<op, dType, dType, false, true>::compute(
+        data.size(), getWsr(), &data[0], &data[0], *B);
     return true;
   }
 };
 
-template class BroadcastScalar1D<BinaryOpType::INV_STD_DEV_TO_VARIANCE, half>;
-template class BroadcastScalar1DInPlace<BinaryOpType::INV_STD_DEV_TO_VARIANCE,
-                                        half>;
 template class BroadcastScalar1D<BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
 template class BroadcastScalar1DInPlace<BinaryOpType::INV_STD_DEV_TO_VARIANCE,
                                         float>;
@@ -943,10 +1093,10 @@ INSTANTIATE_SCALAR_RELOP(BroadcastScalar1D);
 INSTANTIATE_SCALAR(BroadcastScalar1DInPlace);
 INSTANTIATE_SCALAR_RELOP_IN_PLACE(BroadcastScalar1DInPlace);
 
-#define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(vertexName, inOutType,       \
-                                                  outDef, outName, isInPlace)  \
+#define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(                          \
+    vertexName, inOutType, outDef, outName, isInPlace)                         \
   template <BinaryOpType op, typename dType, bool allowMisaligned>             \
-  class vertexName : public MultiVertex {                                      \
+  class vertexName : public Vertex {                                           \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
                                                                                \
@@ -956,13 +1106,13 @@ INSTANTIATE_SCALAR_RELOP_IN_PLACE(BroadcastScalar1DInPlace);
     unsigned short columns;                                                    \
     unsigned short rows;                                                       \
     IS_EXTERNAL_CODELET(!allowMisaligned);                                     \
-    bool compute(unsigned wid) {                                               \
+    bool compute() {                                                           \
       std::size_t bIndex = 0;                                                  \
       auto bLen = B.size();                                                    \
       for (unsigned i = 0; i < rows; i++) {                                    \
-        BroadcastOpDispatchMultiVertex<                                        \
+        BroadcastOpDispatchSupervisor<                                         \
             op, dType, dType, allowMisaligned,                                 \
-            allowMisaligned>::compute(columns, wid, &data[i * columns],        \
+            allowMisaligned>::compute(columns, getWsr(), &data[i * columns],   \
                                       &outName[i * columns], B[bIndex]);       \
         ++bIndex;                                                              \
         if (bIndex == bLen) {                                                  \
@@ -973,13 +1123,13 @@ INSTANTIATE_SCALAR_RELOP_IN_PLACE(BroadcastScalar1DInPlace);
     }                                                                          \
   };
 
-DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(BroadcastVectorOuterByColumn1D, Input,
-                                          OUT_1D_DEF, out, false)
-DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(BroadcastVectorOuterByColumn1DInPlace,
-                                          InOut, , data, true)
+DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(BroadcastVectorOuterByColumn,
+                                             Input, OUT_1D_DEF, out, false)
+DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(
+    BroadcastVectorOuterByColumnInPlace, InOut, , data, true)
 
-INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn1D);
-INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn1DInPlace);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlace);
 
 // The template below will normally divide work by assigning one worker per
 // row.  However in the case where the data type is half, and the data is
@@ -990,10 +1140,10 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn1DInPlace);
 // alignment is guaranteed at the end of 2 rows, providing that the start of the
 // first row has at least 32 bit alignment itself.
 
-#define DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(vertexName, inOutType, outDef,  \
-                                               outName, isInPlace)             \
+#define DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(vertexName, inOutType,       \
+                                                  outDef, outName, isInPlace)  \
   template <BinaryOpType op, typename dType, bool allowMisaligned>             \
-  class vertexName : public MultiVertex {                                      \
+  class vertexName : public Vertex {                                           \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? 4 : 8;                                \
     static constexpr bool assignWorkersPairsOfRows =                           \
@@ -1005,11 +1155,11 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn1DInPlace);
     unsigned short columns;                                                    \
     unsigned short rows;                                                       \
     IS_EXTERNAL_CODELET(!allowMisaligned);                                     \
-    bool compute(unsigned wid) {                                               \
-      std::size_t bIndex = assignWorkersPairsOfRows ? 2 * wid : wid;           \
+    bool compute() {                                                           \
+      std::size_t bIndex = assignWorkersPairsOfRows ? 2 * getWsr() : getWsr(); \
       auto bLen = B.size();                                                    \
       unsigned i = bIndex;                                                     \
-      unsigned increment = assignWorkersPairsOfRows ? 1 : numWorkers();        \
+      unsigned increment = assignWorkersPairsOfRows ? 1 : CTXT_WORKERS;        \
       while (i < rows) {                                                       \
         while (bIndex >= bLen) {                                               \
           bIndex -= bLen;                                                      \
@@ -1023,7 +1173,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn1DInPlace);
         i += increment;                                                        \
         if (assignWorkersPairsOfRows) {                                        \
           if (increment == 1) {                                                \
-            increment = (2 * numWorkers()) - 1;                                \
+            increment = (2 * CTXT_WORKERS) - 1;                                \
           } else {                                                             \
             increment = 1;                                                     \
           }                                                                    \
@@ -1033,13 +1183,15 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn1DInPlace);
     }                                                                          \
   };
 
-DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(BroadcastVectorOuterByRow1D, Input,
-                                       OUT_1D_DEF, out, false)
-DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(BroadcastVectorOuterByRow1DInPlace,
-                                       InOut, , data, true)
+DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(BroadcastVectorOuterByRow, Input,
+                                          OUT_1D_DEF, out, false)
+DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(BroadcastVectorOuterByRowInPlace,
+                                          InOut, , data, true)
 
-INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRow1D);
-INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRow1DInPlace);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRow);
+INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlace);
+
+#endif // __IPU__
 
 // VARIANCE_TO_INV_STD_DEV and INV_STD_DEV_TO_VARIANCE have the option of a
 // different output type to input type, and all arithmetic is to be carried out
@@ -1070,14 +1222,15 @@ template class BroadcastScalar2Types2DData<
     BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
 
 template <BinaryOpType op, typename inType, typename outType>
-class BroadcastScalar2Types1D : public MultiVertex {
+class BroadcastScalar2Types1DSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   Input<Vector<inType, SPAN, 8>> data;
   Output<Vector<outType, ONE_PTR, 8>> out;
   Input<inType> B;
   IS_EXTERNAL_CODELET(true);
-  bool compute(unsigned wid) {
-    for (unsigned i = wid; i < data.size(); i += numWorkers()) {
+  bool compute() {
+    for (unsigned i = 0; i < data.size(); i++) {
       out[i] =
           static_cast<outType>(BinaryOpFn<op, float, architecture::active>::fn(
               static_cast<float>(data[i]), static_cast<float>(*B)));
@@ -1085,8 +1238,8 @@ public:
     return true;
   }
 };
-template class BroadcastScalar2Types1D<BinaryOpType::INV_STD_DEV_TO_VARIANCE,
-                                       half, float>;
-template class BroadcastScalar2Types1D<BinaryOpType::VARIANCE_TO_INV_STD_DEV,
-                                       float, half>;
+template class BroadcastScalar2Types1DSupervisor<
+    BinaryOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
+template class BroadcastScalar2Types1DSupervisor<
+    BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
 } // namespace popops

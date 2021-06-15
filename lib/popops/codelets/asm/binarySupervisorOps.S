@@ -2,7 +2,7 @@
 #ifdef __IPU__
 
 /* -------------------------------------------------------------------------- */
-// MultiVertex code for Binary and Scalar broadcast ops
+// Supervisor vertex code for Binary and Scalar broadcast ops
 /* -------------------------------------------------------------------------- */
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"

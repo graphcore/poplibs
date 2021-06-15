@@ -1,18 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 /* -------------------------------------------------------------------------- */
-//
-// Here we define the transpose vertices:
-//
-//    Transpose1DSingleWorker  (1D, single worker)    half, short, ushort
-//
-//    Transpose1D              (1D, MultiWorker)      half, short, ushort
-//
-//    Transpose2D              (2D, single worker)    half, short, ushort
-//                                                    float, int, uint
-//
 // Transposing assembler overview:
-//
 // Each input is a series of vectors, each of the same size.
 // The start of each is 8 byte aligned.
 // Each vector is to be treated as a matrix with size (rows,columns).
@@ -27,17 +16,6 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
-
-// This macro defines a label as global, function
-.macro EXPORT_FN label
-.globl \label
-.type \label, @function
-.endm
-
-// This macro associates to the symbol 'label' a size defined as (Current_loc - label)
-.macro FN_SIZE label
-.size \label, . - \label
-.endm
 
 // Register aliases
 
@@ -222,11 +200,11 @@
 //******************************************************************************
 
 #define TRANSPOSE_2D_FLOAT \
-  __runCodelet_popops__Transpose2D___float
+  __runCodelet_popops__Transpose2d___float
 #define TRANSPOSE_2D_UNSIGNED_INT \
-  __runCodelet_popops__Transpose2D___unsigned_int
+  __runCodelet_popops__Transpose2d___unsigned_int
 #define TRANSPOSE_2D_INT \
-  __runCodelet_popops__Transpose2D___int
+  __runCodelet_popops__Transpose2d___int
 
 // All functions in this section use 0 bytes of stack
 DEF_STACK_USAGE 0 .text.Transpose2dAT4
@@ -569,12 +547,13 @@ TransposeAT2FastPathCommon:
 // Vertex state for the HALF, fast, version
 // All offsets in bytes.
 // The vertex state has the same fields if the workers is called directly or
-// if it is a MultiVertex, except for the NUM_MATRICES and WORKER_COUNT fields:
+// if it is called from the supervisor vertex, except for the NUM_MATRICES and
+// WORKER_COUNT fields:
 //
 // -) When the worker is called directly.'NUM_MATRICES' will be: (number of
 //    matrices to transpose minus 1). WORKER_COUNT is not used
 //
-// -) When the worker is a MultiVertex:
+// -) When the worker is called form the superivsor vertex:
 //    The first WORKER_COUNT workers will transpose NUM_MATRICES matrices,
 //    The second (6-WORKER_COUNT) will transpose (NUM_MATRICES-1) matrices.
 //    Note that (6-WORKER_COUNT) and/or (NUM_MATRICES-1) could be zero.
@@ -584,7 +563,7 @@ TransposeAT2FastPathCommon:
 #define VOFF_SRC_ROWS_1D           4     // Number of rows divided by 4
 #define VOFF_SRC_COLUMNS_1D        6     // Number of columns divided by 4
 #define VOFF_NUM_MATRICES_1D       8     // Number of matrices (or num - 1)
-#define VOFF_WORKER_COUNT_1D      10     // Only when MultiVertex
+#define VOFF_WORKER_COUNT_1D      10     // Only when called from supervisor
 
 #else
 #define VOFF_IN_PTR_1D             0     // one_ptr source pointer
@@ -592,31 +571,23 @@ TransposeAT2FastPathCommon:
 #define VOFF_SRC_ROWS_1D           8     // Number of rows divided by 4
 #define VOFF_SRC_COLUMNS_1D       10     // Number of columns divided by 4
 #define VOFF_NUM_MATRICES_1D      12     // Number of matrices (or num - 1)
-#define VOFF_WORKER_COUNT_1D      14     // Only when MultiVertex
+#define VOFF_WORKER_COUNT_1D      14     // Only when called from supervisor
 #endif
 
 
 
 
 //----------------------------------------------------------------------------
-// Entry point for MultiVertex code.
+// Entry point for worker code run from the supervisor codelet.
 // This computes the offsets from IN and OUT data ptrs for this worker and
 // (if needed) decrements NUM_MATRICES.
-#define TRANSPOSE_1D_HALF            __runCodelet_popops__Transpose1D___half
-#define TRANSPOSE_1D_UNSIGNED_SHORT  __runCodelet_popops__Transpose1D___unsigned_short
-#define TRANSPOSE_1D_SHORT           __runCodelet_popops__Transpose1D___short
 
-EXPORT_FN TRANSPOSE_1D_HALF
-EXPORT_FN TRANSPOSE_1D_UNSIGNED_SHORT
-EXPORT_FN TRANSPOSE_1D_SHORT
 
-DEF_STACK_USAGE 0 .text.TransposeMultiVertex16Bit
-.section .text.TransposeMultiVertex16Bit
+.section .text.TransposeAT2FromSupervisor
+.type TransposeAT2FromSupervisor,   @function
 .align 4
 .worker
-TRANSPOSE_1D_HALF:
-TRANSPOSE_1D_UNSIGNED_SHORT:
-TRANSPOSE_1D_SHORT:
+TransposeAT2FromSupervisor:
 #define PTR_INCR        m1
 #define NUM_MATRICES    m5
 #define WORKER_ID       m7
@@ -674,11 +645,9 @@ TRANSPOSE_1D_SHORT:
 #endif
   // Rest of the code wants NUM_MATRICES-1 (for the loop instructions) so we
   // decrement and jump to main code (NUM_MATRICES is for sure > 0 here).
-  brnzdec   $NUM_MATRICES, TransposeAT2EnterMultiVertex
+  brnzdec   $NUM_MATRICES, TransposeAT2EnterFromSupervisor
 
-FN_SIZE TRANSPOSE_1D_HALF
-FN_SIZE TRANSPOSE_1D_UNSIGNED_SHORT
-FN_SIZE TRANSPOSE_1D_SHORT
+.size TransposeAT2FromSupervisor, . - TransposeAT2FromSupervisor
 
 
 //----------------------------------------------------------------------------
@@ -686,11 +655,11 @@ FN_SIZE TRANSPOSE_1D_SHORT
 // vertex state are already correct.
 
 #define TRANSPOSE_HALF \
-  __runCodelet_popops__Transpose1DSingleWorker___half
+  __runCodelet_popops__Transpose___half
 #define TRANSPOSE_UNSIGNED_SHORT \
-  __runCodelet_popops__Transpose1DSingleWorker___unsigned_short
+  __runCodelet_popops__Transpose___unsigned_short
 #define TRANSPOSE_SHORT \
-  __runCodelet_popops__Transpose1DSingleWorker___short
+  __runCodelet_popops__Transpose___short
 
 // All functions in this section use 0 bytes of stack
 DEF_STACK_USAGE 0 .text.TransposeAT2
@@ -726,7 +695,7 @@ TRANSPOSE_SHORT:
   // shift up because rows and columns are shifted down by 2. Additional shift
   // because data is half
   shl       $PTR_INCR, $PTR_INCR, (2 + 2 + 1)
-TransposeAT2EnterMultiVertex:
+TransposeAT2EnterFromSupervisor:
 
   st32      $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
 
@@ -800,11 +769,11 @@ TransposeAT2FastPathNx4x4Setup:
 /* -------------------------------------------------------------------------- */
 
 #define TRANSPOSE_2D_HALF \
-  __runCodelet_popops__Transpose2D___half
+  __runCodelet_popops__Transpose2d___half
 #define TRANSPOSE_2D_UNSIGNED_SHORT \
-  __runCodelet_popops__Transpose2D___unsigned_short
+  __runCodelet_popops__Transpose2d___unsigned_short
 #define TRANSPOSE_2D_SHORT \
-  __runCodelet_popops__Transpose2D___short
+  __runCodelet_popops__Transpose2d___short
 
 // All functions in this section use 0 bytes of stack
 DEF_STACK_USAGE 0 .text.Transpose2dAT2
@@ -902,5 +871,47 @@ TransposeAT2SlowPath:
 .size TRANSPOSE_2D_HALF, . - TRANSPOSE_2D_HALF
 .size TRANSPOSE_2D_UNSIGNED_SHORT, . - TRANSPOSE_2D_UNSIGNED_SHORT
 .size TRANSPOSE_2D_SHORT, . - TRANSPOSE_2D_SHORT
+
+
+
+//***************************************************************
+// Supervisor vertex for transposing N matrices of half type, all of same
+// dimensions. It just calls the worker code, with the same vertex state.
+
+#define TRANSPOSE_SUPERVISOR_HALF \
+  __runCodelet_popops__TransposeSupervisor___half
+#define TRANSPOSE_SUPERVISOR_UNSIGNED_SHORT \
+  __runCodelet_popops__TransposeSupervisor___unsigned_short
+#define TRANSPOSE_SUPERVISOR_SHORT \
+  __runCodelet_popops__TransposeSupervisor___short
+
+
+// All functions in this section use 0 bytes of stack, both themselves as
+// supervisors and the workers that they start
+DEF_STACK_USAGE 0 .text.TransposeSupervisorAT2
+.section .text.TransposeSupervisorAT2
+.globl TRANSPOSE_SUPERVISOR_HALF
+.type TRANSPOSE_SUPERVISOR_HALF, @function
+.globl TRANSPOSE_SUPERVISOR_UNSIGNED_SHORT
+.type TRANSPOSE_SUPERVISOR_UNSIGNED_SHORT, @function
+.globl TRANSPOSE_SUPERVISOR_SHORT
+.type TRANSPOSE_SUPERVISOR_SHORT, @function
+
+.align 4
+.supervisor
+TRANSPOSE_SUPERVISOR_HALF:
+TRANSPOSE_SUPERVISOR_UNSIGNED_SHORT:
+TRANSPOSE_SUPERVISOR_SHORT:
+
+  setzi       $m1, TransposeAT2FromSupervisor
+  runall      $m1, $m0, 0
+  sync        TEXCH_SYNCZONE_LOCAL
+  br          $lr
+
+  .size TRANSPOSE_HALF_SUPERVISOR, .- TRANSPOSE_HALF_SUPERVISOR
+  .size TRANSPOSE_UNSIGNED_SHORT_SUPERVISOR, .- TRANSPOSE_UNSIGNED_SHORT_SUPERVISOR
+  .size TRANSPOSE_SHORT_SUPERVISOR, .- TRANSPOSE_SHORT_SUPERVISOR
+
+
 
 #endif

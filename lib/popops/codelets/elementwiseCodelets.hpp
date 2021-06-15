@@ -37,7 +37,7 @@ static __attribute__((always_inline)) unsigned maskForRepeat(unsigned input) {
   return input & CSR_W_REPEAT_COUNT__VALUE__MASK;
 }
 
-// Called by each of the workers of a MultiVertex Unary or
+// Called by each of the workers started by a Supervisor Unary or
 // Binary/Broadcast vertex to find out how many elements it must process.
 // Each worker will be assigned a whole number of vectors (1 vector =
 // 2/4 elements).
@@ -58,7 +58,7 @@ static __attribute__((always_inline)) unsigned maskForRepeat(unsigned input) {
 // in the above example [unless floor(size)/vectorSize is a multiple of 6].
 //
 // \param size        The total number of elements that ALL the workers started
-//                    by the MultiVertex will process.
+//                    by the Supervisor will process.
 //
 // \vectorWidthShifts log2(vector size). i.e.:
 //                         vectorWidthShifts=1  =>  vector has 2 elements

@@ -2,9 +2,9 @@
 
 // Tests one or more of the cast codelets:
 //
-//     Cast1DSingleWorker
-//     Cast1D
-//     Cast2D
+//     Cast
+//     CastSupervisor
+//     Cast2d
 //
 // One or more combinations of source and destination types can be specified.
 //
@@ -35,9 +35,9 @@
 using namespace poputil;
 
 const std::vector<std::string> verticesNames = {
-    "Cast1DSingleWorker",
-    "Cast1D",
-    "Cast2D",
+    "Cast",
+    "CastSupervisor",
+    "Cast2d",
 };
 
 //*************************************************************************
@@ -57,15 +57,15 @@ struct VertexDesc {
   std::string outName = "dst";
 
   bool is2D;
-  bool isMultiVertex;
+  bool isSupervisor;
 
   VertexDesc(const std::string &vertexName, const Type &srcType,
              const Type &dstType)
       : name(vertexName), dataType(srcType), outputType(dstType) {
 
     // Extract the flags by looking at the name
-    is2D = vertexName == "Cast2D";
-    isMultiVertex = vertexName == "Cast1D";
+    is2D = vertexName == "Cast2d";
+    isSupervisor = vertexName == "CastSupervisor";
 
     // Get the vertex class
     std::string vName = "popops::" + name;
@@ -89,11 +89,17 @@ bool isValidTypes(const VertexDesc &vertex) {
   const Type &dst = vertex.outputType;
 
   // if BOTH src and destination are among these types, the combination is
-  // valid, apart from identities (vertices with SRC_TYPE == DST_TYPE).
+  // valid, with the exclusion of:
+  //   1. Supervisor vertices for INT <=> UNSIGNED_INT are not defined (?)
+  //   2. Only vertices with SRC != DST are defined.
   const static std::array types{FLOAT,        HALF,           INT,
                                 UNSIGNED_INT, UNSIGNED_SHORT, BOOL};
   if (std::find(types.begin(), types.end(), src) != types.end() &&
       std::find(types.begin(), types.end(), dst) != types.end()) {
+    if (vertex.isSupervisor && ((src == INT && dst == UNSIGNED_INT) ||
+                                (src == UNSIGNED_INT && dst == INT))) {
+      return false;
+    }
     return src != dst;
   }
 
@@ -260,7 +266,7 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
 
   if (!vertex.is2D) {
     unsigned totalElems = sizes[0];
-    if (vertex.isMultiVertex) {
+    if (vertex.isSupervisor) {
       // Computing the bitfields for the 'partitionParams' word. See the codelet
       // C++ definition for the meaning of the fields.
       unsigned grainSize = 4;
@@ -341,7 +347,7 @@ int main(int argc, char **argv) {
   DeviceType deviceType;
   std::vector<Type> srcTypes;
 
-  //  Sizes of the operand. For a 1D vertex only the first value is used.
+  //  Sizes of the operand. For a Supervisor vertex,
   std::vector<SizeDesc> sizes = {{false, {25, 12, 21}}};
 
   std::vector<std::string> dstTypeStrs;
@@ -360,13 +366,13 @@ int main(int argc, char **argv) {
   "on two different devices can be compared."
   "Examples of usages:\n"
   "\n"
-  " A 1D vertex, with an operand of 5000 half to be casted as ints:\n"
-  "   CastCodeletsTest --vertex Cast1D --data-type half --cast int \\\n"
+  " A Supervisor vertex, with an operand of 5000 half to be casted as ints:\n"
+  "   CastCodeletsTest --vertex CastSupervisor --data-type half --cast int \\\n"
   "                    --size 5000\n"
   "\n"
   "\n"
   " As above, but with multiple casts (int and unsigned short):\n"
-  "   CastCodeletsTest --vertex Cast1D --data-type half \\\n"
+  "   CastCodeletsTest --vertex CastSupervisor --data-type half \\\n"
   "                     --cast int ushort --size 5000\n"
   "\n"
   "\n"
@@ -377,7 +383,7 @@ int main(int argc, char **argv) {
   poDesc.add_options()
     ("vertex",
      po::value<std::vector<std::string>>(&vertices)->multitoken(),
-     "Vertices to test, one or more of: Cast1DSingleWorker, Cast1D, Cast2D")
+     "Vertices to test, one or more of: Cast, CastSupervisor, Cast2d")
     ("data-type",
      po::value<std::vector<Type>>(&srcTypes)->multitoken(),
      "Data type: one or more of half, float, int, uint, short, ushort, bool, "

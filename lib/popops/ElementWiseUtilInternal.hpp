@@ -63,8 +63,7 @@ cutRegionSection(const std::vector<poplar::Interval> &region,
  *                           allows use of smaller vertices in the 2-dimensional
  *                           case.
  *  \param exitIfInefficient Fail in finding an appropriate vertex if neither
- *                           MultiVertex nor single worker vertices are
- *                           efficient.
+ *                           supervisor nor worker vertices are efficient.
  *
  *  \return true if vertex was found and false otherwise.
  */

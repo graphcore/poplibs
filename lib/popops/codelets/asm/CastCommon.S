@@ -4,11 +4,11 @@
 // Common code for Cast vertices.
 // Here we define the entry points for cast vertices:
 //
-//    Cast1DSingleWorker<INTYPE, OUTTYPE>        (1D, single worker)
+//    Cast<INTYPE, OUTTYPE>
 //
-//    Cast1D<INTYPE, OUTTYPE>                    (1D, MultiWorker)
+//    CastWorker<INTYPE, OUTTYPE>
 //
-//    Cast2D<INTYPE, OUTTYPE>                    (2D, single worker)
+//    Cast2d<INTYPE, OUTTYPE>
 //
 // This will contain all the 'setup' code before calling the specific
 // processing functions ('cast_<INTYPE>_<OUTTYPE>_core'), which are
@@ -16,7 +16,7 @@
 
 #include "CastCommon.inc"
 
-// Offsets for fields both in the 1D MultiVertex and single worker state.
+// Offsets for fields both in the Supervisor and 1D vertex state.
 // All offsets are in bytes
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
 #define VOFF_IN         0
@@ -85,8 +85,8 @@
 //
 // OUTTYPE_BITS 8, 16, 32 depending on the size of OUTTYPE
 //
-// OUT_SCALED32 1 => use SCALED_PTR32 for the output pointer in the vertex state
-//              (Cast1DSingleWorker and Cast1D verticews); 0 => use SCALED_PTR64
+// OUT_SCALED32 1 => use SCALED_PTR32 for the output pointer in the vertex
+//              state (Cast and CastWorker verticews); 0 => use SCALED_PTR64
 //              (only if scaled ptrs are enabled at all, otherwise, this has no
 //              effect).
 //
@@ -102,7 +102,7 @@
 // poplibs (in the 'cast()' function).
 // Just calls the core function on the 1D vector specified in the vertex state
 //------------------------------------------------------------------------------
-#define FUNC(TYPES) __runCodelet_popops__Cast1DSingleWorker___##TYPES
+#define FUNC(TYPES) __runCodelet_popops__Cast___##TYPES
 
 DEF_STACK_USAGE 0 .text.FUNC(\TYPES)
 .section .text.FUNC(\TYPES)
@@ -141,21 +141,23 @@ FUNC(\TYPES):
 FN_SIZE FUNC(\TYPES)
 
 //------------------------------------------------------------------------------
-// Entry point for the 1D MultiVertex.
-// Read the vertex state and finds out which segment of the total 1D vector
-// this has to process, then calls the core function on it.
+// Entry point for the 1D worker which is (only) started from the Supervisor
+// vertex.
+// Read the vertex state (which is the one passed to the Supervisor vertex)
+// and finds out which segment of the total 1D vector this has to process,
+// then calls the core function on it.
 //------------------------------------------------------------------------------
-#define FUNC_1D(TYPES) __runCodelet_popops__Cast1D___##TYPES
+#define FUNC_WORKER(TYPES) __runCodelet_popops__CastWorker___##TYPES
 
-DEF_STACK_USAGE 0 .text.FUNC_1D(\TYPES)
-.section .text.FUNC_1D(\TYPES)
+DEF_STACK_USAGE 0 .text.FUNC_WORKER(\TYPES)
+.section .text.FUNC_WORKER(\TYPES)
 .align 4
-EXPORT_FN FUNC_1D(\TYPES)
+EXPORT_FN FUNC_WORKER(\TYPES)
 .ifnc \ALIAS_TYPES, NONE
-  EXPORT_FN FUNC_1D(\ALIAS_TYPES)
-  FUNC_1D(\ALIAS_TYPES):
+  EXPORT_FN FUNC_WORKER(\ALIAS_TYPES)
+  FUNC_WORKER(\ALIAS_TYPES):
 .endif
-FUNC_1D(\TYPES):
+FUNC_WORKER(\TYPES):
 
    // get fields from vertex state
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -229,7 +231,7 @@ FUNC_1D(\TYPES):
     call     $lr, cast_\TYPES\()_core
 .Lexit\@:
     exitz    $mzero
-FN_SIZE FUNC_1D(\TYPES)
+FN_SIZE FUNC_WORKER(\TYPES)
 
 
 
@@ -241,7 +243,7 @@ FN_SIZE FUNC_1D(\TYPES)
 #define OUT_ITERATOR               m6
 #define NUM_VECTORS                m7
 
-#define FUNC_2D(TYPES) __runCodelet_popops__Cast2D___##TYPES
+#define FUNC_2D(TYPES) __runCodelet_popops__Cast2d___##TYPES
 
 DEF_STACK_USAGE 0 .text.FUNC_2D(\TYPES)
 .section .text.FUNC_2D(\TYPES)
@@ -294,4 +296,95 @@ INSTANTIATE_CAST half_unsigned_char  NONE       16  8  1  SETUP_UCHAR_OVERFLOW_C
 INSTANTIATE_CAST float_unsigned_char NONE       32  8  1  SETUP_UCHAR_OVERFLOW_CHECK
 INSTANTIATE_CAST half_signed_char    half_char  16  8  1  SETUP_SCHAR_OVERFLOW_CHECK
 INSTANTIATE_CAST float_signed_char   float_char 32  8  1  SETUP_SCHAR_OVERFLOW_CHECK
+
+
+
+//******************************************************************************
+//
+// Macro to create one supervisor vertex, which just runs the corresponding
+// 'CastWorker' threads, passing them the pointer to its own vertex state.
+//
+// TYPES        INTYPE and OUTTYPE separated by underscore (i.e.:
+//              'float_half', half_float', 'float_signed_char', ... etc)
+//
+// ALIAS_TYPES  If not empty, it must be a pair of types like
+//              TYPES, for which another entry point label will be setup (no
+//              duplication of code, just the labels).
+//              For instance, 'char_float' is the same as 'signed_char_float'
+//
+//******************************************************************************
+.macro INSTANTIATE_SUPERVISOR  TYPES  ALIAS_TYPES
+
+#define FUNC_SV(TYPES) __runCodelet_popops__CastSupervisor___##TYPES
+
+DEF_STACK_SIZE_OWN 0 .text.FUNC_SV(\TYPES)
+
+EXPORT_FN FUNC_SV(\TYPES)
+.section .text.FUNC_SV(\TYPES)
+.align 4
+.supervisor
+.ifnb \ALIAS_TYPES
+  EXPORT_FN FUNC_SV(\ALIAS_TYPES)
+  FUNC_SV(\ALIAS_TYPES):
+.endif
+FUNC_SV(\TYPES):
+  setzi       $m1, __runCodelet_popops__CastWorker___\TYPES
+  runall      $m1, $m0, 0
+  sync        TEXCH_SYNCZONE_LOCAL
+  br          $lr
+FN_SIZE FUNC_SV(\TYPES)
+.endm
+
+
+// We instantiate here the supervisor vertices for all possible casts.
+// Worker vertices not defined in assembly (above) are defined in C++
+
+// Note that we don't define here the following:
+//  Identity conversions (XXX->XXX) and INT<->UNSIGNED as these will be
+//  replaced with Copy() in popops::cast()
+
+INSTANTIATE_SUPERVISOR unsigned_char_float
+INSTANTIATE_SUPERVISOR unsigned_char_half
+
+INSTANTIATE_SUPERVISOR char_float            signed_char_float
+INSTANTIATE_SUPERVISOR char_half             signed_char_half
+
+INSTANTIATE_SUPERVISOR float_half
+INSTANTIATE_SUPERVISOR float_unsigned_char
+INSTANTIATE_SUPERVISOR float_char            float_signed_char
+INSTANTIATE_SUPERVISOR float_int
+INSTANTIATE_SUPERVISOR float_unsigned_int
+INSTANTIATE_SUPERVISOR float_bool
+INSTANTIATE_SUPERVISOR float_unsigned_short
+
+INSTANTIATE_SUPERVISOR half_float
+INSTANTIATE_SUPERVISOR half_unsigned_char
+INSTANTIATE_SUPERVISOR half_char             half_signed_char
+INSTANTIATE_SUPERVISOR half_int
+INSTANTIATE_SUPERVISOR half_unsigned_int
+INSTANTIATE_SUPERVISOR half_unsigned_short
+INSTANTIATE_SUPERVISOR half_bool
+
+INSTANTIATE_SUPERVISOR int_float
+INSTANTIATE_SUPERVISOR int_half
+INSTANTIATE_SUPERVISOR int_bool
+INSTANTIATE_SUPERVISOR int_unsigned_short
+
+INSTANTIATE_SUPERVISOR unsigned_int_float
+INSTANTIATE_SUPERVISOR unsigned_int_half
+INSTANTIATE_SUPERVISOR unsigned_int_bool
+INSTANTIATE_SUPERVISOR unsigned_int_unsigned_short
+
+INSTANTIATE_SUPERVISOR unsigned_short_float
+INSTANTIATE_SUPERVISOR unsigned_short_half
+INSTANTIATE_SUPERVISOR unsigned_short_int
+INSTANTIATE_SUPERVISOR unsigned_short_bool
+INSTANTIATE_SUPERVISOR unsigned_short_unsigned_int
+
+INSTANTIATE_SUPERVISOR bool_float
+INSTANTIATE_SUPERVISOR bool_half
+INSTANTIATE_SUPERVISOR bool_int
+INSTANTIATE_SUPERVISOR bool_unsigned_int
+INSTANTIATE_SUPERVISOR bool_unsigned_short
+
 #endif

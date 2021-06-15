@@ -1,7 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
-// Assembly implementation of popops::UnaryOp1D[InPlace] vertices for
+// Assembly implementation of popops::UnaryOp1D[InPlace]Supervisor vertices for
 // the three non linearities SIGMOID RELU, TANH.
 
 // Restrictions
@@ -44,6 +44,10 @@
 #define IN_PTR_OFFS   0
 #define OUT_PTR_OFFS  4
 #define N_OFFS        8
+
+// Supervisor register aliases
+#define SUPER_BASE m0
+#define WORKER_ENTRY m1
 
 // Worker register aliases
 #define WORKER_ID m0

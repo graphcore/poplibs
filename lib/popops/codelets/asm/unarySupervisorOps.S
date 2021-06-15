@@ -2,7 +2,7 @@
 #ifdef __IPU__
 
 /* -------------------------------------------------------------------------- */
-// MultiVertex code for Unary ops
+// Supervisor vertex code for Unary ops
 // Based on a simplified version of the framework used for broadcast and binary ops.
 // Unlike the binary ops implemented so far it seems likely that unary ops will need
 // completely individual operation stub functions.  When we implement more than
