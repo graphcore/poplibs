@@ -100,7 +100,7 @@ target_link_libraries(popops
   PUBLIC
     poplar poputil ${CMAKE_DL_LIBS}
   PRIVATE
-    TBB::TBB
+    TBB::tbb
     poplibs_support
     popsolver
     Boost::boost

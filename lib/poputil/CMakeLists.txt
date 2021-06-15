@@ -32,7 +32,7 @@ target_link_libraries(poputil
   PRIVATE
     poplibs_support
     Boost::boost
-    TBB::TBB
+    TBB::tbb
     spdlog::spdlog_header_only
 )
 
