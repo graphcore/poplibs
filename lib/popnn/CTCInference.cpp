@@ -19,8 +19,8 @@
 #include <popops/ElementWise.hpp>
 #include <popops/Encoding.hpp>
 #include <popops/Expr.hpp>
+#include <popops/Loop.hpp>
 #include <popops/Reduce.hpp>
-#include <poputil/Loop.hpp>
 #include <poputil/OptionParsing.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>

@@ -1396,3 +1396,5 @@ foreach(DATA_TYPE half float)
     endforeach()
   endforeach()
 endforeach()
+
+add_unit_test(LoopTest LoopTest.cpp)

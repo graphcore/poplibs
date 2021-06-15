@@ -14,12 +14,12 @@
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Encoding.hpp"
+#include "popops/Loop.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "popops/Zero.hpp"
 #include "popsolver/Model.hpp"
 #include "poputil/DebugInfo.hpp"
-#include "poputil/Loop.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VarStructure.hpp"
@@ -2101,7 +2101,7 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
 
   // looping case
 
-  prog.add(poputil::countedLoop(
+  prog.add(popops::countedLoop(
       graph, offset.dim(0),
       [&](poplar::Tensor sIdx) {
         Sequence body({}, {di});

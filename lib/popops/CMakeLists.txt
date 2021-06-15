@@ -62,6 +62,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/GatherStatistics.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/NaN.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/NormaliseImage.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/Loop.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Operation.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Rearrange.hpp
