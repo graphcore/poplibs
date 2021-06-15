@@ -1681,10 +1681,9 @@ addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
         if (inChanSerialSplit == 1) {
           return popsolver::DataType{0};
         }
-        return popsolver::DataType{
-            popops::getBinaryOp1DInPlaceSupervisorEstimate(
-                target, outputsType, popops::expr::BinaryOpType::ADD,
-                outputsPerTile)};
+        return popsolver::DataType{popops::getBinaryOp1DInPlaceEstimate(
+            target, outputsType, popops::expr::BinaryOpType::ADD,
+            outputsPerTile)};
       });
 
   // Estimate temp memory usage

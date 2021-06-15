@@ -37,7 +37,7 @@
 
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
-// TYPE needs to be '', 'InPlace', '2D' or '2DInPlace'.
+// TYPE needs to be '1D', '1DInPlace', '2D' or '2DInPlace'.
 // OPERATION will be DIVIDE
 #define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BinaryOpType__ ## OPERATION ## _half
 
@@ -46,8 +46,8 @@
 
 
 # In this file we have 4 externally visible functions
-EXPORT_FN   CPP_FUNCNAME(,DIVIDE)
-EXPORT_FN   CPP_FUNCNAME(InPlace,DIVIDE)
+EXPORT_FN   CPP_FUNCNAME(1D,DIVIDE)
+EXPORT_FN   CPP_FUNCNAME(1DInPlace,DIVIDE)
 EXPORT_FN   CPP_FUNCNAME(2D,DIVIDE)
 EXPORT_FN   CPP_FUNCNAME(2DInPlace,DIVIDE)
 
@@ -404,10 +404,9 @@ FN_SIZE VectorInnerAdd_core_half
 
 
 
-/////////////////// 1D Worker Vertices ///////////////////////
-// These are run by the Supervisors defined in elementwiseStubs.S
+/////////////////// 1D MultiVertex ///////////////////////
 
-// Vertex state layout for VectorInnerSupervisor (passed to each worker)
+// Vertex state layout for VectorInner1D
 #define VERTEX_DATA_B_OFFSET 0            // In 32-bits
 #define VERTEX_DATA_B_LEN_OFFSET 1        // In 32-bits
 #define VERTEX_DATA_DATA_OFFSET 2         // In 32-bits
@@ -427,21 +426,21 @@ FN_SIZE VectorInnerAdd_core_half
 #define mscratch0 m8
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(,DIVIDE)
-FUNC_SECTION(,DIVIDE)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(1D,DIVIDE)
+FUNC_SECTION(1D,DIVIDE)
 .align 4
-CPP_FUNCNAME(,DIVIDE):
+CPP_FUNCNAME(1D,DIVIDE):
   ld32 $data, $mvertex_base, $mzero, VERTEX_DATA_DATA_OFFSET
   ld32 $out, $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
   // Jump to the shared worker code
   bri .Lworker
 
-FN_SIZE CPP_FUNCNAME(,DIVIDE)
+FN_SIZE CPP_FUNCNAME(1D,DIVIDE)
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlace,DIVIDE)
-FUNC_SECTION(InPlace,DIVIDE)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(1DInPlace,DIVIDE)
+FUNC_SECTION(1DInPlace,DIVIDE)
 .align 4
-CPP_FUNCNAME(InPlace,DIVIDE):
+CPP_FUNCNAME(1DInPlace,DIVIDE):
   ld32 $data, $mvertex_base, $mzero, VERTEX_DATA_DATA_OFFSET
   mov $out, $data
   // Fall through.
@@ -544,7 +543,7 @@ update_data_ptrs:
 
   exitnz $mzero
 
-FN_SIZE CPP_FUNCNAME(InPlace,DIVIDE)
+FN_SIZE CPP_FUNCNAME(1DInPlace,DIVIDE)
 
 #undef blocks_per_worker
 #undef worker_id

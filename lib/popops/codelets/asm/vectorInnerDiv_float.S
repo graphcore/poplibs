@@ -49,8 +49,8 @@
 
 
 # In this file we have 4 externally visible functions
-EXPORT_FN   CPP_FUNCNAME(,DIVIDE)
-EXPORT_FN   CPP_FUNCNAME(InPlace,DIVIDE)
+EXPORT_FN   CPP_FUNCNAME(1D,DIVIDE)
+EXPORT_FN   CPP_FUNCNAME(1DInPlace,DIVIDE)
 EXPORT_FN   CPP_FUNCNAME(2D,DIVIDE)
 EXPORT_FN   CPP_FUNCNAME(2DInPlace,DIVIDE)
 
@@ -208,10 +208,9 @@ FN_SIZE VectorInnerDiv_core_float
 
 
 
-/////////////////// 1D Worker Vertices ///////////////////////
-// These are run by the Supervisors defined in elementwiseStubs.S
+/////////////////// 1D  MultiVertex ///////////////////////
 
-// Vertex state layout for VectorInnerSupervisor (passed to each worker)
+// Vertex state layout
 #define VERTEX_DATA_B_OFFSET 0            // In 32-bits
 #define VERTEX_DATA_B_SIZE_OFFSET 1       // In 32-bits
 #define VERTEX_DATA_DATA_OFFSET 2         // In 32-bits
@@ -231,21 +230,21 @@ FN_SIZE VectorInnerDiv_core_float
 #define mscratch0 m8
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(,DIVIDE)
-FUNC_SECTION(,DIVIDE)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(1D,DIVIDE)
+FUNC_SECTION(1D,DIVIDE)
 .align 4
-CPP_FUNCNAME(,DIVIDE):
+CPP_FUNCNAME(1D,DIVIDE):
   ld32 $data,  $mvertex_base, $mzero, VERTEX_DATA_DATA_OFFSET
   ld32 $out,   $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
   // Jump to the shared worker code
   bri .Lworker
 
-FN_SIZE CPP_FUNCNAME(,DIVIDE)
+FN_SIZE CPP_FUNCNAME(1D,DIVIDE)
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlace,DIVIDE)
-FUNC_SECTION(InPlace,DIVIDE)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(1DInPlace,DIVIDE)
+FUNC_SECTION(1DInPlace,DIVIDE)
 .align 4
-CPP_FUNCNAME(InPlace,DIVIDE):
+CPP_FUNCNAME(1DInPlace,DIVIDE):
   ld32 $data, $mvertex_base, $mzero, VERTEX_DATA_DATA_OFFSET
   mov  $out, $data
 
@@ -319,7 +318,7 @@ CPP_FUNCNAME(InPlace,DIVIDE):
 
   exitnz $mzero
 
-FN_SIZE CPP_FUNCNAME(InPlace,DIVIDE)
+FN_SIZE CPP_FUNCNAME(1DInPlace,DIVIDE)
 
 #undef blocks_per_worker
 #undef worker_id

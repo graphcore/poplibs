@@ -52,14 +52,14 @@
 // Strings for mangled version of the entry points - presently only the version
 // that divides work by row, and does not deal with misaligned data.
 
-#define MANGLE_STR_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_float_false
-#define MANGLE_STR_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_half_false
+#define MANGLE_STR_FLOAT __runCodelet_popops__\NAME\()___popops__expr__BinaryOpType__\TYPE\()_float_false
+#define MANGLE_STR_HALF __runCodelet_popops__\NAME\()___popops__expr__BinaryOpType__\TYPE\()_half_false
 
 //******************************************************************************
 // Macros for float/binary entry - inplace, non inplace
 //******************************************************************************
 
-.macro VECTOR_OUTER_OP_FLOAT_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
+.macro VECTOR_OUTER_OP_FLOAT_ENTRY OPERATION NAME TYPE BY_STR
 DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
 .section .text.MANGLE_STR_FLOAT, FUNCTION_IS_WORKER
 .global MANGLE_STR_FLOAT
@@ -81,7 +81,7 @@ MANGLE_STR_FLOAT:
 .size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
 .endm
 
-.macro VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
+.macro VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY OPERATION NAME TYPE BY_STR
 DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
 .section .text.MANGLE_STR_FLOAT, FUNCTION_IS_WORKER
 .global MANGLE_STR_FLOAT
@@ -107,7 +107,7 @@ MANGLE_STR_FLOAT:
 // Macros for half/binary entry - inplace, non inplace
 //******************************************************************************
 
-.macro VECTOR_OUTER_OP_HALF_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
+.macro VECTOR_OUTER_OP_HALF_ENTRY OPERATION NAME TYPE BY_STR
 DEF_STACK_USAGE 0 MANGLE_STR_HALF
 .section .text.MANGLE_STR_HALF, FUNCTION_IS_WORKER
 .global MANGLE_STR_HALF
@@ -129,7 +129,7 @@ MANGLE_STR_HALF:
 .size MANGLE_STR_HALF, . -MANGLE_STR_HALF
 .endm
 
-.macro VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
+.macro VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY OPERATION NAME TYPE BY_STR
 DEF_STACK_USAGE 0 MANGLE_STR_HALF
 .section .text.MANGLE_STR_HALF, FUNCTION_IS_WORKER
 .global MANGLE_STR_HALF
@@ -313,39 +313,39 @@ divide_work_by_column:
 //******************************************************************************
 
 // By Row variants
-  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY add BroadcastVectorOuterByRowInPlace ADD row
-  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY sub BroadcastVectorOuterByRowInPlace SUBTRACT row
-  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY mul BroadcastVectorOuterByRowInPlace MULTIPLY row
+  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY add BroadcastVectorOuterByRow1DInPlace ADD row
+  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY sub BroadcastVectorOuterByRow1DInPlace SUBTRACT row
+  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY mul BroadcastVectorOuterByRow1DInPlace MULTIPLY row
 
-  VECTOR_OUTER_OP_FLOAT_ENTRY add BroadcastVectorOuterByRow ADD row
-  VECTOR_OUTER_OP_FLOAT_ENTRY sub BroadcastVectorOuterByRow SUBTRACT row
-  VECTOR_OUTER_OP_FLOAT_ENTRY mul BroadcastVectorOuterByRow MULTIPLY row
+  VECTOR_OUTER_OP_FLOAT_ENTRY add BroadcastVectorOuterByRow1D ADD row
+  VECTOR_OUTER_OP_FLOAT_ENTRY sub BroadcastVectorOuterByRow1D SUBTRACT row
+  VECTOR_OUTER_OP_FLOAT_ENTRY mul BroadcastVectorOuterByRow1D MULTIPLY row
 
-  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY add BroadcastVectorOuterByRowInPlace ADD row
-  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY sub BroadcastVectorOuterByRowInPlace SUBTRACT row
-  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY mul BroadcastVectorOuterByRowInPlace MULTIPLY row
+  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY add BroadcastVectorOuterByRow1DInPlace ADD row
+  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY sub BroadcastVectorOuterByRow1DInPlace SUBTRACT row
+  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY mul BroadcastVectorOuterByRow1DInPlace MULTIPLY row
 
-  VECTOR_OUTER_OP_HALF_ENTRY add BroadcastVectorOuterByRow ADD row
-  VECTOR_OUTER_OP_HALF_ENTRY sub BroadcastVectorOuterByRow SUBTRACT row
-  VECTOR_OUTER_OP_HALF_ENTRY mul BroadcastVectorOuterByRow MULTIPLY row
+  VECTOR_OUTER_OP_HALF_ENTRY add BroadcastVectorOuterByRow1D ADD row
+  VECTOR_OUTER_OP_HALF_ENTRY sub BroadcastVectorOuterByRow1D SUBTRACT row
+  VECTOR_OUTER_OP_HALF_ENTRY mul BroadcastVectorOuterByRow1D MULTIPLY row
 
 
 // By Column variants
-  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY add BroadcastVectorOuterByColumnInPlace ADD column
-  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY sub BroadcastVectorOuterByColumnInPlace SUBTRACT column
-  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY mul BroadcastVectorOuterByColumnInPlace MULTIPLY column
+  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY add BroadcastVectorOuterByColumn1DInPlace ADD column
+  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY sub BroadcastVectorOuterByColumn1DInPlace SUBTRACT column
+  VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY mul BroadcastVectorOuterByColumn1DInPlace MULTIPLY column
 
-  VECTOR_OUTER_OP_FLOAT_ENTRY add BroadcastVectorOuterByColumn ADD column
-  VECTOR_OUTER_OP_FLOAT_ENTRY sub BroadcastVectorOuterByColumn SUBTRACT column
-  VECTOR_OUTER_OP_FLOAT_ENTRY mul BroadcastVectorOuterByColumn MULTIPLY column
+  VECTOR_OUTER_OP_FLOAT_ENTRY add BroadcastVectorOuterByColumn1D ADD column
+  VECTOR_OUTER_OP_FLOAT_ENTRY sub BroadcastVectorOuterByColumn1D SUBTRACT column
+  VECTOR_OUTER_OP_FLOAT_ENTRY mul BroadcastVectorOuterByColumn1D MULTIPLY column
 
-  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY add BroadcastVectorOuterByColumnInPlace ADD column
-  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY sub BroadcastVectorOuterByColumnInPlace SUBTRACT column
-  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY mul BroadcastVectorOuterByColumnInPlace MULTIPLY column
+  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY add BroadcastVectorOuterByColumn1DInPlace ADD column
+  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY sub BroadcastVectorOuterByColumn1DInPlace SUBTRACT column
+  VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY mul BroadcastVectorOuterByColumn1DInPlace MULTIPLY column
 
-  VECTOR_OUTER_OP_HALF_ENTRY add BroadcastVectorOuterByColumn ADD column
-  VECTOR_OUTER_OP_HALF_ENTRY sub BroadcastVectorOuterByColumn SUBTRACT column
-  VECTOR_OUTER_OP_HALF_ENTRY mul BroadcastVectorOuterByColumn MULTIPLY column
+  VECTOR_OUTER_OP_HALF_ENTRY add BroadcastVectorOuterByColumn1D ADD column
+  VECTOR_OUTER_OP_HALF_ENTRY sub BroadcastVectorOuterByColumn1D SUBTRACT column
+  VECTOR_OUTER_OP_HALF_ENTRY mul BroadcastVectorOuterByColumn1D MULTIPLY column
 
   // Use macros to create loop body for each operation and data type
   VECTOR_OUTER_OP f16v4 add 1
