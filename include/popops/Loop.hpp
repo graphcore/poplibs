@@ -3,12 +3,10 @@
  *
  * Functions to provide counted loops of programs.
  *
- * \deprecated Use popops Loop.hpp instead
- *
  */
 
-#ifndef poputil_Loop_hpp
-#define poputil_Loop_hpp
+#ifndef popops_Loop_hpp
+#define popops_Loop_hpp
 
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
@@ -19,7 +17,7 @@
 #include <poputil/exceptions.hpp>
 #include <string>
 
-namespace poputil {
+namespace popops {
 
 using CountedLoopBodyType =
     std::function<poplar::program::Program(const poplar::Tensor &)>;
@@ -177,8 +175,9 @@ inline poplar::Tensor addForLoopCounterVertex(poplar::Graph &graph,
   graph.setTileMapping(predicate, tile);
 
   auto cs = graph.addComputeSet(di);
-  const auto vertex = graph.addVertex(
-      cs, templateVertex("popops::ForLoopCounter", count.elementType()));
+  const auto vertex =
+      graph.addVertex(cs, poputil::templateVertex("popops::ForLoopCounter",
+                                                  count.elementType()));
   graph.setTileMapping(vertex, tile);
 
   graph.connect(vertex["count"], count.reshape({}));
@@ -281,6 +280,6 @@ countedForLoop(poplar::Graph &graph, int initialCount,
   return countedForLoop(graph, count, initialCount, countLimit, countStep, body,
                         debugContext);
 }
-} // namespace poputil
+} // namespace popops
 
-#endif // poputil_Loop_hpp
+#endif // popops_Loop_hpp

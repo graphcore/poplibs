@@ -4,7 +4,7 @@
 #include "poplibs_support/Tracepoint.hpp"
 #include "popops/DynamicSlice.hpp"
 #include "popops/ElementWise.hpp"
-#include "poputil/Loop.hpp"
+#include "popops/Loop.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 
@@ -320,7 +320,7 @@ void scatterInternal(
 
   // The while loop that implements the scatter operation.
   // for (i = 0; i < scatterLoopTripCount; ++i)
-  prog.add(poputil::countedLoop(
+  prog.add(popops::countedLoop(
       graph, scatterLoopTrip,
       [&](poplar::Tensor i) {
         poplar::program::Sequence prog({}, {dnai});
