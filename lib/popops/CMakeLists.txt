@@ -15,6 +15,8 @@ add_library(popops SHARED
   DynamicSlice.cpp
   DynamicSliceInternal.hpp
   ElementWise.cpp
+  ElementWiseInternal.hpp
+  ElementWiseInternal.cpp
   ElementWiseUtil.cpp
   Encoding.cpp
   Expr.cpp

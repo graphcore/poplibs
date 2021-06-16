@@ -1,5 +1,6 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "popops/ElementWise.hpp"
+#include "ElementWiseInternal.hpp"
 #include "ElementWiseUtilInternal.hpp"
 #include "ExprOpUtil.hpp"
 #include "poplibs_support/Algorithm.hpp"
@@ -65,140 +66,6 @@ enum ternaryOpCodelets {
   BROADCAST_SELECTOR_SELECT,
   NR_OF_CODELETS
 };
-
-std::string debugName(expr::UnaryOpType op) {
-  switch (op) {
-  case UnaryOpType::ABSOLUTE:
-    return "Absolute";
-  case UnaryOpType::BITWISE_NOT:
-    return "BitwiseNot";
-  case UnaryOpType::CBRT:
-    return "Cbrt";
-  case UnaryOpType::CEIL:
-    return "Ceil";
-  case UnaryOpType::COS:
-    return "Cos";
-  case UnaryOpType::COUNT_LEADING_ZEROS:
-    return "CountLeadingZeros";
-  case UnaryOpType::ERF:
-    return "Erf";
-  case UnaryOpType::EXPONENT:
-    return "Exponent";
-  case UnaryOpType::EXPONENT_MINUS_ONE:
-    return "ExponentMinusOne";
-  case UnaryOpType::FLOOR:
-    return "Floor";
-  case UnaryOpType::INVERSE:
-    return "Inverse";
-  case UnaryOpType::IS_FINITE:
-    return "IsFinite";
-  case UnaryOpType::IS_INF:
-    return "IsInf";
-  case UnaryOpType::IS_NAN:
-    return "IsNaN";
-  case UnaryOpType::LOGARITHM:
-    return "Logarithm";
-  case UnaryOpType::LOGARITHM_ONE_PLUS:
-    return "LogarithmOnePlus";
-  case UnaryOpType::LOGICAL_NOT:
-    return "LogicalNot";
-  case UnaryOpType::NEGATE:
-    return "Negate";
-  case UnaryOpType::POPCOUNT:
-    return "Popcount";
-  case UnaryOpType::RELU:
-    return "Relu";
-  case UnaryOpType::ROUND:
-    return "Round";
-  case UnaryOpType::SIGNUM:
-    return "Signum";
-  case UnaryOpType::SIN:
-    return "Sin";
-  case UnaryOpType::TAN:
-    return "Tan";
-  case UnaryOpType::TANH:
-    return "Tanh";
-  case UnaryOpType::SQRT:
-    return "Sqrt";
-  case UnaryOpType::SQUARE:
-    return "Square";
-  case UnaryOpType::SIGMOID:
-    return "Sigmoid";
-  case UnaryOpType::RSQRT:
-    return "Rsqrt";
-  case UnaryOpType::ASIN:
-    return "Asin";
-  }
-  throw poputil::poplibs_error("Op not supported");
-}
-
-std::string debugName(BinaryOpType op) {
-  switch (op) {
-  case BinaryOpType::ADD:
-    return "Add";
-  case BinaryOpType::ATAN2:
-    return "Atan2";
-  case BinaryOpType::BITWISE_AND:
-    return "BitwiseAnd";
-  case BinaryOpType::BITWISE_OR:
-    return "BitwiseOr";
-  case BinaryOpType::BITWISE_XOR:
-    return "BitwiseXor";
-  case BinaryOpType::BITWISE_XNOR:
-    return "BitwiseXnor";
-  case BinaryOpType::DIVIDE:
-    return "Divide";
-  case BinaryOpType::EQUAL:
-    return "Equal";
-  case BinaryOpType::GREATER_THAN_EQUAL:
-    return "GreaterThanEqual";
-  case BinaryOpType::GREATER_THAN:
-    return "GreaterThan";
-  case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
-    return "InvStdDevToVariance";
-  case BinaryOpType::LESS_THAN_EQUAL:
-    return "LessThanEqual";
-  case BinaryOpType::LOGICAL_AND:
-    return "LogicalAnd";
-  case BinaryOpType::LOGICAL_OR:
-    return "LogicalOr";
-  case BinaryOpType::LESS_THAN:
-    return "LessThan";
-  case BinaryOpType::MAXIMUM:
-    return "Maximum";
-  case BinaryOpType::MINIMUM:
-    return "Minimum";
-  case BinaryOpType::MULTIPLY:
-    return "Multiply";
-  case BinaryOpType::NOT_EQUAL:
-    return "NotEqual";
-  case BinaryOpType::POWER:
-    return "Power";
-  case BinaryOpType::REMAINDER:
-    return "Remainder";
-  case BinaryOpType::SHIFT_LEFT:
-    return "ShiftLeft";
-  case BinaryOpType::SHIFT_RIGHT:
-    return "ShiftRight";
-  case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
-    return "ShiftRightSignExtend";
-  case BinaryOpType::SUBTRACT:
-    return "Subtract";
-  case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
-    return "VarianceToInvStdDev";
-  }
-  throw poputil::poplibs_error("Op not supported");
-}
-
-std::string debugName(TernaryOpType op) {
-  switch (op) {
-  case TernaryOpType::CLAMP:
-    return "Clamp";
-  case TernaryOpType::SELECT:
-    return "Select";
-  }
-  throw poputil::poplibs_error("Op not supported");
-}
 
 struct MapOptions {
   bool enableVectorBroadcastOptimisations = true;
@@ -2039,186 +1906,6 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   return out;
 }
 
-bool isRelational(expr::UnaryOpType op) {
-  switch (op) {
-  case expr::UnaryOpType::IS_FINITE:
-  case expr::UnaryOpType::IS_INF:
-  case expr::UnaryOpType::IS_NAN:
-    return true;
-  default:
-    return false;
-  }
-}
-
-bool isRelational(expr::BinaryOpType op) {
-  switch (op) {
-  case expr::BinaryOpType::EQUAL:
-  case expr::BinaryOpType::GREATER_THAN_EQUAL:
-  case expr::BinaryOpType::GREATER_THAN:
-  case expr::BinaryOpType::LESS_THAN_EQUAL:
-  case expr::BinaryOpType::LESS_THAN:
-  case expr::BinaryOpType::NOT_EQUAL:
-    return true;
-  default:
-    return false;
-  }
-}
-
-bool isLogical(expr::UnaryOpType op) {
-  switch (op) {
-  case expr::UnaryOpType::LOGICAL_NOT:
-    return true;
-  default:
-    return false;
-  }
-}
-
-bool isLogical(expr::BinaryOpType op) {
-  switch (op) {
-  case expr::BinaryOpType::LOGICAL_AND:
-  case expr::BinaryOpType::LOGICAL_OR:
-    return true;
-  default:
-    return false;
-  }
-}
-
-const Tensor &getTensorFromPlaceHolder(const expr::PlaceHolder &p,
-                                       const std::vector<Tensor> &ts) {
-  auto index = p.getIndex() - 1;
-  if (index > ts.size()) {
-    throw poplibs_error("Invalid placeholder _" + std::to_string(index + 1) +
-                        " in expression");
-  }
-  return ts[index];
-}
-
-boost::optional<Type> getTypeFromConst(const expr::Expr &expr) {
-  return expr.isA<expr::Const>() ? expr.getAs<expr::Const>()->getType()
-                                 : boost::optional<Type>{};
-}
-
-boost::optional<Type>
-inferType(const expr::Expr &expr, const std::vector<Tensor> &ts,
-          std::unordered_map<const expr::Expr *, Type> &constTypes,
-          std::vector<const expr::Expr *> &unknown) {
-  if (expr.isA<expr::Const>()) {
-    unknown.push_back(&expr);
-    return {};
-  } else if (const expr::Cast *cast = expr.getAs<expr::Cast>()) {
-    std::vector<const expr::Expr *> subExprUnknown;
-    static_cast<void>(
-        inferType(cast->getLHS(), ts, constTypes, subExprUnknown));
-    if (!subExprUnknown.empty())
-      throw poplibs_error("Cannot infer constant types in expression");
-    return cast->getRHSType();
-  } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
-    return getTensorFromPlaceHolder(*p, ts).elementType();
-  } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
-    auto opType = u->getOpType();
-    bool propagateTypeUp = !isRelational(opType) && !isLogical(opType);
-    std::vector<const expr::Expr *> tmp;
-    std::vector<const expr::Expr *> &subExprUnknown =
-        propagateTypeUp ? unknown : tmp;
-    auto argType = inferType(u->getArg(), ts, constTypes, subExprUnknown);
-    if (!propagateTypeUp) {
-      if (!subExprUnknown.empty())
-        throw poplibs_error("Cannot infer constant types in expression");
-      return BOOL;
-    }
-    return argType;
-  } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
-    auto opType = b->getOpType();
-    bool propagateTypeUp = !isRelational(opType) && !isLogical(opType);
-    std::vector<const expr::Expr *> tmp;
-    std::vector<const expr::Expr *> &subExprUnknown =
-        propagateTypeUp ? unknown : tmp;
-    auto lhsType = inferType(b->getLHS(), ts, constTypes, subExprUnknown);
-    auto rhsType = inferType(b->getRHS(), ts, constTypes, subExprUnknown);
-    if (!lhsType && rhsType) {
-      lhsType = rhsType;
-      for (const auto e : subExprUnknown)
-        constTypes[e] = *rhsType;
-      subExprUnknown.clear();
-    }
-    if (!rhsType && lhsType) {
-      rhsType = lhsType;
-      for (const auto e : subExprUnknown)
-        constTypes[e] = *lhsType;
-      subExprUnknown.clear();
-    }
-    if (lhsType != rhsType)
-      throw poplibs_error("Arguments of binary operator in expression do not "
-                          "have the same type");
-    if (!propagateTypeUp) {
-      if (!subExprUnknown.empty())
-        throw poplibs_error("Cannot infer constant types in expression");
-      return BOOL;
-    }
-    return lhsType;
-  } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
-    auto opType = t->getOpType();
-    if (opType == TernaryOpType::SELECT) {
-      auto predType = inferType(t->getArg2(), ts, constTypes, unknown);
-      if (!predType || *predType != BOOL)
-        throw poplibs_error("Invalid type of condition argument of "
-                            "select operator in expression");
-
-      auto lhsType = inferType(t->getArg0(), ts, constTypes, unknown);
-      auto rhsType = inferType(t->getArg1(), ts, constTypes, unknown);
-      if (!lhsType && rhsType) {
-        lhsType = rhsType;
-        for (const auto e : unknown)
-          constTypes[e] = *rhsType;
-        unknown.clear();
-      }
-      if (lhsType && !rhsType) {
-        rhsType = lhsType;
-        for (const auto e : unknown)
-          constTypes[e] = *lhsType;
-        unknown.clear();
-      }
-      if (!lhsType && !rhsType) {
-        // If both lhs and rhs don't have a type then try and deduce it from
-        // constants.
-        lhsType = getTypeFromConst(t->getArg0());
-        rhsType = getTypeFromConst(t->getArg1());
-        if (lhsType == rhsType) {
-          for (const auto e : unknown)
-            constTypes[e] = *lhsType;
-          unknown.clear();
-        }
-      }
-
-      if (lhsType != rhsType)
-        throw poplibs_error("Arguments of select operator in expression do not "
-                            "have the same type");
-      return lhsType;
-    } else {
-      assert(opType == TernaryOpType::CLAMP);
-      auto argType = inferType(t->getArg0(), ts, constTypes, unknown);
-      if (!argType)
-        throw poplibs_error("Cannot infer type in clamp expression");
-      auto lowerType = inferType(t->getArg1(), ts, constTypes, unknown);
-      if (!lowerType) {
-        lowerType = argType;
-        for (const auto e : unknown)
-          constTypes[e] = *argType;
-        unknown.clear();
-      }
-      auto higherType = inferType(t->getArg2(), ts, constTypes, unknown);
-      if (!higherType) {
-        higherType = argType;
-        for (const auto e : unknown)
-          constTypes[e] = *argType;
-        unknown.clear();
-      }
-      return argType;
-    }
-  }
-  POPLIB_UNREACHABLE();
-}
-
 boost::optional<unsigned> getLowestTileMapping(const Graph &graph,
                                                const Tensor &tensor) {
   auto tensorSimplified = tensor.flatten();
@@ -2424,18 +2111,6 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
   POPLIB_UNREACHABLE();
 }
 
-std::unordered_map<const expr::Expr *, Type>
-getConstType(const expr::Expr &expr, const std::vector<Tensor> &ts) {
-  std::unordered_map<const expr::Expr *, Type> constTypes;
-  std::vector<const expr::Expr *> unknown;
-  auto type = inferType(expr, ts, constTypes, unknown);
-
-  if (!type || !unknown.empty()) {
-    throw poplibs_error("Cannot infer type of expression");
-  }
-  return constTypes;
-}
-
 std::unordered_map<const expr::Expr *, unsigned>
 getConstTile(const Graph &graph, const expr::Expr &expr,
              const std::vector<Tensor> &ts) {
@@ -2443,118 +2118,6 @@ getConstTile(const Graph &graph, const expr::Expr &expr,
   std::vector<const expr::Expr *> unknown;
   inferTile(graph, expr, ts, constTiles, unknown);
   return constTiles;
-}
-
-// Recursively walk up the expression tree and replace expressions with
-// simplified expressions where possible
-struct ExprAndType {
-  std::unique_ptr<expr::Expr> expression;
-  poplar::Type type;
-};
-
-ExprAndType optimise(const expr::Expr &expr,
-                     const std::vector<poplar::Tensor> &ts) {
-  if (const expr::Const *c = expr.getAs<expr::Const>()) {
-    return {c->clone(), c->getType()};
-  } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
-    return {p->clone(), getTensorFromPlaceHolder(*p, ts).elementType()};
-  } else if (const expr::Cast *c = expr.getAs<expr::Cast>()) {
-    auto info = optimise(c->getLHS(), ts);
-    return {std::unique_ptr<expr::Expr>(
-                new expr::Cast(*info.expression, c->getRHSType())),
-            c->getRHSType()};
-  } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
-    auto info = optimise(u->getArg(), ts);
-    return {std::unique_ptr<expr::Expr>(
-                new expr::UnaryOp(u->getOpType(), *info.expression)),
-            info.type};
-  } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
-    const expr::Const *c = b->getRHS().getAs<expr::Const>();
-    auto infoLhs = optimise(b->getLHS(), ts);
-    const auto opType = b->getOpType();
-    if (opType == BinaryOpType::POWER && c &&
-        (c->getType() == FLOAT || c->getType() == HALF)) {
-      double value = c->getDataAsDouble();
-      if (value == 0.5) {
-        return {std::unique_ptr<expr::Expr>(
-                    new expr::UnaryOp(UnaryOpType::SQRT, *infoLhs.expression)),
-                infoLhs.type};
-      } else if (value == -0.5) {
-        return {std::unique_ptr<expr::Expr>(
-                    new expr::UnaryOp(UnaryOpType::RSQRT, *infoLhs.expression)),
-                infoLhs.type};
-      } else if (value == 1) {
-        // This cast has the same source and destination types and should be
-        // a copy that gets elided.
-        return {std::unique_ptr<expr::Expr>(
-                    new expr::Cast(*infoLhs.expression, infoLhs.type)),
-                infoLhs.type};
-      } else if (value == -1) {
-        return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
-                    UnaryOpType::INVERSE, *infoLhs.expression)),
-                infoLhs.type};
-      } else if (value == 2) {
-        return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
-                    UnaryOpType::SQUARE, *infoLhs.expression)),
-                infoLhs.type};
-      }
-    } else if ((opType == BinaryOpType::REMAINDER ||
-                opType == BinaryOpType::DIVIDE) &&
-               c) {
-      const auto rhsTraits = c->getTypeTraits();
-      bool isLhsUnsignedAndIntegral = infoLhs.type == UNSIGNED_SHORT ||
-                                      infoLhs.type == UNSIGNED_INT ||
-                                      infoLhs.type == UNSIGNED_CHAR;
-      bool isRhsUnsignedAndIntegral =
-          rhsTraits.isIntegral && !rhsTraits.isSigned;
-
-      if (isLhsUnsignedAndIntegral && isRhsUnsignedAndIntegral) {
-        // only allow types upto UNSIGED_INT as there are no codelets
-        // that support larger types
-        const unsigned value =
-            static_cast<unsigned>(c->getDataForUnsignedIntegral());
-        if (value && !(value & (value - 1))) {
-          if (opType == BinaryOpType::REMAINDER) {
-            logging::popops::debug(
-                "REMAINDER op optimised to an BITWISE_AND for type {} with "
-                "AND value {}",
-                infoLhs.type, value - 1);
-
-            return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
-                        BinaryOpType::BITWISE_AND, *infoLhs.expression,
-                        expr::Const(value - 1))),
-                    infoLhs.type};
-
-          } else {
-            const unsigned log2Val = ceilLog2(value);
-            logging::popops::debug(
-                "DIVIDE op optimised to an SHR for type {} with shift "
-                "value {}",
-                infoLhs.type, log2Val);
-
-            return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
-                        BinaryOpType::SHIFT_RIGHT, *infoLhs.expression,
-                        expr::Const(log2Val))),
-                    infoLhs.type};
-          }
-        }
-      }
-    }
-    auto argRhs = optimise(b->getRHS(), ts);
-    return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
-                b->getOpType(), *infoLhs.expression, *argRhs.expression)),
-            infoLhs.type};
-  } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
-    auto arg0Info = optimise(t->getArg0(), ts);
-    auto arg1Info = optimise(t->getArg1(), ts);
-    auto arg2Info = optimise(t->getArg2(), ts);
-    return {std::unique_ptr<expr::Expr>(new expr::TernaryOp(
-                t->getOpType(), *arg0Info.expression, *arg1Info.expression,
-                *arg2Info.expression)),
-            arg0Info.type};
-  } else {
-    throw poputil::poplibs_error("Unsupported expression");
-  }
 }
 
 } // end anonymous namespace
@@ -2707,6 +2270,14 @@ bool createVertexBinaryOpBroadcastScalar(
   return true;
 }
 
+static std::vector<Type> getTypesFromTensors(const std::vector<Tensor> &ts) {
+  std::vector<Type> types;
+  types.reserve(ts.size());
+  std::transform(ts.begin(), ts.end(), std::back_inserter(types),
+                 [](const auto &t) { return t.elementType(); });
+  return types;
+}
+
 Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
            program::Sequence &prog, const poplar::DebugContext &debugContext,
            const OptionFlags &options) {
@@ -2715,13 +2286,15 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
 
   auto opts = parseOptionFlags(options);
 
+  const auto tTypes = getTypesFromTensors(ts);
+
   std::unique_ptr<expr::Expr> newExpr;
   if (opts.enableExpressionOptimizations) {
-    newExpr = optimise(expr, ts).expression;
+    newExpr = optimise(expr, tTypes).expression;
   }
   const auto &optExpr = opts.enableExpressionOptimizations ? *newExpr : expr;
 
-  auto constTypes = getConstType(optExpr, ts);
+  auto constTypes = getConstType(optExpr, tTypes);
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
@@ -2750,13 +2323,16 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, expr, options));
 
   auto opts = parseOptionFlags(options);
+
+  const auto tTypes = getTypesFromTensors(ts);
+
   std::unique_ptr<expr::Expr> newExpr;
   if (opts.enableExpressionOptimizations) {
-    newExpr = optimise(expr, ts).expression;
+    newExpr = optimise(expr, tTypes).expression;
   }
   const auto &optExpr = opts.enableExpressionOptimizations ? *newExpr : expr;
 
-  auto constTypes = getConstType(optExpr, ts);
+  auto constTypes = getConstType(optExpr, tTypes);
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
@@ -2798,16 +2374,16 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
 namespace poputil {
 template <>
 poplar::ProfileValue toProfileValue(const popops::expr::UnaryOpType &op) {
-  return poplar::ProfileValue(popops::debugName(op));
+  return poplar::ProfileValue(popops::expr::debugName(op));
 }
 
 template <>
 poplar::ProfileValue toProfileValue(const popops::expr::BinaryOpType &op) {
-  return poplar::ProfileValue(popops::debugName(op));
+  return poplar::ProfileValue(popops::expr::debugName(op));
 }
 
 template <>
 poplar::ProfileValue toProfileValue(const popops::expr::TernaryOpType &op) {
-  return poplar::ProfileValue(popops::debugName(op));
+  return poplar::ProfileValue(popops::expr::debugName(op));
 }
 } // namespace poputil

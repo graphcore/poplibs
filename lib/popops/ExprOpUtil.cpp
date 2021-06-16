@@ -129,6 +129,140 @@ std::string binaryOpTypeToString(BinaryOpType op) {
   throw poputil::poplibs_error("Op not supported");
 }
 
+std::string debugName(expr::UnaryOpType op) {
+  switch (op) {
+  case UnaryOpType::ABSOLUTE:
+    return "Absolute";
+  case UnaryOpType::BITWISE_NOT:
+    return "BitwiseNot";
+  case UnaryOpType::CBRT:
+    return "Cbrt";
+  case UnaryOpType::CEIL:
+    return "Ceil";
+  case UnaryOpType::COS:
+    return "Cos";
+  case UnaryOpType::COUNT_LEADING_ZEROS:
+    return "CountLeadingZeros";
+  case UnaryOpType::ERF:
+    return "Erf";
+  case UnaryOpType::EXPONENT:
+    return "Exponent";
+  case UnaryOpType::EXPONENT_MINUS_ONE:
+    return "ExponentMinusOne";
+  case UnaryOpType::FLOOR:
+    return "Floor";
+  case UnaryOpType::INVERSE:
+    return "Inverse";
+  case UnaryOpType::IS_FINITE:
+    return "IsFinite";
+  case UnaryOpType::IS_INF:
+    return "IsInf";
+  case UnaryOpType::IS_NAN:
+    return "IsNaN";
+  case UnaryOpType::LOGARITHM:
+    return "Logarithm";
+  case UnaryOpType::LOGARITHM_ONE_PLUS:
+    return "LogarithmOnePlus";
+  case UnaryOpType::LOGICAL_NOT:
+    return "LogicalNot";
+  case UnaryOpType::NEGATE:
+    return "Negate";
+  case UnaryOpType::POPCOUNT:
+    return "Popcount";
+  case UnaryOpType::RELU:
+    return "Relu";
+  case UnaryOpType::ROUND:
+    return "Round";
+  case UnaryOpType::SIGNUM:
+    return "Signum";
+  case UnaryOpType::SIN:
+    return "Sin";
+  case UnaryOpType::TAN:
+    return "Tan";
+  case UnaryOpType::TANH:
+    return "Tanh";
+  case UnaryOpType::SQRT:
+    return "Sqrt";
+  case UnaryOpType::SQUARE:
+    return "Square";
+  case UnaryOpType::SIGMOID:
+    return "Sigmoid";
+  case UnaryOpType::RSQRT:
+    return "Rsqrt";
+  case UnaryOpType::ASIN:
+    return "Asin";
+  }
+  throw poputil::poplibs_error("Op not supported");
+}
+
+std::string debugName(BinaryOpType op) {
+  switch (op) {
+  case BinaryOpType::ADD:
+    return "Add";
+  case BinaryOpType::ATAN2:
+    return "Atan2";
+  case BinaryOpType::BITWISE_AND:
+    return "BitwiseAnd";
+  case BinaryOpType::BITWISE_OR:
+    return "BitwiseOr";
+  case BinaryOpType::BITWISE_XOR:
+    return "BitwiseXor";
+  case BinaryOpType::BITWISE_XNOR:
+    return "BitwiseXnor";
+  case BinaryOpType::DIVIDE:
+    return "Divide";
+  case BinaryOpType::EQUAL:
+    return "Equal";
+  case BinaryOpType::GREATER_THAN_EQUAL:
+    return "GreaterThanEqual";
+  case BinaryOpType::GREATER_THAN:
+    return "GreaterThan";
+  case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+    return "InvStdDevToVariance";
+  case BinaryOpType::LESS_THAN_EQUAL:
+    return "LessThanEqual";
+  case BinaryOpType::LOGICAL_AND:
+    return "LogicalAnd";
+  case BinaryOpType::LOGICAL_OR:
+    return "LogicalOr";
+  case BinaryOpType::LESS_THAN:
+    return "LessThan";
+  case BinaryOpType::MAXIMUM:
+    return "Maximum";
+  case BinaryOpType::MINIMUM:
+    return "Minimum";
+  case BinaryOpType::MULTIPLY:
+    return "Multiply";
+  case BinaryOpType::NOT_EQUAL:
+    return "NotEqual";
+  case BinaryOpType::POWER:
+    return "Power";
+  case BinaryOpType::REMAINDER:
+    return "Remainder";
+  case BinaryOpType::SHIFT_LEFT:
+    return "ShiftLeft";
+  case BinaryOpType::SHIFT_RIGHT:
+    return "ShiftRight";
+  case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
+    return "ShiftRightSignExtend";
+  case BinaryOpType::SUBTRACT:
+    return "Subtract";
+  case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+    return "VarianceToInvStdDev";
+  }
+  throw poputil::poplibs_error("Op not supported");
+}
+
+std::string debugName(TernaryOpType op) {
+  switch (op) {
+  case TernaryOpType::CLAMP:
+    return "Clamp";
+  case TernaryOpType::SELECT:
+    return "Select";
+  }
+  throw poputil::poplibs_error("Op not supported");
+}
+
 bool isSpecialCase(BinaryOpType op) {
   return op == BinaryOpType::VARIANCE_TO_INV_STD_DEV ||
          op == BinaryOpType::INV_STD_DEV_TO_VARIANCE ||

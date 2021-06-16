@@ -59,7 +59,15 @@ public:
   virtual std::unique_ptr<Expr> clone() const = 0;
 
   virtual std::string name(const std::vector<poplar::Tensor> &) const = 0;
+
+  virtual bool deepEquals(const Expr &other) const = 0;
+
+  virtual void print(std::ostream &os, unsigned indent = 0,
+                     bool prettyPrint = true) const = 0;
 };
+
+std::ostream &operator<<(std::ostream &os, const Expr &expr);
+bool deepEquals(const Expr &a, const Expr &b);
 
 template <class T> class ExprType : public Expr {
   static void loc();
@@ -132,6 +140,11 @@ public:
     return std::unique_ptr<Expr>(new Const(typeTraits, type, data.get()));
   }
   std::string name(const std::vector<poplar::Tensor> &) const override;
+
+  bool deepEquals(const Expr &other) const override;
+
+  void print(std::ostream &os, unsigned indent = 0,
+             bool prettyPrint = true) const override;
 };
 
 /// A class to represent constant expressions of type \c half.
@@ -161,6 +174,11 @@ public:
     return std::unique_ptr<Expr>(new Cast(*a, bType));
   }
   std::string name(const std::vector<poplar::Tensor> &inputs) const override;
+
+  bool deepEquals(const Expr &other) const override;
+
+  void print(std::ostream &os, unsigned indent = 0,
+             bool prettyPrint = true) const override;
 };
 
 class PlaceHolder : public ExprType<PlaceHolder> {
@@ -175,6 +193,11 @@ public:
     return std::unique_ptr<Expr>(new PlaceHolder(index));
   }
   std::string name(const std::vector<poplar::Tensor> &inputs) const override;
+
+  bool deepEquals(const Expr &other) const override;
+
+  void print(std::ostream &os, unsigned indent = 0,
+             bool prettyPrint = true) const override;
 };
 
 const PlaceHolder _1(1);
@@ -217,6 +240,11 @@ public:
   std::string exprName(const std::vector<poplar::Tensor> &inputs) const {
     return a->name(inputs);
   };
+
+  bool deepEquals(const Expr &other) const override;
+
+  void print(std::ostream &os, unsigned indent = 0,
+             bool prettyPrint = true) const override;
 };
 
 #define POPLIBS_DEFINE_EXPR_UNARY_OP(Name, Op)                                 \
@@ -278,6 +306,11 @@ public:
   std::string exprName(const std::vector<poplar::Tensor> &inputs) const {
     return a->name(inputs) + "_" + b->name(inputs);
   }
+
+  bool deepEquals(const Expr &other) const override;
+
+  void print(std::ostream &os, unsigned indent = 0,
+             bool prettyPrint = true) const override;
 };
 
 #define POPLIBS_DEFINE_EXPR_BINARY_OP(Name, Op)                                \
@@ -289,12 +322,16 @@ public:
 #define POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Name, Op, Sym)                \
   POPLIBS_DEFINE_EXPR_BINARY_OP(Name, Op)                                      \
   template <typename T>                                                        \
-  inline typename std::enable_if<!std::is_base_of<Expr, T>::value, Name>::type \
+  inline typename std::enable_if<!std::is_base_of<Expr, T>::value &&           \
+                                     poplar::TypeTraits::isSimpleType<T>(),    \
+                                 Name>::type                                   \
   operator Sym(const T &a, const Expr &b) {                                    \
     return Name(Const(a), b);                                                  \
   }                                                                            \
   template <typename T>                                                        \
-  inline typename std::enable_if<!std::is_base_of<Expr, T>::value, Name>::type \
+  inline typename std::enable_if<!std::is_base_of<Expr, T>::value &&           \
+                                     poplar::TypeTraits::isSimpleType<T>(),    \
+                                 Name>::type                                   \
   operator Sym(const Expr &a, const T &b) {                                    \
     return Name(a, Const(b));                                                  \
   }                                                                            \
@@ -349,6 +386,11 @@ public:
   std::string exprName(const std::vector<poplar::Tensor> &inputs) const {
     return a->name(inputs) + "_" + b->name(inputs) + "_" + c->name(inputs);
   }
+
+  bool deepEquals(const Expr &other) const override;
+
+  void print(std::ostream &os, unsigned indent = 0,
+             bool prettyPrint = true) const override;
 };
 
 #define POPLIBS_DEFINE_EXPR_TERNARY_OP(Name, Op)                               \

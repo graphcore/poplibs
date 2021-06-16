@@ -1,4 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#include "ExprOpUtil.hpp"
 #include <boost/range/numeric.hpp>
 #include <cstdint>
 #include <iomanip>
@@ -27,6 +28,8 @@ template <> void ExprType<PlaceHolder>::loc() {}
 template <> void ExprType<UnaryOp>::loc() {}
 template <> void ExprType<BinaryOp>::loc() {}
 template <> void ExprType<TernaryOp>::loc() {}
+
+bool deepEquals(const Expr &a, const Expr &b) { return a.deepEquals(b); }
 
 double Const::getDataAsDouble() const {
   char *rawData = this->getData();
@@ -321,6 +324,113 @@ std::string Cast::name(const std::vector<poplar::Tensor> &inputs) const {
 std::string PlaceHolder::name(const std::vector<poplar::Tensor> &inputs) const {
   auto type = inputs[index - 1].elementType();
   return typeShortName(type) + "_" + std::to_string(index) + "_";
+}
+
+bool Const::deepEquals(const Expr &other) const {
+  const auto *otherConst = other.getAs<Const>();
+  return otherConst && type == otherConst->type &&
+         std::memcmp(data.get(), otherConst->data.get(), typeTraits.size) == 0;
+}
+
+bool Cast::deepEquals(const Expr &other) const {
+  const auto *otherCast = other.getAs<Cast>();
+  return otherCast && bType == otherCast->bType && a->deepEquals(*otherCast->a);
+}
+
+bool PlaceHolder::deepEquals(const Expr &other) const {
+  const auto *otherPlaceholder = other.getAs<PlaceHolder>();
+  return otherPlaceholder && index == otherPlaceholder->index;
+}
+
+bool UnaryOp::deepEquals(const Expr &other) const {
+  const auto *otherUnary = other.getAs<UnaryOp>();
+  return otherUnary && type == otherUnary->type &&
+         a->deepEquals(*otherUnary->a);
+}
+
+bool BinaryOp::deepEquals(const Expr &other) const {
+  const auto *otherBinary = other.getAs<BinaryOp>();
+  return otherBinary && type == otherBinary->type &&
+         a->deepEquals(*otherBinary->a) && b->deepEquals(*otherBinary->b);
+}
+
+bool TernaryOp::deepEquals(const Expr &other) const {
+  const auto *otherTernary = other.getAs<TernaryOp>();
+  return otherTernary && type == otherTernary->type &&
+         a->deepEquals(*otherTernary->a) && b->deepEquals(*otherTernary->b) &&
+         c->deepEquals(*otherTernary->c);
+}
+
+void Const::print(std::ostream &os, unsigned indent, bool prettyPrint) const {
+  if (prettyPrint)
+    os << std::string(indent, ' ');
+  os << "Const(" << printValue() << ")";
+}
+
+void Cast::print(std::ostream &os, unsigned indent, bool prettyPrint) const {
+  if (prettyPrint)
+    os << std::string(indent, ' ');
+  os << "Cast(" << bType << ",";
+  if (prettyPrint)
+    os << "\n";
+  a->print(os, indent + 2, prettyPrint);
+  os << ")";
+}
+
+void PlaceHolder::print(std::ostream &os, unsigned indent,
+                        bool prettyPrint) const {
+  if (prettyPrint)
+    os << std::string(indent, ' ');
+  os << "PlaceHolder(" << index << ")";
+}
+
+void UnaryOp::print(std::ostream &os, unsigned indent, bool prettyPrint) const {
+  if (prettyPrint)
+    os << std::string(indent, ' ');
+  os << debugName(type) << "(";
+  if (prettyPrint)
+    os << "\n";
+  a->print(os, indent + 2, prettyPrint);
+  os << ")";
+}
+
+void BinaryOp::print(std::ostream &os, unsigned indent,
+                     bool prettyPrint) const {
+  if (prettyPrint)
+    os << std::string(indent, ' ');
+  os << debugName(type) << "(";
+  if (prettyPrint)
+    os << "\n";
+  a->print(os, indent + 2, prettyPrint);
+  os << ",";
+  if (prettyPrint)
+    os << "\n";
+  b->print(os, indent + 2, prettyPrint);
+  os << ")";
+}
+
+void TernaryOp::print(std::ostream &os, unsigned indent,
+                      bool prettyPrint) const {
+  if (prettyPrint)
+    os << std::string(indent, ' ');
+  os << debugName(type) << "(";
+  if (prettyPrint)
+    os << "\n";
+  a->print(os, indent + 2, prettyPrint);
+  os << ",";
+  if (prettyPrint)
+    os << "\n";
+  b->print(os, indent + 2, prettyPrint);
+  os << ",";
+  if (prettyPrint)
+    os << "\n";
+  c->print(os, indent + 2, prettyPrint);
+  os << ")";
+}
+
+std::ostream &operator<<(std::ostream &os, const Expr &expr) {
+  expr.print(os, 0, true);
+  return os;
 }
 
 } // namespace expr

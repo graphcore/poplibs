@@ -8,9 +8,15 @@
 namespace popops {
 namespace expr {
 
+// OpType to a string that is usable as a symbol in code.
 std::string unaryOpTypeToString(UnaryOpType op);
 std::string binaryOpTypeToString(BinaryOpType op);
 std::string ternaryOpTypeToString(TernaryOpType op);
+
+// OpType to a human-readable debug string.
+std::string debugName(UnaryOpType op);
+std::string debugName(BinaryOpType op);
+std::string debugName(TernaryOpType op);
 
 // Is this binary op a special case. I.E doesn't conform to either function
 // semantics of OP(arg1, arg2) or the normal arg1 OP arg2, and as such should be

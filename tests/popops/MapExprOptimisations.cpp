@@ -13,6 +13,9 @@
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
+// Access to internal functions to directly check expression optimisations
+#include "popops/ElementWiseInternal.hpp"
+
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -126,96 +129,137 @@ executeExpr(const Expr &expression, const poplar::Type &dType, bool inPlace,
   return std::make_pair(hostOutOpt, hostOutNoOpt);
 }
 
+static const auto exampleBinaryExpr =
+    Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1)));
+
 BOOST_AUTO_TEST_CASE(Pow_cast_half) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(1.0f));
-  auto p = executeExpr(e1, poplar::HALF, false);
+  const auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(1.0f));
+  const auto dType = poplar::HALF;
+  const auto expectedOptimisedExpr =
+      popops::expr::Cast(exampleBinaryExpr, dType);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
                                 p.second.begin(), p.second.end());
 }
 
 BOOST_AUTO_TEST_CASE(Pow_cast_float) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(1.0f));
+  auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(1.0f));
+  const auto dType = poplar::FLOAT;
+  const auto expectedOptimisedExpr =
+      popops::expr::Cast(exampleBinaryExpr, dType);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
   auto p = executeExpr(e1, poplar::FLOAT, false);
   BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
                                 p.second.begin(), p.second.end());
 }
 
 BOOST_AUTO_TEST_CASE(Pow_sqrt_half) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(0.5f));
-  auto p = executeExpr(e1, poplar::HALF, false);
+  auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(0.5f));
+  const auto dType = poplar::HALF;
+  const auto expectedOptimisedExpr = popops::expr::Sqrt(exampleBinaryExpr);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   for (unsigned i = 0; i != p.first.size(); ++i) {
     BOOST_CHECK_CLOSE(p.first[i], p.second[i], HALF_TOLERANCE);
   }
 }
 
 BOOST_AUTO_TEST_CASE(Pow_sqrt_float) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(0.5f));
-  auto p = executeExpr(e1, poplar::FLOAT, false);
+  auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(0.5f));
+  const auto dType = poplar::FLOAT;
+  const auto expectedOptimisedExpr = popops::expr::Sqrt(exampleBinaryExpr);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   for (unsigned i = 0; i != p.first.size(); ++i) {
     BOOST_CHECK_CLOSE(p.first[i], p.second[i], FLOAT_TOLERANCE);
   }
 }
 
 BOOST_AUTO_TEST_CASE(Pow_isqrt_half) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(-0.5f));
-  auto p = executeExpr(e1, poplar::HALF, false);
+  auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(-0.5f));
+  const auto dType = poplar::HALF;
+  const auto expectedOptimisedExpr = popops::expr::Rsqrt(exampleBinaryExpr);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   for (unsigned i = 0; i != p.first.size(); ++i) {
     BOOST_CHECK_CLOSE(p.first[i], p.second[i], HALF_TOLERANCE);
   }
 }
 
 BOOST_AUTO_TEST_CASE(Pow_isqrt_float) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(-0.5f));
-  auto p = executeExpr(e1, poplar::FLOAT, false);
+  auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(-0.5f));
+  const auto dType = poplar::FLOAT;
+  const auto expectedOptimisedExpr = popops::expr::Rsqrt(exampleBinaryExpr);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   for (unsigned i = 0; i != p.first.size(); ++i) {
     BOOST_CHECK_CLOSE(p.first[i], p.second[i], FLOAT_TOLERANCE);
   }
 }
 
 BOOST_AUTO_TEST_CASE(Pow_inv_half) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(-1.0f));
-  auto p = executeExpr(e1, poplar::HALF, false);
+  auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(-1.0f));
+  const auto dType = poplar::HALF;
+  const auto expectedOptimisedExpr = popops::expr::Inv(exampleBinaryExpr);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   for (unsigned i = 0; i != p.first.size(); ++i) {
     BOOST_CHECK_CLOSE(p.first[i], p.second[i], HALF_TOLERANCE);
   }
 }
 
 BOOST_AUTO_TEST_CASE(Pow_inv_float) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(-1.0f));
-  auto p = executeExpr(e1, poplar::FLOAT, false);
+  auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(-1.0f));
+  const auto dType = poplar::FLOAT;
+  const auto expectedOptimisedExpr = popops::expr::Inv(exampleBinaryExpr);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   for (unsigned i = 0; i != p.first.size(); ++i) {
     BOOST_CHECK_CLOSE(p.first[i], p.second[i], FLOAT_TOLERANCE);
   }
 }
 
 BOOST_AUTO_TEST_CASE(Pow_sq_half) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(2.0f));
-  auto p = executeExpr(e1, poplar::HALF, false);
+  auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(2.0f));
+  const auto dType = poplar::HALF;
+  const auto expectedOptimisedExpr = popops::expr::Square(exampleBinaryExpr);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
                                 p.second.begin(), p.second.end());
 }
 
 BOOST_AUTO_TEST_CASE(Pow_sq_float) {
-  auto e1 = popops::expr::Pow(Add(Add(Add(_1, _2), _2), Sub(_2, Const(-1))),
-                              Const(2.0f));
-  auto p = executeExpr(e1, poplar::FLOAT, false);
+  auto e1 = popops::expr::Pow(exampleBinaryExpr, Const(2.0f));
+  const auto dType = poplar::FLOAT;
+  const auto expectedOptimisedExpr = popops::expr::Square(exampleBinaryExpr);
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
                                 p.second.begin(), p.second.end());
 }
 
 BOOST_AUTO_TEST_CASE(Pow_sq_float_1) {
-  auto e1 = popops::expr::Add(
-      Add(Add(Pow(_1, Const(2)), _2), Sub(_2, Const(-1))), _2);
-  auto p = executeExpr(e1, poplar::FLOAT, false);
+  const auto buildExpr = [](const auto &innerExpr) {
+    return Add(Add(Add(innerExpr, _2), Sub(_2, Const(-1))), _2);
+  };
+  auto e1 = buildExpr(Pow(_1, Const(2)));
+  const auto dType = poplar::FLOAT;
+  const auto expectedOptimisedExpr = buildExpr(Square(_1));
+  const auto actualOptimisedExpr = optimise(e1, {dType, dType}).expression;
+  BOOST_CHECK(actualOptimisedExpr->deepEquals(expectedOptimisedExpr));
+  auto p = executeExpr(e1, dType, false);
   BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
                                 p.second.begin(), p.second.end());
 }
