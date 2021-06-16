@@ -86,7 +86,7 @@ const Type &getTypeFromPlaceHolder(const expr::PlaceHolder &p,
   return tTypes[index];
 }
 
-std::optional<Type>
+static std::optional<Type>
 inferType(const expr::Expr &expr, const std::vector<Type> &tTypes,
           std::unordered_map<const expr::Expr *, Type> &constTypes,
           std::vector<const expr::Expr *> &unknown) {
@@ -97,8 +97,13 @@ inferType(const expr::Expr &expr, const std::vector<Type> &tTypes,
     std::vector<const expr::Expr *> subExprUnknown;
     static_cast<void>(
         inferType(cast->getLHS(), tTypes, constTypes, subExprUnknown));
-    if (!subExprUnknown.empty())
-      throw poplibs_error("Cannot infer constant types in expression");
+    if (!subExprUnknown.empty()) {
+      std::stringstream errStr;
+      errStr
+          << "Could not infer the type(s) of some constant(s) in expression ";
+      expr.print(errStr, 0, false);
+      throw poplibs_error(errStr.str());
+    }
     return cast->getRHSType();
   } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
     return getTypeFromPlaceHolder(*p, tTypes);
@@ -110,8 +115,13 @@ inferType(const expr::Expr &expr, const std::vector<Type> &tTypes,
         propagateTypeUp ? unknown : tmp;
     auto argType = inferType(u->getArg(), tTypes, constTypes, subExprUnknown);
     if (!propagateTypeUp) {
-      if (!subExprUnknown.empty())
-        throw poplibs_error("Cannot infer constant types in expression");
+      if (!subExprUnknown.empty()) {
+        std::stringstream errStr;
+        errStr
+            << "Could not infer the type(s) of some constant(s) in expression ";
+        expr.print(errStr, 0, false);
+        throw poplibs_error(errStr.str());
+      }
       return BOOL;
     }
     return argType;
@@ -135,12 +145,24 @@ inferType(const expr::Expr &expr, const std::vector<Type> &tTypes,
         constTypes[e] = *lhsType;
       subExprUnknown.clear();
     }
-    if (lhsType != rhsType)
-      throw poplibs_error("Arguments of binary operator in expression do not "
-                          "have the same type");
+    if (lhsType != rhsType) {
+      assert(bool(lhsType));
+      assert(bool(rhsType));
+      std::stringstream errStr;
+      errStr << "Inferred type of lhs (" << *lhsType
+             << ") does not match inferred type of rhs (" << *rhsType << ") in "
+             << "expression ";
+      expr.print(errStr, 0, false);
+      throw poplibs_error(errStr.str());
+    }
     if (!propagateTypeUp) {
-      if (!subExprUnknown.empty())
-        throw poplibs_error("Cannot infer constant types in expression");
+      if (!subExprUnknown.empty()) {
+        std::stringstream errStr;
+        errStr
+            << "Could not infer the type(s) of some constant(s) in expression ";
+        expr.print(errStr, 0, false);
+        throw poplibs_error(errStr.str());
+      }
       return BOOL;
     }
     return lhsType;
@@ -148,9 +170,18 @@ inferType(const expr::Expr &expr, const std::vector<Type> &tTypes,
     auto opType = t->getOpType();
     if (opType == expr::TernaryOpType::SELECT) {
       auto predType = inferType(t->getArg2(), tTypes, constTypes, unknown);
-      if (!predType || *predType != BOOL)
-        throw poplibs_error("Invalid type of condition argument of "
-                            "select operator in expression");
+      if (!predType || *predType != BOOL) {
+        std::stringstream errStr;
+        if (!predType) {
+          errStr << "Could not infer type ";
+        } else {
+          errStr << "Inferred type (" << *predType << ") ";
+        }
+        errStr << "of condition argument of Select operator in expression ";
+        expr.print(errStr, 0, false);
+        errStr << ". Must be bool.";
+        throw poplibs_error(errStr.str());
+      }
 
       auto lhsType = inferType(t->getArg0(), tTypes, constTypes, unknown);
       auto rhsType = inferType(t->getArg1(), tTypes, constTypes, unknown);
@@ -178,15 +209,27 @@ inferType(const expr::Expr &expr, const std::vector<Type> &tTypes,
         }
       }
 
-      if (lhsType != rhsType)
-        throw poplibs_error("Arguments of select operator in expression do not "
-                            "have the same type");
+      if (lhsType != rhsType) {
+        assert(bool(lhsType));
+        assert(bool(rhsType));
+        std::stringstream errStr;
+        errStr << "Inferred type of lhs (" << *lhsType
+               << ") does not match inferred type of rhs (" << *rhsType
+               << ") in Select expression ";
+        expr.print(errStr, 0, false);
+        throw poplibs_error(errStr.str());
+      }
       return lhsType;
     } else {
       assert(opType == expr::TernaryOpType::CLAMP);
       auto argType = inferType(t->getArg0(), tTypes, constTypes, unknown);
-      if (!argType)
-        throw poplibs_error("Cannot infer type in clamp expression");
+      if (!argType) {
+        std::stringstream errStr;
+        errStr
+            << "Could not infer type of arguments/result in Clamp expression ";
+        expr.print(errStr, 0, false);
+        throw poplibs_error(errStr.str());
+      }
       auto lowerType = inferType(t->getArg1(), tTypes, constTypes, unknown);
       if (!lowerType) {
         lowerType = argType;
@@ -211,10 +254,31 @@ std::unordered_map<const expr::Expr *, Type>
 getConstType(const expr::Expr &expr, const std::vector<Type> &tTypes) {
   std::unordered_map<const expr::Expr *, Type> constTypes;
   std::vector<const expr::Expr *> unknown;
-  auto type = inferType(expr, tTypes, constTypes, unknown);
+  std::optional<Type> type;
+  // inferType throws with a specific error message which we rethrow
+  // giving the full context - i.e. the full expression in question
+  // and types of placeholders etc.
+  try {
+    type = inferType(expr, tTypes, constTypes, unknown);
+  } catch (const poplibs_error &e) {
+    std::stringstream errStr;
+    errStr << "Error inferring types in expression:\n";
+    expr.print(errStr, 0, true);
+    if (!tTypes.empty()) {
+      errStr << "\n\nwith PlaceHolder types:";
+      for (std::size_t i = 0; i < tTypes.size(); ++i) {
+        errStr << "\n  " << i << ":" << tTypes[i];
+      }
+    }
+    errStr << "\n\n" << e.what();
+    throw poplibs_error(errStr.str());
+  }
 
   if (!type || !unknown.empty()) {
-    throw poplibs_error("Cannot infer type of expression");
+    std::stringstream errStr;
+    errStr << "Could not infer types in expression:\n";
+    expr.print(errStr, 0, true);
+    throw poplibs_error(errStr.str());
   }
   return constTypes;
 }

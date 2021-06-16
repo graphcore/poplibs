@@ -19,11 +19,6 @@ const poplar::Type &
 getTypeFromPlaceHolder(const expr::PlaceHolder &p,
                        const std::vector<poplar::Type> &tTypes);
 
-std::optional<poplar::Type>
-inferType(const expr::Expr &expr, const std::vector<poplar::Type> &tTypes,
-          std::unordered_map<const expr::Expr *, poplar::Type> &constTypes,
-          std::vector<const expr::Expr *> &unknown);
-
 std::unordered_map<const expr::Expr *, poplar::Type>
 getConstType(const expr::Expr &expr, const std::vector<poplar::Type> &tTypes);
 
