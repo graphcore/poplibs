@@ -104,67 +104,6 @@ countedLoop(poplar::Graph &graph, std::size_t count,
   return prog;
 }
 
-/** \deprecated Use countedLoop(graph, begin, end, step, body debugContext)
- *   instead
- *
- *  Create a loop program with constant initial count, increment and end value.
- *  The program is equivalent to:
- *  \code
- *  for(unsigned i = begin; i != end; i += step){
- *    Run \p body program
- *  }
- *  \endcode
- *
- * \param graph        The graph the loop program will be added to
- * \param begin        Initial counter value
- * \param end          Counter end value (exclusive)
- * \param step         The increment added on each loop pass (must be greater
- *                     than zero)
- * \param debugContext Debug information
- * \param body         The loop body program to run on each loop pass
- *
- * \return             A program providing the above loop function
- */
-inline poplar::program::Sequence
-countedLoop(poplar::Graph &graph, std::size_t begin, std::size_t end,
-            size_t step, const poplar::DebugContext &debugContext,
-            const CountedLoopBodyType &body) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(begin, end, step));
-
-  auto prog = countedLoop(graph, begin, end, step, body, {di});
-  di.addOutputs(DI_ARGS(prog));
-  return prog;
-}
-
-/** \deprecated Use countedLoop(graph, count,body, debugContext) instead
- *
- *  Create a loop program which executes \p count times.
- *  The program is equivalent to:
- *  \code
- *  for(unsigned i = 0; count != count; i += 1){
- *    Run \p body program
- *  }
- *  \endcode
- *
- * \param graph        The graph the loop program will be added to
- * \param count        Number of loop passes to execute
- * \param debugContext Debug information
- * \param body         The loop body program to run on each loop pass
- *
- * \return             A program providing the above loop function
- */
-
-inline poplar::program::Sequence
-countedLoop(poplar::Graph &graph, std::size_t count,
-            const poplar::DebugContext &debugContext,
-            const CountedLoopBodyType &body) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(count));
-
-  auto prog = countedLoop(graph, 0, count, 1, body, {di});
-  di.addOutputs(DI_ARGS(prog));
-  return prog;
-}
-
 inline poplar::Tensor addForLoopCounterVertex(poplar::Graph &graph,
                                               const poplar::Tensor &count,
                                               const poplar::Tensor &countLimit,
