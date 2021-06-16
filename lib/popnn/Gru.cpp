@@ -933,7 +933,8 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
   auto numShards = getNumShards(graph, params, opt, {dnai, "numShards"});
   auto loopFwd = [&params, &weights, &opt, &cache](
                      Graph &graph, const Tensor &shardSeqIdx,
-                     const Tensor &seqIdx, const Tensor &mask,
+                     const Tensor &seqIdx,
+                     const rnn::RnnBatchwiseFlags &batchwiseFlags,
                      std::vector<Tensor> &fwdState, const rnn::RnnSlice &slice,
                      std::vector<Tensor> &created, program::Sequence *initProg,
                      const DebugNameAndId &dnai) {
@@ -944,16 +945,16 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
     if (slice.inputs[1].valid()) {
       sliceAttScoresOpt = slice.inputs[1];
     }
-
     const Tensor *inputWeightsPtr = &weights.inputWeights;
     auto sliceOutput = fwdState[0].squeeze({0});
-    if (mask.valid() || slice.interimOut.valid()) {
+    if (batchwiseFlags.valid() || slice.interimOut.valid()) {
       auto [newOutput, internalState] = basicGruCellForwardPass(
           graph, fwdInput, weights.biases, sliceOutput, inputWeightsPtr,
           weights.outputWeights, sliceAttScoresOpt, loop, opt, params, {dnai},
           cache);
       if (slice.interimOut.valid()) {
-        if (mask.valid()) {
+        if (batchwiseFlags.valid()) {
+          auto mask = batchwiseFlags.mask.expand({1});
           mapInPlace(graph, _1 * _2, {newOutput, mask}, loop, {dnai});
           mapInPlace(graph, _1 * _2, {internalState.resetGate, mask}, loop,
                      {dnai});
@@ -967,14 +968,22 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
         loop.add(Copy(fwdIntermediates, slice.interimOut, false, {dnai}));
       }
 
-      // Cease to update the state for batches that have reached their
-      // RNN iteration limit
-      if (mask.valid()) {
-        auto maskBool = cast(graph, mask, BOOL, loop);
-        newOutput =
-            select(graph, newOutput, fwdState[0], maskBool, loop, {dnai});
+      // if `params.outputFullSequence=false` only the output of the final step
+      // need to be returned to the user. The final step may differ between
+      // batches. The output needs to be 'latched' for steps which are beyond
+      // the step-limit for a batch. On the other hand if
+      // `params.outputFullSequence=true` the full output sequence needs to
+      // be returned and therefore the output does not need to be latched for
+      // these cases.
+      if (batchwiseFlags.valid() && (!params.outputFullSequence)) {
+        auto mask = batchwiseFlags.mask.expand({1});
+        auto maskInv = batchwiseFlags.inverse.expand({1});
+        mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
+                   {fwdState[0], newOutput, mask, maskInv}, loop,
+                   {dnai, "selectState"});
+      } else {
+        loop.add(Copy(newOutput, fwdState[0], false, {dnai}));
       }
-      loop.add(Copy(newOutput, fwdState[0], false, {dnai}));
     } else {
       basicGruCellForwardPassInPlace(
           graph, fwdInput, weights.biases, sliceOutput, inputWeightsPtr,
@@ -1758,7 +1767,8 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
   auto loopBwdWithWU =
       [&params, &options, &inputGradSeq, &cache, &weightsRearranged](
           GruWeights &weights, GruWeights *weightsGrad, Graph &graph,
-          const Tensor &shardSeqIdx, const Tensor &seqIdx, const Tensor &mask,
+          const Tensor &shardSeqIdx, const Tensor &seqIdx,
+          const rnn::RnnBatchwiseFlags &batchwiseFlags,
           std::vector<Tensor> &shardState, const rnn::RnnSlice &slice,
           std::vector<Tensor> &created, program::Sequence *initProg,
           const DebugNameAndId &dnai) {
@@ -1774,7 +1784,10 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
         Tensor inputGrad =
             shardState[0].valid() ? shardState[0].squeeze({0}) : Tensor{};
         Tensor lastOutGrad = shardState[1].squeeze({0});
-
+        Tensor mask;
+        if (batchwiseFlags.valid()) {
+          mask = batchwiseFlags.mask.expand({1});
+        }
         boost::optional<const Tensor &> sliceAttScoresOpt(boost::none);
         boost::optional<Tensor &> sliceAttScoresGradsOpt(boost::none);
         if (attScores.valid()) {
@@ -1797,14 +1810,14 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
         if (slice.interimOut.valid()) {
           loop.add(Copy(bwdIntermediates, slice.interimOut, false, {dnai}));
         }
-        if (mask.valid()) {
+        if (batchwiseFlags.valid()) {
+          auto maskInv = batchwiseFlags.inverse.expand({1});
           // update output gradient state if the batchwise time steps is within
           // the specified range for that batch. Do not update the state if the
           // time steps exceeds the range.
-          auto maskFlags = cast(graph, mask, BOOL, loop);
-          auto updatedOutGrad =
-              select(graph, newOutGrad, lastOutGrad, maskFlags, loop, {dnai});
-          loop.add(Copy(updatedOutGrad, lastOutGrad, false, {dnai}));
+          mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
+                     {lastOutGrad, newOutGrad, mask, maskInv}, loop,
+                     {dnai, "selectState"});
         } else {
           loop.add(Copy(newOutGrad, lastOutGrad, false, {dnai}));
         }
@@ -2034,9 +2047,10 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   auto loopWU = [&params, &options, &planningCache](
                     GruWeights &weightGrads, Graph &graph,
                     const Tensor &shardSeqIdx, const Tensor &seqIdx,
-                    const Tensor &mask, std::vector<Tensor> &shardState,
-                    const rnn::RnnSlice &slice, std::vector<Tensor> &created,
-                    program::Sequence *initProg, const DebugNameAndId &dnai) {
+                    const rnn::RnnBatchwiseFlags &batchwiseFlags,
+                    std::vector<Tensor> &shardState, const rnn::RnnSlice &slice,
+                    std::vector<Tensor> &created, program::Sequence *initProg,
+                    const DebugNameAndId &dnai) {
     auto loop = Sequence{{}, {dnai}};
     auto &prevLayerOut = slice.inputs[0];
     auto &prevStepOut = slice.inputs[1];

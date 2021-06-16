@@ -226,6 +226,29 @@ void performOp(BinaryOpType op, T a, T b, unsigned char &result) {
                          " is not a boolean operator");
 }
 
+#define ONE_OP_OUTX2(opId, expr)                                               \
+  if (op == BinaryOpType::opId) {                                              \
+    auto val = expr;                                                           \
+    return {val, 1.0 - val};                                                   \
+  }
+
+// Do the operation specified by 'op' on 'a' and 'b' where the 'op' is one of
+// the operators that return a boolean. This works for floating point, integer
+// and boolean data types.
+template <typename T>
+std::pair<float, float> performOp(BinaryOpType op, T a, T b) {
+  ONE_OP_OUTX2(EQUAL, a == b);
+  ONE_OP_OUTX2(GREATER_THAN_EQUAL, a >= b);
+  ONE_OP_OUTX2(GREATER_THAN, a > b);
+  ONE_OP_OUTX2(LESS_THAN_EQUAL, a <= b);
+  ONE_OP_OUTX2(LESS_THAN, a < b);
+  ONE_OP_OUTX2(LOGICAL_AND, a && b);
+  ONE_OP_OUTX2(LOGICAL_OR, a || b);
+  ONE_OP_OUTX2(NOT_EQUAL, a != b);
+  throw std::logic_error(std::to_string(unsigned(op)) +
+                         " is not a boolean operator");
+}
+
 #undef COMMON_OPS
 #undef ONE_OP
 

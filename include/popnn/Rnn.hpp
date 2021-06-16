@@ -184,6 +184,16 @@ struct RnnSlice {
   std::vector<poplar::Tensor> outputs;
 };
 
+/* Flags set per batch if the current step is within the batchwise step limit.
+ * The component Tensor(s) are of `dataType` type and shape `{batchSize}`.
+ */
+struct RnnBatchwiseFlags {
+  poplar::Tensor mask;
+  poplar::Tensor inverse;
+
+  bool valid() const { return mask.valid(); };
+};
+
 /** Loop body function wrapper with the following arguments:
  *
  * \param graph              Graph Object
@@ -192,8 +202,8 @@ struct RnnSlice {
  * \param seqIdx             Tensor that iterates over the range of input
  *                           sequences that are mapped on the current shard,
  *                           beginning from 0.
- * \param mask               Tensor of either 0 or 1 in `dataType` type.
- *                           shaped `{multiple * batchSize, outputSize}`
+ * \param batchwiseFlags     Flags that indicate batches for which the current
+ *                           step is within the batchwise step limit.
  * \param state              state tensors
  * \param slice              Input/Output tensors for a specific shard
  * \param created            Output tensors which are created by this function.
@@ -204,7 +214,7 @@ struct RnnSlice {
  */
 using LoopBodyType = std::function<poplar::program::Sequence(
     poplar::Graph &graph, const poplar::Tensor &, const poplar::Tensor &,
-    const poplar::Tensor &, std::vector<poplar::Tensor> &,
+    const RnnBatchwiseFlags &, std::vector<poplar::Tensor> &,
     const RnnSlice &slice, std::vector<poplar::Tensor> &,
     poplar::program::Sequence *, const poplar::DebugNameAndId &)>;
 

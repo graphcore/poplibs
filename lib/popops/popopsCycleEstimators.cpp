@@ -174,6 +174,31 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2Types1D)(
   return broadcastArithmetic1DCycleEstimate(vertex, target, op, FLOAT, perfInfo,
                                             outType == FLOAT ? 0 : 1);
 }
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
+    BroadcastScalar1DRelationalOpDualOutput)(const VertexIntrospector &vertex,
+                                             const Target &target,
+                                             BinaryOpType op, const Type &type,
+                                             const Type &outType) {
+  CODELET_FIELD(data);
+
+  // The C++ codelets use only 32 bit store, half vector width.
+  unsigned elemsPerLoop = target.getVectorWidth(outType) / 2;
+  auto numWorkers = target.getNumWorkerContexts();
+  unsigned overhead = outType == FLOAT ? 15 : 36;
+  unsigned cyclesPerLoop = outType == FLOAT ? 8 : 23;
+
+  auto numElems = iceil(data.size(), numWorkers);
+  unsigned numLoops = iceil(numElems, elemsPerLoop);
+  std::uint64_t cycles = 20 + overhead + (numLoops * cyclesPerLoop);
+  logging::popops::info(
+      "[Outx2] data={} numElems={} elemsPerLoop={} numLoops={} cycles={}",
+      data.size(), numElems, elemsPerLoop, numLoops, cycles);
+  std::uint64_t flops = static_cast<std::uint64_t>(data.size()) *
+                        (flopsPerBinaryOpElement(op) +
+                         flopsPerBinaryOpElement(BinaryOpType::SUBTRACT));
+  std::uint64_t totalCycles = cycles * numWorkers + basicOpSupervisorOverhead();
+  return {totalCycles, convertToTypeFlops(flops, type)};
+}
 
 static VertexPerfEstimate BroadcastVectorOuterCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
@@ -3034,6 +3059,35 @@ MAKE_PERF_ESTIMATOR_NAME(NormaliseImage)(const VertexIntrospector &vertex,
                             BinaryOpType::INV_STD_DEV_TO_VARIANCE, HALF,       \
                             FLOAT)
 
+// Entries for broadcast of relational operations followed by cast
+#define BROADCAST_CAST_CYCLE_ESTIM_ENTRIES(vertexName)                         \
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::EQUAL, UNSIGNED_INT, \
+                        FLOAT),                                                \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::EQUAL,           \
+                            UNSIGNED_INT, HALF),                               \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::GREATER_THAN,    \
+                            UNSIGNED_INT, FLOAT),                              \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::GREATER_THAN,    \
+                            UNSIGNED_INT, HALF),                               \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
+                            BinaryOpType::GREATER_THAN_EQUAL, UNSIGNED_INT,    \
+                            FLOAT),                                            \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
+                            BinaryOpType::GREATER_THAN_EQUAL, UNSIGNED_INT,    \
+                            HALF),                                             \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::LESS_THAN,       \
+                            UNSIGNED_INT, FLOAT),                              \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::LESS_THAN,       \
+                            UNSIGNED_INT, HALF),                               \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::LESS_THAN_EQUAL, \
+                            UNSIGNED_INT, FLOAT),                              \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::LESS_THAN_EQUAL, \
+                            UNSIGNED_INT, HALF),                               \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::NOT_EQUAL,       \
+                            UNSIGNED_INT, FLOAT),                              \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::NOT_EQUAL,       \
+                            UNSIGNED_INT, HALF)
+
 // Entries for broadcast outer vertices covering only the 3 basic operations,
 // each with an alwaysAligned template parameter
 #define BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(vertexName,                 \
@@ -3254,6 +3308,9 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
 
       BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(BroadcastScalar2Types2DData),
       BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(BroadcastScalar2Types1D),
+
+      BROADCAST_CAST_CYCLE_ESTIM_ENTRIES(
+          BroadcastScalar1DRelationalOpDualOutput),
 
       BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(BroadcastVectorOuterByColumn1D,
                                                  true),

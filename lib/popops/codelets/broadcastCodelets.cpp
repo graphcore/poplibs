@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <tuple>
 
 #include "elemwiseBinaryOps.hpp"
 #include "poplar/TileConstants.hpp"
@@ -61,6 +62,20 @@ public:
     // No vectorisation but still split over workers
     for (unsigned j = worker; j < size; j += CTXT_WORKERS)
       out[j] = BinaryOpFn<op, inT, architecture::active>::fn(in[j], K);
+  }
+};
+
+template <BinaryOpType op, typename inT, typename outT, bool allowRemainder>
+struct BroadcastRelationalOpDualOutputDispatchMultiVertex {
+public:
+  static void compute(unsigned size, unsigned worker, const inT *in, outT *out,
+                      outT *outInv, const inT K) {
+    // No vectorisation but still split over workers
+    for (unsigned j = worker; j < size; j += CTXT_WORKERS) {
+      auto result = BinaryOpFn<op, inT, architecture::active>::fn(in[j], K);
+      out[j] = static_cast<outT>(result);
+      outInv[j] = 1 - out[j];
+    }
   }
 };
 
@@ -707,6 +722,44 @@ public:
   }
 };
 
+template <BinaryOpType op, typename inT, bool allowRemainder>
+struct BroadcastRelationalOpDualOutputDispatchMultiVertex<op, inT, half,
+                                                          allowRemainder> {
+public:
+  static void compute(unsigned size, unsigned worker, const inT *in, half *out,
+                      half *outInv, const inT K) {
+    half2 *h2Out1 = reinterpret_cast<half2 *>(out) + worker;
+    half2 *h2Out2 = reinterpret_cast<half2 *>(outInv) + worker;
+    const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+    auto load = in + worker * 2;
+    for (unsigned j = 0; j < loopCount; j++) {
+      half2 calc1, calc2;
+      for (unsigned i = 0; i < 2; ++i) {
+        bool val = BinaryOpFn<op, inT, architecture::active>::fn(load[i], K);
+        calc1[i] = static_cast<half>(val);
+        calc2[i] = 1 - calc1[i];
+      }
+      *h2Out1 = calc1;
+      *h2Out2 = calc2;
+      h2Out1 += CTXT_WORKERS;
+      h2Out2 += CTXT_WORKERS;
+      load += CTXT_WORKERS * 2;
+    }
+    if (allowRemainder && (size & 1)) {
+      if (worker == (CTXT_WORKERS - 1)) {
+        unsigned offset = size - 1;
+        half2 *h2Out1 = reinterpret_cast<half2 *>(&out[offset]);
+        half2 *h2Out2 = reinterpret_cast<half2 *>(&outInv[offset]);
+        bool val = BinaryOpFn<op, inT, architecture::active>::fn(in[offset], K);
+        half2 output1 = {static_cast<half>(val), (*h2Out1)[1]};
+        half2 output2 = {1 - output1[0], (*h2Out2)[1]};
+        *h2Out1++ = output1;
+        *h2Out2++ = output2;
+      }
+    }
+  }
+};
+
 #endif
 
 namespace popops {
@@ -759,6 +812,20 @@ namespace popops {
   INSTANTIATE_OP(name, BinaryOpType::LESS_THAN, bool)                          \
   INSTANTIATE_OP(name, BinaryOpType::LESS_THAN_EQUAL, bool)                    \
   INSTANTIATE_OP(name, BinaryOpType::NOT_EQUAL, bool)
+
+#define INSTANTIATE_SCALAR_DUAL_OUT_RELOP_TYPES(name, opType)                  \
+  template class name<opType, unsigned, float>;                                \
+  template class name<opType, unsigned, half>
+
+#define INSTANTIATE_SCALAR_DUAL_OUT_RELOP(name)                                \
+  INSTANTIATE_SCALAR_DUAL_OUT_RELOP_TYPES(name, BinaryOpType::EQUAL);          \
+  INSTANTIATE_SCALAR_DUAL_OUT_RELOP_TYPES(name,                                \
+                                          BinaryOpType::GREATER_THAN_EQUAL);   \
+  INSTANTIATE_SCALAR_DUAL_OUT_RELOP_TYPES(name, BinaryOpType::GREATER_THAN);   \
+  INSTANTIATE_SCALAR_DUAL_OUT_RELOP_TYPES(name,                                \
+                                          BinaryOpType::LESS_THAN_EQUAL);      \
+  INSTANTIATE_SCALAR_DUAL_OUT_RELOP_TYPES(name, BinaryOpType::LESS_THAN);      \
+  INSTANTIATE_SCALAR_DUAL_OUT_RELOP_TYPES(name, BinaryOpType::NOT_EQUAL);
 
 #define INSTANTIATE_VECTOR_OUTER_TYPES(name, opType)                           \
   template class name<opType, float, true>;                                    \
@@ -901,6 +968,24 @@ INSTANTIATE_OP(BroadcastScalar2D, BinaryOpType::INV_STD_DEV_TO_VARIANCE, half,
                float)
 INSTANTIATE_OP(BroadcastScalar2DInPlace, BinaryOpType::INV_STD_DEV_TO_VARIANCE,
                half, float)
+
+template <BinaryOpType op, typename inT, typename outT>
+class BroadcastScalar1DRelationalOpDualOutput : public MultiVertex {
+public:
+  Input<Vector<inT, SPAN, 8>> data;
+  Output<Vector<outT, ONE_PTR, 8>> out;
+  Output<Vector<outT, ONE_PTR, 8>> outInv;
+  Input<inT> B;
+  IS_EXTERNAL_CODELET(false);
+  bool compute(unsigned wid) {
+    BroadcastRelationalOpDualOutputDispatchMultiVertex<
+        op, inT, outT, true>::compute(data.size(), wid, &data[0], &out[0],
+                                      &outInv[0], *B);
+    return true;
+  }
+};
+
+INSTANTIATE_SCALAR_DUAL_OUT_RELOP(BroadcastScalar1DRelationalOpDualOutput);
 
 template <BinaryOpType op, typename dType>
 class BroadcastScalar1D : public MultiVertex {

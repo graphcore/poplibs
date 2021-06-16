@@ -144,6 +144,16 @@ test_elementwise(S4  1D   "28;44;50")
 # different sizes.
 test_elementwise(2D_1 2D "[1,2,3,4,8,9,12,22,24]"  1)
 test_elementwise(2D_2 2D "[25,26,27,28]"  1)
+# Test codelets that output two outputs
+add_multitarget_test(NAME "BinaryOpCodeletsTests_rel_op_dual_output"
+                     COMMAND BinaryCodeletsTest
+                             --vertexRE RelationalOpDualOutput
+                             --operation EQUAL GREATER_THAN_EQUAL GREATER_THAN
+                                         LESS_THAN_EQUAL LESS_THAN NOT_EQUAL
+                             --size "1;2;3;4;5;6;7;11;12;13;23;24;25;26;27;45;46;47;48;49"
+                             --group-tests
+                     LABELS codelet
+                     VARIANTS ${SIM_VARIANTS})
 
 # These operations will generate FP exceptions when they are enabled (this
 # currently happens in Debug builds).

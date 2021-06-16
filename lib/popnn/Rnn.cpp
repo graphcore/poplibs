@@ -2,6 +2,7 @@
 
 #include "RnnUtil.hpp"
 #include "poplibs_support/Tracepoint.hpp"
+#include "poputil/VertexTemplates.hpp"
 #include <boost/optional.hpp>
 #include <cassert>
 #include <cstdint>
@@ -962,6 +963,30 @@ static void runGather(Graph &graph, const RnnParams &params,
   }
 }
 
+// Greater than comparison of 1-D tensor of batchwise variable step limits with
+// the scalar `stepCounter`. The result is a tensor of `dataType`. The `result`
+// and `1 - result` are concatenated along an expanded 0th dimension.
+static RnnBatchwiseFlags compareGT(Graph &graph, const RnnParams &params,
+                                   const Tensor &stepCounter, Sequence &prog,
+                                   const poplar::DebugNameAndId &dnai) {
+  using namespace popops::expr;
+  auto mask = graph.clone(params.dataType, params.varTimeSteps, {dnai});
+  auto maskInv = graph.clone(params.dataType, params.varTimeSteps, {dnai});
+  std::string vertexName = "popops::BroadcastScalar1DRelationalOpDualOutput";
+  auto vertexClass = poputil::templateVertex(
+      vertexName, "popops::expr::BinaryOpType::GREATER_THAN",
+      stepCounter.elementType(), params.dataType);
+  auto cs = graph.addComputeSet({dnai, "compareGT"});
+  auto v = graph.addVertex(cs, vertexClass);
+  graph.connect(v["B"], stepCounter.squeeze({0}));
+  graph.connect(v["data"], params.varTimeSteps);
+  graph.connect(v["out"], mask);
+  graph.connect(v["outInv"], maskInv);
+  graph.setTileMapping(v, 0);
+  prog.add(Execute(cs, {dnai}));
+  return {mask, maskInv};
+}
+
 static void runGather(Graph &graph, const RnnParams &params,
                       const RnnState &shard, const RnnSlice &slice,
                       const Tensor &tempBuffer, Sequence &prog,
@@ -1027,7 +1052,7 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
   auto createRnnFunc =
       [&graph, &shard, &initProg,
        &loopFn](const std::vector<poplar::Tensor> &state,
-                const poplar::Tensor &mask, const RnnSlice &similarSlice,
+                const RnnBatchwiseFlags &flags, const RnnSlice &similarSlice,
                 const std::vector<poplar::Tensor> &created,
                 const poplar::DebugNameAndId &dnai) -> graphfn::VoidFunction {
     using graphfn::inout;
@@ -1046,15 +1071,17 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
       auto it = args.begin();
       auto index = sliceTensors({shard.startIndex()}, it)[0];
       auto counter = sliceTensors({shard.counterTensor()}, it)[0];
-      auto currMask = sliceTensors({mask}, it)[0];
+      auto mask = sliceTensors({flags.mask}, it)[0];
+      auto maskInv = sliceTensors({flags.inverse}, it)[0];
       auto stateShard = sliceTensors(state, it);
       RnnSlice slice;
       slice.inputs = sliceTensors(similarSlice.inputs, it);
       slice.interimIn = sliceTensors({similarSlice.interimIn}, it)[0];
       slice.interimOut = sliceTensors({similarSlice.interimOut}, it)[0];
       slice.outputs = sliceTensors(similarSlice.outputs, it);
+      RnnBatchwiseFlags currFlags = {mask, maskInv};
       auto createdSlices = sliceTensors(created, it);
-      auto process = loopFn(graph, index, counter, currMask, stateShard, slice,
+      auto process = loopFn(graph, index, counter, currFlags, stateShard, slice,
                             createdSlices, &initProg, dnai);
       std::copy(createdSlices.begin(), createdSlices.end(),
                 args.end() - created.size());
@@ -1077,7 +1104,8 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
                       "shardIndex");
     appendToSignature({shard.counterTensor()}, graphfn::InputArg, edges,
                       "shardCounter");
-    appendToSignature({mask}, graphfn::InputArg, edges, "mask");
+    appendToSignature({flags.mask}, graphfn::InputArg, edges, "mask");
+    appendToSignature({flags.inverse}, graphfn::InputArg, edges, "maskInv");
     appendToSignature(state, graphfn::InOutArg, edges, "state");
     appendToSignature(similarSlice.inputs, graphfn::InputArg, edges, "input");
     appendToSignature({similarSlice.interimIn}, graphfn::InputArg, edges,
@@ -1091,7 +1119,8 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
   };
 
   auto gatherEdges = [&shard](const std::vector<Tensor> &state,
-                              const poplar::Tensor &mask, const RnnSlice &slice,
+                              const RnnBatchwiseFlags &flags,
+                              const RnnSlice &slice,
                               std::vector<poplar::Tensor> &created) {
     std::vector<Tensor> edges;
     auto appendTensors = [](const std::vector<Tensor> &src,
@@ -1105,7 +1134,8 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
     };
     appendTensors({shard.startIndex()}, edges);
     appendTensors({shard.counterTensor()}, edges);
-    appendTensors({mask}, edges);
+    appendTensors({flags.mask}, edges);
+    appendTensors({flags.inverse}, edges);
     appendTensors(state, edges);
     appendTensors(slice.inputs, edges);
     appendTensors({slice.interimIn}, edges);
@@ -1153,18 +1183,15 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
                        : slice.interimOut;
     }
 
-    Tensor maskBatchwise;
-    Tensor maskOut;
     // Create a mask if the time steps limit is different across batches
+    RnnBatchwiseFlags batchFlags;
     if (params.batchVariableTimeSteps()) {
       auto seqIdxAbsolute =
           (numShards > 1)
               ? add(graph, index, counter, process, {di, "sequenceIndex"})
               : counter;
-      auto mask = gt(graph, params.varTimeSteps, seqIdxAbsolute, process, {di});
-      maskBatchwise =
-          cast(graph, mask, params.dataType, process, {di, "varTimeMask"});
-      maskOut = maskBatchwise.expand({1}).broadcast(params.layerSizes[1], 1);
+      batchFlags = compareGT(graph, params, seqIdxAbsolute, process,
+                             {di, "batchStepsWithinLimit"});
     }
 
     // Call `loopFn` callback every time step
@@ -1173,17 +1200,17 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
       if (shard.first()) {
         // Create graphfn::VoidFunction only for the first shard. Reuse
         // this function on subsequent shards.
-        rnnFunc.emplace(createRnnFunc(stateShard, maskOut, slice, created,
+        rnnFunc.emplace(createRnnFunc(stateShard, batchFlags, slice, created,
                                       {di, "rnnFunction"}));
       }
-      auto edges = gatherEdges(stateShard, maskOut, slice, createdSlices);
+      auto edges = gatherEdges(stateShard, batchFlags, slice, createdSlices);
       rnnFunc.value()(edges, process);
       std::copy(edges.end() - createdSlices.size(), edges.end(),
                 createdSlices.begin());
     } else {
       // Replicate custom RNN model on every shard.
       auto index = shard.startIndex();
-      process.add(loopFn(graph, index, counter, maskOut, stateShard, slice,
+      process.add(loopFn(graph, index, counter, batchFlags, stateShard, slice,
                          createdSlices, (shard.first() ? &initProg : nullptr),
                          {di, "shard/" + std::to_string(shardIndex)}));
     }
@@ -1194,13 +1221,10 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
       // If the time steps limit varies across batches and the state slice
       // needs to be recorded for every time step as output, zero out
       // the appropriate batch(es) without zeroing out the state itself.
-      if (maskBatchwise.valid()) {
-        using namespace popops::expr;
-        auto fieldSize = stateSlice.dim(2);
-        auto mask = (maskOut.dim(1) == fieldSize)
-                        ? maskOut
-                        : maskBatchwise.expand({1}).broadcast(fieldSize, 1);
-        stateSlice = map(graph, _1 * _2, {stateSlice, mask}, process, {di});
+      if (batchFlags.valid()) {
+        stateSlice = map(graph, expr::_1 * expr::_2,
+                         {stateSlice, batchFlags.mask.expand({1})}, process,
+                         {di, "selectStateToStore"});
       }
       stateSeqOutput = stateSequence.output;
     }

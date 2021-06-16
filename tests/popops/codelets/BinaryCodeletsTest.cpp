@@ -1,5 +1,4 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-
 //
 // Tests one or more of the element-wise binary/broadcast codelets:
 //
@@ -11,6 +10,8 @@
 //     BroadcastScalar2DData[InPlace]
 //     BroadcastScalar2Types2DData
 //     BroadcastScalar2D[InPlace]
+//
+//     BroadcastScalar1DRelationalOpDualOutput
 //
 //     BroadcastVectorInner1D[InPlace]
 //     BroadcastVectorInner2D[InPlace]
@@ -43,6 +44,7 @@
 #include <iomanip>
 #include <optional>
 #include <regex>
+#include <tuple>
 #include <type_traits>
 
 using namespace poplar;
@@ -70,6 +72,8 @@ const std::vector<std::string> verticesNames = {
     "BroadcastScalar2Types2DData",
     "BroadcastScalar2D",
     "BroadcastScalar2DInPlace",
+
+    "BroadcastScalar1DRelationalOpDualOutput",
 
     "BroadcastVectorInner1D",
     "BroadcastVectorInner1DInPlace",
@@ -116,6 +120,31 @@ const static std::map<expr::BinaryOpType, const std::set<Type>>
          {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, SHORT, UNSIGNED_SHORT}},
 };
 
+// The map provides a vector of <inputTypes, outputType> pairs for each
+// operation that supports casting.
+const static std::map<expr::BinaryOpType,
+                      const std::vector<std::pair<Type, Type>>>
+    binaryBroadcastCastedOperands = {
+        {BinaryOpType::EQUAL, {{UNSIGNED_INT, FLOAT}, {UNSIGNED_INT, HALF}}},
+        {BinaryOpType::GREATER_THAN,
+         {{UNSIGNED_INT, FLOAT}, {UNSIGNED_INT, HALF}}},
+        {BinaryOpType::GREATER_THAN_EQUAL,
+         {{UNSIGNED_INT, FLOAT}, {UNSIGNED_INT, HALF}}},
+        {BinaryOpType::LESS_THAN,
+         {{UNSIGNED_INT, FLOAT}, {UNSIGNED_INT, HALF}}},
+        {BinaryOpType::LESS_THAN_EQUAL,
+         {{UNSIGNED_INT, FLOAT}, {UNSIGNED_INT, HALF}}},
+        {BinaryOpType::NOT_EQUAL,
+         {{UNSIGNED_INT, FLOAT}, {UNSIGNED_INT, HALF}}},
+};
+
+// Names of the vertex output field(s) which are different from the default case
+// which is a single output field named "out".
+const static std::map<const std::string, const std::vector<std::string>>
+    vertexOutputNames = {
+        {"BroadcastScalar1DRelationalOpDualOutput", {"out", "outInv"}},
+};
+
 //*************************************************************************
 // This contains the name of the vertex under test and various flags that
 // characterise it, used in different places during the test.
@@ -141,13 +170,15 @@ struct VertexDesc {
   bool isVectorInner;
   bool isVectorInner2D;
   bool isVectorOuter;
-  bool is2Types; // is the vertex a special one with different types?
+  bool is2Types;     // is the vertex a special one with different types?
+  bool isDualOutput; // produces two outputs
   bool isBroadcastScalar;
   bool isBroadcastScalar2D;
   bool op2isSingleElem; // must the second operand have a single element?
 
-  VertexDesc(const std::string &vertexName, BinaryOpType &op,
-             const Type &dataType, std::optional<bool> allowMisaligned)
+  VertexDesc(const std::string &vertexName, const BinaryOpType &op,
+             const Type &dataType, std::optional<Type> &outType,
+             std::optional<bool> allowMisaligned)
       : name(vertexName), op(op), dataType(dataType),
         allowMisaligned(allowMisaligned) {
 
@@ -159,13 +190,16 @@ struct VertexDesc {
     isVectorInner2D = isVectorInner && is2D;
     isVectorOuter = vertexIsVectorOuter(vertexName);
     is2Types = vertexName.find("2Types") != std::string::npos;
+    isDualOutput = vertexName.find("DualOutput") != std::string::npos;
     isBroadcastScalar = vertexName.find("BroadcastScalar") != std::string::npos;
     isBroadcastScalar2D = (vertexName == "BroadcastScalar2D" ||
                            vertexName == "BroadcastScalar2DInPlace");
     op2isSingleElem = isBroadcastScalar && !isBroadcastScalar2D;
 
     outputType = dataType;
-    if (isBoolOp(op)) {
+    if (outType) {
+      outputType = *outType;
+    } else if (isBoolOp(op)) {
       outputType = BOOL;
     } else if (is2Types) {
       outputType = (dataType == HALF) ? FLOAT : HALF;
@@ -183,7 +217,7 @@ struct VertexDesc {
     std::string vName = "popops::" + name;
     if (isVectorOuter) {
       vClass = templateVertex(vName, op, dataType, *allowMisaligned);
-    } else if (is2Types) {
+    } else if (is2Types || isDualOutput) {
       vClass = templateVertex(vName, op, dataType, outputType);
     } else {
       vClass = templateVertex(vName, op, dataType);
@@ -388,7 +422,8 @@ struct TestRecord {
 
   TestOperand in1;
   TestOperand in2;
-  TestOperand out;
+  TestOperand out1;
+  TestOperand out2;
 
   // Stream names used to transfer the host data, for the two operands and the
   // output. Must be different for each test that is run in the same graph/CS.
@@ -418,12 +453,37 @@ struct TestRecord {
 //*************************************************************************
 // Return true if the information in vertex (vertex name, operation and data
 // type) is valid.
-bool isValidCombination(const VertexDesc &vertex) {
+bool isValidCombination(const VertexDesc &vertex, const bool castSupportReq) {
   const BinaryOpType &op = vertex.op;
   const Type &type = vertex.dataType;
+  const Type &outputType = vertex.outputType;
+
+  // Casting is supported by vertices of the following kinds:
+  // isDual or boolean operator or 2Types.
+  if (vertex.isDualOutput) {
+    return ((op == BinaryOpType::EQUAL || op == BinaryOpType::NOT_EQUAL ||
+             op == BinaryOpType::GREATER_THAN_EQUAL ||
+             op == BinaryOpType::GREATER_THAN ||
+             op == BinaryOpType::LESS_THAN_EQUAL ||
+             op == BinaryOpType::LESS_THAN) &&
+            (type == UNSIGNED_INT) &&
+            (outputType == HALF || outputType == FLOAT));
+  }
+  if (castSupportReq && !isBoolOp(op) && !vertex.is2Types) {
+    return false;
+  }
+  if (isBoolOp(op) && (outputType != BOOL)) {
+    return false;
+  }
+
   // The "2Types" vertices and the STD_DEV <=> VARIANCE operators are special
   if (vertex.is2Types && (op != BinaryOpType::INV_STD_DEV_TO_VARIANCE) &&
       (op != BinaryOpType::VARIANCE_TO_INV_STD_DEV))
+    return false;
+  if (vertex.is2Types && (type == outputType))
+    return false;
+  if (vertex.is2Types && (((type != FLOAT) && (type != HALF)) ||
+                          ((outputType != FLOAT) && (outputType != HALF))))
     return false;
   if (op == BinaryOpType::INV_STD_DEV_TO_VARIANCE) {
     if (vertex.is2Types) {
@@ -482,21 +542,31 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
   // in host format.
   std::vector<HostDataType> in1Host(test.in1.totalElems);
   std::vector<HostDataType> in2Host(test.in2.totalElems);
-  std::vector<HostOutType> outHost(test.out.totalElems);
+  std::vector<HostOutType> out1Host(test.out1.totalElems);
+  std::vector<HostOutType> out2Host(test.out2.totalElems);
   copy(target, vertex.dataType, test.in1.rawBuf.get(), in1Host.data(),
        in1Host.size());
   copy(target, vertex.dataType, test.in2.rawBuf.get(), in2Host.data(),
        in2Host.size());
-  copy(target, vertex.outputType, test.out.rawBuf.get(), outHost.data(),
-       outHost.size());
+  copy(target, vertex.outputType, test.out1.rawBuf.get(), out1Host.data(),
+       out1Host.size());
+  if (vertex.isDualOutput) {
+    copy(target, vertex.outputType, test.out2.rawBuf.get(), out2Host.data(),
+         out2Host.size());
+  }
   if (options.printBuffers) {
-    printBuffer("out", outHost, vertex.outputType, sizes.rowSizes,
-                test.out.offsets);
+    auto outLabel = vertex.isDualOutput ? "out1" : "out";
+    printBuffer(outLabel, out1Host, vertex.outputType, sizes.rowSizes,
+                test.out1.offsets);
+    if (vertex.isDualOutput) {
+      printBuffer("out2", out2Host, vertex.outputType, sizes.rowSizes,
+                  test.out2.offsets);
+    }
   }
 
   // Check for mismatches on computed values
-  auto &rowSizes = test.out.rowSizes; // same as test.in.rowSizes
-  unsigned errCount = 0;              // how many mismatched elements we find
+  auto &rowSizes = test.out1.rowSizes; // same as test.in.rowSizes
+  unsigned errCount = 0;               // how many mismatched elements we find
   unsigned numRows = rowSizes.size();
   for (unsigned row = 0; row < numRows; row++) {
     for (unsigned i = 0; i < rowSizes[row]; i++) {
@@ -523,23 +593,41 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
         continue;
       }
 
+      unsigned numOutputs = vertex.isDualOutput ? 2 : 1;
+
       // Result from device
-      HostOutType actual = outHost[test.out.offsets[row] + i];
+      std::vector<HostOutType> actual(numOutputs);
 
-      HostOutType expected = 0; // result for verification
-      performOp(op, val1, val2, expected);
+      // Result for verification
+      std::vector<HostOutType> expected(numOutputs, 0);
 
-      if (!equalValues(isIpuModel, op, vertex.outputType, expected, actual)) {
-        // If its is 2D, we want to show row and column where it failed, not
-        // just the linear index.
-        std::cerr << format(
-                         "out[%s] = %s %s %s  =>  expected:%s;  actual:%s\n") %
-                         (vertex.is2D ? to_string(row) + "][" + to_string(i)
-                                      : to_string(i)) %
-                         convertToString(val1) % binaryOpToString.at(op) %
-                         convertToString(val2) % convertToString(expected) %
-                         convertToString(actual);
-        errCount++;
+      if (vertex.isDualOutput) {
+        actual[0] = out1Host[test.out1.offsets[row] + i];
+        actual[1] = out2Host[test.out2.offsets[row] + i];
+        std::tie(expected[0], expected[1]) = performOp(op, val1, val2);
+      } else {
+        actual[0] = out1Host[test.out1.offsets[row] + i];
+        performOp(op, val1, val2, expected[0]);
+      }
+
+      for (unsigned j = 0; j < numOutputs; ++j) {
+        if (!equalValues(isIpuModel, op, vertex.outputType, expected[j],
+                         actual[j])) {
+          auto indexStr =
+              vertex.isDualOutput ? "[" + std::to_string(j) + "]" : "";
+
+          // If its is 2D, we want to show row and column where it failed, not
+          // just the linear index.
+          std::cerr << format("out[%s]%s = %s %s %s  =>  expected%s:%s;  "
+                              "actual%s:%s\n") %
+                           (vertex.is2D ? to_string(row) + "][" + to_string(i)
+                                        : to_string(i)) %
+                           indexStr % convertToString(val1) %
+                           binaryOpToString.at(op) % convertToString(val2) %
+                           indexStr % convertToString(expected[j]) % indexStr %
+                           convertToString(actual[j]);
+          errCount++;
+        }
       }
     }
   }
@@ -548,10 +636,14 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
   }
 
   // Check for overwrites past the end of each row
-  auto overwriteCount = test.out.checkPadBytes(target, vertex.is2D, isIpuModel,
-                                               test.padOutWithNan);
-
-  return (errCount == 0) && (overwriteCount == 0);
+  auto overwriteCount1 = test.out1.checkPadBytes(
+      target, vertex.is2D, isIpuModel, test.padOutWithNan);
+  unsigned overwriteCount2 = 0;
+  if (vertex.isDualOutput) {
+    overwriteCount2 = test.out2.checkPadBytes(target, vertex.is2D, isIpuModel,
+                                              test.padOutWithNan);
+  }
+  return (errCount == 0) && (overwriteCount1 == 0) && (overwriteCount2 == 0);
 }
 
 //*************************************************************************
@@ -585,6 +677,9 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   const Type &dataType = vertex.dataType;
   const Type &outputType = vertex.outputType;
 
+  // Index the output only if multiple outputs are expected
+  std::string outSuffix = vertex.isDualOutput ? "1" : "";
+
   assert(TARGET_DATAPATH_WIDTH == target.getDataPathWidth());
 
   // Check for various possible inconsistencies in the combinations of
@@ -616,7 +711,10 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   // === Setup offsets for padding
   test.in1.setup(target, dataType, sizes.rowSizes, options.alignStart);
   test.in2.setup(target, dataType, sizes.op2RowSizes, options.alignStart);
-  test.out.setup(target, outputType, sizes.rowSizes, options.alignStart);
+  test.out1.setup(target, outputType, sizes.rowSizes, options.alignStart);
+  if (vertex.isDualOutput) {
+    test.out2.setup(target, outputType, sizes.rowSizes, options.alignStart);
+  }
 
   // === Allocate and initialise host buffers with appropriate values.
   std::vector<HostDataType> in1Host(test.in1.totalElems);
@@ -653,7 +751,7 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   //    separate graph variables. This let poplar place the operands in memory
   //    as it sees fit and it is much faster.
 
-  Tensor in1, in2, out;
+  Tensor in1, in2, out1, out2;
 
   if (!test.operandOffset) {
     // Optional not specified ('none'), let poplar place the operands in memory
@@ -664,11 +762,18 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
     createAlignVertex(graph, alignCS, in1, tile);
     createAlignVertex(graph, alignCS, in2, tile);
     if (vertex.inPlace) {
-      out = in1;
+      out1 = in1;
     } else {
-      out = graph.addVariable(vertex.outputType, {test.out.totalElems}, "out");
-      graph.setTileMapping(out, tile);
-      createAlignVertex(graph, alignCS, out, tile);
+      out1 = graph.addVariable(vertex.outputType, {test.out1.totalElems},
+                               "out" + outSuffix);
+      graph.setTileMapping(out1, tile);
+      createAlignVertex(graph, alignCS, out1, tile);
+      if (vertex.isDualOutput) {
+        out2 = graph.addVariable(vertex.outputType, {test.out2.totalElems},
+                                 "out" + outSuffix);
+        graph.setTileMapping(out2, tile);
+        createAlignVertex(graph, alignCS, out2, tile);
+      }
     }
   } else {
     // Offset optional specified, check it's ok (must be aligned and big enough)
@@ -702,12 +807,12 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
     unsigned offs2Elems = offs2 / dataTypeSize;      // Now in elems, not bytes
 
     if (vertex.op2isSingleElem && !vertex.inPlace && dataType == outputType) {
-      unsigned totSize = offs2Elems + test.out.totalElems;
+      unsigned totSize = offs2Elems + test.out1.totalElems;
       Tensor in = graph.addVariable(dataType, {totSize}, "in1_out");
       graph.setTileMapping(in, tile);
       createAlignVertex(graph, alignCS, in, tile);
       in1 = in.slice(0, test.in1.totalElems);
-      out = in.slice(offs2Elems, offs2Elems + test.out.totalElems);
+      out1 = in.slice(offs2Elems, offs2Elems + test.out1.totalElems);
 
       in2 = graph.addVariable(dataType, {test.in2.totalElems}, vertex.in2Name);
       graph.setTileMapping(in2, tile);
@@ -721,13 +826,20 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
       in1 = in.slice(0, test.in1.totalElems);
       in2 = in.slice(offs2Elems, offs2Elems + test.in2.totalElems);
       if (vertex.inPlace) {
-        out = in1;
+        out1 = in1;
       } else {
-        out =
-            graph.addVariable(vertex.outputType, {test.out.totalElems}, "out");
-        graph.setTileMapping(out, tile);
-        createAlignVertex(graph, alignCS, out, tile);
+        out1 = graph.addVariable(vertex.outputType, {test.out1.totalElems},
+                                 "out" + outSuffix);
+        graph.setTileMapping(out1, tile);
+        createAlignVertex(graph, alignCS, out1, tile);
       }
+    }
+
+    if (vertex.isDualOutput) {
+      out2 = graph.addVariable(vertex.outputType, {test.out2.totalElems},
+                               "out" + outSuffix);
+      graph.setTileMapping(out2, tile);
+      createAlignVertex(graph, alignCS, out2, tile);
     }
   }
 
@@ -736,23 +848,27 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   graph.setTileMapping(v, tile);
 
   if (vertex.inPlace) {
-    // In the inPlace case we copy the data in the 'test.out.rawBuf' from where
+    // In the inPlace case we copy the data in the 'test.out1.rawBuf' from where
     // it would be both written to the device and read back with the result.
     // But we also copy it in the 'test.in1.rawBuf' to be used later for the
     // verification.
     test.in1.rawBuf =
-        allocateHostMemoryForTensor(target, out, graph.getReplicationFactor());
-    test.out.rawBuf = allocateHostMemoryForTensor(out, test.writeName1, graph,
-                                                  upload, download, streamMap);
+        allocateHostMemoryForTensor(target, out1, graph.getReplicationFactor());
+    test.out1.rawBuf = allocateHostMemoryForTensor(out1, test.writeName1, graph,
+                                                   upload, download, streamMap);
     copy(target, in1Host.data(), in1Host.size(), dataType,
          test.in1.rawBuf.get());
     copy(target, in1Host.data(), in1Host.size(), outputType,
-         test.out.rawBuf.get());
+         test.out1.rawBuf.get());
   } else {
     test.in1.rawBuf = allocateHostMemoryForTensor(
         in1, test.writeName1, graph, upload, boost::none, streamMap);
-    test.out.rawBuf = allocateHostMemoryForTensor(out, test.readName, graph,
-                                                  upload, download, streamMap);
+    test.out1.rawBuf = allocateHostMemoryForTensor(
+        out1, test.readName + outSuffix, graph, upload, download, streamMap);
+    if (vertex.isDualOutput) {
+      test.out2.rawBuf = allocateHostMemoryForTensor(
+          out2, test.readName + "2", graph, upload, download, streamMap);
+    }
     copy(target, in1Host.data(), in1Host.size(), dataType,
          test.in1.rawBuf.get());
   }
@@ -762,7 +878,7 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
 
   // Fill the padding space in the input buffers (with NaNs) for overprocessing
   // detection (only for floating point types). Also fill the output buffer
-  // padding, for overrun detection. For inPlace, 'in1' and 'out' are the same.
+  // padding, for overrun detection. For inPlace, 'in1' and 'out1' are the same.
   if (dataType == FLOAT || dataType == HALF) {
     if (vertex.inPlace) {
       test.padOutWithNan = true;
@@ -771,15 +887,29 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
     }
     test.in2.setPadBytes(target, isIpuModel, true);
   }
-  test.out.setPadBytes(target, isIpuModel, test.padOutWithNan);
+  test.out1.setPadBytes(target, isIpuModel, test.padOutWithNan);
+  if (vertex.isDualOutput) {
+    test.out2.setPadBytes(target, isIpuModel, test.padOutWithNan);
+  }
 
   // Connect the operands
   TestOperand::OperandType opType = vertex.is2D
                                         ? TestOperand::OperandType::is2D
                                         : TestOperand::OperandType::is1D;
   test.in1.connectOperand(graph, v, opType, in1, vertex.in1Name);
+
+  std::vector<std::string> outFieldNames = {"out"};
+  auto vertexOutputFieldNames = vertexOutputNames.find(vertex.name);
+  if (vertexOutputFieldNames != vertexOutputNames.end()) {
+    outFieldNames = vertexOutputFieldNames->second;
+  }
   if (!vertex.inPlace)
-    test.out.connectOperand(graph, v, opType, out, "out");
+    test.out1.connectOperand(graph, v, opType, out1, outFieldNames[0].c_str());
+  if (vertex.isDualOutput) {
+    assert(outFieldNames.size() == 2);
+    test.out2.connectOperand(graph, v, opType, out2, outFieldNames[1].c_str());
+  }
+
   // Second operand is more complex
   if (vertex.op2isSingleElem) {
     opType = TestOperand::OperandType::isScalar;
@@ -837,6 +967,8 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   SELECT_ONE(INT, INT, int, int)                                               \
   SELECT_ONE(UNSIGNED_INT, BOOL, unsigned, unsigned char)                      \
   SELECT_ONE(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)                   \
+  SELECT_ONE(UNSIGNED_INT, FLOAT, unsigned, float)                             \
+  SELECT_ONE(UNSIGNED_INT, HALF, unsigned, float)                              \
   /* The combination of 'dataType'+'outputType' was not specified above */     \
   throw invalid_types(vertex.dataType, vertex.outputType);
 
@@ -879,12 +1011,71 @@ bool doVerifyTest(const Target &target, bool isIpuModel, TestRecord &test,
 #undef SELECT_ONE
 }
 
+static void inferAdditionalTypes(const std::vector<BinaryOpType> &operations,
+                                 const std::vector<Type> &allTypes,
+                                 std::vector<Type> &dataTypes,
+                                 std::vector<Type> &outputTypes) {
+  std::vector<Type> newInTypes, newOutTypes;
+  bool anyBoolOp = false;
+  for (unsigned i = 0; i < outputTypes.size(); ++i) {
+    auto &outType = outputTypes[i];
+
+    // Search for supported dual output cases
+    for (auto &op : operations) {
+      anyBoolOp |= isBoolOp(op);
+      auto dualOutTests = binaryBroadcastCastedOperands.find(op);
+      if (dualOutTests != binaryBroadcastCastedOperands.end()) {
+        auto &inOutTypes = dualOutTests->second;
+        auto it = std::find_if(
+            inOutTypes.begin(), inOutTypes.end(),
+            [&](const auto &pair) { return pair.second == outType; });
+        if (it != inOutTypes.end()) {
+          newInTypes.push_back(it->first);
+          newOutTypes.push_back(it->second);
+        }
+      }
+    }
+
+    // For single output cases
+    dataTypes.push_back(outType);
+    outputTypes[i] = outType;
+  }
+  auto foundInOutputList = [&](const Type &type) {
+    return std::find(outputTypes.begin(), outputTypes.end(), type) !=
+           outputTypes.end();
+  };
+
+  // Include input types that result in bool with some operators
+  if (anyBoolOp && foundInOutputList(BOOL)) {
+    std::vector<Type> allRemainingTypes;
+    std::copy_if(allTypes.begin(), allTypes.end(),
+                 std::back_inserter(allRemainingTypes),
+                 [&](const auto &v) { return !foundInOutputList(v); });
+    dataTypes.insert(dataTypes.end(), allRemainingTypes.begin(),
+                     allRemainingTypes.end());
+    outputTypes.resize(dataTypes.size(), BOOL);
+  }
+
+  // Include 2-type cases
+  std::vector<Type> floatTypes{FLOAT, HALF};
+  for (auto &outType : floatTypes) {
+    if (foundInOutputList(outType)) {
+      auto inType = outType == FLOAT ? HALF : FLOAT;
+      dataTypes.push_back(inType);
+      outputTypes.push_back(outType);
+    }
+  }
+  dataTypes.insert(dataTypes.end(), newInTypes.begin(), newInTypes.end());
+  outputTypes.insert(outputTypes.end(), newOutTypes.begin(), newOutTypes.end());
+}
+
 //*************************************************************************
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
   DeviceType deviceType;
   std::vector<Type> dataTypes;
+  std::vector<Type> outputTypes;
 
   std::vector<SizeDesc> sizes = {{false, {25, 12, 21}}};
   std::vector<SizeDesc> sizes2;
@@ -966,6 +1157,11 @@ int main(int argc, char **argv) {
      po::value<std::vector<Type>>(&dataTypes)->multitoken(),
      "Data type: one or more of half, float, int, uint, short, ushort, bool, "
      "char, schar, uchar")
+    ("output-type",
+     po::value<std::vector<Type>>(&outputTypes)->multitoken(),
+     "Output type: one or more of half, float, int, uint, short, ushort, bool, "
+     "char, schar, uchar. The output types must be provided in the same order "
+     "as the corresponding input types provided in --data-type")
     ("operation",
      po::value<std::vector<std::string>>(&operationStr)->multitoken(),
      ("Operation(s) to perform, one or more of: " + allOpsStr()).c_str())
@@ -1016,7 +1212,17 @@ int main(int argc, char **argv) {
 
   // === If no data type specified, test 'em all
   if (dataTypes.empty()) {
-    dataTypes = {HALF, FLOAT, INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT, BOOL};
+    std::vector<Type> allTypes = {HALF,  FLOAT,          INT, UNSIGNED_INT,
+                                  SHORT, UNSIGNED_SHORT, BOOL};
+    if (outputTypes.empty()) {
+      dataTypes = allTypes;
+    } else {
+      inferAdditionalTypes(operations, allTypes, dataTypes, outputTypes);
+    }
+  } else if (!outputTypes.empty() && (dataTypes.size() != outputTypes.size())) {
+    throw std::runtime_error(
+        "If --output-type and --data-type options are both supplied, they "
+        "should have identical number of items");
   }
 
   // === If allowMisaligned not specified, test both (only for VectorOuter)
@@ -1036,35 +1242,66 @@ int main(int argc, char **argv) {
   for (std::string vertexName : vertices) {
     // If a regex was specified, see if it matches
     if (vertexRE.empty() || std::regex_search(vertexName, vertexRegEx)) {
-      for (auto op : operations) {
-        for (auto type : dataTypes) {
-          for (unsigned i = 0; i < nSizes; i++) {
-            // For VectorOuter we have to select the right 'allowMisaligned'
-            // template parameter value(s) (false, true or both). If not
-            // VectorOuter, we just ignore it (set it to 'nullopt')
-            std::vector<std::optional<bool>> misalignedList;
-            if (VertexDesc::vertexIsVectorOuter(vertexName)) {
-              for (auto m : allowMisaligned)
-                misalignedList.push_back(m);
-            } else {
-              misalignedList.push_back(std::nullopt);
+      for (auto operation : operations) {
+        auto testOperation = [&](const BinaryOpType &op,
+                                 const std::vector<Type> &inTypes,
+                                 const std::vector<Type> &outTypes) {
+          for (unsigned i = 0; i < inTypes.size(); ++i) {
+            auto &inType = inTypes[i];
+            std::optional<Type> outType;
+            if (outTypes.size() > 0) {
+              outType = outTypes[i];
             }
-            for (auto &misaligned : misalignedList) {
-              auto vertex = std::make_unique<VertexDesc>(vertexName, op, type,
-                                                         misaligned);
-              if (isValidCombination(*vertex)) {
-                numTests++;
-                std::optional<SizeDesc> sz2;
-                if (i < nSizes2) {
-                  sz2 = sizes2[i];
+            for (unsigned i = 0; i < nSizes; i++) {
+              // For VectorOuter we have to select the right
+              // 'allowMisaligned' template parameter value(s) (false, true
+              // or both). If not VectorOuter, we just ignore it (set it to
+              // 'nullopt')
+              std::vector<std::optional<bool>> misalignedList;
+              if (VertexDesc::vertexIsVectorOuter(vertexName)) {
+                for (auto m : allowMisaligned)
+                  misalignedList.push_back(m);
+              } else {
+                misalignedList.push_back(std::nullopt);
+              }
+              for (auto &misaligned : misalignedList) {
+                auto vertex = std::make_unique<VertexDesc>(
+                    vertexName, op, inType, outType, misaligned);
+                if (isValidCombination(*vertex,
+                                       outType && (inType != outType))) {
+                  numTests++;
+                  std::optional<SizeDesc> sz2;
+                  if (i < nSizes2) {
+                    sz2 = sizes2[i];
+                  }
+                  auto testRec = std::make_shared<TestRecord>(
+                      std::move(vertex), numTests,
+                      TensorSizes(*vertex, sizes[i], sz2), operandOffset);
+                  addOneTest<TestRecord, VertexDesc>(tests, testRec, deviceType,
+                                                     errCount, options);
                 }
-                auto testRec = std::make_shared<TestRecord>(
-                    std::move(vertex), numTests,
-                    TensorSizes(*vertex, sizes[i], sz2), operandOffset);
-                addOneTest<TestRecord, VertexDesc>(tests, testRec, deviceType,
-                                                   errCount, options);
               }
             }
+          }
+        };
+
+        // Run standard Binary Op tests
+        testOperation(operation, dataTypes, outputTypes);
+
+        // If the user has not specified the output types, run dual output tests
+        if (outputTypes.size() == 0) {
+          auto dualOutTests = binaryBroadcastCastedOperands.find(operation);
+          if (dualOutTests != binaryBroadcastCastedOperands.end()) {
+            auto &inOutTypes = dualOutTests->second;
+            std::vector<Type> inTypes, outTypes;
+            std::transform(inOutTypes.begin(), inOutTypes.end(),
+                           std::back_inserter(inTypes),
+                           [](const auto &pair) -> Type { return pair.first; });
+            std::transform(
+                inOutTypes.begin(), inOutTypes.end(),
+                std::back_inserter(outTypes),
+                [](const auto &pair) -> Type { return pair.second; });
+            testOperation(operation, inTypes, outTypes);
           }
         }
       }
