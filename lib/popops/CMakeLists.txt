@@ -29,6 +29,7 @@ add_library(popops SHARED
   HostSliceTensor.cpp
   NaN.cpp
   NormaliseImage.cpp
+  Loop.cpp
   Operation.cpp
   Pad.cpp
   Padder.cpp
