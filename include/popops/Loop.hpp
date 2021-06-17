@@ -23,22 +23,24 @@ using CountedLoopBodyType =
     std::function<poplar::program::Program(const poplar::Tensor &)>;
 
 /** Create a loop program with constant initial count, increment and end value.
+ *  The loop count is passed to the body program.
+ *
  *  The program is equivalent to:
  *  \code
  *  for(unsigned i = begin; i != end; i += step){
- *    Run \p body program
+ *    body;
  *  }
  *  \endcode
  *
- * \param graph        The graph the loop program will be added to
- * \param begin        Initial counter value
- * \param end          Counter end value (exclusive)
+ * \param graph        The graph the loop program will be added to.
+ * \param begin        Initial counter value.
+ * \param end          Counter end value (exclusive).
  * \param step         The increment added on each loop pass (must be greater
- *                     than zero)
- * \param body         The loop body program to run on each loop pass
- * \param debugContext Optional debug information
+ *                     than zero).
+ * \param body         The loop body program to run on each loop pass.
+ * \param debugContext Optional debug information.
  *
- * \return             A program providing the above loop function
+ * \return             A program providing the above loop function.
  */
 inline poplar::program::Sequence
 countedLoop(poplar::Graph &graph, std::size_t begin, std::size_t end,
@@ -79,19 +81,25 @@ countedLoop(poplar::Graph &graph, std::size_t begin, std::size_t end,
 }
 
 /** Create a loop program which executes \p count times.
+ *  The loop count is passed to the body program.
+ *
  *  The program is equivalent to:
  *  \code
- *  for(unsigned i = 0; count != count; i += 1){
- *    Run \p body program
+ *  for(unsigned i = 0; i != count; i += 1){
+ *    body;
  *  }
  *  \endcode
+ *  This is equivalent to poplar::Program::Repeat but with a loop counter
+ *  that is passed to the body program. (It is actually implemented using
+ *  poplar::Program::RepeatWhileTrue with a test for the count variable
+ *  reaching \p count.)
  *
- * \param graph        The graph the loop program will be added to
- * \param count        Number of loop passes to execute
- * \param body         The loop body program to run on each loop pass
- * \param debugContext Optional debug information
+ * \param graph        The graph the loop program will be added to.
+ * \param count        Number of loop iterations to execute.
+ * \param body         The loop body program to run on each loop pass.
+ * \param debugContext Optional debug information.
  *
- * \return             A program providing the above loop function
+ * \return             A program providing the above loop function.
  */
 inline poplar::program::Sequence
 countedLoop(poplar::Graph &graph, std::size_t count,
@@ -129,27 +137,32 @@ inline poplar::Tensor addForLoopCounterVertex(poplar::Graph &graph,
   return predicate;
 }
 
-/** Create a for loop program with constant initial count and increment and a
- *  Tensor as the end value.  The \p count is provided.  The program is
- *  equivalent to:
+/** Create a for-loop program with constant initial count and increment, and a
+ *  tensor as the end value.
+ *  The use of a tensor as the loop end value means that the number of
+ *  iterations can be calculated at run time.
+ *  The loop count variable \p count is provided by the program that calls the
+ *  loop program so it can be passed to the body program.
+ *
+ *  The program is equivalent to:
  *  \code
  *  for(unsigned count = initialCount; count != countLimit; count += countStep){
- *    Run \p body program
+ *    body;
  *  }
  *  \endcode
  *
- * \param graph        The graph the loop program will be added to
- * \param count        The count tensor, available to the \p body program
+ * \param graph        The graph the loop program will be added to.
+ * \param count        The loop count tensor, available to the \p body program
  *                     with element type INT or UNSIGNED_INT. Value initialised
- *                     by this function
- * \param initialCount Initial counter value
- * \param countLimit   Count limit tensor
+ *                     by this function.
+ * \param initialCount Initial counter value.
+ * \param countLimit   Count limit tensor.
  * \param countStep    The increment added to the \p count tensor on each loop
- *                     pass
- * \param body         The loop body program to run on each loop pass
- * \param debugContext Optional debug information
+ *                     pass.
+ * \param body         The loop body program to run on each loop pass.
+ * \param debugContext Optional debug information.
  *
- * \return             A program providing the above loop function
+ * \return             A program providing the above loop function.
  */
 
 inline poplar::program::Sequence
@@ -190,21 +203,26 @@ countedForLoop(poplar::Graph &graph, const poplar::Tensor &count,
 }
 
 /** Create a for loop program with constant initial count and increment and a
- *  Tensor as the end value.  The count tensor is created internally.
+ *  tensor as the end value.
+ *  The use of a tensor as the loop end value means that the number of
+ *  iterations can be calculated at run time.
+ *  The count tensor is created internally and is not available to the body
+ *  program.
+ *
  *  The program is equivalent to:
  *  \code
  *  for(unsigned count = initialCount; count != countLimit; count += countStep){
- *    Run \p body program
+ *    body;
  *  }
  *  \endcode
  *
- * \param graph        The graph the loop program will be added to
- * \param initialCount Initial counter value
- * \param countLimit   Count limit tensor
+ * \param graph        The graph the loop program will be added to.
+ * \param initialCount Initial counter value.
+ * \param countLimit   Count limit tensor.
  * \param countStep    The increment added to the \p count tensor on each loop
- *                     pass
- * \param body         The loop body program to run on each loop pass
- * \param debugContext Optional debug information
+ *                     pass.
+ * \param body         The loop body program to run on each loop pass.
+ * \param debugContext Optional debug information.
  *
  * \return             A program providing the above loop function
  */
