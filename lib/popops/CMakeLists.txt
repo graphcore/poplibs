@@ -26,6 +26,8 @@ add_library(popops SHARED
   Gather.cpp
   GatherInternal.cpp
   GatherStatistics.cpp
+  HistogramPerformanceEstimation.cpp
+  HistogramPerformanceEstimation.hpp
   HostSliceTensor.cpp
   NaN.cpp
   NormaliseImage.cpp
@@ -33,6 +35,7 @@ add_library(popops SHARED
   Operation.cpp
   Pad.cpp
   Padder.cpp
+  PerformanceEstimation.cpp
   popopsCycleEstimators.cpp
   Rearrange.cpp
   ScaledAdd.cpp
@@ -72,7 +75,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/SortOrder.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/TopK.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/popopsPerformanceEstimation.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/PerformanceEstimation.hpp
 
   reduction/ComputeSetList.cpp
   reduction/ComputeSetList.hpp

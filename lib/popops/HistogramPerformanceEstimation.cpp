@@ -1,13 +1,10 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#ifndef _performance_estimation_h_
-#define _performance_estimation_h_
+#include "HistogramPerformanceEstimation.hpp"
 
-#include <cstdint>
-
-static inline std::uint64_t histogramSupervisorByLimitEstimate(
+std::uint64_t histogramSupervisorByLimitEstimate(
     unsigned elements, unsigned histogramCount, bool isAbsolute, bool isHalf,
-    unsigned numWorkers, unsigned vectorWidth, unsigned unpackCostHistogram = 0,
-    unsigned unpackCostLimits = 0) {
+    unsigned numWorkers, unsigned vectorWidth, unsigned unpackCostHistogram,
+    unsigned unpackCostLimits) {
   const auto remainder = ((histogramCount - 1) % numWorkers) != 0;
   const auto maxLimits = remainder + (histogramCount - 1) / numWorkers;
   uint64_t workerCycles = 19 + unpackCostHistogram + unpackCostLimits;
@@ -41,10 +38,10 @@ static inline std::uint64_t histogramSupervisorByLimitEstimate(
   return workerCycles * numWorkers;
 }
 
-static inline std::uint64_t histogramSupervisorByDataEstimate(
+std::uint64_t histogramSupervisorByDataEstimate(
     unsigned elements, unsigned histogramCount, bool isAbsolute, bool isHalf,
-    unsigned numWorkers, unsigned vectorWidth, unsigned unpackCostHistogram = 0,
-    unsigned unpackCostLimits = 0) {
+    unsigned numWorkers, unsigned vectorWidth, unsigned unpackCostHistogram,
+    unsigned unpackCostLimits) {
 
   const auto vectors = elements / vectorWidth;
   const auto workerVectors = (vectors + numWorkers - 1) / numWorkers;
@@ -78,4 +75,3 @@ static inline std::uint64_t histogramSupervisorByDataEstimate(
 
   return workerCycles * numWorkers;
 }
-#endif // _performance_estimation_h_

@@ -1,14 +1,14 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "popopsCycleEstimators.hpp"
 #include "ExprOpUtil.hpp"
-#include "PerformanceEstimation.hpp"
+#include "HistogramPerformanceEstimation.hpp"
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/FlopEstimation.hpp"
 #include "poplibs_support/forceInterleavedEstimates.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
-#include "poplibs_support/popopsPerformanceEstimation.hpp"
 #include "popops/Expr.hpp"
+#include "popops/PerformanceEstimation.hpp"
 #include "poputil/exceptions.hpp"
 #include <cassert>
 #include <cmath>
@@ -19,6 +19,7 @@
 
 using namespace poplar;
 using namespace poplibs_support;
+using namespace popops::internal;
 
 namespace popops {
 
@@ -53,6 +54,7 @@ bool isComparisonOp(BinaryOpType op) {
   }
 }
 
+namespace internal {
 // Computes the cycles used by the inner loop in one of the binary op codelets,
 // both for 1D MultiVertex and 2D version, in place or not.
 std::uint64_t binaryOpInnerLoopCycles(const Target &target,
@@ -77,6 +79,7 @@ std::uint64_t binaryOpInnerLoopCycles(const Target &target,
   unsigned numLoops = iceil(numElems, elemsPerLoop);
   return numLoops * cyclesPerLoop;
 }
+} // namespace internal
 
 static unsigned flopsPerBinaryOpElement(BinaryOpType op) {
   if (op == BinaryOpType::BITWISE_AND || op == BinaryOpType::BITWISE_OR ||
@@ -1827,6 +1830,7 @@ static std::uint64_t unaryOpInnerLoopCycles(const Target &target,
   return basicOpLoopCycles(numElems, vectorWidth, perfInfo.cyclesPerLoop + 4);
 }
 
+namespace internal {
 std::uint64_t getBinaryOp1DInPlaceEstimate(const poplar::Target &target,
                                            const Type &type,
                                            const popops::expr::BinaryOpType op,
@@ -1841,6 +1845,7 @@ std::uint64_t getBinaryOp1DInPlaceEstimate(const poplar::Target &target,
       binaryOpInnerLoopCycles(target, op, type, info, numElemsPerWorker, true);
   return numWorkers * workerCycles + superviserOverhead;
 }
+} // namespace internal
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2D)(
     const VertexIntrospector &vertex, const Target &target,
@@ -2070,6 +2075,7 @@ std::uint64_t BroadcastSelectorSelectCycles(const Type &type,
   return cycles;
 }
 
+namespace internal {
 std::uint64_t getDynamicSlice1dEstimate(const poplar::Target &target,
                                         const Type &type,
                                         const unsigned regionSize,
@@ -2097,6 +2103,7 @@ std::uint64_t getDynamicSlice1dEstimate(const poplar::Target &target,
 
   return cycles;
 }
+} // namespace internal
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastSelectorSelect)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {

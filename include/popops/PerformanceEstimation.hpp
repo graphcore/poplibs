@@ -7,6 +7,10 @@
 
 namespace popops {
 
+// All functions within the internal namespace are liable to be changed at any
+// point without prior notice.
+namespace internal {
+
 /** Supervisor context cycle estimate for BinaryOp and UnaryOp supervisor
  * codelets.
  *
@@ -79,6 +83,7 @@ std::uint64_t getBinaryOp1DInPlaceEstimate(const poplar::Target &target,
                                            const popops::expr::BinaryOpType op,
                                            const unsigned numElems);
 
+} // namespace internal
 } // namespace popops
 
 #endif // _popops_performance_estimation_h_

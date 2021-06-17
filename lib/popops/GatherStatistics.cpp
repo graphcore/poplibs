@@ -1,7 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #include "popops/GatherStatistics.hpp"
-#include "PerformanceEstimation.hpp"
+#include "HistogramPerformanceEstimation.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"

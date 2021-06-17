@@ -1,7 +1,8 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include "poplibs_support/popopsPerformanceEstimation.hpp"
+#include "popops/PerformanceEstimation.hpp"
 
 namespace popops {
+namespace internal {
 
 std::uint64_t basicOpSupervisorOverhead(const bool isScaledPtr64Type) {
 
@@ -23,4 +24,5 @@ std::uint64_t basicOpLoopCycles(const unsigned numElems,
   return cyclesPerVector * (numElems + vectorSize - 1) / vectorSize;
 }
 
+} // namespace internal
 } // namespace popops

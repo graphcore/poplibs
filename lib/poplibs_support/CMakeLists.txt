@@ -9,7 +9,6 @@ add_library(poplibs_support STATIC
   IclUtil.cpp
   logging.cpp
   PlanConstraints.cpp
-  popopsPerformanceEstimation.cpp
   StridedRegions.cpp
   TestDevice.cpp
   TileHierarchy.cpp
@@ -33,7 +32,6 @@ add_library(poplibs_support STATIC
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/Tracepoint.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/VectorUtils.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/vv_iterator.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/popopsPerformanceEstimation.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/FlopEstimation.hpp
 )
 

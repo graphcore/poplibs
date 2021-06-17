@@ -2,7 +2,7 @@
 #include "ConvModel.hpp"
 #include "ExchangeEstimator.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
-#include "poplibs_support/popopsPerformanceEstimation.hpp"
+#include "popops/PerformanceEstimation.hpp"
 #include <boost/functional/hash.hpp>
 #include <poputil/exceptions.hpp>
 
@@ -1604,8 +1604,8 @@ addDynamicSliceEstimate(popsolver::Model &m, const poplar::Target &target,
         if (serialSplit == 1) {
           return popsolver::DataType{0};
         }
-        auto cycles =
-            popops::getDynamicSlice1dEstimate(target, inType, sliceSize, 1);
+        auto cycles = popops::internal::getDynamicSlice1dEstimate(
+            target, inType, sliceSize, 1);
         return popsolver::DataType{cycles};
       });
 }
@@ -1681,9 +1681,10 @@ addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
         if (inChanSerialSplit == 1) {
           return popsolver::DataType{0};
         }
-        return popsolver::DataType{popops::getBinaryOp1DInPlaceEstimate(
-            target, outputsType, popops::expr::BinaryOpType::ADD,
-            outputsPerTile)};
+        return popsolver::DataType{
+            popops::internal::getBinaryOp1DInPlaceEstimate(
+                target, outputsType, popops::expr::BinaryOpType::ADD,
+                outputsPerTile)};
       });
 
   // Estimate temp memory usage

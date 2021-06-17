@@ -17,10 +17,10 @@
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
-#include "poplibs_support/popopsPerformanceEstimation.hpp"
 #include "poplibs_support/print.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poplin/Convolution.hpp"
+#include "popops/PerformanceEstimation.hpp"
 #include "popsolver/Model.hpp"
 #include "poputil/exceptions.hpp"
 #include "tbb/concurrent_unordered_map.h"
@@ -39,6 +39,7 @@
 #include <unordered_set>
 
 using namespace poplibs_support;
+using namespace popops::internal;
 
 namespace poplin {
 
