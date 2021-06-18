@@ -7,7 +7,6 @@ add_library(poputil SHARED
   Broadcast.cpp
   exceptions.cpp
   GraphFunction.cpp
-  PlanConstraints.cpp
   TensorUseTracker.cpp
   TensorMetaData.cpp
   TileMapping.cpp
@@ -19,7 +18,6 @@ add_library(poputil SHARED
   ${CMAKE_SOURCE_DIR}/include/poputil/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/OptionParsing.hpp
-  ${CMAKE_SOURCE_DIR}/include/poputil/PlanConstraints.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/TensorMetaData.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/TileMapping.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/VarStructure.hpp

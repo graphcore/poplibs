@@ -1549,7 +1549,7 @@ static void addMetaInfoRangeLimits(popsolver::Model &m,
 // based on the plan returned for the dense operation
 static popsolver::Variable
 addUseDenseVariable(popsolver::Model &m,
-                    const poputil::PlanConstraints &constraints) {
+                    const poplibs_support::PlanConstraints &constraints) {
   const auto denseConstraint = constraints.get_optional<bool>("useDense");
   unsigned useDenseValue = 0;
   if (denseConstraint) {

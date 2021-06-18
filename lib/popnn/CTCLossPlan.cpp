@@ -6,11 +6,11 @@
 #include "PerformanceEstimation.hpp"
 
 #include <poplibs_support/Memoize.hpp>
+#include <poplibs_support/PlanConstraints.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/CTCLoss.hpp>
 #include <popsolver/Model.hpp>
 #include <poputil/OptionParsing.hpp>
-#include <poputil/PlanConstraints.hpp>
 
 namespace popnn {
 namespace ctc {
@@ -61,7 +61,7 @@ std::ostream &operator<<(std::ostream &o, const CtcLossPlannerParams &p) {
 }
 
 struct CtcOpts {
-  poputil::PlanConstraints planConstraints;
+  poplibs_support::PlanConstraints planConstraints;
   poplar::Type partialsType = poplar::FLOAT;
   double availableMemoryProportion = 0.6; // Per tile
 };
@@ -73,7 +73,8 @@ void validatePlanConstraints(const std::string &path,
     auto valid = std::find(validConstraints.begin(), validConstraints.end(),
                            child.first) != validConstraints.end();
     if (valid) {
-      poputil::validatePlanConstraintsUnsigned(child.first, child.second);
+      poplibs_support::validatePlanConstraintsUnsigned(child.first,
+                                                       child.second);
     } else {
       throw poputil::poplibs_error("Unrecognised constraint " + path + "." +
                                    child.first);
@@ -113,7 +114,7 @@ struct ValidateCtcPlanConstraintsOption {
 
 static CtcOpts parseOptions(const poplar::OptionFlags &options) {
   CtcOpts opts;
-  using poputil::makePlanConstraintsOptionHandler;
+  using poplibs_support::makePlanConstraintsOptionHandler;
   const auto makeCtcPlanConstraintsOptionHandler =
       &makePlanConstraintsOptionHandler<ValidateCtcPlanConstraintsOption>;
 
@@ -571,7 +572,7 @@ constructModel(popsolver::Model &m, const CtcLossPlannerParams &params,
 
 static void
 applyPlanConstraints(popsolver::Model &m,
-                     const poputil::PlanConstraints &planConstraints,
+                     const poplibs_support::PlanConstraints &planConstraints,
                      const PlanVariables &vars) {
   const auto constrainUnsignedVar = [&](const char *name,
                                         popsolver::Variable var) {

@@ -1,6 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#ifndef poputil_PlanConstraints_hpp
-#define poputil_PlanConstraints_hpp
+#ifndef poplibs_support_PlanConstraints_hpp
+#define poplibs_support_PlanConstraints_hpp
 
 #include "poputil/OptionParsing.hpp"
 
@@ -8,7 +8,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <iosfwd>
 
-namespace poputil {
+namespace poplibs_support {
 
 // Wraps ptree only in order to add custom comparison operators.
 class PlanConstraints : public boost::property_tree::ptree {
@@ -53,6 +53,6 @@ void validatePlanConstraintsUnsigned(const std::string &,
 void validatePlanConstraintsUnsignedArray(const std::string &,
                                           const boost::property_tree::ptree &);
 
-} // namespace poputil
+} // namespace poplibs_support
 
-#endif // poputil_PlanConstraints_hpp
+#endif // poplibs_support_PlanConstraints_hpp

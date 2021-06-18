@@ -3,8 +3,8 @@
 #include "CTCInferencePlan.hpp"
 #include "CTCPlanInternal.hpp"
 
+#include <poplibs_support/PlanConstraints.hpp>
 #include <poplibs_support/logging.hpp>
-#include <poputil/PlanConstraints.hpp>
 
 using namespace poplibs_support;
 

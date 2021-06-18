@@ -37,8 +37,8 @@ static std::map<std::string, poplar::Type> partialsTypeMap{
     {"half", poplar::HALF}, {"float", poplar::FLOAT}};
 
 using boost::property_tree::ptree;
-using poputil::validatePlanConstraintsBoolean;
-using poputil::validatePlanConstraintsUnsigned;
+using poplibs_support::validatePlanConstraintsBoolean;
+using poplibs_support::validatePlanConstraintsUnsigned;
 
 static std::unordered_set<std::string> validPartitionConstraintVar = {"x", "y",
                                                                       "z"};
@@ -111,9 +111,10 @@ struct ValidatePlanConstraintsOption {
 Options parseOptionFlags(const OptionFlags &flags) {
   Options options;
 
-  using poputil::makePlanConstraintsOptionHandler;
+  using poplibs_support::makePlanConstraintsOptionHandler;
   const auto makeSparseFCPlanConstraintsOptionHandler =
-      &poputil::makePlanConstraintsOptionHandler<ValidatePlanConstraintsOption>;
+      &poplibs_support::makePlanConstraintsOptionHandler<
+          ValidatePlanConstraintsOption>;
 
   const OptionSpec optSpec{
       {"availableMemoryProportion",

@@ -9,7 +9,7 @@
 #include <ostream>
 #include <tuple>
 
-#include "poputil/PlanConstraints.hpp"
+#include "poplibs_support/PlanConstraints.hpp"
 
 #include "SparsePartitionerOptions.hpp"
 
@@ -36,7 +36,7 @@ struct Options {
   bool enableStructuredRearrangements = true;
   PartitionerOptions partitioner;
   // Constraints on the plan used
-  poputil::PlanConstraints planConstraints;
+  poplibs_support::PlanConstraints planConstraints;
 
   friend bool operator<(const Options &a, const Options &b);
   friend bool operator==(const Options &a, const Options &b);

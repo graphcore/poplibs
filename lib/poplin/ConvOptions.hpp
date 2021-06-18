@@ -2,8 +2,8 @@
 #ifndef poplin_internal_ConvOptions_hpp
 #define poplin_internal_ConvOptions_hpp
 
+#include "poplibs_support/PlanConstraints.hpp"
 #include "poplibs_support/StructHelper.hpp"
-#include "poputil/PlanConstraints.hpp"
 #include <poplar/Target.hpp>
 #include <poplar/Type.hpp>
 #include <string>
@@ -42,7 +42,7 @@ public:
   bool use128BitConvUnitLoad = false;
   // An optional set of constraints on the plan chosen to implement
   // this convolution.
-  poputil::PlanConstraints planConstraints;
+  poplibs_support::PlanConstraints planConstraints;
   std::string planConstraintsOutputFilename; // Not including file extension
   // Allows convolution planner to use AMP vertices with only 4 engines
   // enabled to reduce paddings on small data sets
