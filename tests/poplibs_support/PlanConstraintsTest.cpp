@@ -1,11 +1,11 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE PlanConstraintsTest
-#include "poplibs_support/PlanConstraints.hpp"
+#include "poputil/PlanConstraints.hpp"
 #include <boost/test/unit_test.hpp>
 
 #include <boost/property_tree/ptree.hpp>
 
-using namespace poplibs_support;
+using namespace poputil;
 using namespace boost::property_tree;
 
 BOOST_AUTO_TEST_CASE(ValidateBoolean) {

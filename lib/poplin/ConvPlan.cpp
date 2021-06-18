@@ -807,10 +807,9 @@ static std::vector<unsigned> getCombineConvGroupCandidates(
  * 3. The key of each child of partition.fieldSplit and partition.kernelSplit
  *    is a valid field or kernel dimension, respectively.
  */
-void validatePlanConstraints(
-    const ConvParams &params,
-    const poplibs_support::PlanConstraints &planConstraints,
-    const std::size_t numLevels) {
+void validatePlanConstraints(const ConvParams &params,
+                             const poputil::PlanConstraints &planConstraints,
+                             const std::size_t numLevels) {
   const struct {
     std::string key;
     bool checkKey; // If false, each element of value array will be validated.

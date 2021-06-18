@@ -10,9 +10,9 @@ namespace poplin {
 
 using boost::property_tree::ptree;
 
-using poplibs_support::validatePlanConstraintsBoolean;
-using poplibs_support::validatePlanConstraintsUnsigned;
-using poplibs_support::validatePlanConstraintsUnsignedArray;
+using poputil::validatePlanConstraintsBoolean;
+using poputil::validatePlanConstraintsUnsigned;
+using poputil::validatePlanConstraintsUnsignedArray;
 
 std::map<std::string, Pass> passMap{
     {"NONE", Pass::NONE},
@@ -101,7 +101,7 @@ std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
 void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
-  using poplibs_support::makePlanConstraintsOptionHandler;
+  using poputil::makePlanConstraintsOptionHandler;
 
   const auto makeConvPlanConstraintsOptionHandler =
       &makePlanConstraintsOptionHandler<ValidateConvPlanConstraintsOption>;

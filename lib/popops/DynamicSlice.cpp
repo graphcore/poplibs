@@ -7,7 +7,6 @@
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
-#include "poplibs_support/PlanConstraints.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
@@ -20,6 +19,7 @@
 #include "popops/Zero.hpp"
 #include "popsolver/Model.hpp"
 #include "poputil/DebugInfo.hpp"
+#include "poputil/PlanConstraints.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VarStructure.hpp"
@@ -148,7 +148,7 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
 
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
-  using poplibs_support::makePlanConstraintsOptionHandler;
+  using poputil::makePlanConstraintsOptionHandler;
 
   const auto makeSlicePlanConstraintsOptionHandler =
       &makePlanConstraintsOptionHandler<ValidateSlicePlanConstraintsOption>;

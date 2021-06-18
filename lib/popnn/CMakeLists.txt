@@ -66,7 +66,10 @@ target_link_libraries(popnn
   PUBLIC
     poplar poplin poputil ${CMAKE_DL_LIBS}
   PRIVATE
-    poplibs_support Boost::boost
+    popops
+    popsolver
+    poplibs_support
+    Boost::boost
     TBB::tbb
     spdlog::spdlog_header_only
 )

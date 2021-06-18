@@ -1,7 +1,9 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#include "poplibs_support/PlanConstraints.hpp"
-#include <ostream>
+#include "poputil/PlanConstraints.hpp"
+
 #include <poplar/exceptions.hpp>
+
+#include <ostream>
 
 static inline bool pTreeLessThan(const boost::property_tree::ptree &a,
                                  const boost::property_tree::ptree &b) {
@@ -56,7 +58,7 @@ static inline bool pTreeLessThan(const boost::property_tree::ptree &a,
   return false;
 }
 
-namespace poplibs_support {
+namespace poputil {
 
 std::ostream &operator<<(std::ostream &os, const PlanConstraints &pt) {
   boost::property_tree::json_parser::write_json(os, pt, false);
@@ -99,4 +101,4 @@ void validatePlanConstraintsUnsignedArray(
   }
 }
 
-} // namespace poplibs_support
+} // namespace poputil
