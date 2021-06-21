@@ -64,7 +64,7 @@ target_link_libraries(poplin
     poplibs_support
     popsolver
     Boost::boost
-    TBB::tbb
+    TBB::TBB
     spdlog::spdlog_header_only
 )
 

@@ -418,7 +418,6 @@ foreach(OPTIMIZE_FOR_SPEED true false)
                    --stride=2
                    --ipus 2
                    --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
-                   RUN_SERIAL
                    VARIANTS ${TimesOutOnSim})
 
   add_multitarget_test(NAME avg_pool_layer_1x4_${OPTIMIZE_FOR_SPEED}

@@ -303,7 +303,7 @@ endfunction()
 
 # add a test to run on the specified VARIANTS
 function(add_multitarget_test)
-  cmake_parse_arguments(add_multitarget_test "ALLOW_SKIP;RUN_SERIAL" "NAME"
+  cmake_parse_arguments(add_multitarget_test "ALLOW_SKIP" "NAME"
                         "VARIANTS;COMMAND;LABELS;TEST_IPUMODEL;"
                         "${ARGN}")
   sanitise_variants(add_multitarget_test_VARIANTS add_multitarget_test_TEST_IPUMODEL
@@ -336,9 +336,6 @@ function(add_multitarget_test)
       WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
     if (add_multitarget_test_ALLOW_SKIP)
       set_tests_properties(${test_name} PROPERTIES SKIP_RETURN_CODE 77)
-    endif()
-    if (add_multitarget_test_RUN_SERIAL)
-      set_tests_properties(${test_name} PROPERTIES RUN_SERIAL TRUE)
     endif()
 
     set(test_env ${TEST_ENVIRONMENT})
