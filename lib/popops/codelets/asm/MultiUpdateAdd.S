@@ -5,8 +5,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define SUPERVISOR_VERTEX(type) __runCodelet_popops__MultiUpdateAdd___##type##_false
-#define WORKER_FUNCTION(type) MultiUpdateAdd___##type##_false
+#define VERTEX(type) __runCodelet_popops__MultiUpdateAdd___##type##_false
 #define STACK_SIZE 0
 
 // vertex states, all offsets are in bytes
@@ -56,9 +55,6 @@
 #define wkrStart m9
 #define wkrEnd m8
 
-// supervisor register aliases
-#define sv_workerFunction m1
-
 // floating point variables
 #define scale a7
 
@@ -86,16 +82,16 @@
   add  $baseOffset, $baseOffset, $wkrStart
 .endm
 
+.globl VERTEX(float)
+.type VERTEX(float), @function
 
-.type WORKER_FUNCTION(float), @function
-
-DEF_STACK_USAGE 0 WORKER_FUNCTION(float)
-.section .text.WORKER_FUNCTION(float)
+DEF_STACK_USAGE 0 VERTEX(float)
+.section .text.VERTEX(float)
 .align 8
 #ifndef VECTOR_AVAIL_SCALED_PTR32
   nop // rpt loop aligment
 #endif
-WORKER_FUNCTION(float):
+VERTEX(float):
   // load vertex state, do a size check on offsets
   ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
   brz $offsetSize, .Lfloat_epilogue
@@ -132,7 +128,7 @@ WORKER_FUNCTION(float):
   // adjust pointers by offset for this worker
   mul $wkrStart, $wkrStart, $regionBytesOffset
   add $baseTPtr, $baseTPtr, $wkrStart
-  
+
   sub $offsetSize, $offsetSize, 1
 .Lfloat_offset_loop:
   ld32 $baseIdx, $offsetPtr, $mzero, $offsetSize
@@ -183,18 +179,18 @@ WORKER_FUNCTION(float):
 
 .Lfloat_epilogue:
   exitz $mzero
-.size WORKER_FUNCTION(float), . - WORKER_FUNCTION(float)
+.size VERTEX(float), . - VERTEX(float)
 
-.globl WORKER_FUNCTION(half)
-.type WORKER_FUNCTION(half), @function
+.globl VERTEX(half)
+.type VERTEX(half), @function
 
-DEF_STACK_USAGE 0 WORKER_FUNCTION(half)
-.section .text.WORKER_FUNCTION(half)
+DEF_STACK_USAGE 0 VERTEX(half)
+.section .text.VERTEX(half)
 .align 8
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   nop // rpt loop aligment
 #endif
-WORKER_FUNCTION(half):
+VERTEX(half):
   // load vertex state, do a size check on offsets
   ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
   {
@@ -228,7 +224,7 @@ WORKER_FUNCTION(half):
     sort4x16lo $scale, $a0, $scale
   }
 
-#if defined(VECTOR_AVAIL_SCALED_PTR32)  
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
   // expand the SCALED_PTR32 pointer
   setzi $mscratch, TMEM_REGION0_BASE_ADDR
   shl $baseTPtr, $baseTPtr, SCALED_PTR32_SHL_BITS
@@ -308,29 +304,6 @@ WORKER_FUNCTION(half):
 
 .Lhalf_epilogue:
   exitz $mzero
-.size WORKER_FUNCTION(half), . - WORKER_FUNCTION(half)
-
-
-.macro SUPERVISOR_ENTRY supervisor_name, worker_name
-.globl \supervisor_name\()
-.type \supervisor_name\(), @function
-
-DEF_STACK_SIZE_OWN STACK_SIZE \supervisor_name\()
-.section .text.\supervisor_name\()
-.align 4
-.supervisor
-\supervisor_name\():
-  // pointer to the worker code to run
-  setzi $sv_workerFunction, \worker_name\()
-  runall $sv_workerFunction, $m0, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
-
-.size \supervisor_name\(), .-\supervisor_name\()
-.endm
-
-// Instantiate supervisor
-SUPERVISOR_ENTRY SUPERVISOR_VERTEX(float) WORKER_FUNCTION(float) 
-SUPERVISOR_ENTRY SUPERVISOR_VERTEX(half) WORKER_FUNCTION(half) 
+.size VERTEX(half), . - VERTEX(half)
 
 #endif // __IPU__

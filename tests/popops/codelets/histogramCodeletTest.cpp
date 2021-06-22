@@ -56,8 +56,8 @@ std::vector<float> histogram(const std::vector<float> &data,
 bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
             unsigned padding, const unsigned rows,
             const std::vector<double> &data, const std::vector<float> &limits,
-            bool isSupervisor, bool divideWorkByLimit,
-            const poplar::Type &dataType, bool isAbsolute) {
+            bool is1D, bool divideWorkByLimit, const poplar::Type &dataType,
+            bool isAbsolute) {
   auto &target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -72,8 +72,8 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
 
   auto cs = graph.addComputeSet("cs");
 
-  const auto vertexClassSupervisor = templateVertex(
-      "popops::HistogramSupervisor", dataType, isAbsolute, divideWorkByLimit);
+  const auto vertexClass1D = templateVertex("popops::Histogram1D", dataType,
+                                            isAbsolute, divideWorkByLimit);
   const auto vertexClass2D =
       templateVertex("popops::Histogram2D", dataType, isAbsolute);
 
@@ -83,7 +83,7 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
   // We create one data tensor, with multiple vertices reading from it, each
   // with a different offset to ensure we check each input alignment.
   // This is kind of possible with the 2D vertex and multiple rows each of
-  // an odd length, but not for the supervisor case.  Use this mechanism for
+  // an odd length, but not for the 1D case.  Use this mechanism for
   // both vertex types
   auto vertexData = graph.addVariable(dataType, {data.size()});
   auto vertexLimits = graph.addVariable(dataType, {limits.size()});
@@ -99,11 +99,10 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
   for (unsigned offset = 0; offset < numVertices; offset++) {
     auto vertexHistogram = graph.addVariable(FLOAT, {histogramSize});
 
-    auto v = graph.addVertex(cs, isSupervisor ? vertexClassSupervisor
-                                              : vertexClass2D);
+    auto v = graph.addVertex(cs, is1D ? vertexClass1D : vertexClass2D);
     graph.setTileMapping(v, 0);
 
-    if (isSupervisor) {
+    if (is1D) {
       graph.connect(v["data"],
                     vertexData.slice({offset, offset + unpaddedDataSize}));
     } else {
@@ -177,7 +176,7 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
               << "\nExpected:" << hostResult;
     std::cout << "\n";
 
-    // Note - in the case of the supervisor vertex with work split by data
+    // Note - in the case of the 1D vertex with work split by data
     // size then the output is larger than hostResult.size(), but the
     // first hostResult.size() entries hold the result
     for (unsigned i = 0; i < hostResult.size(); ++i) {
@@ -199,7 +198,7 @@ int main(int argc, char **argv) {
   // Default input parameters.
   Type dataType = FLOAT;
   bool isAbsolute = false;
-  bool isSupervisor = false;
+  bool is1D = false;
   unsigned dataSize;
   unsigned limitSize;
   unsigned rows = 1;
@@ -237,7 +236,7 @@ int main(int argc, char **argv) {
       "Limits range")
     ("limits-step", po::value(&limitsStep)->default_value(limitsStep),
       "Limits step, found from range unless this parameter is used")
-    ("supervisor", po::value(&isSupervisor)->default_value(isSupervisor),
+    ("supervisor", po::value(&is1D)->default_value(is1D),
       "Test supervisor vertex")
     ("supervisor-by-limit", po::value(&divideWorkByLimit)->default_value(divideWorkByLimit),
       "Test supervisor vertex that divides work by limit, not input data")
@@ -285,9 +284,8 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < limits.size(); i++) {
     limits[i] = limitsMin + static_cast<float>(i) * limitsStep;
   }
-  auto success =
-      doTest(device, deviceType, profile, padding, rows, data, limits,
-             isSupervisor, divideWorkByLimit, dataType, isAbsolute);
+  auto success = doTest(device, deviceType, profile, padding, rows, data,
+                        limits, is1D, divideWorkByLimit, dataType, isAbsolute);
   if (!success) {
     std::cerr << "Failure\n";
   }

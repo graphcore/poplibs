@@ -26,9 +26,7 @@ constexpr bool hasAssembly() {
 // indices that are not within the range of [baseOffset,
 // baseOffset + numBaseElements) are ignored.
 template <typename Type, bool subwordWritesSupported>
-class MultiUpdateAdd
-    : public SupervisorVertexIf<hasAssembly<Type, subwordWritesSupported>() &&
-                                ASM_CODELETS_ENABLED> {
+class MultiUpdateAdd : public MultiVertex {
 public:
   MultiUpdateAdd();
 
@@ -44,36 +42,38 @@ public:
   // by assembler
   const unsigned maxElementsPerWorker;
 
-  bool compute() {
-    // Perform calculation in single precision for half data so that stochastic
-    // rounding will occur. TODO: T12921 Replace with a mix.
-    // For halves, accumulate in float so that stochastic rounding will take
-    // effect.
-    using ScaleType =
-        std::conditional_t<std::is_same<Type, half>::value, float, Type>;
-    // load scale once
-    const auto scaleL = ScaleType(*scale);
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      // Perform calculation in single precision for half data so that
+      // stochastic rounding will occur. TODO: T12921 Replace with a mix.
+      // For halves, accumulate in float so that stochastic rounding will take
+      // effect.
+      using ScaleType =
+          std::conditional_t<std::is_same<Type, half>::value, float, Type>;
+      // load scale once
+      const auto scaleL = ScaleType(*scale);
 
-    unsigned restrictedRegionSize = regionSize;
-    if (std::is_same<Type, half>::value && !subwordWritesSupported)
-      restrictedRegionSize &= ~0x1;
-    for (unsigned o = 0; o != offsets.size(); ++o) {
-      auto baseIdx = offsets[o];
+      unsigned restrictedRegionSize = regionSize;
+      if (std::is_same<Type, half>::value && !subwordWritesSupported)
+        restrictedRegionSize &= ~0x1;
+      for (unsigned o = 0; o != offsets.size(); ++o) {
+        auto baseIdx = offsets[o];
 
-      // the assembly uses this same logic here but without bounds checks on
-      // baseIdx for speed reasons so assert it here instead.
-      assert(baseIdx < (1 << 31));
-      assert(numBaseElements < (1 << 31));
-      baseIdx -= baseOffset;
-      if (baseIdx >= numBaseElements) {
-        // this slice is not a part of baseT so we can skip it.
-        continue;
-      }
+        // the assembly uses this same logic here but without bounds checks on
+        // baseIdx for speed reasons so assert it here instead.
+        assert(baseIdx < (1 << 31));
+        assert(numBaseElements < (1 << 31));
+        baseIdx -= baseOffset;
+        if (baseIdx >= numBaseElements) {
+          // this slice is not a part of baseT so we can skip it.
+          continue;
+        }
 
-      for (unsigned e = 0; e != restrictedRegionSize; ++e) {
-        const auto addend =
-            scaleL * ScaleType(subT[o * restrictedRegionSize + e]);
-        baseT[baseIdx * restrictedRegionSize + e] += addend;
+        for (unsigned e = 0; e != restrictedRegionSize; ++e) {
+          const auto addend =
+              scaleL * ScaleType(subT[o * restrictedRegionSize + e]);
+          baseT[baseIdx * restrictedRegionSize + e] += addend;
+        }
       }
     }
     return true;

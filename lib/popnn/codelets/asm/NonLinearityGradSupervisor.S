@@ -1,7 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
-// Assembly implementation of popnn::NonLinearityGrad2D vertex template instantiations.
+// Assembly implementation of popnn::NonLinearityGrad1D vertex template instantiations.
 
 // Restrictions
 //
@@ -14,9 +14,9 @@
 
 // Symbol names
 #define HALF_SYMBOL \
-  __runCodelet_popnn__NonLinearityGradSupervisor___half_popnn__NonLinearityType__\NL_TYPE
+  __runCodelet_popnn__NonLinearityGrad1D___half_popnn__NonLinearityType__\NL_TYPE
 #define FLOAT_SYMBOL \
-  __runCodelet_popnn__NonLinearityGradSupervisor___float_popnn__NonLinearityType__\NL_TYPE
+  __runCodelet_popnn__NonLinearityGrad1D___float_popnn__NonLinearityType__\NL_TYPE
 
 // Constants
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -34,10 +34,6 @@
 #define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
 #define LOG2_24_OVER_3 3
 #define LOG2_12_OVER_3 2
-
-// Supervisor register aliases
-#define SUPER_BASE m0
-#define WORKER_ENTRY m1
 
 // Worker register aliases
 #define WORKER_ID m0
@@ -123,15 +119,8 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
 .type HALF_SYMBOL, @function
 
 .align 8
-.supervisor
 
 HALF_SYMBOL:
-  setzi $WORKER_ENTRY, .Lhalf_worker\@
-  runall $WORKER_ENTRY, $SUPER_BASE, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
-
-.Lhalf_worker\@:
 .worker
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -248,14 +237,7 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function
 
 .align 8
-.supervisor
 FLOAT_SYMBOL:
-  setzi $WORKER_ENTRY, .Lfloat_worker\@
-  runall $WORKER_ENTRY, $SUPER_BASE, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
-
-.Lfloat_worker\@:
 .worker
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
 #if defined(VECTOR_AVAIL_SCALED_PTR64)

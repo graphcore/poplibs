@@ -20,9 +20,7 @@ static constexpr auto DELTANLAYOUT = poplar::VectorListLayout::DELTANELEMENTS;
 
 namespace popnn {
 
-template <typename FPType>
-class WORKER_ALIGN SumPooling
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+template <typename FPType> class SumPooling : public MultiVertex {
   IS_EXTERNAL_CODELET(true);
 
   Output<Vector<FPType, PTR_ALIGN64, 8>> out;
@@ -48,49 +46,51 @@ public:
   const unsigned outSliceSize;
   const FPType scale;
 
-  bool compute() {
-    const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
-    const auto numChanGroups = numChanGroupsM1 + 1;
-    const auto chansPerGroup = (chansPerGroupDM1 + 1) * scaleFactor;
-    const auto inStride = inStrideD * scaleFactor;
-    const auto outStride = outStrideD * scaleFactor;
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
+      const auto numChanGroups = numChanGroupsM1 + 1;
+      const auto chansPerGroup = (chansPerGroupDM1 + 1) * scaleFactor;
+      const auto inStride = inStrideD * scaleFactor;
+      const auto outStride = outStrideD * scaleFactor;
 
-    // initialise output
-    for (unsigned cg = 0; cg != numChanGroups; ++cg) {
-      for (unsigned i = 0; i != initInfo * chansPerGroup; ++i) {
-        out[cg * (initInfo * chansPerGroup) + i] = 0;
+      // initialise output
+      for (unsigned cg = 0; cg != numChanGroups; ++cg) {
+        for (unsigned i = 0; i != initInfo * chansPerGroup; ++i) {
+          out[cg * (initInfo * chansPerGroup) + i] = 0;
+        }
       }
-    }
 
-    // do pooling operation
-    for (unsigned ctxtM1 = 0; ctxtM1 != CTXT_WORKERS; ++ctxtM1) {
-      const unsigned numRows =
-          ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
-      const unsigned sPos = ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
+      // do pooling operation
+      for (unsigned ctxtM1 = 0; ctxtM1 != CTXT_WORKERS; ++ctxtM1) {
+        const unsigned numRows =
+            ctxtM1 == 0 ? startPos[0] : startPos[ctxtM1] - startPos[ctxtM1 - 1];
+        const unsigned sPos = ctxtM1 == 0 ? 0 : startPos[ctxtM1 - 1];
 
-      for (unsigned row = 0; row != numRows; ++row) {
-        const auto pos = sPos + row;
-        const auto outOffsetBase = offsetBase[2 * pos] * chansPerGroup;
-        const auto inOffsetBase = offsetBase[2 * pos + 1] * chansPerGroup;
-        const auto numWorkItems = workList[pos].size();
-        // there are always three items for each work vector
-        for (unsigned w = 0; w != numWorkItems; w += 3) {
-          const auto outBeginOffset =
-              workList[pos][w + 0] * chansPerGroup + outOffsetBase;
-          const auto inBeginOffset =
-              workList[pos][w + 1] * chansPerGroup + inOffsetBase;
-          const auto numElements = workList[pos][w + 2] + 1;
-          for (unsigned cg = 0; cg != numChanGroups; ++cg) {
-            const auto inBase = cg * inSliceSize;
-            const auto outBase = cg * outSliceSize;
-            for (unsigned c = 0; c != chansPerGroup; ++c) {
-              unsigned outPos = outBeginOffset + c + outBase;
-              unsigned inPos = inBeginOffset + c + inBase;
-              for (unsigned f = 0; f != numElements; ++f) {
-                out[outPos] += scale * in[inPos];
+        for (unsigned row = 0; row != numRows; ++row) {
+          const auto pos = sPos + row;
+          const auto outOffsetBase = offsetBase[2 * pos] * chansPerGroup;
+          const auto inOffsetBase = offsetBase[2 * pos + 1] * chansPerGroup;
+          const auto numWorkItems = workList[pos].size();
+          // there are always three items for each work vector
+          for (unsigned w = 0; w != numWorkItems; w += 3) {
+            const auto outBeginOffset =
+                workList[pos][w + 0] * chansPerGroup + outOffsetBase;
+            const auto inBeginOffset =
+                workList[pos][w + 1] * chansPerGroup + inOffsetBase;
+            const auto numElements = workList[pos][w + 2] + 1;
+            for (unsigned cg = 0; cg != numChanGroups; ++cg) {
+              const auto inBase = cg * inSliceSize;
+              const auto outBase = cg * outSliceSize;
+              for (unsigned c = 0; c != chansPerGroup; ++c) {
+                unsigned outPos = outBeginOffset + c + outBase;
+                unsigned inPos = inBeginOffset + c + inBase;
+                for (unsigned f = 0; f != numElements; ++f) {
+                  out[outPos] += scale * in[inPos];
 
-                outPos += outStride;
-                inPos += inStride;
+                  outPos += outStride;
+                  inPos += inStride;
+                }
               }
             }
           }

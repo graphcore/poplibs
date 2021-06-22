@@ -1,7 +1,7 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
-// Assembly implementation of vertex for popnn::NonLinearityGrad2D for SWISH.
+// Assembly implementation of vertex for popnn::NonLinearityGrad1D for SWISH.
 
 // Restrictions
 //
@@ -15,9 +15,9 @@
 
 // Symbol names
 #define HALF_SYMBOL \
-  __runCodelet_popnn__NonLinearityGradSupervisor___half_popnn__NonLinearityType__SWISH
+  __runCodelet_popnn__NonLinearityGrad1D___half_popnn__NonLinearityType__SWISH
 #define FLOAT_SYMBOL \
-  __runCodelet_popnn__NonLinearityGradSupervisor___float_popnn__NonLinearityType__SWISH
+  __runCodelet_popnn__NonLinearityGrad1D___float_popnn__NonLinearityType__SWISH
 
 
 // Constants
@@ -32,10 +32,6 @@
 #define INGRAD_PTR_VOFFSET 8
 #define N_VOFFSET 12
 #endif
-
-// Supervisor register aliases
-#define SUPER_BASE m0
-#define WORKER_ENTRY m1
 
 // Worker register aliases
 #define WORKER_ID m0
@@ -56,16 +52,8 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
 .type HALF_SYMBOL, @function
 
 .align 8
-.supervisor
 
 HALF_SYMBOL:
-  setzi $WORKER_ENTRY, .Lhalf_worker
-  runall $WORKER_ENTRY, $SUPER_BASE, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
-
-.align 8
-.Lhalf_worker:
 .worker
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -105,7 +93,7 @@ HALF_SYMBOL:
   ld64step $azeros, $mzero, $OUTGRAD_PTR+=, $WORKER_ID
   ld64step $azeros, $mzero, $OUT_PTR+=, $WORKER_ID
   ld64step $azeros, $mzero, $INGRAD_PTR+=, $WORKER_ID
-  
+
   // The rpt loop is pipelined, so decrement loop count by 1
   brz $SIZE, .Lhalf_32_bit_remainder
   add $SIZE, $SIZE, -1
@@ -154,15 +142,8 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function
 
-.supervisor
-FLOAT_SYMBOL:
-  setzi $WORKER_ENTRY, .Lfloat_worker
-  runall $WORKER_ENTRY, $SUPER_BASE, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
-
 .align 8
-.Lfloat_worker:
+FLOAT_SYMBOL:
 .worker
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
 #if defined(VECTOR_AVAIL_SCALED_PTR64)

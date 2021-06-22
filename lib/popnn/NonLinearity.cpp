@@ -283,14 +283,14 @@ Tensor nonLinearityInputGradient(Graph &graph,
 
   const auto codeletName2D =
       templateVertex("popnn::NonLinearityGrad2D", dType, nonLinearityType);
-  const auto codeletNameSupervisor = templateVertex(
-      "popnn::NonLinearityGradSupervisor", dType, nonLinearityType);
+  const auto codeletName1D =
+      templateVertex("popnn::NonLinearityGrad1D", dType, nonLinearityType);
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
-  const auto maxSupervisorElements = std::min<std::size_t>(
-      graph.getMaxVertexFieldValue(codeletNameSupervisor, "n"),
-      target.getRptCountMax() * numWorkers * vectorWidth);
+  const auto max1DElements =
+      std::min<std::size_t>(graph.getMaxVertexFieldValue(codeletName1D, "n"),
+                            target.getRptCountMax() * numWorkers * vectorWidth);
   const auto max2DInnerElements =
       std::min<std::size_t>(graph.getMaxFieldDim(codeletName2D, "inGrad", 1),
                             target.getRptCountMax() * vectorWidth);
@@ -305,9 +305,9 @@ Tensor nonLinearityInputGradient(Graph &graph,
       const auto outGradTile =
           concat(outGradFlat.slices(tileContiguousRegions));
       const auto numElements = outGradTile.numElements();
-      if (numElements <= maxSupervisorElements) {
+      if (numElements <= max1DElements) {
         auto v = graph.addVertex(
-            cs, codeletNameSupervisor,
+            cs, codeletName1D,
             {{"out", concat(outFlat.slices(tileContiguousRegions))},
              {"outGrad", outGradTile},
              {"inGrad", concat(inGradFlat.slices(tileContiguousRegions))}});
@@ -414,7 +414,7 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   auto codeletName2D =
       templateVertex("popnn::NonLinearity2D", dType, nonLinearityType);
   auto codeletName1D =
-      templateVertex("popnn::NonLinearitySupervisor", dType, nonLinearityType);
+      templateVertex("popnn::NonLinearity1D", dType, nonLinearityType);
   auto dataName = "data";
 
   Tensor outFlat;
@@ -442,14 +442,14 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   const auto rptLimitMaxElements1D =
       target.getRptCountMax() * numWorkers * vectorWidth;
   const auto rptLimitMaxElements2D = target.getRptCountMax() * vectorWidth;
-  std::size_t maxSupervisor1D, max2DElements;
+  std::size_t max1DElements, max2DElements;
   if (isNotInPlacePopopsVertex) {
     // These vertices don't have limited size fields; the limits are only due
     // to the RPT instruction count.
-    maxSupervisor1D = rptLimitMaxElements1D;
+    max1DElements = rptLimitMaxElements1D;
     max2DElements = rptLimitMaxElements2D;
   } else {
-    maxSupervisor1D =
+    max1DElements =
         std::min<std::size_t>(graph.getMaxVertexFieldValue(codeletName1D, "n"),
                               rptLimitMaxElements1D);
     max2DElements =
@@ -467,7 +467,7 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     if (tileContiguousRegions.size() == 1) {
       const auto tThisTile = concat(tFlat.slices(tileContiguousRegions));
       const auto numElements = tThisTile.numElements();
-      if (numElements <= maxSupervisor1D) {
+      if (numElements <= max1DElements) {
         auto v = graph.addVertex(cs, codeletName1D, {{dataName, tThisTile}});
         if (isNotInPlacePopopsVertex) {
           // The popops not-in-place vertices don't have the 'n' field (as the

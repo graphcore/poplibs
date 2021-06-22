@@ -4,12 +4,12 @@
 
 #include <cstdint>
 
-std::uint64_t histogramSupervisorByLimitEstimate(
+std::uint64_t histogram1DByLimitEstimate(
     unsigned elements, unsigned histogramCount, bool isAbsolute, bool isHalf,
     unsigned numWorkers, unsigned vectorWidth, unsigned unpackCostHistogram = 0,
     unsigned unpackCostLimits = 0);
 
-std::uint64_t histogramSupervisorByDataEstimate(
+std::uint64_t histogram1DByDataEstimate(
     unsigned elements, unsigned histogramCount, bool isAbsolute, bool isHalf,
     unsigned numWorkers, unsigned vectorWidth, unsigned unpackCostHistogram = 0,
     unsigned unpackCostLimits = 0);

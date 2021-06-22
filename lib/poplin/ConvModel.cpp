@@ -1604,7 +1604,7 @@ addDynamicSliceEstimate(popsolver::Model &m, const poplar::Target &target,
         if (serialSplit == 1) {
           return popsolver::DataType{0};
         }
-        auto cycles = popops::internal::getDynamicSlice1dEstimate(
+        auto cycles = popops::internal::getDynamicSlice1DEstimate(
             target, inType, sliceSize, 1);
         return popsolver::DataType{cycles};
       });

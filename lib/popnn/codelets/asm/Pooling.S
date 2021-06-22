@@ -381,19 +381,11 @@
 
 DEF_STACK_USAGE 0 \symbol
 .section .text.\symbol
-.align 4
-.supervisor
-\symbol:
-  setzi $m1, kernel\@ // 6 cycles
-  runall $m1, $m0, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
-// =====================================
-// Worker entry
+
 .align 8
 .worker
   nop       // rpt alignment
-kernel\@:
+\symbol:
 
 // ============================
 #define numChanGroupsM1 m1

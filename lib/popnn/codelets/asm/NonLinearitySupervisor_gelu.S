@@ -1,7 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
-// Assembly implementation of popnn::NonLinearitySupervisor vertex template variations.
+// Assembly implementation of popnn::NonLinearity1D vertex template variations.
 
 // Restrictions
 //
@@ -13,9 +13,9 @@
 
 // Symbols
 #define HALF_SYMBOL \
-  __runCodelet_popnn__NonLinearitySupervisor___half_popnn__NonLinearityType__GELU
+  __runCodelet_popnn__NonLinearity1D___half_popnn__NonLinearityType__GELU
 #define FLOAT_SYMBOL \
-  __runCodelet_popnn__NonLinearitySupervisor___float_popnn__NonLinearityType__GELU
+  __runCodelet_popnn__NonLinearity1D___float_popnn__NonLinearityType__GELU
 
 // Force all accumulators to zero
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
@@ -32,10 +32,6 @@
 #define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
 #define LOG2_24_OVER_3 3
 #define LOG2_12_OVER_3 2
-
-// Supervisor register aliases
-#define SUPER_BASE m0
-#define WORKER_ENTRY m1
 
 #define HALF_1_0 0x3C00
 #define HALF_0_5 0x3800
@@ -124,16 +120,10 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
 .endm
 
 .align 8
-.supervisor
-HALF_SYMBOL:
-    setzi $WORKER_ENTRY, .Lhalf_worker
-    runall $WORKER_ENTRY, $SUPER_BASE, 0
-    sync TEXCH_SYNCZONE_LOCAL
-    br $MSCRATCH
 
     // For rpt alignment below.
     nop
-.Lhalf_worker:
+HALF_SYMBOL:
 .worker
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
@@ -279,17 +269,10 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .endm
 
 .align 8
-.supervisor
-FLOAT_SYMBOL:
-
-    setzi $WORKER_ENTRY, .Lfloat_worker
-    runall $WORKER_ENTRY, $SUPER_BASE, 0
-    sync TEXCH_SYNCZONE_LOCAL
-    br $MSCRATCH
 
     // For rpt alignment below.
     nop
-.Lfloat_worker:
+FLOAT_SYMBOL:
 .worker
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 

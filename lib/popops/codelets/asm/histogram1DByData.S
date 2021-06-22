@@ -2,7 +2,7 @@
 #ifdef __IPU__
 
 /* -------------------------------------------------------------------------- */
-// Supervisor vertex code for Histogram vertices
+// MultiVertex code for Histogram
 //
 // General maths: When comparing float or half to another float or half using the
 // comparison instructions we get false = 0, true (half) = 0xffff
@@ -90,10 +90,10 @@
 #define acc1 a7
 
 // Naming / name mangling
-#define MANGLE_STR(SUFFIX) __runCodelet_popops__HistogramSupervisor___##SUFFIX
+#define MANGLE_STR(SUFFIX) __runCodelet_popops__Histogram1D___##SUFFIX
 
 //******************************************************************************
-// Supervisor entry, worker code in one macro for HALF
+// Macro for HALF MultiVeretex
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM IS_ABS
@@ -101,20 +101,10 @@ DEF_STACK_USAGE 0 MANGLE_STR(half_\IS_ABS\()_false)
 .section .text.MANGLE_STR(half_\IS_ABS\()_false)
 .global MANGLE_STR(half_\IS_ABS\()_false)
 .type MANGLE_STR(half_\IS_ABS\()_false), @function
-.align 4
-.supervisor
-
-MANGLE_STR(half_\IS_ABS\()_false):
-
-  setzi       $m1, MANGLE_STR(worker_half_\IS_ABS\()_false)
-  runall      $m1, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
-
 .worker
 .align 8
 
- MANGLE_STR(worker_half_\IS_ABS\()_false):
+ MANGLE_STR(half_\IS_ABS\()_false):
    {call  $mlink, MANGLE_STR(state_divide_work_half)
     setzi $one0, HALF_ONE}
 
@@ -140,7 +130,7 @@ limit_loop\@:
 
   ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
 
-  RPT_ALIGNED_TO MANGLE_STR(worker_half_\IS_ABS\()_false) $mloops
+  RPT_ALIGNED_TO MANGLE_STR(half_\IS_ABS\()_false) $mloops
 1:
   CONDITIONAL_ABSv4HALF_BUNDLE \IS_ABS
   {nop
@@ -325,7 +315,7 @@ extract_w0\@:
 .size MANGLE_STR(half_\IS_ABS\()_false), . -MANGLE_STR(half_\IS_ABS\()_false)
 .endm
 //******************************************************************************
-// Supervisor entry, worker code in one macro for FLOAT
+// MultiVertex code in one macro for FLOAT
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM_FLOAT IS_ABS
@@ -333,19 +323,10 @@ DEF_STACK_USAGE 0 MANGLE_STR(float_\IS_ABS\()_false)
 .section .text.MANGLE_STR(float_\IS_ABS\()_false)
 .global MANGLE_STR(float_\IS_ABS\()_false)
 .type MANGLE_STR(float_\IS_ABS\()_false), @function
-.align 4
-.supervisor
+.align 8
+.worker
 
 MANGLE_STR(float_\IS_ABS\()_false):
-
-  setzi       $m1, MANGLE_STR(worker_float_\IS_ABS\()_false)
-  runall      $m1, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
-
-.worker
-.align 8
-MANGLE_STR(worker_float_\IS_ABS\()_false):
    {call  $mlink, MANGLE_STR(state_divide_work_float)
     or $one0, $azero, FLOAT_ONE}
 
@@ -368,7 +349,7 @@ limit_loop\@:
   {brneg $mloops, extract\@
    mov $acc01, $azeros}
   ld64step $a0:1, $mzero, $dataPtr+=,CTXT_WORKERS
-  RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS\()_false) $mloops
+  RPT_ALIGNED_TO MANGLE_STR(float_\IS_ABS\()_false) $mloops
 1:
   CONDITIONAL_ABSv2FLOAT_BUNDLE \IS_ABS
   {nop

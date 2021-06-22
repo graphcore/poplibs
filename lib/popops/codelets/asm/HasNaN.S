@@ -7,19 +7,19 @@
 
 // -----------------------------------------------------------------------------
 
-#define HAS_NAN_HALF __runCodelet_popops__HasNaNOrInf___half_false
-#define HAS_NAN_FLOAT __runCodelet_popops__HasNaNOrInf___float_false
-#define HAS_NAN_HALF_SUP __runCodelet_popops__HasNaNOrInfSupervisor___half_false
-#define HAS_NAN_FLOAT_SUP __runCodelet_popops__HasNaNOrInfSupervisor___float_false
-#define HAS_NANORINF_HALF __runCodelet_popops__HasNaNOrInf___half_true
-#define HAS_NANORINF_FLOAT __runCodelet_popops__HasNaNOrInf___float_true
-#define HAS_NANORINF_HALF_SUP __runCodelet_popops__HasNaNOrInfSupervisor___half_true
-#define HAS_NANORINF_FLOAT_SUP __runCodelet_popops__HasNaNOrInfSupervisor___float_true
+#define HAS_NAN_HALF_2D __runCodelet_popops__HasNaNOrInf2D___half_false
+#define HAS_NAN_FLOAT_2D __runCodelet_popops__HasNaNOrInf2D___float_false
+#define HAS_NAN_HALF_1D __runCodelet_popops__HasNaNOrInf1D___half_false
+#define HAS_NAN_FLOAT_1D __runCodelet_popops__HasNaNOrInf1D___float_false
+#define HAS_NANORINF_HALF_2D __runCodelet_popops__HasNaNOrInf2D___half_true
+#define HAS_NANORINF_FLOAT_2D __runCodelet_popops__HasNaNOrInf2D___float_true
+#define HAS_NANORINF_HALF_1D __runCodelet_popops__HasNaNOrInf1D___half_true
+#define HAS_NANORINF_FLOAT_1D __runCodelet_popops__HasNaNOrInf1D___float_true
 
 // Constants: Vertex state
 // The first two are used for 2D and all are used for 1D
 #define V_IN_ADDR        0  // word
-#define V_IN_SIZE        4  // ushort/uint for 1D/2D 
+#define V_IN_SIZE        4  // ushort/uint for 1D/2D
 #define V_LAST_WORKER    6  // uchar for 1D
 #define V_EXTRAS         7  // uchar for 1D
 
@@ -54,7 +54,7 @@ get             $w_wkrId, $WSR
 }
 {
   ld32            $w_inPtr, $mvertex_base, V_IN_ADDR/4
-  setzi           $fp_clr_reg, 1 << CSR_W_FP_CLR__ZAACC__SHIFT 
+  setzi           $fp_clr_reg, 1 << CSR_W_FP_CLR__ZAACC__SHIFT
 }
 {
   ldz16           $w_numValues, $mvertex_base, V_IN_SIZE/2
@@ -63,7 +63,7 @@ get             $w_wkrId, $WSR
 {
   ldz8            $w_lastWorker, $mvertex_base, V_LAST_WORKER
   // clear exceptions
-  uput            $FP_CTL, $azero  
+  uput            $FP_CTL, $azero
 }
 cmpult          $w_addRem, $w_wkrId, $w_lastWorker
 add             $w_numValues, $w_numValues, $w_addRem
@@ -106,24 +106,6 @@ exitz          $w_retVal
 .size \NAME\(), .-\NAME\()
 .endm
 
-// -----------------------------------------------------------------------------
-
-// instantiate a 1D supervisor
-.macro INSTANTIATE_1D_SUPERVISOR CODELET_NAME, WORKER_FN
-
-DEF_STACK_USAGE 0 \CODELET_NAME\()
-.section .text.\CODELET_NAME\()
-.align 4
-.globl \CODELET_NAME\()
-.type \CODELET_NAME\(), @function
-\CODELET_NAME\():
-.supervisor
-setzi           $m1, \WORKER_FN\()
-runall          $m1, $m0, 0
-sync            TEXCH_SYNCZONE_LOCAL
-br              $lr
-.size \CODELET_NAME\(), . - \CODELET_NAME\()
-.endm
 
 // -----------------------------------------------------------------------------
 
@@ -144,7 +126,7 @@ f32v2add        $a0:1, $a0:1, $a2:3
 f32add          $a0, $a0, $a1
 
 .ifc \CHECK_INF, true
-// If NaN is present we should get a NaN. Otherwise we should get an Inf if 
+// If NaN is present we should get a NaN. Otherwise we should get an Inf if
 // at least one of the data was Inf. Convert it to a NaN by subtracting by
 // itself so that we just have to deal with NaN in the check below.
 f32sub          $a0, $a0, $a0
@@ -166,7 +148,7 @@ cmpeq           $w_retVal, $w_retVal, 2
 }
 {
   ld32            $w_numVectors, $mvertex_base, $mzero, V_IN_SIZE/4
-  setzi           $fp_clr_reg, 1 << CSR_W_FP_CLR__ZAACC__SHIFT 
+  setzi           $fp_clr_reg, 1 << CSR_W_FP_CLR__ZAACC__SHIFT
 }
 {
   mov             $w_retVal, $mzero
@@ -201,7 +183,7 @@ rpt             $w_numx8, 1
   }
   {
     ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
-    f16v8absacc     $a0:3  
+    f16v8absacc     $a0:3
   }
 
 shr             $w_numx4, $w_numValues, 2
@@ -249,9 +231,9 @@ rpt             $w_numx4, 2
   {
     ld64step        $a4:5, $mzero, $w_inPtr+=, $w_stride
     f32v4absacc     $a0:3
-  }  
+  }
 {
-  shr             $w_numx2, $w_numValues, 1 
+  shr             $w_numx2, $w_numValues, 1
   mov             $a2:3, $azeros
 }
 {
@@ -260,13 +242,13 @@ rpt             $w_numx4, 2
 }
 f32v4absacc     $a0:3
 {
-  add             $w_numValues, $w_numValues, -2 
+  add             $w_numValues, $w_numValues, -2
   f16v2tof32      $a0:1, $a5
 }
 LLastH_\DIM_SUFFIX\()_\CHECK_INF\():
 {
   brz             $w_numValues, LDecrCountH_\DIM_SUFFIX\()_\CHECK_INF\()
-  mov             $a1, $azero             
+  mov             $a1, $azero
 }
 f32v4absacc     $a0:3
 .endif
@@ -282,7 +264,7 @@ shr             $w_numx4, $w_numValues, 2
   and             $w_numValues, $w_numValues, 0x3
   // very small value in the order of 1e-38
   // this is strictly not required when Inf are not
-  // checked for. 
+  // checked for.
   or              $a5, $azero, 0x00800000
 }
 {
@@ -302,7 +284,7 @@ rpt             $w_numx4, 2
   {
     ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
     f32v4absacc     $a0:3
-  }  
+  }
 .else
 rpt             $w_numx4, 1
   {
@@ -312,10 +294,10 @@ rpt             $w_numx4, 1
   {
     ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
     f32v4absacc     $a0:3
-  }  
-.endif    
+  }
+.endif
 {
-  shr             $w_numx2, $w_numValues, 1 
+  shr             $w_numx2, $w_numValues, 1
   mov             $a2:3, $azeros
 }
 {
@@ -327,13 +309,13 @@ rpt             $w_numx4, 1
   f32v4absacc     $a0:3
 }
 {
-  add             $w_numValues, $w_numValues, -2 
+  add             $w_numValues, $w_numValues, -2
   f32v2mul        $a0:1, $a5:B, $a0:1
 }
 LLastF_\DIM_SUFFIX\()_\CHECK_INF\():
 {
   brz             $w_numValues, LDecrCountF_\DIM_SUFFIX\()_\CHECK_INF\()
-  mov             $a1, $azero             
+  mov             $a1, $azero
 }
 f32v4absacc     $a0:3
 LDecrCountF_\DIM_SUFFIX\()_\CHECK_INF\():
@@ -366,7 +348,7 @@ PROPAGATE_NAN half \CHECK_INF
 
 LExitH_2D_\CHECK_INF\():
 uput            $FP_CTL, $fp_ctl_reg
-exitz           $w_retVal 
+exitz           $w_retVal
 .size \NAME\(), .-\NAME\()
 .endm
 
@@ -401,7 +383,7 @@ PROPAGATE_NAN float \CHECK_INF
 
 LExitF_2D_\CHECK_INF\():
 uput            $FP_CTL, $fp_ctl_reg
-exitz           $w_retVal 
+exitz           $w_retVal
 .size \NAME\(), .-\NAME\()
 .endm
 
@@ -409,25 +391,16 @@ exitz           $w_retVal
 // -----------------------------------------------------------------------------
 
 // Instantiate 2D workers
-HAS_NAN_OR_INF_HALF HAS_NAN_HALF false
-HAS_NAN_OR_INF_FLOAT HAS_NAN_FLOAT false
-HAS_NAN_OR_INF_HALF HAS_NANORINF_HALF true
-HAS_NAN_OR_INF_FLOAT HAS_NANORINF_FLOAT true
+HAS_NAN_OR_INF_HALF HAS_NAN_HALF_2D false
+HAS_NAN_OR_INF_FLOAT HAS_NAN_FLOAT_2D false
+HAS_NAN_OR_INF_HALF HAS_NANORINF_HALF_2D true
+HAS_NAN_OR_INF_FLOAT HAS_NANORINF_FLOAT_2D true
 
 
-// Instantiate 1D workers
-INSTANTIATE_1D_WORKER half HasNaN1DHalfWorker false
-INSTANTIATE_1D_WORKER float HasNaN1DFloatWorker false
-INSTANTIATE_1D_WORKER half HasNaNOrInf1DHalfWorker true
-INSTANTIATE_1D_WORKER float HasNaNOrInf1DFloatWorker true
-
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-
-// Instantiate 1D supervisors
-INSTANTIATE_1D_SUPERVISOR HAS_NAN_HALF_SUP HasNaN1DHalfWorker
-INSTANTIATE_1D_SUPERVISOR HAS_NAN_FLOAT_SUP HasNaN1DFloatWorker
-INSTANTIATE_1D_SUPERVISOR HAS_NANORINF_HALF_SUP HasNaNOrInf1DHalfWorker
-INSTANTIATE_1D_SUPERVISOR HAS_NANORINF_FLOAT_SUP HasNaNOrInf1DFloatWorker
+// Instantiate 1D MultiVertex
+INSTANTIATE_1D_WORKER half HAS_NAN_HALF_1D false
+INSTANTIATE_1D_WORKER float HAS_NAN_FLOAT_1D false
+INSTANTIATE_1D_WORKER half HAS_NANORINF_HALF_1D true
+INSTANTIATE_1D_WORKER float HAS_NANORINF_FLOAT_1D true
 
 #endif

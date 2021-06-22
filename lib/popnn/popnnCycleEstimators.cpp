@@ -66,9 +66,10 @@ static std::uint64_t nonlinearityGradFlops(const NonLinearityType &nlType) {
   }
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearitySupervisor)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type,
-    const NonLinearityType &nlType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(NonLinearity1D)(const VertexIntrospector &vertex,
+                                         const Target &target, const Type &type,
+                                         const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
   CODELET_FIELD(data);
   const auto numWorkers = target.getNumWorkerContexts();
@@ -126,7 +127,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearitySupervisor)(
           convertToTypeFlops(flops, type)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad1D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
@@ -935,8 +936,8 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCUpdate, FLOAT, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateOutput, UNSIGNED_INT),
 
-      INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
-      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),
+      INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGrad1D),
+      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity1D),
       INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGrad2D),
       INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity2D)};
 }

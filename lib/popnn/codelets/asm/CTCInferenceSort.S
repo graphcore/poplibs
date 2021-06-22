@@ -283,26 +283,15 @@ DEF_STACK_USAGE 0 RANK_VERTEX_NAME
 .endm
 
 // *****************************************************************************
-// Supervisor entry point
 
 .macro INSTANTIATE_REDUCE P_TYPE SYM_TYPE
 .globl REDUCE_VERTEX_NAME
 .type REDUCE_VERTEX_NAME, @function
 .section .text.REDUCE_VERTEX_NAME, "ax"
-.align 4
-.supervisor
-REDUCE_VERTEX_NAME:
-  setzi   $mworker_entry, .Lworker_\P_TYPE\()\@
-  // Run the workers
-  runall  $mworker_entry, $msupervisor_vertex_base, 0
-2:
-  sync    TEXCH_SYNCZONE_LOCAL
-  br      $lr
 
-// Worker code:
 // Workers use their worker ID to choose which item to reduce
 .align 8
-.Lworker_float\@:
+REDUCE_VERTEX_NAME:
 .worker
   // Get worker ID and find the index of this workers 1st item, and output pointer
   get $mworker_id, $WSR

@@ -24,8 +24,7 @@ template <typename InType> constexpr bool isIntegral() {
 // workers doing work: Worker ID=0 will do the first 80 elements and
 // Worker ID=1 will do the last 25 elements.
 template <typename InType, typename LabelType>
-class ReduceMaxClassGather
-    : public SupervisorVertexIf<!isIntegral<InType>() && ASM_CODELETS_ENABLED> {
+class ReduceMaxClassGather : public MultiVertex {
   using OutType =
       typename std::conditional<isIntegral<InType>(), InType, float>::type;
 
@@ -41,22 +40,24 @@ public:
 
   IS_EXTERNAL_CODELET(!isIntegral<InType>());
 
-  bool compute() {
-    // nOutputs is the number of workers, and of the pairs of outputs
-    // (max+index)
-    const auto nOutputs = (size + workerSize - 1) / workerSize;
-    for (std::size_t i = 0; i < nOutputs; ++i) {
-      LabelType maxI = workerSize * i;
-      InType maxV = activations[maxI];
-      const auto end = (maxI + workerSize > size) ? size : maxI + workerSize;
-      for (std::size_t j = maxI + 1; j < end; ++j) {
-        if (activations[j] > maxV) {
-          maxV = activations[j];
-          maxI = j;
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      // nOutputs is the number of workers, and of the pairs of outputs
+      // (max+index)
+      const auto nOutputs = (size + workerSize - 1) / workerSize;
+      for (std::size_t i = 0; i < nOutputs; ++i) {
+        LabelType maxI = workerSize * i;
+        InType maxV = activations[maxI];
+        const auto end = (maxI + workerSize > size) ? size : maxI + workerSize;
+        for (std::size_t j = maxI + 1; j < end; ++j) {
+          if (activations[j] > maxV) {
+            maxV = activations[j];
+            maxI = j;
+          }
         }
+        maxValue[i] = OutType(maxV);
+        maxIndex[i] = maxI + index;
       }
-      maxValue[i] = OutType(maxV);
-      maxIndex[i] = maxI + index;
     }
     return true;
   }

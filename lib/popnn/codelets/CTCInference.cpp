@@ -531,10 +531,7 @@ template class CTCRankCandidates<float, unsigned>;
 template class CTCRankCandidates<half, unsigned>;
 
 template <typename PartialsType, typename SymbolType>
-class CTCReduceCandidates
-    : public SupervisorVertexIf<std::is_same<PartialsType, float>::value &&
-                                std::is_same<SymbolType, unsigned>::value &&
-                                ASM_CODELETS_ENABLED> {
+class CTCReduceCandidates : public MultiVertex {
 public:
   CTCReduceCandidates();
   constexpr static bool isExternal() {
@@ -559,32 +556,35 @@ public:
 
   IS_EXTERNAL_CODELET(isExternal());
 
-  bool compute() {
-    // No complete flag check - There is no downside to running this vertex
-    // every time.  It won't be slower than any vertex doing the same job
-    // for another batch entries data.
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      // No complete flag check - There is no downside to running this vertex
+      // every time.  It won't be slower than any vertex doing the same job
+      // for another batch entries data.
 
-    // For each variable we assume only 1 of the `totalCandidates` inputs is
-    // non-zero.  Adding them all together reduces this to a single result.
-    auto parent = candidateParent[0];
-    auto addend = candidateAddend[0];
-    auto probNonBlank = candidateBeamProbNonBlank[0];
-    auto probBlank = candidateBeamProbBlank[0];
-    auto probTotal = candidateBeamProbTotal[0];
+      // For each variable we assume only 1 of the `totalCandidates` inputs is
+      // non-zero.  Adding them all together reduces this to a single result.
+      auto parent = candidateParent[0];
+      auto addend = candidateAddend[0];
+      auto probNonBlank = candidateBeamProbNonBlank[0];
+      auto probBlank = candidateBeamProbBlank[0];
+      auto probTotal = candidateBeamProbTotal[0];
 
-    for (unsigned i = 1; i < totalCandidates; i++) {
-      parent += candidateParent[i];
-      addend += candidateAddend[i];
-      probNonBlank += candidateBeamProbNonBlank[i];
-      probBlank += candidateBeamProbBlank[i];
-      probTotal += candidateBeamProbTotal[i];
+      for (unsigned i = 1; i < totalCandidates; i++) {
+        parent += candidateParent[i];
+        addend += candidateAddend[i];
+        probNonBlank += candidateBeamProbNonBlank[i];
+        probBlank += candidateBeamProbBlank[i];
+        probTotal += candidateBeamProbTotal[i];
+      }
+
+      *reducedCandidateParent = parent;
+      *reducedCandidateAddend = static_cast<SymbolType>(addend);
+      *reducedCandidateBeamProbNonBlank =
+          static_cast<PartialsType>(probNonBlank);
+      *reducedCandidateBeamProbBlank = static_cast<PartialsType>(probBlank);
+      *reducedCandidateBeamProbTotal = static_cast<PartialsType>(probTotal);
     }
-
-    *reducedCandidateParent = parent;
-    *reducedCandidateAddend = static_cast<SymbolType>(addend);
-    *reducedCandidateBeamProbNonBlank = static_cast<PartialsType>(probNonBlank);
-    *reducedCandidateBeamProbBlank = static_cast<PartialsType>(probBlank);
-    *reducedCandidateBeamProbTotal = static_cast<PartialsType>(probTotal);
     return true;
   }
 };

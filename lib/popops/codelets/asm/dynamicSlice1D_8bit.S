@@ -2,7 +2,7 @@
 #ifdef __IPU__
 
 // -----------------------------------------------------------------------------
-// Dynamic Slice and Dynamic Update Slice Supervisor vertex code for 8-bit types
+// Dynamic Slice and Dynamic Update Slice 1D MultiVertex code for 8-bit types
 //
 // Workers 0-4 will copy only a number of full 32-bit words, where the
 // DESTINATION is 32-bit aligned (so that they can do st32 instructions).
@@ -13,10 +13,6 @@
 // boundary, and also any remainder 1-3 bytes at the end of the set of full
 // words.
 // -----------------------------------------------------------------------------
-
-// Supervisor registers
-#define SUP_VERTEX_BASE m0
-#define WORKER_ENTRY    m4
 
 // Worker Registers.
 // Note that these register definitions must agree with those in
@@ -64,17 +60,17 @@
 #include "SliceCopyFunction_8bit.inc"
 #include "workDivision.h.S"
 
-#define DSS_BOOL_FUNC __runCodelet_popops__DynamicSlice1d___bool
-#define DUSS_BOOL_FUNC __runCodelet_popops__DynamicUpdateSlice1d___bool
+#define DSS_BOOL_FUNC __runCodelet_popops__DynamicSlice1D___bool
+#define DUSS_BOOL_FUNC __runCodelet_popops__DynamicUpdateSlice1D___bool
 
-#define DSS_CHAR_FUNC __runCodelet_popops__DynamicSlice1d___char
+#define DSS_CHAR_FUNC __runCodelet_popops__DynamicSlice1D___char
 #define DUSS_CHAR_FUNC __runCodelet_popops__DynamicUpdateSlice1d___char
 
-#define DSS_SCHAR_FUNC __runCodelet_popops__DynamicSlice1d___signed_char
-#define DUSS_SCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice1d___signed_char
+#define DSS_SCHAR_FUNC __runCodelet_popops__DynamicSlice1D___signed_char
+#define DUSS_SCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice1D___signed_char
 
-#define DSS_UCHAR_FUNC __runCodelet_popops__DynamicSlice1d___unsigned_char
-#define DUSS_UCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice1d___unsigned_char
+#define DSS_UCHAR_FUNC __runCodelet_popops__DynamicSlice1D___unsigned_char
+#define DUSS_UCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice1D___unsigned_char
 
 .global DSS_BOOL_FUNC
 .type DSS_BOOL_FUNC, @function
@@ -101,55 +97,31 @@
 .type DUSS_SCHAR_FUNC, @function
 
 
-// ************************************************* //
-// Supervisor vertex - entry point, run workers
-// ************************************************* //
 DEF_STACK_USAGE 0 .text.DynamicSlice1d_8bit // No function here use any stack
 
 .section .text.DynamicSlice1d_8bit
-.align 8
-.supervisor
 
-DSS_BOOL_FUNC:
-DSS_CHAR_FUNC:
-DSS_UCHAR_FUNC:
-DSS_SCHAR_FUNC:
-  setzi        $WORKER_ENTRY, .Lds_super_worker
-  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
+.align 8
+.worker
 
 DUSS_BOOL_FUNC:
 DUSS_CHAR_FUNC:
 DUSS_UCHAR_FUNC:
 DUSS_SCHAR_FUNC:
-  setzi        $WORKER_ENTRY, .Ldus_super_worker
-  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-// ************************************************* //
-// Worker thread execution for supervisor vertex
-// Update version: set a flag for update,
-// load base, sub array pointers
-// Src = Sub
-// Dst = Base
-// ************************************************* //
-.align 8
-
-.Ldus_super_worker:
-.worker
   setzi     $aUpdate,1
   ld32      $aDst, $mzero, $mvertex_base, VOFF_BASET
   ld32      $aSrc, $mzero, $mvertex_base, VOFF_SUBT
   bri       .Lds_super_common
 // ************************************************* //
-// Worker thread execution for supervisor vertex (8 bit types)
 // Non Update version: clear a flag for no update,
 // load base, sub array pointers
 // Src = Base
 // Dst = Sub
 // ************************************************* //
-.Lds_super_worker:
+DSS_BOOL_FUNC:
+DSS_CHAR_FUNC:
+DSS_UCHAR_FUNC:
+DSS_SCHAR_FUNC:
   setzi     $aUpdate,0
   ld32      $aSrc, $mzero, $mvertex_base, VOFF_BASET
   ld32      $aDst, $mzero, $mvertex_base, VOFF_SUBT

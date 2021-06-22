@@ -40,7 +40,7 @@ static poplar::Tensor hasNaNOrInf(poplar::Graph &graph,
     const std::string vertexNamePrefix = "popops::HasNaNOrInf";
     if (tileContiguousRegions.size() == 1) {
       const auto vertexName =
-          templateVertex(vertexNamePrefix + "Supervisor", dType, hasNaNOrInf);
+          templateVertex(vertexNamePrefix + "1D", dType, hasNaNOrInf);
       // Divide work
       const auto grainSize = 8 / target.getTypeSize(dType);
       const auto numWorkers = target.getNumWorkerContexts();
@@ -59,7 +59,7 @@ static poplar::Tensor hasNaNOrInf(poplar::Graph &graph,
       graph.setTileMapping(vertex, tile);
     } else {
       const auto vertexName =
-          templateVertex(vertexNamePrefix, dType, hasNaNOrInf);
+          templateVertex(vertexNamePrefix + "2D", dType, hasNaNOrInf);
       const auto vertexRegions = splitRegionsBetweenWorkers(
           target, tileContiguousRegions, vectorWidth, 2 * vectorWidth);
       for (const auto &regions : vertexRegions) {

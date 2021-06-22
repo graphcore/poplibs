@@ -18,9 +18,9 @@ static bool check(float data, bool checkNaNAndInf) {
 // The second template parameter
 // nanOrInf = true  : Detect if either NaN or Inf is present
 // nanOrInf = false : Detect only NaN
-template <typename FPType, bool nanOrInf> class HasNaNOrInf : public Vertex {
+template <typename FPType, bool nanOrInf> class HasNaNOrInf2D : public Vertex {
 public:
-  HasNaNOrInf();
+  HasNaNOrInf2D();
   IS_EXTERNAL_CODELET(true);
   Vector<Input<Vector<FPType, SPAN, 8>>> in;
 
@@ -37,39 +37,41 @@ public:
   }
 };
 
-template class HasNaNOrInf<float, true>;
-template class HasNaNOrInf<float, false>;
-template class HasNaNOrInf<half, true>;
-template class HasNaNOrInf<half, false>;
+template class HasNaNOrInf2D<float, true>;
+template class HasNaNOrInf2D<float, false>;
+template class HasNaNOrInf2D<half, true>;
+template class HasNaNOrInf2D<half, false>;
 
 // The second template parameter
 // nanOrInf = true  : Detect if either NaN or Inf is present
 // nanOrInf = false : Detect only NaN
 template <typename FPType, bool nanOrInf>
-class HasNaNOrInfSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+class HasNaNOrInf1D : public MultiVertex {
 public:
-  HasNaNOrInfSupervisor();
+  HasNaNOrInf1D();
   IS_EXTERNAL_CODELET(true);
   Input<Vector<FPType, VectorLayout::ONE_PTR, 8>> in;
   unsigned short sizeIn8BytesPerWorker;
   unsigned char remWorkerId;
   unsigned char remWorkerExtras;
-  bool compute() {
-    unsigned size = sizeIn8BytesPerWorker * CTXT_WORKERS + remWorkerId;
-    size = size * (std::is_same<FPType, half>() ? 4 : 2) + remWorkerExtras;
-    constexpr bool checkNaNAndInf = nanOrInf;
-    for (unsigned i = 0; i < size; ++i) {
-      if (check(float(in[i]), checkNaNAndInf)) {
-        return false;
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      unsigned size = sizeIn8BytesPerWorker * numWorkers() + remWorkerId;
+      size = size * (std::is_same<FPType, half>() ? 4 : 2) + remWorkerExtras;
+      constexpr bool checkNaNAndInf = nanOrInf;
+      for (unsigned i = 0; i < size; ++i) {
+        if (check(float(in[i]), checkNaNAndInf)) {
+          return false;
+        }
       }
     }
     return true;
   }
 };
 
-template class HasNaNOrInfSupervisor<float, true>;
-template class HasNaNOrInfSupervisor<float, false>;
-template class HasNaNOrInfSupervisor<half, true>;
-template class HasNaNOrInfSupervisor<half, false>;
+template class HasNaNOrInf1D<float, true>;
+template class HasNaNOrInf1D<float, false>;
+template class HasNaNOrInf1D<half, true>;
+template class HasNaNOrInf1D<half, false>;
 
 } // namespace popops

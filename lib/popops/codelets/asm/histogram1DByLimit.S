@@ -2,7 +2,7 @@
 #ifdef __IPU__
 
 /* -------------------------------------------------------------------------- */
-// Supervisor vertex code for Histogram vertices
+// Multi vertex code for Histogram
 //
 // General maths: When comparing float or half to another float or half using the
 // comparison instructions we get false = 0, true (half) = 0xffff
@@ -71,10 +71,10 @@
 #define acc1 a7
 
 // Naming / name mangling
-#define MANGLE_STR(SUFFIX) __runCodelet_popops__HistogramSupervisor___##SUFFIX
+#define MANGLE_STR(SUFFIX) __runCodelet_popops__Histogram1D___##SUFFIX
 
 //******************************************************************************
-// Supervisor entry, worker code in one macro for HALF
+// MultiVertex entry macro for HALF
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM IS_ABS
@@ -82,20 +82,11 @@ DEF_STACK_USAGE 0 MANGLE_STR(half_\IS_ABS\()_true)
 .section .text.MANGLE_STR(half_\IS_ABS\()_true)
 .global MANGLE_STR(half_\IS_ABS\()_true)
 .type MANGLE_STR(half_\IS_ABS\()_true), @function
-.align 4
-.supervisor
-
-MANGLE_STR(half_\IS_ABS\()_true):
-
-  setzi       $m1, MANGLE_STR(worker_half_\IS_ABS\()_true)
-  runall      $m1, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
-
-.worker
 .align 8
+.worker
+
   nop //rpt alignment
- MANGLE_STR(worker_half_\IS_ABS\()_true):
+MANGLE_STR(half_\IS_ABS\()_true):
    {call  $mlink, MANGLE_STR(state_divide_work6)
     setzi $one0, HALF_ONE}
 
@@ -210,7 +201,7 @@ extract\@:
 .size MANGLE_STR(half_\IS_ABS\()_true), . -MANGLE_STR(half_\IS_ABS\()_true)
 .endm
 //******************************************************************************
-// Supervisor entry, worker code in one macro for FLOAT
+// MultiVertex macro for FLOAT
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM_FLOAT IS_ABS
@@ -218,19 +209,10 @@ DEF_STACK_USAGE 0 MANGLE_STR(float_\IS_ABS\()_true)
 .section .text.MANGLE_STR(float_\IS_ABS\()_true)
 .global MANGLE_STR(float_\IS_ABS\()_true)
 .type MANGLE_STR(float_\IS_ABS\()_true), @function
-.align 4
-.supervisor
+.align 8
+.worker
 
 MANGLE_STR(float_\IS_ABS\()_true):
-
-  setzi       $m1, MANGLE_STR(worker_float_\IS_ABS\()_true)
-  runall      $m1, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
-
-.worker
-.align 8
-MANGLE_STR(worker_float_\IS_ABS\()_true):
    {call  $mlink, MANGLE_STR(state_divide_work6)
     or $one0, $azero, FLOAT_ONE}
 
@@ -265,9 +247,9 @@ limit_loop\@:
 #if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
   min $mscratch, $dataCountDiv, CSR_W_REPEAT_COUNT__VALUE__MASK
   sub $dataCountDiv, $dataCountDiv, $mscratch
-  RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS\()_true) $mscratch
+  RPT_ALIGNED_TO MANGLE_STR(float_\IS_ABS\()_true) $mscratch
 #else
-  RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS\()_true) $dataCountDiv
+  RPT_ALIGNED_TO MANGLE_STR(float_\IS_ABS\()_true) $dataCountDiv
 #endif
 1:
   CONDITIONAL_ABSv2FLOAT_BUNDLE \IS_ABS

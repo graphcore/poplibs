@@ -26,10 +26,6 @@
 #define LOG2_SIZEOF_FLOAT 2
 #define LOG2_SIZEOF_HALF 1
 
-// Supervisor register aliases
-#define SUPER_BASE m0
-#define WORKER_ENTRY m1
-
 // Worker register aliases
 #define WORKER_ID m0
 #define ACTS_PTR m1
@@ -57,16 +53,9 @@ DEF_STACK_USAGE 0 .text.VERTEX(float, unsigned_int)
 .type VERTEX(float, int), @function
 
 .align 8
-.supervisor
-  nop
+nop
 VERTEX(float, unsigned_int):
 VERTEX(float, int):
-  setzi $WORKER_ENTRY, .Lfloat_worker\@
-  runall $WORKER_ENTRY, $SUPER_BASE, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
-
-.Lfloat_worker\@:
 .worker
   // Load starting vertex state
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
@@ -149,17 +138,9 @@ DEF_STACK_USAGE 0 .text.VERTEX(half, unsigned_int)
 .type VERTEX(half, int), @function
 
 .align 8
-  nop
-.supervisor
+nop
 VERTEX(half, unsigned_int):
 VERTEX(half, int):
-  setzi $WORKER_ENTRY, .Lhalf_worker\@
-  runall $WORKER_ENTRY, $SUPER_BASE, 0
-  sync TEXCH_SYNCZONE_LOCAL
-  br $lr
-
-.Lhalf_worker\@:
-.worker
   // Load starting vertex state
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
   ld32 $SIZE, $mvertex_base, $mzero, SIZE_VOFFSET

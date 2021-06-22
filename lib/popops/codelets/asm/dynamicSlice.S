@@ -77,29 +77,29 @@
 //******************************************************************************
 // Labels names for each variant
 //******************************************************************************
-#define DS_BOOL_FUNC __runCodelet_popops__DynamicSlice2d___bool
-#define DUS_BOOL_FUNC __runCodelet_popops__DynamicUpdateSlice2d___bool
+#define DS_BOOL_FUNC __runCodelet_popops__DynamicSlice2D___bool
+#define DUS_BOOL_FUNC __runCodelet_popops__DynamicUpdateSlice2D___bool
 
-#define DS_CHAR_FUNC __runCodelet_popops__DynamicSlice2d___char
-#define DUS_CHAR_FUNC __runCodelet_popops__DynamicUpdateSlice2d___char
+#define DS_CHAR_FUNC __runCodelet_popops__DynamicSlice2D___char
+#define DUS_CHAR_FUNC __runCodelet_popops__DynamicUpdateSlice2D___char
 
-#define DS_UCHAR_FUNC __runCodelet_popops__DynamicSlice2d___unsigned_char
-#define DUS_UCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice2d___unsigned_char
+#define DS_UCHAR_FUNC __runCodelet_popops__DynamicSlice2D___unsigned_char
+#define DUS_UCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice2D___unsigned_char
 
-#define DS_SCHAR_FUNC __runCodelet_popops__DynamicSlice2d___signed_char
-#define DUS_SCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice2d___signed_char
+#define DS_SCHAR_FUNC __runCodelet_popops__DynamicSlice2D___signed_char
+#define DUS_SCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice2D___signed_char
 
-#define DS_HALF_FUNC __runCodelet_popops__DynamicSlice2d___half
-#define DUS_HALF_FUNC __runCodelet_popops__DynamicUpdateSlice2d___half
+#define DS_HALF_FUNC __runCodelet_popops__DynamicSlice2D___half
+#define DUS_HALF_FUNC __runCodelet_popops__DynamicUpdateSlice2D___half
 
-#define DS_FLOAT_FUNC __runCodelet_popops__DynamicSlice2d___float
-#define DUS_FLOAT_FUNC __runCodelet_popops__DynamicUpdateSlice2d___float
+#define DS_FLOAT_FUNC __runCodelet_popops__DynamicSlice2D___float
+#define DUS_FLOAT_FUNC __runCodelet_popops__DynamicUpdateSlice2D___float
 
-#define DS_INT_FUNC __runCodelet_popops__DynamicSlice2d___int
-#define DUS_INT_FUNC __runCodelet_popops__DynamicUpdateSlice2d___int
+#define DS_INT_FUNC __runCodelet_popops__DynamicSlice2D___int
+#define DUS_INT_FUNC __runCodelet_popops__DynamicUpdateSlice2D___int
 
-#define DS_UNSIGNED_FUNC __runCodelet_popops__DynamicSlice2d___unsigned_int
-#define DUS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSlice2d___unsigned_int
+#define DS_UNSIGNED_FUNC __runCodelet_popops__DynamicSlice2D___unsigned_int
+#define DUS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSlice2D___unsigned_int
 
 .globl DS_BOOL_FUNC
 .type DS_BOOL_FUNC, @function

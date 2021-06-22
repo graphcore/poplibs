@@ -616,7 +616,7 @@ template class Histogram2D<float, false>;
 template class Histogram2D<half, false>;
 
 template <typename InType, bool isAbsolute, bool splitByLimits>
-class HistogramSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+class Histogram1D : public MultiVertex {
 public:
   // SPAN required to support usefully large data size and no alignment
   // constraint
@@ -629,29 +629,32 @@ public:
   unsigned short histogramCount;
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
-    auto condAbs = [](auto d) {
-      return isAbsolute ? static_cast<InType>(std::fabs(static_cast<float>(d)))
-                        : d;
-    };
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      auto condAbs = [](auto d) {
+        return isAbsolute
+                   ? static_cast<InType>(std::fabs(static_cast<float>(d)))
+                   : d;
+      };
 
-    // Structured like the assembler (when split by limits)
-    for (unsigned wkrId = 0; wkrId < CTXT_WORKERS; wkrId++) {
-      for (unsigned i = wkrId; i < histogramCount; i += CTXT_WORKERS) {
-        float lessThanCount = 0;
-        for (unsigned j = 0; j < data.size(); j++) {
-          lessThanCount += condAbs(data[j]) < limits[i];
+      // Structured like the assembler (when split by limits)
+      for (unsigned wkrId = 0; wkrId < CTXT_WORKERS; wkrId++) {
+        for (unsigned i = wkrId; i < histogramCount; i += CTXT_WORKERS) {
+          float lessThanCount = 0;
+          for (unsigned j = 0; j < data.size(); j++) {
+            lessThanCount += condAbs(data[j]) < limits[i];
+          }
+          histogram[i] = lessThanCount;
         }
-        histogram[i] = lessThanCount;
       }
-    }
-    // They are all < the max limit of the upper "open bound"
-    histogram[histogramCount - 1] = data.size();
-    // Post process
-    for (unsigned i = histogramCount - 1; i > 0; i--) {
-      float count = histogram[i];
-      float adjusted = count - histogram[i - 1];
-      histogram[i] = adjusted;
+      // They are all < the max limit of the upper "open bound"
+      histogram[histogramCount - 1] = data.size();
+      // Post process
+      for (unsigned i = histogramCount - 1; i > 0; i--) {
+        float count = histogram[i];
+        float adjusted = count - histogram[i - 1];
+        histogram[i] = adjusted;
+      }
     }
     return true;
   }
@@ -672,14 +675,14 @@ public:
 // The methods used in the exisiting vertices are more general purpose and
 // cover many reasonable cases.
 
-template class HistogramSupervisor<float, true, true>;
-template class HistogramSupervisor<half, true, true>;
-template class HistogramSupervisor<float, false, true>;
-template class HistogramSupervisor<half, false, true>;
-template class HistogramSupervisor<float, true, false>;
-template class HistogramSupervisor<half, true, false>;
-template class HistogramSupervisor<float, false, false>;
-template class HistogramSupervisor<half, false, false>;
+template class Histogram1D<float, true, true>;
+template class Histogram1D<half, true, true>;
+template class Histogram1D<float, false, true>;
+template class Histogram1D<half, false, true>;
+template class Histogram1D<float, true, false>;
+template class Histogram1D<half, true, false>;
+template class Histogram1D<float, false, false>;
+template class Histogram1D<half, false, false>;
 
 template <typename T>
 class ForLoopCounter : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {

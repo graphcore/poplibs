@@ -2076,7 +2076,7 @@ std::uint64_t BroadcastSelectorSelectCycles(const Type &type,
 }
 
 namespace internal {
-std::uint64_t getDynamicSlice1dEstimate(const poplar::Target &target,
+std::uint64_t getDynamicSlice1DEstimate(const poplar::Target &target,
                                         const Type &type,
                                         const unsigned regionSize,
                                         const unsigned numSubElements) {
@@ -2214,7 +2214,7 @@ MAKE_PERF_ESTIMATOR_NAME(Histogram2D)(const VertexIntrospector &vertex,
           convertToTypeFlops(histogramFlops(totalElems, isAbsolute), type)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HistogramSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(Histogram1D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const bool isAbsolute, const bool splitByLimits) {
   CODELET_FIELD(data);
@@ -2232,14 +2232,14 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HistogramSupervisor)(
   auto flops = histogramFlops(data.size(), isAbsolute);
 
   if (splitByLimits) {
-    return {histogramSupervisorByLimitEstimate(
-                data.size(), histogramCount, isAbsolute, type == HALF,
-                numWorkers, vectorWidth, unpackCostHistogram, unpackCostLimits),
+    return {histogram1DByLimitEstimate(data.size(), histogramCount, isAbsolute,
+                                       type == HALF, numWorkers, vectorWidth,
+                                       unpackCostHistogram, unpackCostLimits),
             convertToTypeFlops(flops, type)};
   } else {
-    return {histogramSupervisorByDataEstimate(
-                data.size(), histogramCount, isAbsolute, type == HALF,
-                numWorkers, vectorWidth, unpackCostHistogram, unpackCostLimits),
+    return {histogram1DByDataEstimate(data.size(), histogramCount, isAbsolute,
+                                      type == HALF, numWorkers, vectorWidth,
+                                      unpackCostHistogram, unpackCostLimits),
             convertToTypeFlops(flops, type)};
   }
 }
@@ -2351,7 +2351,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastClampInPlace)(
           convertToTypeFlops(static_cast<std::uint64_t>(totalElems) * 2, type)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice2d)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   bool is8bit = target.getTypeSize(type) == 1;
   const auto baseT = vertex.getFieldInfo("baseT");
@@ -2383,7 +2383,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice2d)(
   return cycles;
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   bool is8bit = target.getTypeSize(type) == 1;
   const auto baseT = vertex.getFieldInfo("baseT");
@@ -2414,7 +2414,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
   return cycles;
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice1d)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice1D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   const auto regionSize =
       vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
@@ -2428,12 +2428,12 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice1d)(
   const auto subT = vertex.getFieldInfo("subT");
   assert(subT.size() == numSubElements * regionSize);
   assert(baseT.size() == numBaseElements * regionSize);
-  return getDynamicSlice1dEstimate(target, type, regionSize, numSubElements);
+  return getDynamicSlice1DEstimate(target, type, regionSize, numSubElements);
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice1d)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice1D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
-  return MAKE_PERF_ESTIMATOR_NAME(DynamicSlice1d)(vertex, target, type);
+  return MAKE_PERF_ESTIMATOR_NAME(DynamicSlice1D)(vertex, target, type);
 }
 
 static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
@@ -2780,9 +2780,10 @@ hasNaN1DCyles(const Target &target, const Type &inType,
           flops};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInfSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, const Type &inType,
-    bool hasNaNOrInf) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInf1D)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &inType, bool hasNaNOrInf) {
   CODELET_SCALAR_VAL(sizeIn8BytesPerWorker, unsigned);
   CODELET_SCALAR_VAL(remWorkerId, unsigned char);
   CODELET_SCALAR_VAL(remWorkerExtras, unsigned char);
@@ -2814,9 +2815,9 @@ static VertexPerfEstimate hasNan2DCycles(const FieldData &in,
 }
 
 VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInf)(const VertexIntrospector &vertex,
-                                      const Target &target, const Type &inType,
-                                      bool hasNaNOrInf) {
+MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInf2D)(const VertexIntrospector &vertex,
+                                        const Target &target,
+                                        const Type &inType, bool hasNaNOrInf) {
   CODELET_FIELD(in);
   return hasNan2DCycles(in, target, inType, hasNaNOrInf);
 }
@@ -3366,41 +3367,41 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
 
       CYCLE_ESTIMATOR_ENTRY(popops, CheckAccuracyWhenCast, FLOAT, HALF),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, UNSIGNED_CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, SIGNED_CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2d, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, BOOL),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, UNSIGNED_CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, SIGNED_CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2d, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, BOOL),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, UNSIGNED_CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, SIGNED_CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1d, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, BOOL),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, UNSIGNED_INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, UNSIGNED_CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, SIGNED_CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, CHAR),
-      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1d, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, UNSIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, HALF),
@@ -3470,14 +3471,14 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, Histogram2D, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(popops, Histogram2D, HALF, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, FLOAT, true, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, HALF, true, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, FLOAT, false, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, HALF, false, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, FLOAT, true, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, HALF, true, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, FLOAT, false, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, HALF, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram1D, FLOAT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram1D, HALF, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram1D, FLOAT, false, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram1D, HALF, false, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram1D, FLOAT, true, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram1D, HALF, true, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram1D, FLOAT, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram1D, HALF, false, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, ForLoopCounter, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, ForLoopCounter, INT),
@@ -3555,14 +3556,14 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, SelectFromIntervals, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, SelectFromRowsInColumns, HALF),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf, FLOAT, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf, HALF, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInfSupervisor, FLOAT, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInfSupervisor, HALF, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf, FLOAT, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf, HALF, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInfSupervisor, FLOAT, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInfSupervisor, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf2D, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf2D, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf1D, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf1D, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf2D, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf2D, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf1D, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf1D, HALF, true),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, UNSIGNED_INT),

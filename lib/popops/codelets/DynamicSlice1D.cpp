@@ -20,10 +20,9 @@ namespace popops {
 // Where the offset given is larger than numBaseElements, behaviour is not
 // properly specified.  Options could be baseSlice=offset % numBaseElements,
 // or as implemented if(offset>=numBaseElements) baseSlice=0;
-template <typename InType>
-class DynamicSlice1d : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+template <typename InType> class DynamicSlice1D : public MultiVertex {
 public:
-  DynamicSlice1d();
+  DynamicSlice1D();
 
   Input<unsigned> offset; // in \a baseT
   Input<Vector<InType, ONE_PTR>> baseT;
@@ -34,38 +33,34 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
-    const unsigned numWorkers = CTXT_WORKERS;
-    unsigned elementsPerWorker = (regionSize + numWorkers - 1) / numWorkers;
-
-    for (unsigned worker = 0; worker != numWorkers; ++worker) {
-      unsigned workerOffset = worker * elementsPerWorker;
-      unsigned baseSlice = offset;
+  bool compute(unsigned wid) {
+    unsigned elementsPerWorker = (regionSize + numWorkers() - 1) / numWorkers();
+    unsigned workerOffset = wid * elementsPerWorker;
+    unsigned baseSlice = offset;
+    if (baseSlice >= numBaseElements)
+      baseSlice = 0;
+    for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
+      for (unsigned e = 0; e != elementsPerWorker; e++) {
+        if (workerOffset + e >= regionSize)
+          // vertices may have empty or truncated regions
+          break;
+        subT[subSlice * regionSize + workerOffset + e] =
+            baseT[baseSlice * regionSize + workerOffset + e];
+      }
+      baseSlice++;
       if (baseSlice >= numBaseElements)
         baseSlice = 0;
-      for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
-        for (unsigned e = 0; e != elementsPerWorker; e++) {
-          if (workerOffset + e >= regionSize)
-            // vertices may have empty or truncated regions
-            break;
-          subT[subSlice * regionSize + workerOffset + e] =
-              baseT[baseSlice * regionSize + workerOffset + e];
-        }
-        baseSlice++;
-        if (baseSlice >= numBaseElements)
-          baseSlice = 0;
-      }
     }
     return true;
   }
 };
-template class DynamicSlice1d<float>;
-template class DynamicSlice1d<half>;
-template class DynamicSlice1d<int>;
-template class DynamicSlice1d<unsigned>;
-template class DynamicSlice1d<bool>;
-template class DynamicSlice1d<char>;
-template class DynamicSlice1d<unsigned char>;
-template class DynamicSlice1d<signed char>;
+template class DynamicSlice1D<float>;
+template class DynamicSlice1D<half>;
+template class DynamicSlice1D<int>;
+template class DynamicSlice1D<unsigned>;
+template class DynamicSlice1D<bool>;
+template class DynamicSlice1D<char>;
+template class DynamicSlice1D<unsigned char>;
+template class DynamicSlice1D<signed char>;
 
 } // namespace popops

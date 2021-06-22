@@ -2,13 +2,9 @@
 #ifdef __IPU__
 
 /* -------------------------------------------------------------------------- */
-// Dynamic Slice and Dynamic Update Slice Supervisor
+// Dynamic Slice and Dynamic Update Slice 1D MultiWorker
 // vertex code for int, half and float variants
 /* -------------------------------------------------------------------------- */
-
-// Supervisor registers
-#define SUP_VERTEX_BASE m0
-#define WORKER_ENTRY    m4
 
 // Worker Registers
 #define WKR_ID      m0
@@ -68,17 +64,17 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
 
-#define DSS_FLOAT_FUNC __runCodelet_popops__DynamicSlice1d___float
-#define DUSS_FLOAT_FUNC __runCodelet_popops__DynamicUpdateSlice1d___float
+#define DSS_FLOAT_FUNC __runCodelet_popops__DynamicSlice1D___float
+#define DUSS_FLOAT_FUNC __runCodelet_popops__DynamicUpdateSlice1D___float
 
-#define DSS_INT_FUNC __runCodelet_popops__DynamicSlice1d___int
-#define DUSS_INT_FUNC __runCodelet_popops__DynamicUpdateSlice1d___int
+#define DSS_INT_FUNC __runCodelet_popops__DynamicSlice1D___int
+#define DUSS_INT_FUNC __runCodelet_popops__DynamicUpdateSlice1D___int
 
-#define DSS_UNSIGNED_FUNC __runCodelet_popops__DynamicSlice1d___unsigned_int
-#define DUSS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSlice1d___unsigned_int
+#define DSS_UNSIGNED_FUNC __runCodelet_popops__DynamicSlice1D___unsigned_int
+#define DUSS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSlice1D___unsigned_int
 
-#define DSS_HALF_FUNC __runCodelet_popops__DynamicSlice1d___half
-#define DUSS_HALF_FUNC __runCodelet_popops__DynamicUpdateSlice1d___half
+#define DSS_HALF_FUNC __runCodelet_popops__DynamicSlice1D___half
+#define DUSS_HALF_FUNC __runCodelet_popops__DynamicUpdateSlice1D___half
 
 .global DSS_FLOAT_FUNC
 .type DSS_FLOAT_FUNC, @function
@@ -104,31 +100,13 @@
 .global DUSS_HALF_FUNC
 .type DUSS_HALF_FUNC, @function
 
-// ************************************************* //
-// Supervisor vertex - entry point, run workers
-// Float variants
-// ************************************************* //
+
 DEF_STACK_USAGE 0 .text.DynamicSlice1d_float
 
 .section .text.DynamicSlice1d_float
 .align 8
-.supervisor
+.worker
 
-DSS_INT_FUNC:
-DSS_UNSIGNED_FUNC:
-DSS_FLOAT_FUNC:
-  setzi        $WORKER_ENTRY, .Lds_super_worker_32
-  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-
-DUSS_INT_FUNC:
-DUSS_UNSIGNED_FUNC:
-DUSS_FLOAT_FUNC:
-  setzi        $WORKER_ENTRY, .Ldus_super_worker_32
-  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
 // ************************************************* //
 // Worker thread execution for supervisor vertex (32-bit types)
 // Update version: set a flag for update,
@@ -136,8 +114,9 @@ DUSS_FLOAT_FUNC:
 // Src = Sub
 // Dst = Base
 // ************************************************* //
-.Ldus_super_worker_32:
-.worker
+DUSS_INT_FUNC:
+DUSS_UNSIGNED_FUNC:
+DUSS_FLOAT_FUNC:
   setzi     $UPDATE,1
   ld32      $DST, $mzero, $mvertex_base, VOFF_BASET
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
@@ -149,7 +128,9 @@ DUSS_FLOAT_FUNC:
 // Src = Base
 // Dst = Sub
 // ************************************************* //
-.Lds_super_worker_32:
+DSS_INT_FUNC:
+DSS_UNSIGNED_FUNC:
+DSS_FLOAT_FUNC:
   setzi     $UPDATE,0
   ld32      $SRC, $mzero, $mvertex_base, VOFF_BASET
   ld32      $DST, $mzero, $mvertex_base, VOFF_SUBT
@@ -259,47 +240,32 @@ DUSS_FLOAT_FUNC:
   exitz      $mzero
 .size DynamicSlice1d_float, .-DSS_FLOAT_FUNC
 
-// ************************************************* //
-// Supervisor vertex - entry point, run workers
-// Half variants
-// ************************************************* //
+
+
+
 DEF_STACK_USAGE 0 .text.DynamicSlice1d_half
 .section .text.DynamicSlice1d_half
 .align 8
-.supervisor
 
-DSS_HALF_FUNC:
-  setzi        $WORKER_ENTRY, .Lds_super_worker_16
-  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-
-DUSS_HALF_FUNC:
-  setzi        $WORKER_ENTRY, .Ldus_super_worker_16
-  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
 // ************************************************* //
-// Worker thread execution for supervisor vertex (16-bit types)
 // Update version: set a flag for update,
 // load base, sub array pointers
 // Src = Sub
 // Dst = Base
 // ************************************************* //
-.Ldus_super_worker_16:
+DUSS_HALF_FUNC:
 .worker
   setzi     $UPDATE,1
   ld32      $DST, $mzero, $mvertex_base, VOFF_BASET
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
   bri       .Lds_super_common_16
 // ************************************************* //
-// Worker thread execution for supervisor vertex (16-bit types)
 // Non Update version: clear a flag for update,
 // load base, sub array pointers
 // Src = Base
 // Dst = Sub
 // ************************************************* //
-.Lds_super_worker_16:
+DSS_HALF_FUNC:
   setzi     $UPDATE,0
   ld32      $SRC, $mzero, $mvertex_base, VOFF_BASET
   ld32      $DST, $mzero, $mvertex_base, VOFF_SUBT

@@ -204,11 +204,11 @@ void DynamicSliceCodeletTest(const Type &dataType) {
 
     ComputeSet testComputeSet = graph.addComputeSet("computeDynamicSlice");
 
-    auto vertexClass = templateVertex("popops::DynamicSlice2d", dataType);
+    auto vertexClass = templateVertex("popops::DynamicSlice2D", dataType);
     auto base = in.slice({0, 0}, {rows, columns});
     auto sub = out.slice({0, dstColumn}, {rows, columns + dstColumn});
     if (update) {
-      vertexClass = templateVertex("popops::DynamicUpdateSlice2d", dataType);
+      vertexClass = templateVertex("popops::DynamicUpdateSlice2D", dataType);
       base = out.slice({0, 0}, {rows, columns});
       sub = in.slice({0, dstColumn}, {rows, columns + dstColumn});
     }

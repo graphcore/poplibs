@@ -22,9 +22,9 @@ namespace popops {
 // Where the offset given is larger than numBaseElements, behaviour is not
 // properly specified.  Options could be baseSlice=offset % numBaseElements,
 // or as implemented if(offset>=numBaseElements) baseSlice=0;
-template <typename InType> class DynamicSlice2d : public Vertex {
+template <typename InType> class DynamicSlice2D : public Vertex {
 public:
-  DynamicSlice2d();
+  DynamicSlice2D();
 
   Input<unsigned> offset; // in \a baseT
   // 16bit element shall follow VectorList to compensate packing
@@ -59,13 +59,13 @@ public:
     return true;
   }
 };
-template class DynamicSlice2d<float>;
-template class DynamicSlice2d<half>;
-template class DynamicSlice2d<int>;
-template class DynamicSlice2d<unsigned>;
-template class DynamicSlice2d<bool>;
-template class DynamicSlice2d<char>;
-template class DynamicSlice2d<signed char>;
-template class DynamicSlice2d<unsigned char>;
+template class DynamicSlice2D<float>;
+template class DynamicSlice2D<half>;
+template class DynamicSlice2D<int>;
+template class DynamicSlice2D<unsigned>;
+template class DynamicSlice2D<bool>;
+template class DynamicSlice2D<char>;
+template class DynamicSlice2D<signed char>;
+template class DynamicSlice2D<unsigned char>;
 
 } // namespace popops

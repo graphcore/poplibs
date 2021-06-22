@@ -16,8 +16,7 @@ static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 namespace popops {
 
 template <typename T>
-class WORKER_ALIGN
-    [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose1D
+class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose1D
     : public MultiVertex {
 public:
   Transpose1D();

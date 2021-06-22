@@ -8,10 +8,9 @@ using namespace poplar;
 namespace popnn {
 
 template <typename FPType, NonLinearityType nlType>
-class WORKER_ALIGN NonLinearitySupervisor
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+class NonLinearity1D : public MultiVertex {
 public:
-  NonLinearitySupervisor();
+  NonLinearity1D();
 
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   InOut<Vector<FPType, SCALED_PTR32>> data;
@@ -21,14 +20,16 @@ public:
   const unsigned short n;
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
-    for (unsigned i = 0; i < n; ++i) {
-      data[i] = nonlinearity(nlType, float(data[i]));
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      for (unsigned i = 0; i < n; ++i) {
+        data[i] = nonlinearity(nlType, float(data[i]));
+      }
     }
     return true;
   }
 };
 
-INSTANTIATE_NL(NonLinearitySupervisor)
+INSTANTIATE_NL(NonLinearity1D)
 
 } // namespace popnn

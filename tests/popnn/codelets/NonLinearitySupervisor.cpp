@@ -1,5 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
-#define BOOST_TEST_MODULE NonLinearitySupervisor
+#define BOOST_TEST_MODULE NonLinearity1D
 #include "poplibs_test/NonLinearity.hpp"
 #include "poplibs_test/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -116,9 +116,9 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
                                 maxElements);
 
   const auto fwdVertexClass =
-      templateVertex("popnn::NonLinearitySupervisor", dataType, nlType);
+      templateVertex("popnn::NonLinearity1D", dataType, nlType);
   const auto bwdVertexClass =
-      templateVertex("popnn::NonLinearityGradSupervisor", dataType, nlType);
+      templateVertex("popnn::NonLinearityGrad1D", dataType, nlType);
 
   std::vector<Program> programs;
   std::vector<SliceDesc> programSlices;

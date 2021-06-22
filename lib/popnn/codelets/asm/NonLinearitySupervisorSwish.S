@@ -1,7 +1,7 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
-// Assembly implementation of SWISH nonlinearity for popnn::NonLinearitySupervisor vertex.
+// Assembly implementation of SWISH nonlinearity for popnn::NonLinearity1D vertex.
 
 // Restrictions
 //
@@ -14,9 +14,9 @@
 
 // Symbols
 #define HALF_SYMBOL \
-  __runCodelet_popnn__NonLinearitySupervisor___half_popnn__NonLinearityType__SWISH
+  __runCodelet_popnn__NonLinearity1D___half_popnn__NonLinearityType__SWISH
 #define FLOAT_SYMBOL \
-  __runCodelet_popnn__NonLinearitySupervisor___float_popnn__NonLinearityType__SWISH
+  __runCodelet_popnn__NonLinearity1D___float_popnn__NonLinearityType__SWISH
 
 // Constants
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
@@ -26,10 +26,6 @@
 #define DATA_PTR_VOFFSET 0
 #define SIZE_VOFFSET 4
 #endif
-
-// Supervisor register aliases
-#define SUPER_BASE m0
-#define WORKER_ENTRY m1
 
 // Worker register aliases
 #define WORKER_ID m0
@@ -48,16 +44,11 @@
 
 DEF_STACK_USAGE 0 HALF_SYMBOL
 
-.align 4
+
 .globl HALF_SYMBOL
-.supervisor
-HALF_SYMBOL:
-    setzi $WORKER_ENTRY, .Lhalf_worker
-    runall $WORKER_ENTRY, $SUPER_BASE, 0
-    sync TEXCH_SYNCZONE_LOCAL
-    br $MSCRATCH
+
 .align 8
-.Lhalf_worker:
+HALF_SYMBOL:
 .worker
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
@@ -173,16 +164,9 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function
 
-.supervisor
+.align 8
 .globl FLOAT_SYMBOL
 FLOAT_SYMBOL:
-    setzi $WORKER_ENTRY, .Lfloat_worker
-    runall $WORKER_ENTRY, $SUPER_BASE, 0
-    sync TEXCH_SYNCZONE_LOCAL
-    br $MSCRATCH
-
-.align 8
-.Lfloat_worker:
 .worker
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
@@ -236,9 +220,9 @@ FLOAT_SYMBOL:
 
     // Add any remaining 64-bit loads/stores possible to relevant
     // workers
-    cmpult $MSCRATCH, $WORKER_ID, $REM     
+    cmpult $MSCRATCH, $WORKER_ID, $REM
     add $SIZE, $SIZE, $MSCRATCH
-    ld64step $azeros, $BASE, $DATA_PTR+=, $WORKER_ID 
+    ld64step $azeros, $BASE, $DATA_PTR+=, $WORKER_ID
     brz $SIZE, .Lfloat_64_bit_loop_exit
     add $SIZE, $SIZE, -1
     // Do the loop processing V2 floats at a time

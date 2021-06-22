@@ -64,12 +64,12 @@ std::uint64_t binaryOpInnerLoopCycles(const poplar::Target &target,
  *
  * \returns Estimated number of cycles.
  */
-std::uint64_t getDynamicSlice1dEstimate(const poplar::Target &target,
+std::uint64_t getDynamicSlice1DEstimate(const poplar::Target &target,
                                         const poplar::Type &type,
                                         const unsigned regionSize,
                                         const unsigned numSubElements);
 
-/** Cycle estimate for Binary-1D In-Place Supervisor vertex.
+/** Cycle estimate for Binary-1D In-Place MultiVertex.
  *
  * \param target   The target on which the operation should be estimated.
  * \param type     Data type of elements.

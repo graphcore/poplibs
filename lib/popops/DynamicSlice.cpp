@@ -278,7 +278,7 @@ static void generateVertices(std::string vertexName, Graph &graph,
 
       if (tileBase.isContiguous()) {
         auto v = graph.addVertex(
-            cs, templateVertex(vertexName + "1d", t2d.elementType()),
+            cs, templateVertex(vertexName + "1D", t2d.elementType()),
             {{"offset", offset},
              {"baseT", tileBase.flatten()},
              {"subT", tileSub.flatten()}});
@@ -297,7 +297,7 @@ static void generateVertices(std::string vertexName, Graph &graph,
     }
 
     const auto templatedVertexName =
-        templateVertex(vertexName + "2d", t2d.elementType());
+        templateVertex(vertexName + "2D", t2d.elementType());
 
     // Get the minimum of the maximum field sizes for base and sub edges
     const auto maxBaseTRegionSize =

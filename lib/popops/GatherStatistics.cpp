@@ -35,11 +35,15 @@ HistogramOptions parseOptionFlags(const OptionFlags &options) {
   return histogramOpts;
 }
 
-enum class VertexType { SUPERVISOR_BY_DATA, SUPERVISOR_BY_LIMIT, WORKER_2D };
+enum class VertexType {
+  MULTIVERTEX_1D_BY_DATA,
+  MULTIVERTEX_1D_BY_LIMIT,
+  WORKER_2D
+};
 
 VertexType chooseVertexType(const std::vector<std::vector<Interval>> &intervals,
-                            unsigned maxSupervisorElemsByLimit,
-                            unsigned maxSupervisorElemsByData, bool isAbsolute,
+                            unsigned max1DElemsByLimit,
+                            unsigned max1DElemsByData, bool isAbsolute,
                             bool isHalf, unsigned numWorkers,
                             unsigned numLimits, unsigned vectorWidth) {
   if (intervals.size() != 1 || intervals[0].size() > 1) {
@@ -49,24 +53,24 @@ VertexType chooseVertexType(const std::vector<std::vector<Interval>> &intervals,
       intervals[0].begin(), intervals[0].end(), 0u,
       [](std::size_t total, const Interval &i) { return total + i.size(); });
 
-  // We can use one of the supervisor vertex types, which each have different
+  // We can use one of the MultiVertex 1D types, which each have different
   // advantages:
-  // SUPERVISOR_BY_LIMIT divides work using numLimits which can leave idle
+  // MULTIVERTEX_1D_BY_LIMIT divides work using numLimits which can leave idle
   //                     workers, but there is no need to have 1 worker combine
   //                     partial results, so the vertex is simpler and faster.
-  // SUPERVISOR_BY_DATA  divides work by data but requires each piece to be
+  // MULTIVERTEX_1D_BY_DATA  divides work by data but requires each piece to be
   //                     recombined by one worker.  This makes it more complex.
 
-  auto limitsCycles = histogramSupervisorByLimitEstimate(
+  auto limitsCycles = histogram1DByLimitEstimate(
       elements, numLimits + 1, isAbsolute, isHalf, numWorkers, vectorWidth);
-  auto dataCycles = histogramSupervisorByDataEstimate(
+  auto dataCycles = histogram1DByDataEstimate(
       elements, numLimits + 1, isAbsolute, isHalf, numWorkers, vectorWidth);
 
-  if (elements < maxSupervisorElemsByData && dataCycles < limitsCycles) {
-    return VertexType::SUPERVISOR_BY_DATA;
+  if (elements < max1DElemsByData && dataCycles < limitsCycles) {
+    return VertexType::MULTIVERTEX_1D_BY_DATA;
   }
-  if (elements < maxSupervisorElemsByLimit && dataCycles >= limitsCycles) {
-    return VertexType::SUPERVISOR_BY_LIMIT;
+  if (elements < max1DElemsByLimit && dataCycles >= limitsCycles) {
+    return VertexType::MULTIVERTEX_1D_BY_LIMIT;
   }
 
   return VertexType::WORKER_2D;
@@ -90,9 +94,9 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
   // vertex overcomes the limitation.  In other cases we must split work by
   // producing more vertices
   const auto rptMax = target.getRptCountMax();
-  const auto maxSupervisorElemsByLimit =
+  const auto max1DElemsByLimit =
       (rptMax < 0xffff) ? UINT32_MAX : rptMax * vectorWidth;
-  const auto maxSupervisorElemsByData = rptMax * numWorkers * vectorWidth;
+  const auto max1DElemsByData = rptMax * numWorkers * vectorWidth;
 
   const auto codeletName2D =
       templateVertex("popops::Histogram2D", inType, absoluteOfInput);
@@ -112,17 +116,17 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
       // No data on this tile
       continue;
     }
-    const auto vertexType = chooseVertexType(
-        tileContiguousRegions, maxSupervisorElemsByLimit,
-        maxSupervisorElemsByData, absoluteOfInput, inType == HALF, numWorkers,
-        levels.numElements(), vectorWidth);
-    if (vertexType == VertexType::SUPERVISOR_BY_LIMIT ||
-        vertexType == VertexType::SUPERVISOR_BY_DATA) {
-      // 1 region of suitable size to use a supervisor vertex
-      const auto byLimit = (vertexType == VertexType::SUPERVISOR_BY_LIMIT);
-      const auto codeletNameSupervisor = templateVertex(
-          "popops::HistogramSupervisor", inType, absoluteOfInput, byLimit);
-      auto v = graph.addVertex(cs, codeletNameSupervisor);
+    const auto vertexType =
+        chooseVertexType(tileContiguousRegions, max1DElemsByLimit,
+                         max1DElemsByData, absoluteOfInput, inType == HALF,
+                         numWorkers, levels.numElements(), vectorWidth);
+    if (vertexType == VertexType::MULTIVERTEX_1D_BY_LIMIT ||
+        vertexType == VertexType::MULTIVERTEX_1D_BY_DATA) {
+      // 1 region of suitable size to use a MultiVertex
+      const auto byLimit = (vertexType == VertexType::MULTIVERTEX_1D_BY_LIMIT);
+      const auto codeletName1D = templateVertex("popops::Histogram1D", inType,
+                                                absoluteOfInput, byLimit);
+      auto v = graph.addVertex(cs, codeletName1D);
       graph.setTileMapping(v, tile);
 
       auto resultSize = levels.numElements() + 1;

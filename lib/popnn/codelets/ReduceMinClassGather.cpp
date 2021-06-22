@@ -15,8 +15,7 @@ template <typename InType> constexpr bool isIntegral() {
 
 // Same as ReduceMaxClassGather, but finds the minimum.
 template <typename InType, typename LabelType>
-class ReduceMinClassGather
-    : public SupervisorVertexIf<!isIntegral<InType>() && ASM_CODELETS_ENABLED> {
+class ReduceMinClassGather : public MultiVertex {
   using OutType =
       typename std::conditional<isIntegral<InType>(), InType, float>::type;
 
@@ -32,22 +31,24 @@ public:
 
   IS_EXTERNAL_CODELET(!isIntegral<InType>());
 
-  bool compute() {
-    // nOutputs is the number of workers, and of the pairs of outputs
-    // (max+index)
-    const auto nOutputs = (size + workerSize - 1) / workerSize;
-    for (std::size_t i = 0; i < nOutputs; ++i) {
-      LabelType minI = workerSize * i;
-      InType minV = activations[minI];
-      const auto end = (minI + workerSize > size) ? size : minI + workerSize;
-      for (std::size_t j = minI + 1; j < end; ++j) {
-        if (activations[j] < minV) {
-          minV = activations[j];
-          minI = j;
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      // nOutputs is the number of workers, and of the pairs of outputs
+      // (max+index)
+      const auto nOutputs = (size + workerSize - 1) / workerSize;
+      for (std::size_t i = 0; i < nOutputs; ++i) {
+        LabelType minI = workerSize * i;
+        InType minV = activations[minI];
+        const auto end = (minI + workerSize > size) ? size : minI + workerSize;
+        for (std::size_t j = minI + 1; j < end; ++j) {
+          if (activations[j] < minV) {
+            minV = activations[j];
+            minI = j;
+          }
         }
+        minValue[i] = OutType(minV);
+        minIndex[i] = minI + index;
       }
-      minValue[i] = OutType(minV);
-      minIndex[i] = minI + index;
     }
     return true;
   }
