@@ -28,8 +28,8 @@ batchNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                     const poplar::OptionFlags &options = {});
 
 /// Compute the batch normalisation statistics for a part of the activations
-/// tensor where the `normBatchSize` batch elements are distributed over
-/// multiple replicas. Each replica gets equal sized batches (`N`).
+/// tensor where the \p normBatchSize batch elements are distributed over
+/// multiple replicas. Each replica gets equal-sized batches (`N`).
 /// A callback does the required reduction over multiple replicas.
 /// The activations tensor is of shape `[N][C][..F..]`. The mean and inverse
 /// standard deviation is computed over dimensions `{[N] [..F..]}` and vectors
@@ -42,20 +42,22 @@ batchNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
 ///                       where:
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
-///                           - `..F..` is dimensions of a N-dimensional field.
-/// \param eps            The epsilon added to the variance to avoid divide by
-///                       zero.
+///                           - `..F..` are the dimensions of an N-dimensional
+///                             field.
+/// \param eps            The epsilon value added to the variance to avoid
+///                       division by zero.
 /// \param prog           A program sequence that the code to
 ///                       perform the normalisation will be appended to.
 /// \param unbiasedVarEstimate
-///                       Compute unbiased variance estimate.
-/// \param stableAlgo     If true, computes the mean first and subtracts
-///                       the activations by it before computing the variance.
+///                       If true an unbiased variance estimate will be
+///                       computed.
+/// \param stableAlgo     If true, computes the mean first then subtracts
+///                       the activations from it before computing the variance.
 ///                       The implementation with this flag set to true is
 //                        slower than when set to false.
 /// \param partialsType   Poplar type used for partials.
 /// \param allReduceCallback
-///                       Callback to perform all-reduce over 'normBatchSize'
+///                       Callback to perform all-reduce over \p normBatchSize
 ///                       batch elements.
 /// \param normBatchSize  Number of batch elements over which statistics
 ///                       are estimated.
@@ -71,7 +73,7 @@ std::pair<poplar::Tensor, poplar::Tensor> distributedBatchNormStatistics(
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {});
 
-/// Whiten activations given mean and standard deviation.
+/// Whiten activations given the mean and standard deviation.
 poplar::Tensor batchNormWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
                                const poplar::Tensor &mean,
                                const poplar::Tensor &invStdDev,
@@ -81,9 +83,9 @@ poplar::Tensor batchNormWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
 
 /// Batch normalise activations given mean, standard deviation and batch norm
 /// parameters.
-/// The result is two tensors
-///   1. normalised activations
-///   2. whitened activations
+/// The result is two tensors:
+///   - normalised activations
+///   - whitened activations
 std::pair<poplar::Tensor, poplar::Tensor>
 batchNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                const poplar::Tensor &gamma, const poplar::Tensor &beta,
@@ -93,8 +95,8 @@ batchNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                const poplar::OptionFlags &options = {});
 
 /// Computes the output of batch normalisation given:
-///   - combinedMultiplicand = gamma / stdDev
-///   - addend = beta - gamma * mean / stdDev
+///   - \p combinedMultiplicand = gamma / stdDev
+///   - \p addend = beta - gamma * mean / stdDev
 poplar::Tensor batchNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                               const poplar::Tensor &combinedMultiplicand,
                               const poplar::Tensor &addend,
@@ -102,7 +104,7 @@ poplar::Tensor batchNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {});
 
-/// Compute gradients w.r.t parameters required for parameter update.
+/// Compute gradients with respect to parameters required for parameter update.
 std::pair<poplar::Tensor, poplar::Tensor> batchNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &acts,
     const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
@@ -111,7 +113,7 @@ std::pair<poplar::Tensor, poplar::Tensor> batchNormParamGradients(
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {});
 
-/// Compute gradients w.r.t parameters required for parameter update.
+/// Compute gradients with respect to parameters required for parameter update.
 std::pair<poplar::Tensor, poplar::Tensor> batchNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, poplar::program::Sequence &prog,
@@ -119,8 +121,8 @@ std::pair<poplar::Tensor, poplar::Tensor> batchNormParamGradients(
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {});
 
-/// Compute gradients w.r.t input activations for the batch norm layer.
-/// i.e. gradients are propagated through the complete layer including
+/// Compute gradients with respect to input activations for the batch norm
+/// layer. Gradients are propagated through the complete layer including
 /// statistics computation.
 poplar::Tensor
 batchNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
@@ -131,12 +133,8 @@ batchNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                    const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {});
 
-/// Compute gradients w.r.t input activations for the batch norm layer.
-/// i.e. gradients are propagated through the complete layer including
-/// statistics computation.
-
-/// Compute gradients w.r.t input activations for the batch norm layer.
-/// i.e. gradients are propagated through the complete layer including
+/// Compute gradients with respect to input activations for the batch norm
+/// layer. Gradients are propagated through the complete layer including
 /// statistics computation.
 poplar::Tensor
 batchNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
@@ -147,11 +145,12 @@ batchNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                    const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {});
 
-/// Propagate the gradients through the batch norm layer where equal sized
+/// Propagate the gradients through the batch norm layer where equal-sized
 /// batch elements are distributed over replicas to effectively compute the
-/// batch norm over `normBatchSize` elements.
-/// Each replica gets the same number of batches (`N') with
-/// `normBatchSize` = `N` * number of devices
+/// batch norm over \p normBatchSize elements.
+/// Each replica gets the same number of batches (\a N) with
+/// \p normBatchSize = \a N * \a number-of-devices
+///
 /// A callback does the required reduction over the replicas the norm is spread
 /// over.
 ///
@@ -159,6 +158,7 @@ batchNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
 /// The whitened activations and the input gradients must have undergone a prior
 /// rearrangement such that the channel dimension is the same as
 /// \p invStdDev.
+///
 /// \param replicatedGraph
 ///                     The replicated graph to which the normalisaton operation
 ///                     is added.
@@ -169,7 +169,7 @@ batchNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
 /// \param prog         A program sequence that the code to
 ///                     perform the normalisation will be appended to.
 /// \param reduceCallback
-///                     A call back to perform all reduce of the statistics
+///                     A callback to perform all-reduce of the statistics
 ///                     gradients.
 /// \param normBatchSize
 ///                     The batch size over which the norm is done.
@@ -183,11 +183,12 @@ poplar::Tensor distributedBatchNormGradients(
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {});
 
-/// Propagate the gradients through the batch norm layer where equal sized
+/// Propagate the gradients through the batch norm layer where equal-sized
 /// batch elements are distributed over replicas to effectively compute the
-/// batch norm over `normBatchSize` elements.
-/// Each replica gets the same number of batches (`N') with
-/// `normBatchSize` = `N` * number of replicas
+/// batch norm over \p normBatchSize elements.
+/// Each replica gets the same number of batches (\a N) with
+/// \p normBatchSize = \a N * \a number-of-devices
+///
 /// A callback does the required reduction over the replicas the norm is spread
 /// on.
 ///
@@ -196,6 +197,7 @@ poplar::Tensor distributedBatchNormGradients(
 /// rearrangement such that the channel dimension has the same elements as
 /// \p invStdDev. The activations are whitened within the function by
 /// applying the \p mean and \p invStdDev.
+///
 /// \param replicatedGraph
 ///                     The replicated graph to which the normalisaton operation
 ///                     is added.
@@ -207,7 +209,7 @@ poplar::Tensor distributedBatchNormGradients(
 /// \param prog         A program sequence that the code to
 ///                     perform the normalisation will be appended to.
 /// \param reduceCallback
-///                     A call back to perform all reduce of the statistics
+///                     A callback to perform all-reduce of the statistics
 ///                     gradients.
 /// \param normBatchSize
 ///                     The batch size over which the norm is done.
