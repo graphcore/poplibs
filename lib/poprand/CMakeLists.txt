@@ -29,12 +29,12 @@ target_include_directories(poprand
 add_gp_library(
   NAME poprand
   CPP_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BernoulliSupervisor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DropoutSupervisor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NormalSupervisor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SetSeedSupervisor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TruncatedNormalSupervisor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UniformSupervisor.cpp 
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Bernoulli.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Dropout.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Normal.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SetSeed.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TruncatedNormal.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Uniform.cpp
   ASM_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Bernoulli.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Uniform.S

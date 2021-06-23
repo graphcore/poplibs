@@ -278,8 +278,7 @@ Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     const auto intervals = flatten(tileContiguousRegions);
 
-    const auto vertexTemplate =
-        templateVertex("poprand::UniformSupervisor", outType);
+    const auto vertexTemplate = templateVertex("poprand::Uniform", outType);
     auto v = graph.addVertex(cs, vertexTemplate,
                              {{"out", concat(outFlat.slices(intervals))}});
     graph.setInitialValue(v["scale"], scale);
@@ -404,8 +403,7 @@ Tensor bernoulli(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     const auto intervals = flatten(tileContiguousRegions);
-    const auto vertexTemplate =
-        templateVertex("poprand::BernoulliSupervisor", outType);
+    const auto vertexTemplate = templateVertex("poprand::Bernoulli", outType);
     auto v = graph.addVertex(cs, vertexTemplate,
                              {{"out", concat(outFlat.slices(intervals))}});
     // The probability used by f16v4rmask/f32v2rmask is the bottom 17-bits of
@@ -446,8 +444,7 @@ Tensor normal(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     const auto intervals = flatten(tileContiguousRegions);
-    const auto vertexTemplate =
-        templateVertex("poprand::NormalSupervisor", outType);
+    const auto vertexTemplate = templateVertex("poprand::Normal", outType);
     auto v = graph.addVertex(cs, vertexTemplate,
                              {{"out", concat(outFlat.slices(intervals))}});
     graph.setInitialValue(v["mean"], mean);
@@ -491,7 +488,7 @@ Tensor truncatedNormal(Graph &graph, const Tensor *masterSeed,
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     const auto intervals = flatten(tileContiguousRegions);
     const auto vertexTemplate =
-        templateVertex("poprand::TruncatedNormalSupervisor", outType);
+        templateVertex("poprand::TruncatedNormal", outType);
     auto v = graph.addVertex(cs, vertexTemplate,
                              {{"out", concat(outFlat.slices(intervals))}});
     graph.setInitialValue(v["mean"], mean);
@@ -567,7 +564,7 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
         graph.getSortedContiguousRegions(refFlat, thisTileMap);
     const auto intervals = flatten(tileContiguousRegions);
     const auto vertexTemplate =
-        templateVertex("poprand::DropoutSupervisor", in.elementType());
+        templateVertex("poprand::Dropout", in.elementType());
     auto inTile = concat(inFlat.slices(intervals));
     const auto &target = graph.getTarget();
     if (inTile.numElements() > target.getRptCountMax() *
@@ -642,8 +639,7 @@ void setSeed(poplar::Graph &graph, const poplar::Tensor &masterSeed,
   auto numTiles = target.getNumTiles();
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
-    auto v = graph.addVertex(cs, "poprand::SetSeedSupervisor",
-                             {{"seed", masterSeed}});
+    auto v = graph.addVertex(cs, "poprand::SetSeed", {{"seed", masterSeed}});
     graph.setInitialValue(v["seedModifierUser"], seedModifier ^ 0x55555555U);
     // guarantee that even tile id 0 will have at least one bit set
     graph.setInitialValue(v["seedModifierHw"], (tile << 4) ^ 0xAAAAAAA0U);

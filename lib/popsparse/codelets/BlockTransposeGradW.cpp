@@ -22,8 +22,7 @@ namespace popsparse {
 
 template <typename FPType>
 class [[poplar::constraint("elem(*in) != elem(*out)")]] BlockTransposeGradW
-    : public SupervisorVertexIf<hasAssemblyVersion<FPType>() &&
-                                ASM_CODELETS_ENABLED> {
+    : public MultiVertex {
 public:
   BlockTransposeGradW();
   // S or QGrad in dimension [numZ, XorY]
@@ -40,22 +39,24 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssemblyVersion<FPType>()));
 
-  bool compute() {
-    const auto blockSizeZ = std::is_same<FPType, float>() ? 8 : 16;
-    const auto numBlocksZ = numZ / blockSizeZ;
-    const auto numXOrY = numXOrYBlocks * blockSizeXOrY;
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      const auto blockSizeZ = std::is_same<FPType, float>() ? 8 : 16;
+      const auto numBlocksZ = numZ / blockSizeZ;
+      const auto numXOrY = numXOrYBlocks * blockSizeXOrY;
 
-    for (auto blockXOrY = 0U; blockXOrY != numXOrYBlocks; ++blockXOrY) {
-      for (auto blockZ = 0U; blockZ != numZ / blockSizeZ; ++blockZ) {
-        for (auto elemXOrY = 0U; elemXOrY != blockSizeXOrY; ++elemXOrY) {
-          for (auto elemZ = 0U; elemZ != blockSizeZ; ++elemZ) {
-            const auto z = blockZ * blockSizeZ + elemZ;
-            const auto inIndex =
-                z * numXOrY + blockXOrY * blockSizeXOrY + elemXOrY;
-            const auto outIndex = blockXOrY * blockSizeXOrY * numZ +
-                                  blockZ * blockSizeZ * blockSizeXOrY +
-                                  elemXOrY * blockSizeZ + elemZ;
-            out[outIndex] = in[inIndex];
+      for (auto blockXOrY = 0U; blockXOrY != numXOrYBlocks; ++blockXOrY) {
+        for (auto blockZ = 0U; blockZ != numZ / blockSizeZ; ++blockZ) {
+          for (auto elemXOrY = 0U; elemXOrY != blockSizeXOrY; ++elemXOrY) {
+            for (auto elemZ = 0U; elemZ != blockSizeZ; ++elemZ) {
+              const auto z = blockZ * blockSizeZ + elemZ;
+              const auto inIndex =
+                  z * numXOrY + blockXOrY * blockSizeXOrY + elemXOrY;
+              const auto outIndex = blockXOrY * blockSizeXOrY * numZ +
+                                    blockZ * blockSizeZ * blockSizeXOrY +
+                                    elemXOrY * blockSizeZ + elemZ;
+              out[outIndex] = in[inIndex];
+            }
           }
         }
       }

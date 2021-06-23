@@ -19,9 +19,7 @@ namespace popsparse {
 template <typename FPType>
 class [[poplar::constraint(
     "elem(*rIn) != elem(*indices)")]] SparseGatherElementWise
-
-    : public SupervisorVertexIf<hasAssemblyVersion<FPType>() &&
-                                ASM_CODELETS_ENABLED> {
+    : public MultiVertex {
 public:
   // only allow 16-bits. We could change to a template parameter
   using IndexType = unsigned short;
@@ -37,17 +35,19 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssemblyVersion<FPType>()));
 
-  bool compute() {
-    const auto vectorSize = std::is_same<FPType, float>() ? 2 : 4;
-    unsigned numExcess = 0;
-    for (unsigned c = 0, z = workerOffsets; c != CTXT_WORKERS; ++c, z >>= 1) {
-      numExcess += (z & 0x1);
-    }
-    const auto sizeAtom = 8 / vectorSize;
-    const auto n = (numIndices / vectorSize) * (vectorSize * CTXT_WORKERS) +
-                   (numIndices % vectorSize) + (vectorSize * numExcess);
-    for (unsigned i = 0; i != n; ++i) {
-      rOut[i] = rIn[indices[i] / sizeAtom];
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      const auto vectorSize = std::is_same<FPType, float>() ? 2 : 4;
+      unsigned numExcess = 0;
+      for (unsigned c = 0, z = workerOffsets; c != CTXT_WORKERS; ++c, z >>= 1) {
+        numExcess += (z & 0x1);
+      }
+      const auto sizeAtom = 8 / vectorSize;
+      const auto n = (numIndices / vectorSize) * (vectorSize * CTXT_WORKERS) +
+                     (numIndices % vectorSize) + (vectorSize * numExcess);
+      for (unsigned i = 0; i != n; ++i) {
+        rOut[i] = rIn[indices[i] / sizeAtom];
+      }
     }
     return true;
   }

@@ -110,9 +110,6 @@
 #define fpOneVec               a6:7
 #define maskOut                a6:7
 
-// supervisor variables
-#define mWorkerEntry           m6
-
 
 // Split work such that a grain of 8 bytes is assigned to a worker. Grains are
 // interleaved between workers

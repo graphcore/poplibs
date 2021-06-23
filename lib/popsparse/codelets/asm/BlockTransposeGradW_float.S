@@ -8,17 +8,18 @@
 
 // =============================================================================
 
-#define WORKER_FN BlockTransposeGradWF
+#define CODELET_NAME __runCodelet_popsparse__BlockTransposeGradW___float
 
 // =============================================================================
 
-DEF_STACK_USAGE 0 WORKER_FN
-.section .text.WORKER_FN, FUNCTION_IS_WORKER
-.type WORKER_FN, @function
+DEF_STACK_USAGE 0 CODELET_NAME
+.section .text.CODELET_NAME
+.globl CODELET_NAME
+.type CODELET_NAME, @function
 .align 8
 .worker
-// worker code
-WORKER_FN:
+
+CODELET_NAME:
 
 // Set up registers for the loop below
 SETUP_FOR_MAIN_LOOP float
@@ -88,25 +89,6 @@ LXYSubblockLoopEnd:
   brnzdec         $w_numBlocksXYThisWorker, LXYBlockLoop
 exitz           $mzero
 
-.size WORKER_FN, . - WORKER_FN
-
-// =============================================================================
-
-#define CODELET_NAME __runCodelet_popsparse__BlockTransposeGradW___float
-
-DEF_STACK_USAGE 0 CODELET_NAME
-
-.section .text.CODELET_NAME
-.align 4
-.globl CODELET_NAME
-.type CODELET_NAME, @function
-CODELET_NAME:
-.supervisor
-
-setzi           $m1, WORKER_FN
-runall          $m1, $m0, 0
-sync            TEXCH_SYNCZONE_LOCAL
-br              $lr
 .size CODELET_NAME, . - CODELET_NAME
 
 // =============================================================================

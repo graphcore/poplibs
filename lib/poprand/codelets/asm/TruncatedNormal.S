@@ -5,14 +5,14 @@
 
 #include "poprandCommon.inc"
 
-#define poprandTruncNormalSvF32  __runCodelet_poprand__TruncatedNormalSupervisor___float
-#define poprandTruncNormalSvF16  __runCodelet_poprand__TruncatedNormalSupervisor___half
+#define poprandTruncNormalF32  __runCodelet_poprand__TruncatedNormal___float
+#define poprandTruncNormalF16  __runCodelet_poprand__TruncatedNormal___half
 
-.globl poprandTruncNormalSvF32
-.type poprandTruncNormalSvF32, @function
+.globl poprandTruncNormalF32
+.type poprandTruncNormalF32, @function
 
-.globl poprandTruncNormalSvF16
-.type poprandTruncNormalSvF16, @function
+.globl poprandTruncNormalF16
+.type poprandTruncNormalF16, @function
 .worker
 .macro POPRAND_TRUNCATED_NORMAL_F32
   {
@@ -72,15 +72,8 @@
   }
 .endm
 
-DEF_STACK_USAGE 0 poprandTruncNormalSvF32
-.section .text.poprandTruncNormalSvF32
-.align 4
-.supervisor
-poprandTruncNormalSvF32:
-  setzi       $mWorkerEntry  , poprandTruncNormalF32
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandTruncNormalF32
+.section .text.poprandTruncNormalF32
 
 poprandTruncNormalF32:
 .worker
@@ -96,7 +89,7 @@ poprandTruncNormalF32:
   }
   {
     ld32        $scaleOut, $mvertex_base, $mzero, VBASE_SCALE_OFFSET
-    and64       $maskOut, $maskOut, $azeros    
+    and64       $maskOut, $maskOut, $azeros
   }
   {
     ld32        $nIter, $mvertex_base, $mzero, VBASE_NUM_ITER_OFFSET
@@ -130,17 +123,10 @@ poprandTruncNormalF32:
   st32step    $randOut_0, $mzero, $mBaseOut+=, 1
 .LpoprandTruncatedNormalF32_epilog:
   exitz       $mzero
-.size poprandTruncNormalSvF32, .-poprandTruncNormalSvF32
+.size poprandTruncNormalF32, .-poprandTruncNormalF32
 
-DEF_STACK_USAGE 0 poprandTruncNormalSvF16
-.section .text.poprandTruncNormalSvF16
-.align 4
-.supervisor
-poprandTruncNormalSvF16:
-  setzi       $mWorkerEntry  , poprandTruncNormalF16
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandTruncNormalF16
+.section .text.poprandTruncNormalF16
 
 poprandTruncNormalF16:
 .worker
@@ -198,6 +184,6 @@ poprandTruncNormalF16:
   POPRAND_STORE_LAST_WORKER_F16 $mRemainder
 .LpoprandTruncatedNormalF16_epilog:
   exitz       $mzero
-.size poprandTruncNormalSvF16, .-poprandTruncNormalSvF16
+.size poprandTruncNormalF16, .-poprandTruncNormalF16
 
 #endif

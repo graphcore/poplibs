@@ -16,11 +16,6 @@
 #define CODELET_FLOAT __runCodelet_popsparse__SparseGatherElementWise___float
 
 
-// Supervisor register aliases
-#define SUPER_BASE                 m0
-#define WORKER_ENTRY               m1
-
-
 // vertex state
 #define s_rInPtr                   0
 #define s_rOutPtr                  4
@@ -78,17 +73,20 @@ add            $numVectors, $numVectors, $addVectors
 // Load pointers
 ld32           $indicesPtr, $mvertex_base, s_IndicesPtr/4
 ld32           $rInPtr, $mvertex_base, s_rInPtr/4
-ld32           $rOutPtr, $mvertex_base, s_rOutPtr/4 
+ld32           $rOutPtr, $mvertex_base, s_rOutPtr/4
 
 .endm
 
 //------------------------------------------------------------------------------
 
-.section .text.worker_half
+DEF_STACK_USAGE  0  CODELET_HALF
+
+.section .text.CODELET_HALF
 .align 8
-.type worker_half, @function
+.globl CODELET_HALF
+.type CODELET_HALF, @function
 .worker
-worker_half:
+CODELET_HALF:
 
 WORKER_DIVISION_AND_LOAD_STATE 2
 
@@ -108,7 +106,7 @@ ldd16b16       $a1, $indicesPtr++, $rInPtr, $delta@
 }
 ldd16b16       $a1, $indicesPtr++, $rInPtr, $delta@
 
-rpt $numVectors, (LLoopEndHalf - LLoopStartHalf)/8 -1 
+rpt $numVectors, (LLoopEndHalf - LLoopStartHalf)/8 -1
 LLoopStartHalf:
   {
     ldd16b16       $a0, $indicesPtr++, $rInPtr, $delta@
@@ -146,11 +144,11 @@ LCheckRemainderHalf:
   ldd16b16       $a0, $indicesPtr++, $rInPtr, $delta@
   ldd16b16       $a1, $indicesPtr++, $rInPtr, $delta@
   sort4x16lo     $a2, $a0, $a1
-  
+
   st32step       $a2, $mzero, $rOutPtr+=, 1
 
 LFinalElementHalf:
-  
+
   and            $remainder, $remainder, 0x1
   brz            $remainder, LExitHalf
   ldb16          $a0, $delta, $rInPtr, 0
@@ -160,15 +158,18 @@ LFinalElementHalf:
 LExitHalf:
   exitz          $mzero
 
-.size worker_half, . - worker_half
+.size CODELET_HALF, . - CODELET_HALF
 
 //------------------------------------------------------------------------------
 
-.section .text.worker_float
+DEF_STACK_USAGE  0  CODELET_FLOAT
+
+.section .text.CODELET_FLOAT
 .align 8
-.type worker_float, @function
+.globl CODELET_FLOAT
+.type CODELET_FLOAT, @function
 .worker
-worker_float:
+CODELET_FLOAT:
 
 WORKER_DIVISION_AND_LOAD_STATE 1
 
@@ -184,7 +185,7 @@ ldd16a32       $a0, $indicesPtr++, $rInPtr, $delta@
 ldd16a32       $a1, $indicesPtr++, $rInPtr, $delta@
 
 {
-  rpt $numVectors, (LLoopEndFloat - LLoopStartFloat)/8 -1 
+  rpt $numVectors, (LLoopEndFloat - LLoopStartFloat)/8 -1
   fnop
 }
 LLoopStartFloat:
@@ -196,7 +197,7 @@ LLoopStartFloat:
     ldd16a32       $a0, $indicesPtr++, $rInPtr, $delta@
     fnop
   }
-  {  
+  {
     ldd16a32       $a1, $indicesPtr++, $rInPtr, $delta@
     fnop
   }
@@ -217,38 +218,5 @@ LExitFloat:
 
 //------------------------------------------------------------------------------
 
-.size worker_float, . - worker_float
-
-DEF_STACK_USAGE  0  CODELET_HALF
-
-.section .text.CODELET_HALF
-.align 4
-.globl CODELET_HALF
-.type CODELET_HALF, @function
-CODELET_HALF:
-.supervisor
-
-setzi     $WORKER_ENTRY, worker_half
-runall   $WORKER_ENTRY, $SUPER_BASE, 0
-br       $lr
-
-.size CODELET_HALF, . - CODELET_HALF
-
-//------------------------------------------------------------------------------
-
-DEF_STACK_USAGE  0  CODELET_FLOAT
-
-.section .text.CODELET_FLOAT
-.align 4
-.globl CODELET_FLOAT
-.type CODELET_FLOAT, @function
-CODELET_FLOAT:
-.supervisor
-
-setzi  $WORKER_ENTRY, worker_float
-runall   $WORKER_ENTRY, $SUPER_BASE, 0
-br       $lr
-
-.size CODELET_FLOAT, . - CODELET_FLOAT
 
 #endif // __IPU__

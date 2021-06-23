@@ -6,19 +6,12 @@
 
 #include "poprandCommon.inc"
 
-#define poprandUniformSvF32   __runCodelet_poprand__UniformSupervisor___float
-.globl poprandUniformSvF32
-.type poprandUniformSvF32, @function
+#define poprandUniformF32   __runCodelet_poprand__Uniform___float
+.globl poprandUniformF32
+.type poprandUniformF32, @function
 
-DEF_STACK_USAGE 0 poprandUniformSvF32
-.section .text.poprandUniformSvF32
-.align 4
-.supervisor
-poprandUniformSvF32:
-  setzi       $mWorkerEntry, poprandUniformF32
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandUniformF32
+.section .text.poprandUniformF32
 
 .align 8
 .worker
@@ -60,21 +53,14 @@ poprandUniformF32:
   st32step    $randOut_0, $mzero, $mBaseOut+=, 1
 .LpoprandUniformF32_epilog:
   exitz       $mzero
-.size poprandUniformSvF32, .-poprandUniformSvF32
+.size poprandUniformF32, .-poprandUniformF32
 
-#define poprandUniformSvF16     __runCodelet_poprand__UniformSupervisor___half
-.globl poprandUniformSvF16
-.type poprandUniformSvF16, @function
+#define poprandUniformF16     __runCodelet_poprand__Uniform___half
+.globl poprandUniformF16
+.type poprandUniformF16, @function
 
-DEF_STACK_USAGE 0 poprandUniformSvF16
-.section .text.poprandUniformSvF16
-.align 4
-.supervisor
-poprandUniformSvF16:
-  setzi       $mWorkerEntry, poprandUniformF16
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandUniformF16
+.section .text.poprandUniformF16
 
 .align 8
 .worker
@@ -118,21 +104,14 @@ poprandUniformF16:
   POPRAND_STORE_LAST_WORKER_F16 $mRemainder
 .LpoprandUniformF16_epilog:
   exitz       $mzero
-.size poprandUniformSvF16, .-poprandUniformSvF16
+.size poprandUniformF16, .-poprandUniformF16
 
-#define poprandUniformSvInt     __runCodelet_poprand__UniformSupervisor___int
-.globl poprandUniformSvInt
-.type poprandUniformSvInt, @function
+#define poprandUniformInt     __runCodelet_poprand__Uniform___int
+.globl poprandUniformInt
+.type poprandUniformInt, @function
 
-DEF_STACK_USAGE 0 poprandUniformSvInt
-.section .text.poprandUniformSvInt
-.align 4
-.supervisor
-poprandUniformSvInt:
-  setzi       $mWorkerEntry, poprandUniformInt
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandUniformInt
+.section .text.poprandUniformInt
 
 .align 8
 .worker
@@ -149,7 +128,7 @@ poprandUniformInt:
   ld32        $mOutShift, $mvertex_base, $mzero, VBASE_SHIFT_OFFSET
   bri         .LpoprandUniformInt_loop
 .align 8
-.LpoprandUniformMaxRangeInt:    
+.LpoprandUniformMaxRangeInt:
   POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 1
   ld64step    $randOut1, $mzero, $mBaseOut+=, $mWorkerIdx
   {
@@ -200,6 +179,6 @@ poprandUniformInt:
   }
 .LpoprandUniformInt_end:
   exitz         $mzero
-.size poprandUniformSvInt, .-poprandUniformSvInt
+.size poprandUniformInt, .-poprandUniformInt
 
 #endif

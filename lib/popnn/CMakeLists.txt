@@ -91,11 +91,11 @@ set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad2D.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad2D_gelu.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad2DSwish.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearitySupervisor_gelu.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearitySupervisorSwish.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradSupervisor.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradSupervisor_gelu.S
-  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradSupervisorSwish.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearity1D_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearity1DSwish.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad1D.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad1D_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad1DSwish.S
 )
 
 add_gp_library(
@@ -113,8 +113,8 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPoolingGradientScale.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity2D.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearityGrad2D.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearityGradSupervisor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearitySupervisor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearityGrad1D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity1D.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassGather.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxClassSparse.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMaxNClassGather.cpp

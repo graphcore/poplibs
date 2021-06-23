@@ -5,24 +5,17 @@
 #include "poprandCommon.inc"
 #include "poplar/AvailableVTypes.h"
 
-#define poprandDropoutSvF32     __runCodelet_poprand__DropoutSupervisor___float
-#define poprandDropoutSvF16     __runCodelet_poprand__DropoutSupervisor___half
+#define poprandDropoutF32     __runCodelet_poprand__Dropout___float
+#define poprandDropoutF16     __runCodelet_poprand__Dropout___half
 
-.globl poprandDropoutSvF32
-.type poprandDropoutSvF32, @function
+.globl poprandDropoutF32
+.type poprandDropoutF32, @function
 
-.globl poprandDropoutSvF16
-.type poprandDropoutSvF16, @function
+.globl poprandDropoutF16
+.type poprandDropoutF16, @function
 
-DEF_STACK_USAGE 0 poprandDropoutSvF32
-.section .text.poprandDropoutSvF32
-.align 4
-.supervisor
-poprandDropoutSvF32:
-  setzi       $mWorkerEntry, poprandDropoutF32
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandDropoutF32
+.section .text.poprandDropoutF32
 
 .align 8
 .worker
@@ -66,17 +59,10 @@ poprandDropoutF32:
   st32step    $randOut_0, $mzero, $mBaseOut+=, 6
 .LpoprandDropoutF32_epilog:
   exitz       $mzero
-.size poprandDropoutSvF32, .-poprandDropoutSvF32
+.size poprandDropoutF32, .-poprandDropoutF32
 
-DEF_STACK_USAGE 0 poprandDropoutSvF16
-.section .text.poprandDropoutSvF16
-.align 4
-.supervisor
-poprandDropoutSvF16:
-  setzi       $mWorkerEntry, poprandDropoutF16
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandDropoutF16
+.section .text.poprandDropoutF16
 
 .align 8
 .worker
@@ -145,6 +131,6 @@ poprandDropoutF16:
     sort4x16lo    $randOut1_1, $randOut_1, $azero // randOut1=[ab:c0]
   }
 
-.size poprandDropoutSvF16, .-poprandDropoutSvF16
+.size poprandDropoutF16, .-poprandDropoutF16
 
 #endif

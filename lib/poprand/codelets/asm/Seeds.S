@@ -1,11 +1,11 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
-// poprand::SetSeedSupervisor
+// poprand::SetSeed
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define poprandSvSetSeed     __runCodelet_poprand__SetSeedSupervisor
+#define poprandSetSeed     __runCodelet_poprand__SetSeed
 
 // SetSeed : Word offsets
 #define VBASE_SEED_OFFSET                0   // ONE_PTR
@@ -16,9 +16,6 @@
 // Number of 64-bits read from PRNG for warm-up after seed is set
 #define WARMUP_RPT_COUNT                 15
 
-//Supervisor registers
-#define mWrkrEntry  m1
-
 // Worker registers
 #define mModifier   m4
 #define mWorkerIdx  m5
@@ -28,11 +25,11 @@
 #define prngState1  a1
 #define prngState   a0:1
 
-DEF_STACK_USAGE 0 poprandSvSetSeed
-.globl poprandSvSetSeed
-.type poprandSvSetSeed, @function
+DEF_STACK_USAGE 0 poprandSetSeed
+.globl poprandSetSeed
+.type poprandSetSeed, @function
 
-.section .text.poprandSvSetSeed
+.section .text.poprandSetSeed
 
 .align 8
 .worker
@@ -65,14 +62,6 @@ poprandSetSeed:
 .LpoprandSetSeed_warmup_end:
   exitz       $mzero
 
-
-poprandSvSetSeed:
-  .supervisor
-  setzi       $mWrkrEntry, poprandSetSeed
-  runall      $mWrkrEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
-
-.size poprandSvSetSeed, .-poprandSvSetSeed
+.size poprandSetSeed, .-poprandSetSeed
 
 #endif

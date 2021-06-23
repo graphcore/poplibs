@@ -396,8 +396,8 @@ add_unit_test(DynamicSliceCodeletTest
               DynamicSliceCodeletTest.cpp
               LABELS codelet
               VARIANTS ${SIM_VARIANTS})
-add_unit_test(DynamicSliceSupervisorCodeletTest
-              DynamicSliceSupervisorCodeletTest.cpp
+add_unit_test(DynamicSlice1DCodeletTest
+              DynamicSlice1DCodeletTest.cpp
               LABELS codelet
               VARIANTS ${SIM_VARIANTS})
 add_unit_test(MultiSliceCodeletTest

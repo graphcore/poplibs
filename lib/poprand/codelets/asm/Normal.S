@@ -5,24 +5,17 @@
 
 #include "poprandCommon.inc"
 
-#define poprandNormalSvF32     __runCodelet_poprand__NormalSupervisor___float
-#define poprandNormalSvF16     __runCodelet_poprand__NormalSupervisor___half
+#define poprandNormalF32     __runCodelet_poprand__Normal___float
+#define poprandNormalF16     __runCodelet_poprand__Normal___half
 
-.globl poprandNormalSvF32
-.type poprandNormalSvF32, @function
+.globl poprandNormalF32
+.type poprandNormalF32, @function
 
-.globl poprandNormalSvF16
-.type poprandNormalSvF16, @function
+.globl poprandNormalF16
+.type poprandNormalF16, @function
 
-DEF_STACK_USAGE 0 poprandNormalSvF32
-.section .text.poprandNormalSvF32
-.align 4
-.supervisor
-poprandNormalSvF32:
-  setzi       $mWorkerEntry  , poprandNormalF32
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandNormalF32
+.section .text.poprandNormalF32
 
 .align 8
 .worker
@@ -57,17 +50,10 @@ poprandNormalF32:
   st32step    $randOut_0, $mzero, $mBaseOut+=, 1
 .LpoprandNormalF32_epilog:
   exitz       $mzero
-.size poprandNormalSvF32   , .-poprandNormalSvF32
+.size poprandNormalF32   , .-poprandNormalF32
 
-DEF_STACK_USAGE 0 poprandNormalSvF16
-.section .text.poprandNormalSvF16
-.align 4
-.supervisor
-poprandNormalSvF16:
-  setzi       $mWorkerEntry, poprandNormalF16
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandNormalF16
+.section .text.poprandNormalF16
 
 .align 8
 .worker
@@ -113,6 +99,6 @@ poprandNormalF16:
   POPRAND_STORE_LAST_WORKER_F16 $mRemainder
 .LpoprandNormalF16_epilog:
   exitz       $mzero
-.size poprandNormalSvF16, .-poprandNormalSvF16
+.size poprandNormalF16, .-poprandNormalF16
 
 #endif

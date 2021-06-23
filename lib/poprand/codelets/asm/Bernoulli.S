@@ -5,29 +5,22 @@
 
 #include "poprandCommon.inc"
 
-#define poprandBernoulliSvF32     __runCodelet_poprand__BernoulliSupervisor___float
-#define poprandBernoulliSvF16     __runCodelet_poprand__BernoulliSupervisor___half
-#define poprandBernoulliSvInt     __runCodelet_poprand__BernoulliSupervisor___int
+#define poprandBernoulliF32     __runCodelet_poprand__Bernoulli___float
+#define poprandBernoulliF16     __runCodelet_poprand__Bernoulli___half
+#define poprandBernoulliInt     __runCodelet_poprand__Bernoulli___int
 
-.globl poprandBernoulliSvF32
-.type poprandBernoulliSvF32, @function
+.globl poprandBernoulliF32
+.type poprandBernoulliF32, @function
 
-.globl poprandBernoulliSvF16
-.type poprandBernoulliSvF16, @function
+.globl poprandBernoulliF16
+.type poprandBernoulliF16, @function
 
-.globl poprandBernoulliSvInt
-.type poprandBernoulliSvInt, @function
+.globl poprandBernoulliInt
+.type poprandBernoulliInt, @function
 
-DEF_STACK_USAGE 0 poprandBernoulliSvF32
-.section .text.poprandBernoulliSvF32
+DEF_STACK_USAGE 0 poprandBernoulliF32
+.section .text.poprandBernoulliF32
 .align 4
-.supervisor
-
-poprandBernoulliSvF32:
-  setzi       $mWorkerEntry, poprandBernoulliF32
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
 
 .worker
 poprandBernoulliF32:
@@ -35,18 +28,10 @@ poprandBernoulliF32:
     bri         poprandBernoulli32
     or          $fpOne0, $azero, 0x3F800000
   }
-.size poprandBernoulliSvF32, .-poprandBernoulliSvF32
+.size poprandBernoulliF32, .-poprandBernoulliF32
 
-DEF_STACK_USAGE 0 poprandBernoulliSvF16
-.section .text.poprandBernoulliSvF16
-.align 4
-.supervisor
-
-poprandBernoulliSvF16:
-  setzi       $mWorkerEntry, poprandBernoulliF16
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+DEF_STACK_USAGE 0 poprandBernoulliF16
+.section .text.poprandBernoulliF16
 
 .align 8
 poprandBernoulliF16Aligned:
@@ -76,17 +61,12 @@ poprandBernoulliF16:
   POPRAND_STORE_LAST_WORKER_F16 $mRemainder
 .LpoprandBernoulliF16_epilog:
   exitz       $mzero
-.size poprandBernoulliSvF16, .-poprandBernoulliSvF16
+.size poprandBernoulliF16, .-poprandBernoulliF16
 
-DEF_STACK_USAGE 0 poprandBernoulliSvInt
-.section .text.poprandBernoulliSvInt
+DEF_STACK_USAGE 0 poprandBernoulliInt
+.section .text.poprandBernoulliInt
 .align 4
-.supervisor
-poprandBernoulliSvInt:
-  setzi       $mWorkerEntry, poprandBernoulliInt
-  runall      $mWorkerEntry, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+
 
 poprandBernoulliInt:
 .worker
@@ -94,7 +74,7 @@ poprandBernoulliInt:
     bri         poprandBernoulli32
     setzi       $fpOne0, 0x1
   }
-.size poprandBernoulliSvInt, .-poprandBernoulliSvInt
+.size poprandBernoulliInt, .-poprandBernoulliInt
 
 .section .text.poprandBernoulli32
 .align 8

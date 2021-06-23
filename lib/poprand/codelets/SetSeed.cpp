@@ -5,9 +5,9 @@ using namespace poplar;
 
 namespace poprand {
 
-class SetSeedSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+class SetSeed : public MultiVertex {
 public:
-  SetSeedSupervisor();
+  SetSeed();
 
   Input<Vector<unsigned, ONE_PTR, 8>> seed;
   const uint32_t seedModifierUser;
@@ -15,7 +15,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() { return true; }
+  bool compute(unsigned wid) { return true; }
 };
 
 } // namespace poprand

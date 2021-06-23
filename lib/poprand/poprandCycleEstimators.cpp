@@ -7,8 +7,9 @@ using namespace poplibs_support;
 
 namespace poprand {
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UniformSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Uniform)(const VertexIntrospector &vertex,
+                                  const Target &target, const Type &type) {
   uint64_t cycles = 4; // supervisor call
   CODELET_FIELD(out);
   if (type == INT) {
@@ -47,8 +48,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UniformSupervisor)(
   return {cycles, convertToTypeFlops(flops, type)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BernoulliSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Bernoulli)(const VertexIntrospector &vertex,
+                                    const Target &target, const Type &type) {
   CODELET_FIELD(out);
   const auto dataPathWidth = target.getDataPathWidth();
 
@@ -68,8 +70,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BernoulliSupervisor)(
   return {cycles, convertToTypeFlops(out.size(), type)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NormalSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Normal)(const VertexIntrospector &vertex,
+                                 const Target &target, const Type &type) {
   CODELET_FIELD(out);
   const auto dataPathWidth = target.getDataPathWidth();
 
@@ -91,7 +94,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NormalSupervisor)(
   return {cycles, convertToTypeFlops(flops, type)};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TruncatedNormalSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TruncatedNormal)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(out);
   CODELET_SCALAR_VAL(iterations, unsigned);
@@ -118,8 +121,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TruncatedNormalSupervisor)(
   return {cycles, flops};
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DropoutSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Dropout)(const VertexIntrospector &vertex,
+                                  const Target &target, const Type &type) {
   CODELET_FIELD(out);
 
   const auto dataPathWidth = target.getDataPathWidth();
@@ -138,31 +142,31 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DropoutSupervisor)(
 }
 
 VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(SetSeedSupervisor)(const VertexIntrospector &vertex,
-                                            const Target &target) {
+MAKE_PERF_ESTIMATOR_NAME(SetSeed)(const VertexIntrospector &vertex,
+                                  const Target &target) {
   return 14 + 27 * target.getNumWorkerContexts();
 }
 
 poputil::PerfEstimatorTable makePerfFunctionTable() {
   return {
-      CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormalSupervisor, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormalSupervisor, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormal, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormal, HALF),
 
-      CYCLE_ESTIMATOR_ENTRY(poprand, NormalSupervisor, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(poprand, NormalSupervisor, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Normal, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Normal, HALF),
 
-      CYCLE_ESTIMATOR_ENTRY(poprand, BernoulliSupervisor, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(poprand, BernoulliSupervisor, HALF),
-      CYCLE_ESTIMATOR_ENTRY(poprand, BernoulliSupervisor, INT),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Bernoulli, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Bernoulli, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Bernoulli, INT),
 
-      CYCLE_ESTIMATOR_ENTRY(poprand, UniformSupervisor, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(poprand, UniformSupervisor, HALF),
-      CYCLE_ESTIMATOR_ENTRY(poprand, UniformSupervisor, INT),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Uniform, INT),
 
-      CYCLE_ESTIMATOR_ENTRY(poprand, DropoutSupervisor, HALF),
-      CYCLE_ESTIMATOR_ENTRY(poprand, DropoutSupervisor, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Dropout, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poprand, Dropout, FLOAT),
 
-      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poprand, SetSeedSupervisor),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poprand, SetSeed),
   };
 }
 

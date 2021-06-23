@@ -1,5 +1,5 @@
-# NonLinearity{Supervisor,2D}<dataType, nlType>
-foreach(NL_VERTEX Supervisor 2D)
+# NonLinearity{1D,2D}<dataType, nlType>
+foreach(NL_VERTEX 1D 2D)
   set(TEST_EXECUTABLE "NonLinearity${NL_VERTEX}")
   set(TEST_SRC "${TEST_EXECUTABLE}.cpp")
   add_multi_target_test_executable(${TEST_EXECUTABLE} ${TEST_SRC})
@@ -18,7 +18,7 @@ endforeach()
 
 # For tanh, relu and sigmoid the fwd non-linearity is implemented as a unary op
 # So only test the bwd (grad) variant here
-foreach(NL_VERTEX Supervisor 2D)
+foreach(NL_VERTEX 1D 2D)
   set(TEST_EXECUTABLE "NonLinearity${NL_VERTEX}")
   foreach(DATA_TYPE half float)
     foreach(NL_TYPE tanh relu sigmoid)
