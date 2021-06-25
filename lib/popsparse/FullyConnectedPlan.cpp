@@ -1591,6 +1591,13 @@ createPlan(const PlanningObjective &objective, const Target &target,
           [&] { return m.addVariable(1, hierarchy[level]); });
       applyPartitionPlanConstraint(m, options, level, mPartitions[level]);
     }
+    auto partitionPrioGrp = m.addPriorityGroup();
+    for (const auto &levelPartition : mPartitions) {
+      for (const auto &var : levelPartition.asStdVector()) {
+        m.setPriorityGroup(var, partitionPrioGrp);
+      }
+    }
+    m.prioritiseOver(partitionPrioGrp, m.getDefaultPriorityGroup());
     return PartitionVariables(m, mPartitions);
   }();
 

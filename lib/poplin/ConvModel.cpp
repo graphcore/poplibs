@@ -1819,12 +1819,6 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
                                       numLevelsOfHierarchy, partitionVars,
                                       linearizeTileOrder);
 
-  // Popsolver takes into account whether a variable is an operand of a call
-  // when deciding the order to set variables. Add a dummy call to ensure the
-  // split variables are prioritised as this reduces the amount of time spent
-  // in the planner. TODO: T12879 Improve Popsolver's heuristics for ordering
-  // variables so this dummy call is no longer necessary (or provide a proper
-  // mechanism for ordering hints).
   std::vector<popsolver::Variable> variables;
   for (const auto &vars : partitionVars) {
     variables.push_back(vars.batchSplit);
@@ -1838,10 +1832,15 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
     variables.insert(variables.end(), vars.kernelSplit.begin(),
                      vars.kernelSplit.end());
   };
-  (void)m.call<popsolver::DataType>(variables,
-                                    [](const auto &) -> popsolver::DataType {
-                                      return popsolver::DataType{0U};
-                                    });
+  // We explicitly prioritise the variables that form the partitions of the
+  // operation as this reduces the size of the space searched and consequently
+  // the time to plan (empirically tested) vs. allowing popsolver's default
+  // ordering mechanism.
+  auto partitionPriorityGroup = m.addPriorityGroup();
+  for (const auto &var : variables) {
+    m.setPriorityGroup(var, partitionPriorityGroup);
+  }
+  m.prioritiseOver(partitionPriorityGroup, m.getDefaultPriorityGroup());
 
   SinglePassEstimates<popsolver::Variable> e;
 

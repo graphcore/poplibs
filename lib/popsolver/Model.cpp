@@ -4,8 +4,10 @@
 #include "Constraint.hpp"
 #include "Scheduler.hpp"
 
+#include <poplibs_support/GraphUtil.hpp>
 #include <poplibs_support/logging.hpp>
 
+#include <boost/graph/depth_first_search.hpp>
 #include <boost/optional.hpp>
 
 #include <algorithm>
@@ -14,6 +16,7 @@
 #include <ostream>
 
 using namespace popsolver;
+using namespace poplibs_support;
 
 std::ostream &popsolver::operator<<(std::ostream &os,
                                     const ConstraintEvaluationSummary &s) {
@@ -30,7 +33,9 @@ std::ostream &popsolver::operator<<(std::ostream &os,
   return os;
 }
 
-Model::Model() = default;
+Model::Model() {
+  defaultPriorityGroup = PriorityGroupID(boost::add_vertex(priorityGraph));
+}
 
 Model::~Model() = default;
 
@@ -112,7 +117,7 @@ Variable Model::addVariable(DataType min, DataType max,
       return result.first->second;
   }
   initialDomains.push_back({min, max});
-  priority.push_back(popsolver::DataType{0});
+  priorityGroup.push_back(getDefaultPriorityGroup());
   if (debugName.empty()) {
     debugNames.emplace_back("var#" + std::to_string(v.id));
   } else {
@@ -354,12 +359,6 @@ Variable Model::call(
     std::vector<Variable> vars,
     std::function<boost::optional<DataType>(const std::vector<T> &values)> f,
     const std::string &debugName) {
-  for (const auto var : vars) {
-    // Call constraints cannot be used to cut down the search space until all of
-    // their operands are set. Prefer to set variables that are operands of
-    // calls first.
-    priority[var.id] = popsolver::DataType{1};
-  }
   auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(
       new GenericAssignment<T>(result, std::move(vars), f));
@@ -385,6 +384,23 @@ Model::call<uint64_t>(std::vector<Variable>,
                           const std::vector<uint64_t> &values)>,
                       const std::string &);
 
+PriorityGroupID Model::getDefaultPriorityGroup() const {
+  return PriorityGroupID(0u);
+}
+
+PriorityGroupID Model::addPriorityGroup() {
+  auto newID = boost::add_vertex(priorityGraph);
+  return PriorityGroupID(newID);
+}
+
+void Model::setPriorityGroup(Variable v, PriorityGroupID prioGroup) {
+  priorityGroup[v.id] = prioGroup;
+}
+
+void Model::prioritiseOver(PriorityGroupID a, PriorityGroupID b) {
+  boost::add_edge(a.id, b.id, priorityGraph);
+}
+
 static bool foundLowerCostSolution(const Domains domains,
                                    const std::vector<Variable> &objectives,
                                    Solution &previousSolution) {
@@ -399,14 +415,22 @@ static bool foundLowerCostSolution(const Domains domains,
 
 std::pair<bool, ConstraintEvaluationSummary>
 Model::minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
+                const boost::adjacency_matrix<> &prioGroupReachability,
                 bool &foundSolution, Solution &solution) {
   ConstraintEvaluationSummary summary{};
   // Find an unassigned variable.
   const auto &domains = scheduler.getDomains();
 
   const auto lhsIsHigherPriority = [&](Variable i, Variable j) {
-    if (priority[i.id] != priority[j.id]) {
-      return priority[i.id] > priority[j.id];
+    const auto iPriorityGroup = priorityGroup[i.id];
+    const auto jPriorityGroup = priorityGroup[j.id];
+    if (boost::edge(iPriorityGroup, jPriorityGroup, prioGroupReachability)
+            .second) {
+      return true;
+    }
+    if (boost::edge(jPriorityGroup, iPriorityGroup, prioGroupReachability)
+            .second) {
+      return false;
     }
     // Use the size of the domain to break ties.
     return domains[i].size() < domains[j].size();
@@ -450,7 +474,8 @@ Model::minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
       const auto x = scheduler.propagate();
       summary += x.second;
       if (x.first) {
-        const auto y = minimize(scheduler, objectives, foundSolution, solution);
+        const auto y = minimize(scheduler, objectives, prioGroupReachability,
+                                foundSolution, solution);
         summary += y.second;
         if (y.first) {
           return true;
@@ -471,9 +496,30 @@ Model::minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
   return {improvedSolution, summary};
 }
 
+template <typename Tag>
+struct DAGCheckerVisitor : public boost::base_visitor<DAGCheckerVisitor<Tag>> {
+  typedef Tag event_filter;
+  template <typename Edge, typename Graph> void operator()(Edge e, Graph &g) {
+    throw std::logic_error("Graph formed by prioritisation of priority groups "
+                           "over one another does not form a DAG");
+  }
+};
+
+template <class Tag> inline DAGCheckerVisitor<Tag> checkIsDAG(Tag) {
+  return DAGCheckerVisitor<Tag>{};
+}
+
 Solution Model::minimize(const std::vector<Variable> &v) {
   bool foundSolution = false;
   Solution solution;
+
+  // Check the graph formed by prioritisation of groups
+  // over one another is a DAG.
+  boost::depth_first_search(priorityGraph,
+                            boost::visitor(boost::make_dfs_visitor(
+                                checkIsDAG(boost::on_back_edge()))));
+
+  const auto prioGroupReachability = pairwise_reachability(priorityGraph);
 
   std::vector<Constraint *> constraintPtrs;
   constraintPtrs.reserve(constraints.size());
@@ -487,7 +533,8 @@ Solution Model::minimize(const std::vector<Variable> &v) {
     const auto x = scheduler.initialPropagate();
     summary += x.second;
     if (x.first) {
-      const auto y = minimize(scheduler, v, foundSolution, solution);
+      const auto y = minimize(scheduler, v, prioGroupReachability,
+                              foundSolution, solution);
       summary += y.second;
       if (y.first) {
         return true;

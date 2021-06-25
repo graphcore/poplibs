@@ -3,8 +3,11 @@
 #ifndef popsolver_Model_hpp
 #define popsolver_Model_hpp
 
+#include <popsolver/PriorityGroupID.hpp>
 #include <popsolver/Variable.hpp>
 
+#include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/adjacency_matrix.hpp>
 #include <boost/optional.hpp>
 
 #include <cassert>
@@ -227,6 +230,7 @@ class Model {
   void addConstraint(std::unique_ptr<Constraint> c);
   std::pair<bool, ConstraintEvaluationSummary>
   minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
+           const boost::adjacency_matrix<> &prioGroupReachability,
            bool &foundSolution, Solution &solution);
   Variable product(const Variable *begin, const Variable *end,
                    const std::string &debugName);
@@ -252,7 +256,13 @@ public:
   ~Model();
   std::vector<std::string> debugNames;
   std::unordered_map<DataType, Variable> constants;
-  std::vector<DataType> priority;
+  /// Per-variable, the priority group that variable belongs to.
+  std::vector<PriorityGroupID> priorityGroup;
+  /// A directed graph of relative priorities of priority groups.
+  /// Here an edge from group a to group b indicates priority of
+  /// a over b.
+  boost::adjacency_list<> priorityGraph;
+  PriorityGroupID defaultPriorityGroup;
   std::vector<std::unique_ptr<Constraint>> constraints;
   Domains initialDomains;
 
@@ -268,6 +278,16 @@ public:
   Variable addConstant(DataType value, const std::string &debugName = "");
   Variable addConstant(DataType::UnderlyingType value,
                        const std::string &debugName = "");
+
+  /// Set the priority group to which a variable belongs.
+  /// A variable may belong to only one priority group, and multiple calls
+  /// to setPriorityGroup overwrite the priority group of that variable.
+  void setPriorityGroup(Variable v, PriorityGroupID prioGroup);
+  /// Prioritise group \p a over group \p b when minimising the model.
+  /// This means we search the domain of variables in group \p a prior
+  /// to those in group \p b.
+  void prioritiseOver(PriorityGroupID a, PriorityGroupID b);
+
   /// Add a constant with value 0 (for convenience).
   Variable zero();
   /// Add a constant with value 1 (for convenience).
@@ -353,6 +373,9 @@ public:
   call(std::vector<Variable> vars,
        std::function<boost::optional<DataType>(const std::vector<T> &values)> f,
        const std::string &debugName = "");
+
+  PriorityGroupID getDefaultPriorityGroup() const;
+  PriorityGroupID addPriorityGroup();
 
   /// Find a solution that minimizes the value of the specified variables.
   /// Lexicographical comparison is used to compare the values of the variables.
