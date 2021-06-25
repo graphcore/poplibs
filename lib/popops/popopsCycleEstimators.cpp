@@ -2090,16 +2090,15 @@ std::uint64_t getDynamicSlice1DEstimate(const poplar::Target &target,
   } else {
     vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   }
-
-  // Supervisor overhead.
+  //  Supervisor overhead.
   auto superCycles = basicOpSupervisorOverhead() + 1 + 6 + 1 + 6;
 
   // This is the more optimistic path - where the inner loop is copying
-  // aligned data
+  // aligned data at 64bits/2cycles in the non-8bit case
   unsigned nCopies = elementsPerWorker / vectorWidth;
 
   auto workerCycles = is8bit ? 72 + (70 + 2 * nCopies) * numSubElements
-                             : 41 + (27 + nCopies) * numSubElements;
+                             : 35 + (24 + 2 * nCopies) * numSubElements;
   auto cycles = superCycles + workerCycles * numWorkers;
 
   return cycles;

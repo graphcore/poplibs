@@ -3,36 +3,30 @@
 
 /* -------------------------------------------------------------------------- */
 // Dynamic Slice and Dynamic Update Slice 1D MultiWorker
-// vertex code for int, half and float variants
+// vertex code for 16bit and 32bit variants
 /* -------------------------------------------------------------------------- */
 
 // Worker Registers
 #define WKR_ID      m0
-#define SRC         m1
+#define mSCRATCH2   m0
+#define SRC         m1  // base of src tensor
+#define DST         m2  // base of dst tensor
 
-#define DST         m2
-#define BASE_ELEM   m3
-#define SUB_ELEM    m4
-#define ATOMS_PER_WORKER m5
+#define BASE_ELEM   m3  // number of slices in base tensor
+#define SUB_ELEM    m4  // current slice index in base tensor
+#define WORDS_PER_WORKER m5 //64bit words
 
 #define SRC_OFFS    m6
 #define DST_OFFS    m7
 
-#define RETURN_ADDRESS1  m6
-#define RETURN_ADDRESS2  m7
+#define TEMP_LOG2_HALFS_PER_ATOM m6
 
 #define BASE_SLICE  m8
 #define mSCRATCH    m9
-#define SUB_REGION  m10
-#define REGION_SIZE m11
+#define SUB_REGION  m10 // offset of current subslice, in bytes
+#define REGION_SIZE m11 // in bytes after initial processing
 
-#define VAL12   a0:1
-#define VAL1    a0
-#define VAL2    a1
-#define VAL3    a2
-
-
-#define UPDATE  a5
+#define UPDATE       a7
 
 //****************************************************************************
 // The input structure parameters:
@@ -48,17 +42,22 @@
 #define VOFF_SUBT        2
 #define VOFF_BASE_ELEM   3
 #define VOFF_SUB_ELEM    4
-#define VOFF_REGION_SIZE 5
+#define VOFF_REGION_SIZE 5 // in atoms
 
 //****************************************************************************
 // Worker base local variable storage
 //****************************************************************************
-// Number of full atoms (i.e. 2 words for the 32-bit elements, or 1 word for the
-// 16-bit elements) to copy when the region starts at a full atom boundary or
-// when there is one starting element to align to a full atom boundary.
-#define WOFF_ATOMS 0
-#define WOFF_ATOMS_DEC 1
-
+// Offset of this worker's processing from each slice's start following 64bit
+// alignment
+#define WOFF_REGION_START64 0 // offset of this 64bit aligned region in bytes
+// Number of 64bit words to copy
+#define WOFF_REGION_SIZE64 1
+// Number of halves in head and tail
+#define WOFF_ENDS_ATOMS 2
+// True for the last worker - which copies the head and tail
+#define WOFF_LAST_WORKER 3
+// regions size IN HALVES minus three. When negative separate copy code is used
+#define WOFF_REGION_SIZE_M3 4
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
@@ -104,7 +103,7 @@
 DEF_STACK_USAGE 0 .text.DynamicSlice1d_float
 
 .section .text.DynamicSlice1d_float
-.align 8
+.align 4
 .worker
 
 // ************************************************* //
@@ -117,10 +116,10 @@ DEF_STACK_USAGE 0 .text.DynamicSlice1d_float
 DUSS_INT_FUNC:
 DUSS_UNSIGNED_FUNC:
 DUSS_FLOAT_FUNC:
-  setzi     $UPDATE,1
-  ld32      $DST, $mzero, $mvertex_base, VOFF_BASET
+  ld32     $DST, $mzero, $mvertex_base, VOFF_BASET
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
-  bri       .Lds_super_common_32
+  {bri       .Lds_super_common_32
+   setzi    $UPDATE,1}
 // ************************************************* //
 // Worker thread execution for supervisor vertex (32-bit types)
 // Non Update version: clear a flag for no update,
@@ -131,113 +130,15 @@ DUSS_FLOAT_FUNC:
 DSS_INT_FUNC:
 DSS_UNSIGNED_FUNC:
 DSS_FLOAT_FUNC:
-  setzi     $UPDATE,0
   ld32      $SRC, $mzero, $mvertex_base, VOFF_BASET
-  ld32      $DST, $mzero, $mvertex_base, VOFF_SUBT
+  {ld32      $DST, $mzero, $mvertex_base, VOFF_SUBT
+  setzi     $UPDATE,0}
 
 .Lds_super_common_32:
   // Call pre-loop calculation, common between all variants
-  call      $RETURN_ADDRESS1, load_and_preprocess
-
-  // Region size converted into bytes
   ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
-  shl       $REGION_SIZE, $REGION_SIZE, 2
-
-.Lsub_loop:
-  // Calculate temporary incrementing offsets for the copy
-  mov   $DST_OFFS, $SUB_REGION
-  mul   $SRC_OFFS, $REGION_SIZE, $BASE_SLICE
-  // Offsets swapped for the update version
-  atom  $mSCRATCH, $UPDATE
-  brz   $mSCRATCH, 1f
-  mov   $SRC_OFFS, $SUB_REGION
-  mul   $DST_OFFS, $REGION_SIZE, $BASE_SLICE
-1:
-  // Is a 32 bit copy needed to align the output to 64 bits?
-  ld32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS
-  add       $mSCRATCH, $DST_OFFS, $DST
-  and       $mSCRATCH, $mSCRATCH, 4
-  brz       $mSCRATCH, .Lout_aligned_f
-
-  // Misaligned for 64  bit copies.  Worker 0 copies 1x32 bits. All workers
-  // need the base source and destination addresses to be incremented
-  // The remaining code needs to know that 1 less item is now to be copied,
-  // which is done by selecting the decremented elements per worker
-  // value which was pre-computed.
-  ld32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS_DEC
-  ld32step  $VAL1, $SRC, $SRC_OFFS+=, 1
-  brnz      $WKR_ID, 5f
-  st32      $VAL1, $DST, $DST_OFFS, 0
-5:
-  ld32step  $VAL1, $DST, $DST_OFFS+=, 1
-.Lout_aligned_f:
-  // Output is now aligned, is the input aligned?
-  add       $mSCRATCH, $SRC_OFFS, $SRC
-  and       $mSCRATCH, $mSCRATCH, 4
-  brz       $mSCRATCH, .Lin_out_aligned
-  // Dummy load, advancing in ptr and out ptr by wkr_id * 64 bits
-  // knowing that the destination is misaligned.
-  // Now all workers have a different pointer, offset by 64 bits
-  // Repeat loop maintains this difference
-  ld32step   $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
-  ld32step   $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
-  ld64step   $VAL12, $DST, $DST_OFFS+=, $WKR_ID
-
-  rpt        $ATOMS_PER_WORKER, (2f-1f)/8 -1;
-1:
-  {ld32step  $VAL1, $SRC , $SRC_OFFS+=, 1; fnop}
-  {ld32step  $VAL2, $SRC , $SRC_OFFS+=, (2 * CTXT_WORKERS -1); fnop}
-  {st64step  $VAL12, $DST, $DST_OFFS+=, CTXT_WORKERS; fnop}
-2:
-  bri   .Lcontinue
-
-.Lin_out_aligned:
-  // Dummy load, advancing in ptr and out ptr by wkr_id * 64 bits
-  // Now all workers have a different pointer, offset by 64 bits
-  // Repeat loop maintains this difference
-  ld64step   $VAL12, $SRC, $SRC_OFFS+=, $WKR_ID
-  ld64step   $VAL12, $DST, $DST_OFFS+=, $WKR_ID
-
-  rpt       $ATOMS_PER_WORKER, (2f-1f)/8 -1
-1:
-  {ld64step  $VAL12, $SRC , $SRC_OFFS+=, CTXT_WORKERS; fnop}
-  {st64step  $VAL12, $DST, $DST_OFFS+=, CTXT_WORKERS; fnop}
-2:
-.Lcontinue:
-  // Is there a last item to copy?
-  // If so, select the worker that is pointing to it to copy it.  This is OK
-  // in the case of float, but not half due to the half word writes being
-  // non atomic.
-  atom      $mSCRATCH, $UPDATE
-  brz       $mSCRATCH, 1f
-  // Update version of the code
-  add       $mSCRATCH, $REGION_SIZE, $SUB_REGION
-  sub       $mSCRATCH, $mSCRATCH, $SRC_OFFS
-  add       $mSCRATCH, $mSCRATCH, -4
-  brnz      $mSCRATCH, 3f
-  bri       2f
-1:
-  // Non update version of the code
-  add       $mSCRATCH, $REGION_SIZE, $SUB_REGION
-  sub       $mSCRATCH, $mSCRATCH, $DST_OFFS
-  add       $mSCRATCH, $mSCRATCH, -4
-  brnz      $mSCRATCH, 3f
-2:
-  // Do the last copy
-  ld32      $VAL1, $SRC, $SRC_OFFS, 0
-  st32      $VAL1, $DST, $DST_OFFS, 0
-3:
-  // Increment base slice and wrap to start if required
-  add        $BASE_SLICE, $BASE_SLICE, 1
-  cmpult     $mSCRATCH, $BASE_SLICE, $BASE_ELEM
-  brnz       $mSCRATCH, 4f
-  zero       $BASE_SLICE
-4:
-  // The next sub region is just region size bytes afterwards
-  add        $SUB_REGION, $SUB_REGION, $REGION_SIZE
-  brnzdec    $SUB_ELEM, .Lsub_loop
-
-  exitz      $mzero
+  shl       $REGION_SIZE, $REGION_SIZE, 1 // need REGION_SIZE in halves
+  bri  load_vertex_fields_and_preprocess
 .size DynamicSlice1d_float, .-DSS_FLOAT_FUNC
 
 
@@ -255,10 +156,10 @@ DEF_STACK_USAGE 0 .text.DynamicSlice1d_half
 // ************************************************* //
 DUSS_HALF_FUNC:
 .worker
-  setzi     $UPDATE,1
   ld32      $DST, $mzero, $mvertex_base, VOFF_BASET
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
-  bri       .Lds_super_common_16
+  {bri      .Lds_super_common_16
+   setzi    $UPDATE,1}
 // ************************************************* //
 // Non Update version: clear a flag for update,
 // load base, sub array pointers
@@ -266,19 +167,87 @@ DUSS_HALF_FUNC:
 // Dst = Sub
 // ************************************************* //
 DSS_HALF_FUNC:
-  setzi     $UPDATE,0
   ld32      $SRC, $mzero, $mvertex_base, VOFF_BASET
-  ld32      $DST, $mzero, $mvertex_base, VOFF_SUBT
+  {ld32     $DST, $mzero, $mvertex_base, VOFF_SUBT
+   setzi    $UPDATE,0}
 
 .Lds_super_common_16:
   // Call pre-loop calculation, common between all variants
-  call      $RETURN_ADDRESS1, load_and_preprocess
-
-  // Region size converted into bytes
   ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
-  shl       $REGION_SIZE, $REGION_SIZE, 1
-.Lsub_loop2:
-  // Calculate temporary incrementing offsets for the copy
+
+load_vertex_fields_and_preprocess:
+  // At this point $REGION_SIZE must be the size of each slice IN HALVES.
+
+  // The bulk of the copy is performed using 64bit accesses by all workers.
+  // The initial unaligned head and final aligned tail are copied by a single
+  // worker; head+tail is fixed by the region size, but the split depends on
+  // the alignment of each output slice. The will always be some head/tail to
+  // ensure that we can handle a misaligned output.
+  // The central copy is always 64bit aligned and is split between workers; it
+  // will total (REGION_SIZE-3) & ~0x3
+  // One worker always does the initial elements to align the start of the
+  // region to to 64bits, and the tail.
+  // The head+tail total a constant of [3:6) atoms; the head is [0:3) depending
+  // on alignment.
+  // A separate code path is used when REGION_SIZE<3halfs
+  // When fully aligned we could avoid the handling of the initial 3 halves.
+
+  // Fetch worker ID, masking it out: 0..5
+  get        $WKR_ID, $WSR
+  and        $WKR_ID, $WKR_ID, CSR_W_WSR__CTXTID_M1__MASK
+
+  cmpeq     $mSCRATCH,    $WKR_ID,      CTXT_WORKERS-1
+  st32      $mSCRATCH,    $mzero,       $mworker_base, WOFF_LAST_WORKER
+  // Up to 3 initial halves are handled separately to give 64bit alignment for
+  // the centre of the slice.
+  sub       $mSCRATCH, $REGION_SIZE, 3
+  // When REGION_SIZE_M3 is negative different code is invoked to simplify the
+  // common code path. ("M3" for minus three halves)
+  // There will be a similar number of halves in the final 64bit word, so end
+  // atoms will be [3:6] for half, [2:4] halves for float (cf floats are
+  // processed as halves but with REGION_SIZE doubled)
+  st32      $mSCRATCH, $mzero,       $mworker_base, WOFF_REGION_SIZE_M3
+  and       $mSCRATCH, $mSCRATCH,    0x3
+  add       $mSCRATCH, $mSCRATCH,    3
+  st32      $mSCRATCH, $mzero,       $mworker_base, WOFF_ENDS_ATOMS
+
+  // Now distribute the main 64bit copies between workers
+  sub       $mSCRATCH, $REGION_SIZE, $mSCRATCH // number of aligned 64bit copies
+  shr       $mSCRATCH, $mSCRATCH,    2 // halves -> 64bit words
+#define TEMP_64_LOWER SUB_REGION
+#define TEMP_64_UPPER BASE_ELEM
+  GET_WORKER_RANGE $mSCRATCH, $WKR_ID,  $TEMP_64_LOWER,   $TEMP_64_UPPER
+  sub       $mSCRATCH, $TEMP_64_UPPER, $TEMP_64_LOWER
+  st32      $mSCRATCH, $mzero,         $mworker_base, WOFF_REGION_SIZE64
+  shl       $TEMP_64_LOWER,   $TEMP_64_LOWER,  3 // word64->bytes
+  st32      $TEMP_64_LOWER,   $mzero,  $mworker_base, WOFF_REGION_START64
+
+    // Base slice is initially *offset
+  ld32      $BASE_SLICE, $mzero,       $mvertex_base, VOFF_OFFSET
+  ld32      $BASE_SLICE, $mzero,       $BASE_SLICE, 0
+
+  ld32      $BASE_ELEM,  $mzero,       $mvertex_base, VOFF_BASE_ELEM
+
+    // Load sub elem, decrement for use as a loop counter
+  ld32      $SUB_ELEM, $mzero, $mvertex_base, VOFF_SUB_ELEM
+  add       $SUB_ELEM, $SUB_ELEM, -1
+
+  shl       $REGION_SIZE, $REGION_SIZE, 1 // convert from halves to bytes
+  zero      $SUB_REGION
+  bri .Lslice_loop_entry
+
+.Lslice_loop:
+  // The next sub region is just region size bytes afterwards
+  add        $SUB_REGION, $SUB_REGION, $REGION_SIZE
+  // Increment base slice
+  add        $BASE_SLICE, $BASE_SLICE, 1
+
+.Lslice_loop_entry:
+  // Wrap base slice to start if required
+  cmpult     $mSCRATCH,   $BASE_SLICE, $BASE_ELEM
+  mul        $BASE_SLICE, $BASE_SLICE, $mSCRATCH
+
+   // Calculate temporary incrementing offsets for the copy
   mov   $DST_OFFS, $SUB_REGION
   mul   $SRC_OFFS, $REGION_SIZE, $BASE_SLICE
 
@@ -288,186 +257,215 @@ DSS_HALF_FUNC:
   mov   $SRC_OFFS, $SUB_REGION
   mul   $DST_OFFS, $REGION_SIZE, $BASE_SLICE
 1:
+  ld32  $mSCRATCH, $mzero, $mworker_base, WOFF_REGION_SIZE_M3
+  brneg $mSCRATCH, ShortRegionHandler
 
-  // Is a 16 bit copy needed to align the output to 32 bits?
-  ld32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS
+  ld32      $mSCRATCH2, $mzero, $mworker_base, WOFF_ENDS_ATOMS
+  // Is an initial copy needed to align the output to 64 bits?
   add       $mSCRATCH, $DST_OFFS, $DST
-  and       $mSCRATCH, $mSCRATCH, 2
-  brz       $mSCRATCH, .Lout_aligned_h
+  and       $mSCRATCH, $mSCRATCH, 0x6
+  brz       $mSCRATCH, .L_out_aligned_64_core
+  // All workers perform most of this head calculation, but only one does the
+  // store. This ensures all have incremented their pointers correctly, and the
+  // execution time is limited by the worker handling the head/tail anyway.
+  sub       $DST_OFFS, $DST_OFFS, $mSCRATCH // DST+DST_OFFSETS now 64bit aligned
+  shr       $mSCRATCH, $mSCRATCH, 1 // 0/2/4/6 -> 0/1/2/3
+  // Adjust number of tail words for later; we copy (4-alignment) halves here,
+  // so the tail will be correspondingly shorter.
+  add       $mSCRATCH2, $mSCRATCH2, $mSCRATCH
+  sub       $mSCRATCH2, $mSCRATCH2, 4
 
-  // Misaligned for 32  bit copies.  Worker 5 copies 1x16 bit. All workers
-  // need the base source and destination addresses to be incremented.
-  // Choose the last worker as it may have slightly less to copy than others.
-  // The remaining code needs to know that 1 less item is now to be copied,
-  // which is done by selecting the decremented elements per worker
-  // value which was pre-computed.
-  ld32       $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS_DEC
-  ldb16step  $VAL1, $SRC, $SRC_OFFS+=, 1
-  cmpeq      $mSCRATCH, $WKR_ID, (CTXT_WORKERS-1)
-  brz        $mSCRATCH, 5f
+  // Misaligned for 64 bit copies.  ALL workers load 1-3x16 bits as all workers
+  // need the base source and destination addresses to be incremented, but only
+  // one stores the result.
+  // Optimised for the worker doing the head/tail as it will be the last to
+  // finish. Hence all workers do the loading here which aligns their src to
+  // 64bits, but only one worker stores the result.
+  // If all workers were to store then there's a race between the partial write
+  // at the end of one slice and the partial write at the start of the following
+  // slice which could lead to some of those elements not being updated.
+  // We choose the last worker as it may have slightly less to copy than others.
 
-  add        $DST_OFFS, $DST_OFFS, -2
-  ldb16      $VAL2, $DST, $DST_OFFS,0
-  roll16     $VAL1, $VAL2, $VAL1
-  st32step   $VAL1, $DST, $DST_OFFS+=, 1
-  bri        .Lout_aligned_h
-5:
-  ldb16step  $VAL1, $DST, $DST_OFFS+=, 1
-.Lout_aligned_h:
-  // Output is now aligned, is the input aligned?
-  add       $mSCRATCH, $SRC_OFFS, $SRC
-  and       $mSCRATCH, $mSCRATCH, 2
-  brz       $mSCRATCH, .Lin_out_aligned2
-  // Dummy load, advancing in ptr and out ptr by wkr_id * 32 bits
-  // knowing that the destination is misaligned
-  // Now all workers have a different pointer, offset by 32 bits
-  // Repeat loop maintains this difference
-  ldb16step $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
-  ldb16step $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
-  ld32step  $VAL1, $DST, $DST_OFFS+=, $WKR_ID
+  ld64        $a0:1, $DST, $DST_OFFS,   0 // the trailing 3/2/1 halves will be overwritten
 
-  // Prepare the 1st value to store so that we can use a bundle in the loop
-  ldb16step  $VAL1, $SRC , $SRC_OFFS+=, 1
-  ldb16step  $VAL2, $SRC , $SRC_OFFS+=, (2 * CTXT_WORKERS -1)
+  // Calculate the number of halves to read from the src, less 1
+  sub $mSCRATCH, 2, $mSCRATCH // 1/2/3->1/0/-1
 
-  {ldb16step  $VAL1, $SRC , $SRC_OFFS+=, 1
-   roll16     $VAL3, $VAL1, $VAL2}
-  ldb16step   $VAL2, $SRC , $SRC_OFFS+=, (2 * CTXT_WORKERS -1)
-
-  rpt        $ATOMS_PER_WORKER, (2f-1f)/8 -1
+  // Merge 1, 2 or 3 halves onto the end of this partial word.
+  ldb16step   $a2,   $SRC, $SRC_OFFS+=, 1
+  {brneg      $mSCRATCH, 1f;               sort4x16lo $a1, $a1, $a2}
+  ldb16step   $a3,   $SRC, $SRC_OFFS+=, 1
+  {brz        $mSCRATCH, 1f;               sort4x16lo $a1, $a2, $a3}
+  {ldb16step  $a4,   $SRC, $SRC_OFFS+=, 1; sort4x16lo $a0, $a0, $a2}
+  sort4x16lo $a1,   $a3,  $a4
 1:
-  {st32step   $VAL3, $DST, $DST_OFFS+=, CTXT_WORKERS
-   roll16     $VAL3, $VAL1, $VAL2}
-  {ldb16step  $VAL1, $SRC , $SRC_OFFS+=, 1; fnop}
-  {ldb16step  $VAL2, $SRC , $SRC_OFFS+=, (2 * CTXT_WORKERS -1); fnop}
-2:
-  bri   .Lcontinue2
+  // Only one worker can do the store to avoid races corrupting the output.
+  ld32      $mSCRATCH, $mzero, $mworker_base, WOFF_LAST_WORKER
+  brz       $mSCRATCH, 1f
+  // Store the first partial output 64bits.
+  st64      $a0:1, $DST, $DST_OFFS, 0
+  1:
+  add       $DST_OFFS, $DST_OFFS, 8
 
-.Lin_out_aligned2:
-  // Dummy load, advancing in ptr and out ptr by wkr_id * 32 bits
-  // Now all workers have a different pointer, offset by 32 bits
-  // Repeat loop maintains this difference
-  ld32step   $VAL1, $SRC, $SRC_OFFS+=, $WKR_ID
-  ld32step   $VAL1, $DST, $DST_OFFS+=, $WKR_ID
+.L_out_aligned_64_core:
+  // Copy the aligned 64bit words for this worker.
+  ld32       $mSCRATCH, $mzero, $mworker_base, WOFF_REGION_START64
+  add        $SRC_OFFS, $SRC_OFFS, $mSCRATCH
+  add        $DST_OFFS, $DST_OFFS, $mSCRATCH
+  ld32       $WORDS_PER_WORKER, $mzero, $mworker_base, WOFF_REGION_SIZE64
 
-  rpt        $ATOMS_PER_WORKER, (2f-1f)/8 -1
+  // Copy WORDS_PER_WORKER*64bits.
+  add       $mSCRATCH, $SRC, $SRC_OFFS
+  and       $mSCRATCH, $mSCRATCH, 0x6
+  shr       $mSCRATCH, $mSCRATCH, 1
+  brnzdec   $mSCRATCH, .L_in_aligned123
+.L_in_aligned0:
+  {rpt   $WORDS_PER_WORKER, (2f-1f)/8-1; fnop}
 1:
-  {ld32step  $VAL1, $SRC , $SRC_OFFS+=, CTXT_WORKERS; fnop}
-  {st32step  $VAL1, $DST, $DST_OFFS+=, CTXT_WORKERS; fnop}
+  {ld64step $a0:1, $SRC, $SRC_OFFS+=, 1; fnop}
+  {st64step $a0:1, $DST, $DST_OFFS+=, 1; fnop}
 2:
+  // no overread
+  bri .Lcontinue2
+.L_in_aligned123:
+  brnzdec   $mSCRATCH, .L_in_aligned23
+.L_in_aligned1:
+  ldb16step $a0,   $SRC, $SRC_OFFS+=, 1
+  ld32step  $a1,   $SRC, $SRC_OFFS+=, 1
+
+  {ld64step  $a2:3, $SRC, $SRC_OFFS+=, 1; roll16 $a4, $a0, $a1}
+  shr $mSCRATCH, $WORDS_PER_WORKER, 1 // 2 words per loop
+  rpt   $mSCRATCH, (2f-1f)/8-1
+1:
+  {ld64step $a0:1, $SRC, $SRC_OFFS+=, 1; roll16 $a5, $a1, $a2}
+  {st64step $a4:5, $DST, $DST_OFFS+=, 1; roll16 $a4, $a2, $a3}
+  {ld64step $a2:3, $SRC, $SRC_OFFS+=, 1; roll16 $a5, $a3, $a0}
+  {st64step $a4:5, $DST, $DST_OFFS+=, 1; roll16 $a4, $a0, $a1}
+2:
+  // overread by 7*16bits
+  sub  $SRC_OFFS, $SRC_OFFS,         2*7
+  and  $mSCRATCH, $WORDS_PER_WORKER, 1
+  {brz $mSCRATCH, .Lcontinue2; roll16 $a5, $a1, $a2}
+  bri .LstoreOdd64
+
+.L_in_aligned23:
+  brnzdec   $mSCRATCH, .L_in_aligned3
+
+  ld32step $a1, $SRC, $SRC_OFFS+=, 1
+  ld64step $a2:3,      $SRC, $SRC_OFFS+=, 1
+  shr      $mSCRATCH,  $WORDS_PER_WORKER, 1 // 2 words per loop
+  // need to handle odd 64bits
+  rpt  $mSCRATCH, (2f-1f)/8-1
+1:
+  {ld64step $a0:1, $SRC, $SRC_OFFS+=, 1; roll32 $a4:5, $a0:1, $a2:3}
+  {st64step $a4:5, $DST, $DST_OFFS+=, 1; fnop}
+  {ld64step $a2:3, $SRC, $SRC_OFFS+=, 1; roll32 $a4:5, $a2:3, $a0:1}
+  {st64step $a4:5, $DST, $DST_OFFS+=, 1; fnop}
+2:
+  // overread by 6*16bits
+  sub $SRC_OFFS,   $SRC_OFFS, 2*6
+
+  and $mSCRATCH,   $WORDS_PER_WORKER, 1
+  {brz $mSCRATCH, .Lcontinue2; roll32 $a4:5, $a0:1, $a2:3}
+  bri .LstoreOdd64
+.L_in_aligned3:
+  ldb16step $a1,   $SRC, $SRC_OFFS+=, 1
+  ld64step  $a2:3, $SRC, $SRC_OFFS+=, 1
+  shr       $mSCRATCH, $WORDS_PER_WORKER, 1 // 2 words per loop
+  {rpt   $mSCRATCH, (2f-1f)/8-1;         roll16 $a4, $a1, $a2}
+1:
+  {ld64step $a0:1, $SRC, $SRC_OFFS+=, 1; roll16 $a5, $a2, $a3}
+  {st64step $a4:5, $DST, $DST_OFFS+=, 1; roll16 $a4, $a3, $a0}
+  {ld64step $a2:3, $SRC, $SRC_OFFS+=, 1; roll16 $a5, $a0, $a1}
+  {st64step $a4:5, $DST, $DST_OFFS+=, 1; roll16 $a4, $a1, $a2}
+2:
+  // overread by 5*16bits
+  sub $SRC_OFFS, $SRC_OFFS, 2*5
+
+  and $mSCRATCH, $WORDS_PER_WORKER, 1
+  {brz $mSCRATCH, .Lcontinue2;           roll16 $a5, $a2, $a3}
+  // fall through to store final 64bits
+.LstoreOdd64:
+  st64step   $a4:5,      $DST,      $DST_OFFS+=, 1
+  add        $SRC_OFFS,  $SRC_OFFS, 2*4
 .Lcontinue2:
-  // Is there a last item to copy?
-  // If so, we could select the worker that is pointing to it to copy it
-  // BUT if worker 5 is dealing with the read modify write of a 1st
-  // misaligned item the accesses could clash.  So instead make worker
-  // 5 do this despite having to calculate the pointers
-  cmpeq     $mSCRATCH, $WKR_ID, (CTXT_WORKERS -1)
-  brz       $mSCRATCH, 3f
-  atom      $mSCRATCH, $UPDATE
-  brnz      $mSCRATCH, 1f
-  // non-update version
-  add       $DST_OFFS, $REGION_SIZE, $SUB_REGION
-  add       $SRC_OFFS, $BASE_SLICE, 1
-  mul       $SRC_OFFS, $REGION_SIZE, $SRC_OFFS
-  bri       2f
-  // update version
-1:
-  add       $SRC_OFFS, $REGION_SIZE, $SUB_REGION
-  add       $DST_OFFS, $BASE_SLICE, 1
-  mul       $DST_OFFS, $REGION_SIZE, $DST_OFFS
-2:
-  add       $DST_OFFS, $DST_OFFS, $DST
-  // There will be no last one to copy if the store pointer generated is
-  // 32 bit aligned
-  add       $DST_OFFS, $DST_OFFS, -2
-  and       $mSCRATCH, $DST_OFFS, 2
-  brnz      $mSCRATCH, 3f
-  // do the last copy
-  add        $SRC_OFFS, $SRC_OFFS, -2
-  ldb16step  $VAL1, $SRC, $SRC_OFFS+=, 1
-  ldb16      $VAL2, $mzero, $DST_OFFS, 1
-  roll16     $VAL1, $VAL1, $VAL2
-  st32       $VAL1, $mzero, $DST_OFFS, 0
-3:
-  // Increment base slice and wrap to start if required
-  add        $BASE_SLICE, $BASE_SLICE, 1
-  cmpult     $mSCRATCH, $BASE_SLICE, $BASE_ELEM
-  brnz       $mSCRATCH, 4f
-  zero       $BASE_SLICE
-4:
-  // The next sub region is just region size bytes afterwards
-  add        $SUB_REGION, $SUB_REGION, $REGION_SIZE
-  brnzdec    $SUB_ELEM, .Lsub_loop2
 
+  // DST+DST_OFFS now 64bit aligned
+  // SRC+SRC_OFFS now point at the corresponding input
+.Lout_aligned_64_handle_tail:
+  // Now copy any tail - there will be [0:6] halves to copy
+  brz        $mSCRATCH2, .Lend_inner
+  // Only the last worker copies the tail bytes; it is already pointing at the
+  // correct src and dst positions
+  ld32       $mSCRATCH,  $mzero, $mworker_base, WOFF_LAST_WORKER
+  brz        $mSCRATCH,  .Lend_inner
+
+  // SRC+SRC_OFFS may be misaligned so always load single halves
+  shr $mSCRATCH, $mSCRATCH2, 1
+  ldb16step  $a0, $SRC, $SRC_OFFS+=, 1
+  rpt $mSCRATCH, (2f-1f)/8-1 // up to 3*aligned words
+1:
+  {ldb16step $a1, $SRC, $SRC_OFFS+=, 1; fnop}
+  {ldb16step $a0, $SRC, $SRC_OFFS+=, 1; roll16 $a2, $a0, $a1}
+  {st32step  $a2, $DST, $DST_OFFS+=, 1; fnop}
+2:
+  // Handle final half. It will be stored in the first 16bits of the output
+  // word.
+  // When src, dst and region_size are aligned there will be a tail of 4 halves
+  // so this code is optimised for the branch being taken.
+  and        $mSCRATCH, $mSCRATCH2, 0x1
+  brz        $mSCRATCH,             1f;
+  ld32       $a2,       $DST,       $DST_OFFS, 0
+  sort4x16hi $a2,       $a0,        $a2
+  st32       $a2,       $DST,       $DST_OFFS,  0
+1:
+  // The last worker has now copied the final halves
+
+.Lend_inner:
+  brnzdec    $SUB_ELEM,   .Lslice_loop
+
+.Lexit:
   exitz      $mzero
 .size DynamicSlice1d_half, .-DSS_HALF_FUNC
 
-//******************************************************************************
-// Subroutine to deal with loading vertex state and calculating the
-// number of loop passes which we will carry out.  The number of loop
-// passes is a function of:
-// REGION_SIZE
-// This workers WKR_ID
-// Output alignment (to 2*floats or 2*halves)
-// Output alignment can change on each pass of the loop it we are copying
-// an odd number of items
-//******************************************************************************
-.section .text.DynamicSlice1d_common
-.align 4
+// Dedicated code for small regions (up to 3 halves) to avoid slowing the main
+// path
+ShortRegionHandler:
+  // There willbe lots of subword writes so run a single worker
+  ld32 $mSCRATCH, $mzero, $mworker_base, WOFF_LAST_WORKER
+  brz $mSCRATCH, .Lexit
 
-load_and_preprocess:
-  // Base slice is initially *offset
-  ld32      $BASE_SLICE, $mzero, $mvertex_base, VOFF_OFFSET
-  ld32      $BASE_SLICE, $mzero, $BASE_SLICE, 0
+  shr $mSCRATCH2, $REGION_SIZE, 1 // need halves not bytes
+  add $mSCRATCH,  $DST, $DST_OFFS
+  and $mSCRATCH,  $mSCRATCH, 0x2
+  brz $mSCRATCH,  1f
+  // Copy the initial misaligned half
+  sub            $DST_OFFS,    $DST_OFFS,    2
+  ldb16          $a2,          $DST,         $DST_OFFS, 0
+  ldb16step      $a0,          $SRC,         $SRC_OFFS+=, 1
+  {add           $mSCRATCH2,   $mSCRATCH2,   -1
+   sort4x16lo    $a2,          $a2,          $a0}
+  st32step       $a2,          $DST,         $DST_OFFS+=, 1
 
-  ld32      $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM
-
-  // Keep base slice within range of base elem
-  cmpult    $mSCRATCH, $BASE_SLICE, $BASE_ELEM
-  brnz      $mSCRATCH, 1f
-  zero      $BASE_SLICE
 1:
-  // Load sub elem, decrement for use as a loop counter
-  ld32      $SUB_ELEM, $mzero, $mvertex_base, VOFF_SUB_ELEM
-  add       $SUB_ELEM, $SUB_ELEM, -1
+  // DST+DST_OFFS now 32bit aligned, only ever 16bit aligned for SRC+SRC_OFFS
+  shr $mSCRATCH, $mSCRATCH2, 1
+  // $mSCRATCH will be 0 or 1
+  brz $mSCRATCH, 2f
+  ldb16step $a0, $SRC, $SRC_OFFS+=, 1
+  ldb16step $a1, $SRC, $SRC_OFFS+=, 1
+  roll16 $a2, $a0, $a1
+  st32step $a2, $DST, $DST_OFFS+=, 1
+2:
+  and $mSCRATCH2, $mSCRATCH2, 0x1
+  brz $mSCRATCH2, 1f
+  // final odd
+  ldb16step $a0, $SRC, $SRC_OFFS+=, 1
+  ldb16 $a2, $DST, $DST_OFFS, 1
+  sort4x16lo $a2, $a0, $a2
+  st32 $a2, $DST, $DST_OFFS, 0
+1:
+bri .Lend_inner
+.size ShortRegionHandler, .-ShortRegionHandler
 
-  // Fetch worker ID, masking it out: 0..5
-  get        $WKR_ID, $WSR
-  and        $WKR_ID, $WKR_ID, CSR_W_WSR__CTXTID_M1__MASK
-
-  zero       $SUB_REGION
-
-  // Get region size, use to calculate the elements for this worker for the
-  // case where there is no pre loop copy to align
-  ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
-  call      $RETURN_ADDRESS2, divide_work
-  st32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS
-
-  // and the case where there is a loop copy to align
-  add       $REGION_SIZE, $REGION_SIZE, -1
-  call      $RETURN_ADDRESS2, divide_work
-  st32      $ATOMS_PER_WORKER, $mzero, $mworker_base, WOFF_ATOMS_DEC
-
-  br        $RETURN_ADDRESS1
-
-//******************************************************************************
-// Divide work between 6 workers.
-// This work division, and the whole copy function is based on each worker
-// copying pairs of items and then striding over the 5 pairs of items that
-// the other workers will have copied.
-//
-// So sequential items will be copied by workers with numbers below:
-// 00 11 22 33 44 55 00 11 22 33 ...
-//
-// This means that to copy 14 items, worker 0 will need to loop twice but
-// all other workers will only have to loop once.
-// Needing to copy a 1st, misaligned item results in the same calculation
-// but using REGION_SIZE -1.
-// A single last item is dealt with after the loop completes.
-//******************************************************************************
-divide_work:
-  DIVIDE_BY_WORKER $REGION_SIZE $WKR_ID $mSCRATCH $ATOMS_PER_WORKER LOG2_FLOAT_ATOM_SIZE
-  br        $RETURN_ADDRESS2
-
-.size DynamicSlice1d_common, .-load_and_preprocess
 #endif

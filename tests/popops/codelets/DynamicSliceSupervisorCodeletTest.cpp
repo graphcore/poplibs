@@ -34,14 +34,58 @@ struct TestParams {
 
 // For float, half, int and unsigned char we run these common tests.
 std::vector<TestParams> tests = {
-    {0, 1, 2, 1, 1, false},  {0, 1, 2, 2, 1, false},  {0, 1, 2, 3, 1, false},
-    {0, 1, 2, 4, 1, false},  {0, 1, 2, 5, 1, false},  {0, 1, 2, 6, 1, false},
-    {1, 3, 2, 7, 0, false},  {0, 4, 4, 8, 1, false},  {2, 4, 5, 9, 0, false},
-    {0, 4, 4, 10, 1, false}, {2, 4, 5, 11, 0, false}, {0, 2, 2, 12, 1, false},
-    {3, 5, 5, 13, 0, false}, {3, 5, 5, 31, 0, false},
+    // Test with small regions
+    {0, 4, 3, 1, 0, false},
+    {0, 4, 3, 1, 1, false},
+    {0, 4, 3, 1, 2, false},
+    {0, 4, 3, 2, 1, false},
+    {0, 4, 3, 3, 1, false},
+    {0, 4, 3, 4, 1, false},
+    {0, 4, 3, 5, 1, false},
+    {0, 4, 3, 6, 1, false},
+    {0, 4, 3, 7, 1, false},
+    {0, 4, 3, 8, 1, false},
+    {0, 4, 3, 9, 1, false},
+    {0, 4, 3, 10, 1, false},
+    {0, 4, 3, 11, 1, false},
+    {0, 4, 3, 27, 1, false},
+    {0, 4, 3, 31, 1, false},
+    {0, 4, 3, 32, 1, false},
+    {0, 4, 3, 33, 1, false},
+    // half vertex has different handling for <= 3 atoms
+    {0, 3, 1, 4, 0, false}, // 4 atoms at all offsets
+    {0, 3, 1, 4, 1, false},
+    {0, 3, 1, 4, 2, false},
+    {0, 3, 1, 4, 3, false},
+    {0, 3, 1, 27, 0, false}, // 4 atoms/worker plus 3 at the end
+    {0, 3, 1, 27, 1, false},
+    {0, 3, 1, 27, 2, false},
+    {0, 3, 1, 27, 3, false},
+    {0, 3, 1, 27 + 24 * 2 + 1, 0, false + 1}, // 16 atoms/worker + 3 at the end
+    {0, 3, 1, 27 + 24 * 2 + 1, 1, false},
+    {0, 3, 1, 27 + 24 * 2 + 1, 2, false},
+    {0, 3, 1, 27 + 24 * 2 + 1, 3, false},
+    {0, 1, 2, 1, 1, false},
+    {0, 1, 2, 2, 1, false},
+    {0, 1, 2, 3, 1, false},
+    {0, 1, 2, 4, 1, false},
+    {0, 1, 2, 5, 1, false},
+    {0, 1, 2, 6, 1, false},
+    {1, 3, 2, 7, 0, false},
+    {0, 4, 4, 8, 1, false},
+    {2, 4, 5, 9, 0, false},
+    {0, 4, 4, 10, 1, false},
+    {2, 4, 5, 11, 0, false},
+    {0, 2, 2, 12, 1, false},
+    {3, 5, 5, 13, 0, false},
+    {3, 5, 5, 31, 0, false},
 
-    {0, 1, 1, 6, 1, true},   {1, 2, 2, 7, 0, true},   {0, 4, 4, 8, 1, true},
-    {2, 4, 4, 9, 0, true},   {0, 2, 2, 12, 1, true},  {3, 5, 5, 13, 0, true},
+    {0, 1, 1, 6, 1, true},
+    {1, 2, 2, 7, 0, true},
+    {0, 4, 4, 8, 1, true},
+    {2, 4, 4, 9, 0, true},
+    {0, 2, 2, 12, 1, true},
+    {3, 5, 5, 13, 0, true},
 };
 // For 8 bit types we run a few more tests to tests some more of the
 // combinations of offsets and sizes. We break them down among different 8 bit
@@ -237,6 +281,7 @@ void DynamicSliceCodeletTest(const Type &dataType,
   device.bind([&](const Device &d) {
     engine.load(d);
     for (unsigned tests = 0; tests < test_count; tests++) {
+      BOOST_TEST_MESSAGE("Starting subtest " << tests << "/ " << test_count);
       auto offset = TestList[tests].offset;
       auto numBaseElements = TestList[tests].numBaseElements;
       auto numSubElements = TestList[tests].numSubElements;

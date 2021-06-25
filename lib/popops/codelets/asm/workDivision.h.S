@@ -46,6 +46,20 @@
   shr \mOUT, \mOUT, DIV_6_SHIFT
 .endm
 
+// Calculate the range of elements to be calculated by
+// this worker, when workers are assigned to contiguous sections.
+// When mN is not a multiple of 6 the lower workers perform the extra work
+.macro GET_WORKER_RANGE mN mWorker mOUTLOWER mOUTUPPER
+  add \mOUTLOWER, \mN, CTXT_WORKERS-1   // we want to round up
+  setzi \mOUTUPPER, RECIPROCAL_3_SHL17
+  mul \mOUTUPPER, \mOUTLOWER, \mOUTUPPER
+  shr \mOUTUPPER, \mOUTUPPER, DIV_6_SHIFT // floor((mN+CTXT_WORKERS-1)/CTX_WORKERS)
+  mul \mOUTLOWER, \mOUTUPPER, \mWorker    // = worker*mN/nWorkers
+  add \mOUTUPPER, \mOUTLOWER, \mOUTUPPER // = (worker+1)*mN/nWorkers
+  min \mOUTLOWER, \mOUTLOWER, \mN
+  min \mOUTUPPER, \mOUTUPPER, \mN
+.endm
+
 //******************************************************************************
 // MACRO to Divide by 12 or 24 without using a worker ID to do rounding
 // Also provides a remainder (Which can be used later, to compare to the workerId
