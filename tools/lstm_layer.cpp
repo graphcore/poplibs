@@ -114,6 +114,7 @@ int main(int argc, char **argv) {
   boost::optional<unsigned> tilesPerIPU;
   bool outputAllSequence = true;
   bool preweightInput = false;
+  bool ignoreFinalCellState = true;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   std::string recompMode;
   unsigned runs = 1;
@@ -180,6 +181,9 @@ int main(int argc, char **argv) {
     ("output-all-sequence",
        po::value<bool>(&outputAllSequence)->default_value(outputAllSequence),
      "output the data from all cells (1 / 0)")
+    ("ignore-final-cell-state",
+       po::value<bool>(&ignoreFinalCellState)->default_value(ignoreFinalCellState),
+     "use new lstmFwd() API that ignores final cell state")
     ("pre-weight-input",
        po::value<bool>(&preweightInput)->default_value(preweightInput),
      "Pre-weight whole sequence before recursive part is computed (0 / 1)")
@@ -334,9 +338,16 @@ int main(int argc, char **argv) {
   Tensor fwdOutputSeq, lastCellState, fwdIntermediates;
   Tensor *fwdIntermediatesPtr =
       (doBwdPass || doWuPass) ? &fwdIntermediates : nullptr;
-  std::tie(fwdOutputSeq, lastCellState) = popnn::lstm::lstmFwd(
-      graph, params, fwdStateInit, input, weights, fwdIntermediatesPtr, prog,
-      "fwd", fwdOptions, &cache);
+  if (ignoreFinalCellState) {
+    fwdOutputSeq =
+        popnn::lstm::lstmFwd(graph, params, prog, fwdStateInit, weights, input,
+                             fwdIntermediatesPtr, "fwd", fwdOptions, &cache);
+  } else {
+    // Test deprecated API
+    std::tie(fwdOutputSeq, lastCellState) = popnn::lstm::lstmFwd(
+        graph, params, fwdStateInit, input, weights, fwdIntermediatesPtr, prog,
+        "fwd", fwdOptions, &cache);
+  }
   auto nextLayerGrads = graph.addVariable(
       dataType, {sequenceSize, batchSize, outputSize}, "nextLayerGrads");
   mapTensorLinearly(graph, nextLayerGrads);
@@ -429,8 +440,11 @@ int main(int argc, char **argv) {
 
     rawHostNextAct = allocateHostMemoryForTensor(
         fwdOutputSeq, "nextAct", graph, uploadProg, downloadProg, tmap);
-    rawLastCellState = allocateHostMemoryForTensor(
-        lastCellState, "lastCellState", graph, uploadProg, downloadProg, tmap);
+    if (!ignoreFinalCellState) {
+      rawLastCellState =
+          allocateHostMemoryForTensor(lastCellState, "lastCellState", graph,
+                                      uploadProg, downloadProg, tmap);
+    }
     if (doBwdPass || doWuPass) {
       rawGradPrevLayerOut =
           allocateHostMemoryForTensor(lastGradLayerOut, "lastGradLayerOut",
@@ -610,13 +624,14 @@ int main(int argc, char **argv) {
                                    relativeTolerance, absoluteTolerance);
     }
 
-    boost::multi_array<double, 2> hostLastCellState(
-        boost::extents[batchSize][outputSize]);
-    copy(target, dataType, rawLastCellState.get(), hostLastCellState);
-    matchesModel &=
-        checkIsClose("lastCellState", hostLastCellState, modelLastCellState,
-                     relativeTolerance, absoluteTolerance);
-
+    if (!ignoreFinalCellState) {
+      boost::multi_array<double, 2> hostLastCellState(
+          boost::extents[batchSize][outputSize]);
+      copy(target, dataType, rawLastCellState.get(), hostLastCellState);
+      matchesModel &=
+          checkIsClose("lastCellState", hostLastCellState, modelLastCellState,
+                       relativeTolerance, absoluteTolerance);
+    }
     if (doBwdPass) {
       if (!ignoreInputGradient) {
         copy(target, dataType, rawHostPrevLayerGrads.get(), hostPrevLayerGrads);

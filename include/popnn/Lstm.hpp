@@ -266,6 +266,44 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  *
  * \param graph              Graph to which the LSTM cell belongs.
  * \param params             The parameters of the LSTM.
+ * \param prog               Program sequence to add operations to.
+ * \param stateInit          Initial state for the LSTM.
+ * \param weights            The LSTM weights structure.
+ * \param in                 The input tensor to the LSTM of dimension
+ *                           [timesteps, batch, inputSize].
+ * \param[out] intermediates Intermediate results that are retained in the
+ *                           the forward pass of training for use in the
+ *                           backward pass. This argument should be set to
+ *                           null if we are only doing inference.
+ * \param debugContext       Optional debug information.
+ * \param options            LSTM implementation options. See createInput().
+ * \param planningCache      The matmul planning cache.
+ *
+ * \return The LSTM output. If the `outputFullSequence` option is false the
+ *         output of the last timestep of shape [batch, outputSize] is returned
+ *         and if the `outputFullSequence` option is true the output sequence
+ *         for every time step is returned in shape
+ *         [timeSteps, batch, outputSize].
+ */
+poplar::Tensor lstmFwd(poplar::Graph &graph, const LstmParams &params,
+                       poplar::program::Sequence &prog,
+                       const LstmState &stateInit, const LstmWeights &weights,
+                       const poplar::Tensor &in, poplar::Tensor *intermediates,
+                       const poplar::DebugContext &debugContext = {},
+                       const poplar::OptionFlags &options = {},
+                       poplin::matmul::PlanningCache *planningCache = nullptr);
+
+/** \deprecated
+ *  **deprecated** Use previously defined popnn::lstmFwd() instead.
+ *
+ * Calculate the result of applying an LSTM across a sequence.
+ *
+ * The LSTM is run for seqSize steps each with a batch of size batchSize and
+ * input size inputSize and output size outputSize. The total number of units
+ * within each LSTM cell is lstmUnits = BASIC_LSTM_CELL_NUM_UNITS.
+ *
+ * \param graph              Graph to which the LSTM cell belongs.
+ * \param params             The parameters of the LSTM.
  * \param stateInit          Initial state for the LSTM.
  * \param in                 The input tensor to the LSTM of dimension
  *                           [timesteps, batch, inputSize].
@@ -274,9 +312,8 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  *                           the forward pass of training for use in the
  *                           backward pass. This argument should be set to
  *                           null if we are only doing inference.
- * \param weights            The LSTM weights structure.
  * \param fwdProg            Program sequence.
- *  \param debugContext       Optional debug information.
+ * \param debugContext       Optional debug information.
  * \param options            LSTM implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *

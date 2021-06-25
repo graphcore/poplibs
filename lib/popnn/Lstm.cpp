@@ -942,12 +942,13 @@ LstmParams::LstmParams(poplar::Type dataType, std::size_t batchSize,
       layerSizes(layerSizes), activation(activation),
       recurrentActivation(recurrentActivation) {}
 
-std::pair<Tensor, Tensor>
-lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
-        const Tensor &prevLayerActs, const LstmWeights &weights,
-        Tensor *intermediatesSeq, program::Sequence &fwdProg,
-        const poplar::DebugContext &debugContext, const OptionFlags &options,
-        poplin::matmul::PlanningCache *cache) {
+static Tensor lstmFwd(Graph &graph, const LstmParams &params,
+                      program::Sequence &prog, const LstmState &fwdStateInit,
+                      const LstmWeights &weights, const Tensor &prevLayerActs,
+                      Tensor *intermediatesSeq, Tensor *finalCellState,
+                      const poplar::DebugContext &debugContext,
+                      const OptionFlags &options,
+                      poplin::matmul::PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(prevLayerActs, weights, intermediatesSeq,
@@ -967,15 +968,15 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
       mapTensorLinearly(graph, weightedIn[s]);
     }
   } else if (opt.preCalcWeights) {
-    weightedIn = calcSequenceWeightedInputs(graph, prevLayerActs,
-                                            weights.inputWeights, fwdProg, opt,
-                                            {di, "lstm/weightInputs"}, cache);
+    weightedIn =
+        calcSequenceWeightedInputs(graph, prevLayerActs, weights.inputWeights,
+                                   prog, opt, {di, "lstm/weightInputs"}, cache);
   }
   auto numShards = getNumShards(graph, params, opt, {di, "numShards"});
   std::vector<Tensor> initState = {fwdStateInit.output.expand({0}),
                                    fwdStateInit.cellState.expand({0})};
   auto shardingLoop =
-      [&weights, &params, &opt,
+      [&weights, &params, &opt, finalCellState,
        &cache](Graph &graph, const Tensor &shardIdx, const Tensor &seqIdx,
                const rnn::RnnBatchwiseFlags &batchwiseFlags,
                std::vector<Tensor> &fwdState, const rnn::RnnSlice &slice,
@@ -1028,15 +1029,26 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
             // `params.outputFullSequence=true` the full output sequence needs
             // to be returned and therefore the output does not need to be
             // latched for these cases.
-            if (params.outputFullSequence) {
-              loop.add(Copy(newState.output, fwdState[0], false, {dnai}));
-              mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
-                         {fwdState[1], newState.cellState, mask, maskInv}, loop,
-                         {dnai, "selectCellState"});
+            if (finalCellState != nullptr) {
+              if (params.outputFullSequence) {
+                loop.add(Copy(newState.output, fwdState[0], false, {dnai}));
+                mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
+                           {fwdState[1], newState.cellState, mask, maskInv},
+                           loop, {dnai, "selectCellState"});
+              } else {
+                mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
+                           {stateTensor, newStateTensor, mask, maskInv}, loop,
+                           {dnai, "selectState"});
+              }
             } else {
-              mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
-                         {stateTensor, newStateTensor, mask, maskInv}, loop,
-                         {dnai, "selectState"});
+              if (params.outputFullSequence) {
+                loop.add(Copy(newStateTensor, stateTensor, false, {dnai}));
+              } else {
+                mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
+                           {fwdState[0], newState.output, mask, maskInv}, loop,
+                           {dnai, "selectState"});
+                loop.add(Copy(newState.cellState, fwdState[1], false, {dnai}));
+              }
             }
           } else {
             loop.add(Copy(newStateTensor, stateTensor, false, {dnai}));
@@ -1054,7 +1066,7 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
   // make a copy of the activations so that they are sliced efficiently
   auto prevLayerActsCopy =
       createInput(graph, params, {di, "prevLayerActsCopy"}, opt, cache);
-  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy, false, {di}));
+  prog.add(Copy(prevLayerActs, prevLayerActsCopy, false, {di}));
 
   auto input = useWeightedIn ? weightedIn : prevLayerActsCopy;
   auto numIntermediates =
@@ -1070,18 +1082,41 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
         rnn::createOutputTensor(graph, params.rnn, numIntermediates, numShards,
                                 {di, "fwdIntermediatesSeq"})
             .reshapePartial(0, 1, {params.rnn.maxTimeSteps, numIntermediates});
-    fwdProg.add(WriteUndef(*intermediatesSeq, {di}));
+    prog.add(WriteUndef(*intermediatesSeq, {di}));
   }
   auto rnnOptions = getRnnOpts(opt);
   auto updatedState =
       rnn::Rnn(graph, params.rnn, false, initState, stateSequence, {input},
-               nullptr, intermediatesSeq, {}, {}, fwdProg, shardingLoop,
-               numShards, rnnOptions, {di, "rnn"});
-  updatedState[0] = params.outputFullSequence ? stateSequence.output
-                                              : updatedState[0].squeeze({0});
-  std::pair<Tensor, Tensor> outputs = {updatedState[0],
-                                       updatedState[1].squeeze({0})};
-  return outputs;
+               nullptr, intermediatesSeq, {}, {}, prog, shardingLoop, numShards,
+               rnnOptions, {di, "rnn"});
+  if (finalCellState != nullptr) {
+    *finalCellState = updatedState[1].squeeze({0});
+  }
+  return params.outputFullSequence ? stateSequence.output
+                                   : updatedState[0].squeeze({0});
+}
+
+std::pair<Tensor, Tensor>
+lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
+        const Tensor &prevLayerActs, const LstmWeights &weights,
+        Tensor *intermediatesSeq, program::Sequence &fwdProg,
+        const poplar::DebugContext &debugContext, const OptionFlags &options,
+        poplin::matmul::PlanningCache *cache) {
+  Tensor finalCellState;
+  auto output =
+      lstmFwd(graph, params, fwdProg, fwdStateInit, weights, prevLayerActs,
+              intermediatesSeq, &finalCellState, debugContext, options, cache);
+  return {output, finalCellState};
+}
+
+Tensor lstmFwd(Graph &graph, const LstmParams &params, program::Sequence &prog,
+               const LstmState &fwdStateInit, const LstmWeights &weights,
+               const Tensor &prevLayerActs, Tensor *intermediatesSeq,
+               const poplar::DebugContext &debugContext,
+               const OptionFlags &options,
+               poplin::matmul::PlanningCache *cache) {
+  return lstmFwd(graph, params, prog, fwdStateInit, weights, prevLayerActs,
+                 intermediatesSeq, nullptr, debugContext, options, cache);
 }
 
 static Tensor lstmBwdRearrangeWeights(Graph &graph, const LstmParams &params,
