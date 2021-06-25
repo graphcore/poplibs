@@ -6,6 +6,7 @@
 #include "poplar/Tensor.hpp"
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
+#include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "poplibs_support/PlanConstraints.hpp"
 #include "poplibs_support/Tracepoint.hpp"
@@ -15,6 +16,7 @@
 #include "popops/ElementWise.hpp"
 #include "popops/Encoding.hpp"
 #include "popops/Loop.hpp"
+#include "popops/OperationDefUtil.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "popops/Zero.hpp"
@@ -347,7 +349,7 @@ static void generateMultiSliceVerticesOnTile(
     const Tensor &offset, const Tensor &slices,
     const boost::optional<Tensor> &scale, const std::string &vertexName,
     bool isUpdate, unsigned baseSlicedDim, boost::optional<unsigned> baseOffset,
-    const DebugNameAndId &dnai) {
+    boost::optional<Operation> op, const DebugNameAndId &dnai) {
   assert(base.rank() == 2);
   assert(offset.rank() == 1);
   assert(slices.rank() == base.rank() + 1);
@@ -396,6 +398,8 @@ static void generateMultiSliceVerticesOnTile(
                               {"subT", workerSlices.flatten()}});
     if (scale) {
       graph.connect(v["scale"], scale.get());
+    }
+    if (op != boost::none) {
       // Divide work for multi-update
       assert(numParallelWorkers == 1);
       const auto tileElements = base.dim(baseSlicedDim);
@@ -417,9 +421,10 @@ static void generateMultiSliceVerticesOnTile(
 }
 
 static void generateMultiSliceVertices(
-    const std::string &vertexNameUntemplated, bool isUpdate, bool isUpdateAdd,
-    Graph &graph, Sequence &prog, const Tensor &offsets, Tensor base,
-    Tensor slices, const boost::optional<Tensor> &scale, unsigned baseSlicedDim,
+    const std::string &vertexNameUntemplated, bool isUpdate,
+    boost::optional<Operation> op, Graph &graph, Sequence &prog,
+    const Tensor &offsets, Tensor base, Tensor slices,
+    const boost::optional<Tensor> &scale, unsigned baseSlicedDim,
     boost::optional<unsigned> baseOffset, const OptionFlags &optionFlags,
     const DebugNameAndId &dnai) {
 
@@ -546,7 +551,7 @@ static void generateMultiSliceVertices(
     Tensor tileSub = concat(subSlices, 1 + slicedDim).dimRoll(2, 1);
 
     std::string vertexName;
-    if (isUpdateAdd) {
+    if (op != boost::none) {
       bool padTo32Bits = false; // TODO: T12932 Control this via a plan field.
       if (!padTo32Bits) {
         // We have different specialisations for half data depending on the need
@@ -561,7 +566,7 @@ static void generateMultiSliceVertices(
         if (needSubwordWrites)
           multiUpdateSubwordTiles.emplace_back(tile);
         vertexName = templateVertex(vertexNameUntemplated, base.elementType(),
-                                    needSubwordWrites);
+                                    needSubwordWrites, *op);
       } else {
         // For halves we process 32-bit at a time and therefore pad the tensors
         // in the case where region size is odd.
@@ -586,8 +591,8 @@ static void generateMultiSliceVertices(
           tileBase = padWithSelf("baseT", tileBase);
           tileSub = padWithSelf("subT", tileSub);
           ++regionSize;
-          vertexName =
-              templateVertex(vertexNameUntemplated, base.elementType(), false);
+          vertexName = templateVertex(vertexNameUntemplated, base.elementType(),
+                                      false, *op);
         }
       }
     } else {
@@ -596,11 +601,11 @@ static void generateMultiSliceVertices(
 
     generateMultiSliceVerticesOnTile(graph, cs, tile, tileBase, offsets1d,
                                      tileSub, scale, vertexName, isUpdate, 0u,
-                                     baseOffset, {dnai});
+                                     baseOffset, op, {dnai});
   }
 
   if (!multiUpdateSubwordTiles.empty()) {
-    logging::popops::debug("UpdateAdd in {} with odd regionSize on tile(s) {}",
+    logging::popops::debug("UpdateOp in {} with odd regionSize on tile(s) {}",
                            dnai.getPathName(), multiUpdateSubwordTiles);
   }
 
@@ -612,11 +617,11 @@ static void generateMultiSliceVertices(
   }
 }
 
-static void generatePlannedMultiUpdateAdd(
+static void generatePlannedMultiUpdateOp(
     const std::string &vertexNameUntemplated, const SlicePlanInternal &plan,
     Graph &graph, Sequence &seq, const Tensor &offsets, Tensor base,
-    Tensor slices, const Tensor scale, unsigned baseSlicedDim,
-    const OptionFlags &options, const DebugNameAndId &dnai) {
+    Tensor slices, boost::optional<Tensor> scale, unsigned baseSlicedDim,
+    Operation op, const OptionFlags &options, const DebugNameAndId &dnai) {
 
   // When a two-stage update is perform we use 32bit partials
   const auto twoStagePartialType = FLOAT;
@@ -686,9 +691,9 @@ static void generatePlannedMultiUpdateAdd(
   const auto elemsPerUSplit = ceildiv(unslicedSize, unslicedSplit);
 
   logging::popops::debug(
-      "PlannedMUAdd: activeTiles={}, split {}/{}/{}, shapes {} {}",
-      numUsedTiles, nonEmptyLookupSplits, slicedSplit, unslicedSplit,
-      base.shape(), slices.shape());
+      "PlannedMUOp: activeTiles={}, split {}/{}/{}, shapes {} {}", numUsedTiles,
+      nonEmptyLookupSplits, slicedSplit, unslicedSplit, base.shape(),
+      slices.shape());
 
   // There are two situations in which we choose to rearrange the slices
   // into this multi-update:
@@ -714,8 +719,8 @@ static void generatePlannedMultiUpdateAdd(
     seq.add(Copy(slices, slicesRearranged, false, {dnai}));
     slices = slicesRearranged;
     logging::popops::trace(
-        "PlannedMUAdd: Adding copy to rearrange slices into "
-        "multiUpdateAdd to reduce copy vertex state/exchange code");
+        "PlannedMUOp: Adding copy to rearrange slices into "
+        "multiUpdateOp to reduce copy vertex state/exchange code");
   }
 
   // First stage: update each lookupSplit into a temporary dense buffer. When
@@ -725,10 +730,12 @@ static void generatePlannedMultiUpdateAdd(
   Tensor slicesInput, stage0Output;
   // Scaling is applied in the update when there's a single stage, but in a
   // later add when there is an lookupSplit
-  Tensor stage0Scale, stage1Scale;
+  Tensor stage1Scale;
+  boost::optional<Tensor> stage0Scale = boost::none;
   if (!multipleStages) {
     slicesInput = slices;
     stage0Output = base.expand({0}); // insert lookupSplit dimension
+
     stage0Scale = scale;
     stage0OutputType = base.elementType();
   } else {
@@ -736,16 +743,18 @@ static void generatePlannedMultiUpdateAdd(
     // with temporary input and accumulation buffers if the base/slice tensors
     // have type half.
     stage0OutputType = twoStagePartialType;
-    stage0Scale = graph.addConstant(stage0OutputType, {}, 1., {dnai, "one"});
-    graph.setTileMapping(stage0Scale, 0);
-    stage1Scale =
-        cast(graph, scale, stage0OutputType, seq, {dnai, "CastScale"});
+    if (scale != boost::none) {
+      stage0Scale = graph.addConstant(stage0OutputType, {}, 1., {dnai, "one"});
+      graph.setTileMapping(*stage0Scale, 0);
+      stage1Scale =
+          cast(graph, *scale, stage0OutputType, seq, {dnai, "CastScale"});
+    }
 
     // lookupSplit copies of the base tensor
     auto wantedShape = base.shape();
     wantedShape.insert(wantedShape.begin(), nonEmptyLookupSplits);
 
-    // TODO: T12933 Consider cast after broadcasting to first stage updateAdd
+    // TODO: T12933 Consider cast after broadcasting to first stage updateOp
     // vertices to save time spent exchanging the larger data type. This may be
     // a tradeoff with temporary memory usage in order to keep a broadcasted
     // half and float copy of the slices during the cast.
@@ -814,9 +823,9 @@ static void generatePlannedMultiUpdateAdd(
         }
 
         const auto vertexName = templateVertex(
-            vertexNameUntemplated, stage0OutputType, needSubwordWrites);
+            vertexNameUntemplated, stage0OutputType, needSubwordWrites, op);
 
-        logging::popops::trace("generatePlannedMultiUpdateAdd: "
+        logging::popops::trace("generatePlannedMultiUpdateOp: "
                                "Offsets {}/{} ({}); "
                                "BaseIdx {}/{} ({}), "
                                "SubIdx {}/{} ({}) "
@@ -851,13 +860,13 @@ static void generatePlannedMultiUpdateAdd(
         }
         generateMultiSliceVerticesOnTile(
             graph, csU, tile, tileBase, indices, tileSlice, stage0Scale,
-            vertexName, true, baseSlicedDim, baseOffset, {dnai});
+            vertexName, true, baseSlicedDim, baseOffset, op, {dnai});
       }
     }
   }
 
   if (!multiUpdateSubwordTiles.empty()) {
-    logging::popops::debug("UpdateAdd in {} with odd regionSize on tile(s) {}",
+    logging::popops::debug("UpdateOp in {} with odd regionSize on tile(s) {}",
                            dnai.getPathName(), multiUpdateSubwordTiles);
   }
 
@@ -867,7 +876,7 @@ static void generatePlannedMultiUpdateAdd(
     seq.add(Execute(csU, {dnai}));
 
     const auto cumulativeUpdate =
-        graph.clone(twoStagePartialType, base, {dnai, "sumUpdates"});
+        graph.clone(twoStagePartialType, base, {dnai, "opUpdates"});
 
     // Given we know that partials for a set of columns on each tile are always
     // contiguous in the same way, we can use our knowledge to reorder the
@@ -886,8 +895,8 @@ static void generatePlannedMultiUpdateAdd(
         });
 
     reduceWithOutput(graph, concat(stage0OutputReordered, 1u),
-                     concat(cumulativeUpdateReordered), {0}, {Operation::ADD},
-                     seq, {dnai, "Reduce"});
+                     concat(cumulativeUpdateReordered), {0}, {op}, seq,
+                     {dnai, "Reduce"});
 
     // Add the sum of the partials to the base tensor
     bool baseCastRequired = base.elementType() != twoStagePartialType;
@@ -898,8 +907,16 @@ static void generatePlannedMultiUpdateAdd(
         return base;
       }
     }();
-    scaledAddTo(graph, addDst, cumulativeUpdate, stage1Scale, seq,
-                {dnai, "Add"});
+
+    if (op == Operation::ADD) {
+      scaledAddTo(graph, addDst, cumulativeUpdate, stage1Scale, seq,
+                  {dnai, "Add"});
+    } else if (op == Operation::MAX) {
+      maxInPlace(graph, addDst, cumulativeUpdate, seq, {dnai, "Max"});
+    } else {
+      const std::string opName = asString(op);
+      throw poplibs_error("Unsupported multiUpdate operation" + opName);
+    }
 
     // cast the final result back into base; when !castBase the addTo was
     // directly into base anyway
@@ -1853,9 +1870,9 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
         const Tensor input = tSplitByS.slice(hBegin, hEnd, unslicedDim);
         const Tensor output = sSplitByS.slice(hBegin, hEnd, 1 + unslicedDim);
         graph.setTileMapping(output, tile);
-        generateMultiSliceVerticesOnTile(graph, cs1, tile, input, indices,
-                                         output, boost::none, vertexClass,
-                                         false, slicedDim, baseOffset, {dnai});
+        generateMultiSliceVerticesOnTile(
+            graph, cs1, tile, input, indices, output, boost::none, vertexClass,
+            false, slicedDim, baseOffset, boost::none, {dnai});
       }
     }
   }
@@ -2017,9 +2034,9 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
           const Tensor indices = iSplitByS.squeeze({1});
           const Tensor input = tSplitByS.slice(hBegin, hEnd, 1);
           const Tensor output = sSplitByS.slice(hBegin, hEnd, 2);
-          generateMultiSliceVerticesOnTile(graph, cs2, tile, input, indices,
-                                           output, boost::none, vertexClass,
-                                           false, slicedDim, 0, {dnai});
+          generateMultiSliceVerticesOnTile(
+              graph, cs2, tile, input, indices, output, boost::none,
+              vertexClass, false, slicedDim, 0, boost::none, {dnai});
         }
       }
     }
@@ -2092,8 +2109,8 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   // For now only 1d slices of 2d base tensors are supported.
   if (t.rank() == 2 && dims.size() == 1 && sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
-    generateMultiSliceVertices("popops::MultiSlice", false, false, graph, prog,
-                               offset, t, sMulti, boost::none, dims[0],
+    generateMultiSliceVertices("popops::MultiSlice", false, boost::none, graph,
+                               prog, offset, t, sMulti, boost::none, dims[0],
                                boost::none, options, {di, dName});
     di.addOutput(sMulti);
     return sMulti;
@@ -2170,8 +2187,8 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
   // For now only 1d slices of 2d base tensors are supported.
   if (t.rank() == 2 && dims.size() == 1 && sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
-    generateMultiSliceVertices("popops::MultiUpdate", true, false, graph, prog,
-                               offset, t, sMulti, boost::none, dims[0],
+    generateMultiSliceVertices("popops::MultiUpdate", true, boost::none, graph,
+                               prog, offset, t, sMulti, boost::none, dims[0],
                                boost::none, options, dName);
     return;
   }
@@ -2195,6 +2212,62 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
                        {di, dName + "/loop"}));
 }
 
+static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
+                          const Tensor &offset, boost::optional<Tensor> scale,
+                          const std::vector<std::size_t> &dims,
+                          const std::vector<std::size_t> &sizes, Sequence &prog,
+                          const SlicePlan &plan, Operation op,
+                          const OptionFlags &options,
+                          const DebugNameAndId &dnai) {
+  const std::string opName = asString(op);
+  const std::string multiUpdateName = "multiUpdate" + opName;
+  logging::popops::info(multiUpdateName + " {} into {}, name={}, nullplan={}",
+                        sMulti.shape(), t.shape(), dnai.getPathName(),
+                        plan.getImpl().isNull);
+  // Check the offsets have been specified with a multi-slice dimension
+  if (offset.rank() != 2)
+    throw poputil::poplibs_error(multiUpdateName +
+                                 " expects offset.rank() == 2 but it is" +
+                                 std::to_string(offset.rank()));
+  if (offset.dim(1) != dims.size())
+    throw poputil::poplibs_error(
+        multiUpdateName +
+        " expects offset.dim(1) == dims.size(); offset.dim(1)==" +
+        std::to_string(offset.dim(1)) +
+        ", dims.size()== " + std::to_string(dims.size()));
+  validateParams(multiUpdateName, plan, options, t.shape(), offset[0], dims,
+                 sizes);
+
+  if (t.rank() != 2 || dims.size() != 1 || offset.rank() != 2 ||
+      offset.dim(1) != 1)
+    throw poputil::poplibs_error(
+        multiUpdateName +
+        " requires t to have 2 dimensions and dims to specify "
+        "1 dimension");
+  if (t.elementType() != sMulti.elementType())
+    throw poputil::poplibs_error(multiUpdateName +
+                                 " expects t, sMulti to have the same type");
+  if (scale != boost::none) {
+    if (scale->rank() != 0)
+      throw poputil::poplibs_error(multiUpdateName + " scale must be a scaler");
+    if (scale->elementType() != t.elementType()) {
+      throw poputil::poplibs_error(multiUpdateName +
+                                   " scale type must match t");
+    }
+  }
+  const auto vertexName = scale == boost::none ? "popops::MultiUpdateOp"
+                                               : "popops::ScaledMultiUpdateOp";
+  if (plan.getImpl().isNull) {
+    generateMultiSliceVertices(vertexName, true, op, graph, prog, offset, t,
+                               sMulti, scale, dims[0], boost::none, options,
+                               {dnai, multiUpdateName});
+  } else {
+    generatePlannedMultiUpdateOp(vertexName, plan.getImpl(), graph, prog,
+                                 offset, t, sMulti, scale, dims[0], op, options,
+                                 {dnai, multiUpdateName});
+  }
+}
+
 // This is derived from multiUpdate, but s is added to t rather than replacing
 // it
 // Currently only a single dimension may be sliced
@@ -2209,43 +2282,22 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
       debugContext,
       DI_ARGS(t, sMulti, offset, scale, dims, sizes, plan, options));
 
-  logging::popops::info("multiUpdateAdd {} into {}, name={}, nullplan={}",
-                        sMulti.shape(), t.shape(), debugContext.getPathName(),
-                        plan.getImpl().isNull);
-  std::string dName = "multiUpdateAdd";
-  // Check the offsets have been specified with a multi-slice dimension
-  if (offset.rank() != 2)
-    throw poputil::poplibs_error(
-        "multiUpdateAdd expects offset.rank() == 2 but it is" +
-        std::to_string(offset.rank()));
-  if (offset.dim(1) != dims.size())
-    throw poputil::poplibs_error(
-        "multiUpdateAdd expects offset.dim(1) == dims.size(); offset.dim(1)==" +
-        std::to_string(offset.dim(1)) +
-        ", dims.size()== " + std::to_string(dims.size()));
-  validateParams("multiUpdateAdd", plan, options, t.shape(), offset[0], dims,
-                 sizes);
+  multiUpdateOp(graph, t, sMulti, offset, scale, dims, sizes, prog, plan,
+                Operation::ADD, options, {di});
+}
 
-  if (t.rank() != 2 || dims.size() != 1 || offset.rank() != 2 ||
-      offset.dim(1) != 1)
-    throw poputil::poplibs_error(
-        "multiUpdateAdd requires t to have 2 dimensions and dims to specify "
-        "1 dimension");
-  if (t.elementType() != sMulti.elementType() ||
-      t.elementType() != scale.elementType())
-    throw poputil::poplibs_error(
-        "multiUpdateAdd expects t, sMulti and scale to have the same type");
-  if (scale.rank() != 0)
-    throw poputil::poplibs_error("multiUpdateAdd scale must be a scaler");
-  if (plan.getImpl().isNull) {
-    generateMultiSliceVertices("popops::MultiUpdateAdd", true, true, graph,
-                               prog, offset, t, sMulti, scale, dims[0],
-                               boost::none, options, {di, dName});
-  } else {
-    generatePlannedMultiUpdateAdd("popops::MultiUpdateAdd", plan.getImpl(),
-                                  graph, prog, offset, t, sMulti, scale,
-                                  dims[0], options, {di, dName});
-  }
+// This is derived from multiUpdate, but a max of s is and t is done rather than
+// replacing it. Currently only a single dimension may be sliced
+void multiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,
+                    const Tensor &offset, const std::vector<std::size_t> &dims,
+                    const std::vector<std::size_t> &sizes, Sequence &prog,
+                    const SlicePlan &plan, const OptionFlags &options,
+                    const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
+  multiUpdateOp(graph, t, sMulti, offset, boost::none, dims, sizes, prog, plan,
+                Operation::MAX, options, {di});
 }
 
 namespace embedding {

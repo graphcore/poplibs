@@ -8,22 +8,10 @@
 #ifndef popops_Operation_hpp
 #define popops_Operation_hpp
 
+#include "popops/OperationDef.hpp"
 #include <iosfwd>
 
 namespace popops {
-
-/// Type of operation to use in a reduction.
-/// See reduce() for example use.
-enum class Operation {
-  ADD,
-  MUL,
-  MIN,
-  MAX,
-  LOGICAL_AND, ///< Only supports boolean operands.
-  LOGICAL_OR,  ///< Only supports boolean operands.
-  SQUARE_ADD,  ///< Squares each element before applying ADD reduction.
-  LOG_ADD,     ///< Reduce using acc = a+log(1+exp(b-a))
-};
 
 /// Parse token from input stream \is to \op. Valid input values are the
 /// stringified enumerations, for example "ADD" or "MUL".

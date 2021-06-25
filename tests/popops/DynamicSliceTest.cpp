@@ -1,6 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE DynamicSliceTest
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
 #include <boost/test/framework.hpp>
 #include <boost/test/unit_test.hpp>
 #include <cassert>
@@ -11,7 +12,9 @@
 #include <poplar/Program.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/print.hpp>
+#include <poplibs_test/Util.hpp>
 #include <popops/DynamicSlice.hpp>
+#include <popops/Operation.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
@@ -23,7 +26,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 using namespace poplibs_support;
-
+using namespace poplibs_test::util;
 using poplibs_support::toString;
 
 constexpr bool useDSMapper = true;
@@ -920,16 +923,23 @@ BOOST_AUTO_TEST_SUITE_END()
 
 void multiupdate(const std::vector<uint32_t> &indicies,
                  const std::vector<std::size_t> &indiciesShape,
-                 bool planAsEmbedding, bool accumulate = false,
-                 float updateScaling = 1.0,
+                 bool planAsEmbedding,
+                 boost::optional<popops::Operation> op = boost::none,
+                 const Type &dType = HALF, float updateScaling = 1.0,
                  const unsigned E = 8) // embedding size
 {
+  const bool updateOp = op != boost::none;
+  const bool opUsesScale = updateOp && *op == popops::Operation::ADD;
+
   // This test should pass with large T - but graph construction becomes
   // slow (a couple of minutes for T=1024)
   assert(indiciesShape.size() == 2); // max 2 dims supported by this test
   assert(indicies.size() == indiciesShape[0] * indiciesShape[1]);
-  const auto T = 16;        // tiles
-  const auto D = 1501 * 10; // dictionary size
+  // Use fewer tiles for operations that don't use scale as tests using
+  // simulator and H/w are run for those ops and we want to reduce the test
+  // time.
+  const auto T = (updateOp && !opUsesScale) ? 4U : 16; // tiles
+  const auto D = T == 4 ? 203U * 10 : 1501U * 10;      // dictionary
   auto device = createTestDevice(TEST_TARGET, 1, T);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -940,13 +950,13 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   const auto options = OptionFlags();
   auto plan = SlicePlan();
   if (planAsEmbedding) {
-    plan = embedding::plan(graph, HALF, D, E, {indicies.size()}, options);
+    plan = embedding::plan(graph, dType, D, E, {indicies.size()}, options);
   }
 
   // Map the tensor carefully to ensure balance and minimise edge pointers
-  auto t = createSliceableTensor(graph, HALF, {D, E}, sliceDims, sliceSizes,
+  auto t = createSliceableTensor(graph, dType, {D, E}, sliceDims, sliceSizes,
                                  plan, options, "t");
-  auto s = createSliceTensor(graph, HALF, {D, E}, sliceDims, sliceSizes,
+  auto s = createSliceTensor(graph, dType, {D, E}, sliceDims, sliceSizes,
                              indicies.size(), plan, options, "s");
   Sequence prog;
   auto offsetInit =
@@ -955,14 +965,24 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   auto offset = createIndicesTensor(graph, sliceDims, indicies.size(), plan,
                                     options, "offset");
   prog.add(Copy(offsetInit, offset));
-  if (!accumulate) {
+  if (!updateOp) {
     multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog, plan, options,
                 "MultisliceTest");
   } else {
-    scale = graph.addVariable(HALF, {}, "scale");
-    graph.setTileMapping(scale, 0);
-    multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
-                   plan, options, "MultisliceTest");
+    if (*op == popops::Operation::ADD) {
+      scale = graph.addVariable(dType, {}, "scale");
+      graph.setTileMapping(scale, 0);
+
+      multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
+                     plan, options, "MultisliceTest");
+    } else if (*op == popops::Operation::MAX) {
+      multiUpdateMax(graph, t, s, offset, sliceDims, sliceSizes, prog, plan,
+                     options, "MultisliceTest");
+
+    } else {
+      std::cerr << "\n Unsupported op in multiUpdateOp\n";
+      BOOST_CHECK(false);
+    }
   }
 
   BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
@@ -973,7 +993,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   graph.createHostWrite("inS", s, true);
   graph.createHostWrite("inT", t, true);
   graph.createHostRead("outT", t, true);
-  if (accumulate)
+  if (updateOp && opUsesScale)
     graph.createHostWrite("scale", scale, true);
   std::vector<float> hIn(s.numElements());
   const float outBaseValue = 100.0f;
@@ -984,13 +1004,14 @@ void multiupdate(const std::vector<uint32_t> &indicies,
     hIn[i] = i + 1.0f;
 
   auto target = device.getTarget();
-  std::vector<char> rawIn(target.getTypeSize(HALF) * hIn.size());
-  std::vector<char> rawOut(target.getTypeSize(HALF) * hOut.size());
-  std::vector<char> rawScaleIn(target.getTypeSize(HALF) * 1);
-  poplar::copyFloatToDeviceHalf(target, &updateScaling, rawScaleIn.data(), 1);
-  poplar::copyFloatToDeviceHalf(target, hIn.data(), rawIn.data(), hIn.size());
-  poplar::copyFloatToDeviceHalf(target, hOut.data(), rawOut.data(),
-                                hOut.size());
+  std::vector<char> rawIn(target.getTypeSize(dType) * hIn.size());
+  std::vector<char> rawOut(target.getTypeSize(dType) * hOut.size());
+  std::vector<char> rawScaleIn(target.getTypeSize(dType) * 1);
+
+  std::vector<float> scalingF = {updateScaling};
+  copy(target, scalingF, dType, rawScaleIn.data());
+  copy(target, hIn, dType, rawIn.data());
+  copy(target, hOut, dType, rawOut.data());
 
   OptionFlags engineOptions{{"showExecutionSteps", "true"},
                             {"showVarStorage", "true"}};
@@ -1000,7 +1021,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
-    if (accumulate) {
+    if (updateOp && opUsesScale) {
       eng.writeTensor("scale", rawScaleIn.data(),
                       rawScaleIn.data() + rawScaleIn.size());
     }
@@ -1009,8 +1030,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
     eng.run();
     eng.readTensor("outT", rawOut.data(), rawOut.data() + rawOut.size());
   });
-  poplar::copyDeviceHalfToFloat(target, rawOut.data(), hOut.data(),
-                                hOut.size());
+  copy(target, dType, rawOut.data(), hOut);
   unsigned outIdx = 0;
   for (const auto &e : hOut) {
     if (e != outBaseValue)
@@ -1021,10 +1041,15 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   for (unsigned i = 0; i != indicies.size(); ++i) {
     auto d = indicies[i];
     for (unsigned elem = 0; elem != E; ++elem) {
-      if (!accumulate) {
+      if (!updateOp) {
         expected[d * E + elem] = hIn[i * E + elem];
       } else {
-        expected[d * E + elem] += updateScaling * hIn[i * E + elem];
+        if (*op == popops::Operation::ADD) {
+          expected[d * E + elem] += updateScaling * hIn[i * E + elem];
+        } else if (*op == popops::Operation::MAX) {
+          expected[d * E + elem] =
+              std::max(expected[d * E + elem], hIn[i * E + elem]);
+        }
       }
     }
   }
@@ -1053,12 +1078,13 @@ BOOST_AUTO_TEST_CASE(MultiUpdate10) {
 
 // test the looping multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd5) {
-  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, true, 0.5);
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, popops::Operation::ADD, HALF,
+              0.5);
 }
 
 // test the inlined multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd2) {
-  multiupdate({100, 0}, {2, 1}, false, true, 0.5);
+  multiupdate({100, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -1067,17 +1093,65 @@ BOOST_AUTO_TEST_SUITE(MultiUpdateSingles)
 
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Singles) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false, true, 0.5);
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
+              popops::Operation::ADD, HALF, 0.5);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(MultiUpdateMaxHalf)
+BOOST_AUTO_TEST_CASE(MultiUpdateMaxHalf_10Singles) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
+              popops::Operation::MAX, HALF, 0.5);
+}
+
+BOOST_AUTO_TEST_CASE(MultiUpdateMaxHalf_10Multiples) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
+              popops::Operation::MAX, HALF, 0.5, 64);
+}
+
+// test the fast vertex with multiple updates per tile
+BOOST_AUTO_TEST_CASE(MultiUpdateMaxHalf_10Multiples_AsEmbedding) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
+              popops::Operation::MAX, HALF, 0.5, 64);
+}
+
+BOOST_AUTO_TEST_CASE(MultiUpdateMax5Half) {
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, popops::Operation::MAX,
+              HALF);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(MultiUpdateMaxFloat)
+
+BOOST_AUTO_TEST_CASE(MultiUpdateMaxFloat_10Singles) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
+              popops::Operation::MAX, FLOAT, 0.5);
+}
+
+BOOST_AUTO_TEST_CASE(MultiUpdateMaxFloat_10Multiples) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
+              popops::Operation::MAX, FLOAT, 0.5, 64);
+}
+
+BOOST_AUTO_TEST_CASE(MultiUpdateMaxFloat_10Multiples_AsEmbedding) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
+              popops::Operation::MAX, FLOAT, 0.5, 64);
+}
+
+BOOST_AUTO_TEST_CASE(MultiUpdateMax5Float) {
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, popops::Operation::MAX,
+              FLOAT);
+}
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(MultiUpdateMultiples)
 
 // test the fast vertex with multiple updates per tile
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false, true, 0.5,
-              64);
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
+              popops::Operation::ADD, HALF, 0.5, 64);
 }
 
 // test the looping multiupdate
@@ -1104,23 +1178,25 @@ BOOST_AUTO_TEST_CASE(MultiUpdate10_AsEmbedding) {
 
 // test the looping multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd5_AsEmbedding) {
-  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true, true, 0.5);
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true, popops::Operation::ADD, HALF,
+              0.5);
 }
 
 // test the inlined multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd2_AsEmbedding) {
-  multiupdate({100, 0}, {2, 1}, true, true, 0.5);
+  multiupdate({100, 0}, {2, 1}, true, popops::Operation::ADD, HALF, 0.5);
 }
 
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Singles_AsEmbedding) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, true, 0.5);
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
+              popops::Operation::ADD, HALF, 0.5);
 }
 
 // test the fast vertex with multiple updates per tile
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples_AsEmbedding) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, true, 0.5,
-              64);
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
+              popops::Operation::ADD, HALF, 0.5, 64);
 }
 
 // test heuristic which checks for mapping of a slice.

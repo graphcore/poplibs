@@ -341,6 +341,33 @@ void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
                     const poplar::OptionFlags &options,
                     const poplar::DebugContext &debugContext = {});
 
+/** Find maximum over multiple slices in a tensor
+ * for i offsets:
+ *   t[offsets[i]] = max(t[offsets[i]], s[i])
+ * \p t, \p s must have the same element type
+ *  offsets[i] >= t.dim(0) are ignored.
+ *
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being updated (must be rank 2).
+ *  \param s           The slices to find maximum over.
+ *  \param offsets     The offsets within \p t to find maximum over.
+ *  \param dims        The dimensions of \p t to find maximum over
+ *                     (must be rank 1).
+ *  \param sizes       The size of the update in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
+ *  \param plan        Plan describing how the operation will be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ */
+void multiUpdateMax(poplar::Graph &graph, const poplar::Tensor &t,
+                    const poplar::Tensor &s, const poplar::Tensor &offsets,
+                    const std::vector<std::size_t> &dims,
+                    const std::vector<std::size_t> &sizes,
+                    poplar::program::Sequence &prog, const SlicePlan &plan,
+                    const poplar::OptionFlags &options,
+                    const poplar::DebugContext &debugContext = {});
+
 namespace embedding {
 
 /** Create a plan for implementing a set of operations on an

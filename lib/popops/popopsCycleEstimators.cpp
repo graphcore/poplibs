@@ -8,6 +8,7 @@
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Expr.hpp"
+#include "popops/OperationDefUtil.hpp"
 #include "popops/PerformanceEstimation.hpp"
 #include "poputil/exceptions.hpp"
 #include <cassert>
@@ -2475,17 +2476,11 @@ MAKE_PERF_ESTIMATOR_NAME(MultiUpdate)(const VertexIntrospector &vertex,
   return multiSlicer(vertex, target, type, true);
 }
 
-VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(MultiUpdateAdd)(const VertexIntrospector &vertex,
-                                         const Target &target, const Type &type,
-                                         const bool &subWordWritesRequired) {
-
-  // based off the assembly (optimistic for integral types which are still
-  // handled by the compiler). Assumes the worst case where all indices are
-  // processed by a single worker.
-  CODELET_FIELD(offsets);
-  CODELET_SCALAR_VAL(regionSize, unsigned short);
-
+static VertexPerfEstimate
+multiUpdateOpPerfEstimate(const Target &target,
+                          const poplar::FieldData &offsets, const Type &type,
+                          bool subWordWritesRequired, const Operation op,
+                          unsigned short regionSize, bool scaled) {
   std::uint64_t cycles = 3; // load size, zero check and exitz.
   if (offsets.size() == 0) {
     return cycles;
@@ -2494,9 +2489,15 @@ MAKE_PERF_ESTIMATOR_NAME(MultiUpdateAdd)(const VertexIntrospector &vertex,
   // pre-outer loop overhead.
   cycles += type == FLOAT ? 24 : 25;
 
+  // 2 additional cycles to load scale ptr and load scale
+  if (scaled) {
+    cycles += 2;
+  }
+
   // outer loop overhead, before and after the inner loop.
   // cycle cost is data dependent on values of offsets, assuming worst case.
   std::uint64_t outerLoopCycles = type == FLOAT ? 11 : 12;
+  outerLoopCycles += type == HALF && scaled;
 
   // inner loop cost.
   // Note gcd is used here for e.g. CPU where the atomic write size is 1.
@@ -2520,7 +2521,33 @@ MAKE_PERF_ESTIMATOR_NAME(MultiUpdateAdd)(const VertexIntrospector &vertex,
   return {cycles * target.getNumWorkerContexts() + supervisorCycles,
           static_cast<std::uint64_t>(regionSize) *
               (flopsPerBinaryOpElement(BinaryOpType::ADD) +
-               flopsPerBinaryOpElement(BinaryOpType::MULTIPLY))};
+               scaled * flopsPerBinaryOpElement(BinaryOpType::MULTIPLY))};
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledMultiUpdateOp)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const bool &subWordWritesRequired, const Operation &op) {
+
+  // based off the assembly (optimistic for integral types which are still
+  // handled by the compiler). Assumes the worst case where all indices are
+  // processed by a single worker.
+  CODELET_FIELD(offsets);
+  CODELET_SCALAR_VAL(regionSize, unsigned short);
+  return multiUpdateOpPerfEstimate(target, offsets, type, subWordWritesRequired,
+                                   op, regionSize, true);
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(MultiUpdateOp)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const bool &subWordWritesRequired, const Operation &op) {
+
+  // based off the assembly (optimistic for integral types which are still
+  // handled by the compiler). Assumes the worst case where all indices are
+  // processed by a single worker.
+  CODELET_FIELD(offsets);
+  CODELET_SCALAR_VAL(regionSize, unsigned short);
+  return multiUpdateOpPerfEstimate(target, offsets, type, subWordWritesRequired,
+                                   op, regionSize, false);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SequenceSlice)(
@@ -3421,11 +3448,24 @@ poputil::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, BOOL),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, HALF, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, HALF, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, FLOAT, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, INT, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, UNSIGNED_INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, true,
+                            Operation::ADD),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, false,
+                            Operation::ADD),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, FLOAT, false,
+                            Operation::ADD),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, INT, false,
+                            Operation::ADD),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, UNSIGNED_INT, false,
+                            Operation::ADD),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, HALF, true, Operation::MAX),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, HALF, false, Operation::MAX),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, FLOAT, false,
+                            Operation::MAX),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, INT, false, Operation::MAX),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, UNSIGNED_INT, false,
+                            Operation::MAX),
 
       CYCLE_ESTIMATOR_ENTRY(popops, SequenceSlice, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, SequenceSlice, HALF),

@@ -198,7 +198,9 @@ add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMO
 add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp VARIANTS Hw;Sim2;IpuModel2)
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
               SUITES SingleDim MultiDim LargeBuffer Update Misc MultiSlice
-                     MultiUpdate MultiUpdateSingles MultiUpdateMultiples)
+                     MultiUpdateSingles MultiUpdateMultiples)
+add_unit_test(MultiUpdateTest DynamicSliceTest.cpp
+              SUITES MultiUpdateMaxHalf MultiUpdateMaxFloat VARIANTS Hw;Sim2;IpuModel2)
 add_unit_test(SeqSliceTest SeqSliceTest.cpp)
 add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp SUITES CpuChecks VARIANTS Cpu)
 add_unit_test(ElementWiseUtilTest ElementWiseUtilTest.cpp VARIANTS ${IPUMODEL_VARIANTS})

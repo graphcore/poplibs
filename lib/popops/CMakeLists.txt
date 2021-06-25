@@ -68,6 +68,8 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/NormaliseImage.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Loop.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Operation.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/OperationDef.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/OperationDefUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Rearrange.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/SequenceSlice.hpp
@@ -136,7 +138,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/HasNaN.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NormaliseImage.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSlice.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiUpdateAdd.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiUpdateOp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01Acc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01NoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial2.S
@@ -206,7 +208,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Iota.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiSlice.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdate.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdateAdd.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdateOp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NormaliseImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Reduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledContinuousReduce.cpp
@@ -239,6 +241,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseBinaryOps.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramCommon.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdateOp.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/LogArithmetic.hpp

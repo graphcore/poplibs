@@ -5,31 +5,31 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define VERTEX(type) __runCodelet_popops__MultiUpdateAdd___##type##_false
+
+#define WORKER_FUNCTION(type,op,scaled) MultiUpdateOp_##type##_##op##_##scaled
 #define STACK_SIZE 0
 
 // vertex states, all offsets are in bytes
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
-#define VERTEX_STATE_STATE_OFFSET             0
-#define VERTEX_STATE_POINTER_OFFSET           4
-#define VERTEX_STATE_SIZE_OFFSET              8
-#define VERTEX_STATE_SUB_T_OFFSET             12
-#define VERTEX_STATE_BASE_T_OFFSET            16
-#define VERTEX_STATE_REGION_SIZE_OFFSET       18
+#define VERTEX_STATE_POINTER_OFFSET           0
+#define VERTEX_STATE_SIZE_OFFSET              4
+#define VERTEX_STATE_SUB_T_OFFSET             8
+#define VERTEX_STATE_BASE_T_OFFSET            12
+#define VERTEX_STATE_REGION_SIZE_OFFSET       14
+#define VERTEX_STATE_BASE_OFFSET_OFFSET       16
+#define VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET 20
+#define VERTEX_STATE_ELEMENTS_PER_WORKER      24
+#define VERTEX_STATE_SCALE_OFFSET             28
+#else
+#define VERTEX_STATE_POINTER_OFFSET           0
+#define VERTEX_STATE_SIZE_OFFSET              4
+#define VERTEX_STATE_SUB_T_OFFSET             8
+#define VERTEX_STATE_BASE_T_OFFSET            12
+#define VERTEX_STATE_REGION_SIZE_OFFSET       16
 #define VERTEX_STATE_BASE_OFFSET_OFFSET       20
 #define VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET 24
 #define VERTEX_STATE_ELEMENTS_PER_WORKER      28
-
-#else
-#define VERTEX_STATE_STATE_OFFSET             0
-#define VERTEX_STATE_POINTER_OFFSET           4
-#define VERTEX_STATE_SIZE_OFFSET              8
-#define VERTEX_STATE_SUB_T_OFFSET             12
-#define VERTEX_STATE_BASE_T_OFFSET            16
-#define VERTEX_STATE_REGION_SIZE_OFFSET       20
-#define VERTEX_STATE_BASE_OFFSET_OFFSET       24
-#define VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET 28
-#define VERTEX_STATE_ELEMENTS_PER_WORKER      32
+#define VERTEX_STATE_SCALE_OFFSET             32
 #endif
 
 // constants
@@ -54,6 +54,9 @@
 #define workerId m8
 #define wkrStart m9
 #define wkrEnd m8
+
+// supervisor register aliases
+#define sv_workerFunction m1
 
 // floating point variables
 #define scale a7
@@ -82,19 +85,35 @@
   add  $baseOffset, $baseOffset, $wkrStart
 .endm
 
-.globl VERTEX(float)
-.type VERTEX(float), @function
+#define SCALED_CODELET_NAME(type) __runCodelet_popops__ScaledMultiUpdateOp___##type##_false_popops__Operation__\OPTYPE\()
+#define UNSCALED_CODELET_NAME(type) __runCodelet_popops__MultiUpdateOp___##type##_false_popops__Operation__\OPTYPE\()
 
-DEF_STACK_USAGE 0 VERTEX(float)
-.section .text.VERTEX(float)
+.macro CODELET_FUNCTION_FLOAT OPTYPE, SCALED
+.ifc \SCALED, true
+.type SCALED_CODELET_NAME(float), @function
+DEF_STACK_USAGE 0 SCALED_CODELET_NAME(float)
+.section .text.SCALED_CODELET_NAME(float)
+.globl SCALED_CODELET_NAME(float)
+.else 
+.type UNSCALED_CODELET_NAME(float), @function
+DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(float)
+.section .text.UNSCALED_CODELET_NAME(float)
+.globl UNSCALED_CODELET_NAME(float)
+.endif
+
 .align 8
 #ifndef VECTOR_AVAIL_SCALED_PTR32
   nop // rpt loop aligment
 #endif
-VERTEX(float):
+
+.ifc \SCALED, true
+SCALED_CODELET_NAME(float):
+.else
+UNSCALED_CODELET_NAME(float):
+.endif
   // load vertex state, do a size check on offsets
   ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
-  brz $offsetSize, .Lfloat_epilogue
+  brz $offsetSize, .Lfloat_\OPTYPE\()_\SCALED\()_epilogue
 
   UPDATE_OFFSET_AND_SIZES
 
@@ -107,9 +126,11 @@ VERTEX(float):
 #endif
   ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET/2
 
+.ifc \SCALED, true
   // load scale
-  ld32 $mscratch, $mzero, $mvertex_base, VERTEX_STATE_STATE_OFFSET/4
+  ld32 $mscratch, $mzero, $mvertex_base, VERTEX_STATE_SCALE_OFFSET/4
   ld32 $scale, $mzero, $mscratch, 0
+.endif
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
   // expand the SCALED_PTR32 pointer
@@ -128,9 +149,9 @@ VERTEX(float):
   // adjust pointers by offset for this worker
   mul $wkrStart, $wkrStart, $regionBytesOffset
   add $baseTPtr, $baseTPtr, $wkrStart
-
+  
   sub $offsetSize, $offsetSize, 1
-.Lfloat_offset_loop:
+.LFloat_\OPTYPE\()_\SCALED\()_offset_loop:
   ld32 $baseIdx, $offsetPtr, $mzero, $offsetSize
 
   sub $baseIdx, $baseIdx, $baseOffset
@@ -139,7 +160,7 @@ VERTEX(float):
   // note: this overflow relies on baseIdx and numBaseElements being smaller
   // then 2^31.
   cmpult $mscratch, $baseIdx, $numBaseElements
-  brz $mscratch, .Lfloat_offset_loop_epilogue
+  brz $mscratch, .LFloat_\OPTYPE\()_\SCALED\()_offset_loop_epilogue
 
   // correct baseIdx to the current offset and move it onto the correct region
   mul $baseIdx, $baseIdx, $regionBytesOffset
@@ -149,18 +170,21 @@ VERTEX(float):
 
   // load from the first two pointers.
   ld32step $a1, $subTPtr, $subTOffset+=, 1
+
+.ifc \SCALED, true
+.ifc \OPTYPE, ADD
   {
     ld32 $a0, $baseTPtr, $baseIdx, 0
     f32mul $a1, $a1, $scale
   }
   {
     rpt $regionSizeM1, (2f-1f)/8-1
-    f32add $a3, $a0, $a1
+    f32add $a2, $a0, $a1
   }
 1:
   {
     ld32step $a1, $subTPtr, $subTOffset+=, 1
-    f32add $a2, $a0, $a1
+    fnop
   }
   {
     ld32 $a0, $baseTPtr, $baseIdx, 1
@@ -168,33 +192,82 @@ VERTEX(float):
   }
   {
     st32step $a2, $baseTPtr, $baseIdx+=, 1
-    f32add $a3, $a0, $a1
+    f32add $a2, $a0, $a1
   }
 2:
+.else // OPTYPE
+.error "Scaled variant of multiUpdate only supported for operation type ADD" 
+.endif
+
+.else // .ifc \SCALED, true
+.ifc \OPTYPE, MAX
+    {
+      ld32 $a0, $baseTPtr, $baseIdx, 0
+      fnop
+    }
+    {
+      rpt $regionSizeM1, (2f-1f)/8-1
+      f32max $a2, $a0, $a1
+    }
+1:
+  {
+    ld32step $a1, $subTPtr, $subTOffset+=, 1
+    fnop
+  }
+  {
+    ld32 $a0, $baseTPtr, $baseIdx, 1
+    fnop
+  }
+  {
+    st32step $a2, $baseTPtr, $baseIdx+=, 1
+    f32max $a2, $a0, $a1
+  }
+2:
+.else
+.error "Non scaled variant of multiUpdate only supported for operation type MAX"
+.endif // .if \OPTYPE, MAX
+.endif
   // process the final element
-  st32 $a3, $baseTPtr, $baseIdx, 0
+  st32 $a2, $baseTPtr, $baseIdx, 0
 
-.Lfloat_offset_loop_epilogue:
-  brnzdec $offsetSize, .Lfloat_offset_loop
+.LFloat_\OPTYPE\()_\SCALED\()_offset_loop_epilogue:
+  brnzdec $offsetSize, .LFloat_\OPTYPE\()_\SCALED\()_offset_loop
 
-.Lfloat_epilogue:
+.Lfloat_\OPTYPE\()_\SCALED\()_epilogue:
   exitz $mzero
-.size VERTEX(float), . - VERTEX(float)
+.ifc \SCALED, true
+.size SCALED_CODELET_NAME(float), . -  SCALED_CODELET_NAME(float)
+.else
+.size  UNSCALED_CODELET_NAME(float), . - UNSCALED_CODELET_NAME(float)
+.endif
+.endm
 
-.globl VERTEX(half)
-.type VERTEX(half), @function
+.macro CODELET_FUNCTION_HALF OPTYPE, SCALED
 
-DEF_STACK_USAGE 0 VERTEX(half)
-.section .text.VERTEX(half)
+.ifc \SCALED, true
+.type SCALED_CODELET_NAME(half), @function
+DEF_STACK_USAGE 0 SCALED_CODELET_NAME(half)
+.section .text.SCALED_CODELET_NAME(half)
+.globl SCALED_CODELET_NAME(half)
+.else 
+.type UNSCALED_CODELET_NAME(half), @function
+DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(half)
+.section .text.UNSCALED_CODELET_NAME(half)
+.globl UNSCALED_CODELET_NAME(half)
+.endif
 .align 8
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   nop // rpt loop aligment
 #endif
-VERTEX(half):
+.ifc \SCALED, true
+SCALED_CODELET_NAME(half):
+.else
+UNSCALED_CODELET_NAME(half):
+.endif
   // load vertex state, do a size check on offsets
   ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
   {
-    brz $offsetSize, .Lhalf_epilogue
+    brz $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_epilogue
     setzi $a0, ZAACC_BITMASK
   }
 
@@ -212,7 +285,9 @@ VERTEX(half):
 #else
   ld32  $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET/4
 #endif
-  ld32 $mscratch, $mzero, $mvertex_base, VERTEX_STATE_STATE_OFFSET/4
+
+.ifc \SCALED, true
+   ld32 $mscratch, $mzero, $mvertex_base, VERTEX_STATE_SCALE_OFFSET/4
 
   // load scale and place {1, scale} into the $TAS CSR
   {
@@ -223,14 +298,6 @@ VERTEX(half):
     ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET/2
     sort4x16lo $scale, $a0, $scale
   }
-
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-  // expand the SCALED_PTR32 pointer
-  setzi $mscratch, TMEM_REGION0_BASE_ADDR
-  shl $baseTPtr, $baseTPtr, SCALED_PTR32_SHL_BITS
-  add $baseTPtr, $baseTPtr, $mscratch
-#endif
-
   // we process 32-bits at a time so halve the region size. the host code must
   // enforce this. finally minus 1 from the result because we pipeline it.
   // also as we don't have an f16v2mix instruction need to zero the odd
@@ -239,6 +306,21 @@ VERTEX(half):
     shr $regionSizeM1, $regionSize, 1
     uput $TAS, $scale
   }
+.else
+  ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET/2
+  {
+    shr $regionSizeM1, $regionSize, 1
+    fnop
+  }
+.endif
+
+#if defined(VECTOR_AVAIL_SCALED_PTR32)  
+  // expand the SCALED_PTR32 pointer
+  setzi $mscratch, TMEM_REGION0_BASE_ADDR
+  shl $baseTPtr, $baseTPtr, SCALED_PTR32_SHL_BITS
+  add $baseTPtr, $baseTPtr, $mscratch
+#endif
+
   {
     sub $regionSizeM1, $regionSizeM1, 1
     zero $a1
@@ -256,7 +338,7 @@ VERTEX(half):
   add $baseTPtr, $baseTPtr, $wkrStart
 
   sub $offsetSize, $offsetSize, 1
-.Lhalf_offset_loop:
+.Lhalf_\OPTYPE\()_\SCALED\()_offset_loop:
   ld32 $baseIdx, $offsetPtr, $mzero, $offsetSize
 
   sub $baseIdx, $baseIdx, $baseOffset
@@ -265,7 +347,7 @@ VERTEX(half):
   // note: this overflow relies on baseIdx and numBaseElements being smaller
   // then 2^31.
   cmpult $mscratch, $baseIdx, $numBaseElements
-  brz $mscratch, .Lhalf_offset_loop_epilogue
+  brz $mscratch, .Lhalf_\OPTYPE\()_\SCALED\()_offset_loop_epilogue
 
   // correct baseIdx to the current offset and move it onto the correct region
   mul $baseIdx, $baseIdx, $regionBytesOffset
@@ -276,7 +358,8 @@ VERTEX(half):
   // load from the first two pointers.
   ld32 $a0, $baseTPtr, $baseIdx, 0
   ld32step $a2, $subTPtr, $subTOffset+=, 1
-
+.ifc \SCALED, true
+.ifc \OPTYPE, ADD
   {
     rpt $regionSizeM1, (2f-1f)/8-1
     f16v4mix $azeros, $a0:1, $a2:3
@@ -297,13 +380,58 @@ VERTEX(half):
 2:
   // process the final element
   f16v4mix $a4:5, $azeros, $azeros
+.else // .ifc \OPTYPE, ADD
+.error "Scaled variant of multiUpdateOp is only supported for operand type ADD"
+.endif // .ifc \OPTYPE, ADD
+
+.else // .ifc \SCALED, true
+
+.ifc \OPTYPE, MAX
+
+  {
+    rpt $regionSizeM1, (2f-1f)/8-1
+    f16v2max $a4, $a0, $a2
+  }
+1:
+  {
+    ld32step $a2, $subTPtr, $subTOffset+=, 1
+    fnop
+  }
+  {
+    ld32 $a0, $baseTPtr, $baseIdx, 1
+    fnop
+  }
+  {
+    st32step $a4, $baseTPtr, $baseIdx+=, 1
+    f16v2max $a4, $a0, $a2
+  }
+2:
+
+.else // .ifc \OPTYPE, MAX
+.error "Non-scaled variant of multiUpdateOp is only supported for operand type MAX"
+.endif // .ifc \OPTYPE, MAX
+
+.endif // .ifc \SCALED, true
+
   st32 $a4, $baseTPtr, $baseIdx, 0
 
-.Lhalf_offset_loop_epilogue:
-  brnzdec $offsetSize, .Lhalf_offset_loop
+.Lhalf_\OPTYPE\()_\SCALED\()_offset_loop_epilogue:
+  brnzdec $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_offset_loop
 
-.Lhalf_epilogue:
+.Lhalf_\OPTYPE\()_\SCALED\()_epilogue:
   exitz $mzero
-.size VERTEX(half), . - VERTEX(half)
+.ifc \SCALED, true
+.size SCALED_CODELET_NAME(half), . - SCALED_CODELET_NAME(half)
+.else
+.size UNSCALED_CODELET_NAME(half), . -  UNSCALED_CODELET_NAME(half)
+.endif
+.endm
+
+// Instantiate workers
+CODELET_FUNCTION_FLOAT ADD true
+CODELET_FUNCTION_HALF ADD true
+CODELET_FUNCTION_FLOAT MAX false
+CODELET_FUNCTION_HALF MAX false
+
 
 #endif // __IPU__
