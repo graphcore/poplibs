@@ -122,8 +122,7 @@ Variable Model::addVariable(DataType min, DataType max,
 }
 
 Variable Model::addVariable(const std::string &debugName) {
-  return addVariable(popsolver::DataType{0},
-                     DataType::max() - popsolver::DataType{1}, debugName);
+  return addVariable(popsolver::DataType{0}, DataType::max(), debugName);
 }
 
 Variable Model::addVariable(DataType::UnderlyingType min,
@@ -275,6 +274,14 @@ void Model::less(DataType left, Variable right) {
   less(leftVar, right);
 }
 
+Variable Model::reifiedLess(Variable left, Variable right) {
+  // For the condition to be true, (right - min(left, right)) > 0.
+  // We can therefore calculate (right - min(left, right)), and
+  // max out the value at 1 i.e.:
+  // min(1, right - min(left, right))
+  return min({one(), sub(right, min({left, right}))});
+}
+
 void Model::lessOrEqual(Variable left, Variable right) {
   auto p = std::unique_ptr<Constraint>(new LessOrEqual(left, right));
   addConstraint(std::move(p));
@@ -290,6 +297,14 @@ void Model::lessOrEqual(DataType left, Variable right) {
   lessOrEqual(leftVar, right);
 }
 
+Variable Model::reifiedLessOrEqual(Variable left, Variable right) {
+  // For the condition to be false, left - min(left, right) > 0.
+  // We can therefore calculate left - min(left, right),
+  // max out the value at 1, and invert it i.e.:
+  // 1 - min(1, left - min(left, right)).
+  return sub(one(), min({one(), sub(left, min({left, right}))}));
+}
+
 void Model::equal(Variable left, Variable right) {
   auto p = std::unique_ptr<Constraint>(new Sum(left, {right}));
   addConstraint(std::move(p));
@@ -301,6 +316,14 @@ void Model::equal(DataType left, Variable right) {
 
 void Model::equal(Variable left, DataType right) {
   equal(left, addConstant(right));
+}
+
+Variable Model::reifiedEqual(Variable left, Variable right) {
+  // For the condition to be false max(left, right) - min(left, right) > 0.
+  // We can therefore calculate max(left, right) - min(left, right),
+  // max out the value at 1, and invert it i.e.:
+  // 1 - min(1, (max(left, right) - min(left, right))).
+  return sub(one(), min({one(), sub(max({left, right}), min({left, right}))}));
 }
 
 void Model::factorOf(DataType left_, Variable right) {
@@ -315,6 +338,16 @@ void Model::factorOf(Variable left, Variable right) {
       addVariable(makeParameterisedOpDebugName({left, right}, "factorOf"));
   equal(left, product({result, right}));
 }
+
+Variable Model::booleanOr(Variable left, Variable right) {
+  return min({one(), sum({min({left, one()}), min({right, one()})})});
+}
+
+Variable Model::booleanAnd(Variable left, Variable right) {
+  return min({one(), product({min({left, one()}), min({right, one()})})});
+}
+
+Variable Model::booleanNot(Variable v) { return sub(one(), min({v, one()})); }
 
 template <typename T>
 Variable Model::call(
@@ -381,7 +414,7 @@ Model::minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
   boost::optional<Variable> v;
   const auto numVars = domains.size();
   for (std::size_t i = 0; i != numVars; ++i) {
-    if (domains[Variable(i)].size() > popsolver::DataType{1} &&
+    if (domains[Variable(i)].size() != popsolver::DataType{0} &&
         (!v || lhsIsHigherPriority(Variable(i), *v))) {
       v = Variable(i);
     }

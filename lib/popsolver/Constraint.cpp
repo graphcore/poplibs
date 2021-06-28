@@ -325,7 +325,7 @@ template <> bool GenericAssignment<DataType>::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
   for (std::size_t i = 1; i != vars.size(); ++i) {
     const auto domain = domains[vars[i]];
-    if (domain.size() > popsolver::DataType{1}) {
+    if (domain.size() != DataType{0}) {
       return true;
     }
     values[i - 1] = domain.val();
@@ -368,7 +368,7 @@ bool GenericAssignment<T>::propagate(Scheduler &scheduler) {
 
   for (std::size_t i = 1; i != vars.size(); ++i) {
     const auto domain = domains[vars[i]];
-    if (domain.size() > popsolver::DataType{1}) {
+    if (domain.size() != popsolver::DataType{0}) {
       return true;
     }
     values[i - 1] = domain.val();

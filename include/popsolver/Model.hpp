@@ -181,7 +181,8 @@ public:
     assert(min_ == max_);
     return min_;
   }
-  DataType size() const { return max_ - min_ + DataType{1}; }
+  // When min == max, size() returns 0.
+  DataType size() const { return max_ - min_; }
 };
 
 class Domains {
@@ -305,6 +306,9 @@ public:
   void less(Variable left, DataType right);
   /// Constrain the left constant to be less than the right variable.
   void less(DataType left, Variable right);
+  /// Reified version of < constraint such that the returned variable
+  /// has value (left < right) ? 1 : 0.
+  Variable reifiedLess(Variable left, Variable right);
   /// Constrain the left variable to be less than or equal to the right
   /// variable.
   void lessOrEqual(Variable left, Variable right);
@@ -314,16 +318,32 @@ public:
   /// Constrain the left constant to be less than or equal to the right
   /// variable.
   void lessOrEqual(DataType left, Variable right);
+  /// Reified version of <= constraint such that the returned variable
+  /// has value (left <= right) ? 1 : 0.
+  Variable reifiedLessOrEqual(Variable left, Variable right);
   /// Constrain the left variable to be equal to the right variable.
   void equal(Variable left, Variable right);
   /// Constrain the left variable to be equal to the right constant.
   void equal(Variable left, DataType right);
   /// Constrain the left constant to be equal to the right variable.
   void equal(DataType left, Variable right);
+  /// Reified version of == constraint such that the returned variable
+  /// has value (left == right) ? 1 : 0.
+  Variable reifiedEqual(Variable left, Variable right);
   /// Constrain the right variable to be a factor of the left constant.
   void factorOf(DataType left, Variable right);
   /// Constrain the right variable to be a factor of the left variable.
   void factorOf(Variable left, Variable right);
+  /// Returns a variable with value given by the boolean or of the two
+  /// given variables.
+  Variable booleanOr(Variable left, Variable right);
+  /// Returns a variable with value given by the boolean and of the two
+  /// given variables.
+  Variable booleanAnd(Variable left, Variable right);
+  /// Returns a variable with value given by the boolean negation of the
+  /// given variable.
+  Variable booleanNot(Variable v);
+
   /// Add a new variable that is the result of applying the specified function
   /// to the specified variables. Input variable domains are restricted to be
   /// at most the range of T.
