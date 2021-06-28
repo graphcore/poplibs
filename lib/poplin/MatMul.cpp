@@ -707,20 +707,7 @@ poplar::Tensor matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
 
 // Gives the serialisation of the the output matrix as a result of doing
 // a grouped matmul.
-std::tuple<unsigned, unsigned, unsigned> groupedMatMulOutputSerialSplits(
-    const poplar::Graph &graph, const Type &inputType, const Type &outputType,
-    const std::vector<std::size_t> &aShape,
-    const std::vector<std::size_t> &bShape, const poplar::OptionFlags &options_,
-    matmul::PlanningCache *cache) {
-  const auto options = parseMatMulOptions(options_);
-  auto convOptions = getConvOptionFlags(options);
-  auto convParams = getConvParams(inputType, outputType, aShape, bShape);
-  poplin::PlanningCache *linCache = getLinCache(cache);
-  return poplin::getMatMulSerialSplits(graph, convParams, convOptions,
-                                       linCache);
-}
-
-std::pair<unsigned, unsigned> matMulOutputSerialSplits(
+poplibs_support::PlanConstraints groupedMatMulPlanConstraints(
     const poplar::Graph &graph, const Type &inputType, const Type &outputType,
     const std::vector<std::size_t> &aShape_,
     const std::vector<std::size_t> &bShape_,
@@ -729,9 +716,11 @@ std::pair<unsigned, unsigned> matMulOutputSerialSplits(
   aShape.insert(aShape.begin(), 1);
   auto bShape = bShape_;
   bShape.insert(bShape.begin(), 1);
-  auto serialSplits = groupedMatMulOutputSerialSplits(
-      graph, inputType, outputType, aShape, bShape, options_, cache);
-  return std::make_pair(std::get<1>(serialSplits), std::get<2>(serialSplits));
+  const auto options = parseMatMulOptions(options_);
+  auto convOptions = getConvOptionFlags(options);
+  auto convParams = getConvParams(inputType, outputType, aShape, bShape);
+  poplin::PlanningCache *linCache = getLinCache(cache);
+  return getPlanConstraints(graph, convParams, convOptions, linCache);
 }
 
 void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,

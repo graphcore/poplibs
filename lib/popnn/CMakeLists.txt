@@ -76,6 +76,8 @@ target_include_directories(popnn
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   PRIVATE
+    # Needed for popsparse to access ConvPlan Constraints.
+    $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>
     .
 )
 

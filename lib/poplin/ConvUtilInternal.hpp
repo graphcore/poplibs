@@ -288,6 +288,12 @@ ConvOptions getGradientOptions(ConvOptions fwdOptions);
 
 std::string convSuffix(const CanonicalConvParams &params);
 
+/// Various places assume there are at least two dimensions. In particular
+/// code related to the nx1ConvPartial vertex has special handling for the
+/// outermost dimension and special handling for the innermost dimension
+/// and there is an assumption that these two dimensions are distinct.
+std::size_t calculateExtraFieldDims(std::size_t numFieldDims);
+
 } // End namespace poplin
 
 #endif // poplin_ConvUtilInternal_hpp
