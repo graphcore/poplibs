@@ -1,7 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 /** \file
  *
- * Define types of operations used in a reduce.
+ * Read/write types of operations used in a reduce.
  *
  */
 
@@ -13,12 +13,12 @@
 
 namespace popops {
 
-/// Parse token from input stream \is to \op. Valid input values are the
+/// Parse token from input stream \p is to \p op. Valid input values are the
 /// stringified enumerations, for example "ADD" or "MUL".
 /// \return The original input stream.
 std::istream &operator>>(std::istream &is, Operation &op);
 
-/// Write \op to output stream \os. The value written is the stringified
+/// Write \p op to output stream \p os. The value written is the stringified
 /// enumeration, for example "ADD" or "MUL".
 /// \return The original output stream.
 std::ostream &operator<<(std::ostream &os, const Operation &op);
