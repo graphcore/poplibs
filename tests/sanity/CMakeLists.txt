@@ -28,14 +28,6 @@ if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
                        PROPERTIES FIXTURES_SETUP IpuIsAvailable)
 endif()
 
-function (add_ipu_hw_test version)
-  add_test(NAME CheckIpuHw${version}Available
-        COMMAND EnumerateDevices --;ipu${version}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
-  set_tests_properties(CheckIpuHw${version}Available
-        PROPERTIES FIXTURES_SETUP Ipu${version}IsAvailable)
-endfunction()
-
 # TODO T35912: re-enable once this test passes on a POD16
 # add_unit_test(WrongSyncZone
 #               HangTest.cpp

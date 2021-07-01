@@ -1,6 +1,7 @@
 {
   "dependencies" : [
     "boost",
+    "gccs",
     "libpva",
     "libpvti",
     "poplar",
