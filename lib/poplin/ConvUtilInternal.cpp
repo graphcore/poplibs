@@ -968,8 +968,4 @@ ConvOptions getGradientOptions(ConvOptions fwdOptions) {
   return fwdOptions;
 }
 
-std::size_t calculateExtraFieldDims(std::size_t numFieldDims) {
-  return (numFieldDims < 2) ? (2 - numFieldDims) : 0;
-}
-
 } // namespace poplin

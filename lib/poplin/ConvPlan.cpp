@@ -811,7 +811,6 @@ void validatePlanConstraints(
     const ConvParams &params,
     const poplibs_support::PlanConstraints &planConstraints,
     const std::size_t numLevels) {
-  // T40279: Add bound checking for `fieldSplit` and `kernelSplit`.
   const struct {
     std::string key;
     bool checkKey; // If false, each element of value array will be validated.
@@ -819,6 +818,8 @@ void validatePlanConstraints(
   } keysToCheck[] = {
       {"transform.expandDims", false, params.getNumFieldDims()},
       {"transform.outChanFlattenDims", false, params.getNumFieldDims()},
+      {"partition.fieldSplit", true, params.getNumFieldDims()},
+      {"partition.kernelSplit", true, params.kernelShape.size()},
   };
 
   auto isNumeric = [](const std::string &text) -> bool {
@@ -977,13 +978,19 @@ createPlan(const ConvParams &params, const ConvOptions &options,
 
   std::vector<ConvTransform> transforms(numLevels);
   const auto ipuLevel = transforms.size() - 2;
+  unsigned addedFieldDims = 0;
   auto numFieldDims = params.getNumFieldDims();
-  transforms[0].extraFieldDims = calculateExtraFieldDims(numFieldDims);
   auto paramsWithExtraDims = params;
-  if (transforms[0].extraFieldDims) {
-    addExtraDims(paramsWithExtraDims, transforms[0].extraFieldDims);
-    numFieldDims += transforms[0].extraFieldDims;
+  if (numFieldDims < 2) {
+    // Various places assume there are at least two dimensions. In particular
+    // code related to the nx1ConvPartial vertex has special handling for the
+    // outermost dimension and special handling for the innermost dimension
+    // and there is an assumption that these two dimensions are distinct.
+    addedFieldDims = 2 - numFieldDims;
+    addExtraDims(paramsWithExtraDims, addedFieldDims);
+    numFieldDims = 2;
   }
+  transforms[0].extraFieldDims = addedFieldDims;
   transforms[0].dilatePostConv =
       getDilatePostConvDims(paramsWithExtraDims, options);
   const auto paramsWithDeferredDilation = calculateParamsWithDeferredDilation(
@@ -1422,8 +1429,8 @@ createPlan(const ConvParams &params, const ConvOptions &options,
   return {jointPlan, jointCost};
 }
 
-static PlanConstraints getPlanConstraints(const Plan &plan) {
-  PlanConstraints constraints;
+void writePlanConstraintsFile(const Plan &plan, const std::string filePath) {
+  boost::property_tree::ptree constraints;
   const auto constrainValues = [&](const std::string &keySuffix,
                                    const std::vector<unsigned> &values) {
     for (std::size_t i = 0; i < values.size(); ++i) {
@@ -1448,8 +1455,7 @@ static PlanConstraints getPlanConstraints(const Plan &plan) {
     constraints.add(keySuffix + "swapOperands", t.swapOperands);
     constrainArray(keySuffix + "expandDims", t.expandDims);
     constrainArray(keySuffix + "outChanFlattenDims", t.outChanFlattenDims);
-    constrainArray(keySuffix + "combineConvGroupsFactor",
-                   {t.combineConvGroupsFactor});
+    constraints.add(keySuffix + "combineConvGroups", t.combineConvGroupsFactor);
   }
 
   // Partitions
@@ -1471,21 +1477,7 @@ static PlanConstraints getPlanConstraints(const Plan &plan) {
   constraints.add("convGroupsPerGroup", plan.convGroupsPerGroup);
   constraints.add("inChansPerGroup", plan.inChansPerGroup);
   constraints.add("partialChansPerGroup", plan.partialChansPerGroup);
-  return constraints;
-}
 
-PlanConstraints getPlanConstraints(const poplar::Graph &graph,
-                                   const ConvParams &params,
-                                   const poplar::OptionFlags &options_,
-                                   PlanningCache *cache) {
-  const ConvOptions options(options_);
-  auto plan = getPlan(graph.getTarget(), params, options, cache);
-  return getPlanConstraints(plan);
-}
-
-static void writePlanConstraintsFile(const Plan &plan,
-                                     const std::string filePath) {
-  auto constraints = getPlanConstraints(plan);
   boost::property_tree::write_json(filePath, constraints);
 }
 
@@ -2085,44 +2077,6 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
     return {*highestCost.totalCycles, *highestCost.totalTempBytes};
   }
   return {*s[e.totalCycles], *s[e.totalTempBytes]};
-}
-
-std::tuple<unsigned, unsigned, unsigned, unsigned>
-getMatMulSerialSplits(poplibs_support::PlanConstraints &planConstraints) {
-  unsigned leftSplit = 1U, rightSplit = 1U, groupSplit = 1U, innerSplit = 1U;
-  auto maxLevel =
-      std::max_element(
-          planConstraints.begin(), planConstraints.end(),
-          [](const auto &lhs_, const auto &rhs_) {
-            auto lhs = std::isdigit(lhs_.first[0]) ? std::stoul(lhs_.first) : 0;
-            auto rhs = std::isdigit(rhs_.first[0]) ? std::stoul(rhs_.first) : 0;
-            return lhs < rhs;
-          })
-          ->first;
-  unsigned numLevels = std::stoul(maxLevel) + 1;
-  auto getBoolConstraint = [&](const unsigned level, const std::string &field) {
-    return planConstraints.get_optional<bool>(std::to_string(level) +
-                                              ".transform." + field);
-  };
-  auto getUnsignedConstraint = [&](const unsigned level,
-                                   const std::string &field) {
-    return planConstraints.get_optional<unsigned>(std::to_string(level) +
-                                                  ".partition." + field);
-  };
-  auto getSplit = [&](const unsigned level, const std::string &field) {
-    const auto constraint = getUnsignedConstraint(level, field);
-    return constraint ? *constraint : 1;
-  };
-  for (unsigned level = 0; level < numLevels; ++level) {
-    auto outChanSerialSplit = getSplit(level, "outChanSplit.serial");
-    if (getBoolConstraint(level, "swapOperands")) {
-      rightSplit *= outChanSerialSplit;
-    } else {
-      leftSplit *= outChanSerialSplit;
-    }
-    innerSplit *= getSplit(level, "inChanSplit.serial");
-  }
-  return std::make_tuple(groupSplit, leftSplit, rightSplit, innerSplit);
 }
 
 } // namespace poplin

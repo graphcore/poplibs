@@ -102,8 +102,6 @@ int main(int argc, char **argv) {
   unsigned sequenceSize, inputSize, outputSize;
   unsigned batchSize = 1;
   unsigned stepsPerWU = 1;
-  double weightUpdateMemoryProportion = 0.0;
-  bool disableWUPartialInterleaving = false;
   unsigned numShards = 1;
   bool codeReuse = false;
 
@@ -160,13 +158,8 @@ int main(int argc, char **argv) {
       "Input and output data type")
     ("batch-size", po::value<unsigned>(&batchSize)->default_value(batchSize),
       "Batch size")
-    ("steps-per-wu", po::value<unsigned>(&stepsPerWU),
+    ("steps-per-wu", po::value<unsigned>(&stepsPerWU)->default_value(stepsPerWU),
       "Steps per Weight Update")
-    ("wu-memory-proportion", po::value<double>(&weightUpdateMemoryProportion),
-     "What percentage of memory is available to the operation for LSTM "
-     "temporary use")
-    ("disable-wu-partial-interleaving", po::value<bool>(&disableWUPartialInterleaving),
-      "Limit WU interleaving to either full or none")
     ("partials-type",
      po::value<Type>(&partialsType),
      "Type of the partials")
@@ -327,14 +320,6 @@ int main(int argc, char **argv) {
   auto bwdOptions = fwdOptions;
   if (!vm["steps-per-wu"].empty()) {
     bwdOptions.set("rnnStepsPerWU", std::to_string(stepsPerWU));
-  }
-  if (!vm["wu-memory-proportion"].empty()) {
-    bwdOptions.set("weightUpdateMemoryProportion",
-                   std::to_string(weightUpdateMemoryProportion));
-  }
-  if (!vm["disable-wu-partial-interleaving"].empty()) {
-    bwdOptions.set("disableWUPartialInterleaving",
-                   disableWUPartialInterleaving ? "true" : "false");
   }
 
   auto input = lstm::createInput(graph, params, "input", fwdOptions, &cache);
@@ -623,8 +608,7 @@ int main(int argc, char **argv) {
     }
 
     boost::multi_array<double, 3> matImpl(
-        boost::extents[params.outputFullSequence ? sequenceSize : 1][batchSize]
-                      [outputSize]);
+        boost::extents[sequenceSize][batchSize][outputSize]);
     copy(target, dataType, rawHostNextAct.get(), matImpl);
     if (params.outputFullSequence) {
       for (auto s = 0U; s != sequenceSize; ++s) {

@@ -1,14 +1,11 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/Tracepoint.hpp"
 #include <cmath>
-#include <poplibs_support/Algorithm.hpp>
-#include <poplibs_support/PlanConstraints.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/Lstm.hpp>
 #include <popnn/NonLinearityDef.hpp>
 #include <popops/Cast.hpp>
 
-#include "MatMulInternal.hpp"
 #include "RnnUtil.hpp"
 #include "poplin/FullyConnected.hpp"
 
@@ -49,8 +46,6 @@ enum BwdStateTensorElems {
   LSTM_NUM_BWD_STATES
 };
 
-namespace ph = std::placeholders;
-
 namespace { // Anonymous namespace
 bool isCSNotSupported(popnn::NonLinearityType nl) {
   return (nl == popnn::NonLinearityType::SOFTMAX ||
@@ -61,21 +56,20 @@ bool isCSNotSupported(popnn::NonLinearityType nl) {
 
 expr::BinaryOp
 fusedNonLinearityMulInPlaceExpr(NonLinearityType nonLinearityType) {
+  using namespace popops::expr;
+
   switch (nonLinearityType) {
   case NonLinearityType::SIGMOID:
-    return expr::_1 * expr::Sigmoid(expr::_2);
+    return _1 * Sigmoid(_2);
 
   case NonLinearityType::HARD_SIGMOID:
-    return expr::_1 *
-           expr::Max(expr::Const(0),
-                     expr::Min(expr::Const(1), expr::Const(0.2f) * expr::_2 +
-                                                   expr::Const(0.5f)));
+    return _1 * Max(Const(0), Min(Const(1), Const(0.2f) * _2 + Const(0.5f)));
 
   case NonLinearityType::RELU:
-    return expr::_1 * expr::Max(expr::_2, expr::Const(0));
+    return _1 * Max(_2, Const(0));
 
   case NonLinearityType::TANH:
-    return expr::_1 * expr::Tanh(expr::_2);
+    return _1 * Tanh(_2);
 
   default:
     throw poputil::poplibs_error("Cannot compute expression for nonLinearity");
@@ -234,8 +228,6 @@ struct LstmOpts {
   boost::optional<std::size_t> numShards;
   boost::optional<bool> rnnCodeReuse;
   boost::optional<unsigned> rnnStepsPerWU;
-  boost::optional<double> weightUpdateMemoryProportion;
-  bool disableWUPartialInterleaving;
 };
 
 std::map<std::string, poplar::Type> partialsTypeMap{{"half", poplar::HALF},
@@ -277,8 +269,6 @@ static LstmOpts parseOptions(const OptionFlags &options,
   lstmOpts.recomputationMode = LstmRecomputationMode::None;
   lstmOpts.numShards = boost::none;
   lstmOpts.rnnCodeReuse = boost::none;
-  lstmOpts.weightUpdateMemoryProportion = boost::none;
-  lstmOpts.disableWUPartialInterleaving = false;
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec lstmSpec{
@@ -299,10 +289,6 @@ static LstmOpts parseOptions(const OptionFlags &options,
       {"rnnCodeReuse", OptionHandler::createWithBool(lstmOpts.rnnCodeReuse)},
       {"rnnStepsPerWU",
        OptionHandler::createWithInteger(lstmOpts.rnnStepsPerWU)},
-      {"weightUpdateMemoryProportion",
-       OptionHandler::createWithDouble(lstmOpts.weightUpdateMemoryProportion)},
-      {"disableWUPartialInterleaving",
-       OptionHandler::createWithBool(lstmOpts.disableWUPartialInterleaving)},
   };
   for (const auto &entry : options) {
     lstmSpec.parse(entry.first, entry.second);
@@ -1010,16 +996,17 @@ static Tensor lstmFwd(Graph &graph, const LstmParams &params,
               weights.outputWeights, loop, opt, opt.inferenceOnly, params,
               {dnai}, cache);
           if (slice.interimOut.valid()) {
+            using namespace popops::expr;
             if (batchwiseFlags.valid()) {
               auto mask = batchwiseFlags.mask.expand({1});
-              mapInPlace(graph, expr::_1 * expr::_2,
-                         {internalState.forgetGate, mask}, loop, {dnai});
-              mapInPlace(graph, expr::_1 * expr::_2,
-                         {internalState.inputGate, mask}, loop, {dnai});
-              mapInPlace(graph, expr::_1 * expr::_2,
-                         {internalState.candidate, mask}, loop, {dnai});
-              mapInPlace(graph, expr::_1 * expr::_2,
-                         {internalState.outputGate, mask}, loop, {dnai});
+              mapInPlace(graph, _1 * _2, {internalState.forgetGate, mask}, loop,
+                         {dnai});
+              mapInPlace(graph, _1 * _2, {internalState.inputGate, mask}, loop,
+                         {dnai});
+              mapInPlace(graph, _1 * _2, {internalState.candidate, mask}, loop,
+                         {dnai});
+              mapInPlace(graph, _1 * _2, {internalState.outputGate, mask}, loop,
+                         {dnai});
             }
             auto fwdIntermediates = getFwdIntermediatesToSave(
                 state, newState, internalState, opt, params);
@@ -1314,27 +1301,11 @@ basicLstmParamUpdate(Graph &graph, const Tensor &prevLayerActs,
                      const Tensor &prevStepActs, const Tensor &bwdIntermediates,
                      const unsigned stepSize, LstmWeights &weightGrads,
                      Sequence &prog, const LstmOpts &opt,
-                     const boost::optional<PlanConstraints> &planConstraints,
                      const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   logging::popnn::debug("basicLstmParamUpdate begin {}", dnai.getPathName());
   const std::string fPrefix = "LstmDeltas";
   auto mmOpt = getMMOpts(opt);
-  mmOpt.set("fullyConnectedPass",
-            (stepSize > 1) ? "INFERENCE_FWD" : "TRAINING_WU");
-
-  // Configure matmul options with plan constraints
-  if (planConstraints) {
-    assert(stepSize > 1);
-    std::ostringstream constraints;
-    boost::property_tree::write_json(constraints, *planConstraints);
-    mmOpt.set("planConstraints", constraints.str());
-
-    // The plan constraints were created based on a given memory proportion
-    // and are being applied to the following matmul. The memory proportion
-    // is relaxed here in order to ensure that the same plan is used.
-    mmOpt.set("availableMemoryProportion", std::to_string(1.0));
-  }
-
+  mmOpt.set("fullyConnectedPass", "TRAINING_WU");
   auto allWeights = concat(flattenUnits(weightGrads.inputWeights),
                            flattenUnits(weightGrads.outputWeights));
   auto activationsTr =
@@ -1455,114 +1426,7 @@ static bool interleavedWUIsBeneficial(const LstmParams &params) {
   const auto totalBwdIntermediates = batchSize * outputSize *
                                      BASIC_LSTM_CELL_NUM_UNITS *
                                      params.rnn.maxTimeSteps;
-  logging::popnn::debug("interleavedWUIsBeneficial totalTransposeParams={} "
-                        "totalBwdIntermediates={}",
-                        totalTransposeParams, totalBwdIntermediates);
   return totalTransposeParams <= totalBwdIntermediates;
-}
-
-// Return time step interval for weight update. Return zero if no suitable
-// interval was found.
-static std::pair<std::size_t, boost::optional<PlanConstraints>>
-interleaveWUCadence(const Graph &graph, const LstmParams &params,
-                    const LstmOpts &options,
-                    poplin::matmul::PlanningCache *cache) {
-  boost::optional<PlanConstraints> planConstraints{boost::none};
-  auto target = graph.getTarget();
-  const auto batchSize = params.rnn.batchSize;
-  const auto inputSize = params.rnn.layerSizes[0];
-  const auto outputSize = params.rnn.layerSizes[1];
-  const auto dataType = params.rnn.dataType;
-  const auto accumType = options.accumulatorsType;
-  const auto bwdIntermPerStep =
-      params.rnn.getOutputBytesPerTile(graph) * BASIC_LSTM_CELL_NUM_UNITS;
-
-  unsigned stepsPerWU = 0;
-  if (options.disableWUPartialInterleaving) {
-    // Weight Update Partial Interleaving could be optionally disabled by the
-    // user if legacy behaviour is required. In this case if interleaving is
-    // found to be preferable, the weight update interval size is limited to 1.
-    stepsPerWU = interleavedWUIsBeneficial(params) ? 1 : 0;
-    return std::make_pair(stepsPerWU, planConstraints);
-  }
-
-  // User override if required.
-  if (options.rnnStepsPerWU) {
-    stepsPerWU = *options.rnnStepsPerWU;
-    logging::popnn::debug("interleaveWUCadence stepsPerWUoverride={}",
-                          stepsPerWU);
-    return std::make_pair(stepsPerWU, planConstraints);
-  }
-
-  // Available tile memory
-  auto tileMemory = target.getBytesPerTile();
-  double memoryPropLstm = options.weightUpdateMemoryProportion.value_or(0.2);
-  auto availableMemory = static_cast<unsigned>(tileMemory * memoryPropLstm);
-
-  // Limit the BWD intermediates to use not more than 10% of available memory.
-  auto bwdIntermMemory = static_cast<unsigned>(0.1 * availableMemory);
-  auto maxSteps =
-      std::min(params.rnn.maxTimeSteps, bwdIntermMemory / bwdIntermPerStep);
-
-  // Avoid weight update interleaving if Bwd intermediates takes too much memory
-  if (maxSteps == 0) {
-    return std::make_pair(0, planConstraints);
-  }
-
-  // Reduce available tile memory to account for Backward intermediates
-  auto bwdInterm = bwdIntermPerStep * maxSteps;
-  availableMemory -= bwdInterm;
-  double memoryPropMatMul = 1.0 * availableMemory / tileMemory;
-
-  OptionFlags mmOpt = {
-      {"partialsType", options.partialsType.toString()},
-  };
-  mmOpt.set("availableMemoryProportion", std::to_string(memoryPropMatMul));
-  mmOpt.set("fullyConnectedPass", "INFERENCE_FWD");
-
-  const auto dataPathWidth =
-      target.getDataPathWidth() / (target.getTypeSize(dataType) * 8);
-
-  // Round the time steps to the data type size in order to minimise
-  // rearrangement costs.
-  auto numSteps = roundDown(maxSteps, dataPathWidth);
-
-  // Get planConstraints
-  planConstraints.emplace(poplin::groupedMatMulPlanConstraints(
-      graph, dataType, accumType,
-      {inputSize + outputSize, numSteps * batchSize},
-      {numSteps * batchSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize}, mmOpt,
-      cache));
-
-  // Get inner dimension serialisation for the matmul.
-  auto serialSplits = getMatMulSerialSplits(*planConstraints);
-  unsigned inputChanSerialSplit = std::get<3>(serialSplits);
-
-  if (inputChanSerialSplit < numSteps) {
-    // The Weight Update time steps are along the inner dimension of the matmul.
-    // Use the obtained plan to execute one weight update per input channel
-    // serial split. Therefore modify the inChanSplit.serial constraint to 1.
-    planConstraints->put<unsigned>("0.partition.inChanSplit.serial", 1);
-
-    // The accumulating dimension of matrix multiplication is the product
-    // of number of weight update steps and batchSize. The weight update steps
-    // are estimated after removing the batchSize factor.
-    stepsPerWU = numSteps / inputChanSerialSplit;
-
-    // Round the steps per WU to a multiple of the data type size.
-    stepsPerWU = roundDown(stepsPerWU, dataPathWidth);
-  } else {
-    planConstraints = boost::none;
-    stepsPerWU = 1;
-  }
-
-  logging::popnn::debug(
-      "interleaveWUCadence maxStepsPerWU={} inputChanSerialSplit={} "
-      "stepsPerWU={} memProp=(lstm={}, matmul={}) ",
-      maxSteps, inputChanSerialSplit, stepsPerWU, memoryPropLstm,
-      memoryPropMatMul);
-
-  return std::make_pair(stepsPerWU, planConstraints);
 }
 
 static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
@@ -1667,8 +1531,6 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
             const Tensor &fwdOutput, const Tensor &gradLayerNext,
             const Tensor *lastCellStateGradPtr, Tensor *inputGradSeq,
             Tensor *bwdIntermediatesPtr, LstmWeights *weightsGrad,
-            const boost::optional<unsigned> &stepsPerWU,
-            const boost::optional<PlanConstraints> &wuPlanConstraints,
             const DebugNameAndId &dnai, const LstmOpts &options,
             poplin::matmul::PlanningCache *cache) {
   auto numShards = getNumShards(graph, params, options, {dnai, "numShards"});
@@ -1731,7 +1593,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
         }
         return loop;
       };
-  auto updateWU = [&params, &options, &wuPlanConstraints, &stepsPerWU,
+  auto updateWU = [&params, &options,
                    &cache](LstmWeights &weights, LstmWeights *weightsGrad,
                            Graph &graph, const rnn::RnnSlice &slice,
                            unsigned stepsPerGather, program::Sequence *initProg,
@@ -1746,19 +1608,9 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
       zeroWeightAccumulators(graph, *initProg, *weightsGrad, options,
                              {dnai, "zeroWeightAcc"});
     }
-
-    // The constraints obtained from the planning of the weight update step
-    // interval cadence is applicable in general except potentially
-    // for the remainder if it involves fewer weight update time steps.
-    boost::optional<PlanConstraints> matmulPlanConstraints(boost::none);
-    if ((stepsPerGather > 1) && (*stepsPerWU == stepsPerGather) &&
-        wuPlanConstraints) {
-      matmulPlanConstraints = wuPlanConstraints;
-    }
     basicLstmParamUpdate(graph, prevLayerOut, prevStepOut, bwdIntermediates,
                          stepsPerGather, *weightsGrad, update, options,
-                         matmulPlanConstraints, {dnai, "basicLstmParamUpdate"},
-                         cache);
+                         {dnai, "basicLstmParamUpdate"}, cache);
     return update;
   };
 
@@ -1823,21 +1675,20 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
                             prog, numShards, {dnai, "fwdOutShifted"});
   }
   using namespace std::placeholders;
-  const auto shardingLoop =
-      std::bind(loopBwdWithWU, weights, weightsGrad, ph::_1, ph::_2, ph::_3,
-                ph::_4, ph::_5, ph::_6, ph::_7, ph::_8, ph::_9);
+  const auto shardingLoop = std::bind(loopBwdWithWU, weights, weightsGrad, _1,
+                                      _2, _3, _4, _5, _6, _7, _8, _9);
   auto rnnOptions = getRnnOpts(options);
   std::vector<Tensor> bwdInputs = {gradLayerNextRearranged};
   std::vector<Tensor> updatedState;
   if (weightsGrad) {
-    assert(stepsPerWU);
-    const auto shardingUpdate = std::bind(
-        updateWU, weights, weightsGrad, ph::_1, ph::_2, ph::_3, ph::_4, ph::_5);
+    auto stepsPerWU = options.rnnStepsPerWU ? *options.rnnStepsPerWU : 1;
+    const auto shardingUpdate =
+        std::bind(updateWU, weights, weightsGrad, _1, _2, _3, _4, _5);
     std::vector<Tensor> wuInputs = {prevLayerOut, prevStepOut};
     updatedState = rnn::Rnn(
         graph, params.rnn, bwdStateInit, inputGrad, bwdInputs, fwdIntermediates,
         BASIC_LSTM_CELL_NUM_UNITS, prog, shardingLoop, wuInputs, shardingUpdate,
-        numShards, *stepsPerWU, rnnOptions, {dnai, "updatedState"});
+        numShards, stepsPerWU, rnnOptions, {dnai, "updatedState"});
   } else {
     updatedState =
         rnn::Rnn(graph, params.rnn, true, bwdStateInit, inputGrad, bwdInputs,
@@ -1881,11 +1732,10 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
                         (inputGrad ? "true" : "false"));
   }
 
-  LstmState outputs =
-      lstmBwdImpl(graph, params, prog, fwdStateInit, fwdIntermediatesSeq,
-                  weights, fwdInputSeq, fwdOutput, gradLayerNext,
-                  lastCellStateGradPtr, inputGrad, bwdIntermediates, nullptr,
-                  {}, {}, {di}, std::move(options), planningCache);
+  LstmState outputs = lstmBwdImpl(
+      graph, params, prog, fwdStateInit, fwdIntermediatesSeq, weights,
+      fwdInputSeq, fwdOutput, gradLayerNext, lastCellStateGradPtr, inputGrad,
+      bwdIntermediates, nullptr, {di}, std::move(options), planningCache);
   di.addOutputs(DI_ARGS(outputs));
   return outputs;
 }
@@ -1912,7 +1762,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     auto &prevStepOut = slice.inputs[1];
     auto &bwdIntermediates = slice.inputs[2];
     basicLstmParamUpdate(graph, prevLayerOut, prevStepOut, bwdIntermediates, 1,
-                         weightGrads, loop, options, {}, {dnai}, planningCache);
+                         weightGrads, loop, options, {dnai}, planningCache);
     return loop;
   };
 
@@ -1932,8 +1782,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   std::vector<Tensor> wuInputs = {inputCopy, prevStepOut, bwdIntermediatesSeq};
   using namespace std::placeholders;
   const auto shardingLoop =
-      std::bind(loopWU, weightGrads, ph::_1, ph::_2, ph::_3, ph::_4, ph::_5,
-                ph::_6, ph::_7, ph::_8, ph::_9);
+      std::bind(loopWU, weightGrads, _1, _2, _3, _4, _5, _6, _7, _8, _9);
   auto rnnOptions = getRnnOpts(options);
   auto updatedState =
       rnn::Rnn(graph, params.rnn, true, {}, {}, wuInputs, nullptr, nullptr, {},
@@ -1996,24 +1845,21 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
                         (inputGrad ? "true" : "false"));
   }
 
-  auto [wuCadence, wuPlanConstraints] =
-      interleaveWUCadence(graph, params, options, planningCache);
-  bool minimiseMemoryUsage = (wuCadence == 0) ? true : false;
-
+  bool interleaveWU =
+      options.rnnStepsPerWU ? true : interleavedWUIsBeneficial(params);
   Tensor bwdIntermediates;
 
   // Perform the backward pass. If interleaving the weight update with the
   // backward pass is beneficial, directly calculate the weight gradients
   // during the backward pass. Otherwise, save backward intermediates and
   // calculate weight deltas below.
-  LstmState stateGrads =
-      lstmBwdImpl(graph, params, prog, fwdStateInit, fwdIntermediates, weights,
-                  input, output, outputGrad, lastCellStateGrad, inputGrad,
-                  minimiseMemoryUsage ? &bwdIntermediates : nullptr,
-                  minimiseMemoryUsage ? nullptr : &weightsGrad_, wuCadence,
-                  wuPlanConstraints, {di}, options, planningCache);
+  LstmState stateGrads = lstmBwdImpl(
+      graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
+      output, outputGrad, lastCellStateGrad, inputGrad,
+      interleaveWU ? nullptr : &bwdIntermediates,
+      interleaveWU ? &weightsGrad_ : nullptr, {di}, options, planningCache);
 
-  if (minimiseMemoryUsage) {
+  if (!interleaveWU) {
     weightsGrad_ = lstmWUImpl(
         graph, params, prog, fwdStateInit, fwdIntermediates, bwdIntermediates,
         weights, input, output, {di}, std::move(options), planningCache);

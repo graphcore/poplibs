@@ -507,6 +507,47 @@ BOOST_AUTO_TEST_CASE(InvalidFieldDimensionIndex) {
                     poputil::poplibs_error);
 }
 
+BOOST_AUTO_TEST_CASE(InvalidKernelDimensionIndex) {
+  auto device = createTestDevice(TEST_TARGET, 1, 1);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "0": {
+         "partition": {
+           "kernelSplit": {
+             "0": "1",
+             "4": "1"
+           }
+         }
+       }
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  poplin::ConvOptions options{};
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+
+  // Kernel dimension 4 is invalid
+  BOOST_CHECK_THROW(plan = poplin::getPlan(target,
+                                           poplin::ConvParams{
+                                               poplar::FLOAT, // Data type
+                                               1,             // batch size
+                                               {1, 1}, // input field shape
+                                               {1, 1}, // kernel shape
+                                               1,      // input channels
+                                               1,      // output channels
+                                               2       // conv groups
+                                           },
+                                           options, &cache),
+                    poputil::poplibs_error);
+}
+
 BOOST_AUTO_TEST_CASE(GetSLICPlan) {
   auto device = createTestDevice(TEST_TARGET, 2, 2);
   auto &target = device.getTarget();
