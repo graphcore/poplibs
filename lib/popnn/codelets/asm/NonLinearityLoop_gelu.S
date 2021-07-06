@@ -4,7 +4,6 @@
 
 // The GELU non-linearity calculation of output activation
 //
-//           x' = clamp(activation)
 //           phi = x' * alpha * (1 + beta * x' * x')
 //           factor0 = tanh(phi)
 //   Output, y = 0.5 * x * (1 + factor0)
@@ -19,7 +18,6 @@
 
 .macro NONLINEARITY_GELU_HALF n_64bit act_base stride
 
-    ld64 $ACTS_PAIR, $DATA_PTR, \act_base, 0
     
     // Use $MSCRATCH as a flag.
     //    $MSCRATCH = 1 indicates that N-1 iterations have executed
@@ -28,13 +26,11 @@
     // The $MSCRATCH flag must be initialised to zero in order to support the
     // case when n_64bit is 1, in which case a single pass through the 
     // repeat loop instructions is sufficient.
+    ld64 $ACTS_PAIR, $DATA_PTR, \act_base, 0
     {
       zero $MSCRATCH
-      f16v4clamp $ASCRATCH_PAIR, $ACTS_PAIR, $HALF_CLAMP
+      f16v4mul $RESULTS_PAIR, $ACTS_PAIR, $ACTS_PAIR
     }
-    
-    f16v4mul $RESULTS_PAIR, $ASCRATCH_PAIR, $ASCRATCH_PAIR
-
     // For efficient use of the f16v4mix instruction, a 2-deep pipeline has
     // been used in the implementation of the loop. The 2nd pair of values
     // is loaded here.
@@ -47,14 +43,14 @@
     // the repeat instruction.
     {
       add $MSCRATCH2, \n_64bit, -1
-      f16v4mul $RESULTS_PAIR, $ASCRATCH_PAIR, $RESULTS_PAIR
+      f16v4mul $RESULTS_PAIR, $ACTS_PAIR, $RESULTS_PAIR
     }
 
     // $ACTS_PAIR has been loaded with the contents of the DATA_PTR+1, so avoid
     // processing these if N_64BIT == 1.
     {
       brz $MSCRATCH2, .Lhalf_loop_last
-      f16v4mix $azeros, $RESULTS_PAIR, $ASCRATCH_PAIR
+      f16v4mix $azeros, $RESULTS_PAIR, $ACTS_PAIR
     }
 
     ld64 $ACTS_PAIR, $DATA_PTR, \act_base, \stride
@@ -63,9 +59,8 @@
     // for all the loop iterations besides the first and the last.
     {
       bri .Lhalf_loop_first
-      f16v4clamp $ASCRATCH_PAIR, $ACTS_PAIR, $HALF_CLAMP
+      f16v4mul $RESULTS_PAIR, $ACTS_PAIR, $ACTS_PAIR
     }
-    
 .Lhalf_execute_rpt_block:
 
     // Reinitialise the $MSCRATCH flag to 1 to ensure that the repeat loop
@@ -80,7 +75,6 @@
     add \n_64bit, \n_64bit, -2
     
     // Perform the following calculations on the 4 x halves:
-    //   - Clamp input x to +/-6.0 in order to accomodater intermediate results
     //   - 0.5 * x * (1 + tanh(x * alpha * (1 + (beta * x * x))))
 
     rpt \n_64bit, (2f - 1f) / 8 - 1
@@ -96,30 +90,25 @@
 
     {
       st64step $RESULTS_PAIR, \act_base, $DATA_PTR+=, \stride
-      f16v4clamp $ASCRATCH_PAIR, $ACTS_PAIR, $HALF_CLAMP
+      f16v4mul $RESULTS_PAIR, $ACTS_PAIR, $ACTS_PAIR
     }
 
 .Lhalf_loop_first:
     {
       nop
-      f16v4mul $RESULTS_PAIR, $ASCRATCH_PAIR, $ASCRATCH_PAIR
-    }
-
-    {
-      nop
-      f16v4mul $RESULTS_PAIR, $ASCRATCH_PAIR, $RESULTS_PAIR
+      f16v4mul $RESULTS_PAIR, $ACTS_PAIR, $RESULTS_PAIR
     }
 
 .Lhalf_loop_last:
     // The instructions following the f16v4mix instruction operate on the 
     // inputs of the previous iteration.
     //
-    // On the last iteration, $RESULTS_PAIR and $ASCRATCH_PAIR will be "dummy" values
+    // On the last iteration, $RESULTS_PAIR will be "dummy" values
     // which have no effect on the output of the function. This instruction is 
     // only to flush out the result of the last iteration into $RESULTS_PAIR.
     {
       nop
-      f16v4mix $RESULTS_PAIR, $RESULTS_PAIR, $ASCRATCH_PAIR
+      f16v4mix $RESULTS_PAIR, $RESULTS_PAIR, $ACTS_PAIR
     }
     
     {

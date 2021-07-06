@@ -81,13 +81,13 @@
 #define RESULTS_0 a4
 #define RESULTS_1 a5
 #define RESULTS_PAIR a4:5
-#define HALF_CLAMP a2
 #define CONST_HI_1_0_LO_0_5 a3
 #define CONST_SCRATCH_0 a0
 #define CONST_SCRATCH_1 a1
 #define ASCRATCH_0 a6
 #define ASCRATCH_1 a7
 #define ASCRATCH_PAIR a6:7
+#define fpctl_cur a2
 
 #define FLOAT_CLAMP_0 a2
 #define FLOAT_CLAMP_1 a3
@@ -125,7 +125,12 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
     nop
 HALF_SYMBOL:
 .worker
-    ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
+    { 
+      ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
+      // calls to NonLinearityGELU_half use $ACTS_1 for mix. clear it here
+      // so that arithmetic doesn't use rubbish.
+      mov $ACTS_1, $azero
+    }
 
     // $SIZE = No. of 64-bit elements each worker should process
     // $REM = No. of remaining elements between workers
@@ -142,6 +147,13 @@ HALF_SYMBOL:
     ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
 #endif
 
+    // Clear overflow and NANOO to allow saturation. We can afford this as
+    // all the terms in the approximation have the same sign (i.e. x, x^3)
+    uget $fpctl_cur, CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK
+    ldconst $ASCRATCH_0, (CSR_S_FP_ICTL__NANOO__MASK << CSR_S_FP_ICTL__NANOO__SHIFT) + (CSR_S_FP_ICTL__OFLO__MASK << CSR_S_FP_ICTL__OFLO__SHIFT)
+    andc $ASCRATCH_0, $fpctl_cur, $ASCRATCH_0
+    uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $ASCRATCH_0
+
     // Get worker ID
     {
       get $WORKER_ID, $WSR
@@ -153,8 +165,7 @@ HALF_SYMBOL:
       uput $FP_CLR, $ASCRATCH_0
     }
 
-    // Load clamp values
-    ldconst $HALF_CLAMP, (HALF_MINUS_6_0 | (HALF_6_0 << 16))
+    // Load constants
     ldconst $CONST_HI_1_0_LO_0_5, (HALF_0_5) | (HALF_1_0 << 16)
     ldconst $ASCRATCH_0, (HALF_ALPHA_TIMES_BETA) | (HALF_ALPHA << 16)
 
@@ -164,8 +175,10 @@ HALF_SYMBOL:
       uput $TAS, $ASCRATCH_0
     }
 
-    brz $MSCRATCH, .Lhalf_64_bit_aligned
-
+    {
+      brz $MSCRATCH, .Lhalf_64_bit_aligned
+      fnop
+    }
 .Lhalf_32_bit_aligned:
     // Catch special case for just 1 or 2 elements at a 32-bit aligned address.
     setzi $MSCRATCH, 2
@@ -212,7 +225,7 @@ HALF_SYMBOL:
     add $SIZE, $SIZE, $MSCRATCH
 
     // Offset each worker's pointer into the data to interleave them.
-    ld64step $ASCRATCH_PAIR, $BASE, $DATA_PTR+=, $WORKER_ID
+    ld64step $azeros, $BASE, $DATA_PTR+=, $WORKER_ID
 
     brz $SIZE, .Lhalf_64_bit_loop_exit
 
@@ -247,8 +260,9 @@ HALF_SYMBOL:
     st32 $RESULTS_0, $DATA_PTR, $BASE, 0
 
 .Lhalf_end:
+    uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $fpctl_cur
     exitz $mzero
-
+  
 .size HALF_SYMBOL, .-HALF_SYMBOL
 
 DEF_STACK_USAGE 0 FLOAT_SYMBOL

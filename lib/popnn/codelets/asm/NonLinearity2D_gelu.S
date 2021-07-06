@@ -94,7 +94,6 @@
 #define RESULTS_1 a5
 #define RESULTS_PAIR a4:5
 
-#define HALF_CLAMP a2
 #define CONST_HI_1_0_LO_0_5 a3
 
 #define CONST_SCRATCH_0 a0
@@ -103,6 +102,7 @@
 #define ASCRATCH_0 a6
 #define ASCRATCH_1 a7
 #define ASCRATCH_PAIR a6:7
+#define fpctl_cur a2
 
 #define FLOAT_CLAMP_0 a2
 #define FLOAT_CLAMP_1 a3
@@ -121,11 +121,10 @@
 
 .align 4
 NonLinearityGELU_half:
-    f16v2clamp $ASCRATCH_0, $ACTS_0, $HALF_CLAMP
-    f16v2mul $RESULTS_0, $ASCRATCH_0, $ASCRATCH_0
-    f16v2mul $RESULTS_0, $ASCRATCH_0, $RESULTS_0
-    f16v4mix $azeros, $RESULTS_PAIR, $ASCRATCH_PAIR
-    f16v4mix $RESULTS_PAIR, $RESULTS_PAIR, $ASCRATCH_PAIR
+    f16v2mul $RESULTS_0, $ACTS_0, $ACTS_0
+    f16v2mul $RESULTS_0, $ACTS_0, $RESULTS_0
+    f16v4mix $azeros, $RESULTS_PAIR, $ACTS_PAIR
+    f16v4mix $RESULTS_PAIR, $RESULTS_PAIR, $ACTS_PAIR
     f16v2tanh $RESULTS_0, $RESULTS_0
     f16v2add $RESULTS_0, $CONST_HI_1_0_LO_0_5:BU, $RESULTS_0
     f16v2mul $RESULTS_0, $CONST_HI_1_0_LO_0_5:BL, $RESULTS_0
@@ -198,11 +197,21 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
 .align 8
      nop
 HALF_SYMBOL:
+
+    // Clear overflow and NANOO to allow saturation of result. We can afford this as
+    // all the terms in the approximation have the same sign (i.e. x, x^3)
+    uget $fpctl_cur, CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK
+    ldconst $ASCRATCH_0, (CSR_S_FP_ICTL__NANOO__MASK << CSR_S_FP_ICTL__NANOO__SHIFT) + (CSR_S_FP_ICTL__OFLO__MASK << CSR_S_FP_ICTL__OFLO__SHIFT)
+    andc $ASCRATCH_0, $fpctl_cur, $ASCRATCH_0
+    uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $ASCRATCH_0
+
     // Initialise $ASCRATCH_1 as well as $RESULTS_1 as required
     // by function NonLinearityGELU_half()
     {
       ld32 $MSCRATCH, $mvertex_base, $mzero, BASE_AND_N0_VOFFSET/4
-      mov $ASCRATCH_1, $azero
+      // calls to NonLinearityGELU_half use $ACTS_1 for mix. clear it here
+      // so that arithmetic doesn't use rubbish.
+      mov $ACTS_1, $azero
     }
 
     {
@@ -246,7 +255,6 @@ HALF_SYMBOL:
 #endif
 
     // Load clamp values
-    ldconst $HALF_CLAMP, (HALF_MINUS_6_0 | (HALF_6_0 << 16))
     ldconst $CONST_HI_1_0_LO_0_5, (HALF_0_5) | (HALF_1_0 << 16)
     ldconst $ASCRATCH_0, (HALF_ALPHA_TIMES_BETA) | (HALF_ALPHA << 16)
 
@@ -333,6 +341,7 @@ HALF_SYMBOL:
 
 .Lhalf_n0_loop_cond:
     brnzdec $N0, .Lhalf_n0_loop
+    uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $fpctl_cur
     exitz $mzero
 
 .size HALF_SYMBOL, .-HALF_SYMBOL
