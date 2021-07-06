@@ -25,7 +25,6 @@
 .type convPartialFlattenedField_\COMMAND\(), @function
 .align 8
 .worker
-nop
 
 // worker code:
 //
@@ -61,60 +60,40 @@ nop
 // Total:
 convPartialFlattenedField_\COMMAND\():
 
-
 #define wkr_id                      m0
 #define outchan_ptr                 m1
 #define tripacked_addr              m0:1
 #define partition_w                 m2
+#define eq2flag                     m2
 #define in_off                      m3
 #define out_off                     m4
 #define num_elems                   m5
 #define stride1                     m6
-#define zero_outchan                m6
 #define cmp_res                     m7
-#define eq2flag                     m8
+#define out_off_x8                  m8
 #define inchan_ptr                  m9
 #define stride3                     m10
 #define const_stride_m2             m11
 
-get           $wkr_id, $WSR
-and           $wkr_id, $wkr_id, CSR_W_WSR__CTXTID_M1__MASK
-
-// each partition is 3 ushorts
-mul           $wkr_id, $wkr_id, 6
-ld32          $partition_w, $mvertex_base, WKR_PARTITION/4
-
-ldz16step     $out_off, $wkr_id, $partition_w+=, 1
-lds16step     $num_elems, $wkr_id, $partition_w+=, 1
-ldz16step     $in_off, $wkr_id, $partition_w+=, 1
-setzi         $const_stride_m2, 0xFF800  // -2 * 1024
-
 convPartialFlattenedFieldStateRetained_\COMMAND\():
-
 ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
 // Do x8 and add at the same time, n.b. we aren't actually loading here
 ld64step      $azeros, $mzero, $inchan_ptr+=, $in_off
 
-ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
-
 convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\():
-
-ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
 {
-  // Do x8 and add at the same time, n.b. we aren't actually loading here
-  ld64step      $azeros, $mzero, $outchan_ptr+=, $out_off
+  ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
   setzi         $a0, ZAACC_BITMASK
-}
-{
-  brpos         $zero_outchan, LNoPartialsToLoad_\COMMAND\()
-  uput          $FP_CLR, $a0
 }
 
 Amp_start_\COMMAND\():
 
 // can do a ld128 as partials are always in interleaved memory and the
 // second pointer increment doesn not affect the store pointer
-ld128step     $a0:3, $mzero, $outchan_ptr+=, 1
+{
+  ld128step     $a0:3, $out_off_x8, $outchan_ptr+=, $out_off
+  uput          $FP_CLR, $a0
+}
 {
   // Get compact representation of physical addresses
   tapack        $tripacked_addr, $inchan_ptr, $outchan_ptr, $outchan_ptr
@@ -177,6 +156,7 @@ brneg         $num_elems, NumElemsEq1AndEq2_\COMMAND\()
   ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
   \COMMAND  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
 }
+
 
 rpt $num_elems, (Loop_end_Amp_\COMMAND\()-Loop_start_Amp_\COMMAND\())/8-1
 Loop_start_Amp_\COMMAND\():
@@ -294,9 +274,7 @@ or            $stride3, $eq2flag, $const_stride_m2
 brz           $cmp_res, SetStride1NumElemsEq1_\COMMAND\()
 add           $cmp_res, $cmp_res, 1
 brneg         $cmp_res, L_end_fn_\COMMAND\()
-// preserve msb
-shr           $stride1, $stride1, 31
-shl           $stride1, $stride1, 31
+setzi         $stride1, 0
 
 SetStride1NumElemsEq1_\COMMAND\():
 {
@@ -337,6 +315,45 @@ bri             LNumElemsEq2_\COMMAND\()
 
 //------------------------------------------------------------------------------
 // Code path to deal with case when partials are zero.
+convPartialFlattenedField_\COMMAND\()_Z:
+
+get           $wkr_id, $WSR
+and           $wkr_id, $wkr_id, CSR_W_WSR__CTXTID_M1__MASK
+
+// each partition is 3 ushorts
+mul           $wkr_id, $wkr_id, 6
+ld32          $partition_w, $mvertex_base, WKR_PARTITION/4
+
+ldz16step     $out_off, $wkr_id, $partition_w+=, 1
+lds16step     $num_elems, $wkr_id, $partition_w+=, 1
+ldz16step     $in_off, $wkr_id, $partition_w+=, 1
+setzi         $const_stride_m2, 0xFF800  // -2 * 1024
+
+// We could keep out_off / 16 + 1 in the worklist and save a thread cycle here.
+// Kept as is for consistency between different specialisations. 
+shl           $out_off_x8, $out_off, 3
+shr           $out_off, $out_off, 1
+add           $out_off, $out_off, 1
+
+ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
+
+convPartialFlattenedFieldStateRetained_\COMMAND\()_Z:
+
+ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
+// Do x8 and add at the same time, n.b. we aren't actually loading here
+ld64step      $azeros, $mzero, $inchan_ptr+=, $in_off
+
+convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()_Z:
+{
+  ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
+  setzi         $a0, ZAACC_BITMASK
+}
+{
+  // Do x8 and add at the same time, n.b. we aren't actually loading here
+  add           $outchan_ptr, $outchan_ptr, $out_off_x8
+  uput          $FP_CLR, $a0
+}
+
 LNoPartialsToLoad_\COMMAND\():
 tapack        $tripacked_addr, $inchan_ptr, $outchan_ptr, $outchan_ptr
 brneg         $num_elems, NumElemsEq1AndEq2_Z_\COMMAND\()
@@ -366,10 +383,7 @@ ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $mzero, 0b00
   \COMMAND  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
 }
 
-{
-  rpt $num_elems, (Loop_end_Amp_Z_\COMMAND\()-Loop_start_Amp_Z_\COMMAND\())/8-1
-  fnop
-}
+rpt $num_elems, (Loop_end_Amp_Z_\COMMAND\()-Loop_start_Amp_Z_\COMMAND\())/8-1
 Loop_start_Amp_Z_\COMMAND\():
   // The reads in the last pass are effectively dummy to avoid code bloat
   {
@@ -467,12 +481,12 @@ CONV_1x1_WORKER f16v4sisoamp
 // Instantiate codelets
 // Supervisors
 #if __IPU_ARCH_VERSION__ >=2
-  CONV_1x1_SUPERVISOR half half false 16 f16v4hihov4amp
-  CONV_1x1_SUPERVISOR half half true  16 f16v4hihov4amp
+  CONV_1x1_SUPERVISOR half half false 16 f16v4hihov4amp true
+  CONV_1x1_SUPERVISOR half half true  16 f16v4hihov4amp true
 #endif
 
-CONV_1x1_SUPERVISOR half float false 8 f16v4sisoamp
-CONV_1x1_SUPERVISOR half float true  8 f16v4sisoamp
+CONV_1x1_SUPERVISOR half float false 8 f16v4sisoamp true
+CONV_1x1_SUPERVISOR half float true  8 f16v4sisoamp true
 
 // =============================================================================
 #endif // #ifdef __IPU__

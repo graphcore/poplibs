@@ -34,7 +34,7 @@ conv1x1WorkerRetentionSavings(bool floatActivations, bool floatPartials,
                               unsigned numConvUnits) {
   if (!floatActivations &&
       (floatPartials || (!floatPartials && numConvUnits == 16))) {
-    return std::make_pair(10, 2);
+    return std::make_pair(7, 3);
   } else {
     return std::make_pair(0, 0);
   }
@@ -359,7 +359,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           thisWorkerCycles += 24;
         } else {
           if (commonHalfAndFloatPartialsCodePath) {
-            thisWorkerCycles += 20 + (outputZeroing ? 2 : 4);
+            thisWorkerCycles += 20 + (outputZeroing ? 1 : 2);
           } else {
             thisWorkerCycles += 24;
           }
@@ -370,7 +370,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           thisWorkerCycles += 47 + (2 + zeroCyclesPerGroup) * outputZeroing;
         else {
           if (commonHalfAndFloatPartialsCodePath) {
-            thisWorkerCycles += 31 + (outputZeroing ? 2 : 4);
+            thisWorkerCycles += 31 + (outputZeroing ? 1 : 2);
           } else {
             thisWorkerCycles += 39 + (2 + zeroCyclesPerGroup) * outputZeroing;
           }
@@ -381,7 +381,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           thisWorkerCycles += 46 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
         else {
           if (commonHalfAndFloatPartialsCodePath) {
-            thisWorkerCycles += 40 + (outputZeroing ? 2 : 4);
+            thisWorkerCycles += 40 + (outputZeroing ? 1 : 2);
           } else {
             thisWorkerCycles +=
                 40 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
@@ -396,7 +396,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
         else {
           if (commonHalfAndFloatPartialsCodePath) {
             thisWorkerCycles +=
-                (outputZeroing ? 38 : 40) + (numElems - 3) * coreCycles;
+                (outputZeroing ? 37 : 38) + (numElems - 3) * coreCycles;
           } else {
             thisWorkerCycles +=
                 41 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
@@ -453,6 +453,10 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
   const auto numLoads = getConvPartialAmpSupervisorWeightLoadCycleEstimate(
       weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle,
       floatActivations, 1);
+  // The code paths for half activations, half partials and 16 conv units is
+  // = half activations, float partials and 8 conv units.
+  bool commonHalfAndFloatPartialsCodePath =
+      (!floatActivations && numConvUnits == 16) || floatPartials;
 
   const uint64_t supervisorNonloopOverhead = 50;
   const unsigned outPassesOverhead = 7;
@@ -462,16 +466,18 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
              (retentionSavings.first +
               retentionSavings.second * (numInGroups * numConvGroups - 1)) +
          numConvGroups *
-             (12 +
+             (12 + commonHalfAndFloatPartialsCodePath +
               (numInGroups - 1) *
-                  (15 + excessInChanOverhead +
+                  (15 - commonHalfAndFloatPartialsCodePath +
+                   excessInChanOverhead +
                    numOutGroups * (19 + outputPassesPerGroup *
                                             (6 + numLoads +
                                              innerLoopCyclesWithoutZeroing))) +
               (10 + excessInChanOverhead +
                numOutGroups *
-                   (19 + outputPassesPerGroup * (outPassesOverhead + numLoads +
-                                                 innerLoopCyclesWithZeroing))));
+                   (19 - commonHalfAndFloatPartialsCodePath +
+                    outputPassesPerGroup * (outPassesOverhead + numLoads +
+                                            innerLoopCyclesWithZeroing))));
 }
 
 inline std::uint64_t getConvPartial1x1SupervisorCycleEstimate(

@@ -102,6 +102,7 @@
 #define partition_s               m3
 #define tmem_base                 m4
 #define wkr_function              m4
+#define wkr_function_post         m5
 #define amp_group_s               m5
 #define add_zero_in_stride_s      m5
 #define outchan_group_s           m6
@@ -120,12 +121,13 @@
 // The number of output channels per group is divided by the number of number
 // of channels the AMP processes. The actual value kept is one less.
 #define SUP_STACK_AMP_GROUPS      12 //(word)
-#define SUP_STACK_SIZE            (SUP_STACK_AMP_GROUPS + 4)
+#define SUP_WKR_FUNCTION          16 //(word)
+#define SUP_STACK_SIZE            (SUP_WKR_FUNCTION + 4)
 #define TOT_STACK_SIZE            (WKR_VERTEX_SIZE + SUP_STACK_SIZE)
 
+// ZERO_PARTIALS_PATH : set to true if zero path exists in the worker function
 
-
-.macro CONV_1x1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS COMMAND
+.macro CONV_1x1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS COMMAND ZERO_PARTIALS_PATH
 
 .ifc \ACTIVATIONS_TYPE, half
     .equ SIZE_OF_ACTIVATIONS,        2
@@ -270,7 +272,11 @@ CODELET_NAME:
 #endif
   st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
 // ----------------------------------------------------------------------------
+.ifc \ZERO_PARTIALS_PATH, true 
+  setzi         $wkr_function_post, convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()_Z
+.else
   setzi         $wkr_function, convPartialFlattenedField_\COMMAND\()
+.endif
   ldz16         $conv_group_s, $sup_base, SUP_NUM_CONV_GROUPS_M1/2
   ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -280,10 +286,17 @@ CODELET_NAME:
   nop           // keep nop for 6 instructions pipeline
 #endif
   put           $CCCSLOAD, $weight_vec_s
+.ifc \ZERO_PARTIALS_PATH, true 
+  setzi         $wkr_function, convPartialFlattenedField_\COMMAND\()_Z
+.else
   nop
+.endif
 // ----------------------------------------------------------------------------
 
 convGroupsLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+.ifc \ZERO_PARTIALS_PATH, true
+  st32          $wkr_function_post, $sp, WKR_VERTEX_SIZE/4 + SUP_WKR_FUNCTION/4     
+.endif
   add           $inchan_group_s, $inchan_group_s, -1
 
 inChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
@@ -311,16 +324,25 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
 
         add           $outvec_s, $outvec_s, \AMP_OUTPUTS * SIZE_OF_PARTIALS_TYPE
         runall        $wkr_function, $wkr_vertex, 0
+.ifc \ZERO_PARTIALS_PATH, true
+        ld32          $wkr_function, $sp, WKR_VERTEX_SIZE/4 + SUP_WKR_FUNCTION/4
+.else
         setzi         $wkr_function, convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()
+.endif
         // increment output vector pointer for the AMP loop
         brnzdec $amp_group_s, AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+.ifc \ZERO_PARTIALS_PATH, false
       ld32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
+.endif
       put           $CCCSLOAD, $weight_vec_s
       brnzdec       $outchan_group_s, outChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
-
+.ifc \ZERO_PARTIALS_PATH, true            
+    setzi         $wkr_function_post, convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()
+.else
     // Use the MSB of stride which is unused to flag zeroing of partials
     or            $const0x80000000, $mzero, 0x80000000
     or            $add_zero_in_stride_s, $add_zero_in_stride_s, 0x80000000
+.endif
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
 #else
@@ -330,16 +352,24 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
     // cannot write to worker vertex state until all workers have finished
     // processing the output channel group
     sync          TEXCH_SYNCZONE_LOCAL
+.ifc \ZERO_PARTIALS_PATH, false    
     st32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
     setzi         $wkr_function, convPartialFlattenedFieldStateRetained_\COMMAND\()
+.endif
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     // expand scaled pointer
     shl           $invec_s, $invec_s, 3
 #endif
+.ifc \ZERO_PARTIALS_PATH, true 
+    setzi         $wkr_function, convPartialFlattenedFieldStateRetained_\COMMAND\()
+    nop
+    st32          $wkr_function_post, $sp, WKR_VERTEX_SIZE/4 + SUP_WKR_FUNCTION/4
+.endif
     brnzdec       $inchan_group_s, inChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
-
+.ifc \ZERO_PARTIALS_PATH, false
   // This should clear the msb
   xor           $add_zero_in_stride_s, $add_zero_in_stride_s, $const0x80000000
+.endif
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16step     $mzero, $mzero, $outchan_vectors_s+=, $outchan_group_s
   add           $outchan_vectors_s, $outchan_vectors_s, 2
@@ -348,7 +378,12 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
   add           $outchan_vectors_s, $outchan_vectors_s, 4
 #endif
   ldz16         $inchan_group_s, $mzero, $sup_base, SUP_NUM_INCHAN_GROUPS/2
+.ifc \ZERO_PARTIALS_PATH, true
+  setzi         $wkr_function_post, convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()_Z
+  setzi         $wkr_function, convPartialFlattenedFieldStateRetained_\COMMAND\()_Z
+.else
   st32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
+.endif  
   brnzdec       $conv_group_s, convGroupsLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
 
 // restore stack

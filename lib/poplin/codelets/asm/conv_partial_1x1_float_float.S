@@ -47,6 +47,7 @@
 
 // Total:
 convPartialFlattenedField_f32sisoamp:
+convPartialFlattenedField_f32sisoamp_Z:
 
 #define wkr_id                      m0
 #define outchan_ptr                 m1
@@ -90,12 +91,14 @@ ldz16step     $in_off, $wkr_id, $partition_w+=, 1
 add           $num_elems_plus_3, $num_elems, 3
 
 convPartialFlattenedFieldStateRetained_f32sisoamp:
+convPartialFlattenedFieldStateRetained_f32sisoamp_Z:
 
 ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
 // Do x8 and add at the same time, n.b. we aren't actually loading here
 ld64step      $azeros, $mzero, $inchan_ptr+=, $in_off
 
 convPartialFlattenedFieldStateRetainedInChanPtr_f32sisoamp:
+convPartialFlattenedFieldStateRetainedInChanPtr_f32sisoamp_Z:
 
 ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
 
@@ -395,8 +398,8 @@ bri           LNumElemsEq1
 // =============================================================================
 // Instantiate codelets
 
-CONV_1x1_SUPERVISOR float float false 8 f32sisoamp
-CONV_1x1_SUPERVISOR float float true  8 f32sisoamp
+CONV_1x1_SUPERVISOR float float false 8 f32sisoamp false
+CONV_1x1_SUPERVISOR float float true  8 f32sisoamp false
 
 // =============================================================================
 #endif // #ifdef __IPU__
