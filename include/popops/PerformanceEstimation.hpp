@@ -78,10 +78,9 @@ std::uint64_t getDynamicSlice1DEstimate(const poplar::Target &target,
  *
  * \returns Estimated number of cycles.
  */
-std::uint64_t getBinaryOp1DInPlaceEstimate(const poplar::Target &target,
-                                           const poplar::Type &type,
-                                           const popops::expr::BinaryOpType op,
-                                           const unsigned numElems);
+std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
+    const poplar::Target &target, const poplar::Type &type,
+    const popops::expr::BinaryOpType op, const unsigned numElems);
 
 } // namespace internal
 } // namespace popops

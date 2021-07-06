@@ -515,9 +515,9 @@ unsigned maxVertexElementsPerRegion(const Target &target, const Type &outType,
 }
 
 struct MaxElements {
-  // Constraints in 1D-MultiVertex/2D-worker vertices due to the maximum loops
+  // Constraints in supervisor/worker vertices due to the maximum loops
   unsigned repeat;
-  // Constraints in 1D MultiVertex related to work division
+  // Constraints in supervisor vertices related to work division
   unsigned division;
   unsigned regionSize;
 };
@@ -529,7 +529,7 @@ MaxElements maxVertexElementsPerRegion(const Graph &graph, const Target &target,
                                        UnaryOpType op, const Tensor &in,
                                        const Tensor &out,
                                        const std::string &codeletName2D,
-                                       const std::string &codeletName1D,
+                                       const std::string &codeletNameSupervisor,
                                        bool inPlace) {
   MaxElements result;
   const auto vectorWidth = getUnaryOpVectorWidth(op, in, out);
@@ -551,7 +551,8 @@ MaxElements maxVertexElementsPerRegion(const Graph &graph, const Target &target,
   } else if (inPlace && unaryUsesNonLinearityVertex(op)) {
     // Non linearities implemented using vertices shared with the non linearity
     // function.  Limited by the field sizes allowed
-    unsigned nFieldSize = graph.getMaxVertexFieldValue(codeletName1D, "n");
+    unsigned nFieldSize =
+        graph.getMaxVertexFieldValue(codeletNameSupervisor, "n");
     result.repeat = std::min(nFieldSize, target.getRptCountMax() * vectorWidth);
     // Note - work division function has less headroom, so it is correct that
     // there is no muliply by vectorWidth
@@ -594,10 +595,10 @@ MaxElements maxVertexElementsPerRegion(const Target &target, BinaryOpType op,
   return result;
 }
 
-// Check if we can use a MultiVertex, or if the regions to process
+// Check if we can use a supervisor vertex, or if the regions to process
 // prevent it.  This can be due to either having multiple regions or if the
 // region is too large.
-bool validateRegionSizeForMultiVertex(
+bool validateRegionSizeForSupervisorVertex(
     const std::vector<std::vector<Interval>> &intervals,
     MaxElements maxRegionSize, const unsigned numWorkers) {
   const auto numElems = intervalSequenceNumElements(intervals);
@@ -640,37 +641,39 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
   const auto grainSize = std::max<unsigned>(target.getVectorWidth(inType),
                                             target.getAtomicStoreGranularity());
 
-  const auto vertexTemplateMultiVertex = templateVertex(
-      inPlace ? "popops::UnaryOp1DInPlace" : "popops::UnaryOp1D", op, inType);
+  const auto vertexTemplateSupervisor =
+      templateVertex(inPlace ? "popops::UnaryOp1DInPlaceSupervisor"
+                             : "popops::UnaryOp1DSupervisor",
+                     op, inType);
   const auto vertexTemplate2D = templateVertex(
       inPlace ? "popops::UnaryOp2DInPlace" : "popops::UnaryOp2D", op, inType);
   const auto elementLimit =
       maxVertexElementsPerRegion(graph, target, op, in, out, vertexTemplate2D,
-                                 vertexTemplateMultiVertex, inPlace);
+                                 vertexTemplateSupervisor, inPlace);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     if (tileContiguousRegions.size() == 1 &&
-        validateRegionSizeForMultiVertex(tileContiguousRegions, elementLimit,
-                                         numWorkers)) {
+        validateRegionSizeForSupervisorVertex(tileContiguousRegions,
+                                              elementLimit, numWorkers)) {
       // If mapping of the output tensor on this tile is only region or regions
       // from one variable, force a gather (in case of more than one region)
       // to get all data to a single edge.
-      // The decision to make a MultiVertex ("1D") may also have to account
+      // The decision to make a vertex supervisor may also have to account
       // for the total elements as the overhead and work balance may not be
       // very good for small vector sizes.
       // TODO: T12936 Use profiled results for selection.
       logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
-                             vertexTemplateMultiVertex);
+                             vertexTemplateSupervisor);
       auto inData = concat(inFlat.slices(tileContiguousRegions));
       auto v =
           inPlace
-              ? graph.addVertex(cs, vertexTemplateMultiVertex,
+              ? graph.addVertex(cs, vertexTemplateSupervisor,
                                 {{"inOut", inData}})
               : graph.addVertex(
-                    cs, vertexTemplateMultiVertex,
+                    cs, vertexTemplateSupervisor,
                     {{"in", inData},
                      {"out", concat(outFlat.slices(tileContiguousRegions))}});
       // Vertices for these ops have an extra field
@@ -727,13 +730,14 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
                                             target.getAtomicStoreGranularity());
 
   const auto elementLimit = maxVertexElementsPerRegion(target, op, in1, out);
-  // Single contiguous region, use MultiVertex ("1D").
+  // Single contiguous region, supervisor vertex.
   if (intervals.size() == 1 &&
-      validateRegionSizeForMultiVertex(intervals, elementLimit,
-                                       target.getNumWorkerContexts())) {
-    const auto vertexClass = templateVertex(
-        inPlace ? "popops::BinaryOp1DInPlace" : "popops::BinaryOp1D", op,
-        dType);
+      validateRegionSizeForSupervisorVertex(intervals, elementLimit,
+                                            target.getNumWorkerContexts())) {
+    const auto vertexClass =
+        templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor"
+                               : "popops::BinaryOp1DSupervisor",
+                       op, dType);
     logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
                            vertexClass);
     auto outRegion = concat(out.flatten().slices(intervals));
@@ -882,7 +886,7 @@ bool binaryOpBroadcastInnerVector(
   // We want all patterns to be a multiple of pattern elements otherwise we
   // cannot divide work using a simplistic algorithm. We can lift this
   // restriction once we use cost based estimates to balance work through
-  // creating 1D MultiVertex and/or 2D single worker vertices.
+  // creating supervisor and/or worker vertices.
   const auto numPatternElems = patterns.front().regionNumElements();
   assert(dType == FLOAT || dType == HALF);
   const auto elemsPer64Bits = dType == HALF ? 4 : 2;
@@ -946,7 +950,7 @@ bool binaryOpBroadcastInnerVector(
     }
   }
   const auto numWorkers = target.getNumWorkerContexts();
-  auto checkUseMultiVertex = [&](std::size_t size, std::size_t subSize) {
+  auto canUseSupervisorVertex = [&](std::size_t size, std::size_t subSize) {
     const unsigned dataBlockCountPackedMaxFieldSize = 0x1fff;
     const unsigned rptCountMaxFieldSize =
         (target.getRptCountMax() & ~1UL) * numWorkers;
@@ -980,7 +984,7 @@ bool binaryOpBroadcastInnerVector(
 
   const auto elementLimit = maxVertexElementsPerRegion(target, op, in1, out);
 
-  // Use a 1D MultiVertex to reduce memory use if there are a small number
+  // Use supervisor vertices to reduce memory use if there are a small number
   // of suitable intervals
   if (splitIntervals.size() <= 2) {
     auto intervalVectorLength = [](const std::vector<Interval> &iVector) {
@@ -989,25 +993,25 @@ bool binaryOpBroadcastInnerVector(
         len += i.size();
       return len;
     };
-    bool canUseMultiVertex = true;
+    bool canUseSupervisor = true;
     for (const auto &splitInterval : splitIntervals) {
-      if (!checkUseMultiVertex(intervalVectorLength(splitInterval),
-                               numPatternElems) ||
-          !validateRegionSizeForMultiVertex({splitInterval}, elementLimit,
-                                            target.getNumWorkerContexts())) {
-        canUseMultiVertex = false;
+      if (!canUseSupervisorVertex(intervalVectorLength(splitInterval),
+                                  numPatternElems) ||
+          !validateRegionSizeForSupervisorVertex(
+              {splitInterval}, elementLimit, target.getNumWorkerContexts())) {
+        canUseSupervisor = false;
         break;
       }
     }
-    if (canUseMultiVertex) {
+    if (canUseSupervisor) {
       for (const auto &splitInterval : splitIntervals) {
         const auto &outRegion = concat(out.flatten().slices(splitInterval));
         const auto &in1Region = concat(in1.flatten().slices(splitInterval));
         const auto &in2Region = concat(in2.flatten().slices(splitInterval))
                                     .slice(0, numPatternElems);
-        std::string vertexName = inPlace
-                                     ? "popops::BroadcastVectorInner1DInPlace"
-                                     : "popops::BroadcastVectorInner1D";
+        std::string vertexName =
+            inPlace ? "popops::BroadcastVectorInnerInPlaceSupervisor"
+                    : "popops::BroadcastVectorInnerSupervisor";
         auto vertexClass = templateVertex(vertexName, op, dType);
         logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
                                vertexClass);
@@ -1026,7 +1030,7 @@ bool binaryOpBroadcastInnerVector(
     }
   }
 
-  // Cannot use MultiVertex, split work based on the size of the pattern.
+  // Cannot use supervisor, split work based on the size of the pattern.
   std::string vertexName = inPlace ? "popops::BroadcastVectorInner2DInPlace"
                                    : "popops::BroadcastVectorInner2D";
   auto vertexClass = templateVertex(vertexName, op, dType);
@@ -1150,7 +1154,8 @@ bool binaryOpBroadcastOuterVector(
   if ((std::all_of(patterns.begin(), patterns.end(),
                    canUseOuterVectorVertex)) &&
       patterns.size() != 0 &&
-      validateRegionSizeForMultiVertex(regions, elementLimit, numWorkers)) {
+      validateRegionSizeForSupervisorVertex(regions, elementLimit,
+                                            numWorkers)) {
     std::vector<Tensor> outRegion(patterns.size()), in1Region(patterns.size()),
         in2Region(patterns.size());
     unsigned regionIndex = 0;
@@ -1188,11 +1193,13 @@ bool binaryOpBroadcastOuterVector(
 
     std::string vertexName;
     if (rowVertex) {
-      vertexName = inPlace ? "popops::BroadcastVectorOuterByRow1DInPlace"
-                           : "popops::BroadcastVectorOuterByRow1D";
+      vertexName = inPlace
+                       ? "popops::BroadcastVectorOuterByRowInPlaceSupervisor"
+                       : "popops::BroadcastVectorOuterByRowSupervisor";
     } else if (columnVertex) {
-      vertexName = inPlace ? "popops::BroadcastVectorOuterByColumn1DInPlace"
-                           : "popops::BroadcastVectorOuterByColumn1D";
+      vertexName = inPlace
+                       ? "popops::BroadcastVectorOuterByColumnInPlaceSupervisor"
+                       : "popops::BroadcastVectorOuterByColumnSupervisor";
     } else { // Mix of row and column vertices
       return false;
     }
@@ -2564,10 +2571,11 @@ bool createVertexBinaryOpBroadcastScalar(
   const auto grainSize = std::max<unsigned>(target.getVectorWidth(inType),
                                             target.getAtomicStoreGranularity());
 
-  // Use a simple heuristic to decide if creating multiple 1D MultiVertex
-  // for multiple regions will be poorly balanced over using 2D vertices
+  // Use a simple heuristic to decide if creating multiple supervisor
+  // vertices for multiple regions will be poorly balanced over
+  // using 2D vertices
 
-  bool useMultiVertex =
+  bool useSupervisor =
       intervals.size() == 1 ||
       (intervals.size() < numWorkers &&
        std::all_of(intervals.begin(), intervals.end(),
@@ -2585,14 +2593,14 @@ bool createVertexBinaryOpBroadcastScalar(
       splitRegionsBetweenWorkers(target, intervals, grainSize, 2 * grainSize,
                                  UINT_MAX, elementLimit.regionSize);
 
-  if (useMultiVertex && exitIfInefficient) {
-    // If necessary insert criteria for exit, having chosen 1D MultiVertex
+  if (useSupervisor && exitIfInefficient) {
+    // If necessary insert criteria for exit, having chosen Supervisor vertices
     // over workers here.
   }
 
-  // Having chosen worker vertices over 1D MultiVertex, exit if that is
+  // Having chosen worker vertices over supervisor, exit if that is
   // inefficient.
-  if (!useMultiVertex && exitIfInefficient) {
+  if (!useSupervisor && exitIfInefficient) {
     // Calculate the total number of elements on the tile, and the number
     // of regions these are split into for the workers
     std::size_t totalElems = intervalSequenceNumElements(intervals);
@@ -2614,16 +2622,16 @@ bool createVertexBinaryOpBroadcastScalar(
                ? true
                : false;
   };
-  if (useMultiVertex &&
-      validateRegionSizeForMultiVertex(intervals, elementLimit, numWorkers)) {
+  if (useSupervisor && validateRegionSizeForSupervisorVertex(
+                           intervals, elementLimit, numWorkers)) {
     std::string vertexClass;
     if (isVarianceConversionBinaryOp(op) && (inType != outType)) {
       assert(!inPlace);
-      auto vertexName = "popops::BroadcastScalar2Types1D";
+      auto vertexName = "popops::BroadcastScalar2Types1DSupervisor";
       vertexClass = templateVertex(vertexName, op, inType, outType);
     } else {
-      auto vertexName = inPlace ? "popops::BroadcastScalar1DInPlace"
-                                : "popops::BroadcastScalar1D";
+      auto vertexName = inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
+                                : "popops::BroadcastScalar1DSupervisor";
       vertexClass = templateVertex(vertexName, op, inType);
     }
     if (intervals.size()) {

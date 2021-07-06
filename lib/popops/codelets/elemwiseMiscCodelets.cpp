@@ -108,7 +108,7 @@ template class Fill2d<signed char>;
 
 // A couple of macros to instantiate more compactly the templates of the various
 // Cast vertices, for all possible combinations of input and output types
-// (float, half, signed/unsigned ints and bool)
+// (float, half, signed/unsinged ints and bool)
 #define INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, srcType)                  \
   template class CastVertexName<srcType, float>;                               \
   template class CastVertexName<srcType, half>;                                \
@@ -199,10 +199,9 @@ getCastParams() {
 }
 
 template <typename SrcType, typename DstType>
-class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast1DSingleWorker
-    : public Vertex {
+class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast : public Vertex {
 public:
-  Cast1DSingleWorker();
+  Cast();
 
   // Structured binding would be nicer, but it doesn't work here
   constexpr static auto t = getCastParams<SrcType, DstType>();
@@ -226,13 +225,16 @@ public:
   }
 };
 
-INSTANTIATE_CAST(Cast1DSingleWorker)
+INSTANTIATE_CAST(Cast)
 
+#ifdef __IPU__
+// The vertices defined by this template will be called by the supervisor
+// vertex only
 template <typename SrcType, typename DstType>
-class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast1D
-    : public MultiVertex {
+class [[poplar::constraint("elem(*src) != elem(*dst)")]] CastWorker
+    : public Vertex {
 public:
-  Cast1D();
+  CastWorker();
 
   constexpr static auto t = getCastParams<SrcType, DstType>();
   constexpr static bool ext = std::get<0>(t);
@@ -245,53 +247,20 @@ public:
   Output<Vector<DstType, outLayout, outAlign>> dst;
   const unsigned partitionParams;
 
-  IS_EXTERNAL_CODELET(ext);
-
-  bool compute(unsigned wid) {
-    // 'partitionParams' contains 4 bit fields defining how the work is
-    // partitioned among workers:
-    //
-    //                           23 bits                    3     3     3
-    //  +------------------------------------------------+-----+-----+-----+
-    //  |                       Welems                   | Wcnt| Wlst| Dlst|
-    //  +------------------------------------------------+-----+-----+-----+
-    // MSB                                                               LSB
-    //
-    // The first 'Wcnt' (Worker Count) workers will process 'Welems' (Worker
-    // Elements) elements each ('Welems' always a multiple of 4).
-    // The other (6-'Wcnt') workers will process 'Welems-4' elems (could be
-    // none). Need to correct the above for the last worker, (index 'Wlst
-    // =Worker Last), that will process 'Dlst' (Delta Last, 0..3) fewer elements
-    // than specified by 'Welems' or 'Welems-4'. For instance:
-    //
-    // Total elements : 15  =>   WCnt=4, Welems=4, Wlst=3, Dlst=1
-    //
-    //  WkId 0     WkId 1     WkId 2     WkId 3     WkId 4     WkId 5
-    // 4 elems    4 elems    4 elems    3 elems    0 elems    0 elems
-    //   +---------------+------------------+ |
-    //                   |                    |
-    //                Wcnt=4                  Last one does 'Dlst' fewer elems.
-    //
-    //
-    // Total elements : 30  =>   WCnt=2, Welems=8, Wlst=5, Dlst=2
-    //
-    //  WkId 0     WkId 1     WkId 2     WkId 3     WkId 4     WkId 5
-    // 8 elems    8 elems    4 elems    4 elems    4 elems    2 elems
-    // +--------+-------+                                        |
-    //          |                                                |
-    //        Wcnt=2                       Last one does 'Dlst' fewer elems.
-    //
-    // This ensures that all workers start on a 4-element boundary.
+  bool compute() {
+    unsigned wId = getWsr();
+    // Read the comment for partitionParams in CastSupervisor below to see
+    // how work is partitioned to this worker.
     const unsigned deltaLast = partitionParams & 0x7;
     const unsigned workerLast = (partitionParams >> 3) & 0x7;
     const unsigned workerCount = (partitionParams >> 6) & 0x7;
     unsigned workerElems = partitionParams >> 9;
-    unsigned offs = wid * workerElems;
-    if (wid >= workerCount) {
+    unsigned offs = wId * workerElems;
+    if (wId >= workerCount) {
       workerElems -= 4;
-      offs -= (wid - workerCount) * 4;
+      offs -= (wId - workerCount) * 4;
     }
-    if (wid == workerLast) {
+    if (wId == workerLast) {
       workerElems -= deltaLast;
     }
     for (unsigned i = 0; i < workerElems; ++i) {
@@ -301,10 +270,118 @@ public:
   }
 };
 
-INSTANTIATE_CAST(Cast1D)
+// Note that we don't define here the following:
+//    1. FLOAT <-> HALF conversion (defined in assembly)
+//    2. 8bit integer <-> HALF,FLOAT conversion (defined in assembly)
+//    3. Identity conversions (XXX->XXX) and INT<->UNSIGNED as these will be
+//       replaced with Copy() in popops::cast()
+template class CastWorker<float, int>;
+template class CastWorker<float, unsigned>;
+template class CastWorker<float, unsigned short>;
+template class CastWorker<float, bool>;
+
+template class CastWorker<half, int>;
+template class CastWorker<half, unsigned>;
+template class CastWorker<half, unsigned short>;
+template class CastWorker<half, bool>;
+
+template class CastWorker<int, float>;
+template class CastWorker<int, half>;
+template class CastWorker<int, bool>;
+template class CastWorker<int, unsigned short>;
+
+template class CastWorker<unsigned int, float>;
+template class CastWorker<unsigned int, half>;
+template class CastWorker<unsigned int, bool>;
+template class CastWorker<unsigned int, unsigned short>;
+
+template class CastWorker<unsigned short, float>;
+template class CastWorker<unsigned short, half>;
+template class CastWorker<unsigned short, int>;
+template class CastWorker<unsigned short, unsigned int>;
+template class CastWorker<unsigned short, bool>;
+
+template class CastWorker<bool, float>;
+template class CastWorker<bool, half>;
+template class CastWorker<bool, int>;
+template class CastWorker<bool, unsigned int>;
+template class CastWorker<bool, unsigned short>;
+
+#endif
 
 template <typename SrcType, typename DstType>
-class [[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2D
+class [[poplar::constraint("elem(*src) != elem(*dst)")]] CastSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+public:
+  CastSupervisor();
+
+  constexpr static auto t = getCastParams<SrcType, DstType>();
+  constexpr static bool ext = std::get<0>(t);
+  constexpr static unsigned inAlign = std::get<1>(t);
+  constexpr static unsigned outAlign = std::get<2>(t);
+  constexpr static VectorLayout inLayout = std::get<3>(t);
+  constexpr static VectorLayout outLayout = std::get<4>(t);
+
+  Input<Vector<SrcType, inLayout, inAlign>> src;
+  Output<Vector<DstType, outLayout, outAlign>> dst;
+  // 'partitionParams' contains 4 bit fields defining how the work is
+  // partitioned among workers:
+  //
+  //                           23 bits                    3     3     3
+  //  +------------------------------------------------+-----+-----+-----+
+  //  |                       Welems                   | Wcnt| Wlst| Dlst|
+  //  +------------------------------------------------+-----+-----+-----+
+  // MSB                                                               LSB
+  //
+  // The first 'Wcnt' (Worker Count) workers will process 'Welems' (Worker
+  // Elements) elements each ('Welems' always a multiple of 4).
+  // The other (6-'Wcnt') workers will process 'Welems-4' elems (could be none).
+  // Need to correct the above for the last worker, (index 'Wlst =Worker Last),
+  // that will process 'Dlst' (Delta Last, 0..3) fewer elements than specified
+  // by 'Welems' or 'Welems-4'.
+  // For instance:
+  //
+  // Total elements : 15  =>   WCnt=4, Welems=4, Wlst=3, Dlst=1
+  //
+  //  WkId 0     WkId 1     WkId 2     WkId 3     WkId 4     WkId 5
+  // 4 elems    4 elems    4 elems    3 elems    0 elems    0 elems
+  //   +---------------+------------------+  \
+  //                   |                      \
+  //                Wcnt=4                  Last one does 'Dlst' fewer elems.
+  //
+  //
+  // Total elements : 30  =>   WCnt=2, Welems=8, Wlst=5, Dlst=2
+  //
+  //  WkId 0     WkId 1     WkId 2     WkId 3     WkId 4     WkId 5
+  // 8 elems    8 elems    4 elems    4 elems    4 elems    2 elems
+  // +--------+-------+                                        |
+  //          |                                                |
+  //        Wcnt=2                       Last one does 'Dlst' fewer elems.
+  //
+  // This ensures that all workers start on a 4-element boundary.
+  const unsigned partitionParams;
+
+  IS_EXTERNAL_CODELET(true);
+
+  bool compute() {
+    const unsigned deltaLast = partitionParams & 0x7;
+    const unsigned workerLast = (partitionParams >> 3) & 0x7;
+    const unsigned workerCount = (partitionParams >> 6) & 0x7;
+    const unsigned workerElems = partitionParams >> 9;
+    const unsigned numElems = workerCount * workerElems +
+                              (CTXT_WORKERS - workerCount) * (workerElems - 4) -
+                              deltaLast;
+    for (unsigned i = 0; i < numElems; ++i) {
+      dst[i] = static_cast<DstType>(src[i]);
+    }
+    return true;
+  }
+};
+
+INSTANTIATE_CAST(CastSupervisor)
+
+template <typename SrcType, typename DstType>
+class [[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2d
     : public Vertex {
 public:
   constexpr static auto t = getCastParams<SrcType, DstType>();
@@ -331,7 +408,7 @@ public:
   }
 };
 
-INSTANTIATE_CAST(Cast2D)
+INSTANTIATE_CAST(Cast2d)
 
 template <typename InType> class Clamp : public Vertex {
 public:

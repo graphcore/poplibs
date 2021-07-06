@@ -107,9 +107,8 @@ void addTransposeVertices(
   }
   if (cols > std::numeric_limits<unsigned short>::max() ||
       rows > std::numeric_limits<unsigned short>::max()) {
-    throw poplibs_error(
-        "Number of source rows and columns exceed sizes "
-        "supported by Transpose1DSingleWorker/Transpose2D vertex");
+    throw poplibs_error("Number of source rows and columns exceed sizes "
+                        "supported by Transpose/Transpose2d vertex");
   }
   // Shorthand local function to accumulate total size of a vector of Intervals
   auto accumSize = [](const std::vector<Interval> &vi) {
@@ -127,24 +126,24 @@ void addTransposeVertices(
     unsigned numTileTranspositions = accumSize(tileTranspositions);
     if (numTileTranspositions > 0) {
 
-      // There are 3 types of vertices that we might use. Default is MultiVertex
-      enum VertexType { Transpose1D, Transpose1DSingleWorker, Transpose2D };
+      // There are 3 types of vertices that we might use. Default is Supervisor
+      enum VertexType { TransposeSupervisor, Transpose, Transpose2d };
       std::map<VertexType, std::string> vertexNames = {
-          {Transpose1D, "popops::Transpose1D"},
-          {Transpose1DSingleWorker, "popops::Transpose1DSingleWorker"},
-          {Transpose2D, "popops::Transpose2D"},
+          {TransposeSupervisor, "popops::TransposeSupervisor"},
+          {Transpose, "popops::Transpose"},
+          {Transpose2d, "popops::Transpose2d"},
       };
-      VertexType vertexType = Transpose1D;
-      // Will we end up splitting among workers (if not 1D MultiVertex)?
+      VertexType vertexType = TransposeSupervisor;
+      // Will we end up splitting among workers (if not supervisor)?
       bool splitToWorkers = false;
-      // Can we really use the 1D MultiVertex to do them all?
+      // Can we really use the Supervisor Vertex to do them all?
       if (canUseFastTranspose(target, dType, rows, cols,
                               numTileTranspositions)) {
         // If we have to do a single matrix (of any size), it's faster to run
-        // the 'plain' Transpose instead of Transpose1D.
+        // the 'plain' Transpose instead of TransposeSupervisor.
         // Same is true if we have up to four 4x4 matrix
         if (switchToWorkerTranspose(numTileTranspositions, rows, cols)) {
-          vertexType = Transpose1DSingleWorker;
+          vertexType = Transpose;
         }
       } else {
         // Will need to partition to workers. vertexType will be chosen later
@@ -173,15 +172,15 @@ void addTransposeVertices(
         const auto v = graph.addVertex(cs, templateVertex(vertexName, dType));
 
         graph.setTileMapping(v, tile);
-        if ((vType == Transpose1DSingleWorker) || (vType == Transpose1D)) {
+        if ((vType == Transpose) || (vType == TransposeSupervisor)) {
           graph.connect(v["src"], concat(inVec));
           graph.connect(v["dst"], concat(outVec));
           graph.setInitialValue(v["numSrcColumnsD4"], cols / 4);
           graph.setInitialValue(v["numSrcRowsD4"], rows / 4);
-          if (vType == Transpose1DSingleWorker) {
+          if (vType == Transpose) {
             graph.setInitialValue(v["numTranspositionsM1"], inVec.size() - 1);
           } else {
-            // We will run one 1D MultiVertex vertex, starting the 6 workers.
+            // We will run one supervisor vertex, starting the 6 workers.
             // The first 'workerCount' workers (1<=workerCount<=6) will
             // transpose 'numTranspositions' matrices and (6-workerCount)
             // workers transposing (numTranspositions-1) matrices.
@@ -222,11 +221,11 @@ void addTransposeVertices(
         for (const auto &transpositions : perWorkerTranspositions) {
           size_t size = accumSize(transpositions);
           vertexType = canUseFastTranspose(target, dType, rows, cols, size)
-                           ? Transpose1DSingleWorker
-                           : Transpose2D;
+                           ? Transpose
+                           : Transpose2d;
           addOneVertex(vertexType, tile, transpositions);
         } // for each worker
-      }   // cannot use 1D MultiVertex variant
+      }   // cannot use Supervisor variant
     }     // if (numTileTranspositions>0)
   }       // for each tile
 }
@@ -362,7 +361,7 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
   auto updatedTo = to;
 
   if (transposeFactor != 1) {
-    // TODO: T12893 Optimise split once the cost of using a 1D MultiVertex
+    // TODO: T12893 Optimise split once the cost of using a supervisor vertex
     // is known.
     auto factorFrom = gcd(transposeFactor, from.second / minGroupsSize);
     transposeFactor /= factorFrom;

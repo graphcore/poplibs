@@ -15,9 +15,10 @@ using namespace poplar;
 namespace popops {
 
 template <expr::BinaryOpType op, class FPType>
-class BroadcastVectorInner1DInPlace : public MultiVertex {
+class BroadcastVectorInnerInPlaceSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
-  BroadcastVectorInner1DInPlace();
+  BroadcastVectorInnerInPlaceSupervisor();
 
   // The half float code for the ADD and SUBTRACT inplace operation requires
   // the 'acts' tensor to be in an interleaved region, to be able to use the
@@ -31,27 +32,38 @@ public:
 
   Input<Vector<FPType, SPAN, 8>> B;
   InOut<Vector<FPType, ONE_PTR, 8, needsInterleave>> data;
-  // See comment in BroadcastVectorInner1D.cpp for the meaning of this field
+  // The division of work among 6 workers has been done when creating the vertex
+  // (contrary to other types of vertices that do that in the device code).
+  //
+  // The amount of work to do is expressed by:
+  //        dataBlockCount = data.size() / B.size();
+  // i.e. how many times the 'B' vector fits inside 'data'
+  // This has been divided by 6; the quotient and remainder of this division
+  // has been packed into 'dataBlockCountPacked'
+  //
+  //                         15 14 13 12 11 10            4  3  2  1  0
+  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
+  // dataBlockCountPacked:  |           13 bits               | 3 bits |
+  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
+  //
+  //                        |                                 |        |
+  //                        +---------------+-----------------+----+---+
+  //                                        |                      |
+  //                            floor(dataBlockCount/6)    dataBlockCount % 6
+  //
   const uint16_t dataBlockCountPacked;
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
-    unsigned BSize = B.size();
-    // See comment in BroadcastVectorInner1D.cpp for this calculation
-    unsigned dataBlockCount = (dataBlockCountPacked >> 3);
-    const unsigned remainingBlocks = dataBlockCountPacked & 0x07;
-    unsigned offs = wid * dataBlockCount +
-                    ((wid < remainingBlocks) ? wid : remainingBlocks);
-    unsigned numBlocks = dataBlockCount + (wid < remainingBlocks);
-
-    FPType *dataPtr = &data[offs * BSize];
-
-    for (unsigned k = 0; k != BSize; ++k) {
-      for (unsigned j = 0; j != numBlocks; ++j) {
-        dataPtr[j * BSize + k] =
+  bool compute() {
+    unsigned chansPerGroup = B.size();
+    unsigned dataBlockCount =
+        (dataBlockCountPacked >> 3) * 6 + (dataBlockCountPacked & 0x07);
+    for (unsigned j = 0; j != dataBlockCount; ++j) {
+      for (unsigned k = 0; k != chansPerGroup; ++k) {
+        data[j * chansPerGroup + k] =
             BinaryOpFn<op, FPType, architecture::active>::fn(
-                dataPtr[j * BSize + k], B[k]);
+                data[j * chansPerGroup + k], B[k]);
       }
     }
     return true;
@@ -60,17 +72,21 @@ public:
 
 // See the comment before the template specializations in
 // BroadcastVectorInner2D.cpp, about the old SCALED_ADD operation type.
-template class BroadcastVectorInner1DInPlace<expr::BinaryOpType::ADD, float>;
-template class BroadcastVectorInner1DInPlace<expr::BinaryOpType::ADD, half>;
-template class BroadcastVectorInner1DInPlace<expr::BinaryOpType::DIVIDE, float>;
-template class BroadcastVectorInner1DInPlace<expr::BinaryOpType::DIVIDE, half>;
-template class BroadcastVectorInner1DInPlace<expr::BinaryOpType::MULTIPLY,
-                                             float>;
-template class BroadcastVectorInner1DInPlace<expr::BinaryOpType::MULTIPLY,
-                                             half>;
-template class BroadcastVectorInner1DInPlace<expr::BinaryOpType::SUBTRACT,
-                                             float>;
-template class BroadcastVectorInner1DInPlace<expr::BinaryOpType::SUBTRACT,
-                                             half>;
+template class BroadcastVectorInnerInPlaceSupervisor<expr::BinaryOpType::ADD,
+                                                     float>;
+template class BroadcastVectorInnerInPlaceSupervisor<expr::BinaryOpType::ADD,
+                                                     half>;
+template class BroadcastVectorInnerInPlaceSupervisor<expr::BinaryOpType::DIVIDE,
+                                                     float>;
+template class BroadcastVectorInnerInPlaceSupervisor<expr::BinaryOpType::DIVIDE,
+                                                     half>;
+template class BroadcastVectorInnerInPlaceSupervisor<
+    expr::BinaryOpType::MULTIPLY, float>;
+template class BroadcastVectorInnerInPlaceSupervisor<
+    expr::BinaryOpType::MULTIPLY, half>;
+template class BroadcastVectorInnerInPlaceSupervisor<
+    expr::BinaryOpType::SUBTRACT, float>;
+template class BroadcastVectorInnerInPlaceSupervisor<
+    expr::BinaryOpType::SUBTRACT, half>;
 
 } // namespace popops

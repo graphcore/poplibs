@@ -1682,7 +1682,7 @@ addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
           return popsolver::DataType{0};
         }
         return popsolver::DataType{
-            popops::internal::getBinaryOp1DInPlaceEstimate(
+            popops::internal::getBinaryOp1DInPlaceSupervisorEstimate(
                 target, outputsType, popops::expr::BinaryOpType::ADD,
                 outputsPerTile)};
       });
