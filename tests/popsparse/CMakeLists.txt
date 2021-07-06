@@ -240,6 +240,19 @@ add_multitarget_test(
     --matmul-options={\"planConstraints\":\"{\\\"partition\\\":{\\\"x\\\":6,\\\"y\\\":4,\\\"z\\\":1}}\"}
     --single-phase=fwd)
 
+# Test reporting of gradw serial splits
+add_multitarget_test(
+        NAME sparse_fc_layer_report_serial_splits_256in_256out_64b_block4_0.1sl
+        COMMAND sparse_fc_layer
+          --input-size=256
+          --output-size=256
+          --batch-size=64
+          --block-size=4
+          --sparsity-factor=0.01
+          --tiles-per-ipu=24
+          --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+          --report-dense-gradw-serial-splits=1)
+
 # Dense version tests
 foreach(INPUT_SIZE 32 47 512)
   foreach(OUTPUT_SIZE 23 128)
@@ -260,7 +273,7 @@ foreach(INPUT_SIZE 32 47 512)
     )
   endforeach()
 endforeach()
-  
+
 
 # Test when all dimensions overflow
 add_multitarget_test(

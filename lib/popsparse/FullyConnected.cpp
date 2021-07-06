@@ -2506,13 +2506,16 @@ fullyConnectedDenseGradWSerialSplits(const Graph &graph, const Type &inputType,
   matMulOptions.set("fullyConnectedPass", "NONE");
   matMulOptions.set("availableMemoryProportion",
                     std::to_string(options.availableMemoryProportion));
-  return poplin::groupedMatMulOutputSerialSplits(
+  auto planConstraints = poplin::groupedMatMulPlanConstraints(
       graph, inputType, options.partialsType,
       {fcParams.getNumGroups(), fcParams.getInputChannelsPerGroup(),
        fcParams.getBatchSize()},
       {fcParams.getNumGroups(), fcParams.getBatchSize(),
        fcParams.getOutputChannelsPerGroup()},
       matMulOptions);
+  auto serialSplits = poplin::getMatMulSerialSplits(planConstraints);
+  return std::make_tuple(std::get<0>(serialSplits), std::get<1>(serialSplits),
+                         std::get<2>(serialSplits));
 }
 
 static std::vector<std::size_t>
