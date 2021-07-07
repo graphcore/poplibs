@@ -13,14 +13,28 @@ namespace popnn {
 namespace pooling {
 
 struct PoolParams {
+  /// The type of pooling to be performed (for example maximum, sum or average)
   PoolingType poolingType;
+  /// The input shape not including the dimensions for batch size `batchSize`
+  /// and number of channels `numChannels`
   std::vector<std::size_t> inputFieldShape;
+  /// The shape of the pooling kernel
   std::vector<std::size_t> kernelShape;
+  /// The stride per input dimension
   std::vector<unsigned> stride;
+  /// The lower padding (for values >0) or truncation (for values <0) for each
+  /// input dimension specifying the padding/truncation at the start of the
+  /// dimension
   std::vector<int> inputTruncationOrPaddingLower;
+  /// The upper padding (for values >0) or truncation (for values <0) for each
+  /// input dimension specifying the padding/truncation at the end of the
+  /// dimension
   std::vector<int> inputTruncationOrPaddingUpper;
+  /// The number of channels in the input tensor
   std::size_t numChannels;
+  /// The batch size of the input tensor
   std::size_t batchSize;
+  /// The output type
   poplar::Type dType;
 
   PoolParams(PoolingType poolingType, std::vector<std::size_t> inputFieldShape,
@@ -57,7 +71,7 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
 /** Add a pooling operation to the graph
  *
  * This performs a pooling over the spatial dimensions [...].  The shape of
- * the input should be [B x inChans x ...].
+ * the input should be [batchSize x numChannels x ...].
  *
  * \param graph             The operation will be added to this graph
  * \param params            Pooling parameters
@@ -81,13 +95,15 @@ poplar::Tensor pool(poplar::Graph &graph, const PoolParams &params,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {});
 
-/** For MAX, AVG or SUM pooling.
- *  Note - recommend the specific function for AVG or SUM pooling, below.
- *  Calculate the gradient w.r.t. to the input of a pooling operation given
- *  the gradient of the output.
+/** Calculate the gradient with respect to the input of a pooling operation
+ * given the gradient of the output.
+ *
+ * This can be used for MAX, AVG or SUM pooling
+ * Note - recommend the specific function for AVG or SUM pooling, below.
+ *
  *
  * This performs a pooling over the spatial dimensions [...].  The shape of
- * the input should be [B x inChans x ...].
+ * the input should be [batchSize x numChannels x ...].
  *
  * \param graph             The operation will be added to this graph
  * \param params            Pooling parameters
@@ -110,12 +126,13 @@ poplar::Tensor poolInputGradient(poplar::Graph &graph, const PoolParams &params,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {});
-/** For AVG and SUM pooling
- *  Calculate the gradient w.r.t. to the input of a pooling operation given
- *  the gradient of the output.
+/** Calculate the gradient with respect to the input of a pooling operation
+ * given the gradient of the output.
+ *
+ * This should be used for AVG and SUM pooling
  *
  * This performs a pooling over the spatial dimensions [...].  The shape of
- * the output will be [B x inChans x ...].
+ * the output will be [batchSize x numChannels x ...].
  *
  * \param graph             The operation will be added to this graph
  * \param params            Pooling parameters
