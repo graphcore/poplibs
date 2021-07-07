@@ -27,6 +27,7 @@ phases_dict = {'fwd':0, 'bwd':1, 'wu':2}
 # 16:52:46.800 55378 PL [D]   breakdown of memory and cycle estimates:
 # 16:52:46.800 55378 PL [D]    - total parallel split: 1120
 # 16:52:46.800 55378 PL [D]    - total serial split: 1
+# 16:52:46.800 55378 PL [D]    - broadcast operands before loop: 0 copy cycles, 5012 exchange cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - rearrangement before slice: 0 cycles, 0 bytes (0 overhead, 0 per-loop iteration)
 # 16:52:46.800 55378 PL [D]    - memsetZeroBeforeAddInPlace: 0 cycles, unknown bytes
 # 16:52:46.800 55378 PL [D]    - dynamic slice: 0 cycles, unknown bytes
@@ -44,6 +45,7 @@ re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+_?[A-Z]+?): Cost\
                           ".+" + NEW_LINE_CHAR +
                           ".+total parallel split:\s(\d+)" + NEW_LINE_CHAR +
                           ".+total serial split:\s(\d+)" + NEW_LINE_CHAR +
+                          ".+broadcast operands before loop:\s(\d+)\scopy\scycles,\s(\d+)\sexchange\scycles,\s(\d+).+" + NEW_LINE_CHAR +
                           ".+rearrangement before slice:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+memsetZeroBeforeAddInPlace:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+dynamic slice:\s(\d+).+" + NEW_LINE_CHAR +
@@ -58,7 +60,8 @@ re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+_?[A-Z]+?): Cost\
                           re.MULTILINE)
 
 planner_info_fields_names = ['method', 'cost', 'memory', 'tiles', 'training', 'phase',
-                 'parallelSplit', 'serialSplit', 'rearrangeBeforeSlice', 'memsetZeroBeforeAddInPlace',
+                 'parallelSplit', 'serialSplit', 'broadcastInputsCycles', 'broadcastExchangeCycles',
+                 'broadcastBytes', 'rearrangeBeforeSlice', 'memsetZeroBeforeAddInPlace',
                  'dynamicSlice', 'transformsCopyCycles', 'transformsExchangeCycles', 'transformsBytes',
                  'transformsCopyInputBytes', 'transformsCopyWeightsBytes', 'exchange', 'inputExchange',
                  'weightsExchange', 'reduceExchange', 'reduceExchangePlus', 'tileTransforms',
@@ -605,6 +608,7 @@ def calculate_diffs(planner_data, profile_data):
     te_index = get_execution_offset('transformPre0', 'DoExchange')
     tot_index = get_execution_offset('transformPre0', 'OnTileExecute')
 
+    #TODO: Need to take into account broadcastInputs and broadcastExchange cycles (transform parts)
     transforms_exchange_diff = get_diffs(planner_data.transformsExchangeCycles, profile_data[te_index])
     transforms_on_tile_diff = get_diffs(planner_data.transformsCopyCycles, profile_data[tot_index])
 

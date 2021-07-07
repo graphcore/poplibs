@@ -127,7 +127,8 @@ static void applyMultiPlan(poplar::Graph &graph, const SerialPlan &serial,
     fn(plan, arg, cpt, i, {dnai, name});
 
     const ConvOptions options(arg.options);
-    cpt.lower(graph, prog, options.insertTransformsCycleCountProgs, {dnai});
+    cpt.lower(graph, prog, plan, options.insertTransformsCycleCountProgs,
+              {dnai});
   }
 }
 
@@ -147,6 +148,8 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
     assert(para.plans[0].numLevels() == para.plans[i].numLevels());
     assert(para.plans[0].totalSerialSplit() ==
            para.plans[i].totalSerialSplit());
+    assert(para.plans[0].broadcastInputBeforeLoop ==
+           para.plans[i].broadcastInputBeforeLoop);
   }
 
   ConvProgramTree cpt(graph, para.plans.front(), {dnai});
@@ -169,7 +172,7 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
     }
   }
 
-  cpt.lower(graph, prog, insertCycleCounts, {dnai});
+  cpt.lower(graph, prog, para.plans.front(), insertCycleCounts, {dnai});
 }
 
 poplar::Tensor createWeights(poplar::Graph &graph,
