@@ -143,6 +143,12 @@ char4 tochar4(short4 val) {
                static_cast<char>(val[2]), static_cast<char>(val[3])};
 }
 
+char4 tochar4(int2 lo, int2 hi) {
+  short4 tmp{static_cast<short>(lo[0]), static_cast<short>(lo[1]),
+             static_cast<short>(hi[0]), static_cast<short>(hi[1])};
+  return tochar4(tmp);
+}
+
 char4 tochar4(long2 lo, long2 hi) {
   short4 tmp{static_cast<short>(lo[0]), static_cast<short>(lo[1]),
              static_cast<short>(hi[0]), static_cast<short>(hi[1])};

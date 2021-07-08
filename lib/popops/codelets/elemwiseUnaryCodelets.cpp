@@ -1,6 +1,9 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
+#ifdef __IPU__
+#include <ipu_builtins.h>
+#endif
 
 #include <cassert>
 #include <cmath>
@@ -207,7 +210,7 @@ template <expr::UnaryOpType op, typename T> struct UnaryOpOutputType {
   template <typename T> struct UnaryOpOutputType<op, T> {                      \
     using type = bool;                                                         \
   };                                                                           \
-  template <> struct UnaryOpOutputType<op, float2> { using type = long2; };    \
+  template <> struct UnaryOpOutputType<op, float2> { using type = int2; };     \
   template <> struct UnaryOpOutputType<op, half4> { using type = short4; };
 #endif
 
@@ -284,23 +287,15 @@ DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::FLOOR, floor)
 
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::INVERSE, return 1 / x;)
 
-#ifdef __IPU__
-template <typename T>
-auto isinf(T a) -> decltype(a == INFINITY || a == -INFINITY) {
-  return a == INFINITY || a == -INFINITY;
-}
-template <typename T>
-auto isninf(T a) -> decltype(a != INFINITY && a != -INFINITY) {
-  return a != INFINITY && a != -INFINITY;
-}
-#endif
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_INF,
                    return std::isinf(PromoteHalfsToFloats(x));
-                   , return isinf(PromoteHalfsToFloats(x));)
+                   , return __builtin_ipu_isinf(PromoteHalfsToFloats(x));)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_FINITE,
                    return std::isfinite(PromoteHalfsToFloats(x));
-                   , return x == x && isninf(PromoteHalfsToFloats(x));)
-DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_NAN, return x != x;)
+                   , return __builtin_ipu_isfinite(PromoteHalfsToFloats(x));)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_NAN,
+                   return std::isnan(PromoteHalfsToFloats(x));
+                   , return __builtin_ipu_isnan(PromoteHalfsToFloats(x));)
 
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM, log)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM_ONE_PLUS, log1p)
@@ -420,10 +415,10 @@ struct UnaryOpDispatch<op, float, bool, architecture::ipu> {
       const unsigned loopCount = maskForRepeat(size / 4u);
       for (unsigned i = 0; i < loopCount; ++i) {
         float2 load = ipu::load_postinc(&f2In, 1);
-        long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load));
+        int2 calc_lo = static_cast<int2>(FuncTy<float2>::fn(load));
 
         load = ipu::load_postinc(&f2In, 1);
-        long2 calc_hi = static_cast<long2>(FuncTy<float2>::fn(load));
+        int2 calc_hi = static_cast<int2>(FuncTy<float2>::fn(load));
 
         char4 result = tochar4(calc_lo, calc_hi);
         int ires = copy_cast<int>(result) & 0x01010101;
@@ -801,10 +796,10 @@ struct UnaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
     const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
     for (unsigned j = 0; j < loopCount; j++) {
       float2 load = ipu::load_postinc(&f2In, 1);
-      long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load));
+      int2 calc_lo = static_cast<int2>(FuncTy<float2>::fn(load));
 
       load = ipu::load_postinc(&f2In, 2 * CTXT_WORKERS - 1);
-      long2 calc_hi = static_cast<long2>(FuncTy<float2>::fn(load));
+      int2 calc_hi = static_cast<int2>(FuncTy<float2>::fn(load));
 
       char4 result = tochar4(calc_lo, calc_hi);
       int ires = copy_cast<int>(result) & 0x01010101;
