@@ -105,7 +105,7 @@ function(add_test_executable name)
       ${CMAKE_SOURCE_DIR}/lib
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
-  target_link_libraries(${name} popfloat poprand popnn poputil
+  target_link_libraries(${name} popfloat poprand popnn poputil pva
     poplibs_support poplibs_test poplar Boost::unit_test_framework
     Boost::timer Boost::system Boost::program_options
     ${CMAKE_THREAD_LIBS_INIT})

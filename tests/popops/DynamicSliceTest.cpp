@@ -18,6 +18,7 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
+#include <pva/pva.hpp>
 #include <sstream>
 #include <vector>
 
@@ -1426,30 +1427,22 @@ void multiUpdatePoorlyMappedSlices() {
     BOOST_CHECK_EQUAL(hOut[i], expected[i]);
   }
 
-  const auto &graphProfile = e.getGraphProfile();
-  const auto exchangeCodeBytes =
-      graphProfile["memory"]["byCategory"]["internalExchangeCode"]
-                  ["nonInterleaved"]["nonOverlapped"]
-                      .sumUint() +
-      graphProfile["memory"]["byCategory"]["internalExchangeCode"]
-                  ["interleaved"]["nonOverlapped"]
-                      .sumUint() +
-      graphProfile["memory"]["byCategory"]["internalExchangeCode"]["overflowed"]
-                  ["nonOverlapped"]
-                      .sumUint();
-  const auto vertexStateBytes =
-      graphProfile["memory"]["byCategory"]["vertexInstanceState"]
-                  ["nonInterleaved"]["nonOverlapped"]
-                      .sumUint() +
-      graphProfile["memory"]["byCategory"]["copyDescriptor"]["nonInterleaved"]
-                  ["nonOverlapped"]
-                      .sumUint() +
-      graphProfile["memory"]["byCategory"]["vectorListDescriptor"]
-                  ["nonInterleaved"]["nonOverlapped"]
-                      .sumUint() +
-      graphProfile["memory"]["byCategory"]["vertexFieldData"]["nonInterleaved"]
-                  ["nonOverlapped"]
-                      .sumUint();
+  const auto &report = e.getReport();
+  std::uint64_t exchangeCodeBytes{};
+  std::uint64_t vertexStateBytes{};
+  for (const auto &t : report.compilation().tiles()) {
+    const auto cats = t.memory().category();
+    const auto exCode = cats.internalExchangeCode();
+    exchangeCodeBytes += exCode.nonInterleaved().nonOverlapped() +
+                         exCode.interleaved().nonOverlapped() +
+                         exCode.overflowed().nonOverlapped();
+
+    vertexStateBytes +=
+        cats.vertexInstanceState().nonInterleaved().nonOverlapped() +
+        cats.copyDescriptor().nonInterleaved().nonOverlapped() +
+        cats.vectorListDescriptor().nonInterleaved().nonOverlapped() +
+        cats.vertexFieldData().nonInterleaved().nonOverlapped();
+  }
   BOOST_TEST_MESSAGE("Total exchange code is " << exchangeCodeBytes);
   BOOST_TEST_MESSAGE("Total vertex state bytes is " << vertexStateBytes);
   BOOST_TEST_MESSAGE("Total exchange code and vertex state bytes is "

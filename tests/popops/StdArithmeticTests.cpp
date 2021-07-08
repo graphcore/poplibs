@@ -17,6 +17,7 @@
 #include <popops/ScaledAdd.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <pva/pva.hpp>
 #include <vector>
 
 using namespace poplar;
@@ -1479,7 +1480,7 @@ struct HalfTensorAXBYTestFixture {
     graph_.createHostRead("out", inOut_);
   }
 
-  poplar::ProfileValue runProgram(const poplar::program::Program &program) {
+  pva::Report runProgram(const poplar::program::Program &program) {
     Engine engine(graph_, program);
     engine.enableExecutionProfiling();
 
@@ -1498,7 +1499,7 @@ struct HalfTensorAXBYTestFixture {
     poplar::copyDeviceHalfToFloat(target_, rawOut_.data(), &hOut_[0][0],
                                   DIM_SIZE * DIM_SIZE);
 
-    return engine.getGraphProfile();
+    return engine.getReport();
   }
 
   void CHECK_OUTPUT_IS_AXMINUSBY(float a, float b) {
@@ -1512,13 +1513,13 @@ struct HalfTensorAXBYTestFixture {
 
   void CHECK_OUTPUT_IS_XMINUSBY(float b) { CHECK_OUTPUT_IS_AXMINUSBY(1, b); }
 
-  void CHECK_WAS_MIXED_PRECISION(const poplar::ProfileValue &profile) {
-    const auto graphVertices = profile["vertexTypes"]["names"].asVector();
-    for (const auto &value : graphVertices) {
-      const auto &vertex = value.asString();
-
-      const auto isCast = vertex.rfind("popops::Cast", 0) == 0;
-      BOOST_TEST(!isCast, "Profile contained cast: " << vertex);
+  void CHECK_WAS_MIXED_PRECISION(const pva::Report &report) {
+    for (const auto &cs : report.compilation().computeSets()) {
+      for (const auto &vertexInstance : cs.vertices()) {
+        const auto &vertex = vertexInstance.type().name();
+        const auto isCast = vertex.rfind("popops::Cast", 0) == 0;
+        BOOST_TEST(!isCast, "Profile contained cast: " << vertex);
+      }
     }
   }
 

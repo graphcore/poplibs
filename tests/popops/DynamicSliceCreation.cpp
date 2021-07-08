@@ -8,6 +8,7 @@
 #include <popops/DynamicSlice.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <pva/pva.hpp>
 #include <vector>
 
 using namespace poplar;
@@ -66,11 +67,11 @@ int testDim(unsigned sliceDim) {
   OptionFlags options{{"showVarStorage", "true"}};
   // Actually create the engine just to check that memory has not exploded
   Engine eng(graph, seq);
-  auto &graphProfile = eng.getGraphProfile();
   bool verbose = false;
   if (verbose)
     eng.printProfileSummary(std::cerr, options);
-  auto tile0Memory = graphProfile["memory"]["byTile"]["total"][0].asUint();
+  const auto tile0Memory =
+      eng.getReport().compilation().tiles()[0].memory().total().excludingGaps();
   BOOST_TEST_FRAMEWORK_MESSAGE("blah");
   BOOST_TEST_MESSAGE("Tile0 memory = " + std::to_string(tile0Memory));
   BOOST_CHECK(tile0Memory <= input.numElements() + 10240);

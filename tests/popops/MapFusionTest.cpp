@@ -5,6 +5,7 @@
 #include "poplibs_test/Util.hpp"
 #include "poputil/exceptions.hpp"
 #include <poplibs_support/TestDevice.hpp>
+#include <pva/pva.hpp>
 
 // codelets
 #include "popnn/codelets.hpp"
@@ -108,31 +109,39 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
        popops::map::%%%%                  (4 instances)
     */
 
-    ProfileValue profile = engine.getProfile();
+    const auto report = engine.getReport(false);
     // Check the vertices.
-    if (profile["graphProfile"]["graph"]["numVertices"].asInt() != 4) {
+    if (report.compilation().graph().numVertices() != 4) {
       std::cerr << "Number of vertices in the graph != 4 (is operation "
                    "fused?): num vertices = "
-                << profile["graphProfile"]["graph"]["numVertices"].asInt();
+                << report.compilation().graph().numVertices();
       return false;
     }
 
     // Check the compute sets.
-    if (profile["graphProfile"]["graph"]["numComputeSets"].asInt() != 1) {
+    if (report.compilation().graph().numComputeSets() != 1) {
       std::cerr << "Compute sets != 1 (is operation fused?) compute sets = "
-                << profile["graphProfile"]["graph"]["numComputeSets"].asInt();
+                << report.compilation().graph().numComputeSets();
       return false;
     }
 
     // Check the name of the vertex, first by checking that there is only one
     // vertex type.
-    auto vertexTypes = profile["graphProfile"]["vertexTypes"]["names"];
-    if (vertexTypes.size() != 1) {
-      std::cerr << "Too many vertex types in graph (is operation fused?)";
-      return false;
+    std::string name;
+    for (const auto &t : report.compilation().tiles()) {
+      for (const auto &v : t.memory().vertices()) {
+        if (name.empty()) {
+          name = v.type().name();
+        } else {
+          if (name != v.type().name()) {
+            std::cerr << "Too many vertex types in graph (is operation fused?)";
+            return false;
+          }
+        }
+      }
     }
+
     // Then check that the name is the generated name.
-    std::string name = vertexTypes.asVector()[0].asString();
     constexpr char prefix[] = "popops::map::";
     if (std::string::npos == name.find(prefix)) {
       std::cerr << "Name doesn't match " << prefix
