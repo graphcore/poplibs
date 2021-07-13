@@ -967,7 +967,7 @@ public:
                                                                                \
   public:                                                                      \
     UnaryOp1DInPlaceSupervisor();                                              \
-    InOut<Vector<T, PTR_TYPE>> inOut;                                          \
+    InOut<Vector<T, PTR_TYPE, 4>> inOut;                                       \
     const unsigned short n;                                                    \
     IS_EXTERNAL_CODELET(true);                                                 \
     bool compute() {                                                           \
