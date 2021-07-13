@@ -73,9 +73,9 @@
   a2:                                                                          \
   3
 
+#define qnanLower a4
 #define enInfMask a4
 #define fp16MaxNeg a4
-
 #define fp16MaxPos a5
 
 #define enNanooMaskV4                                                          \

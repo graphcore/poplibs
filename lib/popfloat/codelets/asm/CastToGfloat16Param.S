@@ -25,10 +25,12 @@ castToGfloat16Param:
     sort4x16lo   $expMask       , $expMask              , $expMask
   }
   sort4x32lo   $halfExpMaskV4 , $halfExpMaskV4        , $halfExpMaskV4
+  setzi        $qnanLower     , 0x9c
   {
     st64         $halfExpMaskV4 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_EXPONENT_MASK_OFFSET/2);
-    f16v4sub     $qNanFP16V4    , $halfExpMaskV4        , $halfExpMaskV4
+    f16v4add     $qNanFP16V4    , $qnanLower:BL         , $azeros
   }
+  or64           $qNanFP16V4    , $qNanFP16V4           , $halfExpMaskV4
   {
     st64         $qNanFP16V4    , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_QNAN_OUTPUT_OFFSET/2);
     setzi        $signMask      , 0xBC00

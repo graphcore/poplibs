@@ -38,7 +38,13 @@
 
 #define mGf32Param m11
 
-#define enNanooGF32 a1
+#define qNanLower a0
+
+#define qNanUpper a1
+
+#define qNanV2                                                                 \
+  a0:                                                                          \
+  1
 
 #define bit23Mask a2
 #define maxPosValue a2
@@ -56,17 +62,15 @@
 #define sgnV2                                                                  \
   a2:                                                                          \
   3
-#define qNanV2                                                                 \
-  a2:                                                                          \
-  3
 
 #define biasCorrection a4
-#define expMask a4
+#define expMask0 a4
 #define fpClampPos a4
 #define minValueGF32 a4
 #define enGF32Inf a4
 #define minNormGF32 a4
 
+#define expMask1 a5
 #define fpHalfMinGF32 a5
 #define halfMinGF32 a5
 #define gf16ValueV2 a5

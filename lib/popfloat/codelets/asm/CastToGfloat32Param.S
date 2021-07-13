@@ -18,15 +18,24 @@ DEF_STACK_USAGE 0 castToGfloat32Param
 castToGfloat32Param:
   {
     ld32         $mGf32Param    , $mvertex_base               , $mzero            , POPFLOAT_VBASE_CALC_GFLOAT_PARAM_PTR_OFFSET;
-    or           $expMask       , $azero                      , POPFLOAT_FP32_EXPONENT_MASK
+    or           $expMask0      , $azero                      , POPFLOAT_FP32_EXPONENT_MASK
   }
   {
     ld32         $mFloatStruct  , $mvertex_base               , $mzero            , POPFLOAT_VBASE_GFLOAT_STRUCT_PTR_OFFSET;
-    f32v2add     $fpExpMaskV2   , $expMask:B                  , $azeros
+    or           $expMask1      , $azero                      , POPFLOAT_FP32_EXPONENT_MASK
   }
-  ld32         $mGF32Man      , $mvertex_base               , $mzero            , POPFLOAT_VBASE_GFLOAT_STRUCT_PTR_OFFSET
-  ldz8         $mGF32Man      , $mFloatStruct               , $mzero            , POPFLOAT_GF_STRUCT_MANTISSA_SIZE_OFFSET
-  ldz8         $mGF32Exp      , $mFloatStruct               , $mzero            , POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET;
+  {
+    ld32         $mGF32Man      , $mvertex_base               , $mzero            , POPFLOAT_VBASE_GFLOAT_STRUCT_PTR_OFFSET
+    setzi        $qNanLower     , 0xC07E
+  }
+  {
+    ldz8         $mGF32Man      , $mFloatStruct               , $mzero            , POPFLOAT_GF_STRUCT_MANTISSA_SIZE_OFFSET
+    setzi        $qNanUpper     , 0x7FD9
+  }
+  {
+    ldz8         $mGF32Exp      , $mFloatStruct               , $mzero            , POPFLOAT_GF_STRUCT_EXPONENT_SIZE_OFFSET;
+    sort4x16lo   $qNanLower     , $qNanLower                  , $qNanUpper
+  }
   {
     setzi        $mConstOne     , 1;
     setzi        $signMask      , POPFLOAT_FP16_SIGN_MASK
@@ -45,7 +54,7 @@ castToGfloat32Param:
   }
   {
     st64         $sgnExpMaskV2  , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_SIGN_EXP_MASK_OFFSET/2);
-    f32v2sub     $qNanV2        , $fpExpMaskV2                , $fpExpMaskV2
+    or           $qNanUpper     , $qNanLower                  , $azero
   }
   st64         $qNanV2        , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_QNAN_MASK_OFFSET/2);
   lds8         $mMinNormGF32  , $mFloatStruct               , $mzero            , POPFLOAT_GF_STRUCT_EXP_BIAS_OFFSET;
@@ -88,6 +97,7 @@ castToGfloat32Param:
   mul          $mMinGF32      , $mGF32Man                   , $enDenorm
   sub          $mMinNormGF32  , (1+POPFLOAT_FP32_EXPONENT_BIAS)  , $mMinNormGF32;    // 127+(1-bias)
   sub          $mMinGF32      , $mMinNormGF32               , $mMinGF32
+  max          $mMinGF32      , $mMinGF32                   , $mConstOne             // If exp=8, avoid undefined behaviour when denroms are enabled
   shl          $mMinNormGF32  , $mMinNormGF32               , POPFLOAT_NUM_FP32_MANTISSA_BITS
   st32         $mMinNormGF32  , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET)
   st32         $mMinNormGF32  , $mGf32Param                 , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET+1)
