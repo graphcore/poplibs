@@ -211,16 +211,14 @@ std::ostream &operator<<(std::ostream &os, const Plan &p) {
     os << "\ntypes #" << i << "\n";
     os << p.types[i];
   }
-  os << "\n        convGroupsPerGroup       " << p.convGroupsPerGroup << "\n"
-     << "        inChansPerGroup          " << p.inChansPerGroup << "\n"
-     << "        partialChansPerGroup     " << p.partialChansPerGroup << "\n"
-     << "        method                   " << p.method << "\n"
-     << "        isJointPlan              " << p.isJointPlan << "\n"
-     << "        startTile                " << p.startTile << "\n"
-     << "        linearizeTileDirection   " << p.linearizeTileDirection << "\n"
-     << "        totalTiles               " << p.totalTiles() << "\n"
-     << "        broadcastInputBeforeLoop "
-     << (p.broadcastInputBeforeLoop ? "true" : "false") << "\n";
+  os << "\n        convGroupsPerGroup      " << p.convGroupsPerGroup << "\n"
+     << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
+     << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
+     << "        method                  " << p.method << "\n"
+     << "        isJointPlan             " << p.isJointPlan << "\n"
+     << "        startTile               " << p.startTile << "\n"
+     << "        linearizeTileDirection  " << p.linearizeTileDirection << "\n"
+     << "        totalTiles              " << p.totalTiles() << "\n";
   return os;
 }
 
@@ -367,36 +365,13 @@ getCostOfSolution(const popsolver::Solution &s,
   cost.totalPerStepCycleDiff = s[e.totalPerStepCycleDiff];
   cost.totalTiles = s[e.totalTiles];
 
-  cost.broadcastInputBeforeLoopCopyCycles =
-      s[e.broadcastInputBeforeLoopCopyCycles];
-  cost.broadcastInputBeforeLoopExchangeCycles =
-      s[e.broadcastInputBeforeLoopExchangeCycles];
-
   cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
   cost.memsetZeroBeforeAddInPlace = s[e.memsetZeroBeforeAddInPlace];
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
-
-  cost.totalTransformCopyCycles = s[e.totalTransformCopyCycles];
-  cost.totalTransformExchangeCycles = s[e.totalTransformExchangeCycles];
-
-  cost.itemisedTransformEstimates.inputsCopyCycles =
-      s[e.itemisedTransformEstimates.inputsCopyCycles];
-  cost.itemisedTransformEstimates.inputsExchangeCycles =
-      s[e.itemisedTransformEstimates.inputsExchangeCycles];
-  cost.itemisedTransformEstimates.inputsTempBytes =
-      s[e.itemisedTransformEstimates.inputsTempBytes];
-  cost.itemisedTransformEstimates.weightsCopyCycles =
-      s[e.itemisedTransformEstimates.weightsCopyCycles];
-  cost.itemisedTransformEstimates.weightsExchangeCycles =
-      s[e.itemisedTransformEstimates.weightsExchangeCycles];
-  cost.itemisedTransformEstimates.weightsTempBytes =
-      s[e.itemisedTransformEstimates.weightsTempBytes];
-  cost.itemisedTransformEstimates.outputCopyCycles =
-      s[e.itemisedTransformEstimates.outputCopyCycles];
-  cost.itemisedTransformEstimates.outputExchangeCycles =
-      s[e.itemisedTransformEstimates.outputExchangeCycles];
-  cost.itemisedTransformEstimates.outputTempBytes =
-      s[e.itemisedTransformEstimates.outputTempBytes];
+  cost.transformCopyCycles = s[e.transformCopyCycles];
+  cost.transformExchangeCycles = s[e.transformExchangeCycles];
+  cost.inputRearrangeBytesPerTile = s[e.inputRearrangeBytesPerTile];
+  cost.weightsRearrangeBytesPerTile = s[e.weightsRearrangeBytesPerTile];
 
   cost.totalExchangeCycles = s[e.totalExchangeCycles];
   cost.itemisedExchangeCycles.inputExchangeCycles =
@@ -415,12 +390,10 @@ getCostOfSolution(const popsolver::Solution &s,
   cost.addInPlaceCycles = s[e.addInPlaceCycles];
   cost.castCycles = s[e.castCycles];
 
-  cost.broadcastInputBeforeLoopTempBytes =
-      s[e.broadcastInputBeforeLoopTempBytes];
   cost.rearrangeBeforeSliceTempBytes = s[e.rearrangeBeforeSliceTempBytes];
   cost.rearrangeBeforeSliceTempDuringRearrangeBytes =
       s[e.rearrangeBeforeSliceTempDuringRearrangeBytes];
-  cost.totalTransformTempBytes = s[e.totalTransformTempBytes];
+  cost.transformTempBytes = s[e.transformTempBytes];
   cost.tileLevelTransformTempBytes = s[e.tileLevelTransformTempBytes];
   cost.convTempBytes = s[e.convTempBytes];
   cost.reduceTempBytes = s[e.reduceTempBytes];
@@ -460,12 +433,10 @@ choosePlan(const poplar::Target &target,
            const ConvOptions &options) {
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
-  popsolver::Variable broadcastInputBeforeLoop = m.zero();
   Estimates<popsolver::Variable> e = constructModel(
       target, transforms, types, hierarchy, perLevelExchangeBytesPerCycle,
       fieldGrainSize, convVertexType, params, isJointPlan, bestCost, objective,
-      referencePlan, referenceCost, cache, options, m, partitionVars,
-      broadcastInputBeforeLoop);
+      referencePlan, referenceCost, cache, options, m, partitionVars);
   popsolver::Solution s;
 
   switch (objective.getType()) {
@@ -496,17 +467,12 @@ choosePlan(const poplar::Target &target,
   }
   auto startTile =
       getStartTile(target, startTileIdxForVirtualHierarchy, params, options);
-
-  const bool allowBroadcastInputBeforeLoop =
-      s[broadcastInputBeforeLoop].getAs<unsigned>();
-
   Plan plan(std::move(partitions), std::move(types),
             convVertexType.convGroupsPerGroup, convVertexType.inChansPerGroup,
             convVertexType.partialChansPerGroup, convVertexType.slicWindowWidth,
             convVertexType.numConvUnitsOrChainsRequired, convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD, startTile.first,
-            startTile.second, isJointPlan, convVertexType.useLimitedVersion,
-            allowBroadcastInputBeforeLoop);
+            startTile.second, isJointPlan, convVertexType.useLimitedVersion);
   plan.transforms = transforms;
 
   Cost cost = getCostOfSolution(s, e);
@@ -904,12 +870,6 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                        plan.totalSerialSplit());
   auto logPass = [&](const SinglePassCost &passCost, unsigned indent) {
     std::string prefix(indent, ' ');
-    logging::poplin::log(l,
-                         "{} - broadcast operands before loop: {} copy cycles, "
-                         "{} exchange cycles, {} bytes",
-                         prefix, passCost.broadcastInputBeforeLoopCopyCycles,
-                         passCost.broadcastInputBeforeLoopExchangeCycles,
-                         passCost.broadcastInputBeforeLoopTempBytes);
     logging::poplin::log(
         l,
         "{} - rearrangement before slice: {} cycles, {} bytes ({} "
@@ -928,10 +888,9 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
         l,
         "{} - transform: {} copy cycles, {} exchange cycles, {} bytes (input "
         "{}, weights {})",
-        prefix, passCost.totalTransformCopyCycles,
-        passCost.totalTransformExchangeCycles, passCost.totalTransformTempBytes,
-        passCost.itemisedTransformEstimates.inputsTempBytes,
-        passCost.itemisedTransformEstimates.weightsTempBytes);
+        prefix, passCost.transformCopyCycles, passCost.transformExchangeCycles,
+        passCost.transformTempBytes, passCost.inputRearrangeBytesPerTile,
+        passCost.weightsRearrangeBytesPerTile);
     logging::poplin::log(
         l,
         "{} - exchange: {} cycles, n/a bytes. (Input {},"
@@ -2110,13 +2069,11 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
 #endif
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
-  popsolver::Variable broadcastInputBeforeLoop = m.zero();
   const auto e = constructModel(
       target, plan.transforms, plan.types, hierarchy,
       perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType, params,
       plan.isJointPlan, highestCost, objective, boost::none, boost::none,
-      &cacheImpl->cycleEstimation, options, m, partitionVars,
-      broadcastInputBeforeLoop);
+      &cacheImpl->cycleEstimation, options, m, partitionVars);
   const auto numLevelsOfHierarchy = plan.partitions.size();
   assert(partitionVars.size() == numLevelsOfHierarchy);
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {

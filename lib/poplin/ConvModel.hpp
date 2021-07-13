@@ -19,8 +19,7 @@ Estimates<popsolver::Variable> constructModel(
     const boost::optional<Plan> &referencePlan,
     const boost::optional<Cost> &referenceCost,
     PlanningCacheImpl::CycleEstimationImpl *cache, const ConvOptions &options,
-    popsolver::Model &m, std::vector<PartitionVariables> &partitionVars,
-    popsolver::Variable &broadcastInputBeforeLoop);
+    popsolver::Model &m, std::vector<PartitionVariables> &partitionVars);
 
 void expandDim(ConvParams &params, unsigned dim);
 bool canDeferDilation(const ConvParams &params, unsigned dim);

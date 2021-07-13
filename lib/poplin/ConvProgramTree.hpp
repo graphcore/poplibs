@@ -3,7 +3,6 @@
 #define poplin_ConvProgramTree_H
 
 #include <ConvOptions.hpp>
-#include <ConvPlan.hpp>
 #include <boost/optional.hpp>
 #include <map>
 #include <poplar/Program.hpp>
@@ -26,13 +25,9 @@ struct ConvProgramTree {
 
     std::vector<poplar::Tensor> writeUndef;
 
-    std::vector<poplar::program::Copy> preTransposeActs;
-    std::vector<poplar::program::Copy> preTransposeWeights;
-    std::vector<poplar::ComputeSet> transposeCSActs;
-    std::vector<poplar::ComputeSet> transposeCSWeights;
-    std::vector<poplar::program::Copy> postTransposeCtrl;
-    std::vector<poplar::program::Copy> postTransposeActs;
-    std::vector<poplar::program::Copy> postTransposeWeights;
+    std::vector<poplar::program::Copy> preTranspose;
+    poplar::ComputeSet transposeCS;
+    std::vector<poplar::program::Copy> postTranspose;
   };
 
   struct TransformPostSerialProgram {
@@ -72,7 +67,6 @@ struct ConvProgramTree {
 
   // lower the program tree as has been built up into the sequence passed in.
   void lower(poplar::Graph &graph, poplar::program::Sequence &prog,
-             const boost::optional<Plan> &plan,
              bool insertTransformsCycleCountProgs,
              const poplar::DebugNameAndId &dnai);
 

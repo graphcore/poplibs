@@ -596,13 +596,9 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
           (weights && !isActs && rearrangeWeights)) {
         auto &t = isActs ? *acts : *weights;
         assert(rearrangeProg);
-        auto &preTranspose = isActs ? rearrangeProg->preTransposeActs
-                                    : rearrangeProg->preTransposeWeights;
-        auto &transposeCS = isActs ? rearrangeProg->transposeCSActs.back()
-                                   : rearrangeProg->transposeCSWeights.back();
-        t = popops::rearrange::regroupTensor(graph, t, preTranspose,
-                                             transposeCS, regroup.first,
-                                             regroup.second, {dnai});
+        t = popops::rearrange::regroupTensor(
+            graph, t, rearrangeProg->preTranspose, rearrangeProg->transposeCS,
+            regroup.first, regroup.second, {dnai});
       }
     }
   }
@@ -639,13 +635,9 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
           (weights && !isActs && rearrangeWeights)) {
         auto &t = isActs ? *acts : *weights;
         assert(rearrangeProg);
-        auto &preTranspose = isActs ? rearrangeProg->preTransposeActs
-                                    : rearrangeProg->preTransposeWeights;
-        auto &transposeCS = isActs ? rearrangeProg->transposeCSActs.back()
-                                   : rearrangeProg->transposeCSWeights.back();
-        t = popops::rearrange::regroupTensor(graph, t, preTranspose,
-                                             transposeCS, regroup.first,
-                                             regroup.second, {dnai});
+        t = popops::rearrange::regroupTensor(
+            graph, t, rearrangeProg->preTranspose, rearrangeProg->transposeCS,
+            regroup.first, regroup.second, {dnai});
       }
     }
   }
