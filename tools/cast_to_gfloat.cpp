@@ -86,7 +86,7 @@ bool castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
   if ((gfCastCfg.getStorageType() == HALF) ||
       (gfCastCfg.getStorageType() == SHORT)) {
     fpSize = 15;
-  } else if (gfCastCfg.getStorageType() == CHAR) {
+  } else if (gfCastCfg.getStorageType() == SIGNED_CHAR) {
     fpSize = 7;
   }
 
@@ -271,7 +271,7 @@ bool castGfloatToNativeCheck(T *inVec, float *outVec, unsigned sizeVec,
   unsigned fpSize = 31;
   if ((storageType == HALF) || (storageType == SHORT)) {
     fpSize = 15;
-  } else if (storageType == CHAR) {
+  } else if (storageType == SIGNED_CHAR) {
     fpSize = 7;
   }
   unsigned manSize = fpSize - gfFormatCfg.getNumExponentBits();
@@ -515,7 +515,7 @@ int main(int argc, char **argv) {
   engine.connectStream("InputVector", hInput.get());
 
   if (!gfCast.getStoreAsNative()) {
-    if (gfFormatCfg.getStorageType() == poplar::CHAR) {
+    if (gfFormatCfg.getStorageType() == poplar::SIGNED_CHAR) {
       engine.connectStream("CastOutputStream", chrCastOut.get());
     } else if (gfFormatCfg.getStorageType() == poplar::SHORT) {
       engine.connectStream("CastOutputStream", shrCastOut.get());
@@ -547,7 +547,7 @@ int main(int argc, char **argv) {
       readAndConvertTensor<float, false>(graph.getTarget(), engine, "unpackOut",
                                          flpUnpackOut.get(), inSize);
     });
-  } else if (gfCast.getGFStorageType() == poplar::CHAR) {
+  } else if (gfCast.getGFStorageType() == poplar::SIGNED_CHAR) {
     if (gfCast.getCalculationType() == poplar::FLOAT) {
       dev.bind([&](const Device &d) {
         engine.load(d);
@@ -597,7 +597,7 @@ int main(int argc, char **argv) {
       if (!unpackCheck) {
         std::cout << "castFromGfloatCheck failed" << std::endl;
       }
-    } else if (gfCast.getGFStorageType() == poplar::CHAR) {
+    } else if (gfCast.getGFStorageType() == poplar::SIGNED_CHAR) {
       auto nativeToGFConfig = gfCast.getNativeToGFConfig();
       pass = castNativeToGfloatCheck<char, true>(hInput.get(), chrCastOut.get(),
                                                  inSize, gfFormatCfg,

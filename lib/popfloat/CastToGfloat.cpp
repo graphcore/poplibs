@@ -160,7 +160,7 @@ GfloatCast::FormatConfig::FormatConfig(unsigned numMantissaBits,
       packedFloatBits = 8;
 
       // Set the gfloat pack Op parameters:
-      storageType = poplar::CHAR;
+      storageType = poplar::SIGNED_CHAR;
 
       if (numExponentBits == POPFLOAT_NUM_FP16_EXPONENT_BITS) {
         // If the FP8 has 8 exponents, check if Infs/Nans are enabled or not.
@@ -201,7 +201,7 @@ GfloatCast::FormatConfig::FormatConfig(unsigned numMantissaBits,
       if (numExponentBits <= POPFLOAT_NUM_FP16_EXPONENT_BITS) {
         nativeType = poplar::HALF;
       }
-      storageType = poplar::CHAR;
+      storageType = poplar::SIGNED_CHAR;
     } else if (gfNumBits <= 16) {
       packedFloatBits = 16;
 
@@ -284,7 +284,7 @@ GfloatCast::FormatConfig::FormatConfig(unsigned numMantissaBits,
       packedFloatBits = 8;
 
       // Set the gfloat pack Op parameters:
-      storageType = poplar::CHAR;
+      storageType = poplar::SIGNED_CHAR;
 
       if (numExponentBits == POPFLOAT_NUM_FP16_EXPONENT_BITS) {
         // If the FP8 has 8 exponents, check if Infs/Nans are enabled or not.
@@ -321,7 +321,7 @@ GfloatCast::FormatConfig::FormatConfig(unsigned numMantissaBits,
       packedFloatBits = 16;
     } else if (gfNumBits <= 8) {
       packedFloatBits = 8;
-      storageType = poplar::CHAR;
+      storageType = poplar::SIGNED_CHAR;
 
       formatType = FormatType::ENABLE_DENORM_GF16;
       if (numExponentBits <= POPFLOAT_NUM_FP16_EXPONENT_BITS) {
@@ -643,12 +643,12 @@ GfloatCast::CastConfig::CastConfig(FormatType floatFormatType,
   case FormatType::ONE_FIVE_TWO_GF8:
   case FormatType::MIN_NORM_ALIGN_GF8:
   case FormatType::MAX_NORM_ALIGN_GF8:
-    storeAsNative = (storageType != CHAR) && (storageType != SHORT);
+    storeAsNative = (storageType == HALF) || (storageType == FLOAT);
     break;
   case FormatType::BFLOAT16:
   case FormatType::NO_DENORM_GF16:
   case FormatType::ENABLE_DENORM_GF16:
-    storeAsNative = (storageType != CHAR) && (storageType != SHORT);
+    storeAsNative = (storageType == HALF) || (storageType == FLOAT);
     break;
   case FormatType::INVALID_FORMAT:
     throw poputil::poplibs_error(
@@ -725,7 +725,7 @@ static std::string gfloatPackVertexName(Type calculationType, Type storageType,
     if (storageType == SHORT) {
       return templateVertex("popfloat::experimental::CastFloatToGf16Supervisor",
                             formatType);
-    } else if (storageType == CHAR) {
+    } else if (storageType == SIGNED_CHAR) {
       return "popfloat::experimental::CastFloatToGf8Supervisor";
     }
   } else if (calculationType == HALF) {
@@ -742,7 +742,7 @@ const std::string gfloatToNativeVertexName(Type calculationType, Type inType,
     if (inType == SHORT) {
       return templateVertex("popfloat::experimental::CastGf16ToFloatSupervisor",
                             formatType);
-    } else if (inType == CHAR) {
+    } else if (inType == SIGNED_CHAR) {
       return "popfloat::experimental::CastGf8ToFloatSupervisor";
     }
   } else if (calculationType == HALF) {
@@ -989,7 +989,7 @@ static Tensor castGfloatAsInteger(Graph &graph, Tensor input,
       gfCastCfg.getCalculationType(), gfCastCfg.getStorageType(),
       gfCastCfg.getFormatType());
 
-  unsigned grainSize = (gfCastCfg.getStorageType() == CHAR) ? 4 : 2;
+  unsigned grainSize = (gfCastCfg.getStorageType() == SIGNED_CHAR) ? 4 : 2;
   const auto numWorkers = graph.getTarget().getNumWorkerContexts();
 
   for (auto tile = 0U; tile != numTiles; ++tile) {

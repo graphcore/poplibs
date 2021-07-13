@@ -96,7 +96,7 @@ poplar::Type specTypeToPoplarType(SpecType specType) {
   } else if (specType == SpecType::INT16) {
     return poplar::SHORT;
   } else if (specType == SpecType::INT8) {
-    return poplar::CHAR;
+    return poplar::SIGNED_CHAR;
   }
   throw poputil::poplibs_error("popfloat::SpecType: format not supported");
 }
@@ -129,7 +129,7 @@ SpecType poplarTypeToSpecType(poplar::Type dType) {
     return SpecType::INT32;
   } else if (dType == poplar::SHORT) {
     return SpecType::INT16;
-  } else if (dType == poplar::CHAR) {
+  } else if (dType == poplar::SIGNED_CHAR) {
     return SpecType::INT8;
   }
   throw poputil::poplibs_error("poplar::Type: format not supported");

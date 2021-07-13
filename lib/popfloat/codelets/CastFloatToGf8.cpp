@@ -23,7 +23,7 @@ public:
 
   Input<Vector<int, COMPACT_PTR, 8>> param;
   Input<Vector<float, COMPACT_PTR, 8>> in;
-  Output<Vector<char, COMPACT_PTR, 4>> out;
+  Output<Vector<signed char, COMPACT_PTR, 4>> out;
   unsigned short elementsPerWorker;
   unsigned short lastWorkerParams;
 

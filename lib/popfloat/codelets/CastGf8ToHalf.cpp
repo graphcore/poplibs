@@ -25,7 +25,7 @@ public:
   CastGf8ToHalfSupervisor();
 
   Input<Vector<int, COMPACT_PTR, 8>> param;
-  Input<Vector<char, COMPACT_PTR, 4>> in;
+  Input<Vector<signed char, COMPACT_PTR, 4>> in;
   Output<Vector<half, COMPACT_PTR, 8>> out;
   unsigned short elementsPerWorker;
   unsigned short lastWorkerParams;
