@@ -1871,7 +1871,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
   uint64_t superviserOverhead = basicOpSupervisorOverhead();
-  uint64_t workerCycles = 28;
+  uint64_t workerCycles = op == expr::UnaryOpType::EXPONENT ? 46 : 28;
   const auto in = vertex.getFieldInfo("in");
   const auto out = vertex.getFieldInfo("out");
   const auto &info = unaryOpPerfInfo.at({op, type});

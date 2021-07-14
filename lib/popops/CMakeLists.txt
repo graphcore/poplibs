@@ -181,6 +181,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterOps1D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByLimit.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByData.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/exp_inner_loop.S    
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram2D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unary2DNonLinearity.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOps1DNonLinearity.S

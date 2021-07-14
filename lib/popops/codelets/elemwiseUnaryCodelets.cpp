@@ -45,6 +45,21 @@ template <> struct UnaryLibCall<expr::UnaryOpType::SQRT> {
   int operator()(int x) const { return std::sqrt(x); }
 };
 
+#ifdef __IPU__
+extern "C" {
+void exponent_half_1d_inner_loop(const __attribute__((align_value(8)))
+                                 half *src,
+                                 __attribute__((align_value(8))) half *dst,
+                                 unsigned int numElements, unsigned int stride);
+
+void exponent_float_1d_inner_loop(const
+                                  __attribute__((align_value(8))) float *src,
+                                  __attribute__((align_value(8))) float *dst,
+                                  unsigned int numElements,
+                                  unsigned int stride);
+}
+#endif
+
 template <> struct UnaryLibCall<expr::UnaryOpType::CBRT> {
 #ifdef __IPU__
   template <typename FPType> static auto GetThird() {
@@ -225,6 +240,36 @@ template <expr::UnaryOpType op, typename T, typename A> struct UnaryOpFn {};
 template <expr::UnaryOpType op, typename T>
 using UnaryOpOutputType_t = typename UnaryOpOutputType<op, T>::type;
 
+template <expr::UnaryOpType op, typename InT, typename OutT>
+constexpr bool hasFastInnerLoopImpl() {
+#ifdef __IPU__
+  return (op == expr::UnaryOpType::EXPONENT) &&
+         std::is_same<InT, OutT>::value &&
+         (std::is_same<InT, float>::value || std::is_same<InT, half>::value);
+#else
+  return false;
+#endif
+}
+
+template <expr::UnaryOpType op, typename InT, typename OutT>
+static void inline computeUnaryInnerLoop(const InT *src, OutT *dst,
+                                         unsigned numSamples,
+                                         unsigned stride = 1) {
+  if constexpr (hasFastInnerLoopImpl<op, InT, OutT>()) {
+    if constexpr (op == expr::UnaryOpType::EXPONENT) {
+      if constexpr (std::is_same<InT, float>::value) {
+        exponent_float_1d_inner_loop(src, dst, numSamples, stride);
+      } else if constexpr (std::is_same<InT, half>::value) {
+        exponent_half_1d_inner_loop(src, dst, numSamples, stride);
+      }
+    }
+  } else {
+    for (unsigned i = 0; i != numSamples; i += stride) {
+      dst[i] = UnaryOpFn<op, InT, architecture::generic>::fn(src[i]);
+    }
+  }
+}
+
 #define DEFINE_UNARY_OP_FN_GEN(op, body)                                       \
   template <typename T, typename A> struct UnaryOpFn<op, T, A> {               \
     using arch = architecture::generic;                                        \
@@ -352,10 +397,7 @@ struct UnaryOpDispatch {
   static void compute(unsigned size,
                       const __attribute__((align_value(8))) inT *in,
                       __attribute__((align_value(8))) outT *out) {
-
-    for (unsigned j = 0; j != size; ++j) {
-      out[j] = UnaryOpFn<op, inT, A>::fn(in[j]);
-    }
+    computeUnaryInnerLoop<op, inT, outT>(in, out, size);
   }
 };
 
@@ -446,47 +488,51 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
                       __attribute__((align_value(8))) half *out) {
     using arch = architecture::ipu;
 
-    if (size >= 4) {
-      const half4 *h4In = reinterpret_cast<const half4 *>(in);
-      half4 *h4Out = reinterpret_cast<half4 *>(out);
+    if constexpr (hasFastInnerLoopImpl<op, half, half>()) {
+      computeUnaryInnerLoop<op, half, half>(in, out, size);
+    } else {
+      if (size >= 4) {
+        const half4 *h4In = reinterpret_cast<const half4 *>(in);
+        half4 *h4Out = reinterpret_cast<half4 *>(out);
 
-      // LLVM currently chooses to rotate the loop in a way that is not optimal
-      // for our hardware. The inline asm blocks this. The loop is pipelined
-      // sufficiently to overlap load with calculation. This was used a it seems
-      // a reasonable compromise over zero overlap and unrolling far enough to
-      // overlap the store with calculation.
+        // LLVM currently chooses to rotate the loop in a way that is not
+        // optimal for our hardware. The inline asm blocks this. The loop is
+        // pipelined sufficiently to overlap load with calculation. This was
+        // used a it seems a reasonable compromise over zero overlap and
+        // unrolling far enough to overlap the store with calculation.
 
-      half4 load = ipu::load_postinc(&h4In, 1);
-      const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
-      asm volatile("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned i = 0; i < loopCount; ++i) {
-        half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
-        load = ipu::load_postinc(&h4In, 1);
-        *h4Out++ = calc;
+        half4 load = ipu::load_postinc(&h4In, 1);
+        const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
+        asm volatile("# Thwart loop rotation (start)" ::: "memory");
+        for (unsigned i = 0; i < loopCount; ++i) {
+          half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
+          load = ipu::load_postinc(&h4In, 1);
+          *h4Out++ = calc;
+        }
+        asm volatile("# Thwart loop rotation (end)" ::: "memory");
+        *h4Out++ = UnaryOpFn<op, half4, arch>::fn(load);
+
+        in = reinterpret_cast<const half *>(h4In);
+        half *tmp = reinterpret_cast<half *>(h4Out);
+        size -= (tmp - out);
+        out = tmp;
       }
-      asm volatile("# Thwart loop rotation (end)" ::: "memory");
-      *h4Out++ = UnaryOpFn<op, half4, arch>::fn(load);
 
-      in = reinterpret_cast<const half *>(h4In);
-      half *tmp = reinterpret_cast<half *>(h4Out);
-      size -= (tmp - out);
-      out = tmp;
-    }
+      const half2 *h2In = reinterpret_cast<const half2 *>(in);
+      half2 *h2Out = reinterpret_cast<half2 *>(out);
 
-    const half2 *h2In = reinterpret_cast<const half2 *>(in);
-    half2 *h2Out = reinterpret_cast<half2 *>(out);
+      if (size >= 2) {
+        *h2Out++ = UnaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In, 1));
+        size -= 2;
+      }
 
-    if (size >= 2) {
-      *h2Out++ = UnaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In, 1));
-      size -= 2;
-    }
-
-    if (size == 1) {
-      half2 res = (half2){
-          UnaryOpFn<op, half, arch>::fn((*h2In)[0]),
-          (*h2Out)[1],
-      };
-      *h2Out = res;
+      if (size == 1) {
+        half2 res = (half2){
+            UnaryOpFn<op, half, arch>::fn((*h2In)[0]),
+            (*h2Out)[1],
+        };
+        *h2Out = res;
+      }
     }
   }
 };
@@ -497,24 +543,28 @@ public:
   static void compute(unsigned size,
                       const __attribute__((align_value(8))) float *in,
                       __attribute__((align_value(8))) float *out) {
+    if constexpr (hasFastInnerLoopImpl<op, float, float>()) {
+      computeUnaryInnerLoop<op, float, float>(in, out, size);
+    } else {
+      const float2 *f2In = reinterpret_cast<const float2 *>(in);
+      float2 *f2Out = reinterpret_cast<float2 *>(out);
+      if (size >= 2) {
+        const unsigned loopCount = maskForRepeat((size / 2u) - 1);
 
-    const float2 *f2In = reinterpret_cast<const float2 *>(in);
-    float2 *f2Out = reinterpret_cast<float2 *>(out);
-    if (size >= 2) {
-      const unsigned loopCount = maskForRepeat((size / 2u) - 1);
-
-      float2 load = ipu::load_postinc(&f2In, 1);
-      asm volatile("# Thwart loop rotation (start)" ::: "memory");
-      for (unsigned j = 0; j < loopCount; j++) {
-        float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
-        load = ipu::load_postinc(&f2In, 1);
-        *f2Out++ = calc;
+        float2 load = ipu::load_postinc(&f2In, 1);
+        asm volatile("# Thwart loop rotation (start)" ::: "memory");
+        for (unsigned j = 0; j < loopCount; j++) {
+          float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
+          load = ipu::load_postinc(&f2In, 1);
+          *f2Out++ = calc;
+        }
+        asm volatile("# Thwart loop rotation (end)" ::: "memory");
+        *f2Out++ = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
       }
-      asm volatile("# Thwart loop rotation (end)" ::: "memory");
-      *f2Out++ = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
-    }
-    if (size & 1) {
-      out[size - 1] = UnaryOpFn<op, float, architecture::ipu>::fn(in[size - 1]);
+      if (size & 1) {
+        out[size - 1] =
+            UnaryOpFn<op, float, architecture::ipu>::fn(in[size - 1]);
+      }
     }
   }
 };
@@ -756,6 +806,7 @@ struct UnaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
     const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
     const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+
     for (unsigned j = 0; j < loopCount; j++) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       short4 calc = static_cast<short4>(FuncTy<half4>::fn(load));
@@ -828,32 +879,45 @@ public:
 
     const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
-
+    const auto remainder = size & 3;
     const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
-    asm volatile("# Thwart loop rotation (start)" ::: "memory");
-    for (unsigned i = 0; i < loopCount; i++) {
-      half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
-      half4 calc = UnaryOpFn<op, half4, architecture::ipu>::fn(load);
-      *h4Out = calc;
-      h4Out += CTXT_WORKERS;
-    }
-    asm volatile("# Thwart loop rotation (end)" ::: "memory");
-    if (size & 3) {
-      const half2 *h2In = reinterpret_cast<const half2 *>(h4In);
-      half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
-      if (size & 2) {
-        if (h4Out == (half4 *)&out[size & (~3)]) {
-          *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(
-              ipu::load_postinc(&h2In, 1));
-        }
+    if constexpr (hasFastInnerLoopImpl<op, half, half>()) {
+      const half *inH = reinterpret_cast<const half *>(h4In);
+      half *outH = reinterpret_cast<half *>(h4Out);
+      computeUnaryInnerLoop<op, half, half>(inH, outH, loopCount * 4,
+                                            CTXT_WORKERS);
+      if (remainder && worker == CTXT_WORKERS - 1) {
+        computeUnaryInnerLoop<op, half, half>(
+            &in[size - remainder], &out[size - remainder], remainder, 1);
       }
-      assert(size != 0);
-      if (h2Out == (half2 *)&out[size - 1]) {
-        half2 res = (half2){
-            UnaryOpFn<op, half, architecture::ipu>::fn((*h2In)[0]),
-            (*h2Out)[1],
-        };
-        *h2Out = res;
+    } else {
+
+      asm volatile("# Thwart loop rotation (start)" ::: "memory");
+      for (unsigned i = 0; i < loopCount; i++) {
+        half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
+        half4 calc = UnaryOpFn<op, half4, architecture::ipu>::fn(load);
+        *h4Out = calc;
+        h4Out += CTXT_WORKERS;
+      }
+      asm volatile("# Thwart loop rotation (end)" ::: "memory");
+
+      if (remainder) {
+        const half2 *h2In = reinterpret_cast<const half2 *>(h4In);
+        half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
+        if (size & 2) {
+          if (h4Out == (half4 *)&out[size & (~3)]) {
+            *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(
+                ipu::load_postinc(&h2In, 1));
+          }
+        }
+        assert(size != 0);
+        if (h2Out == (half2 *)&out[size - 1]) {
+          half2 res = (half2){
+              UnaryOpFn<op, half, architecture::ipu>::fn((*h2In)[0]),
+              (*h2Out)[1],
+          };
+          *h2Out = res;
+        }
       }
     }
   }
@@ -869,14 +933,22 @@ public:
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
 
     const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
-    // We could pipeline this, but we want to avoid an overread which could be
-    // outside the memory bounds (and throw an exception) due to the striding of
-    // the workers.
-    for (unsigned j = 0; j < loopCount; j++) {
-      float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
-      float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
-      *f2Out = calc;
-      f2Out += CTXT_WORKERS;
+
+    if constexpr (hasFastInnerLoopImpl<op, float, float>()) {
+      const float *inF = reinterpret_cast<const float *>(f2In);
+      float *outF = reinterpret_cast<float *>(f2Out);
+      computeUnaryInnerLoop<op, float, float>(inF, outF, loopCount * 2,
+                                              CTXT_WORKERS);
+    } else {
+      // We could pipeline this, but we want to avoid an overread which could be
+      // outside the memory bounds (and throw an exception) due to the striding
+      // of the workers.
+      for (unsigned j = 0; j < loopCount; j++) {
+        float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
+        float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
+        *f2Out = calc;
+        f2Out += CTXT_WORKERS;
+      }
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
@@ -926,9 +998,7 @@ public:
   IS_EXTERNAL_CODELET(unaryOp1DIsSupervisor<T>());
 
   bool compute() {
-    for (unsigned j = 0; j != out.size(); ++j) {
-      out[j] = UnaryOpFn<op, T, architecture::generic>::fn(in[j]);
-    }
+    computeUnaryInnerLoop<op, T, outputType>(&in[0], &out[0], out.size());
     return true;
   }
 };
@@ -947,9 +1017,7 @@ public:
   IS_EXTERNAL_CODELET(unaryOp1DIsSupervisor<T>());
 
   bool compute() {
-    for (unsigned j = 0; j != inOut.size(); ++j) {
-      inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);
-    }
+    computeUnaryInnerLoop<op, T, T>(&inOut[0], &inOut[0], inOut.size());
     return true;
   }
 };
