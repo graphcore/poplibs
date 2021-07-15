@@ -37,22 +37,22 @@ void checkPlanner(
 }
 
 BOOST_AUTO_TEST_CASE(BigEmbedding) {
-  checkPlanner(HALF, 100000, 200, {1440}, {1, 12, 100, 2});
+  checkPlanner(HALF, 100000, 200, {1440}, {1, 24, 50, 4});
 }
 BOOST_AUTO_TEST_CASE(ManyLookups) {
-  checkPlanner(HALF, 1000, 200, {18000}, {12, 1, 100, 2});
+  checkPlanner(HALF, 1000, 200, {18000}, {24, 1, 50, 4});
 }
 BOOST_AUTO_TEST_CASE(VeryManyLookups) {
-  checkPlanner(HALF, 1000, 200, {40000}, {12, 1, 100, 2});
+  checkPlanner(HALF, 1000, 200, {40000}, {24, 1, 50, 4});
 }
 BOOST_AUTO_TEST_CASE(LargeAndManyLookups) {
-  checkPlanner(HALF, 100000, 200, {11520}, {1, 12, 100, 2});
+  checkPlanner(HALF, 100000, 200, {11520}, {1, 24, 50, 4});
 }
 BOOST_AUTO_TEST_CASE(Square) {
-  checkPlanner(HALF, 1000, 1000, {1000}, {1, 2, 500, 2});
+  checkPlanner(HALF, 1000, 1000, {1000}, {3, 3, 125, 4});
 }
 BOOST_AUTO_TEST_CASE(Small) {
-  checkPlanner(FLOAT, 50, 50, {20}, {2, 5, 50, 1});
+  checkPlanner(FLOAT, 50, 50, {20}, {4, 7, 25, 2});
 }
 
 BOOST_AUTO_TEST_CASE(PlanComparison) {
