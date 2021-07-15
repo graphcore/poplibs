@@ -2724,11 +2724,21 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     const auto mFloatData = m.addConstant(dataType == FLOAT ? 1u : 0u);
     const auto mNeedsCast =
         m.booleanOr(m.booleanNot(mFloatData), mLookupsAreSplit);
+    // Temp bytes needed if the updates need to be cast to a higher precision.
     const auto mUpdatesCastTempBytesPerTile =
         m.product({mNeedsCast, mOutputElemsPerTile, mBytesPerFloat});
+    // Temp bytes needed if the updates are multi-cast to tiles.
     const auto mUpdatesTempBytesPerTile =
         m.product({mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile,
                    partition.unslicedGrainSize, mBytesPerFloat});
+    // Temp bytes needed if the updates need to be cast to a higher precision
+    // if they do not also need to be multi-cast - i.e. if not multi-cast
+    // we will directly use the casted updates and they will stay live,
+    // otherwise we will use the multi-cast updates and the casted updates
+    // will die.
+    const auto mUpdatesCastTempBytesPerTileAfterMulticast =
+        m.product({m.booleanNot(mDictIsSplit), mUpdatesCastTempBytesPerTile});
+
     const auto mPartialElemsPerTile =
         m.product({mDictEntriesPerTile, mUnslicedGrainsPerTile,
                    partition.unslicedGrainSize});
@@ -2828,9 +2838,10 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                // If we have split the dictionary, we will need to multi-cast
                // the updates.
                m.sum({mUpdatesCastTempBytesPerTile, mUpdatesTempBytesPerTile}),
-               // During the update, we have partials, multi-cast updates, and
-               // multi-cast indices temporarily.
-               m.sum({mUpdatesTempBytesPerTile, mPartialsBytesPerTile,
+               // During the update, we have partials, casted/multi-cast
+               // updates, and multi-cast indices temporarily.
+               m.sum({mUpdatesCastTempBytesPerTileAfterMulticast,
+                      mUpdatesTempBytesPerTile, mPartialsBytesPerTile,
                       mIndicesTempBytesPerTile}),
                // If we need a reduction we will have
                // reduction (also the actual update will have the base upcast to
@@ -2970,9 +2981,14 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   logging::popops::debug("Embedding plan {}", p);
 
   logging::popops::debug(
-      "Tile memory estimates (bytes on worst tile): Base storage "
-      "{}, Output storage {}, Indices storage {}, Exchange code {}, "
-      "Slice temp {}, Update temp {}, Peak temp {}",
+      "Tile memory estimates (bytes on worst tile):\n"
+      "  base storage {},\n"
+      "  output storage {},\n"
+      "  indices storage {},\n"
+      "  exchange code {}, \n"
+      "  slice peak temporary memory {},\n"
+      "  update peak temporary memory {}, \n"
+      "  peak temporary memory {}\n",
       s[estimates.baseStorageBytesPerTile],
       s[estimates.outputStorageBytesPerTile],
       s[estimates.indicesStorageBytesPerTile], s[estimates.exchangeCodeBytes],
