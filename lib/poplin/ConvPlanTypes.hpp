@@ -62,6 +62,18 @@ template <typename T> struct ExchangeEstimates {
   T reduceRemainingStagesExchangeCycles;
 };
 
+template <typename T> struct TransformEstimates {
+  T inputsCopyCycles;
+  T inputsExchangeCycles;
+  T inputsTempBytes;
+  T weightsCopyCycles;
+  T weightsExchangeCycles;
+  T weightsTempBytes;
+  T outputCopyCycles;
+  T outputExchangeCycles;
+  T outputTempBytes;
+};
+
 template <typename T>
 inline bool operator<(const ExchangeEstimates<T> &a,
                       const ExchangeEstimates<T> &b) {
@@ -70,6 +82,23 @@ inline bool operator<(const ExchangeEstimates<T> &a,
       &ExchangeEstimates<T>::weightExchangeCycles,
       &ExchangeEstimates<T>::reduceFirstStageExchangeCycles,
       &ExchangeEstimates<T>::reduceRemainingStagesExchangeCycles);
+
+  return helper.lt(a, b);
+}
+
+template <typename T>
+inline bool operator<(const TransformEstimates<T> &a,
+                      const TransformEstimates<T> &b) {
+  constexpr static auto helper = poplibs_support::makeStructHelper(
+      &TransformEstimates<T>::inputsCopyCycles,
+      &TransformEstimates<T>::inputsExchangeCycles,
+      &TransformEstimates<T>::inputsTempBytes,
+      &TransformEstimates<T>::weightsCopyCycles,
+      &TransformEstimates<T>::weightsExchangeCycles,
+      &TransformEstimates<T>::weightsTempBytes,
+      &TransformEstimates<T>::outputCopyCycles,
+      &TransformEstimates<T>::outputExchangeCycles,
+      &TransformEstimates<T>::outputTempBytes);
 
   return helper.lt(a, b);
 }
@@ -84,14 +113,16 @@ template <typename T> struct SinglePassEstimates {
   T totalPerStepCycleDiff;
 
   // break-down of the above totals
+  T broadcastInputBeforeLoopCopyCycles;
+  T broadcastInputBeforeLoopExchangeCycles;
+
   T rearrangeBeforeSliceCycles;
   T memsetZeroBeforeAddInPlace;
   T dynamicSliceCycles;
-  T transformCopyCycles;
-  T transformExchangeCycles;
 
-  T inputRearrangeBytesPerTile;
-  T weightsRearrangeBytesPerTile;
+  T totalTransformCopyCycles;
+  T totalTransformExchangeCycles;
+  TransformEstimates<T> itemisedTransformEstimates;
 
   T totalExchangeCycles;
   ExchangeEstimates<T> itemisedExchangeCycles;
@@ -103,9 +134,10 @@ template <typename T> struct SinglePassEstimates {
   T addInPlaceCycles;
   T castCycles;
 
+  T broadcastInputBeforeLoopTempBytes;
   T rearrangeBeforeSliceTempBytes;
   T rearrangeBeforeSliceTempDuringRearrangeBytes;
-  T transformTempBytes;
+  T totalTransformTempBytes;
   T tileLevelTransformTempBytes;
   T convTempBytes;
   T reduceTempBytes;
@@ -157,18 +189,26 @@ inline bool operator<(const Cost &a, const Cost &b) {
 // performs a max on the itemised cycle counts only.
 inline SinglePassCost maxPerStepCycles(SinglePassCost a,
                                        const SinglePassCost &b) {
+
+  a.broadcastInputBeforeLoopCopyCycles =
+      std::max(a.broadcastInputBeforeLoopCopyCycles,
+               b.broadcastInputBeforeLoopCopyCycles);
+  a.broadcastInputBeforeLoopExchangeCycles =
+      std::max(a.broadcastInputBeforeLoopExchangeCycles,
+               b.broadcastInputBeforeLoopExchangeCycles);
+
   a.rearrangeBeforeSliceCycles =
       std::max(a.rearrangeBeforeSliceCycles, b.rearrangeBeforeSliceCycles);
   a.memsetZeroBeforeAddInPlace =
       std::max(a.memsetZeroBeforeAddInPlace, b.memsetZeroBeforeAddInPlace);
   a.dynamicSliceCycles = std::max(a.dynamicSliceCycles, b.dynamicSliceCycles);
-  a.transformCopyCycles =
-      std::max(a.transformCopyCycles, b.transformCopyCycles);
-  a.transformExchangeCycles =
-      std::max(a.transformExchangeCycles, b.transformExchangeCycles);
 
   // the MINIMIZE_COST_DIFF method currently using the totalExchangeCycles, if
   // that changes we would need to update this too.
+  a.totalTransformCopyCycles =
+      std::max(a.totalTransformCopyCycles, b.totalTransformCopyCycles);
+  a.totalTransformExchangeCycles =
+      std::max(a.totalTransformExchangeCycles, b.totalTransformExchangeCycles);
   a.totalExchangeCycles =
       std::max(a.totalExchangeCycles, b.totalExchangeCycles);
 

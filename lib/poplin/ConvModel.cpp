@@ -554,14 +554,17 @@ unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
   POPLIB_UNREACHABLE();
 }
 
-static popsolver::Variable addConvTempMemoryEstimate(
-    popsolver::Model &m, const std::vector<PartitionVariables> &partitionVars,
-    const std::vector<ConvSizeVariables> &convSizes,
-    const popsolver::Variable inputsPerTile,
-    const popsolver::Variable weightsPerTile,
-    const popsolver::Variable partialsPerTile, const poplar::Target &target,
-    const ConvParams &params, const std::vector<ConvTypes> &types,
-    const Plan::Method method) {
+static std::tuple<popsolver::Variable, popsolver::Variable, popsolver::Variable>
+addConvTempMemoryEstimate(popsolver::Model &m,
+                          const std::vector<PartitionVariables> &partitionVars,
+                          const std::vector<ConvSizeVariables> &convSizes,
+                          const popsolver::Variable inputsPerTile,
+                          const popsolver::Variable weightsPerTile,
+                          const popsolver::Variable partialsPerTile,
+                          const poplar::Target &target,
+                          const ConvParams &params,
+                          const std::vector<ConvTypes> &types,
+                          const Plan::Method method) {
   std::vector<popsolver::Variable> memorySumOperands;
   auto elementBytes = target.getTypeSize(params.inputType);
   auto inputStorage = m.product({m.addConstant(elementBytes), inputsPerTile},
@@ -583,13 +586,10 @@ static popsolver::Variable addConvTempMemoryEstimate(
     partialStorage = m.sum({partialStorage, buffer});
   }
 
-  auto convStorage =
-      m.sum({inputStorage, weightStorage, partialStorage}, "tempConvBytes");
-
   // Rearrangements can require both pre- and post-rearranged inputs and/or
   // weights to be required. This may be bigger than the storage need during the
   // convolution.
-  return convStorage;
+  return std::make_tuple(inputStorage, weightStorage, partialStorage);
 }
 
 // calculates how many zeros are added for padding for the kernel and input
@@ -1253,11 +1253,7 @@ bool isFullyConnected(Pass pass) {
          pass == Pass::FC_TRAINING_BWD || pass == Pass::FC_TRAINING_WU;
 }
 
-// returns a tuple of the number of copy and exchange cycles and the number of
-// bytes per tile
-static std::tuple<popsolver::Variable, popsolver::Variable, popsolver::Variable,
-                  popsolver::Variable, popsolver::Variable>
-addTransformCycleEstimate(
+static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
     popsolver::Model &m, const ConvParams &params,
     const ConvParams &transformedViewParams,
     const ConvParams &transformedOnceParams,
@@ -1269,6 +1265,17 @@ addTransformCycleEstimate(
     const ConvVertexType &convVertexType, const std::vector<ConvTypes> &types,
     bool isJointPlan, const ConvOptions &options,
     const poplar::Target &target) {
+
+  TransformEstimates<popsolver::Variable> estimates;
+  estimates.inputsCopyCycles = m.zero();
+  estimates.inputsExchangeCycles = m.zero();
+  estimates.inputsTempBytes = m.zero();
+  estimates.weightsCopyCycles = m.zero();
+  estimates.weightsExchangeCycles = m.zero();
+  estimates.weightsTempBytes = m.zero();
+  estimates.outputCopyCycles = m.zero();
+  estimates.outputExchangeCycles = m.zero();
+  estimates.outputTempBytes = m.zero();
 
   const auto inChansPerGroup = convVertexType.inChansPerGroup;
   const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
@@ -1334,8 +1341,7 @@ addTransformCycleEstimate(
 
   if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights &&
       !regroupOutput && !regroupWeights) {
-    const auto zero = m.addConstant(0);
-    return std::make_tuple(zero, zero, zero, zero, zero);
+    return estimates;
   }
 
   const auto &convSize = transformedConvSizes[ipuLevel];
@@ -1380,63 +1386,11 @@ addTransformCycleEstimate(
   auto ipuUsedTiles = m.product(ipuSplits);
   const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
 
-  std::vector<popsolver::Variable> memoryUsage;
-  std::vector<popsolver::Variable> copyInputCyclesOperands;
-  std::vector<popsolver::Variable> copyOutputCyclesOperands;
-  popsolver::Variable mInputRearrangeElements = m.addConstant(0);
-  popsolver::Variable mWeightsRearrangeElements = m.addConstant(0);
-  popsolver::Variable mInputRearrangeBytesPerTile = m.addConstant(0);
-  popsolver::Variable mWeightsRearrangeBytesPerTile = m.addConstant(0);
-  std::vector<popsolver::Variable> exchangeCyclesOperands;
-  popsolver::Variable copyCyclesEstimates;
+  const auto mInputBytesPerElement = m.addConstant(inputBytesPerElement);
+  const auto mExchangeBytesPerCycle = m.addConstant(exchangeBytesPerCycle);
 
   if (rearrangeInput || rearrangeWeights || regroupWeights) {
-    std::vector<popsolver::Variable> numElementsOperands;
-    if (rearrangeInput) {
-      auto totalInputFieldSize = m.product(inputFieldSizes);
-      mInputRearrangeElements = m.product(
-          {totalInputFieldSize, convSize.batchSize, numInChans, numConvGroups});
-      numElementsOperands.push_back(mInputRearrangeElements);
-    }
-    if (rearrangeWeights || regroupWeights) {
-      auto totalKernelSize = m.product(convSize.kernelSize);
-      auto numWeightElements =
-          m.product({totalKernelSize, numInChans, numOutChans, numConvGroups});
-      if (rearrangeWeights) {
-        mWeightsRearrangeElements = numWeightElements;
-        numElementsOperands.push_back(numWeightElements);
-      } else if (regroupWeights) {
-        auto numElementsPerTile = m.ceildiv(numWeightElements, ipuUsedTiles);
-        auto bytesPerTile = m.product(
-            {numElementsPerTile, m.addConstant(inputBytesPerElement)});
-        const auto factor = getScaleFactorForTransform(
-            transformedOnceUnpaddedParams.inputType,
-            transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
-        const auto regroupBytesPerCycle =
-            std::min<unsigned>(target.getMemcpyBytesPerCycle(),
-                               partialChansPerGroup * inputBytesPerElement);
-        auto cycles =
-            m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
-                      m.addConstant(factor[1] * regroupBytesPerCycle));
-
-        copyInputCyclesOperands.push_back(cycles);
-        memoryUsage.push_back(bytesPerTile);
-      }
-    }
-    auto numElements = m.sum(numElementsOperands);
-    auto mInputBytesPerElement = m.addConstant(inputBytesPerElement);
-    auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
-    auto bytesPerTile = m.product({numElementsPerTile, mInputBytesPerElement});
-
-    mInputRearrangeBytesPerTile =
-        m.ceildiv(m.product({mInputRearrangeElements, mInputBytesPerElement}),
-                  ipuUsedTiles);
-    mWeightsRearrangeBytesPerTile =
-        m.ceildiv(m.product({mWeightsRearrangeElements, mInputBytesPerElement}),
-                  ipuUsedTiles);
-
-    exchangeCyclesOperands.push_back(
-        m.ceildiv(bytesPerTile, m.addConstant(exchangeBytesPerCycle)));
+    // Prepare common constants before calculating itemised estimates
     const auto factor = getScaleFactorForTransform(
         transformedOnceUnpaddedParams.inputType,
         transformedOnceUnpaddedParams.inputChannelsPerConvGroup *
@@ -1444,11 +1398,64 @@ addTransformCycleEstimate(
     const auto reorderBytesPerCycle = std::min<unsigned>(
         target.getMemcpyBytesPerCycle(), inputBytesPerElement);
 
-    copyInputCyclesOperands.push_back(
-        m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
-                  m.addConstant(reorderBytesPerCycle * factor[1])));
-    memoryUsage.push_back(bytesPerTile);
+    if (rearrangeInput) {
+      auto totalInputFieldSize = m.product(inputFieldSizes);
+      auto mInputRearrangeElements = m.product(
+          {totalInputFieldSize, convSize.batchSize, numInChans, numConvGroups});
+
+      auto inputsBytesPerTile =
+          m.ceildiv(m.product({mInputRearrangeElements, mInputBytesPerElement}),
+                    ipuUsedTiles);
+
+      estimates.inputsCopyCycles =
+          m.ceildiv(m.product({inputsBytesPerTile, m.addConstant(factor[0])}),
+                    m.addConstant(reorderBytesPerCycle * factor[1]));
+
+      estimates.inputsExchangeCycles =
+          m.ceildiv(inputsBytesPerTile, mExchangeBytesPerCycle);
+
+      estimates.inputsTempBytes = inputsBytesPerTile;
+    }
+
+    if (rearrangeWeights || regroupWeights) {
+      auto totalKernelSize = m.product(convSize.kernelSize);
+      auto numWeightElements =
+          m.product({totalKernelSize, numInChans, numOutChans, numConvGroups});
+      if (rearrangeWeights) {
+        auto weightsBytesPerTile =
+            m.ceildiv(m.product({numWeightElements, mInputBytesPerElement}),
+                      ipuUsedTiles);
+
+        estimates.weightsCopyCycles = m.ceildiv(
+            m.product({weightsBytesPerTile, m.addConstant(factor[0])}),
+            m.addConstant(reorderBytesPerCycle * factor[1]));
+
+        estimates.weightsExchangeCycles =
+            m.ceildiv(weightsBytesPerTile, mExchangeBytesPerCycle);
+
+        estimates.weightsTempBytes = weightsBytesPerTile;
+
+      } else if (regroupWeights) {
+        auto numElementsPerTile = m.ceildiv(numWeightElements, ipuUsedTiles);
+        auto weightsBytesPerTile =
+            m.product({numElementsPerTile, mInputBytesPerElement});
+        const auto factor = getScaleFactorForTransform(
+            transformedOnceUnpaddedParams.inputType,
+            transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
+        const auto regroupBytesPerCycle =
+            std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                               partialChansPerGroup * inputBytesPerElement);
+        estimates.weightsCopyCycles = m.ceildiv(
+            m.product({weightsBytesPerTile, m.addConstant(factor[0])}),
+            m.addConstant(factor[1] * regroupBytesPerCycle));
+
+        estimates.weightsExchangeCycles = m.zero();
+
+        estimates.weightsTempBytes = weightsBytesPerTile;
+      }
+    }
   }
+
   if (rearrangeOutput || regroupOutput) {
     auto totalOutputFieldSize = m.product(outputFieldSizes);
     auto numElements = m.product(
@@ -1458,60 +1465,102 @@ addTransformCycleEstimate(
         target.getTypeSize(types[ipuLevel].resultType);
     auto bytesPerTile =
         m.product({numElementsPerTile, m.addConstant(outputBytesPerElement)});
+    const auto factor = getScaleFactorForTransform(
+        transformedOnceUnpaddedParams.outputType,
+        transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
+
     if (rearrangeOutput) {
       const auto outputReorderBytesPerCycle = std::min<unsigned>(
           target.getMemcpyBytesPerCycle(), outputBytesPerElement);
-      const auto factor = getScaleFactorForTransform(
-          transformedOnceUnpaddedParams.outputType,
-          transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
-      copyOutputCyclesOperands.push_back(
+
+      estimates.outputCopyCycles =
           m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
-                    m.addConstant(outputReorderBytesPerCycle * factor[1])));
-      exchangeCyclesOperands.push_back(
-          m.ceildiv(bytesPerTile, m.addConstant(exchangeBytesPerCycle)));
-      memoryUsage.push_back(bytesPerTile);
+                    m.addConstant(outputReorderBytesPerCycle * factor[1]));
+
+      estimates.outputExchangeCycles =
+          m.ceildiv(bytesPerTile, mExchangeBytesPerCycle);
+
     } else if (regroupOutput) {
       const auto outputRegroupBytesPerCycle =
           std::min<unsigned>(target.getMemcpyBytesPerCycle(),
                              partialChansPerGroup * outputBytesPerElement);
-      const auto factor = getScaleFactorForTransform(
-          transformedOnceUnpaddedParams.outputType,
-          transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
-      copyOutputCyclesOperands.push_back(
-          m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
-                    m.addConstant(outputRegroupBytesPerCycle * factor[1])));
-      memoryUsage.push_back(bytesPerTile);
-    }
-  }
 
-  // the transforms happen serially therefore we sum the cycles and take the
-  // max of the bytes.
+      estimates.outputCopyCycles =
+          m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
+                    m.addConstant(outputRegroupBytesPerCycle * factor[1]));
+
+      estimates.outputExchangeCycles = m.zero();
+    }
+
+    estimates.outputTempBytes = bytesPerTile;
+  }
 
   // We don't have a regression analysis for the fully_connected_layer
   // benchmarks hence allowing to fallback into an old way of getting estimates
-  if (transforms[ipuLevel].extraFieldDims != 0 ||
-      options.enableTransformsConvTable == false) {
-    copyCyclesEstimates = m.sum({m.sum(std::move(copyInputCyclesOperands)),
-                                 m.sum(std::move(copyOutputCyclesOperands))},
-                                "transformCopyCycleEstimate");
+  if (transforms[ipuLevel].extraFieldDims == 0 &&
+      options.enableTransformsConvTable == true) {
 
-  } else {
-    const auto outputCopyCycles = m.sum(copyOutputCyclesOperands);
     const auto ipuTransforms = transforms[ipuLevel];
 
-    copyCyclesEstimates = m.call<uint64_t>(
+    auto getCycles = [](unsigned atomSize,
+                        const uint64_t &bytesPerTile) -> uint64_t {
+      // Bytes to cycles convertions model is based on regression
+      // analysis of 10k random test and can be repsented as following:
+      // cycles = 587 + 5.1484 * a2 + 3.125 * a4 + 0.4404 * a8 where aX
+      // is bytes per atom size. All coefficiens below are scaled by 1024
+      uint64_t cycles = 587;
+      if (atomSize % 8 == 0) {
+        cycles += 451 * bytesPerTile / 1024;
+
+      } else if (atomSize % 4 == 0) {
+        cycles += 3200 * bytesPerTile / 1024;
+
+      } else if (atomSize % 2 == 0) {
+        cycles += 5271 * bytesPerTile / 1024;
+
+      } else {
+        std::stringstream ss;
+        ss << "Atom size of <" << atomSize << "> isn't supported";
+        throw poputil::poplibs_error(ss.str());
+      }
+
+      return cycles;
+    };
+
+    estimates.inputsCopyCycles = m.call<uint64_t>(
+        {partitionVars[ipuLevel].inChanSplit.serial, estimates.inputsTempBytes},
+        [getCycles, ipuTransforms, transformedViewParams, convVertexType,
+         inputBytesPerElement](
+            const std::vector<uint64_t> &vars) -> popsolver::DataType {
+          const auto &inChanSerialSplit = vars[0];
+          const auto &bytesPerTile = vars[1];
+
+          const auto numInChans =
+              transformedViewParams.inputChannelsPerConvGroup;
+          const auto numGroups = unsigned(transformedViewParams.numConvGroups);
+          const unsigned numInChanPerSplit = numInChans / inChanSerialSplit;
+          const auto inChanShape =
+              gcd(convVertexType.inChansPerGroup, numInChanPerSplit);
+          const auto groupsShape =
+              gcd(convVertexType.convGroupsPerGroup, numGroups);
+          unsigned inputsAtomSize =
+              groupsShape * inChanShape * inputBytesPerElement;
+
+          uint64_t inputsCycles = getCycles(inputsAtomSize, bytesPerTile);
+
+          return popsolver::DataType{static_cast<uint64_t>(inputsCycles)};
+        });
+
+    estimates.weightsCopyCycles = m.call<uint64_t>(
         {partitionVars[ipuLevel].inChanSplit.serial,
          partitionVars[ipuLevel].outChanSplit.serial,
-         mInputRearrangeBytesPerTile, mWeightsRearrangeBytesPerTile,
-         outputCopyCycles},
-        [ipuTransforms, transformedViewParams, convVertexType,
+         estimates.weightsTempBytes},
+        [getCycles, ipuTransforms, transformedViewParams, convVertexType,
          inputBytesPerElement](
             const std::vector<uint64_t> &vars) -> popsolver::DataType {
           const auto &inChanSerialSplit = vars[0];
           const auto &outChanSerialSplit = vars[1];
-          const auto &actsBytesPerTile = vars[2];
-          const auto &weightsBytesPerTile = vars[3];
-          const auto &outputCycles = vars[4];
+          const auto &bytesPerTile = vars[2];
 
           const auto numInChans =
               transformedViewParams.inputChannelsPerConvGroup;
@@ -1526,58 +1575,16 @@ addTransformCycleEstimate(
               gcd(convVertexType.partialChansPerGroup, numOutChanPerSplit);
           const auto groupsShape =
               gcd(convVertexType.convGroupsPerGroup, numGroups);
-          unsigned actsAtomSize =
-              groupsShape * inChanShape * inputBytesPerElement;
           unsigned weightsAtomSize =
               groupsShape * outChanShape * inChanShape * inputBytesPerElement;
 
-          auto getCycles = [](unsigned atomSize,
-                              const uint64_t &bytesPerTile) -> uint64_t {
-            // Bytes to cycles convertions model is based on regression
-            // analysis of 10k random test and can be repsented as following:
-            // cycles = 587 + 5.1484 * a2 + 3.125 * a4 + 0.4404 * a8 where aX
-            // is bytes per atom size. All coefficiens below are scaled by 1024
-            if (atomSize % 8 == 0) {
-              return 451 * bytesPerTile / 1024;
+          uint64_t weightsCycles = getCycles(weightsAtomSize, bytesPerTile);
 
-            } else if (atomSize % 4 == 0) {
-              return 3200 * bytesPerTile / 1024;
-
-            } else if (atomSize % 2 == 0) {
-              return 5271 * bytesPerTile / 1024;
-
-            } else {
-              std::stringstream ss;
-              ss << "Atom size of <" << atomSize << "> isn't supported";
-              throw poputil::poplibs_error(ss.str());
-            }
-          };
-
-          uint64_t cycles = 587;
-          cycles += getCycles(actsAtomSize, actsBytesPerTile);
-          cycles += getCycles(weightsAtomSize, weightsBytesPerTile);
-
-          cycles += outputCycles;
-
-          return popsolver::DataType{static_cast<uint64_t>(cycles)};
-        },
-        "transformCopyCycleEstimate");
+          return popsolver::DataType{static_cast<uint64_t>(weightsCycles)};
+        });
   }
 
-  const auto exchangeCyclesEstimates = m.sum(std::move(exchangeCyclesOperands),
-                                             "transformExchangeCycleEstimate");
-
-  // we also decide that the amount of temporary memory
-  // required is two times the usage as the input and output must be live at
-  // the same time. of course this assumes that the inputs and outputs are
-  // the same size which is not always the case.
-  const auto tempBytes =
-      m.product({m.max(std::move(memoryUsage)), m.addConstant(2u)},
-                "transformTempBytesEstimate");
-
-  return std::make_tuple(copyCyclesEstimates, exchangeCyclesEstimates,
-                         tempBytes, mInputRearrangeBytesPerTile,
-                         mWeightsRearrangeBytesPerTile);
+  return estimates;
 }
 
 // estimation function for both dynamic slice and update.
@@ -1809,7 +1816,9 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
     const ConvParams &transformedViewParams,
     const ConvParams &transformedOnceParams,
     const ConvParams &transformedOnceUnpaddedParams, const bool isJointPlan,
-    const ConvVertexType &convVertexType, const std::vector<ConvTypes> &types,
+    const ConvVertexType &convVertexType,
+    const popsolver::Variable broadcastInputBeforeConvLoop,
+    const std::vector<ConvTypes> &types,
     const std::vector<ConvTransform> &transforms,
     const Plan::LinearizeTileOrder linearizeTileOrder,
     const boost::optional<SinglePassCost> &referenceCost,
@@ -1850,14 +1859,11 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
       m, partitionVars, convSize, transformedDims, exchangeEstimator,
       transformedOnceParams, options, types, inputsPerLevel, weightsPerLevel);
 
-  std::tie(e.transformCopyCycles, e.transformExchangeCycles,
-           e.transformTempBytes, e.inputRearrangeBytesPerTile,
-           e.weightsRearrangeBytesPerTile) =
-      addTransformCycleEstimate(
-          m, untransformedParams, transformedViewParams, transformedOnceParams,
-          transformedOnceUnpaddedParams, transforms, partitionVars,
-          transformedConvSize, transformedDims, convVertexType, types,
-          isJointPlan, options, target);
+  e.itemisedTransformEstimates = addTransformCycleEstimate(
+      m, untransformedParams, transformedViewParams, transformedOnceParams,
+      transformedOnceUnpaddedParams, transforms, partitionVars,
+      transformedConvSize, transformedDims, convVertexType, types, isJointPlan,
+      options, target);
 
   const auto &intraTileSplits = partitionVars.back();
 
@@ -1878,10 +1884,15 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
 
   // When splitting serially the temp memory should not outlive an iteration of
   // the loop and therefore we don't need to take into account and serial splits
-  e.convTempBytes = addConvTempMemoryEstimate(
-      m, partitionVars, convSize, inputsPerLevel.back(), weightsPerLevel.back(),
-      partialsPerTile, target, transformedOnceParams, types,
-      convVertexType.method);
+  popsolver::Variable inputsConvTempMemory;
+  popsolver::Variable weightsConvTempMemory;
+  popsolver::Variable partialsConvTempMemory;
+  std::tie(inputsConvTempMemory, weightsConvTempMemory,
+           partialsConvTempMemory) =
+      addConvTempMemoryEstimate(m, partitionVars, convSize,
+                                inputsPerLevel.back(), weightsPerLevel.back(),
+                                partialsPerTile, target, transformedOnceParams,
+                                types, convVertexType.method);
 
   // it is possible that we may need to add zero padding to the activations
   // and weights so that we have the correct number of input channels for the
@@ -1960,28 +1971,97 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
   e.castCycles =
       addCastEstimate(m, target, outputsPerTile, intraTileSplits, types);
 
+  // Based on a combination of serial splits planner can decide to broadcast
+  // input before convolution loop. Apply broadcastInputsInsideConvLoop and
+  // broadcastInputsBeforeConvLoop here to select correct cycle estimates
+  e.broadcastInputBeforeLoopCopyCycles =
+      m.product({e.itemisedTransformEstimates.inputsCopyCycles,
+                 broadcastInputBeforeConvLoop});
+  e.broadcastInputBeforeLoopExchangeCycles =
+      m.product({m.sum({e.itemisedTransformEstimates.inputsExchangeCycles,
+                        e.itemisedExchangeCycles.inputExchangeCycles}),
+                 broadcastInputBeforeConvLoop});
+  e.broadcastInputBeforeLoopTempBytes =
+      m.product({m.sum({e.itemisedTransformEstimates.inputsTempBytes,
+                        inputsConvTempMemory}),
+                 broadcastInputBeforeConvLoop});
+
+  // Apply broadcastInputInsideConvLoop gate onto cycles that might already
+  // accounted by broadcastInputBeforeConvLoop gate:
+  //    broadcastInputInsideConvLoop = not(broadcastInputBeforeConvLoop);
+  auto broadcastInputInsideConvLoop =
+      m.booleanNot(broadcastInputBeforeConvLoop);
+
+  e.itemisedTransformEstimates.inputsCopyCycles =
+      m.product({e.itemisedTransformEstimates.inputsCopyCycles,
+                 broadcastInputInsideConvLoop});
+  e.itemisedTransformEstimates.inputsExchangeCycles =
+      m.product({e.itemisedTransformEstimates.inputsExchangeCycles,
+                 broadcastInputInsideConvLoop});
+  e.itemisedTransformEstimates.inputsTempBytes =
+      m.product({e.itemisedTransformEstimates.inputsTempBytes,
+                 broadcastInputInsideConvLoop});
+  e.itemisedExchangeCycles.inputExchangeCycles =
+      m.product({e.itemisedExchangeCycles.inputExchangeCycles,
+                 broadcastInputInsideConvLoop});
+  inputsConvTempMemory =
+      m.product({inputsConvTempMemory, broadcastInputInsideConvLoop});
+
+  // Get total estimates from itemised structure members
+  e.totalTransformCopyCycles =
+      m.sum({e.itemisedTransformEstimates.inputsCopyCycles,
+             e.itemisedTransformEstimates.weightsCopyCycles,
+             e.itemisedTransformEstimates.outputCopyCycles},
+            "transformCopyCycleEstimate");
+  e.totalTransformExchangeCycles =
+      m.sum({e.itemisedTransformEstimates.inputsExchangeCycles,
+             e.itemisedTransformEstimates.weightsExchangeCycles,
+             e.itemisedTransformEstimates.outputExchangeCycles},
+            "transformExchangeCycleEstimate");
+
+  // Get total estimate of in loop temp memory
+  e.convTempBytes = m.sum(
+      {inputsConvTempMemory, weightsConvTempMemory, partialsConvTempMemory},
+      "tempConvBytes");
+
+  // the transforms happen serially therefore we sum the cycles and take the
+  // max of the bytes.
+  // we also decide that the amount of temporary memory
+  // required is two times the usage as the input and output must be live at
+  // the same time. of course this assumes that the inputs and outputs are
+  // the same size which is not always the case.
+  e.totalTransformTempBytes =
+      m.product({m.max({e.itemisedTransformEstimates.inputsTempBytes,
+                        e.itemisedTransformEstimates.weightsTempBytes,
+                        e.itemisedTransformEstimates.outputTempBytes}),
+                 m.addConstant(2u)},
+                "transformTempBytesEstimate");
+
   e.totalExchangeCycles =
       m.sum({e.itemisedExchangeCycles.inputExchangeCycles,
              e.itemisedExchangeCycles.weightExchangeCycles,
              e.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
              e.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles});
 
-  e.totalCycles = m.sum(
-      {e.dynamicSliceCycles, e.transformCopyCycles, e.transformExchangeCycles,
-       e.totalExchangeCycles, e.tileLevelTransformCycles, e.partialCalcCycles,
-       e.reduceCycles, e.dynamicUpdateCycles, e.addInPlaceCycles});
+  e.totalCycles =
+      m.sum({e.dynamicSliceCycles, e.totalTransformCopyCycles,
+             e.totalTransformExchangeCycles, e.totalExchangeCycles,
+             e.tileLevelTransformCycles, e.partialCalcCycles, e.reduceCycles,
+             e.dynamicUpdateCycles, e.addInPlaceCycles});
   e.totalCycles = m.product({e.totalCycles, serialSplits});
   e.totalCycles = m.sum({e.memsetZeroBeforeAddInPlace, e.totalCycles,
+                         e.broadcastInputBeforeLoopCopyCycles,
+                         e.broadcastInputBeforeLoopExchangeCycles,
                          e.rearrangeBeforeSliceCycles, e.castCycles});
 
   // take the total amount of temp bytes alive at the same time.
-  e.totalTempBytes =
-      m.sum({e.rearrangeBeforeSliceTempBytes,
-             m.max({e.transformTempBytes,
-                    m.sum({e.tileLevelTransformTempBytes, e.convTempBytes}),
-                    e.reduceTempBytes,
-                    e.rearrangeBeforeSliceTempDuringRearrangeBytes}),
-             e.addInPlaceTempBytes});
+  e.totalTempBytes = m.sum(
+      {e.broadcastInputBeforeLoopTempBytes, e.rearrangeBeforeSliceTempBytes,
+       m.max({e.totalTransformTempBytes,
+              m.sum({e.tileLevelTransformTempBytes, e.convTempBytes}),
+              e.reduceTempBytes,
+              e.rearrangeBeforeSliceTempDuringRearrangeBytes}),
+       e.addInPlaceTempBytes});
 
   // calculate the positive cycle difference for each step in the cost model.
   if (referenceCost) {
@@ -2003,10 +2083,12 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
         {posDiff(e.rearrangeBeforeSliceCycles, c.rearrangeBeforeSliceCycles),
          posDiff(e.memsetZeroBeforeAddInPlace, c.memsetZeroBeforeAddInPlace),
          posDiff(e.dynamicSliceCycles, c.dynamicSliceCycles),
-         posDiff(e.transformCopyCycles, c.transformCopyCycles),
-         posDiff(e.transformExchangeCycles, c.transformExchangeCycles),
 
-         // TODO: should this be using the itemised exchange estimates?
+         // TODO: should this be using the itemised exchange/transform
+         // estimates?
+         posDiff(e.totalTransformCopyCycles, c.totalTransformCopyCycles),
+         posDiff(e.totalTransformExchangeCycles,
+                 c.totalTransformExchangeCycles),
          posDiff(e.totalExchangeCycles, c.totalExchangeCycles),
 
          posDiff(e.tileLevelTransformCycles, c.tileLevelTransformCycles),
@@ -2108,6 +2190,7 @@ addBwdEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
                 const std::vector<ConvSizeVariables> &convSize,
                 const std::vector<ConvTransform> &transforms,
                 const ConvVertexType &fwdConvVertexType,
+                const popsolver::Variable broadcastInputBeforeLoop,
                 const popsolver::Variable usedTiles,
                 const poplar::Target &target,
                 const std::vector<double> &perLevelExchangeBytesPerCycle,
@@ -2182,9 +2265,9 @@ addBwdEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
                       perLevelExchangeBytesPerCycle, bwdUntransformedParams,
                       bwdTransformedViewParams, bwdTransformedOnceParams,
                       bwdTransformedOnceUnpaddedParams, isJointPlan,
-                      bwdConvVertexType, bwdTypes, transforms,
-                      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, referenceCost,
-                      bwdOptions, cache);
+                      bwdConvVertexType, broadcastInputBeforeLoop, bwdTypes,
+                      transforms, Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
+                      referenceCost, bwdOptions, cache);
 }
 
 static Plan::Method getFullyConnectedWUMethod(const ConvParams &wuParams,
@@ -2251,6 +2334,7 @@ addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
                const std::vector<ConvSizeVariables> &convSize,
                const std::vector<ConvTransform> &transforms,
                const ConvVertexType &fwdConvVertexType,
+               const popsolver::Variable broadcastInputBeforeLoop,
                const popsolver::Variable usedTiles,
                const poplar::Target &target, const unsigned numFieldDims,
                const std::vector<double> &perLevelExchangeBytesPerCycle,
@@ -2345,9 +2429,9 @@ addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
       m, wuPartitionVars, wuConvSize, wuTransformedConvSize, usedTiles,
       transformedDims, target, perLevelExchangeBytesPerCycle,
       wuUntransformedParams, wuTransformedViewParams, wuTransformedOnceParams,
-      wuTransformedOnceUnpaddedParams, isJointPlan, wuConvVertexType, wuTypes,
-      transforms, Plan::LinearizeTileOrder::FC_WU, referenceCost, wuOptions,
-      cache);
+      wuTransformedOnceUnpaddedParams, isJointPlan, wuConvVertexType,
+      broadcastInputBeforeLoop, wuTypes, transforms,
+      Plan::LinearizeTileOrder::FC_WU, referenceCost, wuOptions, cache);
 }
 
 template <class T>
@@ -2880,7 +2964,8 @@ Estimates<popsolver::Variable> constructModel(
     const boost::optional<Plan> &referencePlan,
     const boost::optional<Cost> &referenceCost,
     PlanningCacheImpl::CycleEstimationImpl *cache, const ConvOptions &options,
-    popsolver::Model &m, std::vector<PartitionVariables> &partitionVars) {
+    popsolver::Model &m, std::vector<PartitionVariables> &partitionVars,
+    popsolver::Variable &broadcastInputBeforeLoop) {
   using namespace popsolver;
   using poplibs_support::ceildiv;
 
@@ -3216,6 +3301,15 @@ Estimates<popsolver::Variable> constructModel(
           popsolver::DataType{std::max(initialInputChansPerConvGroup, 1ul)},
           p.inChanSplit.serial);
 
+      auto noInChansSerialSplit =
+          m.reifiedLessOrEqual(p.inChanSplit.serial, m.one());
+      auto outChansAreSeriallySplit =
+          m.booleanNot(m.reifiedLessOrEqual(p.outChanSplit.serial, m.one()));
+      auto canBroadcastInputsBeforeLoop =
+          m.booleanAnd(noInChansSerialSplit, outChansAreSeriallySplit);
+      broadcastInputBeforeLoop =
+          m.booleanAnd(canBroadcastInputsBeforeLoop, m.addVariable(0, 1));
+
       // Only support one kind of serial split at a time (for now)
       m.equal(m.min({p.inChanSplit.serial, p.outChanSplit.serial}),
               popsolver::DataType{1});
@@ -3240,8 +3334,12 @@ Estimates<popsolver::Variable> constructModel(
       const auto outReference = m.addConstant(
           referencePlan->partitions[level].outChanSplit.serial,
           "reference." + arrIndStr(level) + ".partition.outChanSplit.serial");
+      const auto biblReference =
+          m.addConstant(referencePlan->broadcastInputBeforeLoop,
+                        "reference.broadcastInputBeforeLoop");
       m.equal(p.inChanSplit.serial, inReference);
       m.equal(p.outChanSplit.serial, outReference);
+      m.equal(broadcastInputBeforeLoop, biblReference);
     }
 
     auto totalOutChanSplit =
@@ -3299,9 +3397,9 @@ Estimates<popsolver::Variable> constructModel(
       m, partitionVars, convSize, transformedConvSize, usedTiles,
       transformedDims, target, perLevelExchangeBytesPerCycle,
       untransformedParams, transformedViewParams, transformedOnceParams,
-      transformedOnceUnpaddedParams, isJointPlan, convVertexType, types,
-      transforms, Plan::LinearizeTileOrder::STANDARD, passReferenceCost,
-      options, cache);
+      transformedOnceUnpaddedParams, isJointPlan, convVertexType,
+      broadcastInputBeforeLoop, types, transforms,
+      Plan::LinearizeTileOrder::STANDARD, passReferenceCost, options, cache);
 
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
@@ -3314,16 +3412,16 @@ Estimates<popsolver::Variable> constructModel(
     e.jointPlanBwdEstimates = addBwdEstimates(
         m, untransformedParams, transformedViewParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
-        convSize, transforms, convVertexType, usedTiles, target,
-        perLevelExchangeBytesPerCycle, isJointPlan, bwdReferenceCost, options,
-        cache);
+        convSize, transforms, convVertexType, broadcastInputBeforeLoop,
+        usedTiles, target, perLevelExchangeBytesPerCycle, isJointPlan,
+        bwdReferenceCost, options, cache);
 
     e.jointPlanWuEstimates = addWuEstimates(
         m, untransformedParams, transformedViewParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
-        convSize, transforms, convVertexType, usedTiles, target, numFieldDims,
-        perLevelExchangeBytesPerCycle, isJointPlan, wuReferenceCost, options,
-        cache);
+        convSize, transforms, convVertexType, broadcastInputBeforeLoop,
+        usedTiles, target, numFieldDims, perLevelExchangeBytesPerCycle,
+        isJointPlan, wuReferenceCost, options, cache);
 
     if (objective.getTileTempMemoryBound() > popsolver::DataType{0}) {
       auto bound = objective.getTileTempMemoryBound();

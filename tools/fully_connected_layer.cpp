@@ -68,6 +68,7 @@ int main(int argc, char **argv) {
   bool reportVarStorage = false;
   std::string matmulOptionsString;
   boost::optional<std::string> profileDir;
+  std::string planConstraintsString;
   bool remapOutputTensor;
   bool mapBiasesByUse;
   bool useCreateInput;
@@ -76,6 +77,7 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
+    ("plan-only", "Only plan the requested passes, don't build or run a graph")
     ("compile-only", "Stop after compilation; don't run the program")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
@@ -146,6 +148,9 @@ int main(int argc, char **argv) {
     ("matmul-options", po::value<std::string>(&matmulOptionsString),
      "Options to use for the matrix multiplication, specified as a JSON "
      "string, e.g. {\"key\":\"value\"}")
+    ("plan-constraints", po::value<std::string>(&planConstraintsString),
+     "Plan constraints to use for the matrix multiplication, specified as "
+     "a JSON string")
   ;
   // clang-format on
   po::variables_map vm;
@@ -240,6 +245,9 @@ int main(int argc, char **argv) {
   }
   fwdOptions.set("fullyConnectedPass",
                  inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
+  if (!planConstraintsString.empty()) {
+    fwdOptions.set("planConstraints", planConstraintsString);
+  }
 
   matmul::PlanningCache cache;
   Tensor prevAct;
@@ -371,6 +379,10 @@ int main(int argc, char **argv) {
     }
   }
 
+  if (vm.count("plan-only")) {
+    return 0;
+  }
+
   std::vector<Program> programs;
   programs.reserve(4);
   const auto fwdProgIndex = programs.size();
@@ -460,6 +472,15 @@ int main(int argc, char **argv) {
     }
   });
   copy(target, outputType, rawHostNextAct.get(), hostNextAct);
+
+  if (vm.count("profile")) {
+    OptionFlags opt = {{"showExecutionSteps", "true"}};
+    if (reportVarStorage) {
+      opt.set("showVarStorage", "true");
+    }
+
+    engine.printProfileSummary(std::cout, opt);
+  }
 
   // Validate against a reference model.
   bool matchesModel = true;

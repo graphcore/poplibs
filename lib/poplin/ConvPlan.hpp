@@ -209,6 +209,10 @@ struct Plan {
   // states, otherwise will fallback into unsigned type
   bool useLimitedVersion;
 
+  // Based on a combination of serial splits planner can decide to broadcast
+  // input before convolution loop
+  bool broadcastInputBeforeLoop;
+
   Plan() = default;
   Plan(std::vector<Partition> partitions_, std::vector<ConvTypes> types_,
        unsigned convGroupsPerGroup_, unsigned inChansPerGroup_,
@@ -216,7 +220,7 @@ struct Plan {
        unsigned numConvUnitsOrChainsRequired_, Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_, unsigned startTile_,
        Plan::LinearizeTileDirection linearizeTileDirection_, bool isJointPlan,
-       bool useLimitedVersion_)
+       bool useLimitedVersion_, bool broadcastInputBeforeLoop_)
       : partitions(std::move(partitions_)), types(std::move(types_)),
         convGroupsPerGroup(convGroupsPerGroup_),
         inChansPerGroup(inChansPerGroup_),
@@ -225,7 +229,8 @@ struct Plan {
         numConvUnitsOrChainsRequired(numConvUnitsOrChainsRequired_),
         method(method_), linearizeTileOrder(linearizeTileOrder_),
         startTile(startTile_), linearizeTileDirection(linearizeTileDirection_),
-        isJointPlan(isJointPlan), useLimitedVersion(useLimitedVersion_) {}
+        isJointPlan(isJointPlan), useLimitedVersion(useLimitedVersion_),
+        broadcastInputBeforeLoop(broadcastInputBeforeLoop_) {}
 
   unsigned numLevels() const {
     assert(transforms.size() == types.size());
