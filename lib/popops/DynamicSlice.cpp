@@ -1,6 +1,13 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "popops/DynamicSlice.hpp"
+
+#include "CastModelling.hpp"
 #include "DynamicSliceInternal.hpp"
+#include "ExchangeEstimator.hpp"
+#include "FillModelling.hpp"
+#include "ScaledAddModelling.hpp"
+#include "reduction/Modelling.hpp"
+
 #include "poplar/Interval.hpp"
 #include "poplar/Program.hpp"
 #include "poplar/Tensor.hpp"
@@ -9,6 +16,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "poplibs_support/PlanConstraints.hpp"
+#include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
@@ -17,6 +25,7 @@
 #include "popops/Encoding.hpp"
 #include "popops/Loop.hpp"
 #include "popops/OperationDefUtil.hpp"
+#include "popops/PerformanceEstimation.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "popops/Zero.hpp"
@@ -34,6 +43,7 @@
 #include <boost/range/adaptor/reversed.hpp>
 #include <cassert>
 #include <numeric>
+#include <optional>
 #include <type_traits>
 
 using namespace poplar;
@@ -41,6 +51,8 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_support;
 using namespace poplibs;
+using namespace popops::internal;
+using namespace popops::modelling;
 
 namespace poputil {
 template <> poplar::ProfileValue toProfileValue(const popops::SlicePlan &p) {
@@ -65,6 +77,46 @@ namespace {
 
 constexpr std::size_t minIndicesPerTile = 32;
 
+enum class PlanMinimisationTarget {
+  /// Minimise a weighted combination of estimated operand & temporary memory
+  /// usage.
+  MEMORY,
+  /// Minimise total estimated cycles.
+  CYCLES
+};
+
+static std::map<std::string, PlanMinimisationTarget> planMinimisationTargetMap{
+    {"memory", PlanMinimisationTarget::MEMORY},
+    {"cycles", PlanMinimisationTarget::CYCLES},
+};
+
+inline std::ostream &operator<<(std::ostream &os,
+                                const PlanMinimisationTarget &t) {
+  switch (t) {
+  case PlanMinimisationTarget::MEMORY:
+    os << "memory";
+    break;
+  case PlanMinimisationTarget::CYCLES:
+    os << "cycles";
+    break;
+  default:
+    throw poplibs_error("Unknown PlanMinimisationTarget");
+  }
+  return os;
+}
+
+enum class IndicesDistribution {
+  // Indices equally likely to take on any possible index in
+  // the valid range.
+  UNIFORM,
+  // Indices only take on a single value.
+  ONE_POINT
+};
+
+static std::map<std::string, IndicesDistribution> indicesDistributionMap{
+    {"uniform", IndicesDistribution::UNIFORM},
+    {"onePoint", IndicesDistribution::ONE_POINT}};
+
 struct SliceOptions {
   SliceOptions() = default;
 
@@ -76,7 +128,15 @@ struct SliceOptions {
 
   // The target maximum temporary memory usage for the operation. This
   // may not be satisfiable.
-  double availableMemoryProportion = 0.6;
+  std::optional<double> availableMemoryProportion = 0.6;
+
+  // For use when planning, the distribution of indices to assume when
+  // estimating cycles.
+  IndicesDistribution indicesDistribution = IndicesDistribution::UNIFORM;
+
+  // Controls the target for optimisation when planning.
+  PlanMinimisationTarget planMinimisationTarget =
+      PlanMinimisationTarget::MEMORY;
 };
 
 struct ValidateSlicePlanConstraintsOption {
@@ -145,6 +205,13 @@ std::ostream &operator<<(std::ostream &o, const SlicePlan &p) {
   return o;
 }
 
+template <typename T>
+static OptionHandler createOptionalDoubleHandler(std::optional<T> &output) {
+  return OptionHandler{[&output](poplar::StringRef value) {
+    output = parse::asFloatingPoint<double>(value);
+  }};
+}
+
 static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
   SliceOptions options;
 
@@ -164,13 +231,26 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
        makeSlicePlanConstraintsOptionHandler(options.planConstraints)},
       {"usedForUpdate", OptionHandler::createWithBool(options.usedForUpdate)},
       {"availableMemoryProportion",
-       OptionHandler::createWithDouble(options.availableMemoryProportion)}};
+       createOptionalDoubleHandler(options.availableMemoryProportion)},
+      {"indicesDistribution",
+       OptionHandler::createWithEnum(options.indicesDistribution,
+                                     indicesDistributionMap)},
+      {"planMinimisationTarget",
+       OptionHandler::createWithEnum(
+           options.planMinimisationTarget,
+           {{"memory", PlanMinimisationTarget::MEMORY},
+            {"cycles", PlanMinimisationTarget::CYCLES}})}};
 
   for (const auto &entry : optionFlags) {
     spec.parse(entry.first, entry.second);
   }
 
   return options;
+}
+
+template <typename T>
+static T valueOr(const std::optional<T> &value, const T &otherwise) {
+  return value ? *value : otherwise;
 }
 
 static Tensor createSliceTensor(Graph &graph, const Type &type,
@@ -185,19 +265,22 @@ static Tensor createSliceTensor(Graph &graph, const Type &type,
 // Given an index into a set of indices into partitions of different
 // dimensions of the operation, return the tile on which this portion
 // of the operation will be calculated.
-static unsigned linearizeSliceIndices(const std::size_t slicedPartition,
+static unsigned linearizeSliceIndices(const std::size_t indexPartition,
+                                      const std::size_t slicedPartition,
                                       const std::size_t unslicedPartition,
                                       const std::size_t indexIdx,
                                       const std::size_t slicedIdx,
                                       const std::size_t unslicedIdx) {
-  // indices
-  unsigned tile = indexIdx;
+  unsigned tile = 0;
+
+  // unsliced dimensions
+  tile = tile * unslicedPartition + unslicedIdx;
 
   // sliced dimensions
   tile = tile * slicedPartition + slicedIdx;
 
-  // unsliced dimensions
-  tile = tile * unslicedPartition + unslicedIdx;
+  // indices
+  tile = tile * indexPartition + indexIdx;
 
   return tile;
 }
@@ -341,6 +424,12 @@ static void generateVertices(std::string vertexName, Graph &graph,
   prog.add(Execute(cs, {dnai}));
 }
 
+static inline unsigned
+getMultiUpdateOpMaxElemsPerWorker(unsigned numWorkerContexts,
+                                  unsigned numElems) {
+  return ceildiv(numElems, numWorkerContexts);
+}
+
 // Generate vertices on a specified tile to perform a multi-slice
 // where indices are potentially split between workers depending on the
 // operation.
@@ -403,13 +492,8 @@ static void generateMultiSliceVerticesOnTile(
       // Divide work for multi-update
       assert(numParallelWorkers == 1);
       const auto tileElements = base.dim(baseSlicedDim);
-      auto maxElementsPerWorker =
-          atomsPerWord
-              ? std::min(ceildiv(ceildiv(tileElements, atomsPerWord),
-                                 graph.getTarget().getNumWorkerContexts()) *
-                             atomsPerWord,
-                         tileElements)
-              : tileElements;
+      const auto maxElementsPerWorker = getMultiUpdateOpMaxElemsPerWorker(
+          target.getNumWorkerContexts(), tileElements);
       graph.setInitialValue(v["maxElementsPerWorker"], maxElementsPerWorker);
     }
 
@@ -427,7 +511,6 @@ static void generateMultiSliceVertices(
     const boost::optional<Tensor> &scale, unsigned baseSlicedDim,
     boost::optional<unsigned> baseOffset, const OptionFlags &optionFlags,
     const DebugNameAndId &dnai) {
-
   const auto options = parseSliceOptions(optionFlags);
 
   auto cs = graph.addComputeSet({dnai});
@@ -490,8 +573,9 @@ static void generateMultiSliceVertices(
       const auto bytesPerElem = target.getTypeSize(type);
       const auto maxBaseBytesPerTile =
           maxUnslicedElemsPerTile * base.dim(slicedDim) * bytesPerElem;
-      const unsigned availableBytesPerTile = std::ceil(
-          target.getBytesPerTile() * options.availableMemoryProportion);
+      const unsigned availableBytesPerTile =
+          std::ceil(target.getBytesPerTile() *
+                    valueOr(options.availableMemoryProportion, 0.6));
 
       // We first check if having to rearrange the base slice would cause us to
       // exceed our temporary memory limit to avoid introspecting again if we
@@ -808,8 +892,8 @@ static void generatePlannedMultiUpdateOp(
         if (numOffsets == 0) {
           continue;
         }
-        const auto tile = linearizeSliceIndices(slicedSplit, unslicedSplit,
-                                                lookupSplitIdx, s, u);
+        const auto tile = linearizeSliceIndices(
+            p.lookupSplit, slicedSplit, unslicedSplit, lookupSplitIdx, s, u);
         // We have different specialisations for half data depending on the need
         // for subword writes
         //
@@ -1021,7 +1105,6 @@ static std::vector<size_t>
 bestSliceOrder(const std::vector<std::size_t> &shape,
                const std::vector<std::size_t> &dims,
                const std::vector<std::size_t> &sizes) {
-
   assert(dims.size() <= shape.size());
   assert(dims.size() == sizes.size());
 
@@ -1151,7 +1234,6 @@ static Tensor createSliceableTensorGivenOrder(
     const std::vector<std::size_t> &shape, const std::vector<std::size_t> &dims,
     const std::vector<std::size_t> &idxOrder, std::size_t minGrainSize,
     const DebugNameAndId &dnai) {
-
   // Return a linearly mapped tensor if no slice dim is specified.
   // Or return an EmptyTensor if shape has a zero dimension.
   bool noOutputElements = std::any_of(shape.begin(), shape.end(),
@@ -1301,20 +1383,31 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
   // If there is an indices split we will broadcast each
   // contiguous chunk of the tensor between tiles while
   // respecting grain size.
+  const auto grainSize = plan.partition.unslicedGrainSize;
+  const auto extraSplit = plan.partition.lookupSplit;
+  // Use an extra grain size when spreading elements in
+  // a partition of sliced and unsliced dimensions among
+  // partitions of the lookup dimension to try and
+  // take advantage of double-width exchange when possible.
+  const auto &target = graph.getTarget();
+  const auto bytesPerElem = target.getTypeSize(type);
+  const std::size_t exchangeBusShareAtomBytes =
+      target.getExchangeBytesPerCycle() * target.getTilesPerSharedExchangeBus();
+  assert(exchangeBusShareAtomBytes % bytesPerElem == 0);
+  const auto elemsPerExchangeBusShareAtom =
+      exchangeBusShareAtomBytes / bytesPerElem;
+  const auto extraGrainSize = lcm(grainSize, elemsPerExchangeBusShareAtom);
   iterateTensorPartitions(
       t, createSplits,
       [&](const std::vector<std::size_t> &i, const Tensor &tSlice) {
-        const auto extraSplit = plan.partition.lookupSplit;
-        const auto grainSize = plan.partition.unslicedGrainSize;
-
         // We flatten all but the grain size from the plan and distribute this
         // between tiles that use these elements.
         const auto flattenedSlice = tSlice.flatten();
         const auto sliceNumElems = flattenedSlice.numElements();
 
-        const auto sliceNumGrains = ceildiv(sliceNumElems, grainSize);
+        const auto sliceNumGrains = ceildiv(sliceNumElems, extraGrainSize);
         const auto grainsPerSplit = ceildiv(sliceNumGrains, extraSplit);
-        const auto elemsPerSplit = grainsPerSplit * grainSize;
+        const auto elemsPerSplit = grainsPerSplit * extraGrainSize;
 
         assert(i.size() == 2);
         const std::size_t slicedIdx = i.front();
@@ -1323,8 +1416,9 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
         for (std::size_t indexIdx = 0; indexIdx < plan.partition.lookupSplit;
              ++indexIdx) {
           unsigned tile = linearizeSliceIndices(
-              plan.partition.slicedDimSplit, plan.partition.unslicedDimSplit,
-              indexIdx, slicedIdx, unslicedIdx);
+              plan.partition.lookupSplit, plan.partition.slicedDimSplit,
+              plan.partition.unslicedDimSplit, indexIdx, slicedIdx,
+              unslicedIdx);
           const auto begin = std::min(sliceNumElems, indexIdx * elemsPerSplit);
           const auto end =
               std::min(sliceNumElems, (indexIdx + 1) * elemsPerSplit);
@@ -1499,8 +1593,9 @@ static Tensor createSliceTensor(Graph &graph, const Type &type,
           const auto sEnd =
               std::min(tSlice.dim(0), (s + 1) * iElemsPerPartitionStage1);
           unsigned tile = linearizeSliceIndices(
-              plan.partition.slicedDimSplit, plan.partition.unslicedDimSplit,
-              indexIdx, slicedIdx, unslicedIdx);
+              plan.partition.lookupSplit, plan.partition.slicedDimSplit,
+              plan.partition.unslicedDimSplit, indexIdx, slicedIdx,
+              unslicedIdx);
           graph.setTileMapping(tSlice.slice(sBegin, sEnd, 0), tile);
         }
       });
@@ -1601,7 +1696,6 @@ poplar::Tensor createIndicesTensor(Graph &graph,
 template <typename T>
 std::vector<std::vector<T>> flattenInnermostRegions(
     const std::vector<std::vector<std::vector<T>>> &regions) {
-
   std::vector<std::vector<T>> result(regions.size());
   for (std::size_t i = 0; i < regions.size(); ++i) {
     result[i] = regions[i][0];
@@ -1860,7 +1954,8 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
 
       for (std::size_t h = 0; h < hSplit; ++h) {
         unsigned tile = linearizeSliceIndices(
-            p.partition.slicedDimSplit, p.partition.unslicedDimSplit, i, s, h);
+            p.partition.lookupSplit, p.partition.slicedDimSplit,
+            p.partition.unslicedDimSplit, i, s, h);
         const auto hBegin = std::min(hTotalElems, h * hElemsPerPartition);
         const auto hEnd = std::min(hTotalElems, (h + 1) * hElemsPerPartition);
         if (hEnd - hBegin == 0) {
@@ -2028,9 +2123,9 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
           if (hEnd - hBegin == 0) {
             break;
           }
-          unsigned tile =
-              linearizeSliceIndices(p.partition.slicedDimSplit,
-                                    p.partition.unslicedDimSplit, i, s, h);
+          unsigned tile = linearizeSliceIndices(
+              p.partition.lookupSplit, p.partition.slicedDimSplit,
+              p.partition.unslicedDimSplit, i, s, h);
           const Tensor indices = iSplitByS.squeeze({1});
           const Tensor input = tSplitByS.slice(hBegin, hEnd, 1);
           const Tensor output = sSplitByS.slice(hBegin, hEnd, 2);
@@ -2301,7 +2396,6 @@ void multiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,
 }
 
 namespace embedding {
-
 static void applyPlanConstraints(popsolver::Model &m,
                                  const PlanConstraints &planConstraints,
                                  const popsolver::Variable mSlicedDimSplit,
@@ -2320,29 +2414,82 @@ static void applyPlanConstraints(popsolver::Model &m,
   constrainVar("lookupSplit", mLookupSplit);
 }
 
-// Plan an embedding layer for slicing/updating.
-// This planner aims to minimise the persistent tile memory while keeping
-// temporary memory below a bound.
-SlicePlan plan(const Graph &graph, const Type &dataType,
-               const std::size_t numEntries,
-               const std::size_t outputSize, // embedding size
-               const std::vector<std::size_t> &numLookups,
-               const OptionFlags &optionFlags) {
-  const auto options = parseSliceOptions(optionFlags);
+static sliceInternal::Partition<std::size_t> fromSolution(
+    const popsolver::Solution &s,
+    const sliceInternal::Partition<popsolver::Variable> &partitionVars) {
+  sliceInternal::Partition<std::size_t> partition;
+  partition.lookupSplit = *s[partitionVars.lookupSplit];
+  partition.slicedDimSplit = *s[partitionVars.slicedDimSplit];
+  partition.unslicedDimSplit = *s[partitionVars.unslicedDimSplit];
+  partition.unslicedGrainSize = *s[partitionVars.unslicedGrainSize];
+  return partition;
+}
 
-  logging::popops::debug(
-      "DynamicSlicePlan for type {}, numEntries {}, outputSize {},"
-      " numLookups {}",
-      dataType, numEntries, outputSize, numLookups);
-  const auto &target = graph.getTarget();
+template <typename T> struct EmbeddingEstimates {
+  EmbeddingEstimates(const T &init)
+      : baseStorageBytesPerTile(init), outputStorageBytesPerTile(init),
+        indicesStorageBytesPerTile(init), exchangeCodeBytes(init),
+        sliceTempBytes(init), updateTempBytes(init), peakTempBytes(init),
+        sliceFirstStageExchangeCycles(init), sliceFirstStageComputeCycles(init),
+        sliceSecondStageExchangeCycles(init),
+        sliceSecondStageComputeCycles(init), sliceTotalCycles(init),
+        updateCastSlicesCycles(init), updateZeroPartialsCycles(init),
+        updateFirstStageExchangeCycles(init),
+        updateFirstStageComputeCycles(init), updateReduceExchangeCycles(init),
+        updateReduceComputeCycles(init), updateCastBasePreCycles(init),
+        updateScaledAddCycles(init), updateCastBasePostCycles(init),
+        updateTotalCycles(init), totalCycles(init) {}
+
+  // Memory (all per-tile)
+  T baseStorageBytesPerTile;
+  T outputStorageBytesPerTile;
+  T indicesStorageBytesPerTile;
+
+  T exchangeCodeBytes;
+
+  T sliceTempBytes;
+  T updateTempBytes;
+  T peakTempBytes;
+
+  // Cycles (worst tile)
+  T sliceFirstStageExchangeCycles;
+  T sliceFirstStageComputeCycles;
+  T sliceSecondStageExchangeCycles;
+  T sliceSecondStageComputeCycles;
+  T sliceTotalCycles;
+
+  // mUpdate* only valid when usedForUpdate is set.
+  T updateCastSlicesCycles;
+  T updateZeroPartialsCycles;
+  T updateFirstStageExchangeCycles;
+  T updateFirstStageComputeCycles;
+  T updateReduceExchangeCycles;
+  T updateReduceComputeCycles;
+  T updateCastBasePreCycles;
+  T updateScaledAddCycles;
+  T updateCastBasePostCycles;
+  T updateTotalCycles;
+
+  T totalCycles;
+};
+
+static std::tuple<sliceInternal::Partition<popsolver::Variable>,
+                  EmbeddingEstimates<popsolver::Variable>>
+constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
+               const std::size_t numEntries, const std::size_t outputSize,
+               const std::vector<std::size_t> &numLookups,
+               const SliceOptions &options) {
   const auto dataElementSize = target.getTypeSize(dataType);
+  const auto numWorkerContexts = target.getNumWorkerContexts();
+  // TODO: Get the correct op + scale parameters in here for
+  // multiUpdateMax or other possible future update rules.
+  const auto operation = Operation::ADD;
 
   // Plan based on the max supplied number of indices
   unsigned plannedNumIndices =
       numLookups.empty()
           ? 1
           : *std::max_element(numLookups.cbegin(), numLookups.cend());
-  SlicePlanInternal p;
 
   // Choose the grainsize in unsliced dimension to avoid subword writes
   const std::size_t minGrainSizeBytes = target.getAtomicStoreGranularity();
@@ -2350,7 +2497,16 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   // The embedding dimension can be split (embeddingSplit),
   // the entries can be split (dictSplit),
   // the indices can be split (lookupSplit)
-  popsolver::Model m;
+  sliceInternal::Partition<popsolver::Variable> partition;
+  EmbeddingEstimates<popsolver::Variable> e(m.zero());
+
+  const auto hierarchy = getTileHierarchy(target);
+  const auto perLevelExchangeBytesPerCycle =
+      getPerLevelExchangeBytesPerCycle(target);
+  ExchangeEstimator exchangeEstimator(m, target, hierarchy,
+                                      perLevelExchangeBytesPerCycle);
+  const auto ipuLevel = hierarchy.size() - 1;
+
   // Indices are int32 so 4bytes each
   const auto mBytesPerIndex = m.addConstant(target.getTypeSize(UNSIGNED_INT));
   const auto mBytesPerFloat = m.addConstant(target.getTypeSize(FLOAT));
@@ -2363,19 +2519,19 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
                             dataElementSize));
   const auto bytesPerGrain = unslicedGrainSize * dataElementSize;
 
-  const auto mUnslicedGrainSize =
+  partition.unslicedGrainSize =
       m.addConstant(unslicedGrainSize, "unslicedGrainSize");
   const auto mBytesPerGrain = m.addConstant(bytesPerGrain);
   const auto mOutputSize = m.addConstant(outputSize, "outputSize");
 
   const auto mNumUnslicedGrains = // per row
-      m.ceildiv(mOutputSize, mUnslicedGrainSize, "numUnslicedGrains");
+      m.ceildiv(mOutputSize, partition.unslicedGrainSize, "numUnslicedGrains");
 
-  // split the embedding between \a mEmbeddingSplit tiles
-  const auto mEmbeddingSplit =
+  // split the embedding between \a partition.unslicedDimSplit tiles
+  partition.unslicedDimSplit =
       m.addVariable(1, std::numeric_limits<unsigned>::max(), "embeddingSplit");
-  m.lessOrEqual(mEmbeddingSplit, mNumUnslicedGrains);
-  m.ceildivConstrainDivisor(mNumUnslicedGrains, mEmbeddingSplit);
+  m.lessOrEqual(partition.unslicedDimSplit, mNumUnslicedGrains);
+  m.ceildivConstrainDivisor(mNumUnslicedGrains, partition.unslicedDimSplit);
 
   // The entries are split across \a mDictSplit groups of tiles,
   // each of which will select a candidate in the first stage of a lookup.
@@ -2383,22 +2539,18 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   // means that temporary memory is required after the first pass.
   // Splits leaving less than 2 entries per tile will have more unmeasured
   // overhead than is saved in base memory so are prohibited.
-  const auto mDictSplit =
+  partition.slicedDimSplit =
       m.addVariable(1, ceildiv(numEntries, 2u), "entriesSplit");
-  // mDictIsSplit=0 when mDictSplit==1, else 1
-  const auto mDictIsSplit =
-      m.sub(m.addConstant(1), m.floordiv(m.addConstant(1), mDictSplit));
+  const auto mDictIsSplit = m.reifiedLess(m.one(), partition.slicedDimSplit);
 
   // When there are many lookups we can split the lookups between multiple
   // groups of tiles each performing the same lookup on a subset of indices.
   // This requires the embedding to be broadcast for lookups, and the updates
   // to be serialised or reduced on update
-  // When there is an indices split a temporary embedding buffer is required in
-  // both passes
-  const auto mLookupSplit = m.addVariable(1, plannedNumIndices, "lookupSplit");
-  // mLookupsAreSplit=0 when mLookupSplit==1 split, else 1
-  const auto mLookupsAreSplit =
-      m.sub(m.addConstant(1), m.floordiv(m.addConstant(1), mLookupSplit));
+  // When there is an indices split a temporary embedding buffer is required
+  // in both passes
+  partition.lookupSplit = m.addVariable(1, plannedNumIndices, "lookupSplit");
+  const auto mLookupsAreSplit = m.reifiedLess(m.one(), partition.lookupSplit);
   const auto mNumTiles = m.addConstant(target.getNumTiles(), "numTiles");
   const auto mNumEntries = m.addConstant(numEntries);
   const auto mNumIndices = m.addConstant(plannedNumIndices);
@@ -2406,24 +2558,32 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   // Max number of each dimension of the embedding processed on each
   // tile during forward pass (slice)
   const auto mUnslicedGrainsPerTile =
-      m.ceildivConstrainDivisor(mNumUnslicedGrains, mEmbeddingSplit);
+      m.ceildivConstrainDivisor(mNumUnslicedGrains, partition.unslicedDimSplit);
   const auto mDictEntriesPerTile =
-      m.ceildivConstrainDivisor(mNumEntries, mDictSplit);
+      m.ceildivConstrainDivisor(mNumEntries, partition.slicedDimSplit);
   const auto mLookupsPerTile =
-      m.ceildivConstrainDivisor(mNumIndices, mLookupSplit);
+      m.ceildivConstrainDivisor(mNumIndices, partition.lookupSplit);
 
   const auto mUsedTiles =
-      m.product({mEmbeddingSplit, mDictSplit, mLookupSplit}, "totalSplit");
+      m.product({partition.unslicedDimSplit, partition.slicedDimSplit,
+                 partition.lookupSplit},
+                "totalSplit");
   m.lessOrEqual(mUsedTiles, mNumTiles);
 
-  // Calculate persistent bytes for storage per-tile.
   const auto mBaseGrainsPerTile =
       m.product({mUnslicedGrainsPerTile, mDictEntriesPerTile});
+
+  const auto mUnslicedElemsPerTile =
+      m.product({mUnslicedGrainsPerTile, partition.unslicedGrainSize});
+
+  // Calculate persistent bytes for storage per-tile.
   // We also spread base tensor grains over tiles that will use them when
   // allocating i.e. over lookupSplit tiles.
   const auto mBaseGrainsStoragePerTile =
-      m.ceildiv(mBaseGrainsPerTile, mLookupSplit);
-  const auto mBaseStorageBytesPerTile =
+      m.ceildiv(mBaseGrainsPerTile, partition.lookupSplit);
+  const auto mBaseElemsStoragePerTile =
+      m.product({mBaseGrainsStoragePerTile, partition.unslicedGrainSize});
+  e.baseStorageBytesPerTile =
       m.product({mBaseGrainsStoragePerTile, mBytesPerGrain});
 
   // We allocate indices linearly with a minimum no. per-tile.
@@ -2431,24 +2591,107 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       m.min({mNumIndices, m.addConstant(minIndicesPerTile)});
   const auto mIndicesPerTile =
       m.max({mMinIndicesPerTile, m.ceildiv(mNumIndices, mNumTiles)});
-  const auto mIndicesStorageBytesPerTile =
-      m.product({mIndicesPerTile, mBytesPerIndex});
+  e.indicesStorageBytesPerTile = m.product({mIndicesPerTile, mBytesPerIndex});
 
   // We allocate output based on forward pass (slice) usage.
-  // The first stage results in mDictSplit partials spread over tiles.
-  // Partials per-tile are mLookupsPerTile * mUnslicedGrainsPerTile.
+  // The first stage results in partition.slicedDimSplit partials spread over
+  // tiles. Partials per-tile are mLookupsPerTile * mUnslicedGrainsPerTile.
   const auto mSecondStageLookupsPerTile =
-      m.ceildiv(mLookupsPerTile, mDictSplit);
-  // The second stage results in mLookupsPerTile spread over mDictSplit tiles.
+      m.ceildiv(mLookupsPerTile, partition.slicedDimSplit);
+  // The second stage results in mLookupsPerTile spread over
+  // partition.slicedDimSplit tiles.
   const auto mOutputGrainsPerTile =
       m.product({mSecondStageLookupsPerTile, mUnslicedGrainsPerTile});
-  const auto mOutputStorageBytesPerTile =
+  const auto mOutputElemsPerTile =
+      m.product({mOutputGrainsPerTile, partition.unslicedGrainSize});
+  e.outputStorageBytesPerTile =
       m.product({mOutputGrainsPerTile, mBytesPerGrain});
 
-  // The base tensor must be broadcast across the `mLookupSplit` groups as it
-  // is distributed to balance memory.
-  // The indices must be received from a set of tiles, so a number of setmux
-  // instructions are required.
+  {
+    // mBaseGrainsPerTile gives the number of grains taken as input
+    // to MultiSlice vertices in the first stage. If there is a lookup
+    // split then this data must be broadcast.
+    //
+    // Due to the way we map partitions of the slice to tiles, consecutive
+    // tiles receive the same portion of the sliced operand when the lookup
+    // dimension is split. This information provided to the exchange estimator
+    // allows us to account for utilising double-width exchange.
+    const auto mExchangeCycles = exchangeEstimator(
+        m.product({mBaseGrainsPerTile, mBytesPerGrain}), partition.lookupSplit,
+        mUsedTiles, ipuLevel, "slice.0.exchange.cycles");
+    const MultiSliceTargetParameters targetParams{target, dataType};
+    e.sliceFirstStageExchangeCycles =
+        m.product({mLookupsAreSplit, mExchangeCycles});
+    e.sliceFirstStageComputeCycles = m.call<unsigned>(
+        {
+            mUnslicedElemsPerTile,
+            mLookupsPerTile,
+            mNumEntries,
+            mDictEntriesPerTile,
+        },
+        [numWorkerContexts, targetParams,
+         options](const std::vector<unsigned> &values) {
+          const auto elemsPerSlice = values[0];
+          const auto numOffsets = values[1];
+          const auto numDictEntries = values[2];
+          const auto maxDictEntriesPerTile = values[3];
+          const double proportionIndicesInRange =
+              double(maxDictEntriesPerTile) / double(numDictEntries);
+          const auto maxOffsetsPerWorker =
+              ceildiv(numOffsets, numWorkerContexts);
+          const auto cycles = getMultiSliceCycleEstimate(
+              targetParams, elemsPerSlice, maxOffsetsPerWorker,
+              proportionIndicesInRange,
+              options.indicesDistribution == IndicesDistribution::ONE_POINT);
+          return popsolver::DataType{cycles * numWorkerContexts};
+        },
+        "slice.0.compute.cycles");
+
+    // For the second stage, we exchange the result of the first slice
+    // all to all between groups of tiles.
+    const auto mSecondStageInputBytesPerTile =
+        m.product({partition.slicedDimSplit, mSecondStageLookupsPerTile,
+                   mUnslicedGrainsPerTile, mBytesPerGrain});
+    e.sliceSecondStageExchangeCycles = exchangeEstimator(
+        mSecondStageInputBytesPerTile, ipuLevel, "slice.1.exchange.cycles");
+    e.sliceSecondStageComputeCycles = m.call<unsigned>(
+        {
+            mUnslicedGrainsPerTile,
+            mSecondStageLookupsPerTile,
+            mNumEntries,
+            mDictEntriesPerTile,
+        },
+        [numWorkerContexts, targetParams,
+         options](const std::vector<unsigned> &values) {
+          const auto elemsPerSlice = values[0];
+          const auto numOffsets = values[1];
+          const auto numDictEntries = values[2];
+          const auto maxDictEntriesPerTile = values[3];
+          const double proportionIndicesInRange =
+              double(maxDictEntriesPerTile) / double(numDictEntries);
+          const auto maxOffsetsPerWorker =
+              ceildiv(numOffsets, numWorkerContexts);
+          const auto cycles = getMultiSliceCycleEstimate(
+              targetParams, elemsPerSlice, maxOffsetsPerWorker,
+              proportionIndicesInRange,
+              options.indicesDistribution == IndicesDistribution::ONE_POINT);
+          return popsolver::DataType{cycles * numWorkerContexts};
+        },
+        "slice.1.compute.cycles");
+
+    e.sliceSecondStageExchangeCycles =
+        m.product({e.sliceSecondStageExchangeCycles, mDictIsSplit});
+    e.sliceSecondStageComputeCycles =
+        m.product({e.sliceSecondStageComputeCycles, mDictIsSplit});
+    e.sliceTotalCycles = m.sum(
+        {e.sliceFirstStageExchangeCycles, e.sliceFirstStageComputeCycles,
+         e.sliceSecondStageExchangeCycles, e.sliceSecondStageComputeCycles});
+    e.totalCycles = e.sliceTotalCycles;
+  }
+
+  // The base tensor must be broadcast across the `partition.lookupSplit` groups
+  // as it is distributed to balance memory. The indices must be received from a
+  // set of tiles, so a number of setmux instructions are required.
   //
   // 0 and 1 indicate which stage in the forward pass this exchange is
   // attributed to.
@@ -2456,19 +2699,20 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       m.ceildiv(mLookupsPerTile, mIndicesPerTile);
 
   const auto mEmbeddingExchangeInstrs0 =
-      m.product({mLookupsAreSplit, mLookupSplit});
+      m.product({mLookupsAreSplit, partition.lookupSplit});
   // When there is a dictSplit the data will be exchanged between groups of
-  // `mDictSplit` tiles
+  // `partition.slicedDimSplit` tiles
   const auto mOutputToInputExchangeInstrs1 =
-      m.product({mDictIsSplit, mDictSplit});
-  // The indices are copied implicitly and are re-broadcast for the second stage
+      m.product({mDictIsSplit, partition.slicedDimSplit});
+  // The indices are copied implicitly and are re-broadcast for the second
+  // stage
   const auto &mIndicesExchangeInstrs1 = mIndicesExchangeInstrs0;
-  auto mExchangeCodeBytes = m.product(
+  e.exchangeCodeBytes = m.product(
       {m.addConstant(4u),
        m.sum({mEmbeddingExchangeInstrs0, mIndicesExchangeInstrs0,
               mOutputToInputExchangeInstrs1, mIndicesExchangeInstrs1})});
 
-  auto mUpdateTempBytes = m.addConstant(0);
+  e.updateTempBytes = m.zero();
   if (options.usedForUpdate) {
     // When no index split there are no temporaries beyond those used in a
     // lookup, the vertices work directly on the base, slices and indices
@@ -2478,19 +2722,107 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
     // with a FLOAT copy of the base tensor.
 
     // For now we force float partial type for the update.
+    const auto mFloatData = m.addConstant(dataType == FLOAT ? 1u : 0u);
+    const auto mNeedsCast =
+        m.booleanOr(m.booleanNot(mFloatData), mLookupsAreSplit);
     const auto mUpdatesCastTempBytesPerTile =
-        m.product({m.addConstant(dataType != FLOAT ? 1u : 0u),
-                   mOutputGrainsPerTile, mBytesPerFloat});
+        m.product({mNeedsCast, mOutputElemsPerTile, mBytesPerFloat});
     const auto mUpdatesTempBytesPerTile =
         m.product({mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile,
-                   mUnslicedGrainSize, mBytesPerFloat});
+                   partition.unslicedGrainSize, mBytesPerFloat});
+    const auto mPartialElemsPerTile =
+        m.product({mDictEntriesPerTile, mUnslicedGrainsPerTile,
+                   partition.unslicedGrainSize});
+
+    e.updateCastSlicesCycles =
+        modelContiguousCast(target, dataType, FLOAT, m, mOutputElemsPerTile,
+                            "update.0.castSlices")
+            .cycles;
+    e.updateCastSlicesCycles =
+        m.product({mLookupsAreSplit, e.updateCastSlicesCycles});
+    e.updateZeroPartialsCycles =
+        modelContiguousFill(target, FLOAT, m, mPartialElemsPerTile,
+                            "update.0.zeroPartials")
+            .cycles;
+    e.updateZeroPartialsCycles =
+        m.product({mLookupsAreSplit, e.updateZeroPartialsCycles});
+    // Account for exchange of updates to tiles here, where the updates
+    // will be broadcast by the number of splits of the sliced dimension.
+    e.updateFirstStageExchangeCycles = exchangeEstimator(
+        mUpdatesTempBytesPerTile, ipuLevel, "update.0.exchange.cycles");
+    {
+      const MultiUpdateOpTargetParameters targetParams{target};
+      e.updateFirstStageComputeCycles = m.call<unsigned>(
+          {mUnslicedElemsPerTile, mLookupsPerTile, mFloatData, mNumEntries,
+           mDictEntriesPerTile},
+          [targetParams, options,
+           operation](const std::vector<unsigned> &values) {
+            const auto elemsPerSlice = values[0];
+            const auto numOffsets = values[1];
+            const bool floatData = values[2];
+            const auto numDictEntries = values[3];
+            const auto maxDictEntriesPerTile = values[4];
+            const auto maxDictEntriesPerWorker =
+                getMultiUpdateOpMaxElemsPerWorker(
+                    targetParams.numWorkerContexts, maxDictEntriesPerTile);
+            const double maxProportionOfIndicesRangePerWorker =
+                double(maxDictEntriesPerWorker) / double(numDictEntries);
+            const bool isScaled = true;
+            const auto cycles = getMultiUpdateOpCycleEstimate(
+                targetParams, /* floatData */ floatData,
+                /* subWordWritesRequired */ false, elemsPerSlice, numOffsets,
+                operation, isScaled, maxProportionOfIndicesRangePerWorker,
+                options.indicesDistribution == IndicesDistribution::ONE_POINT);
+            return popsolver::DataType{cycles};
+          },
+          "update.0.compute.cycles");
+    }
+
     const auto mPartialsBytesPerTile =
-        m.product({mLookupsAreSplit, mDictEntriesPerTile,
-                   mUnslicedGrainsPerTile, mUnslicedGrainSize, mBytesPerFloat});
+        m.product({mLookupsAreSplit, mPartialElemsPerTile, mBytesPerFloat});
+
+    const auto mUpdateReduceEstimates = modelBalancedIntertileReduction(
+        target, hierarchy, FLOAT, FLOAT, operation, /* isUpdate */ false, m,
+        exchangeEstimator, mPartialElemsPerTile, partition.lookupSplit,
+        "update.1.reduce");
+    e.updateReduceExchangeCycles =
+        mUpdateReduceEstimates.cyclesBreakdown.exchange;
+    e.updateReduceComputeCycles =
+        mUpdateReduceEstimates.cyclesBreakdown.compute;
+    e.updateCastBasePreCycles =
+        modelContiguousCast(target, dataType, FLOAT, m,
+                            mBaseElemsStoragePerTile, "update.1.castBase")
+            .cycles;
+    e.updateCastBasePreCycles =
+        m.product({mLookupsAreSplit, e.updateCastBasePreCycles});
+    // NOTE: Optimistically assuming fast path - this is not forced
+    // but a runtime check opportunistically selects the fast path if
+    // inputs are in different memory elements.
+    e.updateScaledAddCycles =
+        modelContiguousScaledAdd(
+            target, FLOAT, FLOAT, /* scaleIsConstant */ false,
+            /* usesMemoryConstraints */ true, m, mBaseElemsStoragePerTile,
+            "update.1.updateBase")
+            .cycles;
+    e.updateScaledAddCycles =
+        m.product({mLookupsAreSplit, e.updateScaledAddCycles});
+    e.updateCastBasePostCycles =
+        modelContiguousCast(target, FLOAT, dataType, m,
+                            mBaseElemsStoragePerTile, "update.1.castBaseBack")
+            .cycles;
+    e.updateCastBasePostCycles =
+        m.product({mLookupsAreSplit, e.updateCastBasePostCycles});
+    e.updateTotalCycles = m.sum(
+        {e.updateCastSlicesCycles, e.updateZeroPartialsCycles,
+         e.updateFirstStageExchangeCycles, e.updateFirstStageComputeCycles,
+         mUpdateReduceEstimates.cycles, e.updateCastBasePreCycles,
+         e.updateScaledAddCycles, e.updateCastBasePostCycles});
+    e.totalCycles = m.sum({e.totalCycles, e.updateTotalCycles});
+
     const auto mIndicesTempBytesPerTile =
         m.product({mLookupsPerTile, mBytesPerIndex});
 
-    mUpdateTempBytes =
+    e.updateTempBytes =
         m.max({// If we need a cast version of the updates, this will take
                // temporary memory.
                mUpdatesCastTempBytesPerTile,
@@ -2509,14 +2841,15 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
 
     // Indices are as for the forward pass;
     // plus the rearrangement will be an all-all exchange
-    mExchangeCodeBytes =
-        m.sum({mExchangeCodeBytes,
+    e.exchangeCodeBytes =
+        m.sum({e.exchangeCodeBytes,
                m.product({mIndicesExchangeInstrs0, m.addConstant(4)}),
-               m.product({mLookupsAreSplit, mLookupSplit, m.addConstant(4)})});
+               m.product({mLookupsAreSplit, partition.lookupSplit,
+                          m.addConstant(4)})});
   }
 
-  // We need temporary bytes for the dictionary if the lookups are split as this
-  // will require the dictionary to be multi-cast to tiles.
+  // We need temporary bytes for the dictionary if the lookups are split as
+  // this will require the dictionary to be multi-cast to tiles.
   const auto mBaseTempBytesPerTile =
       m.product({mLookupsAreSplit, mBaseGrainsPerTile, mBytesPerGrain});
 
@@ -2524,16 +2857,16 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   // rearranged for the second stage.
   const auto mSlicesFirstStageOutputTempBytes = m.product(
       {mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile, mBytesPerGrain});
-  const auto mSlicesSecondStageInputTempBytes =
-      m.product({mDictIsSplit, mDictSplit, mSecondStageLookupsPerTile,
-                 mUnslicedGrainsPerTile, mBytesPerGrain});
+  const auto mSlicesSecondStageInputTempBytes = m.product(
+      {mDictIsSplit, partition.slicedDimSplit, mSecondStageLookupsPerTile,
+       mUnslicedGrainsPerTile, mBytesPerGrain});
 
   const auto mIndicesFirstStageTempBytes =
       m.product({mLookupsPerTile, mBytesPerIndex});
   const auto mIndicesSecondStageTempBytes =
       m.product({mSecondStageLookupsPerTile, mBytesPerIndex});
 
-  const auto mSliceTempBytes =
+  e.sliceTempBytes =
       m.max({// Potentially multi-cast copy of base tensor/indices, and
              // temporary bytes for output of first stage
              m.sum({mBaseTempBytesPerTile, mSlicesFirstStageOutputTempBytes,
@@ -2543,60 +2876,141 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
              m.sum({mSlicesFirstStageOutputTempBytes,
                     mSlicesSecondStageInputTempBytes,
                     mIndicesSecondStageTempBytes})});
-  const auto mPeakTempBytes =
-      m.max({mSliceTempBytes,
-             !options.usedForUpdate ? m.addConstant(0) : mUpdateTempBytes});
+  e.peakTempBytes = m.max({e.sliceTempBytes, e.updateTempBytes});
+  return std::make_tuple(partition, e);
+}
 
-  if (false) {
-    // No hard constaint on temp memory at the moment
-    const auto maxGrainsPerTile = target.getBytesPerTile() / bytesPerGrain;
-    const auto mMaxAllowedTempBytes =
-        m.addConstant(0.6 * maxGrainsPerTile * bytesPerGrain);
-    m.lessOrEqual(mPeakTempBytes, mMaxAllowedTempBytes);
+static void
+applyConstraints(popsolver::Model &m, const Target &target,
+                 const sliceInternal::Partition<popsolver::Variable> &partition,
+                 const EmbeddingEstimates<popsolver::Variable> &estimates,
+                 const SliceOptions &options, bool limitTempMemory) {
+  applyPlanConstraints(m, options.planConstraints, partition.slicedDimSplit,
+                       partition.unslicedDimSplit, partition.lookupSplit);
+  if (options.availableMemoryProportion && limitTempMemory) {
+    const auto mMaxAllowedTempBytes = m.addConstant(
+        options.availableMemoryProportion.value() * target.getBytesPerTile());
+    m.lessOrEqual(estimates.peakTempBytes, mMaxAllowedTempBytes);
+  }
+}
+
+static popsolver::Solution
+minimize(popsolver::Model &m, const Target &target,
+         const EmbeddingEstimates<popsolver::Variable> &estimates,
+         const PlanMinimisationTarget &minimisationTarget) {
+  popsolver::Variable goal;
+  switch (minimisationTarget) {
+  case PlanMinimisationTarget::MEMORY: {
+    // Minimise total memory footprint, prioritising persistent memory
+    // indices are persistent if they are required for the update pass
+    goal = m.sum(
+        {estimates.baseStorageBytesPerTile, estimates.outputStorageBytesPerTile,
+         estimates.indicesStorageBytesPerTile, estimates.exchangeCodeBytes});
+    goal = m.product({goal, m.addConstant(10)});
+    goal = m.sum({goal, estimates.peakTempBytes});
+    break;
+  }
+  case PlanMinimisationTarget::CYCLES: {
+    goal = estimates.totalCycles;
+    break;
+  }
   }
 
-  // Minimise total memory footprint, prioritising persistent memory
-  // indices are persistent if they are required for the update pass
-  //
-  // TODO: T12935 Consider hard limit on temporary bytes specified via options
-  // to the plan.
-  auto goal = m.sum({mBaseStorageBytesPerTile, mOutputStorageBytesPerTile,
-                     mIndicesStorageBytesPerTile, mExchangeCodeBytes});
-  goal = m.product({goal, m.addConstant(10)});
-  goal = m.sum({goal, mPeakTempBytes});
+  return m.minimize({goal});
+}
 
-  applyPlanConstraints(m, options.planConstraints, mDictSplit, mEmbeddingSplit,
-                       mLookupSplit);
-  popsolver::Solution s = m.minimize({goal});
+// Plan an embedding layer for slicing/updating.
+// This planner aims to minimise the persistent tile memory while keeping
+// temporary memory below a bound.
+SlicePlan plan(const Graph &graph, const Type &dataType,
+               const std::size_t numEntries,
+               const std::size_t outputSize, // embedding size
+               const std::vector<std::size_t> &numLookups,
+               const OptionFlags &optionFlags) {
+  const auto options = parseSliceOptions(optionFlags);
 
-  // We must have a valid solution.
+  logging::popops::debug(
+      "DynamicSlicePlan for type {}, numEntries {}, outputSize {},"
+      " numLookups {}",
+      dataType, numEntries, outputSize, numLookups);
+  const auto &target = graph.getTarget();
+
+  popsolver::Model m;
+  auto [partition, estimates] = constructModel(m, target, dataType, numEntries,
+                                               outputSize, numLookups, options);
+  applyConstraints(m, target, partition, estimates, options, true);
+  auto s = minimize(m, target, estimates, options.planMinimisationTarget);
+
+  if (!s.validSolution() && options.availableMemoryProportion) {
+    // Warn and try again without the available memory proportion if
+    // no solution could be found.
+    logging::popops::warn("embedding::plan could not find a valid solution "
+                          "with availableMemoryProportion={}, trying again "
+                          "with unlimited temporary memory",
+                          *options.availableMemoryProportion);
+    std::tie(partition, estimates) = constructModel(
+        m, target, dataType, numEntries, outputSize, numLookups, options);
+    applyConstraints(m, target, partition, estimates, options, false);
+    s = minimize(m, target, estimates, options.planMinimisationTarget);
+  }
+
+  // If we don't have a valid solution, warn and return a null plan.
   if (!s.validSolution()) {
     logging::popops::warn(
         "Slice planner could not find a valid solution, opting for no plan");
     return std::make_unique<SlicePlanInternal>();
   }
 
-  p.partition.lookupSplit = *s[mLookupSplit];
-  p.partition.slicedDimSplit = *s[mDictSplit];
-  p.partition.unslicedDimSplit = *s[mEmbeddingSplit];
-  p.partition.unslicedGrainSize = *s[mUnslicedGrainSize];
+  SlicePlanInternal p;
+  p.partition = fromSolution(s, partition);
   p.rank = 2;
   p.slicedDims = {0};
   p.slicedDimSizes = {1};
   p.isNull = false;
 
-  logging::popops::debug("Embedding {}", p);
-  logging::popops::debug("UsedTiles {}", s[mUsedTiles]);
-  logging::popops::debug("unslicedGrainSize {}", s[mUnslicedGrainsPerTile]);
+  logging::popops::debug("Embedding plan {}", p);
+
   logging::popops::debug(
       "Tile memory estimates (bytes on worst tile): Base storage "
       "{}, Output storage {}, Indices storage {}, Exchange code {}, "
-      "Slice temp {}, Update temp {}, Peak temp {}, goal {}",
-      s[mBaseStorageBytesPerTile], s[mOutputStorageBytesPerTile],
-      s[mIndicesStorageBytesPerTile], s[mExchangeCodeBytes], s[mSliceTempBytes],
-      s[mUpdateTempBytes], s[mPeakTempBytes], s[goal]);
-  logging::popops::debug("mDictSplit {}, mEmbeddingSplit {}, lookupSplit {}",
-                         s[mDictSplit], s[mEmbeddingSplit], s[mLookupSplit]);
+      "Slice temp {}, Update temp {}, Peak temp {}",
+      s[estimates.baseStorageBytesPerTile],
+      s[estimates.outputStorageBytesPerTile],
+      s[estimates.indicesStorageBytesPerTile], s[estimates.exchangeCodeBytes],
+      s[estimates.sliceTempBytes], s[estimates.updateTempBytes],
+      s[estimates.peakTempBytes]);
+
+  logging::popops::debug(
+      "Cycle estimates (worst tile):\n"
+      "  slice first stage exchange {},\n"
+      "  slice first stage compute {},\n"
+      "  slice second stage exchange {},\n"
+      "  slice second stage compute {},\n"
+      "  slice total {},\n"
+      "  update cast slices cycles {},\n"
+      "  update zero partials cycles {},\n"
+      "  update first stage exchange {},\n"
+      "  update first stage compute {},\n"
+      "  update reduce exchange {},\n"
+      "  update reduce compute {},\n"
+      "  update cast base pre cycles {},\n"
+      "  update scaled add cycles {},\n"
+      "  update cast base post cycles {},\n"
+      "  update total {},\n"
+      "  total {}",
+      s[estimates.sliceFirstStageExchangeCycles],
+      s[estimates.sliceFirstStageComputeCycles],
+      s[estimates.sliceSecondStageExchangeCycles],
+      s[estimates.sliceSecondStageComputeCycles], s[estimates.sliceTotalCycles],
+      s[estimates.updateCastSlicesCycles],
+      s[estimates.updateZeroPartialsCycles],
+      s[estimates.updateFirstStageExchangeCycles],
+      s[estimates.updateFirstStageComputeCycles],
+      s[estimates.updateReduceExchangeCycles],
+      s[estimates.updateReduceComputeCycles],
+      s[estimates.updateCastBasePreCycles], s[estimates.updateScaledAddCycles],
+      s[estimates.updateCastBasePostCycles], s[estimates.updateTotalCycles],
+      s[estimates.totalCycles]);
 
   return std::make_unique<SlicePlanInternal>(std::move(p));
 }

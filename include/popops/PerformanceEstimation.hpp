@@ -4,6 +4,8 @@
 
 #include "popops/Expr.hpp"
 #include <poplar/Target.hpp>
+#include <poplar/VectorLayout.hpp>
+#include <popops/OperationDef.hpp>
 
 namespace popops {
 
@@ -81,6 +83,102 @@ std::uint64_t getDynamicSlice1DEstimate(const poplar::Target &target,
 std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
     const poplar::Target &target, const poplar::Type &type,
     const popops::expr::BinaryOpType op, const unsigned numElems);
+
+/** Cycle estimate for MultiSlice vertex.
+ */
+struct MultiSliceTargetParameters {
+  MultiSliceTargetParameters(const poplar::Target &target,
+                             const poplar::Type &type)
+      : dataPathWidth(target.getDataPathWidth()),
+        bytesPerElem(target.getTypeSize(type)) {}
+  unsigned dataPathWidth;
+  unsigned bytesPerElem;
+};
+
+std::uint64_t
+getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
+                           const unsigned elemsPerSlice,
+                           const unsigned numOffsets,
+                           const double proportionOfIndexableRange,
+                           const bool useOnePointDistribution = false);
+
+/** Cycle estimate for MultiUpdateAdd vertex.
+ */
+struct MultiUpdateOpTargetParameters {
+  MultiUpdateOpTargetParameters(const poplar::Target &target)
+      : atomicWriteSize(target.getAtomicStoreGranularity()),
+        numWorkerContexts(target.getNumWorkerContexts()) {}
+  unsigned atomicWriteSize;
+  unsigned numWorkerContexts;
+};
+
+std::uint64_t getMultiUpdateOpCycleEstimate(
+    const MultiUpdateOpTargetParameters &targetParams, bool floatData,
+    bool subWordWritesRequired, const unsigned elemsPerSlice,
+    const unsigned numOffsets, const Operation op, const bool scaled,
+    const double proportionOfIndexableRangePerWorker,
+    const bool useOnePointDistribution = false);
+
+/// Target parameters used in cast estimation
+struct CastTargetParameters {
+  CastTargetParameters(const poplar::Target &target,
+                       const poplar::Type &fromType, const poplar::Type &toType)
+      : numWorkerContexts(target.getNumWorkerContexts()),
+        dataPathWidth(target.getDataPathWidth()),
+        fromTypeSize(target.getTypeSize(fromType)),
+        toTypeSize(target.getTypeSize(toType)) {}
+  unsigned numWorkerContexts;
+  unsigned dataPathWidth;
+  unsigned fromTypeSize;
+  unsigned toTypeSize;
+};
+
+std::uint64_t getCast2DCycleEstimate(const CastTargetParameters &targetParams,
+                                     const poplar::Type &fromType,
+                                     const poplar::Type &toType,
+                                     std::vector<unsigned> &elemCounts);
+
+std::uint64_t getCast1DSingleWorkerCycleEstimate(
+    const CastTargetParameters &targetParams, const poplar::Type &fromType,
+    const poplar::Type &toType, const unsigned numElems);
+
+std::uint64_t
+getCast1DCycleEstimate(const CastTargetParameters &targetParams,
+                       const poplar::Type &fromType, const poplar::Type &toType,
+                       const unsigned workerElems, const unsigned workerCount,
+                       const unsigned workerLast, const unsigned deltaLast);
+
+struct FillTargetParameters {
+  FillTargetParameters(const poplar::Target &target)
+      : dataPathWidth(target.getDataPathWidth()) {}
+  unsigned dataPathWidth;
+};
+
+std::uint64_t getFill1DCycleEstimate(const FillTargetParameters &targetParams,
+                                     const poplar::Type &type,
+                                     const unsigned numElems);
+
+std::uint64_t getFill2DCycleEstimate(const FillTargetParameters &targetParams,
+                                     const poplar::Type &type,
+                                     const std::vector<unsigned> &numElems);
+
+enum class ScaledArithmeticOp { ADD, SUBTRACT, AXPLUSBY, AXMINUSBY };
+
+struct ScaledArithmeticTargetParameters {
+  ScaledArithmeticTargetParameters(const poplar::Target &target,
+                                   const poplar::Type &dataType)
+      : numWorkerContexts(target.getNumWorkerContexts()),
+        vectorWidth(target.getVectorWidth(dataType)) {}
+  unsigned numWorkerContexts;
+  unsigned vectorWidth;
+};
+
+std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
+    const ScaledArithmeticTargetParameters &targetParams,
+    const poplar::Type &dataType, const poplar::Type &dataBType,
+    const bool isConstant, const bool memConstrained,
+    const ScaledArithmeticOp operation, const poplar::layout::Vector &aLayout,
+    const poplar::layout::Vector &bLayout, const unsigned numElems);
 
 } // namespace internal
 } // namespace popops

@@ -8,6 +8,9 @@ add_library(popops SHARED
   BitonicTopK.cpp
   BitonicTopK.hpp
   Cast.cpp
+  CastInternal.hpp
+  CastModelling.cpp
+  CastModelling.hpp
   CircBuf.cpp
   TensorCollectives.cpp
   CollectiveTypes.cpp
@@ -19,12 +22,16 @@ add_library(popops SHARED
   ElementWiseInternal.cpp
   ElementWiseUtil.cpp
   Encoding.cpp
+  ExchangeEstimator.cpp
+  ExchangeEstimator.hpp
   Expr.cpp
   ExpressionGenerator.cpp
   ExpressionGenerator.hpp
   ExprOpUtil.cpp
   ExprOpUtil.hpp
   Fill.cpp
+  FillModelling.cpp
+  FillModelling.hpp
   Gather.cpp
   GatherInternal.cpp
   GatherStatistics.cpp
@@ -41,6 +48,8 @@ add_library(popops SHARED
   popopsCycleEstimators.cpp
   Rearrange.cpp
   ScaledAdd.cpp
+  ScaledAddModelling.cpp
+  ScaledAddModelling.hpp
   Scatter.cpp
   SelectScalarFromRows.cpp
   SequenceSlice.cpp
@@ -89,6 +98,8 @@ add_library(popops SHARED
   reduction/IntermediatePartials.hpp
   reduction/IntermediatePartialsUtil.cpp
   reduction/IntermediatePartialsUtil.hpp
+  reduction/Modelling.cpp
+  reduction/Modelling.hpp
   reduction/Reduction.cpp
   reduction/Reduction.hpp
   reduction/ReductionConnection.cpp

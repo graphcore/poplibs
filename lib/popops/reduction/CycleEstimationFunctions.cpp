@@ -59,7 +59,7 @@ unsigned flopsForReduceOp(popops::Operation operation) {
 
 } // anonymous namespace
 
-poplar::VertexPerfEstimate getCyclesEstimateForReduce(
+static poplar::VertexPerfEstimate getCyclesEstimateForReduce(
     const std::vector<std::size_t> &partialsSizes,
     const std::vector<std::size_t> &outSizes,
     const std::vector<unsigned> &numPartials,
@@ -207,7 +207,7 @@ poplar::VertexPerfEstimate getCyclesEstimateForReduce(
   return {cycles, convertToTypeFlops(flops, outType)};
 }
 
-poplar::VertexPerfEstimate getCyclesEstimateForStridedReduce(
+static poplar::VertexPerfEstimate getCyclesEstimateForStridedReduce(
     const std::size_t partialsSize, const std::size_t numPartials,
     const std::size_t numOutputs, const unsigned stride,
     const unsigned numOuterStrides, const unsigned dataPathWidth,
@@ -357,6 +357,80 @@ poplar::VertexPerfEstimate getCycleEstimateReduceAllRegionsContinuous(
           convertToTypeFlops(flops, type)};
 }
 
+static unsigned getAccVectorWidth(const poplar::Type &partialsType) {
+  return partialsType == poplar::HALF    ? 8
+         : partialsType == poplar::FLOAT ? 4
+                                         : 1;
+}
+
+static bool logAddHasAssembler(const ReductionSpecialisation &specialisation) {
+  return specialisation == ReductionSpecialisation::STRIDED_REDUCE;
+}
+
+static unsigned
+getOpVectorWidth(const popops::Operation &operation,
+                 const poplar::Type &partialsType,
+                 const ReductionSpecialisation &specialisation) {
+  if (operation != Operation::LOG_ADD) {
+    return getAccVectorWidth(partialsType);
+  }
+  if (logAddHasAssembler(specialisation)) {
+    return partialsType == poplar::HALF ? 4 : 2;
+  }
+  // C++ log-add is scalar
+  return 1;
+}
+
+static std::uint64_t
+getOpCyclesPerVector(const popops::Operation &operation,
+                     const poplar::Type &partialsType,
+                     const ReductionSpecialisation &specialisation) {
+  // Most operations take a single cycle and are implemented in assembler.
+  if (operation != Operation::LOG_ADD) {
+    return 1;
+  }
+  // Log-add in assembler:
+  // f32v2: 3 cycles (min,max,sub)
+  //      + 3 * 2 (2 of f32exp)
+  //      + 1 (add 1)
+  //      + 6 * 2 (2 of f32log)
+  //      + 1 add
+  // Total: 23
+  // For the f16v4 variant the exp, log instructions take 2 cycles each,
+  // Total = 3 + (2*2) + 1 + (2*2) + 1 = 13
+  if (logAddHasAssembler(specialisation)) {
+    return partialsType == poplar::HALF ? 13 : 23;
+  }
+  // Approx result in C++ log-add by comparing to Sim execution time
+  // (This is for a scalar as per opVectorWidth)
+  return 20;
+}
+
+static std::pair<unsigned, std::uint64_t>
+getOpVectorWidthAndCycles(const popops::Operation &operation,
+                          const poplar::Type &partialsType,
+                          const ReductionSpecialisation &specialisation) {
+  return std::make_pair(
+      getOpVectorWidth(operation, partialsType, specialisation),
+      getOpCyclesPerVector(operation, partialsType, specialisation));
+}
+
+std::uint64_t getCyclesEstimateForStridedReduce(
+    const std::size_t partialsSize, const std::size_t numPartials,
+    const std::size_t numOutputs, const unsigned stride,
+    const unsigned numOuterStrides, const unsigned dataPathWidth,
+    const unsigned vectorWidth, const poplar::Type &partialsType,
+    const poplar::Type &outType, const popops::Operation operation,
+    bool update) {
+  const auto [opVectorWidth, cyclesPerVector] = getOpVectorWidthAndCycles(
+      operation, partialsType, ReductionSpecialisation::STRIDED_REDUCE);
+  return getCyclesEstimateForStridedReduce(
+             partialsSize, numPartials, numOutputs, stride, numOuterStrides,
+             dataPathWidth, vectorWidth, opVectorWidth, partialsType, outType,
+             operation, cyclesPerVector, update)
+      .cycles;
+}
+
 // For specialisations which support scaled as well as unscaled reduction, the
 // assembly implementation is based on the scaled version. The unscaled version
 // forms a special case with the scale factor assigned to 1.0. Hence there is
@@ -370,45 +444,8 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
     popops::ReductionSpecialisation specialisation) {
 
   const auto partialsTypeSize = target.getTypeSize(partialsType);
-  const auto accVectorWidth = partialsType == poplar::HALF    ? 8
-                              : partialsType == poplar::FLOAT ? 4
-                                                              : 1;
-  const auto opIsLogAdd = operation == Operation::LOG_ADD;
-  const auto logAddHasAssembler =
-      specialisation == ReductionSpecialisation::STRIDED_REDUCE;
-
-  const auto opVectorWidth = [&]() {
-    if (!opIsLogAdd) {
-      return accVectorWidth;
-    }
-    if (logAddHasAssembler) {
-      return partialsType == poplar::HALF ? 4 : 2;
-    }
-    // C++ log-add is scalar
-    return 1;
-  }();
-
-  const auto cyclesPerOp = [&]() {
-    // Most operations take a single cycle and are implemented in assembler.
-    if (!opIsLogAdd) {
-      return 1;
-    }
-    // Log-add in assembler:
-    // f32v2: 3 cycles (min,max,sub)
-    //      + 3 * 2 (2 of f32exp)
-    //      + 1 (add 1)
-    //      + 6 * 2 (2 of f32log)
-    //      + 1 add
-    // Total: 23
-    // For the f16v4 variant the exp, log instructions take 2 cycles each,
-    // Total = 3 + (2*2) + 1 + (2*2) + 1 = 13
-    if (logAddHasAssembler) {
-      return partialsType == poplar::HALF ? 13 : 23;
-    }
-    // Approx result in C++ log-add by comparing to Sim execution time
-    // (This is for a scalar as per opVectorWidth)
-    return 20;
-  }();
+  const auto [opVectorWidth, cyclesPerVector] =
+      getOpVectorWidthAndCycles(operation, partialsType, specialisation);
 
   const auto partialsPer64Bits = partialsTypeSize / 8;
   const auto dataPathWidth = target.getDataPathWidth() / (partialsTypeSize * 8);
@@ -423,7 +460,7 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
     CODELET_SCALAR_VAL(numPartials, unsigned);
     return getCyclesEstimateForSingleInput(
         numPartials, dataPathWidth, target.getVectorWidth(partialsType),
-        opVectorWidth, outType, operation, cyclesPerOp, isUpdate);
+        opVectorWidth, outType, operation, cyclesPerVector, isUpdate);
   } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
     CODELET_SCALAR_VAL(numPartialsM1, unsigned);
     CODELET_SCALAR_VAL(numOutputsM1, unsigned);
@@ -436,14 +473,14 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
     return getCyclesEstimateForStridedReduce(
         partialsPerEdge, numPartials, numOutputs, *stride, numOuterStrides,
         dataPathWidth, target.getVectorWidth(partialsType), opVectorWidth,
-        partialsType, outType, operation, cyclesPerOp, isUpdate);
+        partialsType, outType, operation, cyclesPerVector, isUpdate);
   } else if (specialisation ==
              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
     CODELET_SCALAR_VAL(numPartials, unsigned);
     CODELET_SCALAR_VAL(numOutputsM1, unsigned);
     return getCycleEstimateReduceAllRegionsContinuous(
-        numPartials, numOutputsM1, dataPathWidth, opVectorWidth, cyclesPerOp,
-        isUpdate, outType, operation);
+        numPartials, numOutputsM1, dataPathWidth, opVectorWidth,
+        cyclesPerVector, isUpdate, outType, operation);
   }
   assert((specialisation == ReductionSpecialisation::DEFAULT) ||
          (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS));
@@ -455,7 +492,7 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
       partialsPerEdge, fieldSizes(out), numPartials, stride, dataPathWidth,
       target.getVectorWidth(partialsType), opVectorWidth,
       target.getVectorWidth(outType), partialsPer64Bits, partialsType, outType,
-      operation, cyclesPerOp, isUpdate, specialisation);
+      operation, cyclesPerVector, isUpdate, specialisation);
 }
 
 } // namespace popops

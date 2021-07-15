@@ -8,28 +8,30 @@
 namespace popops {
 namespace sliceInternal {
 // How to partition work across tiles.
-struct Partition {
+template <typename T> struct Partition {
   // How much to split processing of lookup indices between tiles.
-  std::size_t lookupSplit;
+  T lookupSplit;
   // How much to split the sliced/updated dimension of the
   // tensor to be sliced/updated between tiles.
-  std::size_t slicedDimSplit;
+  T slicedDimSplit;
   // How much to split the product of dimensions that are not
   // sliced/updated between tiles.
-  std::size_t unslicedDimSplit;
+  T unslicedDimSplit;
   // Grain size for no. of elements in the product of dimensions that
   // are not sliced/updated on each tile.
-  std::size_t unslicedGrainSize;
+  T unslicedGrainSize;
 };
 
-bool operator<(const Partition &a, const Partition &b) {
+template <typename T>
+bool operator<(const Partition<T> &a, const Partition<T> &b) {
   return std::tie(a.lookupSplit, a.slicedDimSplit, a.unslicedDimSplit,
                   a.unslicedGrainSize) <
          std::tie(b.lookupSplit, b.slicedDimSplit, b.unslicedDimSplit,
                   b.unslicedGrainSize);
 }
 
-bool operator==(const Partition &a, const Partition &b) {
+template <typename T>
+bool operator==(const Partition<T> &a, const Partition<T> &b) {
   return std::tie(a.lookupSplit, a.slicedDimSplit, a.unslicedDimSplit,
                   a.unslicedGrainSize) ==
          std::tie(b.lookupSplit, b.slicedDimSplit, b.unslicedDimSplit,
@@ -44,7 +46,7 @@ public:
 
 public:
   bool isNull;
-  sliceInternal::Partition partition;
+  sliceInternal::Partition<std::size_t> partition;
 
   // For validation, to identify the restrictions on what this
   // plan can be used to implement,

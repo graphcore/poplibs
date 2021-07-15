@@ -16,9 +16,10 @@ using namespace poplar;
 using namespace popops;
 using namespace poplibs_support;
 
-void checkPlanner(Type dType, unsigned numEntries, unsigned embeddingSize,
-                  const std::vector<std::size_t> numLookups,
-                  const sliceInternal::Partition &expectedPartition) {
+void checkPlanner(
+    Type dType, unsigned numEntries, unsigned embeddingSize,
+    const std::vector<std::size_t> numLookups,
+    const sliceInternal::Partition<std::size_t> &expectedPartition) {
   BOOST_TEST_MESSAGE(
       "Test " << boost::unit_test::framework::current_test_case().p_name);
 

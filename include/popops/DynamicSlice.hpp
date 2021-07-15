@@ -373,6 +373,42 @@ namespace embedding {
 /** Create a plan for implementing a set of operations on an
  *  embedding matrix.
  *
+ *  ** Embedding plan options **
+ *
+ *     * `usedForUpdate` (true, false) [=true]
+ *
+ *       If true, you intend to use this embedding plan for both a multiSlice
+ *       and multiUpdate* operation and the plan returned accounts for the
+ *       costs of both operations. If false, only the costs of a multiSlice are
+ *       accounted for.
+ *
+ *     * `availableMemoryProportion` Positive decimal
+ *
+ *       If set, gives the proportion of tile memory made available for
+ * temporary variables (variables that become live and die during the operation)
+ *       for this operation. If not set, the operation has the freedom to
+ *       use unlimited temporary memory.
+ *
+ *     * `indicesDistribution` (uniform, onePoint) [=uniform]
+ *
+ *       A description of the statistical distribution of the indices that will
+ *       be sliced/updated over the input size (\p numEntries) of the
+ *       operation. This is used to when estimating the runtime of the
+ *       multiSlice and multiUpdate* operation.
+ *
+ *       * `uniform`   Indices are assumed to be uniformly distributed over
+ *                     the input size of the embedding.
+ *       * `onePoint`  Indices are assumed to all be equal.
+ *
+ *     * `planMinimisationTarget` (memory, cycles) [=memory]
+ *
+ *       Select what should be minimised when planning this operation.
+ *
+ *       * `memory`    Minimise a weighted combination of estimated maximum
+ *                     tile memory needed for code, for input/indices/output
+ *                     operands, and temporary variables for the operation.
+ *       * `cycles`    Minimise estimated total cycles for the operation.
+ *
  * \param graph       The graph the operation will be added to.
  * \param dataType    The data type of the entries in the embedding matrix
  *                    and the resulting lookups from the matrix.

@@ -1,6 +1,8 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "popops/Cast.hpp"
 
+#include "CastInternal.hpp"
+
 #include "poplibs_support/Tracepoint.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
@@ -16,6 +18,53 @@ using namespace poputil;
 using namespace poplibs_support;
 
 namespace popops {
+
+namespace internal {
+
+unsigned Cast1DPartition::pack() const {
+  assert(workerElems < (1u << 23));
+  assert(workerCount < (1u << 3));
+  assert(workerLast < (1u << 3));
+  assert(deltaLast < (1u << 3));
+  return (workerElems << 9) | (workerCount << 6) | (workerLast << 3) |
+         deltaLast;
+}
+
+Cast1DPartition getCast1DPartition(unsigned numWorkerContexts,
+                                   unsigned numElems) {
+  Cast1DPartition p;
+  // The 1D MultiVertex will partition work to each worker in multiples
+  // of 4 elements. This ensures alignment of at least 8 bytes. Needed
+  // because the worker vertex requires 8 byte alignment.
+  constexpr unsigned grainSize = 4;
+  // Computing the bitfields for the 'partitionParams' word. See the codelet
+  // C++ definition for the meaning of the fields.
+  unsigned numGrains = (numElems + grainSize - 1) / grainSize;
+  p.workerCount = numWorkerContexts;
+  unsigned grainsPerWorker = 1;
+  p.workerLast = numWorkerContexts - 1;
+  if (numGrains <= numWorkerContexts) {
+    p.workerCount = numGrains;
+    p.workerLast = p.workerCount - 1;
+  } else {
+    grainsPerWorker = numGrains / p.workerCount;
+    unsigned rem = numGrains % p.workerCount;
+    if (rem > 0) {
+      p.workerCount = rem;
+      grainsPerWorker += 1;
+    }
+  }
+  p.workerElems = grainsPerWorker * grainSize;
+  p.deltaLast =
+      p.workerCount * p.workerElems +
+      (numWorkerContexts - p.workerCount) * (p.workerElems - grainSize) -
+      numElems;
+  return p;
+}
+
+} // end namespace internal
+
+using namespace internal;
 
 Program cast(Graph &graph, Tensor src, Tensor dst,
              const poplar::DebugContext &debugContext) {
@@ -60,36 +109,9 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
       const auto numElems = intervalSequenceNumElements(tileContiguousRegions);
       graph.connect(v["src"], concat(src.slices(tileContiguousRegions)));
       graph.connect(v["dst"], concat(dst.slices(tileContiguousRegions)));
-      // The supervisor vertex will partition work to each worker in multiples
-      // of 4 elements. This ensures alignment of at least 8 bytes. Needed
-      // because the worker vertex requires 8 byte alignment.
-      unsigned grainSize = 4;
-      // Computing the bitfields for the 'partitionParams' word. See the codelet
-      // C++ definition for the meaning of the fields.
-      unsigned numGrains = (numElems + grainSize - 1) / grainSize;
-      unsigned numWorkerContexts = target.getNumWorkerContexts();
-      unsigned workerCount = numWorkerContexts;
-      unsigned grainsPerWorker = 1;
-      unsigned workerLast = numWorkerContexts - 1;
-      if (numGrains <= numWorkerContexts) {
-        workerCount = numGrains;
-        workerLast = workerCount - 1;
-      } else {
-        grainsPerWorker = numGrains / workerCount;
-        unsigned rem = numGrains % workerCount;
-        if (rem > 0) {
-          workerCount = rem;
-          grainsPerWorker += 1;
-        }
-      }
-      unsigned workerElems = grainsPerWorker * grainSize;
-      unsigned deltaLast =
-          workerCount * workerElems +
-          (numWorkerContexts - workerCount) * (workerElems - grainSize) -
-          numElems;
-      unsigned partitionParams = (workerElems << 9) | (workerCount << 6) |
-                                 (workerLast << 3) | deltaLast;
-      graph.setInitialValue(v["partitionParams"], partitionParams);
+      const auto cast1DPartition =
+          internal::getCast1DPartition(target.getNumWorkerContexts(), numElems);
+      graph.setInitialValue(v["partitionParams"], cast1DPartition.pack());
       graph.setTileMapping(v, tile);
     } else {
       auto vertexRegions = splitRegionsBetweenWorkers(

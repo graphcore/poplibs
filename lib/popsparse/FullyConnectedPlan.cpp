@@ -108,6 +108,7 @@ public:
   }
 };
 
+// TODO: T41384, share common estimation code between poplibs libraries.
 class ExchangeEstimator {
   // Exchange bytes per cycle is given as a floating point value but the
   // constaint solver only supports unsigned integer variables. To reduce
