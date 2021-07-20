@@ -956,7 +956,7 @@ static void generatePlannedMultiUpdateOp(
 
   if (multipleStages) {
     // Reduce dense partials
-    zero(graph, stage0Output, seq);
+    zero(graph, stage0Output, seq, {dnai, "zeroPartials"});
     seq.add(Execute(csU, {dnai}));
 
     const auto cumulativeUpdate =
