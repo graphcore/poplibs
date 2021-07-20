@@ -81,11 +81,12 @@ template <> struct UnaryLibCall<expr::UnaryOpType::CBRT> {
 template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
 #ifdef __IPU__
   float poly(float x) const {
-    constexpr float coeffs[5] = {1.061405429, -1.453152027, 1.421413741,
-                                 -0.284496736, 0.254829592};
-    float y = 0;
-    for (auto c : coeffs) {
-      y = y * x + c;
+    constexpr unsigned numCoeffs = 5;
+    constexpr float coeffs[numCoeffs] = {1.061405429, -1.453152027, 1.421413741,
+                                         -0.284496736, 0.254829592};
+    float y = coeffs[0];
+    for (unsigned i = 1; i != numCoeffs; ++i) {
+      y = y * x + coeffs[i];
     }
     return y * x;
   }

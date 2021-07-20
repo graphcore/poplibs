@@ -134,9 +134,9 @@ inline const UnaryOpPerfTable unaryOpPerfInfo = {
     // derivative of Phi function - 3
     // mul with sign and phi - 2
     // 5 overhead to load constants
-    {{UnaryOpType::ERF, FLOAT}, {19, false, 1}},
+    {{UnaryOpType::ERF, FLOAT}, {18, false, 1}},
     // Float + cast in and out
-    {{UnaryOpType::ERF, HALF}, {18, false, 1}},
+    {{UnaryOpType::ERF, HALF}, {16, false, 1}},
 
     {{UnaryOpType::EXPONENT, FLOAT}, {6, false, 2}},
     // Use f16v2exp
@@ -233,9 +233,9 @@ inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
     // derivative of Phi function - 3
     // mul with sign and phi - 2
     // 5 overhead to load constants
-    {{UnaryOpType::ERF, FLOAT}, {19, false, 1}},
+    {{UnaryOpType::ERF, FLOAT}, {18, false, 1}},
     // Float + cast in and out
-    {{UnaryOpType::ERF, HALF}, {18, false, 1}},
+    {{UnaryOpType::ERF, HALF}, {16, false, 1}},
     {{UnaryOpType::EXPONENT, FLOAT}, {6, false, 2}},
     // Use f16v2exp
     {{UnaryOpType::EXPONENT, HALF}, {4, false, 4}},
