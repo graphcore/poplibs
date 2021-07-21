@@ -449,8 +449,8 @@ def main():
     try:
         extra_args=device_args + ['--device-type=' +
             str(args.device_type)];
-        if args.device_type == 'Hw':
-            extra_args.append('--num-determinism-checks=' + str(args.num_determinism_checks))
+        if args.device_type == 'Hw' and args.num_determinism_checks != 0:
+              extra_args.append('--num-determinism-checks=' + num_determinism_checks)
         if args.profile:
             extra_args.append('--profile');
         run(params, binary=args.binary,
