@@ -10,7 +10,7 @@ namespace popsparse {
 void addCodelets(Graph &graph) {
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("popsparse", "popsparse.gp", loc));
-  poputil::registerPerfFunctions(graph, makePerfFunctionTable());
+  poputil::internal::registerPerfFunctions(graph, makePerfFunctionTable());
 }
 
 } // end namespace popsparse

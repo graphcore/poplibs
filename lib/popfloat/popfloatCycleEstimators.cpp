@@ -254,8 +254,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastToGfloat32SrInPlaceSupervisor)(
   return 1;
 }
 
-poputil::PerfEstimatorTable makePerfFunctionTable() {
-  poputil::PerfEstimatorTable table = {
+poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
+  poputil::internal::PerfEstimatorTable table = {
       CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16Supervisor,
                             FLOAT, HALF, true,
                             popfloat::experimental::RoundType::RZ),

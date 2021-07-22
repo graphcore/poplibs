@@ -1,4 +1,10 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file PerformanceEstimation.hpp
+ *
+ * This file is for internal use only and should not be used.
+ *
+ */
+
 #ifndef _popops_performance_estimation_h_
 #define _popops_performance_estimation_h_
 

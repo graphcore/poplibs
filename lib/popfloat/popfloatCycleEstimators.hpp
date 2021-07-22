@@ -7,7 +7,7 @@
 namespace popfloat {
 namespace experimental {
 
-poputil::PerfEstimatorTable makePerfFunctionTable();
+poputil::internal::PerfEstimatorTable makePerfFunctionTable();
 
 } // end namespace experimental
 } // end namespace popfloat

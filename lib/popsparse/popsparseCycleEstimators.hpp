@@ -6,7 +6,7 @@
 
 namespace popsparse {
 
-poputil::PerfEstimatorTable makePerfFunctionTable();
+poputil::internal::PerfEstimatorTable makePerfFunctionTable();
 
 } // end namespace popsparse
 

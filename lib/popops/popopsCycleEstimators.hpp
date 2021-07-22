@@ -16,7 +16,7 @@ using BinaryOpType = popops::expr::BinaryOpType;
 
 namespace popops {
 
-poputil::PerfEstimatorTable makePerfFunctionTable();
+poputil::internal::PerfEstimatorTable makePerfFunctionTable();
 
 namespace {
 

@@ -474,8 +474,8 @@ std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
                                    +(remainingElems == 0 ? 7 : 13) + 12;
 
   if (operation == ScaledArithmeticOp::AXPLUSBY && !isConstant) {
-    supervisorCycles +=
-        12 + poputil::getUnpackCost(aLayout) + poputil::getUnpackCost(bLayout);
+    supervisorCycles += 12 + poputil::internal::getUnpackCost(aLayout) +
+                        poputil::internal::getUnpackCost(bLayout);
   }
   if (operation == ScaledArithmeticOp::SUBTRACT && !isConstant) {
     supervisorCycles += 7;

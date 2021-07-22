@@ -1,4 +1,9 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file cyclesTables.hpp
+ *
+ * This file is for internal use only and should not be used.
+ *
+ */
 
 #ifndef poputil_cyclesTables_hpp
 #define poputil_cyclesTables_hpp
@@ -30,10 +35,10 @@
 
 #define MAKE_PERF_ESTIMATOR_NAME(codelet) getPerfEstimateFor##codelet
 #define CYCLE_ESTIMATOR_ENTRY_NOPARAMS(ns, codelet)                            \
-  poputil::makePerfEstimatorEntry(#ns "::" #codelet,                           \
-                                  MAKE_PERF_ESTIMATOR_NAME(codelet))
+  poputil::internal::makePerfEstimatorEntry(#ns "::" #codelet,                 \
+                                            MAKE_PERF_ESTIMATOR_NAME(codelet))
 #define CYCLE_ESTIMATOR_ENTRY(ns, codelet, ...)                                \
-  poputil::makePerfEstimatorEntry(                                             \
+  poputil::internal::makePerfEstimatorEntry(                                   \
       #ns "::" #codelet, MAKE_PERF_ESTIMATOR_NAME(codelet), __VA_ARGS__)
 
 // These macros reduce boiler plate code when accessing
@@ -48,6 +53,7 @@
       vertex.getFieldInfo(#field).getInitialValues<std::vector<type>>(target);
 
 namespace poputil {
+namespace internal {
 
 using PerfEstimatorTable =
     std::vector<std::pair<std::string, poplar::PerfEstimateFunc>>;
@@ -98,7 +104,8 @@ inline std::uint64_t getUnpackCost(const poplar::layout::VectorList layout) {
   case poplar::layout::VectorList::ScaledPtr128:
     throw poputil::poplibs_error("Unknown cost for this layout");
   case poplar::layout::VectorList::DeltaN:
-    return poputil::getUnpackCost(poplar::layout::Vector::ScaledPtr32);
+    return poputil::internal::getUnpackCost(
+        poplar::layout::Vector::ScaledPtr32);
   case poplar::layout::VectorList::DeltaNElements:
     // (shl ; and) to get base and nA and again to get deltaN and nB then an
     // add to combine nA and nB
@@ -128,6 +135,7 @@ getVectorListDeltaUnpackCost(const poplar::layout::VectorList layout) {
   throw poputil::poplibs_error("Unknown layout");
 }
 
+} // end namespace internal
 } // end namespace poputil
 
 #endif // poputil_cyclesTables_hpp

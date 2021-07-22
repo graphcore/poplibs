@@ -624,7 +624,7 @@ MAKE_PERF_ESTIMATOR_NAME(TriangularSolve)(const VertexIntrospector &vertex,
   return {cycles, convertToTypeFlops(flops, type)};
 }
 
-poputil::PerfEstimatorTable makePerfFunctionTable() {
+poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, FLOAT, true),

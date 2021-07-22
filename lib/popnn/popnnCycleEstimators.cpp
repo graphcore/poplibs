@@ -102,7 +102,8 @@ MAKE_PERF_ESTIMATOR_NAME(NonLinearity1D)(const VertexIntrospector &vertex,
            opCycles); // Handle remaining element from pipeline
 
   // possibly unpack pointers
-  workerCycles += poputil::getUnpackCost(data.getProfilerVectorLayout(0));
+  workerCycles +=
+      poputil::internal::getUnpackCost(data.getProfilerVectorLayout(0));
 
   // Add remainder handling cycles. This handling could be slightly overlapped
   // with other workers if the worker doing the remainder had less vector
@@ -165,7 +166,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad1D)(
 
   // get real pointers from scaled pointers
   if (inGradLayout == layout::Vector::ScaledPtr64) {
-    workerCycles += poputil::getUnpackCost(inGradLayout) + 2;
+    workerCycles += poputil::internal::getUnpackCost(inGradLayout) + 2;
   }
 
   if (isFloat) {
@@ -313,14 +314,15 @@ poolingCycleEstimator(const VertexIntrospector &vertex, const Target &target,
 
   UnpackCosts unpackCosts;
   unpackCosts.outLayout =
-      poputil::getUnpackCost(out.getProfilerVectorLayout(0));
+      poputil::internal::getUnpackCost(out.getProfilerVectorLayout(0));
 
-  unpackCosts.inLayout = poputil::getUnpackCost(in.getProfilerVectorLayout(0));
+  unpackCosts.inLayout =
+      poputil::internal::getUnpackCost(in.getProfilerVectorLayout(0));
   unpackCosts.fwdOutLayout = unpackCosts.outLayout;
   unpackCosts.fwdInLayout = unpackCosts.inLayout;
 
-  unpackCosts.startPosLayout = poputil::getUnpackCost(startPosLayout);
-  unpackCosts.workListLayout = poputil::getUnpackCost(workListLayout);
+  unpackCosts.startPosLayout = poputil::internal::getUnpackCost(startPosLayout);
+  unpackCosts.workListLayout = poputil::internal::getUnpackCost(workListLayout);
 
   auto cycles = getPoolingCycles(
       initInfo, chansPerGroupDM1 + 1, numChanGroupsM1, startPos, workList,
@@ -779,7 +781,7 @@ MAKE_PERF_ESTIMATOR_NAME(CTCGenerateOutput)(const VertexIntrospector &vertex,
   return {0, 0};
 }
 
-poputil::PerfEstimatorTable makePerfFunctionTable() {
+poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, HALF),

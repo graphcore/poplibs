@@ -8,7 +8,7 @@
 
 namespace popnn {
 
-poputil::PerfEstimatorTable makePerfFunctionTable();
+poputil::internal::PerfEstimatorTable makePerfFunctionTable();
 }
 
 #endif

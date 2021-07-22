@@ -6,7 +6,8 @@
 
 namespace poprand {
 
-poputil::PerfEstimatorTable makePerfFunctionTable();
+poputil::internal::PerfEstimatorTable makePerfFunctionTable();
+
 }
 
 #endif
