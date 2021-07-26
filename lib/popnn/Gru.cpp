@@ -955,13 +955,11 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
       if (slice.interimOut.valid()) {
         if (batchwiseFlags.valid()) {
           auto mask = batchwiseFlags.mask.expand({1});
-          mapInPlace(graph, _1 * _2, {newOutput, mask}, loop, {dnai});
-          mapInPlace(graph, _1 * _2, {internalState.resetGate, mask}, loop,
-                     {dnai});
-          mapInPlace(graph, _1 * _2, {internalState.updateGate, mask}, loop,
-                     {dnai});
-          mapInPlace(graph, _1 * _2, {internalState.candidate, mask}, loop,
-                     {dnai});
+          auto gates =
+              concat({newOutput, internalState.resetGate,
+                      internalState.updateGate, internalState.candidate});
+          auto gateMasks = mask.broadcast(BASIC_GRU_CELL_NUM_UNITS + 1, 0);
+          mapInPlace(graph, _1 * _2, {gates, gateMasks}, loop, {dnai});
         }
         auto fwdIntermediates =
             getFwdIntermediatesToSave(newOutput, internalState, params);

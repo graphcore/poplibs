@@ -1012,14 +1012,12 @@ static Tensor lstmFwd(Graph &graph, const LstmParams &params,
           if (slice.interimOut.valid()) {
             if (batchwiseFlags.valid()) {
               auto mask = batchwiseFlags.mask.expand({1});
-              mapInPlace(graph, expr::_1 * expr::_2,
-                         {internalState.forgetGate, mask}, loop, {dnai});
-              mapInPlace(graph, expr::_1 * expr::_2,
-                         {internalState.inputGate, mask}, loop, {dnai});
-              mapInPlace(graph, expr::_1 * expr::_2,
-                         {internalState.candidate, mask}, loop, {dnai});
-              mapInPlace(graph, expr::_1 * expr::_2,
-                         {internalState.outputGate, mask}, loop, {dnai});
+              auto gates =
+                  concat({internalState.forgetGate, internalState.inputGate,
+                          internalState.candidate, internalState.outputGate});
+              auto gateMasks = mask.broadcast(BASIC_LSTM_CELL_NUM_UNITS, 0);
+              mapInPlace(graph, expr::_1 * expr::_2, {gates, gateMasks}, loop,
+                         {dnai});
             }
             auto fwdIntermediates = getFwdIntermediatesToSave(
                 state, newState, internalState, opt, params);
