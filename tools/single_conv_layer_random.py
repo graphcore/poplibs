@@ -405,7 +405,7 @@ def main():
                         help='single_conv_layer binary to run')
     parser.add_argument('--seed', default=42, type=int,
                         help='Random number seed')
-    parser.add_argument('--device-type', default='IpuModel',
+    parser.add_argument('--device-type', default='IpuModel2',
                         help='Underlying target to use')
     parser.add_argument('--profile', action='store_true',
                         help='Print profiling report once complete')

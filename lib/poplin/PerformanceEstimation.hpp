@@ -43,7 +43,7 @@ conv1x1WorkerRetentionSavings(bool floatActivations, bool floatPartials,
 inline static std::uint64_t
 convnx1WorkerRetentionSavings(bool /*floatActivations */,
                               bool /*floatPartials */) {
-  return 6;
+  return 4;
 }
 
 inline static std::uint64_t zeroPartialsRetentionSavings(bool floatPartials) {
@@ -536,8 +536,18 @@ static std::uint64_t inline getConvPartialnx1WorkerCycles(
     coreCycles /= 2;
   }
 
-  std::uint64_t cycles = 17 + (floatPartials ? 0 : 1);
+  unsigned extraStrideCycles = 0;
+  bool hh16 = !floatActivations && !floatPartials && (numConvUnits == 16);
+  bool hf8 = !floatActivations && floatPartials && (numConvUnits == 8);
+  if (hh16 || hf8) {
+    extraStrideCycles = 1; // Require one more special stride
+  }
+
+  // Cycles between worker start and <PartitionLoop> label
+  std::uint64_t cycles = 15 + (floatPartials ? 0 : 1);
   for (auto &numElems : worklist) {
+    // cost of construct second tripack pointer and special stride
+    cycles += 7;
     switch (numElems) {
     case 0:
       cycles += 17;
@@ -546,7 +556,7 @@ static std::uint64_t inline getConvPartialnx1WorkerCycles(
       cycles += (floatActivations ? 33 : 29);
       break;
     case 2:
-      cycles += (floatActivations ? 44 : 33);
+      cycles += (floatActivations ? 44 : 33 + extraStrideCycles);
       break;
     default:
       if (floatActivations)

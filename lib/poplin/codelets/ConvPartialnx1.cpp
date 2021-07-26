@@ -4,8 +4,10 @@
 #include <poplar/AvailableVTypes.h>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
+#include <tuple>
 #include <type_traits>
 
+#include "ConvPartialsStridesPacking.hpp"
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
@@ -51,6 +53,19 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
+
+  // This value is
+  // (inStrideX - 1 - (ampKernelHeight - 1) * inRowStride)
+  //      * inChansPerGroup / convInputLoadElems + 1)
+  // Where inStrideX is the actual stride
+  // const SignedType transformedInStride;
+  const signed transformedInStride;
+  // This output stride also encodes the flip parameter and is given as
+  // -6 + outChansPerGroup * (actual output stride) if flipOut = false
+  // -6 - outChansPerGroup * (actual output stride) if flipOut = true
+  // const SignedType transformedOutStride;
+  const signed transformedOutStride;
+
   Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
          ONE_PTR>
@@ -63,15 +78,6 @@ public:
   const UnsignedType kernelOuterSizeM1;
   const UnsignedType kernelInnerElementsM1;
 
-  // This value is
-  // (inStrideX - 1 - (ampKernelHeight - 1) * inRowStride)
-  //      * inChansPerGroup / convInputLoadElems + 1)
-  // Where inStrideX is the actual stride
-  const SignedType transformedInStride;
-  // This output stride also encodes the flip parameter and is given as
-  // -6 + outChansPerGroup * (actual output stride) if flipOut = false
-  // -6 - outChansPerGroup * (actual output stride) if flipOut = true
-  const SignedType transformedOutStride;
   const UnsignedType numConvGroupsM1;
   // The number of kernel elements we accumulate across within the AMP unit
   const UnsignedType ampKernelHeightM1;
@@ -95,27 +101,46 @@ public:
     const unsigned kernelOuterSize = kernelOuterSizeM1 + 1;
     const unsigned kernelInnerElements = kernelInnerElementsM1 + 1;
 
-    int inRowStride =
-        (transformedInRowStride - 1) * convInputLoadElems / inChansPerGroup + 1;
+    const int convOutputStoreElems = std::is_same<AccumType, half>() ? 4 : 2;
+    const int packedTransformedInStrideReg = transformedInStride;
+    const int packedTransformedOutStrideReg = transformedOutStride;
+    const int secondPtrOffset = transformedInRowStride;
 
-    int inStride =
-        (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1;
-    if ((ampKernelHeight == 2 || ampKernelHeight == 4)) {
-      inStride += inRowStride;
+    // Unpack registers strides into transformed strides
+    const int unpackedTransformedInRowStride =
+        unpackAmpNx1InRowStride(ampKernelHeight, secondPtrOffset);
+    int unpackedTransformedInStride =
+        unpackAmpNx1Stride(NUM_STRIDE_BITS, packedTransformedInStrideReg, 1);
+    int unpackedTransformedOutStride =
+        unpackAmpNx1Stride(NUM_STRIDE_BITS, packedTransformedOutStrideReg, 0);
+
+    // Special case for half-half-8
+    if ((numConvUnits == 8) && std::is_same<AccumType, half>() &&
+        std::is_same<FPType, half>()) {
+      // See createConvPartialAmpVertex for details
+      unpackedTransformedOutStride -= 1;
     }
+
+    // Convert back to elements stride
+    unpackedTransformedOutStride *= convOutputStoreElems;
+
+    unpackedTransformedInStride = reverseTransformedInStrideNx1(
+        unpackedTransformedInStride, secondPtrOffset);
+
+    const int inRowStride = reverseTransfromedInRowStride(
+        unpackedTransformedInRowStride, convInputLoadElems, inChansPerGroup);
+    const int inStride = reverseTransfromedInStride(
+        unpackedTransformedInStride, convInputLoadElems, inChansPerGroup,
+        ampKernelHeight, inRowStride);
 
     const auto usedContexts =
         worklists.size() / (kernelOuterSize * kernelInnerElements);
-    auto outStrideThresh = std::is_same<AccumType, float>() ? -6 : -4;
-    // For dual AMP codelets need to offset stride threshold by extra 8 elements
-    if (numConvUnits > 8) {
-      outStrideThresh += -8;
-    }
 
-    const auto flipOut = transformedOutStride < outStrideThresh;
-    const int outStride =
-        flipOut ? (-transformedOutStride + outStrideThresh) / outChansPerGroup
-                : (transformedOutStride - outStrideThresh) / outChansPerGroup;
+    bool flipOut;
+    int outStride;
+    std::tie(flipOut, outStride) = reverseTransfromedOutStride(
+        unpackedTransformedOutStride, std::is_same<AccumType, float>(),
+        numConvUnits, outChansPerGroup);
 
     const unsigned numElems = zerosInfo;
 
