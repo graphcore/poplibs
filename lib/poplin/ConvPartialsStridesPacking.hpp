@@ -1,4 +1,3 @@
-
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 // Helper functions to pack/pack and calculate transformed stirdes
 // used by AMP codelets
