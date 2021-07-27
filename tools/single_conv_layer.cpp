@@ -121,6 +121,7 @@ int main(int argc, char **argv) try {
   std::string fwdPlanConstraints, fwdPlanConstraintsFile, bwdPlanConstraints,
       bwdPlanConstraintsFile, wuPlanConstraints, wuPlanConstraintsFile,
       convOptionsString;
+  boost::optional<std::string> fwdOutFile, fwdInFile, bwdOutFile, bwdInFile;
   poplin::PlanningCache cache;
 
   boost::optional<std::string> profileDir;
@@ -146,7 +147,7 @@ int main(int argc, char **argv) try {
      po::value<unsigned>(&fwdOutChansPerConvGroup)->required(),
      "Number of output channels per grouped convolution")
     ("field",
-     po::value<ShapeOption<std::size_t>>(&inputFieldSizeOption)->required(),
+     po::value<ShapeOption<std::size_t>>(&inputFieldSizeOption),
       "Field size")
     ("kernel-size",
       po::value<ShapeOption<std::size_t>>(&kernelSizeOption)->default_value(1),
@@ -268,7 +269,7 @@ int main(int argc, char **argv) try {
      po::value<unsigned>(),
      "Number of worker contexts per tile")
     ("batch-size",
-     po::value<unsigned>(&batchSize)->default_value(1),
+     po::value<unsigned>(&batchSize),
      "Batch size")
     ("conv-groups",
      po::value<unsigned>(&numConvGroups)->default_value(1),
@@ -336,6 +337,18 @@ int main(int argc, char **argv) try {
     ("preplan",
      po::value<bool>(&preplan)->default_value(true),
      "Whether or not to preplan the convolutions")
+    ("fwd-in-file",
+     po::value<decltype(fwdInFile)>(&fwdInFile)->default_value(boost::none),
+      "If specified the file to load the FWD pass input tensor from")
+    ("fwd-out-file",
+     po::value<decltype(fwdOutFile)>(&fwdOutFile)->default_value(boost::none),
+      "If specified the file to write the FWD pass output tensor to")
+    ("bwd-in-file",
+     po::value<decltype(bwdInFile)>(&bwdInFile)->default_value(boost::none),
+      "If specified the file to load the BWD pass input tensor from")
+    ("bwd-out-file",
+     po::value<decltype(bwdOutFile)>(&bwdOutFile)->default_value(boost::none),
+      "If specified the file to write the BWD pass output tensor to")
   ;
   // clang-format on
   po::variables_map vm;
@@ -357,7 +370,107 @@ int main(int argc, char **argv) try {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
+  if (fwdInFile || bwdInFile) {
+    if (vm.count("field") || vm.count("input-type") || vm.count("batch-size")) {
+      std::cerr << "Cannot specifiy --field, --batch-size or --input-type with "
+                   "an input file\n";
+      return 1;
+    }
+  } else {
+    if (vm.count("field") == 0) {
+      std::cerr << "Must use an input file or specifiy --field\n";
+      return 1;
+    }
+    if (vm.count("batch-size") == 0) {
+      batchSize = 1;
+    }
+  }
   auto &inputFieldSize = inputFieldSizeOption.val;
+
+  auto dev = [&]() -> TestDevice {
+    if (isIpuModel(deviceType)) {
+      // When running on the IPU model we apply global exchange constraints,
+      // which is why we create the device from the model here and not using
+      // the normal createTestDevice factory function.
+      IPUModel ipuModel(deviceTypeToIPUName(deviceType));
+      ipuModel.numIPUs = numIPUs;
+      if (vm.count("profile") || profileDir) {
+        ipuModel.compileIPUCode = true;
+      }
+      if (vm.count("workers-per-tile"))
+        ipuModel.numWorkerContexts = vm["workers-per-tile"].as<unsigned>();
+      if (tilesPerIPU)
+        ipuModel.tilesPerIPU = *tilesPerIPU;
+      addGlobalExchangeConstraints(ipuModel);
+      setGlobalSyncLatency(ipuModel);
+      return ipuModel.createDevice();
+    } else {
+      if (tilesPerIPU)
+        return createTestDevice(deviceType, numIPUs, *tilesPerIPU);
+      else
+        return createTestDeviceFullSize(deviceType, numIPUs);
+    }
+  }();
+  Graph parentGraph(dev.getTarget());
+  popops::addCodelets(parentGraph);
+  poplin::addCodelets(parentGraph);
+  auto graph = parentGraph.createReplicatedGraph(replicationFactor);
+
+  // Create input tensors from a file if specified.
+  Tensor prevAct;
+  Tensor zDeltas;
+
+  if (fwdInFile) {
+    std::ifstream in(fwdInFile.get());
+    auto inFileTensors =
+        graph.deserializeTensors(in, SerializationFormat::Binary);
+    if (inFileTensors.size()) {
+      prevAct = inFileTensors[0];
+      std::cout << "Importing FWD input from file, shape:" << prevAct.shape()
+                << " Element type:" << prevAct.elementType() << "\n";
+      inputType = prevAct.elementType();
+      batchSize = prevAct.dim(0);
+      if (prevAct.dim(1) != fwdInChansPerConvGroup * numConvGroups) {
+        std::cerr
+            << "The product of conv-groups and input-channels "
+               " must be equal to dimension 1 of the FWD input file tensor,"
+               " which is "
+            << prevAct.dim(1) << "\n";
+        return 1;
+      }
+      inputFieldSize.resize(prevAct.rank() - 2);
+      for (unsigned i = 0; i < prevAct.rank() - 2; i++) {
+        inputFieldSize[i] = prevAct.dim(2 + i);
+      }
+    } else {
+      std::cerr << "No Tensors in fwd-in-file\n";
+      return 1;
+    }
+  }
+  if (bwdInFile) {
+    std::ifstream in(bwdInFile.get());
+    auto inFileTensors =
+        graph.deserializeTensors(in, SerializationFormat::Binary);
+    if (inFileTensors.size()) {
+      zDeltas = inFileTensors[0];
+      std::cout << "Importing BWD input from file, shape:" << zDeltas.shape()
+                << " Element type:" << zDeltas.elementType() << "\n";
+      outputType = zDeltas.elementType();
+      batchSize = zDeltas.dim(0);
+      if (zDeltas.dim(1) != fwdOutChansPerConvGroup * numConvGroups) {
+        std::cerr
+            << "The product of conv-groups and output-channels "
+               " must be equal to dimension 1 of the BWD input file tensor,"
+               " which is"
+            << zDeltas.dim(1) << "\n";
+        return 1;
+      }
+    } else {
+      std::cerr << "No Tensors in bwd-in-file\n";
+      return 1;
+    }
+  }
+
   const auto numFieldDims = inputFieldSize.size();
 
   kernelSizeOption.broadcast(numFieldDims);
@@ -455,31 +568,6 @@ int main(int argc, char **argv) try {
     }
   }
 
-  auto dev = [&]() -> TestDevice {
-    if (isIpuModel(deviceType)) {
-      // When running on the IPU model we apply global exchange constraints,
-      // which is why we create the device from the model here and not using
-      // the normal createTestDevice factory function.
-      IPUModel ipuModel(deviceTypeToIPUName(deviceType));
-      ipuModel.numIPUs = numIPUs;
-      if (vm.count("profile") || profileDir) {
-        ipuModel.compileIPUCode = true;
-      }
-      if (vm.count("workers-per-tile"))
-        ipuModel.numWorkerContexts = vm["workers-per-tile"].as<unsigned>();
-      if (tilesPerIPU)
-        ipuModel.tilesPerIPU = *tilesPerIPU;
-      addGlobalExchangeConstraints(ipuModel);
-      setGlobalSyncLatency(ipuModel);
-      return ipuModel.createDevice();
-    } else {
-      if (tilesPerIPU)
-        return createTestDevice(deviceType, numIPUs, *tilesPerIPU);
-      else
-        return createTestDeviceFullSize(deviceType, numIPUs);
-    }
-  }();
-
   if (numDeterminismChecks && (ignoreData || !doWuPass)) {
     throw poputil::poplibs_error(
         "Determinism checks cannot ignore data or avoid weight upload pass.");
@@ -488,11 +576,6 @@ int main(int argc, char **argv) try {
     throw poputil::poplibs_error(
         "Determinism checks only work on Hardware device");
   }
-
-  Graph parentGraph(dev.getTarget());
-  popops::addCodelets(parentGraph);
-  poplin::addCodelets(parentGraph);
-  auto graph = parentGraph.createReplicatedGraph(replicationFactor);
 
   const poplin::ConvParams::InputTransform inputTransform{
       truncationLower, truncationUpper, inDilation,
@@ -518,6 +601,16 @@ int main(int argc, char **argv) try {
 
   const auto outFieldSize = params.getOutputFieldShape();
   const auto bwdParams = getGradientParams(params);
+  if (bwdInFile) {
+    auto shape = zDeltas.shape();
+    shape.erase(shape.begin(), shape.begin() + 2);
+    if (outFieldSize != shape) {
+      std::cerr << "Calculated output field size does not match the dimensions"
+                   " of tensor in the BWD pass input file\n";
+      std::cerr << "File:" << shape << " Calculated:" << outFieldSize << "\n";
+      return 1;
+    }
+  }
 
   OptionFlags convOptions;
   convOptions.set(
@@ -677,18 +770,19 @@ int main(int argc, char **argv) try {
     }
   }
 
-  // Create tensors.
-  Tensor prevAct;
-  if (useCreateInput) {
-    prevAct = poplin::createInput(graph, params, "prevAct", fwdOptions, &cache);
-  } else {
-    prevAct = createGenericConvInput(graph, params, "prevAct");
+  // Create tensors if not loaded from a file
+  if (!fwdInFile) {
+    if (useCreateInput) {
+      prevAct =
+          poplin::createInput(graph, params, "prevAct", fwdOptions, &cache);
+    } else {
+      prevAct = createGenericConvInput(graph, params, "prevAct");
+    }
   }
   Tensor weights =
       poplin::createWeights(graph, params, "weights", fwdOptions, &cache);
 
-  Tensor prevDeltas, zDeltas;
-  if (doBwdPass || doWuPass) {
+  if (!bwdInFile && (doBwdPass || doWuPass)) {
     if (useCreateInput) {
       zDeltas =
           poplin::createInput(graph, bwdParams, "zDeltas", bwdOptions, &cache);
@@ -735,8 +829,9 @@ int main(int argc, char **argv) try {
     }
   }();
 
+  Tensor prevDeltas;
   if (doBwdPass) {
-    // we may be able to reuse the forward pass convolution if the convoltution
+    // we may be able to reuse the forward pass convolution if the convolution
     // is symmetrical.
     if (enableConvolutionReuse &&
         params.canonicalize() == bwdParams.canonicalize()) {
@@ -1015,6 +1110,13 @@ int main(int argc, char **argv) try {
             "fwd", hostNextAct, fwdModel(hostPrevAct, hostWeights, hostBiases),
             relativeTolerance, absoluteTolerance);
       }
+      if (fwdOutFile) {
+        std::ofstream out(fwdOutFile.get());
+        auto outTensor = parentNextAct.squeeze({0});
+        std::cout << "Saving FWD tensor with shape:" << outTensor.shape()
+                  << " Element type:" << outTensor.elementType() << "\n";
+        graph.serializeTensors(out, {outTensor}, SerializationFormat::Binary);
+      }
     }
 
     if (doBwdPass || doWuPass) {
@@ -1024,13 +1126,17 @@ int main(int argc, char **argv) try {
 
       if (doBwdPass) {
         copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
-      }
-
-      if (doBwdPass) {
         if (validationMethod == DataValidation::AgainstModel) {
           bwdFailed = !checkIsClose("bwd", hostPrevDeltas,
                                     bwdModel(hostZDeltas, hostWeights),
                                     relativeTolerance, absoluteTolerance);
+        }
+        if (bwdOutFile) {
+          std::ofstream out(bwdOutFile.get());
+          auto outTensor = parentPrevDeltas.squeeze({0});
+          std::cout << "Saving BWD tensor with shape:" << outTensor.shape()
+                    << " Element type:" << outTensor.elementType() << "\n";
+          graph.serializeTensors(out, {outTensor}, SerializationFormat::Binary);
         }
       }
       if (doWuPass) {
