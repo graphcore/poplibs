@@ -11,6 +11,7 @@
 #include "popops/Cast.hpp"
 #include "popops/ElementWiseUtil.hpp"
 #include "popops/NaN.hpp"
+#include "popops/PerformanceEstimation.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/OptionParsing.hpp"
@@ -2127,6 +2128,9 @@ bool createVertexBinaryOpBroadcastScalar(
     const std::vector<std::vector<Interval>> &intervals, unsigned tile,
     const ComputeSet &cs, BinaryOpType op, bool inPlace, bool uniformScalar,
     bool exitIfInefficient) {
+  if (intervals.size() == 0) {
+    return true;
+  }
   const auto &target = graph.getTarget();
   const auto numWorkers = target.getNumWorkerContexts();
   const auto inType = in1.elementType();
@@ -2134,27 +2138,44 @@ bool createVertexBinaryOpBroadcastScalar(
   const auto grainSize = std::max<unsigned>(target.getVectorWidth(inType),
                                             target.getAtomicStoreGranularity());
 
-  // Use a simple heuristic to decide if creating multiple supervisor
-  // vertices for multiple regions will be poorly balanced over
-  // using 2D vertices
-
-  bool useSupervisor =
-      intervals.size() == 1 ||
-      (intervals.size() < numWorkers &&
-       std::all_of(intervals.begin(), intervals.end(),
-                   [&](const std::vector<Interval> &is) {
-                     auto elems = std::accumulate(
-                         is.begin(), is.end(), std::size_t(0),
-                         [](std::size_t total, const Interval &i) {
-                           return total + i.size();
-                         });
-                     return elems >= ((numWorkers + 1) / 2) * grainSize;
-                   }));
-
   const auto elementLimit = maxVertexElementsPerRegion(target, op, in1, out);
   const auto vertexRegions =
       splitRegionsBetweenWorkers(target, intervals, grainSize, 2 * grainSize,
                                  UINT_MAX, elementLimit.regionSize);
+
+  auto elemsInRegion = [](const std::vector<Interval> &region) {
+    return std::accumulate(
+        region.begin(), region.end(), std::size_t(0),
+        [](std::size_t total, const Interval &i) { return total + i.size(); });
+  };
+
+  // Supervisor cycle estimates based on the number of contiguous regions
+  std::uint64_t cycleEstSV = 0;
+  for (auto region : intervals) {
+    auto numElems = elemsInRegion(region);
+    cycleEstSV += popops::internal::broadcastArithmeticSupervisorCycleEstimate(
+                      target, op, inType, outType, inPlace, numElems)
+                      .cycles;
+  }
+
+  // The 2D regions are split among worker contexts to distribute the elements
+  // uniformly among the workers. Since the workers are balanced according to
+  // the number of elements and not processor cycles, workers with more regions
+  // to process are likely to take longer to complete. This heuristic is used
+  // to estimate the cycle cost for the most loaded worker.
+  auto max2DRegions = std::max_element(
+      vertexRegions.begin(), vertexRegions.end(),
+      [](const auto &lhs, const auto &rhs) { return lhs.size() < rhs.size(); });
+  std::vector<std::size_t> max2DRegionSizes(max2DRegions->size());
+  for (unsigned i = 0; i < max2DRegions->size(); ++i) {
+    max2DRegionSizes[i] = elemsInRegion((*max2DRegions)[i]);
+  }
+  auto cycleEst2D =
+      popops::internal::broadcastArithmeticCycleEstimate(
+          target, op, inType, outType, inPlace, uniformScalar, max2DRegionSizes)
+          .cycles;
+
+  bool useSupervisor = (cycleEstSV < cycleEst2D);
 
   if (useSupervisor && exitIfInefficient) {
     // If necessary insert criteria for exit, having chosen Supervisor vertices
@@ -2180,10 +2201,8 @@ bool createVertexBinaryOpBroadcastScalar(
     }
   }
   auto isVarianceConversionBinaryOp = [](BinaryOpType &op) {
-    return ((op == BinaryOpType::VARIANCE_TO_INV_STD_DEV) ||
-            (op == BinaryOpType::INV_STD_DEV_TO_VARIANCE))
-               ? true
-               : false;
+    return (op == BinaryOpType::VARIANCE_TO_INV_STD_DEV) ||
+           (op == BinaryOpType::INV_STD_DEV_TO_VARIANCE);
   };
   if (useSupervisor && validateRegionSizeForSupervisorVertex(
                            intervals, elementLimit, numWorkers)) {
@@ -2221,13 +2240,18 @@ bool createVertexBinaryOpBroadcastScalar(
     }
   } else {
     std::string vertexClass;
+    std::vector<std::size_t> bShape;
     if (isVarianceConversionBinaryOp(op) && (inType != outType)) {
       assert(!inPlace);
+      assert(uniformScalar);
       auto vertexName = "popops::BroadcastScalar2Types2DData";
       vertexClass = templateVertex(vertexName, op, inType, outType);
     } else {
       std::string vertexName = uniformScalar ? "popops::BroadcastScalar2DData"
                                              : "popops::BroadcastScalar2D";
+      if (!uniformScalar) {
+        bShape.push_back(1);
+      }
       if (inPlace) {
         vertexName += "InPlace";
       }
@@ -2246,7 +2270,7 @@ bool createVertexBinaryOpBroadcastScalar(
       }
       assert(!regions.empty());
       if (in2.numElements() == 1) {
-        graph.connect(v["B"], in2.reshape({}));
+        graph.connect(v["B"], in2.reshape(bShape));
       } else if (uniformScalar) {
         const auto &region = regions.front();
         assert(!region.empty());

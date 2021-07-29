@@ -117,14 +117,40 @@ static unsigned flopsPerUnaryOpElement(UnaryOpType op) {
   return 1;
 }
 
+namespace internal {
+
 // Computes the cycles used by one of the scalar broadcast supervisor codelets
-static VertexPerfEstimate broadcastArithmeticSupervisorCycleEstimate(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type, const OpPerformanceInfo &perfInfo,
-    std::uint64_t overheadPerLoop) {
-  CODELET_FIELD(data);
+VertexPerfEstimate broadcastArithmeticSupervisorCycleEstimate(
+    const Target &target, BinaryOpType op, const Type &inType,
+    const Type &outType, bool inPlace, std::size_t dataSize) {
+
+  auto isVarianceConversionBinaryOp = [](BinaryOpType &op) {
+    return (op == BinaryOpType::VARIANCE_TO_INV_STD_DEV) ||
+           (op == BinaryOpType::INV_STD_DEV_TO_VARIANCE);
+  };
+  bool use2TypesVertex =
+      isVarianceConversionBinaryOp(op) && (inType != outType);
+
+  std::uint64_t overheadPerLoop;
+  Type type = inType;
+  if (inPlace) {
+    overheadPerLoop = hasExternalCodelet(op, type)
+                          ? (getForceInterleavedEstimates() ? 0 : 1)
+                          : 4;
+  } else if (use2TypesVertex) {
+    // For vectorisation purposes, treat this as if it always processes float,
+    // as it casts internally.  An extra cycle to cast to half output
+    type = FLOAT;
+    overheadPerLoop = outType == FLOAT ? 0 : 1;
+  } else {
+    overheadPerLoop = hasExternalCodelet(op, type) ? 1 : 4;
+  }
 
   auto numWorkers = target.getNumWorkerContexts();
+
+  const OpPerformanceInfo &perfInfo =
+      inPlace ? broadcastOpInPlacePerfInfo.at({op, type})
+              : broadcastOpPerfInfo.at({op, type});
 
   std::uint64_t cycles = 20;
 
@@ -139,43 +165,42 @@ static VertexPerfEstimate broadcastArithmeticSupervisorCycleEstimate(
     elemsPerLoop = perfInfo.loopUnrollFactor;
   }
 
-  auto numElems = iceil(data.size(), numWorkers);
+  auto numElems = iceil(dataSize, numWorkers);
 
   unsigned numLoops = iceil(numElems, elemsPerLoop);
   cycles += numLoops * cyclesPerLoop;
   std::uint64_t flops =
-      static_cast<std::uint64_t>(data.size()) * flopsPerBinaryOpElement(op);
+      static_cast<std::uint64_t>(dataSize) * flopsPerBinaryOpElement(op);
   std::uint64_t totalCycles = cycles * numWorkers + basicOpSupervisorOverhead();
   return {totalCycles, convertToTypeFlops(flops, type)};
 }
 
+} // namespace internal
+
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  const OpPerformanceInfo &perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
+  CODELET_FIELD(data);
   // In the inplace case, if forcing use of interleaved memory, the fast
   // path can always be utilized to reduce the overhead by 1 cycle, making the
   // inner loop one cycle for ADD, SUB and MULTIPLY.
-  return broadcastArithmeticSupervisorCycleEstimate(
-      vertex, target, op, type, perfInfo,
-      hasExternalCodelet(op, type) ? (getForceInterleavedEstimates() ? 0 : 1)
-                                   : 4);
+  return broadcastArithmeticSupervisorCycleEstimate(target, op, type, type,
+                                                    true, data.size());
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  const OpPerformanceInfo &perfInfo = broadcastOpPerfInfo.at({op, type});
-  return broadcastArithmeticSupervisorCycleEstimate(
-      vertex, target, op, type, perfInfo, hasExternalCodelet(op, type) ? 1 : 4);
+  CODELET_FIELD(data);
+  return broadcastArithmeticSupervisorCycleEstimate(target, op, type, type,
+                                                    false, data.size());
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2Types1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, const Type &outType) {
-  // For vectorisation purposes, treat this as if it always processes float,
-  // as it casts internally.  An extra cycle to cast to half output
-  const OpPerformanceInfo &perfInfo = broadcastOpPerfInfo.at({op, type});
-  return broadcastArithmeticSupervisorCycleEstimate(
-      vertex, target, op, FLOAT, perfInfo, outType == FLOAT ? 0 : 1);
+  CODELET_FIELD(data);
+
+  return broadcastArithmeticSupervisorCycleEstimate(target, op, type, outType,
+                                                    false, data.size());
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
     BroadcastScalar1DRelationalOpDualOutput)(const VertexIntrospector &vertex,
@@ -193,9 +218,6 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
   auto numElems = iceil(data.size(), numWorkers);
   unsigned numLoops = iceil(numElems, elemsPerLoop);
   std::uint64_t cycles = 20 + overhead + (numLoops * cyclesPerLoop);
-  logging::popops::info(
-      "[Outx2] data={} numElems={} elemsPerLoop={} numLoops={} cycles={}",
-      data.size(), numElems, elemsPerLoop, numLoops, cycles);
   std::uint64_t flops = static_cast<std::uint64_t>(data.size()) *
                         (flopsPerBinaryOpElement(op) +
                          flopsPerBinaryOpElement(BinaryOpType::SUBTRACT));
@@ -276,13 +298,54 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
                                            allowMisaligned ? 25 : 7, true);
 }
 
-static VertexPerfEstimate broadcastArithmeticCycleEstimate(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type, const OpPerformanceInfo perfInfo,
-    std::uint64_t overheadPerLoop) {
-  CODELET_FIELD(data);
-  std::uint64_t cycles = 20;
+namespace internal {
 
+VertexPerfEstimate
+broadcastArithmeticCycleEstimate(const Target &target, BinaryOpType op,
+                                 const Type &inType, const Type &outType,
+                                 bool inPlace, bool uniformScalar,
+                                 const std::vector<std::size_t> &data) {
+  std::uint64_t cycles = 20;
+  auto isVarianceConversionBinaryOp = [](BinaryOpType &op) {
+    return (op == BinaryOpType::VARIANCE_TO_INV_STD_DEV) ||
+           (op == BinaryOpType::INV_STD_DEV_TO_VARIANCE);
+  };
+  bool use2TypesVertex =
+      isVarianceConversionBinaryOp(op) && (inType != outType);
+  std::uint64_t overheadPerLoop;
+  Type type = inType;
+  if (inPlace) {
+    if (uniformScalar) {
+      overheadPerLoop = hasExternalCodelet(op, type)
+                            ? (getForceInterleavedEstimates() ? 0 : 1)
+                            : 4;
+    } else {
+      overheadPerLoop = 4;
+    }
+  } else {
+    if (uniformScalar) {
+      if (use2TypesVertex) {
+        // For vectorisation purposes, treat this as if it always processes
+        // float as casting makes this so. An extra cycle to cast the output to
+        // half.
+        type = FLOAT;
+        overheadPerLoop = outType == FLOAT ? 0 : 1;
+      } else {
+        overheadPerLoop = hasExternalCodelet(op, type) ? 1 : 4;
+      }
+    } else {
+      if (use2TypesVertex) {
+        throw poputil::poplibs_error("No broadcast scalar vertex available "
+                                     "which supports mixed types and "
+                                     "non-uniform-scalar broadcasted input");
+      } else {
+        overheadPerLoop = 4;
+      }
+    }
+  }
+
+  const auto perfInfo = inPlace ? broadcastOpInPlacePerfInfo.at({op, type})
+                                : broadcastOpPerfInfo.at({op, type});
   unsigned elemsPerLoop;
   unsigned cyclesPerLoop = perfInfo.cyclesPerLoop;
   if (perfInfo.naturalVectorWidth) {
@@ -296,7 +359,7 @@ static VertexPerfEstimate broadcastArithmeticCycleEstimate(
 
   std::uint64_t totalElems = 0;
   for (unsigned i = 0; i < data.size(); i++) {
-    auto numElems = data[i].size();
+    auto numElems = data[i];
     totalElems += numElems;
     unsigned numCycles = iceil(numElems, elemsPerLoop);
     cycles += numCycles * cyclesPerLoop;
@@ -306,49 +369,60 @@ static VertexPerfEstimate broadcastArithmeticCycleEstimate(
   return {cycles, convertToTypeFlops(flops, type)};
 }
 
+} // namespace internal
+
+static VertexPerfEstimate
+broadcastArithmeticCycleEstimate(const Target &target, BinaryOpType op,
+                                 const Type &inType, const Type &outType,
+                                 bool inPlace, bool uniformScalar,
+                                 const FieldData &data) {
+  std::vector<std::size_t> sizes(data.size());
+  for (unsigned i = 0; i < data.size(); ++i) {
+    sizes[i] = data[i].size();
+  }
+  return popops::internal::broadcastArithmeticCycleEstimate(
+      target, op, inType, outType, inPlace, uniformScalar, sizes);
+}
+
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2DDataInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  const OpPerformanceInfo perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
+  CODELET_FIELD(data);
   // In the inplace case, if forcing use of interleaved memory, the fast
   // path can always be utilized to reduce the overhead by 1 cycle, making the
   // inner loop one cycle for ADD, SUB and MULTIPLY.
-  return broadcastArithmeticCycleEstimate(
-      vertex, target, op, type, perfInfo,
-      hasExternalCodelet(op, type) ? (getForceInterleavedEstimates() ? 0 : 1)
-                                   : 4);
+  return broadcastArithmeticCycleEstimate(target, op, type, type, true, true,
+                                          data);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2DData)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  const OpPerformanceInfo perfInfo = broadcastOpPerfInfo.at({op, type});
-  return broadcastArithmeticCycleEstimate(vertex, target, op, type, perfInfo,
-                                          hasExternalCodelet(op, type) ? 1 : 4);
+  CODELET_FIELD(data);
+  return popops::broadcastArithmeticCycleEstimate(target, op, type, type, false,
+                                                  true, data);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2Types2DData)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type, const Type &outType) {
-  const OpPerformanceInfo perfInfo = broadcastOpPerfInfo.at({op, type});
-  // For vectorisation purposes, treat this as if it always processes float
-  // as casting makes this so. An extra cycle to cast the output to half
-  return broadcastArithmeticCycleEstimate(vertex, target, op, FLOAT, perfInfo,
-                                          outType == FLOAT ? 0 : 1);
+    const Type &inType, const Type &outType) {
+  CODELET_FIELD(data);
+  return popops::broadcastArithmeticCycleEstimate(target, op, inType, outType,
+                                                  false, true, data);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2DInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  const OpPerformanceInfo perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
-  return broadcastArithmeticCycleEstimate(vertex, target, op, type, perfInfo,
-                                          4);
+  CODELET_FIELD(data);
+  return popops::broadcastArithmeticCycleEstimate(target, op, type, type, true,
+                                                  false, data);
 }
 VertexPerfEstimate
 MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2D)(const VertexIntrospector &vertex,
                                             const Target &target,
                                             BinaryOpType op, const Type &type) {
-  const OpPerformanceInfo perfInfo = broadcastOpPerfInfo.at({op, type});
-  return broadcastArithmeticCycleEstimate(vertex, target, op, type, perfInfo,
-                                          4);
+  CODELET_FIELD(data);
+  return popops::broadcastArithmeticCycleEstimate(target, op, type, type, false,
+                                                  false, data);
 }
 
 VertexPerfEstimate scaledArithmeticSupervisorCycleEstimate(

@@ -47,8 +47,10 @@ Program convertVariance(Graph &graph, Tensor src, Tensor dst,
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(src, mapping[tile]);
+    bool uniformScalar = epsilon.rank() == 0;
     createVertexBinaryOpBroadcastScalar(graph, src, epsilon, dst,
-                                        tileContiguousRegions, tile, cs, op);
+                                        tileContiguousRegions, tile, cs, op,
+                                        false, uniformScalar);
   }
   return Execute(cs, {dnai});
 }

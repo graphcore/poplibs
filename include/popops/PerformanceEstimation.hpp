@@ -9,6 +9,7 @@
 #define _popops_performance_estimation_h_
 
 #include "popops/Expr.hpp"
+#include <poplar/PerfEstimateFunc.hpp>
 #include <poplar/Target.hpp>
 #include <poplar/VectorLayout.hpp>
 #include <popops/OperationDef.hpp>
@@ -185,6 +186,18 @@ std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
     const bool isConstant, const bool memConstrained,
     const ScaledArithmeticOp operation, const poplar::layout::Vector &aLayout,
     const poplar::layout::Vector &bLayout, const unsigned numElems);
+
+// Computes the cycles used by the scalar broadcast supervisor codelet
+poplar::VertexPerfEstimate broadcastArithmeticSupervisorCycleEstimate(
+    const poplar::Target &target, popops::expr::BinaryOpType op,
+    const poplar::Type &inType, const poplar::Type &outType, bool inPlace,
+    std::size_t dataSize);
+
+// Computes the cycles used by the scalar broadcast 2D codelet
+poplar::VertexPerfEstimate broadcastArithmeticCycleEstimate(
+    const poplar::Target &target, popops::expr::BinaryOpType op,
+    const poplar::Type &inType, const poplar::Type &outType, bool inPlace,
+    bool uniformScalar, const std::vector<std::size_t> &data);
 
 } // namespace internal
 } // namespace popops
