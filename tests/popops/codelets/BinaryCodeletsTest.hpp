@@ -154,7 +154,8 @@ bool isIntOp(BinaryOpType op) {
   ONE_OP(MULTIPLY, a *b);                                                      \
   ONE_OP(SUBTRACT, a - b)
 
-// These operations are common to INT and UNSIGNED_INT types
+// These operations are common to INT, UNSIGNED_INT, LONGLONG and
+// UNSIGNED_LONGLONG types
 #define INTEGER_OPS()                                                          \
   COMMON_OPS();                                                                \
   ONE_OP(BITWISE_AND, a &b);                                                   \
@@ -191,6 +192,19 @@ void performOp(BinaryOpType op, int a, int b, int &result) {
 }
 
 void performOp(BinaryOpType op, unsigned a, unsigned b, unsigned &result) {
+  INTEGER_OPS();
+  throw std::logic_error(std::to_string(unsigned(op)) +
+                         " is not a valid operator for signed integer");
+}
+
+void performOp(BinaryOpType op, long long a, long long b, long long &result) {
+  INTEGER_OPS();
+  throw std::logic_error(std::to_string(unsigned(op)) +
+                         " is not a valid operator for signed integer");
+}
+
+void performOp(BinaryOpType op, unsigned long long a, unsigned long long b,
+               unsigned long long &result) {
   INTEGER_OPS();
   throw std::logic_error(std::to_string(unsigned(op)) +
                          " is not a valid operator for unsigned integer");
@@ -393,7 +407,9 @@ void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
   if (std::is_same<HostDataType, int>::value ||
       std::is_same<HostDataType, unsigned>::value) {
     if (op == BinaryOpType::DIVIDE || op == BinaryOpType::REMAINDER) {
-      min2 = (dataType == UNSIGNED_INT) ? 0 : -32767;
+      min2 = (dataType == UNSIGNED_INT || dataType == UNSIGNED_LONGLONG)
+                 ? 0
+                 : -32767;
       max2 = 32767;
     }
   }

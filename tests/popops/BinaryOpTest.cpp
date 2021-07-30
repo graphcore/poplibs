@@ -356,7 +356,7 @@ int main(int argc, char **argv) {
      "Device Type")
     ("data-type",
      po::value<Type>(&dataType)->default_value(HALF),
-     "Data Type: half, float, int, unsigned, bool")
+     "Data Type: half, float, int, unsigned, bool, ulonglong, longlong")
     ("in-place",
      po::value<bool>(&inPlace)->implicit_value(true),
      "Do the specified operation in place")
@@ -462,6 +462,13 @@ int main(int argc, char **argv) {
   SELECT_ONE(INT, INT, int, int)
   SELECT_ONE(UNSIGNED_INT, BOOL, unsigned, unsigned char)
   SELECT_ONE(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
+
+  SELECT_ONE(LONGLONG, BOOL, long long, unsigned char)
+  SELECT_ONE(LONGLONG, LONGLONG, long long, long long)
+  SELECT_ONE(UNSIGNED_LONGLONG, BOOL, unsigned long long, unsigned char)
+  SELECT_ONE(UNSIGNED_LONGLONG, UNSIGNED_LONGLONG, unsigned long long,
+             unsigned long long)
+
   // Reaching here means the combination of 'dataType' and 'outputType' was
   // invalid.
   throw invalid_types(dataType, outputType);

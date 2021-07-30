@@ -90,34 +90,55 @@ const std::vector<std::string> verticesNames = {
 // and broadcast vertices.
 const static std::map<expr::BinaryOpType, const std::set<Type>>
     binaryBroadcastCombinations = {
-        {BinaryOpType::ADD, {FLOAT, HALF, INT, UNSIGNED_INT}},
+        {BinaryOpType::ADD,
+         {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
         {BinaryOpType::ATAN2, {FLOAT, HALF}},
-        {BinaryOpType::BITWISE_AND, {INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT}},
-        {BinaryOpType::BITWISE_OR, {INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT}},
-        {BinaryOpType::BITWISE_XOR, {INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT}},
+        {BinaryOpType::BITWISE_AND,
+         {INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT, UNSIGNED_LONGLONG,
+          LONGLONG}},
+        {BinaryOpType::BITWISE_OR,
+         {INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT, UNSIGNED_LONGLONG,
+          LONGLONG}},
+        {BinaryOpType::BITWISE_XOR,
+         {INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT, UNSIGNED_LONGLONG,
+          LONGLONG}},
         {BinaryOpType::BITWISE_XNOR,
-         {INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT}},
-        {BinaryOpType::DIVIDE, {FLOAT, HALF, INT, UNSIGNED_INT}},
+         {INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT, UNSIGNED_LONGLONG,
+          LONGLONG}},
+        {BinaryOpType::DIVIDE,
+         {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
         {BinaryOpType::LOGICAL_AND, {BOOL}},
         {BinaryOpType::LOGICAL_OR, {BOOL}},
-        {BinaryOpType::MAXIMUM, {FLOAT, HALF, INT, UNSIGNED_INT}},
-        {BinaryOpType::MINIMUM, {FLOAT, HALF, INT, UNSIGNED_INT}},
-        {BinaryOpType::MULTIPLY, {FLOAT, HALF, INT, UNSIGNED_INT}},
+        {BinaryOpType::MAXIMUM,
+         {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
+        {BinaryOpType::MINIMUM,
+         {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
+        {BinaryOpType::MULTIPLY,
+         {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
         {BinaryOpType::POWER, {FLOAT, HALF}},
-        {BinaryOpType::REMAINDER, {FLOAT, HALF, INT, UNSIGNED_INT}},
-        {BinaryOpType::SHIFT_LEFT, {INT, UNSIGNED_INT}},
-        {BinaryOpType::SHIFT_RIGHT, {INT, UNSIGNED_INT}},
-        {BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, {INT}},
-        {BinaryOpType::SUBTRACT, {FLOAT, HALF, INT, UNSIGNED_INT}},
+        {BinaryOpType::REMAINDER,
+         {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
+        {BinaryOpType::SHIFT_LEFT,
+         {INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
+        {BinaryOpType::SHIFT_RIGHT,
+         {INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
+        {BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, {INT, LONGLONG}},
+        {BinaryOpType::SUBTRACT,
+         {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
         {BinaryOpType::EQUAL,
-         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, SHORT, UNSIGNED_SHORT}},
-        {BinaryOpType::GREATER_THAN, {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
+         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, SHORT, UNSIGNED_SHORT,
+          UNSIGNED_LONGLONG, LONGLONG}},
+        {BinaryOpType::GREATER_THAN,
+         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, UNSIGNED_LONGLONG, LONGLONG}},
         {BinaryOpType::GREATER_THAN_EQUAL,
-         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
-        {BinaryOpType::LESS_THAN, {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
-        {BinaryOpType::LESS_THAN_EQUAL, {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
+         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, UNSIGNED_LONGLONG, LONGLONG}},
+        {BinaryOpType::LESS_THAN,
+         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, UNSIGNED_LONGLONG, LONGLONG}},
+        {BinaryOpType::LESS_THAN_EQUAL,
+         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, UNSIGNED_LONGLONG, LONGLONG}},
         {BinaryOpType::NOT_EQUAL,
-         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, SHORT, UNSIGNED_SHORT}},
+         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, SHORT, UNSIGNED_SHORT,
+          UNSIGNED_LONGLONG, LONGLONG}},
 };
 
 // The map provides a vector of <inputTypes, outputType> pairs for each
@@ -964,9 +985,14 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   SELECT_ONE(FLOAT, HALF, float, float)                                        \
   SELECT_ONE(FLOAT, FLOAT, float, float)                                       \
   SELECT_ONE(INT, BOOL, int, unsigned char)                                    \
+  SELECT_ONE(LONGLONG, BOOL, long long, unsigned char)                         \
   SELECT_ONE(INT, INT, int, int)                                               \
+  SELECT_ONE(LONGLONG, LONGLONG, long long, long long)                         \
   SELECT_ONE(UNSIGNED_INT, BOOL, unsigned, unsigned char)                      \
+  SELECT_ONE(UNSIGNED_LONGLONG, BOOL, unsigned long long, unsigned char)       \
   SELECT_ONE(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)                   \
+  SELECT_ONE(UNSIGNED_LONGLONG, UNSIGNED_LONGLONG, unsigned long long,         \
+             unsigned long long)                                               \
   SELECT_ONE(UNSIGNED_INT, FLOAT, unsigned, float)                             \
   SELECT_ONE(UNSIGNED_INT, HALF, unsigned, float)                              \
   /* The combination of 'dataType'+'outputType' was not specified above */     \
@@ -982,6 +1008,7 @@ static void doSetupTest(const Target &target, bool isIpuModel, Graph &graph,
                         TestRecord &test, unsigned tile,
                         const MiscOptions &options) {
   VertexDesc &vertex = *test.vertex;
+
   // Call the appropriate instantiation of the templated function
 #define SELECT_ONE(IPU_DATA_TYPE, IPU_OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE) \
   if (vertex.dataType == IPU_DATA_TYPE && vertex.outputType == IPU_OUT_TYPE) { \
@@ -1156,12 +1183,13 @@ int main(int argc, char **argv) {
     ("data-type",
      po::value<std::vector<Type>>(&dataTypes)->multitoken(),
      "Data type: one or more of half, float, int, uint, short, ushort, bool, "
-     "char, schar, uchar")
+     "char, schar, uchar, ulonglong, longlong")
     ("output-type",
      po::value<std::vector<Type>>(&outputTypes)->multitoken(),
      "Output type: one or more of half, float, int, uint, short, ushort, bool, "
-     "char, schar, uchar. The output types must be provided in the same order "
-     "as the corresponding input types provided in --data-type")
+     "char, schar, uchar, ulonglong, longlong. The output types must be "
+     "provided in the same order as the corresponding input types provided in "
+     "--data-type")
     ("operation",
      po::value<std::vector<std::string>>(&operationStr)->multitoken(),
      ("Operation(s) to perform, one or more of: " + allOpsStr()).c_str())
@@ -1212,8 +1240,10 @@ int main(int argc, char **argv) {
 
   // === If no data type specified, test 'em all
   if (dataTypes.empty()) {
-    std::vector<Type> allTypes = {HALF,  FLOAT,          INT, UNSIGNED_INT,
-                                  SHORT, UNSIGNED_SHORT, BOOL};
+    std::vector<Type> allTypes = {
+        HALF,    FLOAT,          INT,  UNSIGNED_INT,
+        SHORT,   UNSIGNED_SHORT, BOOL, UNSIGNED_LONGLONG,
+        LONGLONG};
     if (outputTypes.empty()) {
       dataTypes = allTypes;
     } else {

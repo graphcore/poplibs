@@ -49,7 +49,13 @@ template <> struct BinaryLibCall<expr::BinaryOpType::MAXIMUM> {
 #endif
 
   int operator()(int x, int y) const { return max(x, y); }
+  long long operator()(long long x, long long y) const { return max(x, y); }
+
   unsigned operator()(unsigned x, unsigned y) const { return max(x, y); }
+  unsigned long long operator()(unsigned long long x,
+                                unsigned long long y) const {
+    return max(x, y);
+  }
 };
 
 template <> struct BinaryLibCall<expr::BinaryOpType::MINIMUM> {
@@ -60,7 +66,13 @@ template <> struct BinaryLibCall<expr::BinaryOpType::MINIMUM> {
 #endif
 
   int operator()(int x, int y) const { return min(x, y); }
+  long long operator()(long long x, long long y) const { return min(x, y); }
+
   unsigned operator()(unsigned x, unsigned y) const { return min(x, y); }
+  unsigned long long operator()(unsigned long long x,
+                                unsigned long long y) const {
+    return min(x, y);
+  }
 };
 
 template <> struct BinaryLibCall<expr::BinaryOpType::REMAINDER> {
@@ -73,10 +85,22 @@ template <> struct BinaryLibCall<expr::BinaryOpType::REMAINDER> {
     int r = x / y;
     return x - r * y;
   }
+  long long operator()(long long x, long long y) const {
+    int r = x / y;
+    return x - r * y;
+  }
+
   unsigned operator()(unsigned x, unsigned y) const {
     unsigned r = x / y;
     return x - r * y;
   }
+
+  unsigned long long operator()(unsigned long long x,
+                                unsigned long long y) const {
+    unsigned r = x / y;
+    return x - r * y;
+  }
+
   float operator()(float x, float y) const { return fmod(x, y); }
 };
 

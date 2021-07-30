@@ -792,7 +792,9 @@ public:
 template class NopAlignVertex<8, half>;
 template class NopAlignVertex<8, float>;
 template class NopAlignVertex<8, int>;
+template class NopAlignVertex<8, long long>;
 template class NopAlignVertex<8, unsigned int>;
+template class NopAlignVertex<8, unsigned long long>;
 template class NopAlignVertex<8, short>;
 template class NopAlignVertex<8, unsigned short>;
 template class NopAlignVertex<8, bool>;

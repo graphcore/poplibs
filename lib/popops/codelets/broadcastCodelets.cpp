@@ -765,45 +765,55 @@ public:
 namespace popops {
 
 #define INSTANTIATE_SCALAR(name)                                               \
-  INSTANTIATE_OP(name, BinaryOpType::ADD, float, half, int, unsigned)          \
+  INSTANTIATE_OP(name, BinaryOpType::ADD, float, half, int, unsigned,          \
+                 unsigned long long, long long)                                \
   INSTANTIATE_OP(name, BinaryOpType::ATAN2, float, half)                       \
   INSTANTIATE_OP(name, BinaryOpType::BITWISE_AND, int, unsigned, short,        \
-                 unsigned short)                                               \
+                 unsigned short, unsigned long long, long long)                \
   INSTANTIATE_OP(name, BinaryOpType::BITWISE_OR, int, unsigned, short,         \
-                 unsigned short)                                               \
+                 unsigned short, unsigned long long, long long)                \
   INSTANTIATE_OP(name, BinaryOpType::BITWISE_XOR, int, unsigned, short,        \
-                 unsigned short)                                               \
+                 unsigned short, unsigned long long, long long)                \
   INSTANTIATE_OP(name, BinaryOpType::BITWISE_XNOR, int, unsigned, short,       \
-                 unsigned short)                                               \
-  INSTANTIATE_OP(name, BinaryOpType::DIVIDE, float, half, int, unsigned)       \
+                 unsigned short, unsigned long long, long long)                \
+  INSTANTIATE_OP(name, BinaryOpType::DIVIDE, float, half, int, unsigned,       \
+                 unsigned long long, long long)                                \
   INSTANTIATE_OP(name, BinaryOpType::LOGICAL_AND, bool)                        \
   INSTANTIATE_OP(name, BinaryOpType::LOGICAL_OR, bool)                         \
-  INSTANTIATE_OP(name, BinaryOpType::MAXIMUM, float, half, int, unsigned)      \
-  INSTANTIATE_OP(name, BinaryOpType::MINIMUM, float, half, int, unsigned)      \
-  INSTANTIATE_OP(name, BinaryOpType::MULTIPLY, float, half, int, unsigned)     \
+  INSTANTIATE_OP(name, BinaryOpType::MAXIMUM, float, half, int, unsigned,      \
+                 unsigned long long, long long)                                \
+  INSTANTIATE_OP(name, BinaryOpType::MINIMUM, float, half, int, unsigned,      \
+                 unsigned long long, long long)                                \
+  INSTANTIATE_OP(name, BinaryOpType::MULTIPLY, float, half, int, unsigned,     \
+                 unsigned long long, long long)                                \
   INSTANTIATE_OP(name, BinaryOpType::POWER, float, half)                       \
-  INSTANTIATE_OP(name, BinaryOpType::REMAINDER, float, half, int, unsigned)    \
-  INSTANTIATE_OP(name, BinaryOpType::SHIFT_LEFT, int, unsigned)                \
-  INSTANTIATE_OP(name, BinaryOpType::SHIFT_RIGHT, int, unsigned)               \
-  INSTANTIATE_OP(name, BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int, unsigned)   \
-  INSTANTIATE_OP(name, BinaryOpType::SUBTRACT, float, half, int, unsigned)     \
+  INSTANTIATE_OP(name, BinaryOpType::REMAINDER, float, half, int, unsigned,    \
+                 unsigned long long, long long)                                \
+  INSTANTIATE_OP(name, BinaryOpType::SHIFT_LEFT, int, unsigned,                \
+                 unsigned long long, long long)                                \
+  INSTANTIATE_OP(name, BinaryOpType::SHIFT_RIGHT, int, unsigned,               \
+                 unsigned long long, long long)                                \
+  INSTANTIATE_OP(name, BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int, unsigned,   \
+                 unsigned long long, long long)                                \
+  INSTANTIATE_OP(name, BinaryOpType::SUBTRACT, float, half, int, unsigned,     \
+                 unsigned long long, long long)                                \
   INSTANTIATE_OP(name, BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half)
 
 // Relational (comparison) operators are separate because InPlace vertices
 // have them only for boolean
 #define INSTANTIATE_SCALAR_RELOP(name)                                         \
   INSTANTIATE_OP(name, BinaryOpType::EQUAL, float, half, int, unsigned, bool,  \
-                 short, unsigned short)                                        \
+                 short, unsigned short, unsigned long long, long long)         \
   INSTANTIATE_OP(name, BinaryOpType::GREATER_THAN, float, half, int, unsigned, \
-                 bool)                                                         \
+                 bool, unsigned long long, long long)                          \
   INSTANTIATE_OP(name, BinaryOpType::GREATER_THAN_EQUAL, float, half, int,     \
-                 unsigned, bool)                                               \
+                 unsigned, bool, unsigned long long, long long)                \
   INSTANTIATE_OP(name, BinaryOpType::LESS_THAN, float, half, int, unsigned,    \
-                 bool)                                                         \
+                 bool, unsigned long long, long long)                          \
   INSTANTIATE_OP(name, BinaryOpType::LESS_THAN_EQUAL, float, half, int,        \
-                 unsigned, bool)                                               \
+                 unsigned, bool, unsigned long long, long long)                \
   INSTANTIATE_OP(name, BinaryOpType::NOT_EQUAL, float, half, int, unsigned,    \
-                 bool, short, unsigned short)
+                 bool, short, unsigned short, unsigned long long, long long)
 
 #define INSTANTIATE_SCALAR_RELOP_IN_PLACE(name)                                \
   INSTANTIATE_OP(name, BinaryOpType::EQUAL, bool)                              \

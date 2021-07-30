@@ -33,6 +33,7 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ABSOLUTE> {
 #endif
 
   int operator()(int x) const { return std::abs(x); }
+  long long operator()(long long x) const { return std::abs(x); }
 };
 
 template <> struct UnaryLibCall<expr::UnaryOpType::SQRT> {
@@ -1105,10 +1106,11 @@ public:
   }
 };
 
-INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ABSOLUTE, float, half, int,
+               long long)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::BITWISE_NOT, int, unsigned, short,
-               unsigned short)
+               unsigned short, long long, unsigned long long)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COS, float, half)
@@ -1124,7 +1126,8 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::IS_NAN, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::LOGICAL_NOT, bool)
-INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::NEGATE, float, half, int,
+               long long)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SIN, float, half)
@@ -1141,10 +1144,10 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::RSQRT, float, half)
 // they will generate single worker code. See T4642 - a task to add
 // these.
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ABSOLUTE, float, half,
-               int)
+               int, long long)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COS, float, half)
@@ -1163,7 +1166,8 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM_ONE_PLUS,
                float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGICAL_NOT, bool)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::NEGATE, float, half, int,
+               long long)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIN, float, half)
@@ -1178,10 +1182,11 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::RSQRT, float, half)
 
 // UnaryOp1D - worker vertex for all types except bool.
-INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ABSOLUTE, float, half, int,
+               long long)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::BITWISE_NOT, int, unsigned, short,
-               unsigned short)
+               unsigned short, long long, unsigned long long)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COS, float, half)
@@ -1196,7 +1201,8 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_INF, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_NAN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
-INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::NEGATE, float, half, int,
+               long long)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIN, float, half)
@@ -1206,10 +1212,11 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQUARE, float, half, int, unsigned)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::RSQRT, float, half)
 
-INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int,
+               long long)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, long long, unsigned long long)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COS, float, half)
@@ -1225,7 +1232,8 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float,
                half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGICAL_NOT, bool)
-INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::NEGATE, float, half, int,
+               long long)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SIN, float, half)
@@ -1244,10 +1252,10 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::RSQRT, float, half)
 // these.
 
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ABSOLUTE, float,
-               half, int)
+               half, int, long long)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, long long, unsigned long long)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::COS, float, half)
@@ -1269,7 +1277,7 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
                expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::LOGICAL_NOT, bool)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::NEGATE, float,
-               half, int)
+               half, int, long long)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::POPCOUNT, int,
                unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SIGNUM, float,
@@ -1291,10 +1299,11 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::RSQRT, float,
 
 // UnaryOp1DInPlace - worker vertex for all types except bool.
 
-INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int,
+               long long)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, long long, unsigned long long)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::CBRT, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COS, float, half)
@@ -1309,7 +1318,8 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float,
                half)
-INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::NEGATE, float, half, int)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::NEGATE, float, half, int,
+               long long)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIN, float, half)

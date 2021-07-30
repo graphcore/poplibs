@@ -25,7 +25,7 @@ foreach(DATA_SIZE 30000 65536)
     --in-place)
 endforeach()
 
-foreach(DATA_TYPE short ushort)
+foreach(DATA_TYPE short ushort ulonglong longlong)
   add_multitarget_test(NAME UnaryOpLargeBitwise_${DATA_TYPE}
     COMMAND UnaryOpTest
     --ope=bitwise_not
@@ -45,6 +45,19 @@ foreach(DATA_TYPE short ushort)
     --tiles=1
     --in-place)
 endforeach()
+
+
+foreach(DATA_TYPE longlong ulonglong)
+  add_multitarget_test(NAME BinaryOpMediumMul_${DATA_TYPE}
+    COMMAND BinaryOpTest
+    --ope=mul
+    --data=${DATA_TYPE}
+    --shape1={10000}
+    --shape2={1}
+    --tiles=1
+    --in-place)
+endforeach()
+
 
 # Would overflow unless the correct divide by 6 method is used to divide work
 # but won't fit on Sim1

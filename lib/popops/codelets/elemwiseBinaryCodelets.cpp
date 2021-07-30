@@ -880,148 +880,161 @@ public:
   }
 };
 
-INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::ADD, float, half, int, unsigned)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::ADD, float, half, int, unsigned,
+               unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_AND, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_OR, int, unsigned, short,
-               unsigned short)
+               unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_XOR, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::DIVIDE, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::EQUAL, float, half, bool, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::GREATER_THAN_EQUAL, float, half,
-               int, unsigned, bool)
+               int, unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::GREATER_THAN, float, half, int,
-               unsigned, bool)
+               unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::LESS_THAN_EQUAL, float, half,
-               int, unsigned, bool)
+               int, unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::LOGICAL_AND, bool)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::LOGICAL_OR, bool)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::LESS_THAN, float, half, int,
-               unsigned, bool)
+               unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::MAXIMUM, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::MINIMUM, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::MULTIPLY, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::NOT_EQUAL, float, half, int,
-               unsigned, bool, short, unsigned short)
+               unsigned, bool, short, unsigned short, unsigned long long,
+               long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::POWER, float, half)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::REMAINDER, float, half, int,
-               unsigned)
-INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_LEFT, int, unsigned)
-INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_RIGHT, int, unsigned)
-INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
+               unsigned, unsigned long long, long long)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_LEFT, int, unsigned,
+               unsigned long long, long long)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_RIGHT, int, unsigned,
+               unsigned long long, long long)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int,
+               long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SUBTRACT, float, half, int,
-               unsigned)
+               unsigned long long, long long, unsigned)
 
 // BinaryOp1DSupervisor - supervisor stubs for all types.
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ADD, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_AND, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_OR, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_XOR, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_XNOR, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::DIVIDE, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::EQUAL, float, half,
-               bool, int, unsigned, short, unsigned short)
+               bool, int, unsigned, short, unsigned short, unsigned long long,
+               long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::GREATER_THAN_EQUAL,
-               float, half, int, unsigned, bool)
+               float, half, int, unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::GREATER_THAN, float,
-               half, int, unsigned, bool)
+               half, int, unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LESS_THAN_EQUAL, float,
-               half, int, unsigned, bool)
+               half, int, unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LOGICAL_AND, bool)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LOGICAL_OR, bool)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::LESS_THAN, float, half,
-               int, unsigned, bool)
+               int, unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MAXIMUM, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MINIMUM, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MULTIPLY, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::NOT_EQUAL, float, half,
-               int, unsigned, bool, short, unsigned short)
+               int, unsigned, bool, short, unsigned short, unsigned long long,
+               long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::POWER, float, half)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::REMAINDER, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SHIFT_LEFT, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SHIFT_RIGHT, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor,
-               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
+               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int, long long)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SUBTRACT, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 
 // BinaryOp1D  - Worker code for all types.
-INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ADD, float, half, int, unsigned)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ADD, float, half, int, unsigned,
+               unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_AND, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_OR, int, unsigned, short,
-               unsigned short)
+               unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XOR, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::DIVIDE, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::EQUAL, float, half, int,
-               unsigned, bool, short, unsigned short)
+               unsigned, bool, short, unsigned short, unsigned long long,
+               long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::GREATER_THAN_EQUAL, float, half,
-               int, unsigned, bool)
+               int, unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::GREATER_THAN, float, half, int,
-               unsigned, bool)
+               unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LESS_THAN_EQUAL, float, half,
-               int, unsigned, bool)
+               int, unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LESS_THAN, float, half, int,
-               unsigned, bool)
+               unsigned, bool, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LOGICAL_AND, bool)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LOGICAL_OR, bool)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MAXIMUM, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MINIMUM, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MULTIPLY, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::NOT_EQUAL, float, half, int,
-               unsigned, bool, short, unsigned short)
+               unsigned, bool, short, unsigned short, unsigned long long,
+               long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::POWER, float, half)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::REMAINDER, float, half, int,
-               unsigned)
-INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SHIFT_LEFT, int, unsigned)
-INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SHIFT_RIGHT, int, unsigned)
-INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
+               unsigned, unsigned long long, long long)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SHIFT_LEFT, int, unsigned,
+               unsigned long long, long long)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SHIFT_RIGHT, int, unsigned,
+               unsigned long long, long long)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int,
+               long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SUBTRACT, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::ADD, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_AND, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_OR, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_XOR, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_XNOR, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::DIVIDE, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::EQUAL, bool)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::GREATER_THAN_EQUAL, bool)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::GREATER_THAN, bool)
@@ -1030,38 +1043,42 @@ INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::LOGICAL_AND, bool)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::LOGICAL_OR, bool)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::LESS_THAN, bool)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::MAXIMUM, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::MINIMUM, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::MULTIPLY, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::NOT_EQUAL, bool)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::POWER, float, half)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::REMAINDER, float, half,
-               int, unsigned)
-INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_LEFT, int, unsigned)
+               int, unsigned, unsigned long long, long long)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_LEFT, int, unsigned,
+               unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_RIGHT, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
-               int)
+               int, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SUBTRACT, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 
 // Supervisor vertices, creating stubs in the IPU build
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ADD, float,
-               half, int, unsigned)
+               half, int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ATAN2, float,
                half)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_AND,
-               int, unsigned, short, unsigned short)
+               int, unsigned, short, unsigned short, unsigned long long,
+               long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_OR, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_XOR,
-               int, unsigned, short, unsigned short)
+               int, unsigned, short, unsigned short, unsigned long long,
+               long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_XNOR,
-               int, unsigned, short, unsigned short)
+               int, unsigned, short, unsigned short, unsigned long long,
+               long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::DIVIDE, float,
-               half, int, unsigned)
+               half, int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::EQUAL, bool)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor,
                expr::BinaryOpType::GREATER_THAN_EQUAL, bool)
@@ -1075,55 +1092,56 @@ INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LOGICAL_OR,
                bool)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::LESS_THAN, bool)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::MAXIMUM, float,
-               half, int, unsigned)
+               half, int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::MINIMUM, float,
-               half, int, unsigned)
+               half, int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::MULTIPLY, float,
-               half, int, unsigned)
+               half, int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::NOT_EQUAL, bool)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::POWER, float,
                half)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::REMAINDER,
-               float, half, int, unsigned)
+               float, half, int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SHIFT_LEFT, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SHIFT_RIGHT,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor,
-               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
+               expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int, long long)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::SUBTRACT, float,
-               half, int, unsigned)
+               half, int, unsigned, unsigned long long, long long)
 
 // Worker vertices, for the IPU build
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::ADD, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_AND, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_OR, int, unsigned,
-               short, unsigned short)
+               short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_XOR, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_XNOR, int,
-               unsigned, short, unsigned short)
+               unsigned, short, unsigned short, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::DIVIDE, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::MAXIMUM, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::MINIMUM, float, half, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::MULTIPLY, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::POWER, float, half)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::REMAINDER, float, half,
-               int, unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SHIFT_LEFT, int, unsigned)
+               int, unsigned, unsigned long long, long long)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SHIFT_LEFT, int, unsigned,
+               unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SHIFT_RIGHT, int,
-               unsigned)
+               unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
-               int)
+               int, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SUBTRACT, float, half,
-               int, unsigned)
+               int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::EQUAL, bool)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::GREATER_THAN_EQUAL, bool)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::GREATER_THAN, bool)

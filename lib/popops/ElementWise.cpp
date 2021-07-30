@@ -199,13 +199,15 @@ bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
   case BinaryOpType::MULTIPLY:
   case BinaryOpType::SUBTRACT:
     return (dType == HALF || dType == FLOAT || dType == INT ||
-            dType == UNSIGNED_INT || dType == BOOL);
+            dType == UNSIGNED_INT || dType == BOOL ||
+            dType == UNSIGNED_LONGLONG || dType == LONGLONG);
 
   case BinaryOpType::EQUAL:
   case BinaryOpType::NOT_EQUAL:
     return (dType == HALF || dType == FLOAT || dType == INT ||
             dType == UNSIGNED_INT || dType == BOOL || dType == SHORT ||
-            dType == UNSIGNED_SHORT);
+            dType == UNSIGNED_SHORT || dType == UNSIGNED_LONGLONG ||
+            dType == LONGLONG);
 
   case BinaryOpType::LOGICAL_AND:
   case BinaryOpType::LOGICAL_OR:
@@ -222,12 +224,16 @@ bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
   case BinaryOpType::BITWISE_XOR:
   case BinaryOpType::BITWISE_XNOR:
     return (dType == INT || dType == UNSIGNED_INT || dType == SHORT ||
-            dType == UNSIGNED_SHORT);
+            dType == UNSIGNED_SHORT || dType == UNSIGNED_LONGLONG ||
+            dType == LONGLONG);
+
   case BinaryOpType::SHIFT_LEFT:
   case BinaryOpType::SHIFT_RIGHT:
-    return (dType == INT || dType == UNSIGNED_INT);
+    return (dType == INT || dType == UNSIGNED_INT ||
+            dType == UNSIGNED_LONGLONG || dType == LONGLONG);
+
   case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
-    return dType == INT;
+    return dType == INT || dType == LONGLONG;
   default:
     return false;
   }

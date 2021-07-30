@@ -185,6 +185,8 @@ std::tuple<Operation, Type> stringToOperation(const std::string &str,
   ONE_OP(POPCOUNT, __builtin_popcount((unsigned)a));                           \
   COMMON_OPS();
 
+#define LONGLONG_OPS() ONE_OP(BITWISE_NOT, ~a);
+
 // Do the operation specified by 'op' on 'a' and 'b', where the operands are
 // floating point types ('float' on the host, HALF or FLOAT on the device)
 void performOp(UnaryOpType op, float a, float &result) {
@@ -224,6 +226,21 @@ void performOp(UnaryOpType op, int a, int &result) {
   ONE_OP(SIGNUM, (0 < a) - (a < 0));
   ONE_OP(SQRT, (int)(std::sqrt(a)));
   INTEGER_OPS();
+  throw std::logic_error(std::to_string(unsigned(op)) +
+                         " is not a valid operator for signed integer");
+}
+
+void performOp(UnaryOpType op, long long a, long long &result) {
+  ONE_OP(ABSOLUTE, std::abs(a));
+  ONE_OP(NEGATE, -a);
+  LONGLONG_OPS();
+  throw std::logic_error(std::to_string(unsigned(op)) +
+                         " is not a valid operator for signed integer");
+}
+
+void performOp(UnaryOpType op, unsigned long long a,
+               unsigned long long &result) {
+  LONGLONG_OPS();
   throw std::logic_error(std::to_string(unsigned(op)) +
                          " is not a valid operator for signed integer");
 }
@@ -482,7 +499,10 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
   SELECT_ONE(IPU_SRC_TYPE, FLOAT, HOST_SRC_TYPE, float)                        \
   SELECT_ONE(IPU_SRC_TYPE, HALF, HOST_SRC_TYPE, float)                         \
   SELECT_ONE(IPU_SRC_TYPE, INT, HOST_SRC_TYPE, int)                            \
+  SELECT_ONE(IPU_SRC_TYPE, LONGLONG, HOST_SRC_TYPE, long long)                 \
   SELECT_ONE(IPU_SRC_TYPE, UNSIGNED_INT, HOST_SRC_TYPE, unsigned int)          \
+  SELECT_ONE(IPU_SRC_TYPE, UNSIGNED_LONGLONG, HOST_SRC_TYPE,                   \
+             unsigned long long)                                               \
   SELECT_ONE(IPU_SRC_TYPE, SHORT, HOST_SRC_TYPE, short)                        \
   SELECT_ONE(IPU_SRC_TYPE, UNSIGNED_SHORT, HOST_SRC_TYPE, unsigned short)      \
   SELECT_ONE(IPU_SRC_TYPE, BOOL, HOST_SRC_TYPE, unsigned char)                 \
@@ -494,7 +514,9 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
   SELECT_BY_SRC_TYPE(FLOAT, float)                                             \
   SELECT_BY_SRC_TYPE(HALF, float)                                              \
   SELECT_BY_SRC_TYPE(INT, int)                                                 \
+  SELECT_BY_SRC_TYPE(LONGLONG, long long)                                      \
   SELECT_BY_SRC_TYPE(UNSIGNED_INT, unsigned int)                               \
+  SELECT_BY_SRC_TYPE(UNSIGNED_LONGLONG, unsigned long long)                    \
   SELECT_BY_SRC_TYPE(SHORT, short)                                             \
   SELECT_BY_SRC_TYPE(UNSIGNED_SHORT, unsigned short)                           \
   SELECT_BY_SRC_TYPE(BOOL, unsigned char)                                      \

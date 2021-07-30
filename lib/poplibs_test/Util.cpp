@@ -451,11 +451,15 @@ std::istream &operator>>(std::istream &in, poplar::Type &type) {
     type = poplar::SIGNED_CHAR;
   else if (token == "uchar")
     type = poplar::UNSIGNED_CHAR;
+  else if (token == "ulonglong")
+    type = poplar::UNSIGNED_LONGLONG;
+  else if (token == "longlong")
+    type = poplar::LONGLONG;
   else
     throw poputil::poplibs_error(
         "Invalid data-type <" + token +
         ">; must be half, float, uint (unsigned), int, ushort, short, char, "
-        "schar, uchar or bool");
+        "schar, uchar, ulonglong, longlong or bool");
   return in;
 }
 } // namespace std

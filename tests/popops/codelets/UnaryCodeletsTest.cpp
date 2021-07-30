@@ -109,15 +109,19 @@ bool isValidCombination(const VertexDesc &vertex) {
   }
   if (op == UnaryOpType::BITWISE_NOT) {
     return type == INT || type == UNSIGNED_INT || type == SHORT ||
-           type == UNSIGNED_SHORT;
+           type == UNSIGNED_SHORT || type == LONGLONG ||
+           type == UNSIGNED_LONGLONG;
   }
   if (op == UnaryOpType::POPCOUNT || op == UnaryOpType::COUNT_LEADING_ZEROS) {
     return type == INT || type == UNSIGNED_INT;
   }
-  if (op == UnaryOpType::ABSOLUTE || op == UnaryOpType::NEGATE ||
-      op == UnaryOpType::SIGNUM || op == UnaryOpType::SQRT) {
+  if (op == UnaryOpType::ABSOLUTE || op == UnaryOpType::NEGATE) {
+    return type == HALF || type == FLOAT || type == INT || type == LONGLONG;
+  }
+  if (op == UnaryOpType::SIGNUM || op == UnaryOpType::SQRT) {
     return type == HALF || type == FLOAT || type == INT;
   }
+
   if (op == UnaryOpType::SQUARE) {
     return type == HALF || type == FLOAT || type == INT || type == UNSIGNED_INT;
   }
@@ -460,7 +464,9 @@ int main(int argc, char **argv) {
 
   // === If no data type specified, test 'em all
   if (dataTypes.empty()) {
-    dataTypes = {HALF, FLOAT, INT, UNSIGNED_INT, SHORT, UNSIGNED_SHORT, BOOL};
+    dataTypes = {HALF,    FLOAT,          INT,  UNSIGNED_INT,
+                 SHORT,   UNSIGNED_SHORT, BOOL, UNSIGNED_LONGLONG,
+                 LONGLONG};
   }
 
   std::regex vertexRegEx(vertexRE);

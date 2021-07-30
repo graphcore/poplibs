@@ -140,6 +140,39 @@ void fillBuffer(const Type &dataType, RandomEngine &rndEng,
                 nonZero);
 }
 
+// Filling one of the operand buffers for 32 bit integer data.
+void fillBufferLongLong(const Type &dataType, RandomEngine &rndEng,
+                        long long *data, unsigned n, long long i, long long min,
+                        long long max, bool nonZero) {
+  std::uniform_int_distribution<long long> d(min, max);
+  for (unsigned k = 0; k < n; k++) {
+    if (rndEng) {
+      do {
+        data[k] = d(*rndEng);
+      } while (nonZero && data[k] == 0);
+    } else {
+      if (max != 0 && i > max)
+        i = 0;
+      data[k] = i++;
+    }
+  }
+}
+
+void fillBuffer(const Type &dataType, RandomEngine &rndEng,
+                std::vector<long long> &buf, long long i, long long min,
+                long long max, bool nonZero) {
+  fillBufferLongLong(dataType, rndEng, buf.data(), buf.size(), i, min, max,
+                     nonZero);
+}
+
+void fillBuffer(const Type &dataType, RandomEngine &rndEng,
+                std::vector<unsigned long long> &buf, unsigned long long i,
+                unsigned long long min, unsigned long long max, bool nonZero) {
+  // The 'long long' filling is good for 'unsigned long long' as well
+  fillBufferLongLong(dataType, rndEng, (long long *)(buf.data()), buf.size(), i,
+                     min, max, nonZero);
+}
+
 // Filling one of the operand buffers for 16 bit integer data.
 void fillBufferShort(const Type &dataType, RandomEngine &rndEng, short *data,
                      unsigned n, short i, short min, short max, bool nonZero) {
