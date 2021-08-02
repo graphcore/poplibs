@@ -2491,7 +2491,8 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           ? 1
           : *std::max_element(numLookups.cbegin(), numLookups.cend());
 
-  const std::size_t minGrainSizeBytes = target.getDataPathWidth() / 8;
+  // Choose the grainsize in unsliced dimension to avoid subword writes
+  const std::size_t minGrainSizeBytes = target.getAtomicStoreGranularity();
 
   // The embedding dimension can be split (embeddingSplit),
   // the entries can be split (dictSplit),
