@@ -43,7 +43,7 @@ BOOST_AUTO_TEST_CASE(ManyLookups) {
   checkPlanner(HALF, 1000, 200, {18000}, {12, 1, 100, 2});
 }
 BOOST_AUTO_TEST_CASE(VeryManyLookups) {
-  checkPlanner(HALF, 1000, 200, {40000}, {12, 1, 100, 2});
+  checkPlanner(HALF, 1000, 200, {40000}, {24, 1, 50, 2});
 }
 BOOST_AUTO_TEST_CASE(LargeAndManyLookups) {
   checkPlanner(HALF, 100000, 200, {11520}, {1, 12, 100, 2});
