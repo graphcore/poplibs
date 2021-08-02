@@ -235,14 +235,14 @@ void performOp(UnaryOpType op, long long a, long long &result) {
   ONE_OP(NEGATE, -a);
   LONGLONG_OPS();
   throw std::logic_error(std::to_string(unsigned(op)) +
-                         " is not a valid operator for signed integer");
+                         " is not a valid operator for signed long long");
 }
 
 void performOp(UnaryOpType op, unsigned long long a,
                unsigned long long &result) {
   LONGLONG_OPS();
   throw std::logic_error(std::to_string(unsigned(op)) +
-                         " is not a valid operator for signed integer");
+                         " is not a valid operator for unsigned long long");
 }
 
 void performOp(UnaryOpType op, unsigned a, unsigned &result) {
