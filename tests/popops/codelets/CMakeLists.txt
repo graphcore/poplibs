@@ -31,7 +31,7 @@ add_multitarget_test(NAME "UnaryOpCodeletsTests_all"
                              --size 1
                              --disable-fp-exceptions true
                      LABELS codelet
-                     TEST_IPUMODEL "true"
+                     TEST_IPUMODEL
                      VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 add_multitarget_test(NAME "BinaryOpCodeletsTests_all"
                      COMMAND BinaryCodeletsTest
@@ -39,7 +39,7 @@ add_multitarget_test(NAME "BinaryOpCodeletsTests_all"
                              --size 1
                              --disable-fp-exceptions true
                      LABELS codelet
-                     TEST_IPUMODEL "true"
+                     TEST_IPUMODEL
                      VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
 # Run some tests with big sizes, only on IpuModels
@@ -295,14 +295,14 @@ add_multitarget_test(NAME "ScaledAddCodeletsTests_low_tolerance"
                              --group-tests
                              --tolerance 0.00001
                              --size 1 2 3 4 8 12
-                     TEST_IPUMODEL "true"
+                     TEST_IPUMODEL
                      VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 add_multitarget_test(NAME "ScaledAddCodeletsTests_high_tolerance"
                      COMMAND ScaledAddCodeletsTest
                              --group-tests
                              --tolerance 0.001
                              --size 23 24 25 [47,48,49]
-                     TEST_IPUMODEL "true"
+                     TEST_IPUMODEL
                      VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
 
@@ -375,7 +375,7 @@ function(test_fill_vertex  TYPE  START_ALIGNMENT)
                               --data ${TYPE}
                               --align-start ${START_ALIGNMENT}
                       LABELS codelet
-                      TEST_IPUMODEL "true"
+                      TEST_IPUMODEL
                       VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 endfunction()
 test_fill_vertex(bool 0)
@@ -907,7 +907,7 @@ add_multitarget_test(NAME CastCodeletsTest_to_char
                   --group-tests
                   --size 1 2 3 4 5 22 23 24 25 26 [8,3,6,120]
               LABELS codelet
-              TEST_IPUMODEL "true"
+              TEST_IPUMODEL
               VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
 add_multitarget_test(NAME CastCodeletsTest_from_char
@@ -917,5 +917,5 @@ add_multitarget_test(NAME CastCodeletsTest_from_char
                   --group-tests
                   --size 1 2 3 4 5 22 23 24 25 26 [8,3,6,120]
               LABELS codelet
-              TEST_IPUMODEL "true"
+              TEST_IPUMODEL
               VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
