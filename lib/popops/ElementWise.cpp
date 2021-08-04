@@ -2181,7 +2181,9 @@ bool createVertexBinaryOpBroadcastScalar(
           target, op, inType, outType, inPlace, uniformScalar, max2DRegionSizes)
           .cycles;
 
-  bool useSupervisor = (cycleEstSV < cycleEst2D);
+  // Cycles estimates for supervisor are in machine cycles whereas 2D estimates
+  // are in thread cycles.
+  bool useSupervisor = cycleEstSV < cycleEst2D * target.getNumWorkerContexts();
 
   if (useSupervisor && exitIfInefficient) {
     // If necessary insert criteria for exit, having chosen Supervisor vertices
