@@ -32,6 +32,8 @@
 #define FILL2D_FLOAT_FUNC __runCodelet_popops__Fill2d___float
 #define FILL2D_INT_FUNC __runCodelet_popops__Fill2d___int
 #define FILL2D_UINT_FUNC __runCodelet_popops__Fill2d___unsigned_int
+#define FILL2D_LONGLONG_FUNC __runCodelet_popops__Fill2d___long_long
+#define FILL2D_ULONGLONG_FUNC __runCodelet_popops__Fill2d___unsigned_long_long
 
 
 #define FILL_BOOL_FUNC __runCodelet_popops__Fill___bool
@@ -42,12 +44,18 @@
 #define FILL_FLOAT_FUNC __runCodelet_popops__Fill___float
 #define FILL_INT_FUNC __runCodelet_popops__Fill___int
 #define FILL_UINT_FUNC __runCodelet_popops__Fill___unsigned_int
+#define FILL_ULONGLONG_FUNC __runCodelet_popops__Fill___unsigned_long_long
+#define FILL_LONGLONG_FUNC __runCodelet_popops__Fill___long_long
 
 // Input vertex structure offsets
 #define VOFF_IN                  0
 #define VOFF_OUT_PTR             1
 #define VOFF_OUT_SIZE            2
 
+// Input vertex structure offsets for 64-bit
+#define VOFF_IN_64BIT            0
+#define VOFF_OUT_PTR_64BIT       2
+#define VOFF_OUT_SIZE_64BIT      3
 
 
 .globl FILL2D_BOOL_FUNC
@@ -58,6 +66,9 @@
 .globl FILL2D_FLOAT_FUNC
 .globl FILL2D_INT_FUNC
 .globl FILL2D_UINT_FUNC
+.globl FILL2D_LONGLONG_FUNC
+.globl FILL2D_ULONGLONG_FUNC
+
 
 .type FILL2D_BOOL_FUNC, @function
 .type FILL2D_CHAR_FUNC, @function
@@ -67,6 +78,9 @@
 .type FILL2D_FLOAT_FUNC, @function
 .type FILL2D_INT_FUNC, @function
 .type FILL2D_UINT_FUNC, @function
+.type FILL2D_LONGLONG_FUNC, @function
+.type FILL2D_ULONGLONG_FUNC, @function
+
 
 .globl FILL_BOOL_FUNC
 .globl FILL_CHAR_FUNC
@@ -76,6 +90,9 @@
 .globl FILL_FLOAT_FUNC
 .globl FILL_INT_FUNC
 .globl FILL_UINT_FUNC
+.globl FILL_ULONGLONG_FUNC
+.globl FILL_LONGLONG_FUNC
+
 
 .type FILL_BOOL_FUNC, @function
 .type FILL_CHAR_FUNC, @function
@@ -85,6 +102,9 @@
 .type FILL_FLOAT_FUNC, @function
 .type FILL_INT_FUNC, @function
 .type FILL_UINT_FUNC, @function
+.type FILL_ULONGLONG_FUNC, @function
+.type FILL_LONGLONG_FUNC, @function
+
 
 //******************************************************************************
 // Fill 2d vertex entry point for 16 and 32 bit types.
@@ -215,6 +235,61 @@ fill_2d_continue:
 
 .size __popops__Fill, .-__popops__Fill
 
+//******************************************************************************
+// inner loop used by 64-bit
+//******************************************************************************
+.macro INNER_LOOP_64BIT
+rpt $OUT_SIZE, (2f - 1f) / 8 - 1
+1:
+  {
+    st64step $aFILL_VALUE_64, $mzero, $OUT_PTR+=, 1
+    fnop
+  }
+2:
+.endm
+
+//******************************************************************************
+// Fill vertex entry for 64-bit types (ULONGLONG and LONGLONG)
+//******************************************************************************
+
+DEF_STACK_USAGE 0 .text.__popops__Fill_64bit
+.section .text.__popops__Fill_64bit
+ .align 8
+__popops__Fill_64bit:
+FILL_ULONGLONG_FUNC:
+FILL_LONGLONG_FUNC:
+
+  ld64     $aFILL_VALUE_64, $mzero, $mvertex_base, VOFF_IN_64BIT
+  ld32     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_64BIT
+  ld32     $OUT_SIZE, $mzero, $mvertex_base, VOFF_OUT_SIZE_64BIT
+  INNER_LOOP_64BIT
+  exitz      $mzero
+.size __popops__Fill_64bit, .-__popops__Fill_64bit
+
+//******************************************************************************
+// Fill 2D vertex entry for 64-bit types (ULONGLONG and LONGLONG)
+//******************************************************************************
+
+
+DEF_STACK_USAGE 0 .text.__popops__Fill2d_64bit
+.section .text.__popops__Fill2d_64bit
+.align 8
+nop
+__popops__Fill2d_64bit:
+FILL2D_ULONGLONG_FUNC:
+FILL2D_LONGLONG_FUNC:
+  ld64    $aFILL_VALUE_64, $mzero, $mvertex_base, VOFF_IN_64BIT
+  ld32    $OUT_LIST_PTR, $mvertex_base, VOFF_OUT_PTR_64BIT
+  ld32    $OUT_LIST_COUNT, $mvertex_base, VOFF_OUT_SIZE_64BIT
+  add     $OUT_LIST_COUNT, $OUT_LIST_COUNT, -1
+
+fill2d_64bit_loop:
+  ld32step  $OUT_PTR, $mzero, $OUT_LIST_PTR+=, 1
+  ld32step  $OUT_SIZE, $mzero, $OUT_LIST_PTR+=, 1
+  INNER_LOOP_64BIT
+  brnzdec $OUT_LIST_COUNT, fill2d_64bit_loop
+  exitz      $mzero
+.size __popops__Fill2d_64bit, .-__popops__Fill2d_64bit
 
 
 //******************************************************************************

@@ -3055,6 +3055,8 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, Fill, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill, UNSIGNED_CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, UNSIGNED_LONGLONG),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, LONGLONG),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, HALF),
@@ -3064,6 +3066,8 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, UNSIGNED_CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, SIGNED_CHAR),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, UNSIGNED_LONGLONG),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, LONGLONG),
 
       CAST_CYCLE_ESTIM_ENTRIES(Cast),
       CAST_CYCLE_ESTIM_ENTRIES(Cast2d),

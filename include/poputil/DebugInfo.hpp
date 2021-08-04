@@ -38,6 +38,8 @@ template <> poplar::ProfileValue toProfileValue(const unsigned char &v);
 template <> poplar::ProfileValue toProfileValue(const bool &v);
 template <> poplar::ProfileValue toProfileValue(const float &v);
 template <> poplar::ProfileValue toProfileValue(const double &v);
+template <> poplar::ProfileValue toProfileValue(const long long &v);
+template <> poplar::ProfileValue toProfileValue(const unsigned long long &v);
 template <> poplar::ProfileValue toProfileValue(const std::string &v);
 
 // template specializations for Poplar types

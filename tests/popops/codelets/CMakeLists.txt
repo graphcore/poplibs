@@ -387,6 +387,14 @@ test_fill_vertex(uchar 5)
 test_fill_vertex(schar 6)
 test_fill_vertex(schar 7)
 
+foreach(DATA_TYPE ulonglong longlong)
+  add_multitarget_test(NAME "FillCodelets_${DATA_TYPE}"
+                       COMMAND FillCodeletsTest 
+                              --size 1 2 10
+                              --data ${DATA_TYPE}
+                              --vertex Fill Fill2d
+                        VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+endforeach()
 
 add_unit_test(FillAndZeroTest
               FillAndZeroTest.cpp

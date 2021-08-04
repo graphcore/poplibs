@@ -52,7 +52,7 @@ bool isValidCombination(const VertexDesc &vertex) {
   const Type &type = vertex.dataType;
   return type == HALF || type == FLOAT || type == INT || type == UNSIGNED_INT ||
          type == BOOL || type == CHAR || type == UNSIGNED_CHAR ||
-         type == SIGNED_CHAR;
+         type == SIGNED_CHAR || type == UNSIGNED_LONGLONG || type == LONGLONG;
 }
 
 //*************************************************************************
@@ -203,6 +203,8 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   SELECT_ONE(CHAR, char)                                                       \
   SELECT_ONE(UNSIGNED_CHAR, unsigned char)                                     \
   SELECT_ONE(SIGNED_CHAR, signed char)                                         \
+  SELECT_ONE(UNSIGNED_LONGLONG, unsigned long long)                            \
+  SELECT_ONE(LONGLONG, long long)                                              \
   throw std::runtime_error("data type (" + test.vertex->dataType.toString() +  \
                            ") not supported");
 
@@ -276,7 +278,8 @@ int main(int argc, char **argv) {
      "Vertices to test, one or both of: Fill, Fill2d")
     ("data-type",
      po::value<std::vector<Type>>(&dataTypes)->multitoken(),
-     "Data type: one or more of half,float,int,uint,bool,char,schar,uchar")
+     "Data type: one or more of half,float,int,uint,bool,char,schar,uchar, "
+     "ulonglong, longlong")
     ("fill-value",
      po::value<float>(&fillValue)->default_value(fillValue),
      "fill value to use")
@@ -301,8 +304,8 @@ int main(int argc, char **argv) {
 
   // === If no data type specified, test 'em all
   if (dataTypes.empty()) {
-    dataTypes = {HALF, FLOAT, INT,         UNSIGNED_INT,
-                 BOOL, CHAR,  SIGNED_CHAR, UNSIGNED_CHAR};
+    dataTypes = {HALF, FLOAT,       INT,           UNSIGNED_INT,      BOOL,
+                 CHAR, SIGNED_CHAR, UNSIGNED_CHAR, UNSIGNED_LONGLONG, LONGLONG};
   }
 
   std::vector<std::shared_ptr<TestRecord>> tests;

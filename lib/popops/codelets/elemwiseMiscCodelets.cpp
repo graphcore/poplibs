@@ -60,7 +60,6 @@ template <typename InType> class Fill : public Vertex {
 public:
   InType in;
   Output<Vector<InType>> out;
-
   IS_EXTERNAL_CODELET(true);
 
   bool compute() {
@@ -79,6 +78,8 @@ template class Fill<bool>;
 template class Fill<char>;
 template class Fill<unsigned char>;
 template class Fill<signed char>;
+template class Fill<unsigned long long>;
+template class Fill<long long>;
 
 template <typename FPType> class Fill2d : public Vertex {
 public:
@@ -105,6 +106,8 @@ template class Fill2d<bool>;
 template class Fill2d<char>;
 template class Fill2d<unsigned char>;
 template class Fill2d<signed char>;
+template class Fill2d<unsigned long long>;
+template class Fill2d<long long>;
 
 // A couple of macros to instantiate more compactly the templates of the various
 // Cast vertices, for all possible combinations of input and output types
@@ -792,13 +795,13 @@ public:
 template class NopAlignVertex<8, half>;
 template class NopAlignVertex<8, float>;
 template class NopAlignVertex<8, int>;
-template class NopAlignVertex<8, long long>;
 template class NopAlignVertex<8, unsigned int>;
-template class NopAlignVertex<8, unsigned long long>;
 template class NopAlignVertex<8, short>;
 template class NopAlignVertex<8, unsigned short>;
 template class NopAlignVertex<8, bool>;
 template class NopAlignVertex<8, char>;
 template class NopAlignVertex<8, unsigned char>;
 template class NopAlignVertex<8, signed char>;
+template class NopAlignVertex<8, unsigned long long>;
+template class NopAlignVertex<8, long long>;
 } // namespace popops

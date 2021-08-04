@@ -193,7 +193,6 @@ void copy(const poplar::Target &target, const T *src, std::size_t n,
   STD_COPY(BOOL, bool)
   STD_COPY(UNSIGNED_LONGLONG, unsigned long long)
   STD_COPY(LONGLONG, long long)
-
 #undef STD_COPY
   throw std::runtime_error("destination type " + dstType.toString() +
                            " not supported in poplibs_test::util::copy()");

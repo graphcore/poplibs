@@ -297,4 +297,29 @@ BOOST_AUTO_TEST_CASE(ZeroTest) {
            return sequence;
          });
   }
+
+  {
+    Test(testList, UNSIGNED_LONGLONG, 0,
+         [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
+           Sequence sequence;
+
+           auto cs = graph.addComputeSet("ZeroWithTileRegions");
+           popops::zero(graph, sliceOut, {{0, sliceOut.numElements()}}, 0, cs);
+           sequence.add(Execute(cs));
+
+           return sequence;
+         });
+  }
+  {
+    Test(testList, LONGLONG, 0,
+         [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
+           Sequence sequence;
+
+           auto cs = graph.addComputeSet("ZeroWithTileRegions");
+           popops::zero(graph, sliceOut, {{0, sliceOut.numElements()}}, 0, cs);
+           sequence.add(Execute(cs));
+
+           return sequence;
+         });
+  }
 }

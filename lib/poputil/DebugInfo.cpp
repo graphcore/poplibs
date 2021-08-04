@@ -101,6 +101,14 @@ template <> poplar::ProfileValue toProfileValue(const std::string &t) {
   return poplar::ProfileValue(t);
 }
 
+template <> poplar::ProfileValue toProfileValue(const long long &t) {
+  return poplar::ProfileValue(t);
+}
+
+template <> poplar::ProfileValue toProfileValue(const unsigned long long &t) {
+  return poplar::ProfileValue(t);
+}
+
 // Need a specialization for vector<bool> on mac as vec[b] is a
 // __bit_const_reference
 template <> poplar::ProfileValue toProfileValue(const std::vector<bool> &vec) {

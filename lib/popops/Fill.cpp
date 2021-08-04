@@ -97,5 +97,7 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
 FILL_EXPLICIT_INSTANTIATIONS(float);
 FILL_EXPLICIT_INSTANTIATIONS(int);
 FILL_EXPLICIT_INSTANTIATIONS(unsigned);
+FILL_EXPLICIT_INSTANTIATIONS(long long);
+FILL_EXPLICIT_INSTANTIATIONS(unsigned long long);
 
 } // namespace popops

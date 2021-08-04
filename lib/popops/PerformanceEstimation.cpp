@@ -342,6 +342,12 @@ _fillCycleEstimate(std::uint64_t size, const FillTargetParameters &targetParams,
   const bool is8Bits = type == BOOL || type == CHAR || type == UNSIGNED_CHAR ||
                        type == SIGNED_CHAR;
   const bool isHalf = type == HALF;
+  const bool is64Bit = type == UNSIGNED_LONGLONG || type == LONGLONG;
+
+  if (is64Bit) {
+    return 5 + size;
+  }
+
   const auto width = targetParams.dataPathWidth / (isHalf ? 16 : 32);
 
   if (is8Bits) {
@@ -413,9 +419,20 @@ std::uint64_t getFill1DCycleEstimate(const FillTargetParameters &targetParams,
 std::uint64_t getFill2DCycleEstimate(const FillTargetParameters &targetParams,
                                      const Type &type,
                                      const std::vector<unsigned> &numElems) {
-  std::uint64_t cycles = 5 + (type != HALF);
+  std::uint64_t cycles = 5;
   for (unsigned i = 0; i < numElems.size(); ++i)
     cycles += _fillCycleEstimate(numElems[i], targetParams, type);
+
+  // 64-bit 2D doesn't share code with the other functions
+  const auto is64Bit = type == UNSIGNED_LONGLONG || type == LONGLONG;
+  if (is64Bit) {
+    cycles -= 2 * numElems.size();
+    return cycles;
+  }
+
+  // All cases other than 64-bit
+  cycles += (type != HALF);
+
   // The 1d fill function includes overhead from loading variables which takes 5
   // cycles for half types and 6 cycles for other types, but the 2d fill
   // function has an additional per-loop overhead of 3 cycles, so subtract two
