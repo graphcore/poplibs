@@ -139,6 +139,22 @@ template class Fill2d<long long>;
   template class CastVertexName<char, float>;                                  \
   template class CastVertexName<char, half>;
 
+#define INSTANTIATE_CAST_LONGLONG(CastVertexName)                              \
+  template class CastVertexName<short, unsigned long long>;                    \
+  template class CastVertexName<short, long long>;                             \
+  template class CastVertexName<unsigned short, unsigned long long>;           \
+  template class CastVertexName<unsigned short, long long>;                    \
+  template class CastVertexName<bool, unsigned long long>;                     \
+  template class CastVertexName<bool, long long>;                              \
+  template class CastVertexName<unsigned, long long>;                          \
+  template class CastVertexName<unsigned, unsigned long long>;                 \
+  template class CastVertexName<int, long long>;                               \
+  template class CastVertexName<int, unsigned long long>;                      \
+  template class CastVertexName<char, long long>;                              \
+  template class CastVertexName<char, unsigned long long>;                     \
+  template class CastVertexName<unsigned char, long long>;                     \
+  template class CastVertexName<unsigned char, unsigned long long>;
+
 // Returns some compile time parameters for Cast vertices, based on SrcType
 // and DstType, as a tuple where :
 //   element 0 is a boolean     : true if the vertex is implemented in assembly
@@ -229,6 +245,7 @@ public:
 };
 
 INSTANTIATE_CAST(Cast)
+INSTANTIATE_CAST_LONGLONG(Cast)
 
 #ifdef __IPU__
 // The vertices defined by this template will be called by the supervisor
@@ -310,6 +327,8 @@ template class CastWorker<bool, int>;
 template class CastWorker<bool, unsigned int>;
 template class CastWorker<bool, unsigned short>;
 
+INSTANTIATE_CAST_LONGLONG(CastWorker)
+
 #endif
 
 template <typename SrcType, typename DstType>
@@ -382,6 +401,7 @@ public:
 };
 
 INSTANTIATE_CAST(CastSupervisor)
+INSTANTIATE_CAST_LONGLONG(CastSupervisor)
 
 template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2d
@@ -412,6 +432,7 @@ public:
 };
 
 INSTANTIATE_CAST(Cast2d)
+INSTANTIATE_CAST_LONGLONG(Cast2d)
 
 template <typename InType> class Clamp : public Vertex {
 public:

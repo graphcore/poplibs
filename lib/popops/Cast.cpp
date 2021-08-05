@@ -77,7 +77,9 @@ Program cast(Graph &graph, Tensor src, Tensor dst,
   auto srcType = src.elementType();
   auto dstType = dst.elementType();
   if ((srcType == dstType) || ((srcType == INT) && (dstType == UNSIGNED_INT)) ||
-      ((srcType == UNSIGNED_INT) && (dstType == INT))) {
+      ((srcType == UNSIGNED_INT) && (dstType == INT)) ||
+      ((srcType == UNSIGNED_LONGLONG) && (dstType == LONGLONG)) ||
+      ((srcType == LONGLONG) && (dstType == UNSIGNED_LONGLONG))) {
     logging::popops::trace("Cast is just a copy");
     return Copy(src.reinterpret(dstType), dst, false, {di});
   }

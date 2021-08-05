@@ -162,6 +162,13 @@ static uint64_t castWorkerCycles(const unsigned numElems, const Type &fromType,
       (fromType == FLOAT || fromType == HALF) &&
       (toType == UNSIGNED_CHAR || toType == SIGNED_CHAR || toType == CHAR);
 
+  const bool isDstLongLong = toType == UNSIGNED_LONGLONG || toType == LONGLONG;
+  if (isDstLongLong) {
+    std::uint64_t cyclesPerElem =
+        (fromType == INT || fromType == CHAR || fromType == SHORT) + 4;
+    return 3 + numElems * cyclesPerElem;
+  }
+
   if (isCharFloat || isFloatChar) {
     // These assembly functions have a common structure, using an atom-sized
     // (2/4 elems) pipelined loop and a "0,1,2 or 3" remainder section.

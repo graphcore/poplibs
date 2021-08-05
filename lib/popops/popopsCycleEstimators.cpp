@@ -2862,7 +2862,21 @@ MAKE_PERF_ESTIMATOR_NAME(NormaliseImage)(const VertexIntrospector &vertex,
       CYCLE_ESTIMATOR_ENTRY(popops, name, SIGNED_CHAR, FLOAT),                 \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SIGNED_CHAR, HALF),                  \
       CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, FLOAT),                        \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, HALF)
+      CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, HALF),                         \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SHORT, LONGLONG),                    \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SHORT, UNSIGNED_LONGLONG),           \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_SHORT, LONGLONG),           \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_SHORT, UNSIGNED_LONGLONG),  \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, BOOL, LONGLONG),                     \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, BOOL, UNSIGNED_LONGLONG),            \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_INT, LONGLONG),             \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_INT, UNSIGNED_LONGLONG),    \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, INT, LONGLONG),                      \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, INT, UNSIGNED_LONGLONG),             \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, LONGLONG),            \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, UNSIGNED_LONGLONG),   \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, LONGLONG),                     \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, UNSIGNED_LONGLONG)
 
 poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
   poputil::internal::PerfEstimatorTable table = {

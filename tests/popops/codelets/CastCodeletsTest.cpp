@@ -103,6 +103,17 @@ bool isValidTypes(const VertexDesc &vertex) {
     return src != dst;
   }
 
+  if ((dst == UNSIGNED_LONGLONG) || (dst == LONGLONG)) {
+    return src == INT || src == UNSIGNED_INT || src == CHAR ||
+           src == UNSIGNED_CHAR || src == UNSIGNED_SHORT || src == SHORT ||
+           src == BOOL;
+  }
+
+  // conversion from 64-bit to any other type is not yet supported
+  if ((src == UNSIGNED_LONGLONG) || (src == LONGLONG)) {
+    return false;
+  }
+
   // We can also cast from FLOAT or HALF into all char types, and vice-versa.
   if ((src == FLOAT || src == HALF) &&
       (dst == CHAR || dst == SIGNED_CHAR || dst == UNSIGNED_CHAR)) {
@@ -387,7 +398,7 @@ int main(int argc, char **argv) {
     ("data-type",
      po::value<std::vector<Type>>(&srcTypes)->multitoken(),
      "Data type: one or more of half, float, int, uint, short, ushort, bool, "
-     "char, schar, uchar")
+     "char, schar, uchar, ulonglong, longlong")
     ("cast",
      po::value<std::vector<std::string>>(&dstTypeStrs)->multitoken(),
      "Destination type(s) for the cast(s) to perform")
@@ -407,9 +418,9 @@ int main(int argc, char **argv) {
   }
 
   // All types for which at least one cast to or from is defined.
-  const static std::array allTypes = {HALF,           FLOAT, INT,  UNSIGNED_INT,
-                                      UNSIGNED_SHORT, BOOL,  CHAR, SIGNED_CHAR,
-                                      UNSIGNED_CHAR};
+  const static std::array allTypes = {
+      HALF, FLOAT,       INT,           UNSIGNED_INT,      UNSIGNED_SHORT, BOOL,
+      CHAR, SIGNED_CHAR, UNSIGNED_CHAR, UNSIGNED_LONGLONG, LONGLONG};
 
   // === If no destination type specified, test 'em all
   std::vector<Type> dstTypes;

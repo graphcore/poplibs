@@ -918,6 +918,16 @@ add_multitarget_test(NAME CastCodeletsTest_to_char
               TEST_IPUMODEL
               VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
+add_multitarget_test(NAME CastCodeletsTest_to_LongLong
+              COMMAND CastCodeletsTest
+                  --data-type char uchar int uint short ushort bool
+                  --cast ulonglong longlong
+                  --group-tests
+                  --size 1 2 3 [8,3,6,40]
+              LABELS codelet
+              TEST_IPUMODEL
+              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+
 add_multitarget_test(NAME CastCodeletsTest_from_char
               COMMAND CastCodeletsTest
                   --data-type char schar uchar
