@@ -27,6 +27,11 @@ namespace poputil {
 unsigned detectInnermostGrouping(const poplar::Graph &graph,
                                  const poplar::Tensor &t);
 
+/**
+ * Grouped dimension info.
+ *   The first in the pair is the grouped dimension
+ *   The second in the pair is the grouping in that dimension
+ */
 using GroupingInfo = std::pair<unsigned, unsigned>;
 
 /** Find all grouped dimensions from the innermost grouped dimension
