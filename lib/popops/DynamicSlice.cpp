@@ -273,14 +273,14 @@ static unsigned linearizeSliceIndices(const std::size_t indexPartition,
                                       const std::size_t unslicedIdx) {
   unsigned tile = 0;
 
-  // unsliced dimensions
-  tile = tile * unslicedPartition + unslicedIdx;
+  // indices
+  tile = tile * indexPartition + indexIdx;
 
   // sliced dimensions
   tile = tile * slicedPartition + slicedIdx;
 
-  // indices
-  tile = tile * indexPartition + indexIdx;
+  // unsliced dimensions
+  tile = tile * unslicedPartition + unslicedIdx;
 
   return tile;
 }
@@ -2611,14 +2611,9 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // mBaseGrainsPerTile gives the number of grains taken as input
     // to MultiSlice vertices in the first stage. If there is a lookup
     // split then this data must be broadcast.
-    //
-    // Due to the way we map partitions of the slice to tiles, consecutive
-    // tiles receive the same portion of the sliced operand when the lookup
-    // dimension is split. This information provided to the exchange estimator
-    // allows us to account for utilising double-width exchange.
-    const auto mExchangeCycles = exchangeEstimator(
-        m.product({mBaseGrainsPerTile, mBytesPerGrain}), partition.lookupSplit,
-        mUsedTiles, ipuLevel, "slice.0.exchange.cycles");
+    const auto mExchangeCycles =
+        exchangeEstimator(m.product({mBaseGrainsPerTile, mBytesPerGrain}),
+                          ipuLevel, "slice.0.exchange.cycles");
     const MultiSliceTargetParameters targetParams{target, dataType};
     e.sliceFirstStageExchangeCycles =
         m.product({mLookupsAreSplit, mExchangeCycles});
@@ -2723,9 +2718,8 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
 
     // For now we force float partial type for the update.
     const auto mFloatData = m.addConstant(dataType == FLOAT ? 1u : 0u);
-    const auto mNeedsCast =
-        m.booleanOr(m.booleanNot(mFloatData), mLookupsAreSplit);
-    // Temp bytes needed if the updates need to be cast to a higher precision.
+    const auto mNotFloatData = m.booleanNot(mFloatData);
+    const auto mNeedsCast = m.booleanAnd(mNotFloatData, mLookupsAreSplit);
     const auto mUpdatesCastTempBytesPerTile =
         m.product({mNeedsCast, mOutputElemsPerTile, mBytesPerFloat});
     // Temp bytes needed if the updates are multi-cast to tiles.
@@ -2749,7 +2743,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                             "update.0.castSlices")
             .cycles;
     e.updateCastSlicesCycles =
-        m.product({mLookupsAreSplit, e.updateCastSlicesCycles});
+        m.product({mNeedsCast, e.updateCastSlicesCycles});
     e.updateZeroPartialsCycles =
         modelContiguousFill(target, FLOAT, m, mPartialElemsPerTile,
                             "update.0.zeroPartials")
@@ -2804,7 +2798,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                             mBaseElemsStoragePerTile, "update.1.castBase")
             .cycles;
     e.updateCastBasePreCycles =
-        m.product({mLookupsAreSplit, e.updateCastBasePreCycles});
+        m.product({mNeedsCast, e.updateCastBasePreCycles});
     // NOTE: Optimistically assuming fast path - this is not forced
     // but a runtime check opportunistically selects the fast path if
     // inputs are in different memory elements.
@@ -2821,7 +2815,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                             mBaseElemsStoragePerTile, "update.1.castBaseBack")
             .cycles;
     e.updateCastBasePostCycles =
-        m.product({mLookupsAreSplit, e.updateCastBasePostCycles});
+        m.product({mNeedsCast, e.updateCastBasePostCycles});
     e.updateTotalCycles = m.sum(
         {e.updateCastSlicesCycles, e.updateZeroPartialsCycles,
          e.updateFirstStageExchangeCycles, e.updateFirstStageComputeCycles,
