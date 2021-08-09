@@ -207,6 +207,7 @@ add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
 
 add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
+add_unit_test(RegroupTest RegroupTest.cpp)
 add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
               SUITES SingleDim MultiDim LargeBuffer Update Misc MultiSlice

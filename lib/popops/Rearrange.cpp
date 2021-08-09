@@ -380,23 +380,22 @@ std::pair<GroupingInfo, GroupingInfo> updateGrouping(const Graph &graph,
   return std::make_pair(std::get<0>(result), std::get<1>(result));
 }
 
-Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
-                     const ComputeSet &transposeCS, const GroupingInfo &from_,
-                     const GroupingInfo &to_,
-                     const poplar::DebugContext &debugContext) {
-  POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext,
-                                 DI_ARGS(t, copies, transposeCS, from_, to_));
-
-  logging::popops::debug("Regroup: debugstr={}", debugContext.getPathName());
+Tensor regroupTensorInternal(Graph &graph, const Tensor &t,
+                             std::vector<Copy> &copies,
+                             const ComputeSet &transposeCS,
+                             const GroupingInfo &from_, const GroupingInfo &to_,
+                             const DebugNameAndId &dnai) {
+  const std::string fnStr = "internal";
+  logging::popops::debug("Regroup: debugstr={}", dnai.getPathName());
   logging::popops::debug("  t      shape={}", t.shape());
   logging::popops::debug("  from   grouping={{{},{}}}", from_.first,
                          from_.second);
   logging::popops::debug("  to     grouping={{{},{}}}", to_.first, to_.second);
+
   if (t.rank() <= 1) {
-    di.addOutput(t);
     return t;
   }
+
   const auto &validTypes = getValidTransposeDataTypes();
   if (std::find(validTypes.begin(), validTypes.end(), t.elementType()) ==
       validTypes.end()) {
@@ -444,7 +443,7 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
   // may leave multiple regions per-tile, one for each edge to a
   // transpose vertex.
   auto preRegroup =
-      graph.addVariable(t.elementType(), grouped.shape(), {di, "preRegroup"});
+      graph.addVariable(t.elementType(), grouped.shape(), {dnai, "preRegroup"});
   auto preRegroupTranspose = preRegroup.flatten(0, preRegroup.rank() - 2);
   auto preRegroupFlat =
       preRegroup.flatten(0, preRegroup.rank() - 2).flatten(1, 3);
@@ -534,13 +533,26 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
     }
   }
 
-  copies.emplace_back(grouped, preRegroup, false, di);
+  copies.emplace_back(grouped, preRegroup, false, DebugContext(dnai, fnStr));
 
   // Finally, transpose
-  auto partiallyTransposed =
-      popops::rearrange::partialTranspose(graph, preRegroup, transposeCS, {di});
+  auto partiallyTransposed = popops::rearrange::partialTranspose(
+      graph, preRegroup, transposeCS, {dnai, fnStr});
 
   auto output = ungroupTensor(partiallyTransposed, from, to);
+  return output;
+}
+
+Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
+                     const ComputeSet &transposeCS, const GroupingInfo &from_,
+                     const GroupingInfo &to_,
+                     const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(t, copies, transposeCS, from_, to_));
+  auto output =
+      regroupTensorInternal(graph, t, copies, transposeCS, from_, to_, {di});
+
   di.addOutput(output);
   return output;
 }
@@ -559,6 +571,56 @@ Tensor regroupTensor(Graph &graph, const Tensor &t_,
   for (const auto &copy : copies) {
     prog.add(copy);
   }
+  di.addOutput(t);
+  return t;
+}
+
+Tensor regroupIfPossible(Graph &graph, const Tensor &t_,
+                         poplar::program::Sequence &prog,
+                         const GroupingInfo &to_,
+                         const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t_, to_));
+
+  const auto groupings = detectDimGroupings(graph, t_);
+  logging::popops::debug("Regroup if possible {}", debugContext.getPathName());
+  logging::popops::debug("  shape {}, groupings {}", t_.shape(), groupings);
+
+  const auto invalid = (t_.dim(to_.first) % to_.second) || (t_.rank() <= 1) ||
+                       (to_.first >= t_.rank());
+  // If the innermost grouping is already the dimension for which regrouping
+  // is requested, nothing needs to be done.
+  const auto noRegroupingRequired =
+      !groupings.empty() && std::get<0>(groupings.at(0)) == std::get<0>(to_);
+
+  const auto grainSize = getMinimumRegroupGrainSize(t_.elementType());
+
+  // Only check for grouping in the innermost dimension. If the innermost
+  // dimension is the `to be regrouped` dimension, noRegroupingRequired = true
+  // and no regrouping is performed. If the innermost grouping has the
+  // requisite grain size and is not the `to be regrouped` dimension we use it
+  // up as the from dimension.
+  auto suitableGroupingFound =
+      !groupings.empty() && std::get<1>(groupings.at(0)) % grainSize == 0;
+
+  if (invalid || noRegroupingRequired || !suitableGroupingFound) {
+    logging::popops::debug("  Regrouping not possible: invalid ? {}, "
+                           "noRegroupingRequired {}, suitableGroupingFound {}",
+                           invalid, noRegroupingRequired,
+                           suitableGroupingFound);
+    di.addOutput(t_);
+    return t_;
+  }
+
+  std::vector<Copy> copies;
+  auto transposeCS =
+      graph.addComputeSet(debugContext.getPathName() + "/regroupTensor");
+  auto t = regroupTensorInternal(graph, t_, copies, transposeCS,
+                                 groupings.at(0), to_, {di});
+  for (const auto &copy : copies) {
+    prog.add(copy);
+  }
+  prog.add(Execute(transposeCS));
   di.addOutput(t);
   return t;
 }
@@ -605,8 +667,8 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
       (inGrouping[0].second % grainSize) == 0 &&
       (refGrouping[0].second % grainSize) == 0) {
     logging::popops::debug("  regrouped");
-    in = regroupTensor(graph, in, preTranspose, transposeCS, inGrouping[0],
-                       refGrouping[0], {di});
+    in = regroupTensorInternal(graph, in, preTranspose, transposeCS,
+                               inGrouping[0], refGrouping[0], {di});
   }
   di.addOutput(in);
   return in;

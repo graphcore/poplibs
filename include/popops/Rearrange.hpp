@@ -104,6 +104,27 @@ poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
                              const poputil::GroupingInfo &to,
                              const poplar::DebugContext &debugContext = {});
 
+/** Insert copies or other operations into the given program to transform the
+ *  grouping found on the given tensor to \p to. This is a no-op for a
+ *  one-dimensional tensor and if regrouping is not possible. Regrouping may
+ *  not be possible or done if grouping exists only on the requested dimension,
+ *  or no suitable grain size is available for efficient regrouping.
+ *
+ *  \param graph       The graph to add the operation to.
+ *  \param t           The tensor to regroup.
+ *  \param prog        A poplar sequence to add any pre-arranging and
+ *                     other operations to.
+ *  \param to          A grouping wanted on the returned tensor.
+ *  \param debugContext Optional debug information.
+ *
+ *  \returns A tensor with the contents of \p t but laid out such that
+ *           it has the grouping specified in \p to.
+ */
+poplar::Tensor regroupIfPossible(poplar::Graph &graph, const poplar::Tensor &t,
+                                 poplar::program::Sequence &prog,
+                                 const poputil::GroupingInfo &to,
+                                 const poplar::DebugContext &debugContext = {});
+
 /** Insert copies or other operations into the given programs/compute sets
  *  to transform the grouping found on the given tensor from \p from to
  *  \p to. This is a no-op for a one-dimensional tensor.
