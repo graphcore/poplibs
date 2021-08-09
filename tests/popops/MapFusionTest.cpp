@@ -340,9 +340,12 @@ int main(int argc, char **argv) {
   if (test == "Abs") {
     CHECK((mapTest<10, float>(pe::Abs(pe::_1))));
     CHECK((mapTest<10, int>(pe::Abs(pe::_1))));
+    // require 12 to avoid rearrangements for host reads
+    CHECK((mapTest<12, long long>(pe::Abs(pe::_1))));
   } else if (test == "Neg") {
     CHECK((mapTest<10, float>(pe::Neg(pe::_1))));
     CHECK((mapTest<10, int>(pe::Neg(pe::_1))));
+    CHECK((mapTest<12, long long>(pe::Neg(pe::_1))));
   } else if (test == "Signum") {
     CHECK((mapTest<10, int>(pe::Signum(pe::_1))));
     CHECK((mapTest<10, float>(pe::Signum(pe::_1))));
@@ -353,6 +356,7 @@ int main(int argc, char **argv) {
   } else if (test == "BitwiseNot") {
     CHECK((mapTest<10, int>(pe::BitwiseNot(pe::_1))));
     CHECK((mapTest<10, unsigned>(pe::BitwiseNot(pe::_1))));
+    CHECK((mapTest<12, unsigned long long>(pe::BitwiseNot(pe::_1))));
   }
 
   // HALF and FLOAT
@@ -405,15 +409,20 @@ int main(int argc, char **argv) {
 
   //
   // Binary Operations.
-  //
+  // For bitwise operations and unsigned shift, long long types are not tested
+  // as codegen is exactly the same.
   else if (test == "Add") {
     CHECK((mapTest<10, float>(pe::Add(pe::_1, pe::_2))));
     CHECK((mapTest<10, int>(pe::Add(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::Add(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::Add(pe::_1, pe::_2))));
+    CHECK((mapTest<12, long long>(pe::Add(pe::_1, pe::_2))));
   } else if (test == "Divide") {
     CHECK((mapTest<10, float>(pe::Divide(pe::_1, pe::_2))));
     CHECK((mapTest<10, int>(pe::Divide(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::Divide(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::Divide(pe::_1, pe::_2))));
+    CHECK((mapTest<12, long long>(pe::Divide(pe::_1, pe::_2))));
   }
 
   // All boolean operations can generate memcopies so will mess up the report
@@ -423,67 +432,107 @@ int main(int argc, char **argv) {
     CHECK((mapTest<10, int, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
     CHECK(
         (mapTest<10, unsigned, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<12, unsigned long long, bool>(pe::Equal(pe::_1, pe::_2),
+                                                 false, false)));
+    CHECK((
+        mapTest<12, long long, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
   } else if (test == "Gte") {
     CHECK((mapTest<10, float, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, int, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, unsigned, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<12, unsigned long long, bool>(pe::Gte(pe::_1, pe::_2), false,
+                                                 false)));
+    CHECK((mapTest<12, unsigned long long, bool>(pe::Gte(pe::_1, pe::_2), false,
+                                                 false)));
+    CHECK(
+        (mapTest<12, long long, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
   } else if (test == "Gt") {
     CHECK((mapTest<10, float, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, int, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, unsigned, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<12, unsigned long long, bool>(pe::Gt(pe::_1, pe::_2), false,
+                                                 false)));
+    CHECK((mapTest<12, long long, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
   } else if (test == "Lte") {
     CHECK((mapTest<10, float, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, int, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, unsigned, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<12, unsigned long long, bool>(pe::Lte(pe::_1, pe::_2), false,
+                                                 false)));
+    CHECK(
+        (mapTest<12, long long, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
   } else if (test == "NotEqual") {
     CHECK(
         (mapTest<10, float, bool>(pe::NotEqual(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, int, bool>(pe::NotEqual(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, unsigned, bool>(pe::NotEqual(pe::_1, pe::_2), false,
                                        false)));
+    CHECK((mapTest<12, unsigned long long, bool>(pe::NotEqual(pe::_1, pe::_2),
+                                                 false, false)));
+    CHECK((mapTest<12, long long, bool>(pe::NotEqual(pe::_1, pe::_2), false,
+                                        false)));
   } else if (test == "Lt") {
     CHECK((mapTest<10, float, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, int, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
     CHECK((mapTest<10, unsigned, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<12, unsigned long long, bool>(pe::Lt(pe::_1, pe::_2), false,
+                                                 false)));
+    CHECK((mapTest<12, long long, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
   } else if (test == "Sub") {
     CHECK((mapTest<10, float>(pe::Sub(pe::_1, pe::_2))));
     CHECK((mapTest<10, int>(pe::Sub(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::Sub(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::Sub(pe::_1, pe::_2))));
+    CHECK((mapTest<12, long long>(pe::Sub(pe::_1, pe::_2))));
   } else if (test == "Max") {
     CHECK((mapTest<10, float>(pe::Max(pe::_1, pe::_2))));
     CHECK((mapTest<10, int>(pe::Max(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::Max(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::Max(pe::_1, pe::_2))));
+    CHECK((mapTest<12, long long>(pe::Max(pe::_1, pe::_2))));
   } else if (test == "Min") {
     CHECK((mapTest<10, float>(pe::Min(pe::_1, pe::_2))));
     CHECK((mapTest<10, int>(pe::Min(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::Min(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::Max(pe::_1, pe::_2))));
+    CHECK((mapTest<12, long long>(pe::Max(pe::_1, pe::_2))));
   } else if (test == "Mul") {
     CHECK((mapTest<10, float>(pe::Mul(pe::_1, pe::_2))));
     CHECK((mapTest<10, int>(pe::Mul(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::Mul(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::Mul(pe::_1, pe::_2))));
+    CHECK((mapTest<12, long long>(pe::Mul(pe::_1, pe::_2))));
   } else if (test == "BitwiseAnd") {
     CHECK((mapTest<10, int>(pe::BitwiseAnd(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::BitwiseAnd(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::BitwiseAnd(pe::_1, pe::_2))));
   } else if (test == "BitwiseOr") {
     CHECK((mapTest<10, int>(pe::BitwiseOr(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::BitwiseOr(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::BitwiseOr(pe::_1, pe::_2))));
   } else if (test == "BitwiseXor") {
     CHECK((mapTest<10, int>(pe::BitwiseXor(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::BitwiseXor(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::BitwiseXor(pe::_1, pe::_2))));
   } else if (test == "BitwiseXnor") {
     CHECK((mapTest<10, int>(pe::BitwiseXnor(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::BitwiseXnor(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::BitwiseXnor(pe::_1, pe::_2))));
   } else if (test == "Rem") {
     CHECK((mapTest<10, int>(pe::Rem(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::Rem(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::Rem(pe::_1, pe::_2))));
   } else if (test == "Shl") {
     CHECK((mapTest<10, int>(pe::Shl(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::Shl(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::Shl(pe::_1, pe::_2))));
   } else if (test == "Shr") {
     CHECK((mapTest<10, int>(pe::Shr(pe::_1, pe::_2))));
     CHECK((mapTest<10, unsigned>(pe::Shr(pe::_1, pe::_2))));
+    CHECK((mapTest<12, unsigned long long>(pe::Shr(pe::_1, pe::_2))));
   } else if (test == "ShrSE") {
     CHECK((mapTest<10, int>(pe::ShrSE(pe::_1, pe::_2))));
+    CHECK((mapTest<12, long long>(pe::ShrSE(pe::_1, pe::_2))));
   }
 
   // Float only
@@ -519,6 +568,16 @@ int main(int argc, char **argv) {
                                     pe::_2),
                             pe::Const(2.0f))),
             pe::_2)),
+        true, true)));
+    CHECK((mapTest<12, unsigned long long>(
+        pe::BitwiseAnd(
+            pe::Divide(pe::BitwiseNot(pe::Add(
+                           pe::Mul(pe::Sub(pe::Add(pe::_1, pe::Const(5)),
+                                           pe::Const(3)),
+                                   pe::_2),
+                           pe::Const(2))),
+                       pe::Const(4)),
+            pe::_2),
         true, true)));
   } else if (test == "MissingPlaceholder") {
     // Add an unused int argument.
