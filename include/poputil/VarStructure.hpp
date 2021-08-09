@@ -21,7 +21,7 @@ namespace poputil {
  * its innermost dimension.
  *  \param graph    The graph to add the function to.
  *  \param t        The tensor to check for grouping.
- *  \return         The size of the group. Zero if there is no grouping.
+ *  \return         The size of the group. 1 if there is no grouping.
  *  \throw poputil::poplibs_error If the rank of \p t is zero.
  */
 unsigned detectInnermostGrouping(const poplar::Graph &graph,
