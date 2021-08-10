@@ -37,8 +37,7 @@ namespace popops {
 
 static bool isSupportedType(poplar::Type t) {
   return t == poplar::FLOAT || t == poplar::HALF || t == poplar::INT ||
-         t == poplar::UNSIGNED_INT || t == poplar::BOOL ||
-         t == poplar::UNSIGNED_LONGLONG || t == poplar::LONGLONG;
+         t == poplar::UNSIGNED_INT || t == poplar::BOOL;
 }
 
 static bool traverseAndCheck(const expr::Expr &expr,
@@ -151,7 +150,7 @@ std::string getTypeAlias(const std::string &typeAsStr) {
   if (pos != std::string::npos) {
     str.replace(0, 9, "u", 1);
   }
-  str.erase(std::remove(str.begin(), str.end(), ' '), str.end());
+
   return str;
 }
 
