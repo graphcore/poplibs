@@ -2950,39 +2950,6 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
-# Replicate across tiles
-add_multitarget_test(
-  NAME conv2d_replicate_over_tiles
-  COMMAND single_conv_layer
-          --tiles-per-ipu=8
-          --single-phase=fwd
-          --input-channels=32
-          --output-channels=64
-          --field={14,14}
-          --kernel-size=3
-          --padding=1
-          --replication-factor=2
-  VARIANTS ${TimesOutOnSimCpp})
-
-# Replicate across IPUs
-foreach(rf 1 2 4 8 16)
-  math(EXPR bs "16 / ${rf}")
-  add_multitarget_test(
-    NAME conv2d_replicate_over_ipus_rf_${rf}
-    COMMAND single_conv_layer
-            --tiles-per-ipu=8
-            --ipus=16
-            --single-phase=fwd
-            --input-channels=32
-            --output-channels=64
-            --field={14,14}
-            --kernel-size=3
-            --padding=1
-            --batch-size=${bs}
-            --replication-factor=${rf}
-    VARIANTS ${IPUMODEL_VARIANTS})
-endforeach()
-
 add_multitarget_test(
         NAME conv3x3_stride_3_in_dilation_2_fwd_conv_dither
         COMMAND single_conv_layer

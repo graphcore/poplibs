@@ -21,28 +21,6 @@ foreach(NL_TYPE gelu swish)
     --nl-type ${NL_TYPE})
 endforeach()
 
-# Distributed batch norm
-add_multi_target_test_executable(DistributedBatchNorm DistributedBatchNorm.cpp)
-foreach(STABLE_ALGO true false)
-  foreach(UNBIASED_VAR true false)
-    foreach(DATA_TYPE half float)
-      foreach(NUM_REPLICAS 1 2 4)
-        add_multitarget_test(NAME DistributedBatchNorm_stable_${STABLE_ALGO}_unbiased_${UNBIASED_VAR}_datatype_${DATA_TYPE}_repl_${NUM_REPLICAS}
-          COMMAND DistributedBatchNorm
-          --eps 0.00001
-          --tiles-per-ipu 16
-          --stable-algo-for-stats ${STABLE_ALGO}
-          --unbiased-var-est ${UNBIASED_VAR}
-          --data-type ${DATA_TYPE}
-          --num-replicas ${NUM_REPLICAS}
-          --partials-type float
-          --dims={2,32,28,28}
-          VARIANTS ${IPUMODEL_VARIANTS})
-      endforeach()
-    endforeach()
-  endforeach()
-endforeach()
-
 add_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_unit_test(SpatialSoftmaxTest SpatialSoftmaxTest.cpp)
 add_unit_test(LogSoftmaxTest LogSoftmaxTest.cpp)

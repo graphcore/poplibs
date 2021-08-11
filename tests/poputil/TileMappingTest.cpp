@@ -383,20 +383,3 @@ BOOST_AUTO_TEST_CASE(CloneToGraphBadRange) {
   BOOST_CHECK_THROW(poputil::cloneToGraph(vgraph1, vgraph2, t1),
                     poputil::poplibs_error);
 }
-
-BOOST_AUTO_TEST_CASE(CloneToGraphBadReplication) {
-  constexpr std::size_t numTiles = 8;
-  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
-  const auto &target = device.getTarget();
-  Graph graph(target);
-
-  auto vgraph1 = graph.createVirtualGraph(0, 4).createReplicatedGraph(2);
-  auto vgraph2 = graph.createVirtualGraph(4, 5);
-
-  auto t1 = vgraph1.addVariable(poplar::FLOAT, {1024});
-  poputil::mapTensorLinearly(vgraph1, t1);
-
-  // vgraph2 doesn't have the same replication factor. Expect an exception here.
-  BOOST_CHECK_THROW(poputil::cloneToGraph(vgraph1, vgraph2, t1),
-                    poputil::poplibs_error);
-}
