@@ -71,6 +71,12 @@
 #define DELTAN_OFFSET_BITS_FLOAT    19
 #define DELTAN_COUNT_BITS_FLOAT     (32 - DELTAN_OFFSET_BITS_FLOAT)
 #define ELEM_TO_BYTES_CONV_FLOAT    (21 - DELTAN_OFFSET_BITS_FLOAT)
+
+#define DELTAN_OFFSET_BITS_LONGLONG 18
+#define DELTAN_COUNT_BITS_LONGLONG  (32 - DELTAN_OFFSET_BITS_LONGLONG)
+#define ELEM_TO_BYTES_CONV_LONGLONG (21 - DELTAN_OFFSET_BITS_LONGLONG)
+
+
 #endif
 
 
@@ -100,6 +106,13 @@
 
 #define DS_UNSIGNED_FUNC __runCodelet_popops__DynamicSlice2D___unsigned_int
 #define DUS_UNSIGNED_FUNC __runCodelet_popops__DynamicUpdateSlice2D___unsigned_int
+
+#define DS_LONGLONG_FUNC __runCodelet_popops__DynamicSlice2D___long_long
+#define DUS_LONGLONG_FUNC __runCodelet_popops__DynamicUpdateSlice2D___long_long
+
+#define DS_ULONGLONG_FUNC __runCodelet_popops__DynamicSlice2D___unsigned_long_long
+#define DUS_ULONGLONG_FUNC __runCodelet_popops__DynamicUpdateSlice2D___unsigned_long_long
+
 
 .globl DS_BOOL_FUNC
 .type DS_BOOL_FUNC, @function
@@ -148,6 +161,21 @@
 
 .globl DS_UNSIGNED_FUNC
 .type DS_UNSIGNED_FUNC, @function
+
+
+.globl DUS_LONGLONG_FUNC
+.type DUS_LONGLONG_FUNC, @function
+
+.globl DS_LONGLONG_FUNC
+.type DS_LONGLONG_FUNC, @function
+
+.globl DUS_ULONGLONG_FUNC
+.type DUS_ULONGLONG_FUNC, @function
+
+.globl DS_ULONGLONG_FUNC
+.type DS_ULONGLONG_FUNC, @function
+
+
 
 //******************************************************************************
 // Entry points for each function, each setting up a pointer to the copy
@@ -203,6 +231,24 @@ DS_UNSIGNED_FUNC:
    bri     DynamicSlice2d_common
 
 .size DynamicSlice2d_32_entry, .-DynamicSlice2d_32_entry
+
+
+
+DEF_STACK_USAGE 0 .text.DynamicSlice2d_64_entry
+.section .text.DynamicSlice2d_64_entry
+.align 4
+DUS_LONGLONG_FUNC:
+DUS_ULONGLONG_FUNC:
+   setzi   $COPY_PTR, copy_loop_DUS_64
+   bri     DynamicSlice2d_common
+
+DS_LONGLONG_FUNC:
+DS_ULONGLONG_FUNC:
+   setzi   $COPY_PTR, copy_loop_DS_64
+   bri     DynamicSlice2d_common
+
+.size DynamicSlice2d_64_entry, .-DynamicSlice2d_64_entry
+
 
 //******************************************************************************
 // Common code - loop for fetching pointers to regions
@@ -370,6 +416,46 @@ DynamicSlice2d_unpack_addr_and_copy:
     ld32     $SUBT, $mzero, $mworker_base, WOFF_SUBT_BASE
 .endm
 #endif
+
+
+//******************************************************************************
+// copy loop for DynamicSlice2d and DynamicUpdateSlice2d (longlong or ulonglong)
+//******************************************************************************
+.section .text.DynamicSlice2d_64_copy
+.align 4
+DynamicSlice2d_64_copy:
+// load the next SUBT pointer to use as a source
+// Index to load the next BASET pointer to use as a destination
+copy_loop_DUS_64:
+#if !defined(VECTORLIST_AVAIL_DELTAN)
+    // Get next region size ($REGION_SIZE), source offset($mSCRATCH) and
+    // destination offset ($mSCRATCH2)
+    UNPACK_DELTAN_LAYOUT DELTAN_OFFSET_BITS_LONGLONG DELTAN_COUNT_BITS_LONGLONG ELEM_TO_BYTES_CONV_LONGLONG
+#endif
+    add      $mSCRATCH, $BASET, $mSCRATCH
+    add      $mSRC_PTR, $SUBT,  $mSCRATCH2
+    mov      $mDST_PTR, $mSCRATCH
+    setzi    $mSCRATCH2, DynamicSlice_loop_resume
+    // reuse same 32-bit function by scaling size
+    shl      $REGION_SIZE, $REGION_SIZE, 1
+    bri      Slice_copy_function_float_int
+
+// load the next SUBT pointer to use as a destination
+// Index to load the next BASET input pointer
+copy_loop_DS_64:
+#if !defined(VECTORLIST_AVAIL_DELTAN)
+    // Get next region size ($REGION_SIZE), source offset($mSCRATCH) and
+    // destination offset ($mSCRATCH2)
+    UNPACK_DELTAN_LAYOUT DELTAN_OFFSET_BITS_LONGLONG DELTAN_COUNT_BITS_LONGLONG ELEM_TO_BYTES_CONV_LONGLONG
+#endif
+    add      $mDST_PTR, $SUBT,  $mSCRATCH2
+    add      $mSRC_PTR, $BASET, $mSCRATCH
+    setzi    $mSCRATCH2, DynamicSlice_loop_resume
+    // reuse same 32-bit function by scaling size
+    shl      $REGION_SIZE, $REGION_SIZE, 1
+    bri      Slice_copy_function_float_int
+
+.size DynamicSlice2d_64_copy, .-DynamicSlice2d_64_copy
 
 //******************************************************************************
 // copy loop for DynamicSlice2d and DynamicUpdateSlice2d (float or int)

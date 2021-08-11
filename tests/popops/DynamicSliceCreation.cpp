@@ -15,7 +15,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_support;
 
-int testDim(unsigned sliceDim) {
+int testDim(unsigned sliceDim, const Type &type) {
   auto device = createTestDeviceFullSize(TEST_TARGET);
   Target target = device.getTarget();
 
@@ -31,7 +31,7 @@ int testDim(unsigned sliceDim) {
   auto sliceIndices = graph.addVariable(UNSIGNED_INT, {1});
   graph.setTileMapping(sliceIndices, 0);
 
-  auto input = popops::createSliceableTensor(graph, HALF, inputShape, sliceDims,
+  auto input = popops::createSliceableTensor(graph, type, inputShape, sliceDims,
                                              sliceSizes, 0, "input");
   // There should be no more than a single region per tile
   BOOST_CHECK(input.slice(0, 1, sliceDim).getVarRegions().size() <=
@@ -51,7 +51,7 @@ int testDim(unsigned sliceDim) {
     std::vector<size_t> slice_shape = inputShape;
     slice_shape[sliceDim] = 1;
     auto update = popops::createSliceableTensor(
-        graph, HALF, slice_shape, sliceDims, sliceSizes, 0, "update");
+        graph, type, slice_shape, sliceDims, sliceSizes, 0, "update");
     auto start = std::chrono::high_resolution_clock::now();
     popops::dynamicUpdate(graph, input, update, sliceIndices, sliceDims,
                           sliceSizes, seq, "dyn_update_slice");
@@ -79,17 +79,22 @@ int testDim(unsigned sliceDim) {
   return 0;
 }
 
-BOOST_AUTO_TEST_CASE(Dim0,
+BOOST_AUTO_TEST_CASE(HalfDim0,
                      *boost::unit_test::precondition(enableIfIpuModel())) {
-  testDim(0);
+  testDim(0, HALF);
 }
 
-BOOST_AUTO_TEST_CASE(Dim1,
+BOOST_AUTO_TEST_CASE(HalfDim1,
                      *boost::unit_test::precondition(enableIfIpuModel())) {
-  testDim(1);
+  testDim(1, HALF);
 }
 
-BOOST_AUTO_TEST_CASE(Dim2,
+BOOST_AUTO_TEST_CASE(HalfDim2,
                      *boost::unit_test::precondition(enableIfIpuModel())) {
-  testDim(2);
+  testDim(2, HALF);
+}
+
+BOOST_AUTO_TEST_CASE(UlongLongDim2,
+                     *boost::unit_test::precondition(enableIfIpuModel())) {
+  testDim(2, UNSIGNED_LONGLONG);
 }

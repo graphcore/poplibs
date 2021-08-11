@@ -291,6 +291,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
     }
   });
 }
+
 BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_float) {
   DynamicSliceCodeletTest(FLOAT);
 }
@@ -314,4 +315,10 @@ BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_char) {
 }
 BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_bool) {
   DynamicSliceCodeletTest(BOOL);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_ulonglong) {
+  DynamicSliceCodeletTest(UNSIGNED_LONGLONG);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_longlong) {
+  DynamicSliceCodeletTest(LONGLONG);
 }

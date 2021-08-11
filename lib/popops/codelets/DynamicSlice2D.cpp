@@ -67,5 +67,7 @@ template class DynamicSlice2D<bool>;
 template class DynamicSlice2D<char>;
 template class DynamicSlice2D<signed char>;
 template class DynamicSlice2D<unsigned char>;
+template class DynamicSlice2D<unsigned long long>;
+template class DynamicSlice2D<long long>;
 
 } // namespace popops

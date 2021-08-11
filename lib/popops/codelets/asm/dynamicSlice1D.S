@@ -75,6 +75,13 @@
 #define DSS_HALF_FUNC __runCodelet_popops__DynamicSlice1D___half
 #define DUSS_HALF_FUNC __runCodelet_popops__DynamicUpdateSlice1D___half
 
+#define DSS_ULONGLONG_FUNC __runCodelet_popops__DynamicSlice1D___unsigned_long_long
+#define DUSS_ULONGLONG_FUNC __runCodelet_popops__DynamicUpdateSlice1D___unsigned_long_long
+
+#define DSS_LONGLONG_FUNC __runCodelet_popops__DynamicSlice1D___long_long
+#define DUSS_LONGLONG_FUNC __runCodelet_popops__DynamicUpdateSlice1D___long_long
+
+
 .global DSS_FLOAT_FUNC
 .type DSS_FLOAT_FUNC, @function
 
@@ -99,6 +106,55 @@
 .global DUSS_HALF_FUNC
 .type DUSS_HALF_FUNC, @function
 
+.global DSS_ULONGLONG_FUNC
+.type DSS_ULONGLONG_FUNC, @function
+
+.global DUSS_ULONGLONG_FUNC
+.type DUSS_ULONGLONG_FUNC, @function
+
+.global DSS_LONGLONG_FUNC
+.type DSS_LONGLONG_FUNC, @function
+
+.global DUSS_LONGLONG_FUNC
+.type DUSS_LONGLONG_FUNC, @function
+
+DEF_STACK_USAGE 0 .text.DynamicSlice1d_ulonglong
+.section .text.DynamicSlice1d_ulonglong
+.align 4
+.worker
+// ************************************************* //
+// Worker thread execution for supervisor vertex (32-bit types)
+// Update version: set a flag for update,
+// load base, sub array pointers
+// Src = Sub
+// Dst = Base
+// ************************************************* //
+DUSS_LONGLONG_FUNC:
+DUSS_ULONGLONG_FUNC:
+  ld32     $DST, $mzero, $mvertex_base, VOFF_BASET
+  ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
+  {bri       .Lds_super_common_64
+   setzi    $UPDATE,1}
+
+// ************************************************* //
+// Worker thread execution for supervisor vertex (32-bit types)
+// Non Update version: clear a flag for no update,
+// load base, sub array pointers
+// Src = Base
+// Dst = Sub
+// ************************************************* //
+DSS_LONGLONG_FUNC:
+DSS_ULONGLONG_FUNC:
+  ld32      $SRC, $mzero, $mvertex_base, VOFF_BASET
+  {ld32      $DST, $mzero, $mvertex_base, VOFF_SUBT
+  setzi     $UPDATE,0}
+
+.Lds_super_common_64:
+  // Call pre-loop calculation, common between all variants
+  ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
+  shl       $REGION_SIZE, $REGION_SIZE, 2 // need REGION_SIZE in halves
+  bri  load_vertex_fields_and_preprocess
+.size DynamicSlice1d_ulonglong, .-DynamicSlice1d_ulonglong
 
 DEF_STACK_USAGE 0 .text.DynamicSlice1d_float
 
@@ -120,6 +176,7 @@ DUSS_FLOAT_FUNC:
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
   {bri       .Lds_super_common_32
    setzi    $UPDATE,1}
+
 // ************************************************* //
 // Worker thread execution for supervisor vertex (32-bit types)
 // Non Update version: clear a flag for no update,

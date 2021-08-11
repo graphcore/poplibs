@@ -1803,12 +1803,15 @@ std::uint64_t getDynamicSlice1DEstimate(const poplar::Target &target,
                                         const unsigned regionSize,
                                         const unsigned numSubElements) {
   bool is8bit = target.getTypeSize(type) == 1;
+  const auto is64Bit = type == UNSIGNED_LONGLONG || type == LONGLONG;
   const unsigned numWorkers = target.getNumWorkerContexts();
-  const unsigned elementsPerWorker = (regionSize + numWorkers - 1) / numWorkers;
+  const unsigned elementsPerWorker =
+      ((1 + is64Bit) * regionSize + numWorkers - 1) / numWorkers;
   unsigned vectorWidth = 0;
   if (is8bit) {
     vectorWidth = 4;
   } else {
+    // treat 64-bit as just twice 32-bit data
     vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   }
   //  Supervisor overhead.
@@ -2107,6 +2110,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice2D)(
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   bool is8bit = target.getTypeSize(type) == 1;
+  const auto is64Bit = type == UNSIGNED_LONGLONG || type == LONGLONG;
   const auto baseT = vertex.getFieldInfo("baseT");
   const unsigned numBaseElements =
       vertex.getFieldInfo("numBaseElements").getInitialValue<unsigned>(target);
@@ -2119,18 +2123,20 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice2D)(
   if (is8bit) {
     vectorWidth = 4;
   } else {
+    // 64-bit types are treated as 32-bit with twice the region size
     vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   }
   auto cycles = 23;
   for (unsigned r = 0; r != numRegions; ++r) {
-    auto regionSize = baseT[r * numBaseElements].size();
+    auto regionSize = baseT[r * numBaseElements].size() * (1 + is64Bit);
     unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
     if (is8bit) {
       cycles += (50 + 23 * nVectors) * numSubElements + 13;
     } else if (type == HALF)
       cycles += (31 + 2 * nVectors) * numSubElements + 13;
     else
-      cycles += (29 + nVectors) * numSubElements + 13;
+      // additional cycle for 64-bit to scale region size
+      cycles += (29 + is64Bit + nVectors) * numSubElements + 13;
   }
   return cycles;
 }
@@ -3097,6 +3103,8 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, SIGNED_CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, UNSIGNED_LONGLONG),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, LONGLONG),
 
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, HALF),
@@ -3106,6 +3114,8 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, SIGNED_CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, UNSIGNED_LONGLONG),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, LONGLONG),
 
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, HALF),
@@ -3115,6 +3125,8 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, SIGNED_CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, UNSIGNED_LONGLONG),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, LONGLONG),
 
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, HALF),
@@ -3124,6 +3136,8 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, SIGNED_CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, BOOL),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, UNSIGNED_LONGLONG),
+      CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, LONGLONG),
 
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiSlice, HALF),

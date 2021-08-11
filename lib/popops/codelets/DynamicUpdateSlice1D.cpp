@@ -64,5 +64,7 @@ template class DynamicUpdateSlice1D<bool>;
 template class DynamicUpdateSlice1D<char>;
 template class DynamicUpdateSlice1D<unsigned char>;
 template class DynamicUpdateSlice1D<signed char>;
+template class DynamicUpdateSlice1D<unsigned long long>;
+template class DynamicUpdateSlice1D<long long>;
 
 } // namespace popops

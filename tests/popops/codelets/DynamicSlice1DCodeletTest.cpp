@@ -132,6 +132,8 @@ void DynamicSliceSupervisorHost(unsigned offset, std::vector<double> &baseT,
 }
 //*************************************************
 // C test function, based on the original C version of the vertex
+// Reference data is double but uses integers and hence can be used to test
+// 64-bit types
 //*************************************************
 void DynamicUpdateSliceSupervisorHost(
     unsigned offset, std::vector<double> &baseT, std::vector<double> &subT,
@@ -332,6 +334,12 @@ BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_int) {
 }
 BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_uchar) {
   DynamicSliceCodeletTest(UNSIGNED_CHAR);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_longlong) {
+  DynamicSliceCodeletTest(LONGLONG);
+}
+BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_ulonglong) {
+  DynamicSliceCodeletTest(UNSIGNED_LONGLONG);
 }
 BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_schar) {
   DynamicSliceCodeletTest(SIGNED_CHAR, testsSchar);
