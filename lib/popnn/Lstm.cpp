@@ -1087,6 +1087,7 @@ static Tensor lstmFwd(Graph &graph, const LstmParams &params,
     stateSequence = rnn::StateSequence{
         rnn::createOutputTensor(graph, params.rnn, numShards, {di, "output"}),
         0};
+    prog.add(WriteUndef(stateSequence.output, {di}));
   }
   if (intermediatesSeq) {
     *intermediatesSeq =
@@ -1795,6 +1796,8 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     *inputGradSeq = rnn::createInputTensor(graph, params.rnn, numShards,
                                            {dnai, "inputGrad"});
     inputGrad = rnn::StateSequence{*inputGradSeq, 0};
+    prog.add(WriteUndef(inputGradInit, {dnai}));
+    prog.add(WriteUndef(*inputGradSeq, {dnai}));
   }
   std::vector<Tensor> bwdStateInit = {inputGradInit, lastOutGradInit,
                                       lastCellStateGradInit};

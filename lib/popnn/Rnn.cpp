@@ -1175,6 +1175,13 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
                                           true, numTemps, numShards, initProg,
                                           {di, "tempBuffer"})
                        : slice.interimOut;
+
+      // The gathering temp buffer is partially written to at every time step
+      // but fully read out periodically by `gatherFn`. Undefine the tensor
+      // before the repeat loop.
+      if (*stepsPerGather > 1) {
+        initProg.add(WriteUndef(tempBuffer));
+      }
     }
 
     // Create a mask if the time steps limit is different across batches
@@ -1273,7 +1280,6 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
       progStep.add(
           If(checkNotZero, If(predicate, process, resetProg), resetProg));
     }
-
     loop.add(progStep);
     loop.add(shard.updateCounter());
     loop.add(shard.updateGatherOffset());
