@@ -18,7 +18,7 @@ namespace popops {
 /** Gather a histogram representing the statistics of the input tensor.
  *
  * Compare each element of \p input to each value in the \p levels
- * tensor. Where \p input <= \p levels[N] and \p input < \p levels[N-1], the
+ * tensor. Where \p input >= \p levels[N-1] and \p input < \p levels[N], the
  * histogram entry for that range will be incremented by 1. The lowest and
  * highest histogram entries are bounded only by \p levels[0] and \p
  * levels[N-1], respectively. The function returns a histogram tensor with a
