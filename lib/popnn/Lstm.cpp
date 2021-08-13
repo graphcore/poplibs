@@ -234,7 +234,6 @@ struct LstmOpts {
   boost::optional<std::size_t> numShards;
   boost::optional<bool> rnnCodeReuse;
   boost::optional<unsigned> rnnStepsPerWU;
-  boost::optional<double> weightUpdateMemoryProportion;
   bool disableWUPartialInterleaving;
 };
 
@@ -277,7 +276,6 @@ static LstmOpts parseOptions(const OptionFlags &options,
   lstmOpts.recomputationMode = LstmRecomputationMode::None;
   lstmOpts.numShards = boost::none;
   lstmOpts.rnnCodeReuse = boost::none;
-  lstmOpts.weightUpdateMemoryProportion = boost::none;
   lstmOpts.disableWUPartialInterleaving = false;
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
@@ -299,8 +297,6 @@ static LstmOpts parseOptions(const OptionFlags &options,
       {"rnnCodeReuse", OptionHandler::createWithBool(lstmOpts.rnnCodeReuse)},
       {"rnnStepsPerWU",
        OptionHandler::createWithInteger(lstmOpts.rnnStepsPerWU)},
-      {"weightUpdateMemoryProportion",
-       OptionHandler::createWithDouble(lstmOpts.weightUpdateMemoryProportion)},
       {"disableWUPartialInterleaving",
        OptionHandler::createWithBool(lstmOpts.disableWUPartialInterleaving)},
   };
@@ -1495,7 +1491,9 @@ interleaveWUCadence(const Graph &graph, const LstmParams &params,
 
   // Available tile memory
   auto tileMemory = target.getBytesPerTile();
-  double memoryPropLstm = options.weightUpdateMemoryProportion.value_or(0.2);
+  constexpr double defaultAvailMemoryProp = 0.2;
+  double memoryPropLstm =
+      options.availableMemoryProportion.value_or(defaultAvailMemoryProp);
   auto availableMemory = static_cast<unsigned>(tileMemory * memoryPropLstm);
 
   // Limit the BWD intermediates to use not more than 10% of available memory.
@@ -1503,9 +1501,11 @@ interleaveWUCadence(const Graph &graph, const LstmParams &params,
   auto maxSteps =
       std::min(params.rnn.maxTimeSteps, bwdIntermMemory / bwdIntermPerStep);
 
-  // Avoid weight update interleaving if Bwd intermediates takes too much memory
   if (maxSteps == 0) {
-    return std::make_pair(0, planConstraints);
+    // If Bwd intermediates takes too much memory choose between interleaving
+    // and non-interleaving schemes.
+    stepsPerWU = interleavedWUIsBeneficial(params) ? 1 : 0;
+    return std::make_pair(stepsPerWU, planConstraints);
   }
 
   // Reduce available tile memory to account for Backward intermediates
