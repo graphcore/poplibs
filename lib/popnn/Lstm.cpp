@@ -1619,6 +1619,9 @@ static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
   std::vector<Tensor> recomputedIntermediatesSeq{
       rnn::createOutputTensor(graph, params.rnn, numToRecompute, numShards,
                               {dnai, "recomputedIntermediates"})};
+  for (const auto &t : recomputedIntermediatesSeq) {
+    prog.add(WriteUndef(t));
+  }
   std::vector<Tensor> initState = {fwdStateInit.cellState.expand({0})};
   auto rnnOptions = getRnnOpts(options);
   rnn::Rnn(graph, params.rnn, false, initState, {}, {}, &fwdIntermediatesSeq,
