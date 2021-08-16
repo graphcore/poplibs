@@ -191,67 +191,6 @@ std::string Const::printValue() const {
                                this->getType().toString());
 }
 
-using namespace std::string_view_literals;
-constexpr std::array UnaryOpNames = {"ABS"sv,
-                                     "ASIN"sv,
-                                     "B_NOT"sv,
-                                     "CBRT"sv,
-                                     "CEIL"sv,
-                                     "COS"sv,
-                                     "COUNT_LEADING_ZEROS"sv,
-                                     "EXPR"sv,
-                                     "EXP"sv,
-                                     "EXP_M_1"sv,
-                                     "FLOOR"sv,
-                                     "INV"sv,
-                                     "IS_FINITE"sv,
-                                     "IS_INF"sv,
-                                     "IS_NAN"sv,
-                                     "LOG"sv,
-                                     "LOG_ONE_PLUS"sv,
-                                     "NOT"sv,
-                                     "NEG"sv,
-                                     "POPCOUNT"sv,
-                                     "SIGNUM"sv,
-                                     "SIN"sv,
-                                     "TAN"sv,
-                                     "TANH"sv,
-                                     "ROUND"sv,
-                                     "SQRT"sv,
-                                     "SQU"sv,
-                                     "SIGMOID"sv,
-                                     "RSQRT"sv,
-                                     "RELU"sv};
-
-constexpr std::array BinaryOpNames = {"ADD"sv,
-                                      "ATAN2"sv,
-                                      "B_AND"sv,
-                                      "B_OR"sv,
-                                      "B_XOR"sv,
-                                      "B_XNOR"sv,
-                                      "DIV"sv,
-                                      "EQU"sv,
-                                      "G_T_EQ"sv,
-                                      "G_T"sv,
-                                      "INV_STD_DEV_TO_VARIANCE"sv,
-                                      "L_T_EQ"sv,
-                                      "AND"sv,
-                                      "OR"sv,
-                                      "L_T"sv,
-                                      "MAX"sv,
-                                      "MIN"sv,
-                                      "MUL"sv,
-                                      "N_EQ"sv,
-                                      "POW"sv,
-                                      "REM"sv,
-                                      "SHIFT_LEFT"sv,
-                                      "SHIFT_RIGHT"sv,
-                                      "SHIFT_RIGHT_SIGN_EXTEND"sv,
-                                      "SUB"sv,
-                                      "VARIANCE_TO_INV_STD_DEV"sv};
-
-constexpr std::array TernaryOpNames = {"CLAMP"sv, "SELECT"sv};
-
 static std::string
 buildName(std::string_view opName,
           std::initializer_list<std::string_view> inputNames) {
@@ -279,17 +218,16 @@ buildName(std::string_view opName,
 }
 
 std::string UnaryOp::name(const std::vector<poplar::Tensor> &inputs) const {
-  return buildName(UnaryOpNames[static_cast<unsigned>(type)],
-                   {a->name(inputs)});
+  return buildName(unaryOpTypeToString(type), {a->name(inputs)});
 }
 
 std::string BinaryOp::name(const std::vector<poplar::Tensor> &inputs) const {
-  return buildName(BinaryOpNames[static_cast<unsigned>(type)],
+  return buildName(binaryOpTypeToString(type),
                    {a->name(inputs), b->name(inputs)});
 }
 
 std::string TernaryOp::name(const std::vector<poplar::Tensor> &inputs) const {
-  return buildName(TernaryOpNames[static_cast<unsigned>(type)],
+  return buildName(ternaryOpTypeToString(type),
                    {a->name(inputs), b->name(inputs), c->name(inputs)});
 }
 

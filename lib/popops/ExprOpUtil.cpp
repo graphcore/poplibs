@@ -129,6 +129,15 @@ std::string binaryOpTypeToString(BinaryOpType op) {
   throw poputil::poplibs_error("Op not supported");
 }
 
+std::string ternaryOpTypeToString(TernaryOpType op) {
+  switch (op) {
+  case TernaryOpType::CLAMP:
+    return "CLAMP";
+  case TernaryOpType::SELECT:
+    return "SELECT";
+  }
+  throw poputil::poplibs_error("Op not supported");
+}
 std::string debugName(expr::UnaryOpType op) {
   switch (op) {
   case UnaryOpType::ABSOLUTE:
