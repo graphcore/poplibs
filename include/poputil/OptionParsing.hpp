@@ -47,6 +47,39 @@ template <typename T> T asFloatingPoint(const poplar::StringRef &str) {
   return result;
 }
 
+template <typename T>
+static inline std::string
+describeEnumValues(const std::map<std::string, T> &valueMap) {
+  std::stringstream s;
+  s << "[";
+  if (!valueMap.empty()) {
+    auto it = valueMap.begin();
+    s << "'" << it->first << "'";
+    while (++it != valueMap.end()) {
+      s << ", '" << it->first << "'";
+    }
+  }
+  s << "]";
+  return s.str();
+}
+
+template <typename T>
+T asEnum(const poplar::StringRef &value, const std::map<std::string, T> &map) {
+  auto it = map.find(value);
+  if (it == map.end()) {
+    throw poplar::invalid_option("Not one of the values: " +
+                                 describeEnumValues(map));
+  }
+
+  return it->second;
+}
+
+inline bool asBool(const poplar::StringRef &value) {
+  static const std::map<std::string, bool> enumMap = {{"true", true},
+                                                      {"false", false}};
+  return asEnum<bool>(value, enumMap);
+}
+
 } // namespace parse
 
 /** Represents the various options types.
@@ -62,22 +95,6 @@ public:
   void parseValue(poplar::StringRef value) const { valueHandler(value); }
 
   // Utility functions to help build a spec
-  template <typename T>
-  static inline std::string
-  describeEnumValues(const std::map<std::string, T> &valueMap) {
-    std::stringstream s;
-    s << "[";
-    if (!valueMap.empty()) {
-      auto it = valueMap.begin();
-      s << "'" << it->first << "'";
-      while (++it != valueMap.end()) {
-        s << ", '" << it->first << "'";
-      }
-    }
-    s << "]";
-    return s.str();
-  }
-
   template <typename T, typename ValueMapT = std::map<std::string, T>>
   static inline OptionHandler createWithEnum(T &output, ValueMapT &&valueMap) {
 
@@ -85,12 +102,7 @@ public:
     // to hold a copy for safety.
     return OptionHandler{[map = std::forward<ValueMapT>(valueMap),
                           &output](poplar::StringRef value) {
-      auto it = map.find(value);
-      if (it == map.end()) {
-        throw poplar::invalid_option("Not one of the values: " +
-                                     describeEnumValues(map));
-      }
-      output = it->second;
+      output = parse::asEnum<T>(value, map);
     }};
   }
 
