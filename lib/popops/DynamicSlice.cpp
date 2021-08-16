@@ -113,6 +113,21 @@ enum class IndicesDistribution {
   ONE_POINT
 };
 
+inline std::ostream &operator<<(std::ostream &os,
+                                const IndicesDistribution &d) {
+  switch (d) {
+  case IndicesDistribution::UNIFORM:
+    os << "uniform";
+    break;
+  case IndicesDistribution::ONE_POINT:
+    os << "onePoint";
+    break;
+  default:
+    throw poplibs_error("Unknown IndicesDistribution");
+  }
+  return os;
+}
+
 static std::map<std::string, IndicesDistribution> indicesDistributionMap{
     {"uniform", IndicesDistribution::UNIFORM},
     {"onePoint", IndicesDistribution::ONE_POINT}};
@@ -128,7 +143,7 @@ struct SliceOptions {
 
   // The target maximum temporary memory usage for the operation. This
   // may not be satisfiable.
-  std::optional<double> availableMemoryProportion = 0.6;
+  std::optional<double> availableMemoryProportion;
 
   // For use when planning, the distribution of indices to assume when
   // estimating cycles.
@@ -138,6 +153,19 @@ struct SliceOptions {
   PlanMinimisationTarget planMinimisationTarget =
       PlanMinimisationTarget::MEMORY;
 };
+
+std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
+  os << "{usedForUpdate=" << (o.usedForUpdate ? "true" : "false")
+     << ", availableMemoryProportion=";
+  if (o.availableMemoryProportion) {
+    os << *o.availableMemoryProportion;
+  } else {
+    os << "none";
+  }
+  os << ", indicesDistribution=" << o.indicesDistribution
+     << ", planMinimisationTarget=" << o.planMinimisationTarget << "}";
+  return os;
+}
 
 struct ValidateSlicePlanConstraintsOption {
   void operator()(const boost::property_tree::ptree &t) const {
@@ -2936,8 +2964,8 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
 
   logging::popops::debug(
       "DynamicSlicePlan for type {}, numEntries {}, outputSize {},"
-      " numLookups {}",
-      dataType, numEntries, outputSize, numLookups);
+      " numLookups {},\n  options={}",
+      dataType, numEntries, outputSize, numLookups, options);
   const auto &target = graph.getTarget();
 
   popsolver::Model m;
