@@ -865,36 +865,20 @@ Tensor shiftRnnTensor(Graph &graph, const RnnParams &params,
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(params, tBase, tSingle, prog, numShards));
-  const auto tilesPerShard = getTilesPerShard(graph, params);
-  unsigned rank = tBase.rank();
   unsigned multiple = tBase.dim(0) / params.maxTimeSteps;
-  unsigned innermostDim = tBase.dim(rank - 1);
   auto timeStepsPerShard = ceildiv(params.maxTimeSteps, numShards);
   std::vector<Tensor> sequence;
   Tensor tLast = tSingle;
   for (unsigned shardOffset = 0; shardOffset < numShards; ++shardOffset) {
-    // Create a tensor on the current shard
-    auto tFirst = createTensorShard(
-        graph, params, tilesPerShard, innermostDim, multiple, shardOffset, 1,
-        numShards, {di, "shard/" + std::to_string(shardOffset)});
-    auto tCurrent = tFirst;
-
-    // Retain all tensors in shard except the last
     unsigned begin = shardOffset * multiple * timeStepsPerShard;
     unsigned end = (shardOffset < numShards - 1)
                        ? begin + (multiple * timeStepsPerShard)
                        : params.maxTimeSteps;
-    if (begin < end - multiple) {
-      auto tExclLast = tBase.slice(begin, end - multiple);
-      tCurrent = concat({tCurrent, tExclLast});
-    }
-
-    sequence.push_back(tCurrent);
-
-    // Copy tSingle to the very first tensor. Thereafter copy the last tensor
-    // of the previous shard to the first tensor of the current shard
-    prog.add(Copy(tLast, tFirst, false,
-                  {di, "shiftToRnnShard/" + std::to_string(shardOffset)}));
+    auto shard = graph.clone(tBase.slice(begin, end));
+    prog.add(Copy(tLast, shard.slice(0, multiple), false, {di}));
+    prog.add(Copy(tBase.slice(begin, end - multiple),
+                  shard.slice(multiple, end - begin), false, {di}));
+    sequence.push_back(shard);
     tLast = tBase.slice(end - multiple, end);
   }
   auto out = concat(sequence);
