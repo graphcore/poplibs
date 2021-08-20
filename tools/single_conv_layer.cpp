@@ -17,7 +17,6 @@
 #include <popnn/NonLinearity.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/ScaledAdd.hpp>
-#include <popops/TensorCollectives.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/GraphFunction.hpp>
 #include <poputil/TileMapping.hpp>
