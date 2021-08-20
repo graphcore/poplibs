@@ -260,6 +260,8 @@ int main(int argc, char **argv) {
   if (!opts.planConstraints.empty()) {
     sliceOptions.set("planConstraints", opts.planConstraints);
   }
+  sliceOptions.set("usedForSlice",
+                   passEnabled(opts.pass, Pass::FWD) ? "true" : "false");
   sliceOptions.set("usedForUpdate",
                    passEnabled(opts.pass, Pass::WU) ? "true" : "false");
 

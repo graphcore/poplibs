@@ -375,12 +375,17 @@ namespace embedding {
  *
  *  ** Embedding plan options **
  *
- *     * `usedForUpdate` (true, false) [=true]
+ *     * `usedForSlice` (true, false) [=true]
  *
  *       If true, you intend to use this embedding plan for both a multiSlice
- *       and multiUpdate* operation and the plan returned accounts for the
- *       costs of both operations. If false, only the costs of a multiSlice are
- *       accounted for.
+ *       operation. An error is thrown if set to false and `usedForUpdate` is
+ *       set to false.
+ *
+ *     * `usedForUpdate` (true, false) [=true]
+ *
+ *       If true, you intend to use this embedding plan for both a multiUpdate
+ *       operation. An error is thrown if set to false and `usedForSlice` is
+ *       set to false.
  *
  *     * `availableMemoryProportion` Positive decimal
  *

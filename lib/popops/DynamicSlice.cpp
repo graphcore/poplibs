@@ -136,8 +136,12 @@ struct SliceOptions {
   SliceOptions() = default;
 
   PlanConstraints planConstraints;
+  // Specify whether a plan is to be used for a slice.
+  bool usedForSlice = true;
+
   // Specify whether a plan is to be used for an update.
   bool usedForUpdate = true;
+
   // TODO: T12930 Add option to specify whether a plan is to be used for a
   // lookup.
 
@@ -155,7 +159,8 @@ struct SliceOptions {
 };
 
 std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
-  os << "{usedForUpdate=" << (o.usedForUpdate ? "true" : "false")
+  os << "{usedForSlice=" << (o.usedForSlice ? "true" : "false")
+     << ", usedForUpdate=" << (o.usedForUpdate ? "true" : "false")
      << ", availableMemoryProportion=";
   if (o.availableMemoryProportion) {
     os << *o.availableMemoryProportion;
@@ -257,6 +262,7 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
   const OptionSpec spec{
       {"planConstraints",
        makeSlicePlanConstraintsOptionHandler(options.planConstraints)},
+      {"usedForSlice", OptionHandler::createWithBool(options.usedForSlice)},
       {"usedForUpdate", OptionHandler::createWithBool(options.usedForUpdate)},
       {"availableMemoryProportion",
        createOptionalDoubleHandler(options.availableMemoryProportion)},
@@ -2479,7 +2485,7 @@ template <typename T> struct EmbeddingEstimates {
   T updateTempBytes;
   T peakTempBytes;
 
-  // Cycles (worst tile)
+  // Cycles (worst tile) only valid when usedForSlice is set
   T sliceFirstStageExchangeCycles;
   T sliceFirstStageComputeCycles;
   T sliceSecondStageExchangeCycles;
@@ -2512,6 +2518,11 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   // TODO: Get the correct op + scale parameters in here for
   // multiUpdateMax or other possible future update rules.
   const auto operation = Operation::ADD;
+
+  if (!options.usedForSlice && !options.usedForUpdate) {
+    throw poplibs_error("Slice plan must be for either slice or update, or "
+                        "both");
+  }
 
   // Plan based on the max supplied number of indices
   unsigned plannedNumIndices =
@@ -2635,7 +2646,16 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   e.outputStorageBytesPerTile =
       m.product({mOutputGrainsPerTile, mBytesPerGrain});
 
-  {
+  // The base tensor must be broadcast across the `partition.lookupSplit` groups
+  // as it is distributed to balance memory. The indices must be received from a
+  // set of tiles, so a number of setmux instructions are required.
+  //
+  // 0 and 1 indicate which stage in the forward pass this exchange is
+  // attributed to.
+  const auto mIndicesExchangeInstrs0 =
+      m.ceildiv(mLookupsPerTile, mIndicesPerTile);
+
+  if (options.usedForSlice) {
     // mBaseGrainsPerTile gives the number of grains taken as input
     // to MultiSlice vertices in the first stage. If there is a lookup
     // split then this data must be broadcast.
@@ -2710,32 +2730,53 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
         {e.sliceFirstStageExchangeCycles, e.sliceFirstStageComputeCycles,
          e.sliceSecondStageExchangeCycles, e.sliceSecondStageComputeCycles});
     e.totalCycles = e.sliceTotalCycles;
+
+    const auto mEmbeddingExchangeInstrs0 =
+        m.product({mLookupsAreSplit, partition.lookupSplit});
+    // When there is a dictSplit the data will be exchanged between groups of
+    // `partition.slicedDimSplit` tiles
+    const auto mOutputToInputExchangeInstrs1 =
+        m.product({mDictIsSplit, partition.slicedDimSplit});
+
+    // The indices are copied implicitly and are re-broadcast for the second
+    // stage
+    const auto &mIndicesExchangeInstrs1 = mIndicesExchangeInstrs0;
+    e.exchangeCodeBytes = m.product(
+        {m.addConstant(4u),
+         m.sum({mEmbeddingExchangeInstrs0, mIndicesExchangeInstrs0,
+                mOutputToInputExchangeInstrs1, mIndicesExchangeInstrs1})});
+
+    // We need temporary bytes for the dictionary if the lookups are split as
+    // this will require the dictionary to be multi-cast to tiles.
+    const auto mBaseTempBytesPerTile =
+        m.product({mLookupsAreSplit, mBaseGrainsPerTile, mBytesPerGrain});
+
+    // When splitting the dictionary a the output of the first stage will be
+    // rearranged for the second stage.
+    const auto mSlicesFirstStageOutputTempBytes =
+        m.product({mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile,
+                   mBytesPerGrain});
+    const auto mSlicesSecondStageInputTempBytes = m.product(
+        {mDictIsSplit, partition.slicedDimSplit, mSecondStageLookupsPerTile,
+         mUnslicedGrainsPerTile, mBytesPerGrain});
+
+    const auto mIndicesFirstStageTempBytes =
+        m.product({mLookupsPerTile, mBytesPerIndex});
+    const auto mIndicesSecondStageTempBytes =
+        m.product({mSecondStageLookupsPerTile, mBytesPerIndex});
+
+    e.sliceTempBytes =
+        m.max({// Potentially multi-cast copy of base tensor/indices, and
+               // temporary bytes for output of first stage
+               m.sum({mBaseTempBytesPerTile, mSlicesFirstStageOutputTempBytes,
+                      mIndicesFirstStageTempBytes}),
+               // Temporary bytes for output of first stage, rearranged version
+               // as input to the second stage, and multi-cast indices.
+               m.sum({mSlicesFirstStageOutputTempBytes,
+                      mSlicesSecondStageInputTempBytes,
+                      mIndicesSecondStageTempBytes})});
   }
 
-  // The base tensor must be broadcast across the `partition.lookupSplit` groups
-  // as it is distributed to balance memory. The indices must be received from a
-  // set of tiles, so a number of setmux instructions are required.
-  //
-  // 0 and 1 indicate which stage in the forward pass this exchange is
-  // attributed to.
-  const auto mIndicesExchangeInstrs0 =
-      m.ceildiv(mLookupsPerTile, mIndicesPerTile);
-
-  const auto mEmbeddingExchangeInstrs0 =
-      m.product({mLookupsAreSplit, partition.lookupSplit});
-  // When there is a dictSplit the data will be exchanged between groups of
-  // `partition.slicedDimSplit` tiles
-  const auto mOutputToInputExchangeInstrs1 =
-      m.product({mDictIsSplit, partition.slicedDimSplit});
-  // The indices are copied implicitly and are re-broadcast for the second
-  // stage
-  const auto &mIndicesExchangeInstrs1 = mIndicesExchangeInstrs0;
-  e.exchangeCodeBytes = m.product(
-      {m.addConstant(4u),
-       m.sum({mEmbeddingExchangeInstrs0, mIndicesExchangeInstrs0,
-              mOutputToInputExchangeInstrs1, mIndicesExchangeInstrs1})});
-
-  e.updateTempBytes = m.zero();
   if (options.usedForUpdate) {
     // When no index split there are no temporaries beyond those used in a
     // lookup, the vertices work directly on the base, slices and indices
@@ -2849,6 +2890,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
          e.updateFirstStageExchangeCycles, e.updateFirstStageComputeCycles,
          mUpdateReduceEstimates.cycles, e.updateCastBasePreCycles,
          e.updateScaledAddCycles, e.updateCastBasePostCycles});
+
     e.totalCycles = m.sum({e.totalCycles, e.updateTotalCycles});
 
     const auto mIndicesTempBytesPerTile =
@@ -2881,34 +2923,6 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                           m.addConstant(4)})});
   }
 
-  // We need temporary bytes for the dictionary if the lookups are split as
-  // this will require the dictionary to be multi-cast to tiles.
-  const auto mBaseTempBytesPerTile =
-      m.product({mLookupsAreSplit, mBaseGrainsPerTile, mBytesPerGrain});
-
-  // When splitting the dictionary a the output of the first stage will be
-  // rearranged for the second stage.
-  const auto mSlicesFirstStageOutputTempBytes = m.product(
-      {mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile, mBytesPerGrain});
-  const auto mSlicesSecondStageInputTempBytes = m.product(
-      {mDictIsSplit, partition.slicedDimSplit, mSecondStageLookupsPerTile,
-       mUnslicedGrainsPerTile, mBytesPerGrain});
-
-  const auto mIndicesFirstStageTempBytes =
-      m.product({mLookupsPerTile, mBytesPerIndex});
-  const auto mIndicesSecondStageTempBytes =
-      m.product({mSecondStageLookupsPerTile, mBytesPerIndex});
-
-  e.sliceTempBytes =
-      m.max({// Potentially multi-cast copy of base tensor/indices, and
-             // temporary bytes for output of first stage
-             m.sum({mBaseTempBytesPerTile, mSlicesFirstStageOutputTempBytes,
-                    mIndicesFirstStageTempBytes}),
-             // Temporary bytes for output of first stage, rearranged version
-             // as input to the second stage, and multi-cast indices.
-             m.sum({mSlicesFirstStageOutputTempBytes,
-                    mSlicesSecondStageInputTempBytes,
-                    mIndicesSecondStageTempBytes})});
   e.peakTempBytes = m.max({e.sliceTempBytes, e.updateTempBytes});
   return std::make_tuple(partition, e);
 }
