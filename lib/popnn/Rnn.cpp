@@ -14,6 +14,8 @@
 #include <popops/Encoding.hpp>
 #include <poputil/GraphFunction.hpp>
 
+#include <boost/functional/hash.hpp>
+
 using namespace poplar;
 using namespace poplibs_support;
 using namespace poplar::program;
@@ -100,20 +102,22 @@ static std::size_t getTilesPerShard(const Graph &graph,
 
 static poplar::Tensor createMultiDynamicSliceTensor(
     poplar::Graph &graph, poplar::Type dataType, unsigned numTiles,
-    unsigned sequenceLength, unsigned maxShards,
+    unsigned sequenceLength, unsigned numShards,
     boost::optional<unsigned> sequencesPerShard,
     boost::optional<unsigned> sequenceMultiple,
     boost::optional<unsigned> shardOffset, unsigned numGrains,
-    unsigned grainSize, const poplar::DebugNameAndId &dnai) {
+    unsigned grainSize, unsigned seed, const poplar::DebugNameAndId &dnai) {
   const auto grainsPerTile = ceildiv(numGrains, numTiles);
   const auto numUsedTiles = ceildiv(numGrains, grainsPerTile);
+  auto totalNumTiles = graph.getTarget().getNumTiles();
+  const auto maxShards = totalNumTiles / numUsedTiles;
   const auto grainsOnLastTile = numGrains - (numUsedTiles - 1) * grainsPerTile;
   auto sOffset = shardOffset ? *shardOffset : 0;
-  auto numTensorShards = shardOffset ? 1 : maxShards;
+  auto numTensorShards = shardOffset ? 1 : numShards;
   auto seqLengthExceptLastTile =
-      sequencesPerShard.value_or(ceildiv(sequenceLength, maxShards));
+      sequencesPerShard.value_or(ceildiv(sequenceLength, numShards));
   auto seqLengthLastTile = sequencesPerShard.value_or(
-      sequenceLength - seqLengthExceptLastTile * (maxShards - 1));
+      sequenceLength - seqLengthExceptLastTile * (numShards - 1));
   if (sequenceMultiple) {
     seqLengthExceptLastTile *= *sequenceMultiple;
     seqLengthLastTile *= *sequenceMultiple;
@@ -123,7 +127,7 @@ static poplar::Tensor createMultiDynamicSliceTensor(
   std::vector<poplar::Tensor> tLast;
   for (unsigned i = sOffset; i < numTensorShards + sOffset; ++i) {
     auto seqLength =
-        (i < maxShards - 1) ? seqLengthExceptLastTile : seqLengthLastTile;
+        (i < numShards - 1) ? seqLengthExceptLastTile : seqLengthLastTile;
     tExclLast.push_back(graph.addVariable(
         dataType, {numUsedTiles - 1, seqLength, grainsPerTile, grainSize},
         {dnai, "rnnSlice/" + std::to_string(i)}));
@@ -133,15 +137,17 @@ static poplar::Tensor createMultiDynamicSliceTensor(
   }
 
   // Tensors for the last sequence
-  auto totalNumTiles = graph.getTarget().getNumTiles();
   for (unsigned tileOfShard = 0; tileOfShard != numUsedTiles; ++tileOfShard) {
     for (unsigned shard = sOffset; shard != numTensorShards + sOffset;
          ++shard) {
       // The use of tile 0 could prevent the SubGraphReplicator from replicating
       // the loop counter. For this reason, tiles are mapped beginning from
       // higher numbered tiles.
-      auto tile =
-          ((tileOfShard + 1) * totalNumTiles / numUsedTiles) - 1 - shard;
+      auto tile = ((tileOfShard + 1) * maxShards) - 1 - shard;
+
+      // Dither tile allocation
+      tile = (tile + seed) % totalNumTiles;
+
       if (tileOfShard == numUsedTiles - 1) {
         graph.setTileMapping(tLast[shard - sOffset], tile);
       } else {
@@ -171,10 +177,20 @@ createShardedTensor(Graph &graph, const RnnParams &params,
                     const DebugNameAndId &dnai) {
   // TODO: T12909 Take output grouping from matmul operation.
   auto [grouping, numGroups] = getNumGrains(size);
+
+  // Seed to dither tile allocation
+  auto seed = [](const RnnParams &p) {
+    std::size_t seed = 0;
+    boost::hash_combine(seed, p.maxTimeSteps);
+    boost::hash_combine(seed, p.batchSize);
+    boost::hash_combine(seed, p.layerSizes[0]);
+    boost::hash_combine(seed, p.layerSizes[1]);
+    return seed;
+  }(params);
   Tensor t = createMultiDynamicSliceTensor(
       graph, params.dataType, tilesPerShard, params.maxTimeSteps, numShards,
       sequencesPerShard, sequenceMultiple, shardIndex,
-      numGroups * params.batchSize, grouping, {dnai, "sharded"});
+      numGroups * params.batchSize, grouping, seed, {dnai, "sharded"});
   return t.reshapePartial(1, 2, {numGroups, params.batchSize})
       .dimRoll(1, 2)
       .flatten(2, 4);
