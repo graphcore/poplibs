@@ -20,6 +20,8 @@ template <typename IndexType, typename OutType>
 class EncodeOneHot
     : public SupervisorVertexIf<hasAssembly<IndexType, OutType>() &&
                                 ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   EncodeOneHot();
 

@@ -793,6 +793,8 @@ template <expr::BinaryOpType op, typename T>
 class BinaryOp1DSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
   typedef typename BinaryOpOutputType<op, T>::type OutputType;
 
+  static const bool needsAlignWorkers = false;
+
 public:
   Input<Vector<T, ONE_PTR, 8>> in1;
   Input<Vector<T, ONE_PTR, 8>> in2;
@@ -814,6 +816,8 @@ class BinaryOp1DInPlaceSupervisor
   typedef typename BinaryOpOutputType<op, T>::type OutputType;
   static_assert(std::is_same<T, OutputType>::value,
                 "In, Out types must match for in place operations");
+
+  static const bool needsAlignWorkers = false;
 
 public:
   InOut<Vector<OutputType, SPAN, 8>> in1Out;

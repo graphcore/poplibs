@@ -40,6 +40,8 @@ class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
     : public SupervisorVertexIf<
           hasAssembly<FPType, AccumType, useLimitedVer, numConvUnits>() &&
           ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   ConvPartial1x1Out();
 

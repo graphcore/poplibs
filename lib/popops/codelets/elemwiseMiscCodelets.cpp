@@ -334,6 +334,8 @@ INSTANTIATE_CAST_LONGLONG(CastWorker)
 template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] CastSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   CastSupervisor();
 
@@ -787,6 +789,8 @@ template class Histogram1D<half, false, false>;
 
 template <typename T>
 class ForLoopCounter : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   InOut<T> count;
   Input<T> limit;

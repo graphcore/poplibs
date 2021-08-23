@@ -169,6 +169,8 @@ template <typename AType, typename BType, typename ScaleType, bool isConstant,
           bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] ScaledAddSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   ScaledAddSupervisor();
   using ComputeType = ComputeType<AType, BType, ScaleType>;
@@ -196,6 +198,8 @@ public:
   class CONSTRAINTS ScaledAddSupervisor<AType, BType, ScaleType, IS_CONSTANT,  \
                                         IS_CONSTRAINED>                        \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     ScaledAddSupervisor();                                                     \
     using ComputeType = ComputeType<AType, BType, ScaleType>;                  \
@@ -256,6 +260,8 @@ template class ScaledAddSupervisor<half, float, float, false, false>;
   class CONSTRAINTS                                                            \
       ScaledAddSupervisor<half, half, float, false, IS_CONSTRAINED>            \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     ScaledAddSupervisor();                                                     \
     IS_EXTERNAL_CODELET(true);                                                 \
@@ -442,6 +448,8 @@ template <typename AType, typename BType, typename ScaleType,
           bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] ScaledSubtractSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   IS_EXTERNAL_CODELET(true);
 
@@ -462,6 +470,8 @@ public:
 template <typename AType, typename BType>
 class ScaledSubtractSupervisor<AType, BType, AType, false>
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   IS_EXTERNAL_CODELET(true);
 
@@ -484,6 +494,8 @@ public:
   class CONSTRAINTS                                                            \
       ScaledSubtractSupervisor<half, half, float, IS_CONSTRAINED>              \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     ScaledSubtractSupervisor();                                                \
     IS_EXTERNAL_CODELET(true);                                                 \
@@ -635,6 +647,8 @@ template <typename DataType, typename ScaleType, bool isConstant,
           bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] aXPlusbYSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   aXPlusbYSupervisor();
   IS_EXTERNAL_CODELET(true);
@@ -660,6 +674,8 @@ public:
   class CONSTRAINTS                                                            \
       aXPlusbYSupervisor<DataType, DataType, IS_CONSTANT, IS_CONSTRAINED>      \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     aXPlusbYSupervisor();                                                      \
     IS_EXTERNAL_CODELET(true);                                                 \
@@ -702,6 +718,8 @@ template class aXPlusbYSupervisor<half, half, false, false>;
   class CONSTRAINTS                                                            \
       aXPlusbYSupervisor<half, float, IS_CONSTANT, IS_CONSTRAINED>             \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     aXPlusbYSupervisor();                                                      \
     IS_EXTERNAL_CODELET(true);                                                 \
@@ -882,6 +900,8 @@ template <typename DataType, typename ScaleType, bool isConstant,
           bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] aXMinusbYSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   aXMinusbYSupervisor();
   IS_EXTERNAL_CODELET(true);
@@ -907,6 +927,8 @@ public:
   class CONSTRAINTS                                                            \
       aXMinusbYSupervisor<DataType, DataType, IS_CONSTANT, IS_CONSTRAINED>     \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     aXMinusbYSupervisor();                                                     \
     IS_EXTERNAL_CODELET(true);                                                 \
@@ -940,6 +962,8 @@ template class aXMinusbYSupervisor<half, half, false, false>;
   class CONSTRAINTS                                                            \
       aXMinusbYSupervisor<half, float, IS_CONSTANT, IS_CONSTRAINED>            \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     aXMinusbYSupervisor();                                                     \
     IS_EXTERNAL_CODELET(true);                                                 \
@@ -1091,6 +1115,8 @@ DEF_AXMINUSBY_2D_MIXED_VERTEX(Input<float>, *, , false, false)
 template <typename InType, bool isConstant, bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] XMinusaXPlusbYSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   XMinusaXPlusbYSupervisor();
   IS_EXTERNAL_CODELET(false);
@@ -1116,6 +1142,8 @@ public:
   class CONSTRAINTS                                                            \
       XMinusaXPlusbYSupervisor<InType, IS_CONSTANT, IS_CONSTRAINED>            \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     XMinusaXPlusbYSupervisor();                                                \
     IS_EXTERNAL_CODELET(true);                                                 \

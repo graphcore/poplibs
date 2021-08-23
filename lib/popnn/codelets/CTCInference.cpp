@@ -441,6 +441,8 @@ class CTCRankCandidates
     : public SupervisorVertexIf<std::is_same<PartialsType, float>::value &&
                                 std::is_same<SymbolType, unsigned>::value &&
                                 ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   CTCRankCandidates();
   constexpr static bool isExternal() {

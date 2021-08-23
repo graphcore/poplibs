@@ -19,6 +19,8 @@ template <typename T>
 class WORKER_ALIGN
     [[poplar::constraint("elem(*src) != elem(*dst)")]] TransposeSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   TransposeSupervisor();
 

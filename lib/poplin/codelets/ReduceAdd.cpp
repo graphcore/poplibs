@@ -22,6 +22,8 @@ class ReduceAdd : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 private:
   constexpr static unsigned partialsAlign = partialsMemConstraints ? 16 : 8;
 
+  static const bool needsAlignWorkers = false;
+
 public:
   ReduceAdd();
 
@@ -52,6 +54,8 @@ class ReduceAdd<OutType, PartialsType, true, partialsMemConstraints>
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 private:
   constexpr static unsigned partialsAlign = partialsMemConstraints ? 16 : 8;
+
+  static const bool needsAlignWorkers = false;
 
 public:
   ReduceAdd();

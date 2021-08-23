@@ -37,6 +37,8 @@ class [[poplar::constraint(
     : public SupervisorVertexIf<
           hasAssembly<FPType, AccumType, useLimitedVer>() &&
           ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   ConvPartialHorizontalMac();
 

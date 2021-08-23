@@ -17,6 +17,8 @@ namespace popops {
 template <expr::BinaryOpType op, class FPType>
 class BroadcastVectorInnerInPlaceSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   BroadcastVectorInnerInPlaceSupervisor();
 

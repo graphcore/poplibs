@@ -36,6 +36,7 @@ class [[poplar::constraint(
           hasAssemblyVersion<FPType, AccumType, useShortTypes, windowWidth,
                              numConvChains>() &&
           ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
 
 public:
   ConvPartial1xNSLIC();

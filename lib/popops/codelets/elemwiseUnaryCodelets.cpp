@@ -993,6 +993,8 @@ class UnaryOp1DSupervisor
                                 ASM_CODELETS_ENABLED> {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
 
+  static const bool needsAlignWorkers = false;
+
 public:
   Input<Vector<T, ONE_PTR, 8>> in;
   Output<Vector<outputType, SPAN, 8>> out;
@@ -1012,6 +1014,8 @@ class UnaryOp1DInPlaceSupervisor
   typedef typename UnaryOpOutputType<op, T>::type outputType;
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");
+
+  static const bool needsAlignWorkers = false;
 
 public:
   InOut<Vector<T, SPAN, 8>> inOut;
@@ -1034,6 +1038,8 @@ public:
     typedef typename UnaryOpOutputType<op, T>::type outputType;                \
     static_assert(std::is_same<T, outputType>::value,                          \
                   "In, Out types must match for in place operations");         \
+                                                                               \
+    static const bool needsAlignWorkers = false;                               \
                                                                                \
   public:                                                                      \
     UnaryOp1DInPlaceSupervisor();                                              \

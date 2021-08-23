@@ -1004,6 +1004,8 @@ INSTANTIATE_SCALAR_DUAL_OUT_RELOP(BroadcastScalar1DRelationalOpDualOutput);
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
                                                                                \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     inOutType<Vector<dType, ONE_PTR, inputAlign>> data;                        \
     outDef Input<Vector<dType, SPAN>> B;                                       \
@@ -1043,6 +1045,8 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlaceSupervisor);
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
                                                                                \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     inOutType<Vector<dType, ONE_PTR, inputAlign>> data;                        \
     outDef Input<Vector<dType, SPAN>> B;                                       \
@@ -1080,6 +1084,8 @@ class BroadcastScalar1DSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
   typedef typename BinaryOpOutputType<op, dType>::type OutputType;
 
+  static const bool needsAlignWorkers = false;
+
 public:
   Input<Vector<dType, SPAN, 8>> data;
   Output<Vector<OutputType, ONE_PTR, 8>> out;
@@ -1096,6 +1102,8 @@ template <BinaryOpType op, typename dType>
 class BroadcastScalar1DInPlaceSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
   typedef typename BinaryOpOutputType<op, dType>::type OutputType;
+
+  static const bool needsAlignWorkers = false;
 
 public:
   InOut<Vector<OutputType, SPAN, 8>> data;
@@ -1114,6 +1122,8 @@ public:
   template <>                                                                  \
   class vertexName<BinaryOpType::INV_STD_DEV_TO_VARIANCE, half>                \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+    static const bool needsAlignWorkers = false;                               \
+                                                                               \
   public:                                                                      \
     inOutType<Vector<half, SPAN, 8>> data;                                     \
     outDef Input<half> B;                                                      \
@@ -1319,6 +1329,8 @@ template class BroadcastScalar2Types2DData<
 template <BinaryOpType op, typename inType, typename outType>
 class BroadcastScalar2Types1DSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   Input<Vector<inType, SPAN, 8>> data;
   Output<Vector<outType, ONE_PTR, 8>> out;

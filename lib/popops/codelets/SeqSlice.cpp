@@ -89,6 +89,8 @@ class [[poplar::constraint("elem(*srcT) != elem(*dstT)")]] SequenceSlice
   // TODO: make this a supervisor vertex so multiple offsets can be handled
   // by multiple workers. Can't split into multple vertices as they would all
   // have the same dstT
+  static const bool needsAlignWorkers = false;
+
 public:
   SequenceSlice();
 

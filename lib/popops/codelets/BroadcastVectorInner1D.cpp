@@ -18,6 +18,8 @@ template <expr::BinaryOpType op, class FPType>
 class [[poplar::constraint(
     "elem(*data) != elem(*out)")]] BroadcastVectorInnerSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+  static const bool needsAlignWorkers = false;
+
 public:
   BroadcastVectorInnerSupervisor();
 
