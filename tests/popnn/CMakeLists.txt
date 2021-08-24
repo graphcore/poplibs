@@ -246,6 +246,21 @@ add_multitarget_test(NAME max_pool_layer_folded_spatial_dims
                  --data-type=half
                  --use-introspection=1)
 
+# In debug test memory is initialised to nan.  Testing bwd only makes sure
+# that the fwd pass operation didn't change the data.  Here a lot of the 
+# output is not written by the kernel due to the large stride but should be
+# written by the poplibs pooling function
+add_multitarget_test(NAME pool_bwd_stride_bigger_than_kernel
+        COMMAND pooling_layer
+                 --channels 16
+                 --field=64
+                 --kernel-size=2
+                 --tiles-per-ipu=16
+                 --stride=16
+                 --data-type=half
+                 --single-phase=bwd
+                 --use-introspection=1)
+
 foreach(OPTIMIZE_FOR_SPEED true false)
   foreach(USE_FLOAT_PARTIALS true false)
   add_multitarget_test(NAME avg_pool_layer_half_${OPTIMIZE_FOR_SPEED}_${USE_FLOAT_PARTIALS}

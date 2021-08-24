@@ -16,6 +16,7 @@
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/MultiArray.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/Pass.hpp>
 #include <poplibs_test/Pooling.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/codelets.hpp>
@@ -39,6 +40,7 @@ using namespace poplibs_test::util;
 using namespace poplibs_support;
 using namespace poputil;
 
+using poplibs_test::Pass;
 using popnn::PoolingType;
 
 namespace popnn {
@@ -93,6 +95,7 @@ int main(int argc, char **argv) {
   unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
   PoolingType poolingType = PoolingType::MAX;
+  Pass pass = Pass::ALL;
 
   OptionFlags engineOptions;
   OptionFlags poolingOptions;
@@ -146,7 +149,9 @@ int main(int argc, char **argv) {
      po::value<unsigned>(&bwdChansPerGroup),
      "The number of channels per group of the deltas written in the backwards "
      "pass")
-    ("inference-only", "Benchmark inference only")
+    ("single-phase",
+      po::value<Pass>(&pass)->default_value(pass),
+      "Run phase all | fwd | bwd")
     ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
      "model")
@@ -232,7 +237,9 @@ int main(int argc, char **argv) {
   paddingUpperOption.broadcast(numFieldDims);
   auto &paddingUpper = paddingUpperOption.val;
 
-  const bool inferenceOnly = vm.count("inference-only");
+  const bool runFwdPass = pass == Pass::ALL || pass == Pass::FWD;
+  const bool runBwdPass = pass == Pass::ALL || pass == Pass::BWD;
+  const bool bwdPassWithActs = runBwdPass && poolingType == PoolingType::MAX;
   const bool ignoreData = vm.count("ignore-data");
 
   auto device = tilesPerIPU
@@ -253,7 +260,7 @@ int main(int argc, char **argv) {
     else
       fwdChansPerGroup = 1;
   }
-  if (!inferenceOnly && !vm.count("bwd-chans-per-group")) {
+  if (runBwdPass && !vm.count("bwd-chans-per-group")) {
     if (chans % 16 == 0)
       bwdChansPerGroup = 16;
     else
@@ -268,22 +275,26 @@ int main(int argc, char **argv) {
 
   // Create tensors.
   Tensor prevAct = [&] {
-    // start with channels in the outer most dimension so that the batches
-    // get distributed across the tiles when the tensor is mapped.
-    std::vector<std::size_t> prevActShape = {chans / fwdChansPerGroup,
-                                             batchSize};
-    prevActShape.insert(prevActShape.end(), inputFieldSize.begin(),
-                        inputFieldSize.end());
-    prevActShape.push_back(fwdChansPerGroup);
-    Tensor prevAct = graph.addVariable(dataType, prevActShape, "prevAct");
-    mapTensorLinearly(graph, prevAct);
-    // squash channels and groups into the same dimension.
-    return prevAct.dimShufflePartial({0, prevAct.rank() - 1}, {1, 2})
-        .reshapePartial(1, 3, {chans});
+    if (runFwdPass || bwdPassWithActs) {
+      // start with channels in the outer most dimension so that the batches
+      // get distributed across the tiles when the tensor is mapped.
+      std::vector<std::size_t> prevActShape = {chans / fwdChansPerGroup,
+                                               batchSize};
+      prevActShape.insert(prevActShape.end(), inputFieldSize.begin(),
+                          inputFieldSize.end());
+      prevActShape.push_back(fwdChansPerGroup);
+      Tensor prevAct = graph.addVariable(dataType, prevActShape, "prevAct");
+      mapTensorLinearly(graph, prevAct);
+      // squash channels and groups into the same dimension.
+      return prevAct.dimShufflePartial({0, prevAct.rank() - 1}, {1, 2})
+          .reshapePartial(1, 3, {chans});
+    } else {
+      return Tensor{};
+    }
   }();
 
   Tensor zDeltas = [&] {
-    if (!inferenceOnly) {
+    if (runBwdPass) {
       // start with channels in the outer most dimension so that the batches
       // get distributed across the tiles when the tensor is mapped.
       std::vector<std::size_t> zDeltasShape = {chans / bwdChansPerGroup,
@@ -310,13 +321,19 @@ int main(int argc, char **argv) {
                       std::end(outDims));
 
   auto fwdProg = Sequence();
-  auto nextAct = popnn::pooling::pool(graph, poolParams, prevAct, fwdProg,
-                                      "TestFwd", poolingOptions);
-
+  Tensor nextAct;
+  if (runFwdPass || bwdPassWithActs) {
+    // If running the backward phase only and doing max pooling we need a
+    // nextAct tensor.  Calling pool here creates that tensor and maps it
+    // consistently with a fwd phase.  However that forward phase is never run
+    // and the tensor is initialised with a host copy later
+    nextAct = popnn::pooling::pool(graph, poolParams, prevAct, fwdProg,
+                                   "TestFwd", poolingOptions);
+  }
   auto bwdProg = Sequence();
   Tensor prevDeltas;
-  if (!inferenceOnly) {
-    if (poolingType == PoolingType::MAX) {
+  if (runBwdPass) {
+    if (bwdPassWithActs) {
       prevDeltas = popnn::pooling::poolInputGradient(
           graph, poolParams, prevAct, nextAct, zDeltas,
           scaledGradientForMaxPool, bwdProg, "TestBwdMax", poolingOptions);
@@ -328,13 +345,20 @@ int main(int argc, char **argv) {
   }
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
-  auto rawHostPrevAct = allocateHostMemoryForTensor(
-      prevAct, "prevAct", graph, uploadProg, downloadProg, tmap);
-  auto rawHostNextAct = allocateHostMemoryForTensor(
-      nextAct, "nextAct", graph, uploadProg, downloadProg, tmap);
+
+  std::unique_ptr<char[]> rawHostPrevAct;
+  std::unique_ptr<char[]> rawHostNextAct;
+  if (runFwdPass || bwdPassWithActs) {
+    rawHostPrevAct = allocateHostMemoryForTensor(
+        prevAct, "prevAct", graph, uploadProg, downloadProg, tmap);
+
+    rawHostNextAct = allocateHostMemoryForTensor(
+        nextAct, "nextAct", graph, uploadProg, downloadProg, tmap);
+  }
+
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
-  if (!inferenceOnly) {
+  if (runBwdPass) {
     rawHostZDeltas = allocateHostMemoryForTensor(
         zDeltas, "zDeltas", graph, uploadProg, downloadProg, tmap);
     rawHostPrevDeltas = allocateHostMemoryForTensor(
@@ -369,19 +393,20 @@ int main(int argc, char **argv) {
   // half value
   adjustActivations(hostPrevAct, maxValue);
 
-  copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
-  // Run the forward pass.
-  device.bind([&](const Device &d) {
-    engine.load(d);
-    if (!ignoreData) {
-      engine.run(uploadProgIndex);
-    }
-    engine.run(fwdProgIndex); // Run.
-    if (!ignoreData) {
-      engine.run(downloadProgIndex);
-    }
-  });
-
+  if (runFwdPass) {
+    copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
+    // Run the forward pass.
+    device.bind([&](const Device &d) {
+      engine.load(d);
+      if (!ignoreData) {
+        engine.run(uploadProgIndex);
+      }
+      engine.run(fwdProgIndex); // Run.
+      if (!ignoreData) {
+        engine.run(downloadProgIndex);
+      }
+    });
+  }
   // Validate against a reference model.
   if (vm["tolerance"].empty()) {
     if (dataType == FLOAT) {
@@ -397,26 +422,30 @@ int main(int argc, char **argv) {
   }
 
   bool matchesModel = true;
-  copy(target, dataType, rawHostNextAct.get(), hostNextAct);
   MultiArray<double> modelNextAct{zDeltasShape};
   std::fill_n(modelNextAct.data(), modelNextAct.numElements(), 37.2);
+
   if (!ignoreData) {
     poplibs_test::pooling::pooling(poolingType, stride, kernelSize,
                                    paddingLower, paddingUpper, hostPrevAct,
                                    modelNextAct);
-    matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
-                                relativeTolerance, absoluteTolerance);
+    if (runFwdPass) {
+      copy(target, dataType, rawHostNextAct.get(), hostNextAct);
+      matchesModel = checkIsClose("fwd", hostNextAct, modelNextAct,
+                                  relativeTolerance, absoluteTolerance);
+    }
   }
-
-  if (!inferenceOnly) {
+  if (runBwdPass) {
     MultiArray<double> hostZDeltas{zDeltasShape};
     MultiArray<double> hostPrevDeltas{prevActShape};
 
     // Run the backwards pass.
     writeRandomValues(target, dataType, hostZDeltas, -5.0, 5.0, randomEngine);
     copy(target, hostZDeltas, dataType, rawHostZDeltas.get());
-    copy(target, modelNextAct, dataType, rawHostNextAct.get());
-    copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
+    if (bwdPassWithActs) {
+      copy(target, modelNextAct, dataType, rawHostNextAct.get());
+      copy(target, hostPrevAct, dataType, rawHostPrevAct.get());
+    }
     device.bind([&](const Device &d) {
       engine.load(d);
       if (!ignoreData) {

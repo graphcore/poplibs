@@ -8,6 +8,7 @@
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvUtil.hpp"
+#include "popops/Zero.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
@@ -386,7 +387,7 @@ void createWorklists(
 // tile             Tile on which vertices are generated
 // indices          indices of planning parameter splits assigned to this tile
 // slice            parameters for slicing channels, batch, field and kernel
-static void
+static bool
 generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
                  const Tensor &out, const Tensor *fwdInputActs,
                  const Tensor *fwdOutputActs, const ConvParams &params,
@@ -396,6 +397,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   const auto numContexts = target.getNumWorkerContexts();
   const auto numFieldDims = slice.kernelBegin.size();
   const auto chansPerGroup = out.dim(out.rank() - 1);
+  bool zeroRequired = false;
 
   if (cs.empty()) {
     cs.push_back(graph.addComputeSet({dnai, "Pool"}));
@@ -415,7 +417,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
 
   if (slice.getBatchSize() == 0 || slice.getNumChans() == 0 ||
       product(kernelShape) == 0 || product(outputShape) == 0)
-    return;
+    return zeroRequired;
 
   // Note that some calculations here are on the original field. i.e. the full
   // field given by "params".
@@ -445,10 +447,6 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
     }
   }
 
-  // There may be no work to do on this tile
-  if (flattenedPartitions.empty()) {
-    return;
-  }
   // now all the ranges are available and we can take the required slice from
   // the input and output tensors
   std::vector<std::size_t> inSliceBegin = {slice.chanBegin / chansPerGroup,
@@ -457,9 +455,31 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
                                          slice.batchEnd};
   auto outSliceBegin = inSliceBegin;
   auto outSliceEnd = inSliceEnd;
-
+  // Create the slices for the vertices to use.
   createSlices(flattenedPartitions, numFieldDims, inSliceBegin, inSliceEnd,
                outSliceBegin, outSliceEnd);
+
+  // A tile can be assigned an output that isn't operated on by a kernel at all,
+  // or a stride can mean that the work any kernel has to do doesn't complete
+  // the output field. If so this eeds to be zeroed.  Simplify matters
+  // by writing the whole result tensor before we start - triggered by the
+  // return result.
+  // This is probably rare in practice but if not then we could identify
+  // slices that need zeroing and initialise them here.
+  if (flattenedPartitions.empty()) {
+    zeroRequired = true;
+    return zeroRequired;
+  } else {
+    constexpr auto numNonFieldDims = 2;
+    std::vector<std::size_t> outSliceSize(outputShape.size());
+    for (unsigned dim = 0; dim < outputShape.size(); dim++) {
+      outSliceSize[dim] = outSliceEnd[numNonFieldDims + dim] -
+                          outSliceBegin[numNonFieldDims + dim];
+    }
+    if (product(outputShape) != product(outSliceSize)) {
+      zeroRequired = true;
+    }
+  }
 
   auto inWindow = in.slice(inSliceBegin, inSliceEnd);
   auto outWindow = out.slice(outSliceBegin, outSliceEnd);
@@ -641,6 +661,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
       graph.setInitialValue(v["scale"], 1.0);
   }
   graph.setTileMapping(v, tile);
+  return zeroRequired;
 }
 
 // Linearly map to tiles bsed on the parition split and the indices for that
@@ -818,7 +839,7 @@ void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
                        return tileMappingSetsSize[a] < tileMappingSetsSize[b];
                      });
   }
-
+  bool zeroRequired = false;
   std::vector<ComputeSet> cs;
   const auto totalFieldSplit = product(partition.field);
   const auto totalKernelSplit = product(partition.kernel);
@@ -875,13 +896,18 @@ void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
           } else {
             tile = linearTileMap(poolIndices, partition);
           }
-          generateVertices(graph, poolCfg, in, out, fwdInputActs, fwdOutputActs,
-                           params, cs, tile, outputSlice, {dnai});
+          if (generateVertices(graph, poolCfg, in, out, fwdInputActs,
+                               fwdOutputActs, params, cs, tile, outputSlice,
+                               {dnai})) {
+            zeroRequired = true;
+          }
         }
       }
     }
   }
-
+  if (zeroRequired) {
+    popops::zero(graph, out, prog);
+  }
   for (auto c : cs) {
     prog.add(Execute(c, {dnai}));
   }
