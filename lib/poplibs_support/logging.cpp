@@ -161,8 +161,10 @@ LoggingContext::LoggingContext() {
 
     auto logger = std::make_unique<spdlog::logger>(moduleName(m), sink);
     logger->set_level(translate(getLogLevelForModule(m)));
-    logger->set_pattern("%T.%e %t PL:%-" +
-                        std::to_string(getModuleMaxLength(m)) + "n [%L] %v");
+    const auto n = std::to_string(getModuleMaxLength(m));
+    logger->set_pattern("%^%Y-%m-%dT%H:%M:%S.%fZ PL:%-" + n +
+                            "n %P.%t %L: %v%$",
+                        spdlog::pattern_time_type::utc);
     loggers[static_cast<std::size_t>(m)] = std::move(logger);
   };
 
