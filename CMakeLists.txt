@@ -126,10 +126,9 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 endif()
 
 
-if(${BUILD_SHARED_LIBS})
-  set(Boost_USE_STATIC_LIBS OFF)
-else()
+if(NOT BUILD_SHARED_LIBS)
   set(Boost_USE_STATIC_LIBS ON)
+  set(Boost_USE_STATIC_RUNTIME ON)
 endif()
 
 find_package(Boost 1.70.0 REQUIRED regex program_options filesystem unit_test_framework timer system)
