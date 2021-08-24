@@ -1155,6 +1155,8 @@ Chunks reduceScatter(Graph &graph, const Tensor &toReduce,
                      popops::CollectiveOperator op, Sequence &prog,
                      const poplar::DebugContext &debugContext,
                      const poplar::OptionFlags &options) {
+  logging::popops::warn(
+      "{} is deprecated, use gcl::reduceScatterWithinReplica() instead");
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(toReduce, op, options));
 
@@ -1172,6 +1174,8 @@ Chunks reduceScatter(Graph &graph, const Tensor &toReduce,
 Tensor allGather(Graph &graph, const Chunks &toGather, Sequence &prog,
                  const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  logging::popops::warn(
+      "{} is deprecated, use gcl::allGatherWithinReplica() instead");
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(toGather, options));
   logging::popops::info("allGather toGather={}x{}, name={}",
@@ -1193,6 +1197,8 @@ poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
+  logging::popops::warn(
+      "{} is deprecated, use gcl::allReduceWithinReplica() instead");
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(toReduce, op, options));
 

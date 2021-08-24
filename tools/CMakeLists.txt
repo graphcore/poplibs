@@ -79,11 +79,6 @@ target_link_libraries(reduce_op
                       poplibs_support poplibs_test
                       Boost::program_options)
 
-add_tool(collectives collectives.cpp)
-target_link_libraries(collectives
-                      poplibs_support poplibs_test
-                      Boost::program_options)
-
 add_tool(random_generator random_generator.cpp)
 target_link_libraries(random_generator
                      poplibs_support poplibs_test

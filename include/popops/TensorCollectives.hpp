@@ -17,6 +17,12 @@
 #include <string>
 #include <vector>
 
+#if __cplusplus >= 201402L
+#define POPLIBS_DEPRECATED(x) [[deprecated(x)]]
+#else
+#define POPLIBS_DEPRECATED(x)
+#endif
+
 namespace popops {
 
 /**
@@ -73,7 +79,10 @@ namespace popops {
  * \return A vector of chunks, where chunk \c i resides on IPU \c i.
  *        The chunks may have different numbers of elements (for example, when
  *        the number of IPUs does not exactly divide the number of elements).
+ *
+ * \deprecated Use gcl::reduceScatterWithinReplica() instead
  */
+POPLIBS_DEPRECATED("Use gcl::reduceScatterWithinReplica() instead")
 Chunks reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
                      popops::CollectiveOperator op,
                      poplar::program::Sequence &prog,
@@ -91,7 +100,10 @@ Chunks reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
  *  \return A 2D tensor that contains a copy of the data for each IPU.
  *          Index \c i in the outermost dimension of the result is mapped
  *          to IPU \c i.
+ *
+ * \deprecated Use gcl::allGatherWithinReplica() instead
  */
+POPLIBS_DEPRECATED("Use gcl::allGatherWithinReplica() instead")
 poplar::Tensor allGather(poplar::Graph &graph, const Chunks &toGather,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
@@ -116,7 +128,10 @@ poplar::Tensor allGather(poplar::Graph &graph, const Chunks &toGather,
  *  \return A tensor with the same shape as \p toReduce, where the innermost
  *          dimension is the result of the reduction and the outermost dimension
  *          has a number of copies of the result.
+ *
+ * \deprecated Use gcl::allReduceWithinReplica() instead
  */
+POPLIBS_DEPRECATED("Use gcl::allReduceWithinReplica() instead")
 poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
                          popops::CollectiveOperator op,
                          poplar::program::Sequence &prog,
