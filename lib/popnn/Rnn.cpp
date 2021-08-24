@@ -12,6 +12,7 @@
 #include <popnn/Rnn.hpp>
 #include <popops/Cast.hpp>
 #include <popops/Encoding.hpp>
+#include <popops/Loop.hpp>
 #include <poputil/GraphFunction.hpp>
 
 #include <boost/functional/hash.hpp>
@@ -301,6 +302,11 @@ static void validateTimeSteps(const Tensor &timeSteps, std::size_t batchSize) {
   }
 }
 
+struct RnnInterval {
+  poplar::Tensor max;
+  poplar::Tensor min;
+};
+
 class RnnState {
 public:
   RnnState(Graph &graph, unsigned seqLen, unsigned numShards, bool reverse,
@@ -326,7 +332,7 @@ public:
 
   // If variable time steps is used, get the variable time steps for the
   // current shard
-  const Tensor indexTensor() const { return timeSteps[currIndex]; };
+  const Tensor timeLimit() const { return timeSteps.max[currIndex]; };
 
   // The step offset within a `Gather` interval
   const Tensor &counterGatherOffset() const { return gatherOffset; };
@@ -335,19 +341,24 @@ public:
   const unsigned gatherCadence() const;
 
   // Method used to configure variable time steps
-  program::Sequence useVariableTimeSteps(const Tensor &numTimeSteps);
+  program::Sequence calculateCounterLimits(const Tensor &numTimeSteps);
 
   // Initialise step counter
   program::Sequence initCounter();
-
-  // Update Step Counter
-  program::Sequence updateCounter();
 
   // Initialise gather offset counter
   program::Sequence initGatherOffset(bool initialization) const;
 
   // Update gather offset counter
   program::Sequence updateGatherOffset();
+
+  // Program that updates counters and checks if limit has been reached.
+  program::Sequence checkLimit() const { return loopLimitCheck[currIndex]; };
+
+  // Boolean tensor that gets set when loop exit conditon has been reached
+  const Tensor &continueFlag() const { return loopContinueFlag; };
+
+  const Tensor &variableSequenceFlag() const { return loopVariableSeqFlag; };
 
   bool isReverse() const { return reverse; };
   unsigned operator()() const { return counter; };
@@ -358,17 +369,17 @@ private:
   Graph &graph;
   std::vector<Tensor> timeStepBegin;
   Tensor one;
+  Tensor minusOne;
 
   // Counter which increments every RNN iteration
   Tensor timeStepCounter;
 
   // The number of time steps for each shard, used in the repeat loop
-  Tensor timeSteps;
+  RnnInterval timeSteps;
 
   Tensor gatherOffset;
-  ShardIndexLimit stepLimit;
-  Tensor gatherOffsetLimit;
-  Tensor gatherOffsetLimitMinus1;
+  Tensor gatherCadenceLen;
+  Tensor gatherCadenceLenInitial;
 
   unsigned seqLengthExclLast;
   unsigned fullSequenceLen;
@@ -376,6 +387,10 @@ private:
 
   // shard counter
   unsigned counter;
+
+  Tensor loopContinueFlag;
+  Tensor loopVariableSeqFlag;
+  std::vector<program::Sequence> loopLimitCheck;
 
   // Use tensor for the number of time steps
   bool variableTimeSteps;
@@ -406,8 +421,9 @@ RnnState::RnnState(Graph &graph, unsigned seqLen, unsigned numShards,
                    bool reverse, boost::optional<unsigned> &stepsPerGather,
                    poputil::PoplibsOpDebugInfo &dnai)
     : graph(graph), timeStepBegin(numShards), fullSequenceLen(seqLen),
-      numShards(numShards), counter(numShards), variableTimeSteps(false),
-      reverse(reverse), stepsPerGather(stepsPerGather), dnai(dnai) {
+      numShards(numShards), counter(numShards), loopLimitCheck(numShards),
+      variableTimeSteps(false), reverse(reverse),
+      stepsPerGather(stepsPerGather), dnai(dnai) {
 
   // loop counter
   timeStepCounter =
@@ -417,53 +433,15 @@ RnnState::RnnState(Graph &graph, unsigned seqLen, unsigned numShards,
   one = graph.addConstant(UNSIGNED_INT, {1}, 1, {dnai, "one"});
   graph.setTileMapping(one, 0);
 
+  minusOne = graph.addConstant(UNSIGNED_INT, {1}, -1, {dnai, "minusOne"});
+  graph.setTileMapping(minusOne, 0);
+
   seqLengthExclLast = ceildiv(seqLen, numShards);
   for (unsigned i = 0; i < numShards; ++i) {
     timeStepBegin[i] =
         graph.addConstant(UNSIGNED_INT, {1}, (i * seqLengthExclLast),
                           {dnai, "timeStepBegin/" + std::to_string(i)});
     graph.setTileMapping(timeStepBegin[i], 0);
-  }
-
-  if (reverse) {
-    unsigned seqLengthLast = seqLen - (seqLengthExclLast * (numShards - 1));
-
-    auto createLimit = [&](unsigned exclLast, unsigned last) {
-      ShardIndexLimit limit;
-      limit.exclLastShard =
-          graph.addConstant(UNSIGNED_INT, {1}, exclLast, {dnai, "start"});
-      graph.setTileMapping(limit.exclLastShard, 0);
-      if (last == exclLast) {
-        limit.lastShard = limit.exclLastShard;
-      } else {
-        limit.lastShard = graph.addConstant(UNSIGNED_INT, {1}, last,
-                                            {dnai, "limit.lastShard"});
-        graph.setTileMapping(limit.lastShard, 0);
-      }
-      return limit;
-    };
-
-    stepLimit = createLimit(seqLengthExclLast - 1, seqLengthLast - 1);
-    if (stepsPerGather) {
-      auto gatherCadenceExclLast = std::min(*stepsPerGather, seqLengthExclLast);
-      if ((*stepsPerGather > 1) && (*stepsPerGather < seqLen)) {
-        gatherOffset = graph.addVariable(UNSIGNED_INT, {1}, {dnai, "step"});
-        graph.setTileMapping(gatherOffset, 0);
-
-        // The very first time `gatherOffset` is initialised to
-        // `gatherOffsetLimit - 1`. Subsequently gatherOffset must be
-        // periodically reinitialised to `gatherOffsetLimit` since it is
-        // closely followed by a decrementing of the gatherOffset at tne end of
-        // the loop.
-        gatherOffsetLimit = graph.addConstant(
-            UNSIGNED_INT, {1}, gatherCadenceExclLast, {dnai, "gatherOffset"});
-        graph.setTileMapping(gatherOffsetLimit, 0);
-        gatherOffsetLimitMinus1 =
-            graph.addConstant(UNSIGNED_INT, {1}, gatherCadenceExclLast - 1,
-                              {dnai, "gatherOffsetMinus1"});
-        graph.setTileMapping(gatherOffsetLimitMinus1, 0);
-      }
-    }
   }
 
   currIndex = reverse ? (numShards - 1) : 0;
@@ -527,42 +505,141 @@ const unsigned RnnState::gatherCadence() const {
 }
 
 program::Sequence
-RnnState::useVariableTimeSteps(const Tensor &numTimeStepsPerBatch_) {
+RnnState::calculateCounterLimits(const Tensor &numTimeStepsPerBatch_) {
   auto prog = Sequence{{}, {dnai, "initCounter"}};
 
-  // Allocate tensor for the number of time steps for all shards.
-  timeSteps =
-      graph.addVariable(UNSIGNED_INT, {numShards}, {dnai, "timeStepCounter"});
-  graph.setTileMapping(timeSteps, 0);
-
-  // find the maximum number of time steps for the whole batch
-  auto numTimeStepsPerBatch =
-      popops::cast(graph, numTimeStepsPerBatch_, INT, prog);
-  auto numTimeSteps = popops::reduce(graph, numTimeStepsPerBatch, {0},
-                                     {popops::Operation::MAX, false}, prog);
-
-  // Calculate the number of steps for each shard
   using namespace popops::expr;
-  iota(graph, timeSteps, 0U, prog);
-  mapInPlace(graph,
-             Cast(Max(Min(_2 - (Cast(_1, INT) * expr::Const(seqLengthExclLast)),
-                          expr::Const(seqLengthExclLast)),
-                      expr::Const(0)),
-                  UNSIGNED_INT),
-             {timeSteps, numTimeSteps}, prog, {dnai, "timeSteps"});
+  if (numTimeStepsPerBatch_.valid()) {
+    timeSteps.max =
+        graph.addVariable(UNSIGNED_INT, {numShards}, {dnai, "timeStepCounter"});
+    graph.setTileMapping(timeSteps.max, 0);
 
-  variableTimeSteps = true;
+    // find the minimum and maximum time steps over the batch
+    RnnInterval seqLenLimitVar;
+    auto numTimeStepsPerBatch =
+        popops::cast(graph, numTimeStepsPerBatch_, INT, prog);
+    seqLenLimitVar.max = popops::reduce(graph, numTimeStepsPerBatch, {0},
+                                        {popops::Operation::MAX, false}, prog,
+                                        {dnai, "MaxVarSequenceLength"});
+    seqLenLimitVar.min = popops::reduce(graph, numTimeStepsPerBatch, {0},
+                                        {popops::Operation::MIN, false}, prog,
+                                        {dnai, "MinVarSequenceLength"});
+
+    // Calculate the minimum and maximum limits per shard.
+    if (numShards > 1) {
+      auto shardIndex = graph.clone(INT, timeSteps.max);
+      iota(graph, shardIndex, 0, prog);
+      mulInPlace(graph, shardIndex, static_cast<int>(seqLengthExclLast), prog,
+                 {dnai, "shardedSequenceStart"});
+      mapInPlace(graph,
+                 Cast(Max(Min(_3 - _2, expr::Const(seqLengthExclLast)),
+                          expr::Const(0)),
+                      UNSIGNED_INT),
+                 {timeSteps.max, shardIndex, seqLenLimitVar.max}, prog,
+                 {dnai, "timeSteps.max"});
+      timeSteps.min = graph.clone(timeSteps.max);
+      mapInPlace(graph,
+                 Cast(Max(Min(_3 - _2, expr::Const(seqLengthExclLast)),
+                          expr::Const(0)),
+                      UNSIGNED_INT),
+                 {timeSteps.min, shardIndex, seqLenLimitVar.min}, prog,
+                 {dnai, "timeSteps.min"});
+    } else {
+      timeSteps.max = cast(graph, seqLenLimitVar.max.expand({0}), UNSIGNED_INT,
+                           prog, {dnai, "timeSteps.max"});
+      timeSteps.min = cast(graph, seqLenLimitVar.min.expand({0}), UNSIGNED_INT,
+                           prog, {dnai, "timeSteps.min"});
+    }
+    variableTimeSteps = true;
+  } else {
+    // Use constant for the counter upper limit wherever possible to help
+    // sub-graph replication.
+    std::vector<unsigned> limits(numShards, seqLengthExclLast);
+    limits[numShards - 1] =
+        fullSequenceLen - (numShards - 1) * seqLengthExclLast;
+    timeSteps.max = graph.addConstant(UNSIGNED_INT, {numShards}, limits.data(),
+                                      {dnai, "timeSteps.max"});
+    graph.setTileMapping(timeSteps.max, 0);
+  }
+
+  if (stepsPerGather) {
+    unsigned seqLengthLast =
+        fullSequenceLen - (seqLengthExclLast * (numShards - 1));
+    auto gatherCadenceExclLast = std::min(*stepsPerGather, seqLengthExclLast);
+    auto gatherCadenceLast = std::min(*stepsPerGather, seqLengthLast);
+    if ((*stepsPerGather > 1) && (*stepsPerGather < fullSequenceLen)) {
+      // The very first time `gatherOffset` is initialised to
+      // `gatherCadenceLen - 1`. Subsequently gatherOffset must be
+      // periodically reinitialised to `gatherCadenceLen` since it is
+      // closely followed by a decrementing of the gatherOffset at tne end of
+      // the loop.
+      std::vector<unsigned> shardGatherLen(numShards, gatherCadenceExclLast);
+      shardGatherLen[numShards - 1] = gatherCadenceLast;
+      gatherCadenceLen =
+          graph.addConstant(UNSIGNED_INT, {numShards}, shardGatherLen.data(),
+                            {dnai, "gatherLength"});
+      graph.setTileMapping(gatherCadenceLen, 0);
+
+      std::vector<unsigned> shardGatherLenMinus1(numShards,
+                                                 gatherCadenceExclLast - 1);
+      shardGatherLenMinus1[numShards - 1] = gatherCadenceLast - 1;
+      auto gatherCadenceLenMinus1 = graph.addConstant(
+          UNSIGNED_INT, {numShards}, shardGatherLenMinus1.data(),
+          {dnai, "gatherLength"});
+      graph.setTileMapping(gatherCadenceLenMinus1, 0);
+
+      if (numTimeStepsPerBatch_.valid()) {
+        std::vector<unsigned> shardFixedRemainder(
+            numShards, seqLengthExclLast % *stepsPerGather);
+        shardFixedRemainder[numShards - 1] = seqLengthLast % *stepsPerGather;
+        auto fixedRemainder = graph.addConstant(UNSIGNED_INT, {numShards},
+                                                shardFixedRemainder.data(),
+                                                {dnai, "fixedRemainder"});
+        graph.setTileMapping(fixedRemainder, 0);
+        auto remainder =
+            map(graph, Select(_1 + expr::Const(1), (_1 - _2) % _3, Lt(_1, _2)),
+                {timeSteps.max, fixedRemainder, gatherCadenceLen}, prog,
+                {dnai, "gatherOffsetInitial"});
+        gatherCadenceLenInitial =
+            map(graph, Select(_1 - expr::Const(1), _2, Cast(_1, BOOL)),
+                {remainder, gatherCadenceLenMinus1}, prog,
+                {dnai, "gatherOffsetInitial"});
+      } else {
+        gatherCadenceLenInitial = gatherCadenceLenMinus1;
+      }
+
+      gatherOffset = graph.addVariable(UNSIGNED_INT, {1}, {dnai, "step"});
+      graph.setTileMapping(gatherOffset, 0);
+    }
+  }
   return prog;
 }
 
 program::Sequence RnnState::initCounter() {
   auto prog = Sequence{{}, {dnai, "initCounter"}};
   if (reverse) {
-    auto start = (currIndex < (numShards - 1)) ? stepLimit.exclLastShard
-                                               : stepLimit.lastShard;
-    prog.add(Copy(start, timeStepCounter, false, {dnai, "counterEnd"}));
+    prog.add(Copy(timeSteps.max[currIndex], timeStepCounter, false,
+                  {dnai, "counterEnd"}));
+    loopContinueFlag = addForLoopCounterVertex(graph, timeStepCounter, minusOne,
+                                               -1, 0, loopLimitCheck[currIndex],
+                                               {dnai, "loopCounter"});
+    if (timeSteps.min.valid()) {
+      loopVariableSeqFlag =
+          gteq(graph, timeStepCounter, timeSteps.min[currIndex],
+               loopLimitCheck[currIndex], {dnai, "loopPaddingLimit"})
+              .reshape({});
+    }
   } else {
-    popops::zero(graph, timeStepCounter, prog, {dnai, "counterZero"});
+    prog.add(Copy(minusOne, timeStepCounter, false, {dnai, "counterEnd"}));
+    loopContinueFlag = addForLoopCounterVertex(
+        graph, timeStepCounter, timeSteps.max[currIndex], 1, 0,
+        loopLimitCheck[currIndex], {dnai, "loopCounter"});
+    if (timeSteps.min.valid()) {
+      loopVariableSeqFlag =
+          gteq(graph, timeStepCounter, timeSteps.min[currIndex],
+               loopLimitCheck[currIndex], {dnai, "loopPaddingLimit"})
+              .reshape({});
+    }
   }
   return prog;
 }
@@ -572,21 +649,11 @@ program::Sequence RnnState::initGatherOffset(bool initialization) const {
   assert(reverse || !stepsPerGather);
   if (stepsPerGather && (*stepsPerGather > 1) &&
       (*stepsPerGather < sequenceLength())) {
-    Tensor limit = initialization ? gatherOffsetLimitMinus1 : gatherOffsetLimit;
+    Tensor limit = initialization ? gatherCadenceLenInitial[currIndex]
+                                  : gatherCadenceLen[currIndex];
     prog.add(Copy(limit, gatherOffset, false, {dnai, "gatherOffsetEnd"}));
   }
 
-  return prog;
-}
-
-// Update time step counters
-program::Sequence RnnState::updateCounter() {
-  auto prog = Sequence{{}, {dnai, "updateCounter"}};
-  if (reverse) {
-    subInPlace(graph, timeStepCounter, one, prog, {dnai, "counterDecr"});
-  } else {
-    addInPlace(graph, timeStepCounter, one, prog, {dnai, "counterIncr"});
-  }
   return prog;
 }
 
@@ -787,35 +854,6 @@ updateShard(Graph &graph, const RnnParams &params, const RnnState &shard,
   return loop;
 }
 
-static program::Sequence
-zeroInterimOutShard(Graph &graph, const RnnParams &params,
-                    const RnnState &shard, const Tensor &interimOutSlice,
-                    const Tensor *interimOut, const DebugNameAndId &dnai) {
-  Sequence prog;
-  if ((interimOut != nullptr) && interimOut->valid()) {
-    popops::zero(graph, interimOutSlice, prog, {dnai, "zeroInterimOut"});
-    prog.add(updateShard(graph, params, shard, interimOutSlice, interimOut, {},
-                         {}, {}, {}, {}, {}, {dnai}));
-  }
-  return prog;
-}
-
-static program::Sequence zeroOutputShard(Graph &graph, const RnnParams &params,
-                                         const RnnState &shard,
-                                         const Tensor &stateSlice,
-                                         const Tensor &stateSequence,
-                                         const DebugNameAndId &dnai) {
-  Sequence prog;
-  if (stateSequence.valid()) {
-    auto zeroState = poputil::duplicate(graph, stateSlice, prog, {dnai});
-    popops::zero(graph, zeroState, prog, {dnai, "zeroState"});
-    Tensor t;
-    prog.add(updateShard(graph, params, shard, t, nullptr, zeroState,
-                         stateSequence, {}, {}, {}, {}, dnai));
-  }
-  return prog;
-}
-
 Tensor createInitialState(Graph &graph, const RnnParams &params, bool isOutput,
                           unsigned multiple, unsigned numShards,
                           const poplar::DebugContext &debugContext) {
@@ -908,9 +946,6 @@ static void runGather(Graph &graph, const RnnParams &params,
                       const GatherBodyType &gatherFn, Sequence &initProg,
                       Sequence &prog, Sequence &postProg,
                       const poplar::DebugNameAndId &dnai) {
-  if (!gatherFn) {
-    popops::zero(graph, slice.interimOut, prog, {dnai, "zeroGradients"});
-  }
   if (shard.gatherCadence() > 1) {
     // Update temporary buffer at every step unless gathering is done every
     // step. In the latter case `slice.interimOut` itself is used as temporary
@@ -921,30 +956,28 @@ static void runGather(Graph &graph, const RnnParams &params,
   Sequence gather;
   auto seqLen = shard.sequenceLength();
   auto gatherInterval = shard.gatherCadence();
-  if (gatherFn) {
-    auto &fnProg = (gatherInterval < seqLen) ? gather : postProg;
+  auto &fnProg = (gatherInterval < seqLen) ? gather : postProg;
 
-    // Slice `stepsPerGather` steps of the inputs every time that the
-    // gatherOffset is found to be zero.
-    auto gatherSlice =
-        gatherSlices(graph, params, shard, gatherInputs, tempBuffer, {}, fnProg,
-                     {dnai, "GatherSlice"});
-    fnProg.add(gatherFn(graph, gatherSlice, shard.gatherSize(),
-                        (shard.first() ? &initProg : nullptr),
-                        {dnai, "Gather/" + std::to_string(shard.index())}));
+  // Slice `stepsPerGather` steps of the inputs every time that the
+  // gatherOffset is found to be zero.
+  auto gatherSlice =
+      gatherSlices(graph, params, shard, gatherInputs, tempBuffer, {}, fnProg,
+                   {dnai, "GatherSlice"});
+  fnProg.add(gatherFn(graph, gatherSlice, shard.gatherSize(),
+                      (shard.first() ? &initProg : nullptr),
+                      {dnai, "Gather/" + std::to_string(shard.index())}));
 
-    // The remaining number of ungathered steps at the very end is processed
-    // in the following custom code which gets executed after the loop has
-    // completed.
-    if (seqLen % gatherInterval != 0) {
-      auto remainder = seqLen % gatherInterval;
-      auto lastGatherSlice =
-          gatherSlices(graph, params, shard, gatherInputs, tempBuffer,
-                       remainder, postProg, {dnai, "sliceShard"});
-      postProg.add(
-          gatherFn(graph, lastGatherSlice, remainder, nullptr,
-                   {dnai, "lastGather/" + std::to_string(shard.index())}));
-    }
+  // The remaining number of ungathered steps at the very end is processed
+  // in the following custom code which gets executed after the loop has
+  // completed.
+  if (seqLen % gatherInterval != 0) {
+    auto remainder = seqLen % gatherInterval;
+    auto lastGatherSlice =
+        gatherSlices(graph, params, shard, gatherInputs, tempBuffer, remainder,
+                     postProg, {dnai, "sliceShard"});
+    postProg.add(
+        gatherFn(graph, lastGatherSlice, remainder, nullptr,
+                 {dnai, "lastGather/" + std::to_string(shard.index())}));
   }
   if ((gatherInterval > 1) && (gatherInterval < seqLen)) {
     gather.add(shard.initGatherOffset(false));
@@ -979,15 +1012,6 @@ static RnnBatchwiseFlags compareGT(Graph &graph, const RnnParams &params,
   graph.setTileMapping(v, 0);
   prog.add(Execute(cs, {dnai}));
   return {mask, maskInv};
-}
-
-static void runGather(Graph &graph, const RnnParams &params,
-                      const RnnState &shard, const RnnSlice &slice,
-                      const Tensor &tempBuffer, Sequence &prog,
-                      const poplar::DebugNameAndId &dnai) {
-  Sequence initProg, postProg;
-  runGather(graph, params, shard, slice, tempBuffer, {}, {}, initProg, prog,
-            postProg, dnai);
 }
 
 std::vector<Tensor>
@@ -1036,9 +1060,7 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
   RnnState shard(graph, params.maxTimeSteps, numShards, reverse, stepsPerGather,
                  di);
 
-  if (params.varTimeSteps.valid()) {
-    initProg.add(shard.useVariableTimeSteps(params.varTimeSteps));
-  }
+  initProg.add(shard.calculateCounterLimits(params.varTimeSteps));
 
   // create the forward convolution as a tensor function as we may be able to
   // reuse it for the backwards pass.
@@ -1065,6 +1087,7 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
       auto it = args.begin();
       auto index = sliceTensors({shard.startIndex()}, it)[0];
       auto counter = sliceTensors({shard.counterTensor()}, it)[0];
+      auto varSeqFlag = sliceTensors({shard.variableSequenceFlag()}, it)[0];
       auto mask = sliceTensors({flags.mask}, it)[0];
       auto maskInv = sliceTensors({flags.inverse}, it)[0];
       auto stateShard = sliceTensors(state, it);
@@ -1075,7 +1098,8 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
       slice.outputs = sliceTensors(similarSlice.outputs, it);
       RnnBatchwiseFlags currFlags = {mask, maskInv};
       auto createdSlices = sliceTensors(created, it);
-      auto process = loopFn(graph, index, counter, currFlags, stateShard, slice,
+      const TimeStepState timeState = {index, counter, varSeqFlag};
+      auto process = loopFn(graph, timeState, currFlags, stateShard, slice,
                             createdSlices, &initProg, dnai);
       std::copy(createdSlices.begin(), createdSlices.end(),
                 args.end() - created.size());
@@ -1098,6 +1122,8 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
                       "shardIndex");
     appendToSignature({shard.counterTensor()}, graphfn::InputArg, edges,
                       "shardCounter");
+    appendToSignature({shard.variableSequenceFlag()}, graphfn::InputArg, edges,
+                      "shardVariableSeqFlag");
     appendToSignature({flags.mask}, graphfn::InputArg, edges, "mask");
     appendToSignature({flags.inverse}, graphfn::InputArg, edges, "maskInv");
     appendToSignature(state, graphfn::InOutArg, edges, "state");
@@ -1128,6 +1154,7 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
     };
     appendTensors({shard.startIndex()}, edges);
     appendTensors({shard.counterTensor()}, edges);
+    appendTensors({shard.variableSequenceFlag()}, edges);
     appendTensors({flags.mask}, edges);
     appendTensors({flags.inverse}, edges);
     appendTensors(state, edges);
@@ -1160,6 +1187,10 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
     auto index = shard.startIndex();
     auto loop = Sequence{{}, {di}};
 
+    if (!params.variableTimeSteps()) {
+      loop.add(shard.checkLimit());
+    }
+
     // Dynamically slice from current input shards
     auto process = Sequence{{}, {di}};
     auto slice = sliceShard(graph, params, tilesPerShard, shard, inputs,
@@ -1175,12 +1206,20 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
                                           true, numTemps, numShards, initProg,
                                           {di, "tempBuffer"})
                        : slice.interimOut;
+      assert(reverse);
 
-      // The gathering temp buffer is partially written to at every time step
-      // but fully read out periodically by `gatherFn`. Undefine the tensor
-      // before the repeat loop.
       if (*stepsPerGather > 1) {
+        // The gathering temp buffer is partially written to at every time step
+        // but fully read out periodically by `gatherFn`. Undefine the tensor
+        // before the repeat loop.
         initProg.add(WriteUndef(tempBuffer));
+
+        if (params.variableTimeSteps()) {
+          // The first shard in the reverse direction may have to run fewer
+          // iterations than `stepsPerGather`. The gathered intermediate buffer
+          // needs to be zeroed for this case.
+          zero(graph, tempBuffer, initProg, {di, "zeroGatherBuffer"});
+        }
       }
     }
 
@@ -1211,7 +1250,9 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
     } else {
       // Replicate custom RNN model on every shard.
       auto index = shard.startIndex();
-      process.add(loopFn(graph, index, counter, batchFlags, stateShard, slice,
+      const TimeStepState timeState = {index, counter,
+                                       shard.variableSequenceFlag()};
+      process.add(loopFn(graph, timeState, batchFlags, stateShard, slice,
                          createdSlices, (shard.first() ? &initProg : nullptr),
                          {di, "shard/" + std::to_string(shardIndex)}));
     }
@@ -1219,14 +1260,6 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
     Tensor stateSlice, stateSeqOutput;
     if (stateSequence.output.valid()) {
       stateSlice = stateShard[stateSequence.stateIndex];
-      // If the time steps limit varies across batches and the state slice
-      // needs to be recorded for every time step as output, zero out
-      // the appropriate batch(es) without zeroing out the state itself.
-      if (batchFlags.valid()) {
-        stateSlice = map(graph, expr::_1 * expr::_2,
-                         {stateSlice, batchFlags.mask.expand({1})}, process,
-                         {di, "selectStateToStore"});
-      }
       stateSeqOutput = stateSequence.output;
     }
 
@@ -1245,45 +1278,15 @@ Rnn(Graph &graph, const RnnParams &params, bool reverse,
       runGather(graph, params, shard, slice, tempBuffer, gatherInputs, gatherFn,
                 initProg, process, postProg, {di});
     }
-
-    // If variable time steps is used, the following code handles the
-    // truncation of the the time steps up to the maximum time step limits
-    // over all the batches. Further truncation must be carried out using
-    // masks in the `loopFn` callback function.
-    auto progStep = process;
-    if (params.variableTimeSteps()) {
-      progStep = Sequence{{}, {di, "progStep"}};
-
-      // Don't do anything if time-step limit is 0
-      Tensor checkNotZero =
-          neq(graph, shard.indexTensor(), 0U, progStep).reshape({});
-
-      // Determine if time-step is within limit
-      Tensor predicate =
-          lt(graph, counter, shard.indexTensor(), progStep).reshape({});
-
-      // For iterations which exceed the variable maximum time step limit among
-      // all the batches ensure that the output and interimOut tensors are
-      // updated if required.
-      auto resetProg = zeroOutputShard(graph, params, shard, stateSlice,
-                                       stateSeqOutput, {di, "zeroOutputShard"});
-      resetProg.add(zeroInterimOutShard(graph, params, shard, slice.interimOut,
-                                        interimOut, {di}));
-      if (gatherFn) {
-        runGather(graph, params, shard, slice, tempBuffer, resetProg, {di});
-      }
-      // T38265: The outer if-condition is functionally redundant. However it
-      // serves to inhibit the SubGraphReplicator from replicating the `If`
-      // program. Without it the SubgraphReplicator was found to cause the wrong
-      // branch to be taken. When the issue is resolved the outer `If` program
-      // can be removed.
-      progStep.add(
-          If(checkNotZero, If(predicate, process, resetProg), resetProg));
-    }
-    loop.add(progStep);
-    loop.add(shard.updateCounter());
+    loop.add(process);
     loop.add(shard.updateGatherOffset());
-    initProg.add(Repeat(shard.sequenceLength(), loop, {di}));
+    if (params.variableTimeSteps()) {
+      initProg.add(RepeatWhileTrue(shard.checkLimit(), shard.continueFlag(),
+                                   loop, {di}));
+    } else {
+      //      loop.add(shard.checkLimit());
+      initProg.add(Repeat(shard.sequenceLength(), loop, {di}));
+    }
 
     // any processing after the time step loop
     initProg.add(postProg);

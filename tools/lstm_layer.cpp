@@ -116,7 +116,7 @@ int main(int argc, char **argv) {
   boost::optional<unsigned> tilesPerIPU;
   bool outputAllSequence = true;
   bool preweightInput = false;
-  bool ignoreFinalCellState = true;
+  bool ignoreFinalState = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   std::string recompMode;
   unsigned runs = 1;
@@ -188,8 +188,8 @@ int main(int argc, char **argv) {
     ("output-all-sequence",
        po::value<bool>(&outputAllSequence)->default_value(outputAllSequence),
      "output the data from all cells (1 / 0)")
-    ("ignore-final-cell-state",
-       po::value<bool>(&ignoreFinalCellState)->default_value(ignoreFinalCellState),
+    ("ignore-final-state",
+       po::value<bool>(&ignoreFinalState)->default_value(ignoreFinalState),
      "use new lstmFwd() API that ignores final cell state")
     ("pre-weight-input",
        po::value<bool>(&preweightInput)->default_value(preweightInput),
@@ -285,6 +285,12 @@ int main(int argc, char **argv) {
     timeSteps = graph.addVariable(UNSIGNED_INT, {varTimeSteps.size()},
                                   "var-time-steps");
     mapTensorLinearly(graph, timeSteps);
+    if (!ignoreFinalState) {
+      // Final cell state is not calculated for variable time steps.
+      std::cout << "Forcing `ignoreFinalState=true` since variable time steps "
+                   "options is set!\n";
+      ignoreFinalState = true;
+    }
   }
 
   poplin::matmul::PlanningCache cache;
@@ -353,7 +359,7 @@ int main(int argc, char **argv) {
   Tensor fwdOutputSeq, lastCellState, fwdIntermediates;
   Tensor *fwdIntermediatesPtr =
       (doBwdPass || doWuPass) ? &fwdIntermediates : nullptr;
-  if (ignoreFinalCellState) {
+  if (ignoreFinalState) {
     fwdOutputSeq =
         popnn::lstm::lstmFwd(graph, params, prog, fwdStateInit, weights, input,
                              fwdIntermediatesPtr, "fwd", fwdOptions, &cache);
@@ -455,7 +461,7 @@ int main(int argc, char **argv) {
 
     rawHostNextAct = allocateHostMemoryForTensor(
         fwdOutputSeq, "nextAct", graph, uploadProg, downloadProg, tmap);
-    if (!ignoreFinalCellState) {
+    if (!ignoreFinalState) {
       rawLastCellState =
           allocateHostMemoryForTensor(lastCellState, "lastCellState", graph,
                                       uploadProg, downloadProg, tmap);
@@ -634,13 +640,13 @@ int main(int argc, char **argv) {
         matchesModel &= checkIsClose("nextLayerAct", subMatImpl, subMatRef,
                                      relativeTolerance, absoluteTolerance);
       }
-    } else {
+    } else if (!ignoreFinalState) {
       const boost::multi_array<double, 2> subMatImpl = matImpl[0];
       matchesModel &= checkIsClose("nextLayerAct", subMatImpl, modelLastOutput,
                                    relativeTolerance, absoluteTolerance);
     }
 
-    if (!ignoreFinalCellState) {
+    if (!ignoreFinalState) {
       boost::multi_array<double, 2> hostLastCellState(
           boost::extents[batchSize][outputSize]);
       copy(target, dataType, rawLastCellState.get(), hostLastCellState);

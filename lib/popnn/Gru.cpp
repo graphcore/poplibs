@@ -932,14 +932,13 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
   auto weights = fromCellOrder(weights_, params.cellOrder);
   auto numShards = getNumShards(graph, params, opt, {dnai, "numShards"});
   auto loopFwd = [&params, &weights, &opt, &cache](
-                     Graph &graph, const Tensor &shardSeqIdx,
-                     const Tensor &seqIdx,
+                     Graph &graph, const rnn::TimeStepState &time,
                      const rnn::RnnBatchwiseFlags &batchwiseFlags,
                      std::vector<Tensor> &fwdState, const rnn::RnnSlice &slice,
                      std::vector<Tensor> &created, program::Sequence *initProg,
                      const DebugNameAndId &dnai) {
     auto loop = Sequence{{}, {dnai}};
-    debug_tensor(loop, "fwdLoop:", seqIdx);
+    debug_tensor(loop, "fwdLoop:", time.seqIdx);
     auto &fwdInput = slice.inputs[0];
     boost::optional<const Tensor &> sliceAttScoresOpt(boost::none);
     if (slice.inputs[1].valid()) {
@@ -1012,6 +1011,9 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
     stateSequence = rnn::StateSequence{
         rnn::createOutputTensor(graph, params.rnn, numShards, {dnai, "output"}),
         0};
+    if (params.rnn.variableTimeSteps()) {
+      popops::zero(graph, stateSequence.output, fwdProg, {dnai, "zeroOutput"});
+    }
   }
   if (intermediatesSeq) {
     auto numIntermediates = getNumFwdIntermediatesToSave(params);
@@ -1020,12 +1022,15 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
                                 {dnai, "intermediatesSeq"})
             .reshapePartial(0, 1, {params.rnn.maxTimeSteps, numIntermediates});
     fwdProg.add(WriteUndef(*intermediatesSeq, {dnai}));
+    if (params.rnn.variableTimeSteps()) {
+      popops::zero(graph, *intermediatesSeq, fwdProg,
+                   {dnai, "zeroIntermediatesSeq"});
+    }
   }
   const auto shardingLoop = std::bind(
       loopFwd, std::placeholders::_1, std::placeholders::_2,
       std::placeholders::_3, std::placeholders::_4, std::placeholders::_5,
-      std::placeholders::_6, std::placeholders::_7, std::placeholders::_8,
-      std::placeholders::_9);
+      std::placeholders::_6, std::placeholders::_7, std::placeholders::_8);
   auto rnnOptions = getRnnOpts(opt);
   auto updatedState =
       rnn::Rnn(graph, params.rnn, false, initState, stateSequence, inputs,
@@ -1765,13 +1770,13 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
   auto loopBwdWithWU =
       [&params, &options, &inputGradSeq, &cache, &weightsRearranged](
           GruWeights &weights, GruWeights *weightsGrad, Graph &graph,
-          const Tensor &shardSeqIdx, const Tensor &seqIdx,
+          const rnn::TimeStepState &time,
           const rnn::RnnBatchwiseFlags &batchwiseFlags,
           std::vector<Tensor> &shardState, const rnn::RnnSlice &slice,
           std::vector<Tensor> &created, program::Sequence *initProg,
           const DebugNameAndId &dnai) {
         auto loop = Sequence{{}, {dnai}};
-        debug_tensor(loop, "bwdLoop:", seqIdx);
+        debug_tensor(loop, "bwdLoop:", time.seqIdx);
         const auto &fwdIntermediates = slice.interimIn;
         const Tensor *gradLayerNextThisStepPtr =
             slice.inputs[0].valid() ? &slice.inputs[0] : nullptr;
@@ -1862,6 +1867,9 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
                                             numShards, {dnai, "inputGradInit"});
     *inputGradSeq = rnn::createInputTensor(graph, params.rnn, numShards,
                                            {dnai, "inputGrad"});
+    if (params.rnn.variableTimeSteps()) {
+      zero(graph, *inputGradSeq, prog, {dnai, "zeroInputGrad"});
+    }
     inputGrad = rnn::StateSequence{*inputGradSeq, 0};
   }
   if (bwdIntermediatesPtr) {
@@ -1892,7 +1900,7 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
       loopBwdWithWU, weights, weightsGrad, std::placeholders::_1,
       std::placeholders::_2, std::placeholders::_3, std::placeholders::_4,
       std::placeholders::_5, std::placeholders::_6, std::placeholders::_7,
-      std::placeholders::_8, std::placeholders::_9);
+      std::placeholders::_8);
   auto rnnOptions = getRnnOpts(options);
   auto updatedState =
       rnn::Rnn(graph, params.rnn, true, bwdStateInit, inputGrad, bwdAndWuInputs,
@@ -2044,7 +2052,7 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
           poplin::matmul::PlanningCache *planningCache) {
   auto loopWU = [&params, &options, &planningCache](
                     GruWeights &weightGrads, Graph &graph,
-                    const Tensor &shardSeqIdx, const Tensor &seqIdx,
+                    const rnn::TimeStepState &time,
                     const rnn::RnnBatchwiseFlags &batchwiseFlags,
                     std::vector<Tensor> &shardState, const rnn::RnnSlice &slice,
                     std::vector<Tensor> &created, program::Sequence *initProg,
@@ -2081,8 +2089,7 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   const auto shardingLoop = std::bind(
       loopWU, weightGrads, std::placeholders::_1, std::placeholders::_2,
       std::placeholders::_3, std::placeholders::_4, std::placeholders::_5,
-      std::placeholders::_6, std::placeholders::_7, std::placeholders::_8,
-      std::placeholders::_9);
+      std::placeholders::_6, std::placeholders::_7, std::placeholders::_8);
   auto rnnOptions = getRnnOpts(options);
   auto updatedState = rnn::Rnn(
       graph, params.rnn, true, {}, {}, wuInputs, &fwdIntermediatesSeq, nullptr,

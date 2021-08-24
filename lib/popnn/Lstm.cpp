@@ -742,13 +742,13 @@ static void lstmCellForwardPassCalcUnits(
                           params, {dnai});
 }
 
-static std::pair<LstmState, LstmInternalState>
-basicLstmCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
-                         const LstmState &prevState, const Tensor *weightsInput,
-                         const Tensor &weightsOutput, Sequence &prog,
-                         const LstmOpts &opt, bool inferenceOnly,
-                         const LstmParams &params, const DebugNameAndId &dnai,
-                         matmul::PlanningCache *cache) {
+static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
+    Graph &graph, const Tensor &in, const Tensor &biases,
+    const LstmState &prevState, const Tensor *weightsInput,
+    const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
+    bool inferenceOnly, const rnn::TimeStepState &time,
+    const rnn::RnnBatchwiseFlags &batchwiseFlags, const LstmParams &params,
+    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   const auto &prevCellState = prevState.cellState;
   const std::string baseStr = "BasicLstmCell";
 
@@ -777,6 +777,16 @@ basicLstmCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
   auto candidate = unitsOutput[cellIndices[BASIC_LSTM_CELL_CANDIDATE]];
   auto outputGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_OUTPUT_GATE]];
   auto inputGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_INPUT_GATE]];
+  if (batchwiseFlags.valid()) {
+    Sequence maskProg;
+    auto mask = batchwiseFlags.mask.expand({1});
+    auto gates = concat({forgetGate, inputGate, candidate, outputGate});
+    auto gateMasks = mask.broadcast(BASIC_LSTM_CELL_NUM_UNITS, 0);
+    mapInPlace(graph, expr::_1 * expr::_2, {gates, gateMasks}, maskProg,
+               {dnai});
+    prog.add(If(time.variableSeqFlag, maskProg, Sequence(),
+                {dnai, baseStr + "/maskedGates"}));
+  }
   auto prod = mul(graph, concat(forgetGate, candidate),
                   concat(prevCellState, inputGate), prog,
                   {dnai, baseStr + "/{Forget + Input}Gate"});
@@ -985,89 +995,43 @@ static Tensor lstmFwd(Graph &graph, const LstmParams &params,
   auto numShards = getNumShards(graph, params, opt, {di, "numShards"});
   std::vector<Tensor> initState = {fwdStateInit.output.expand({0}),
                                    fwdStateInit.cellState.expand({0})};
-  auto shardingLoop =
-      [&weights, &params, &opt, finalCellState,
-       &cache](Graph &graph, const Tensor &shardIdx, const Tensor &seqIdx,
-               const rnn::RnnBatchwiseFlags &batchwiseFlags,
-               std::vector<Tensor> &fwdState, const rnn::RnnSlice &slice,
-               std::vector<Tensor> &created, program::Sequence *initProg,
-               const DebugNameAndId &dnai) {
-        auto loop = Sequence{{}, {dnai}};
-        auto &fwdInput = slice.inputs[0];
-        LstmState state = {fwdState[0].squeeze({0}), fwdState[1].squeeze({0})};
-        bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
-        const Tensor *inputWeightsPtr =
-            useWeightedIn ? nullptr : &weights.inputWeights;
-        if (batchwiseFlags.valid() || slice.interimOut.valid()) {
-          LstmState newState;
-          LstmInternalState internalState;
-          std::tie(newState, internalState) = basicLstmCellForwardPass(
-              graph, fwdInput, weights.biases, state, inputWeightsPtr,
-              weights.outputWeights, loop, opt, opt.inferenceOnly, params,
-              {dnai}, cache);
-          if (slice.interimOut.valid()) {
-            if (batchwiseFlags.valid()) {
-              auto mask = batchwiseFlags.mask.expand({1});
-              auto gates =
-                  concat({internalState.forgetGate, internalState.inputGate,
-                          internalState.candidate, internalState.outputGate});
-              auto gateMasks = mask.broadcast(BASIC_LSTM_CELL_NUM_UNITS, 0);
-              mapInPlace(graph, expr::_1 * expr::_2, {gates, gateMasks}, loop,
-                         {dnai});
-            }
-            auto fwdIntermediates = getFwdIntermediatesToSave(
-                state, newState, internalState, opt, params);
-            loop.add(Copy(fwdIntermediates, slice.interimOut, false, {dnai}));
-          }
-          auto newStateTensor = newState.getAsTensor();
-          auto stateTensor = concat(fwdState);
-
-          // Cease to update the state for batches that have reached their
-          // RNN iteration limit
-          if (batchwiseFlags.valid()) {
-            auto mask = batchwiseFlags.mask.expand({1});
-            auto maskInv = batchwiseFlags.inverse.expand({1});
-
-            // if `params.outputFullSequence=false` only output and
-            // cell state of the final step need to be returned to the user.
-            // The final step may differ between batches. The output and
-            // cell state need to be 'latched' For steps which are beyond the
-            // step-limit for a batch. On the other hand if
-            // `params.outputFullSequence=true` the full output sequence needs
-            // to be returned and therefore the output does not need to be
-            // latched for these cases.
-            if (finalCellState != nullptr) {
-              if (params.outputFullSequence) {
-                loop.add(Copy(newState.output, fwdState[0], false, {dnai}));
-                mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
-                           {fwdState[1], newState.cellState, mask, maskInv},
-                           loop, {dnai, "selectCellState"});
-              } else {
-                mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
-                           {stateTensor, newStateTensor, mask, maskInv}, loop,
-                           {dnai, "selectState"});
-              }
-            } else {
-              if (params.outputFullSequence) {
-                loop.add(Copy(newStateTensor, stateTensor, false, {dnai}));
-              } else {
-                mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
-                           {fwdState[0], newState.output, mask, maskInv}, loop,
-                           {dnai, "selectState"});
-                loop.add(Copy(newState.cellState, fwdState[1], false, {dnai}));
-              }
-            }
-          } else {
-            loop.add(Copy(newStateTensor, stateTensor, false, {dnai}));
-          }
-        } else {
-          basicLstmCellForwardPassInPlace(
-              graph, fwdInput, weights.biases, state, inputWeightsPtr,
-              weights.outputWeights, loop, opt, opt.inferenceOnly, params,
-              {dnai}, cache);
-        }
-        return loop;
-      };
+  auto shardingLoop = [&weights, &params, &opt, finalCellState,
+                       &cache](Graph &graph, const rnn::TimeStepState &time,
+                               const rnn::RnnBatchwiseFlags &batchwiseFlags,
+                               std::vector<Tensor> &fwdState,
+                               const rnn::RnnSlice &slice,
+                               std::vector<Tensor> &created,
+                               program::Sequence *initProg,
+                               const DebugNameAndId &dnai) {
+    auto loop = Sequence{{}, {dnai}};
+    auto &fwdInput = slice.inputs[0];
+    LstmState state = {fwdState[0].squeeze({0}), fwdState[1].squeeze({0})};
+    bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
+    const Tensor *inputWeightsPtr =
+        useWeightedIn ? nullptr : &weights.inputWeights;
+    if (batchwiseFlags.valid() || slice.interimOut.valid()) {
+      LstmState newState;
+      LstmInternalState internalState;
+      std::tie(newState, internalState) = basicLstmCellForwardPass(
+          graph, fwdInput, weights.biases, state, inputWeightsPtr,
+          weights.outputWeights, loop, opt, opt.inferenceOnly, time,
+          batchwiseFlags, params, {dnai}, cache);
+      if (slice.interimOut.valid()) {
+        auto fwdIntermediates = getFwdIntermediatesToSave(
+            state, newState, internalState, opt, params);
+        loop.add(Copy(fwdIntermediates, slice.interimOut, false, {dnai}));
+      }
+      auto newStateTensor = newState.getAsTensor();
+      auto stateTensor = concat(fwdState);
+      loop.add(Copy(newStateTensor, stateTensor, false, {dnai}));
+    } else {
+      basicLstmCellForwardPassInPlace(graph, fwdInput, weights.biases, state,
+                                      inputWeightsPtr, weights.outputWeights,
+                                      loop, opt, opt.inferenceOnly, params,
+                                      {dnai}, cache);
+    }
+    return loop;
+  };
   bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
 
   // make a copy of the activations so that they are sliced efficiently
@@ -1078,11 +1042,18 @@ static Tensor lstmFwd(Graph &graph, const LstmParams &params,
   auto input = useWeightedIn ? weightedIn : prevLayerActsCopy;
   auto numIntermediates =
       intermediatesSeq ? getNumFwdIntermediatesToSave(params, opt) : 0;
+
+  // If variable time steps is used, Zero out the output as well as the
+  // interemediates for the entire sequence so that the RNN time step loop
+  // can be terminated at the maximum time step over the batch.
   rnn::StateSequence stateSequence;
   if (params.outputFullSequence) {
     stateSequence = rnn::StateSequence{
         rnn::createOutputTensor(graph, params.rnn, numShards, {di, "output"}),
         0};
+    if (params.rnn.variableTimeSteps()) {
+      popops::zero(graph, stateSequence.output, prog, {di, "zeroOutput"});
+    }
     prog.add(WriteUndef(stateSequence.output, {di}));
   }
   if (intermediatesSeq) {
@@ -1091,6 +1062,10 @@ static Tensor lstmFwd(Graph &graph, const LstmParams &params,
                                 {di, "fwdIntermediatesSeq"})
             .reshapePartial(0, 1, {params.rnn.maxTimeSteps, numIntermediates});
     prog.add(WriteUndef(*intermediatesSeq, {di}));
+    if (params.rnn.variableTimeSteps()) {
+      popops::zero(graph, *intermediatesSeq, prog,
+                   {di, "zeroIntermediatesSeq"});
+    }
   }
   auto rnnOptions = getRnnOpts(opt);
   auto updatedState =
@@ -1571,8 +1546,7 @@ static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
                                        program::Sequence &prog,
                                        const DebugNameAndId &dnai) {
   auto shardingLoop = [&params,
-                       &options](Graph &graph, const Tensor &shardIdx,
-                                 const Tensor &seqIdx,
+                       &options](Graph &graph, const rnn::TimeStepState &time,
                                  const rnn::RnnBatchwiseFlags &batchwiseFlags,
                                  std::vector<Tensor> &shardState,
                                  const rnn::RnnSlice &slice,
@@ -1678,61 +1652,71 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
       graph, params, inputGradSeq ? &weights.inputWeights : nullptr,
       weights.outputWeights, prog, options, {dnai, "/PreArrangeWeights"},
       cache);
-  auto loopBwdWithWU =
-      [&params, &options, &inputGradSeq, &cache, &weightsRearranged](
-          LstmWeights &weights, LstmWeights *weightsGrad, Graph &graph,
-          const Tensor &shardIdx, const Tensor &seqIdx,
-          const rnn::RnnBatchwiseFlags &batchwiseFlags,
-          std::vector<Tensor> &shardState, const rnn::RnnSlice &slice,
-          std::vector<Tensor> &created, program::Sequence *initProg,
-          const DebugNameAndId &dnai) {
-        auto loop = Sequence{{}, {dnai}};
-        const auto &fwdIntermediates = slice.interimIn;
-        const Tensor *gradLayerNextThisStepPtr =
-            slice.inputs[0].valid() ? &slice.inputs[0] : nullptr;
-        Tensor inputGrad =
-            shardState[0].valid() ? shardState[0].squeeze({0}) : Tensor{};
-        LstmState stateGrads = {shardState[1].squeeze({0}),
-                                shardState[2].squeeze({0})};
-        LstmState newStateGrads;
-        Tensor bwdIntermediates;
-        if (inputGradSeq) {
-          Tensor nextInputGrad;
-          std::tie(newStateGrads, nextInputGrad, bwdIntermediates) =
-              popnn::lstm::basicLstmBackwardStep(
-                  graph, gradLayerNextThisStepPtr, fwdIntermediates, stateGrads,
-                  true, weightsRearranged, loop, options, params, {dnai},
-                  cache);
-          if (inputGrad.valid()) {
-            loop.add(Copy(nextInputGrad, inputGrad, false, {dnai}));
-          }
-        } else {
-          std::tie(newStateGrads, std::ignore, bwdIntermediates) =
-              basicLstmBackwardStep(graph, gradLayerNextThisStepPtr,
-                                    fwdIntermediates, stateGrads, false,
-                                    weightsRearranged, loop, options, params,
-                                    {dnai}, cache);
+  auto loopBwdWithWU = [&params, &options, &inputGradSeq, &cache,
+                        &weightsRearranged, &stepsPerWU](
+                           LstmWeights &weights, LstmWeights *weightsGrad,
+                           Graph &graph, const rnn::TimeStepState &time,
+                           const rnn::RnnBatchwiseFlags &batchwiseFlags,
+                           std::vector<Tensor> &shardState,
+                           const rnn::RnnSlice &slice,
+                           std::vector<Tensor> &created,
+                           program::Sequence *initProg,
+                           const DebugNameAndId &dnai) {
+    const auto &fwdIntermediates = slice.interimIn;
+    const Tensor *gradLayerNextThisStepPtr =
+        slice.inputs[0].valid() ? &slice.inputs[0] : nullptr;
+    Tensor inputGrad =
+        shardState[0].valid() ? shardState[0].squeeze({0}) : Tensor{};
+    Tensor bwdIntermediates;
+    auto backwardStep = [&](const LstmState &stateGrads,
+                            program::Sequence &prog) {
+      LstmState nextStepGrads;
+      if (inputGradSeq) {
+        Tensor nextInputGrad;
+        std::tie(nextStepGrads, nextInputGrad, bwdIntermediates) =
+            popnn::lstm::basicLstmBackwardStep(
+                graph, gradLayerNextThisStepPtr, fwdIntermediates, stateGrads,
+                true, weightsRearranged, prog, options, params, {dnai}, cache);
+        if (inputGrad.valid()) {
+          prog.add(Copy(nextInputGrad, inputGrad, false, {dnai}));
         }
-        if (slice.interimOut.valid()) {
-          loop.add(Copy(bwdIntermediates, slice.interimOut, false, {dnai}));
-        }
-        if (batchwiseFlags.valid()) {
-          // update output gradient state if the batchwise time steps is within
-          // the specified range for that batch. Do not update the state if the
-          // time steps exceeds the range.
-          auto mask = batchwiseFlags.mask.expand({0, 1});
-          auto maskInv = batchwiseFlags.inverse.expand({0, 1});
-          auto newStateGradsTensor = newStateGrads.getAsTensor();
-          auto stateGradsTensor = stateGrads.getAsTensor();
-          mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
-                     {stateGradsTensor, newStateGradsTensor, mask, maskInv},
-                     loop, {dnai, "selectState"});
-        } else {
-          loop.add(Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor(),
-                        false, {dnai}));
-        }
-        return loop;
-      };
+      } else {
+        std::tie(nextStepGrads, std::ignore, bwdIntermediates) =
+            basicLstmBackwardStep(
+                graph, gradLayerNextThisStepPtr, fwdIntermediates, stateGrads,
+                false, weightsRearranged, prog, options, params, {dnai}, cache);
+      }
+      if (slice.interimOut.valid()) {
+        prog.add(Copy(bwdIntermediates, slice.interimOut, false, {dnai}));
+      }
+      return nextStepGrads;
+    };
+
+    Sequence prog;
+    LstmState stateGrads = {shardState[1].squeeze({0}),
+                            shardState[2].squeeze({0})};
+    auto newStateGrads = backwardStep(stateGrads, prog);
+
+    auto updateStateGrad = Copy(newStateGrads.getAsTensor(),
+                                stateGrads.getAsTensor(), false, {dnai});
+    if (!params.outputFullSequence && batchwiseFlags.valid()) {
+      // update output gradient state if the batchwise time steps is within
+      // the specified range for that batch. Do not update the state if the
+      // time steps exceeds the range.
+      Sequence updateStateGradBatch;
+      auto mask = batchwiseFlags.mask.expand({0, 1});
+      auto maskInv = batchwiseFlags.inverse.expand({0, 1});
+      auto newStateGradsTensor = newStateGrads.getAsTensor();
+      auto stateGradsTensor = stateGrads.getAsTensor();
+      mapInPlace(graph, expr::_3 * expr::_2 + expr::_4 * expr::_1,
+                 {stateGradsTensor, newStateGradsTensor, mask, maskInv},
+                 updateStateGradBatch, {dnai, "selectState"});
+      prog.add(If(time.variableSeqFlag, updateStateGradBatch, updateStateGrad));
+    } else {
+      prog.add(updateStateGrad);
+    }
+    return prog;
+  };
   auto updateWU = [&params, &options, &wuPlanConstraints, &stepsPerWU,
                    &cache](LstmWeights &weights, LstmWeights *weightsGrad,
                            Graph &graph, const rnn::RnnSlice &slice,
@@ -1767,6 +1751,12 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   Tensor recomputedIntermediatesSeq = recomputeFwdIntermediates(
       graph, fwdStateInit, fwdIntermediatesSeq, params, options, prog,
       {dnai, "recomputeFwdIntermediates"});
+
+  // If variable time steps is used, The `fwdIntermediates` are expected to be
+  // zeros for time steps beyond the time step value for each batch element.
+  // In addition zero out `inputGradSeq` for the entire sequence so that the
+  // RNN time step loop can be terminated at the maximum time step over the
+  // batch.
   Tensor fwdIntermediates = reconstructIntermediatesFromRecomputed(
       fwdIntermediatesSeq, recomputedIntermediatesSeq, params, options);
   auto lastOutGradInit = rnn::createInitialState(
@@ -1798,6 +1788,9 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
                                             numShards, {dnai, "inputGradInit"});
     *inputGradSeq = rnn::createInputTensor(graph, params.rnn, numShards,
                                            {dnai, "inputGrad"});
+    if (params.rnn.variableTimeSteps()) {
+      zero(graph, *inputGradSeq, prog, {dnai, "zeroInputGrad"});
+    }
     inputGrad = rnn::StateSequence{*inputGradSeq, 0};
     prog.add(WriteUndef(inputGradInit, {dnai}));
     prog.add(WriteUndef(*inputGradSeq, {dnai}));
@@ -1829,7 +1822,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   using namespace std::placeholders;
   const auto shardingLoop =
       std::bind(loopBwdWithWU, weights, weightsGrad, ph::_1, ph::_2, ph::_3,
-                ph::_4, ph::_5, ph::_6, ph::_7, ph::_8, ph::_9);
+                ph::_4, ph::_5, ph::_6, ph::_7, ph::_8);
   auto rnnOptions = getRnnOpts(options);
   std::vector<Tensor> bwdInputs = {gradLayerNextRearranged};
   std::vector<Tensor> updatedState;
@@ -1906,7 +1899,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   zeroWeightAccumulators(graph, prog, weightGrads, options, {dnai});
   auto loopWU = [&options, &planningCache](
                     LstmWeights &weightGrads, Graph &graph,
-                    const Tensor &shardIdx, const Tensor &seqIdx,
+                    const rnn::TimeStepState &time,
                     const rnn::RnnBatchwiseFlags &batchwiseFlags,
                     std::vector<Tensor> &shardState, const rnn::RnnSlice &slice,
                     std::vector<Tensor> &created, program::Sequence *initProg,
@@ -1937,7 +1930,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   using namespace std::placeholders;
   const auto shardingLoop =
       std::bind(loopWU, weightGrads, ph::_1, ph::_2, ph::_3, ph::_4, ph::_5,
-                ph::_6, ph::_7, ph::_8, ph::_9);
+                ph::_6, ph::_7, ph::_8);
   auto rnnOptions = getRnnOpts(options);
   auto updatedState =
       rnn::Rnn(graph, params.rnn, true, {}, {}, wuInputs, nullptr, nullptr, {},

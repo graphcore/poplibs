@@ -338,6 +338,9 @@ lstmFwd(poplar::Graph &graph, const LstmParams &params,
  *  {0, 1, 2, ..., S - 1} then the backward steps run for sb = {S - 1, S - 2,
  *  .... , 1, 0}.
  *
+ *  If variable time steps is used `fwdIntermediates`, `input` and `output`
+ *  tensors are expected to be appropriately zero padded.
+ *
  * \param graph              Graph to which the LSTM cell belongs.
  * \param params             The parameters of the LSTM.
  * \param prog               Program sequence.

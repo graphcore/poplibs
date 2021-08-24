@@ -194,6 +194,12 @@ struct RnnBatchwiseFlags {
   bool valid() const { return mask.valid(); };
 };
 
+struct TimeStepState {
+  poplar::Tensor begin;
+  poplar::Tensor counter;
+  poplar::Tensor variableSeqFlag;
+};
+
 /** Loop body function wrapper with the following arguments:
  *
  * \param graph              Graph Object
@@ -213,10 +219,10 @@ struct RnnBatchwiseFlags {
  * \return  Program for the given shard
  */
 using LoopBodyType = std::function<poplar::program::Sequence(
-    poplar::Graph &graph, const poplar::Tensor &, const poplar::Tensor &,
-    const RnnBatchwiseFlags &, std::vector<poplar::Tensor> &,
-    const RnnSlice &slice, std::vector<poplar::Tensor> &,
-    poplar::program::Sequence *, const poplar::DebugNameAndId &)>;
+    poplar::Graph &graph, const TimeStepState &time, const RnnBatchwiseFlags &,
+    std::vector<poplar::Tensor> &, const RnnSlice &slice,
+    std::vector<poplar::Tensor> &, poplar::program::Sequence *,
+    const poplar::DebugNameAndId &)>;
 
 /** Gather body function wrapper with the following arguments:
  *
