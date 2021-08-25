@@ -413,6 +413,10 @@ int main(int argc, char **argv) try {
 
   if (fwdInFile) {
     std::ifstream in(fwdInFile.get());
+    if (!in.good()) {
+      throw poputil::poplibs_error("<fwd-in-file> file " + fwdInFile.get() +
+                                   " could not be opened");
+    }
     auto inFileTensors =
         graph.deserializeTensors(in, SerializationFormat::Binary);
     if (inFileTensors.size()) {
@@ -438,8 +442,13 @@ int main(int argc, char **argv) try {
       return 1;
     }
   }
+
   if (bwdInFile) {
     std::ifstream in(bwdInFile.get());
+    if (!in.good()) {
+      throw poputil::poplibs_error("<bwd-in-file> file " + bwdInFile.get() +
+                                   " could not be opened");
+    }
     auto inFileTensors =
         graph.deserializeTensors(in, SerializationFormat::Binary);
     if (inFileTensors.size()) {
@@ -866,7 +875,6 @@ int main(int argc, char **argv) try {
   }
   auto rawHostNextAct = allocateHostMemoryForTensor(
       nextAct, "nextAct", graph, uploadProg, downloadProg, tmap);
-  Tensor parentZDeltas, parentPrevDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
   if (doBwdPass || doWuPass) {
@@ -1083,10 +1091,10 @@ int main(int argc, char **argv) try {
         }
         if (bwdOutFile) {
           std::ofstream out(bwdOutFile.get());
-          auto outTensor = parentPrevDeltas.squeeze({0});
-          std::cout << "Saving BWD tensor with shape:" << outTensor.shape()
-                    << " Element type:" << outTensor.elementType() << "\n";
-          graph.serializeTensors(out, {outTensor}, SerializationFormat::Binary);
+          std::cout << "Saving BWD tensor with shape:" << prevDeltas.shape()
+                    << " Element type:" << prevDeltas.elementType() << "\n";
+          graph.serializeTensors(out, {prevDeltas},
+                                 SerializationFormat::Binary);
         }
       }
       if (doWuPass) {

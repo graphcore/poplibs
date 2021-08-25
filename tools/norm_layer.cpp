@@ -24,6 +24,7 @@
 #include <popops/ElementWise.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 #include <tuple>
 
 // Tolerances used in tests
@@ -215,6 +216,10 @@ static bool normTest(const DeviceType &deviceType,
   Tensor acts, gradsIn;
   if (fwdInFile) {
     std::ifstream in(fwdInFile.get());
+    if (!in.good()) {
+      throw poputil::poplibs_error("<fwd-in-file> file " + fwdInFile.get() +
+                                   " could not be opened");
+    }
     auto inFileTensors =
         graph.deserializeTensors(in, SerializationFormat::Binary);
     if (inFileTensors.size()) {
@@ -230,6 +235,10 @@ static bool normTest(const DeviceType &deviceType,
   }
   if (bwdInFile) {
     std::ifstream in(bwdInFile.get());
+    if (!in.good()) {
+      throw poputil::poplibs_error("<bwd-in-file> file " + bwdInFile.get() +
+                                   " could not be opened");
+    }
     auto inFileTensors =
         graph.deserializeTensors(in, SerializationFormat::Binary);
     if (inFileTensors.size()) {

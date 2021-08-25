@@ -399,6 +399,10 @@ int main(int argc, char **argv) {
     std::cerr << "Loading tensors from '" << file << "'\n";
 
     std::ifstream in(file);
+    if (!in.good()) {
+      throw poputil::poplibs_error("Tensor's file " + file +
+                                   " could not be opened");
+    }
     auto tensors = graph.deserializeTensors(in, SerializationFormat::Binary);
     // TODO: T12989 When there are two tensors we can use one as the input and
     // one as the output.
