@@ -153,7 +153,7 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
       engineOptions.set("autoReport.directory", *profileDir);
     }
   }
-  auto s = Sequence(uploadProg, prog, downloadProg);
+  auto s = Sequence({uploadProg, prog, downloadProg});
   Engine engine(graph, s, engineOptions);
   attachStreams(engine, tmap);
   device.bind([&](const Device &d) {
