@@ -431,10 +431,7 @@ IntermediatePartials intermediateToIntermediate(
   DebugRange<std::size_t> debugNumPartials = {UINT_MAX, 0};
   DebugRange<unsigned> debugNclip = {UINT_MAX, 0};
   DebugRange<std::size_t> debugPartialsWidths = {UINT_MAX, 0};
-  // If we have only one reduction to do then use the tile containing the first
-  // partial to avoid overloading tile 0 when doing multiple individual
-  // reductions
-  const bool useFirstOutputTile = splitMapIcl.size() == 1;
+
   for (const auto &it : splitMapIcl) {
     const auto &sourceTiles = tilesForOutput(it.first.lower());
 
@@ -444,9 +441,6 @@ IntermediatePartials intermediateToIntermediate(
                         std::max(debugNumPartials.max, numPartials)};
 
     auto splitCount = it.second;
-    if (useFirstOutputTile) {
-      t = *sourceTiles.begin();
-    }
     assert(splitCount > 0);
 
     // N is the number of rows to take for each reduction. This should be at

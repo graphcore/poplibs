@@ -92,7 +92,8 @@ struct ReductionTypes {
 // model without having the whole model available at this point.
 unsigned getStartTile(const std::vector<std::size_t> &inShape,
                       const std::vector<std::size_t> &outShape,
-                      const ReduceParams &params, const unsigned tilesPerIPU) {
+                      const ReduceParams &params, const unsigned stageNumber,
+                      const unsigned tilesInTarget) {
   // starting seed: 2^32/phi, where phi is the golden ratio.
   std::size_t seed = 0x9e3779b9UL;
   boost::hash_range(seed, std::begin(inShape), std::end(inShape));
@@ -102,8 +103,9 @@ unsigned getStartTile(const std::vector<std::size_t> &inShape,
   boost::hash_combine(seed, static_cast<T>(params.op));
   boost::hash_combine(seed, params.update);
   boost::hash_combine(seed, params.useScale);
+  boost::hash_combine(seed, stageNumber);
 
-  return seed % tilesPerIPU;
+  return seed % tilesInTarget;
 }
 
 // Reduce a 2D tensor in the first dimension. No other tensor shape
@@ -324,14 +326,14 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
     // should be able to improve this by being a bit smarter and distributing
     // the tiles across the stages so that exchange of the partials is less.
     const auto &target = graph.getTarget();
-    const auto startTile =
-        getStartTile(in.shape(), outputShape, params, target.getTilesPerIPU());
 
     constexpr unsigned loopExit = ~0u;
     for (unsigned i = 0; i != loopExit; ++i) {
+      const auto startTile = getStartTile(in.shape(), outputShape, params, i,
+                                          target.getNumTiles());
       // At each point, see if it is worth doing another reduction stage or if
       // we should just do the final reduction, and if so should we do
-      // it spread over the IPU or at the destination?
+      // it spread over the tiles int he graph or at the destination?
       switch (calculateNextStep(graph.getTarget(), ip)) {
       case INTERMEDIATE_TO_INTERMEDIATE:
         logging::popops::debug("Introducing new intermediate to intermediate "
