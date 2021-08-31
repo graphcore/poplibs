@@ -343,11 +343,23 @@ FN_SIZE FUNC_SV(\TYPES)
 //  Identity conversions (XXX->XXX) and INT<->UNSIGNED as these will be
 //  replaced with Copy() in popops::cast()
 
-INSTANTIATE_SUPERVISOR unsigned_char_float
-INSTANTIATE_SUPERVISOR unsigned_char_half
-
 INSTANTIATE_SUPERVISOR char_float            signed_char_float
 INSTANTIATE_SUPERVISOR char_half             signed_char_half
+INSTANTIATE_SUPERVISOR char_short            signed_char_short
+INSTANTIATE_SUPERVISOR char_unsigned_char    signed_char_unsigned_char
+INSTANTIATE_SUPERVISOR char_unsigned_short   signed_char_unsigned_short
+INSTANTIATE_SUPERVISOR char_int              signed_char_int
+INSTANTIATE_SUPERVISOR char_unsigned_int     signed_char_unsigned_int
+INSTANTIATE_SUPERVISOR char_bool             signed_char_bool
+
+INSTANTIATE_SUPERVISOR unsigned_char_float
+INSTANTIATE_SUPERVISOR unsigned_char_half
+INSTANTIATE_SUPERVISOR unsigned_char_char    unsigned_char_signed_char
+INSTANTIATE_SUPERVISOR unsigned_char_short
+INSTANTIATE_SUPERVISOR unsigned_char_unsigned_short
+INSTANTIATE_SUPERVISOR unsigned_char_int
+INSTANTIATE_SUPERVISOR unsigned_char_unsigned_int
+INSTANTIATE_SUPERVISOR unsigned_char_bool
 
 INSTANTIATE_SUPERVISOR float_half
 INSTANTIATE_SUPERVISOR float_unsigned_char
@@ -368,22 +380,30 @@ INSTANTIATE_SUPERVISOR half_bool
 INSTANTIATE_SUPERVISOR int_float
 INSTANTIATE_SUPERVISOR int_half
 INSTANTIATE_SUPERVISOR int_bool
+INSTANTIATE_SUPERVISOR int_char              int_signed_char
+INSTANTIATE_SUPERVISOR int_unsigned_char
 INSTANTIATE_SUPERVISOR int_unsigned_short
 
 INSTANTIATE_SUPERVISOR unsigned_int_float
 INSTANTIATE_SUPERVISOR unsigned_int_half
 INSTANTIATE_SUPERVISOR unsigned_int_bool
+INSTANTIATE_SUPERVISOR unsigned_int_char     unsigned_int_signed_char
+INSTANTIATE_SUPERVISOR unsigned_int_unsigned_char
 INSTANTIATE_SUPERVISOR unsigned_int_unsigned_short
 
 INSTANTIATE_SUPERVISOR unsigned_short_float
 INSTANTIATE_SUPERVISOR unsigned_short_half
+INSTANTIATE_SUPERVISOR unsigned_short_char   unsigned_short_signed_char
 INSTANTIATE_SUPERVISOR unsigned_short_int
 INSTANTIATE_SUPERVISOR unsigned_short_bool
+INSTANTIATE_SUPERVISOR unsigned_short_unsigned_char
 INSTANTIATE_SUPERVISOR unsigned_short_unsigned_int
 
 INSTANTIATE_SUPERVISOR bool_float
 INSTANTIATE_SUPERVISOR bool_half
 INSTANTIATE_SUPERVISOR bool_int
+INSTANTIATE_SUPERVISOR bool_char             bool_signed_char
+INSTANTIATE_SUPERVISOR bool_unsigned_char
 INSTANTIATE_SUPERVISOR bool_unsigned_int
 INSTANTIATE_SUPERVISOR bool_unsigned_short
 
@@ -395,8 +415,8 @@ INSTANTIATE_SUPERVISOR short_unsigned_long_long
 INSTANTIATE_SUPERVISOR short_long_long
 INSTANTIATE_SUPERVISOR unsigned_short_unsigned_long_long
 INSTANTIATE_SUPERVISOR unsigned_short_long_long
-INSTANTIATE_SUPERVISOR char_unsigned_long_long
-INSTANTIATE_SUPERVISOR char_long_long
+INSTANTIATE_SUPERVISOR char_unsigned_long_long signed_char_unsigned_long_long
+INSTANTIATE_SUPERVISOR char_long_long signed_char_long_long
 INSTANTIATE_SUPERVISOR unsigned_char_unsigned_long_long
 INSTANTIATE_SUPERVISOR unsigned_char_long_long
 INSTANTIATE_SUPERVISOR bool_unsigned_long_long

@@ -113,6 +113,9 @@ template class Fill2d<long long>;
 // Cast vertices, for all possible combinations of input and output types
 // (float, half, signed/unsinged ints and bool)
 #define INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, srcType)                  \
+  template class CastVertexName<srcType, char>;                                \
+  template class CastVertexName<srcType, signed char>;                         \
+  template class CastVertexName<srcType, unsigned char>;                       \
   template class CastVertexName<srcType, float>;                               \
   template class CastVertexName<srcType, half>;                                \
   template class CastVertexName<srcType, int>;                                 \
@@ -120,24 +123,15 @@ template class Fill2d<long long>;
   template class CastVertexName<srcType, unsigned short>;                      \
   template class CastVertexName<srcType, bool>;
 #define INSTANTIATE_CAST(CastVertexName)                                       \
+  INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, char)                           \
+  INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, signed char)                    \
+  INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, unsigned char)                  \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, float)                          \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, half)                           \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, int)                            \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, unsigned)                       \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, unsigned short)                 \
-  INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, bool)                           \
-  template class CastVertexName<float, unsigned char>;                         \
-  template class CastVertexName<float, signed char>;                           \
-  template class CastVertexName<float, char>;                                  \
-  template class CastVertexName<half, unsigned char>;                          \
-  template class CastVertexName<half, signed char>;                            \
-  template class CastVertexName<half, char>;                                   \
-  template class CastVertexName<unsigned char, float>;                         \
-  template class CastVertexName<unsigned char, half>;                          \
-  template class CastVertexName<signed char, float>;                           \
-  template class CastVertexName<signed char, half>;                            \
-  template class CastVertexName<char, float>;                                  \
-  template class CastVertexName<char, half>;
+  INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, bool)
 
 #define INSTANTIATE_CAST_LONGLONG(CastVertexName)                              \
   template class CastVertexName<short, unsigned long long>;                    \
@@ -152,6 +146,8 @@ template class Fill2d<long long>;
   template class CastVertexName<int, unsigned long long>;                      \
   template class CastVertexName<char, long long>;                              \
   template class CastVertexName<char, unsigned long long>;                     \
+  template class CastVertexName<signed char, long long>;                       \
+  template class CastVertexName<signed char, unsigned long long>;              \
   template class CastVertexName<unsigned char, long long>;                     \
   template class CastVertexName<unsigned char, unsigned long long>;
 
@@ -295,6 +291,30 @@ public:
 //    2. 8bit integer <-> HALF,FLOAT conversion (defined in assembly)
 //    3. Identity conversions (XXX->XXX) and INT<->UNSIGNED as these will be
 //       replaced with Copy() in popops::cast()
+template class CastWorker<char, signed char>;
+template class CastWorker<char, unsigned char>;
+template class CastWorker<char, short>;
+template class CastWorker<char, unsigned short>;
+template class CastWorker<char, int>;
+template class CastWorker<char, unsigned int>;
+template class CastWorker<char, bool>;
+
+template class CastWorker<signed char, char>;
+template class CastWorker<signed char, unsigned char>;
+template class CastWorker<signed char, short>;
+template class CastWorker<signed char, unsigned short>;
+template class CastWorker<signed char, int>;
+template class CastWorker<signed char, unsigned int>;
+template class CastWorker<signed char, bool>;
+
+template class CastWorker<unsigned char, char>;
+template class CastWorker<unsigned char, signed char>;
+template class CastWorker<unsigned char, short>;
+template class CastWorker<unsigned char, unsigned short>;
+template class CastWorker<unsigned char, int>;
+template class CastWorker<unsigned char, unsigned int>;
+template class CastWorker<unsigned char, bool>;
+
 template class CastWorker<float, int>;
 template class CastWorker<float, unsigned>;
 template class CastWorker<float, unsigned short>;
@@ -308,15 +328,24 @@ template class CastWorker<half, bool>;
 template class CastWorker<int, float>;
 template class CastWorker<int, half>;
 template class CastWorker<int, bool>;
+template class CastWorker<int, char>;
+template class CastWorker<int, signed char>;
+template class CastWorker<int, unsigned char>;
 template class CastWorker<int, unsigned short>;
 
 template class CastWorker<unsigned int, float>;
 template class CastWorker<unsigned int, half>;
 template class CastWorker<unsigned int, bool>;
+template class CastWorker<unsigned int, char>;
+template class CastWorker<unsigned int, signed char>;
+template class CastWorker<unsigned int, unsigned char>;
 template class CastWorker<unsigned int, unsigned short>;
 
 template class CastWorker<unsigned short, float>;
 template class CastWorker<unsigned short, half>;
+template class CastWorker<unsigned short, char>;
+template class CastWorker<unsigned short, signed char>;
+template class CastWorker<unsigned short, unsigned char>;
 template class CastWorker<unsigned short, int>;
 template class CastWorker<unsigned short, unsigned int>;
 template class CastWorker<unsigned short, bool>;
@@ -324,6 +353,9 @@ template class CastWorker<unsigned short, bool>;
 template class CastWorker<bool, float>;
 template class CastWorker<bool, half>;
 template class CastWorker<bool, int>;
+template class CastWorker<bool, char>;
+template class CastWorker<bool, signed char>;
+template class CastWorker<bool, unsigned char>;
 template class CastWorker<bool, unsigned int>;
 template class CastWorker<bool, unsigned short>;
 

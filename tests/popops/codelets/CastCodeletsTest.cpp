@@ -93,7 +93,8 @@ bool isValidTypes(const VertexDesc &vertex) {
   //   1. Supervisor vertices for INT <=> UNSIGNED_INT are not defined (?)
   //   2. Only vertices with SRC != DST are defined.
   const static std::array types{FLOAT,        HALF,           INT,
-                                UNSIGNED_INT, UNSIGNED_SHORT, BOOL};
+                                UNSIGNED_INT, UNSIGNED_SHORT, BOOL,
+                                CHAR,         SIGNED_CHAR,    UNSIGNED_CHAR};
   if (std::find(types.begin(), types.end(), src) != types.end() &&
       std::find(types.begin(), types.end(), dst) != types.end()) {
     if (vertex.isSupervisor && ((src == INT && dst == UNSIGNED_INT) ||
