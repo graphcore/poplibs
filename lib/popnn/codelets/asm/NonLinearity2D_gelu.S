@@ -13,9 +13,9 @@
 
 // Symbols
 #define HALF_SYMBOL \
-  __runCodelet_popnn__NonLinearity2D___half_popnn__NonLinearityType__GELU
+  __runCodelet_popnn__NonLinearity2DInPlace___half_popnn__NonLinearityType__GELU
 #define FLOAT_SYMBOL \
-  __runCodelet_popnn__NonLinearity2D___float_popnn__NonLinearityType__GELU
+  __runCodelet_popnn__NonLinearity2DInPlace___float_popnn__NonLinearityType__GELU
 
 // Force all accumulators to zero
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)

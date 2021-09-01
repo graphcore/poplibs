@@ -10,8 +10,18 @@ foreach(NL_VERTEX 1D 2D)
                            COMMAND ${TEST_EXECUTABLE}
                              --data-type=${DATA_TYPE}
                              --nl-type=${NL_TYPE}
+                             --fwd-inplace=true
                             LABELS codelet
                             VARIANTS Cpu;${SIM_VARIANTS})
+      if(NL_TYPE STREQUAL "swish") 
+            add_multitarget_test(NAME ${VARIANT_NAME}_NonInPlace
+                           COMMAND ${TEST_EXECUTABLE}
+                             --data-type=${DATA_TYPE}
+                             --nl-type=${NL_TYPE}
+                             --fwd-inplace=false
+                            LABELS codelet
+                            VARIANTS Cpu;${SIM_VARIANTS})
+      endif()
     endforeach()
   endforeach()
 endforeach()

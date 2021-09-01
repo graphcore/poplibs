@@ -71,8 +71,8 @@
 
 // Macro to do innermost loop gor a V4 variant of half. The loop count is 
 // assumed to be already subtracted by 1 with LOOP_CNT >= 0
-.macro SwishActivationLoopHalfV4 IO_PTR, IO_BASE, LOOP_CNT, STRIDE
-ld64  $ACTS_PAIR, $\IO_BASE, $\IO_PTR, 0
+.macro SwishActivationLoopHalfV4 IN_PTR, OUT_PTR, IO_BASE, LOOP_CNT, STRIDE
+ld64step  $ACTS_PAIR, $\IO_BASE, $\IN_PTR+=, \STRIDE
 {
   rpt $\LOOP_CNT, 2
   f16v2sigm $RESULT_0, $ACTS_0
@@ -82,16 +82,16 @@ ld64  $ACTS_PAIR, $\IO_BASE, $\IO_PTR, 0
     f16v2sigm $RESULT_1, $ACTS_1
   }
   {
-    ld64  $ACTS_PAIR, $\IO_BASE, $\IO_PTR, \STRIDE
+    ld64step  $ACTS_PAIR, $\IO_BASE, $\IN_PTR+=, \STRIDE
     f16v4mul $RESULT_PAIR, $RESULT_PAIR, $ACTS_PAIR
   }
   {
-    st64step $RESULT_PAIR, $\IO_BASE, $\IO_PTR+=, \STRIDE
+    st64step $RESULT_PAIR, $\IO_BASE, $\OUT_PTR+=, \STRIDE
     f16v2sigm $RESULT_0, $ACTS_0
   }
 f16v2sigm $RESULT_1, $ACTS_1
 f16v4mul $RESULT_PAIR, $RESULT_PAIR, $ACTS_PAIR
-st64step $RESULT_PAIR, $\IO_BASE, $\IO_PTR+=, \STRIDE
+st64step $RESULT_PAIR, $\IO_BASE, $\OUT_PTR+=, \STRIDE
 .endm
 
 #-------------------------------------------------------------------------------
@@ -108,8 +108,8 @@ f16v2mul $\RESULT, $\RESULT, $\ACT
 
 // Macro to do innermost loop gor a V2 variant of float. The loop count is 
 // assumed to be already subtracted by 1 with LOOP_CNT >= 0
-.macro SwishActivationLoopFloatV2 IO_PTR, IO_BASE, LOOP_CNT, STRIDE
-ld64 $ACTS_PAIR, $\IO_BASE, $\IO_PTR, 0  
+.macro SwishActivationLoopFloatV2 IN_PTR, OUT_PTR, IO_BASE, LOOP_CNT, STRIDE
+ld64step $ACTS_PAIR, $\IO_BASE, $\IN_PTR+=, \STRIDE  
 {
   rpt $\LOOP_CNT, 2
   f32sigm $RESULT_0, $ACTS_0
@@ -119,16 +119,16 @@ ld64 $ACTS_PAIR, $\IO_BASE, $\IO_PTR, 0
     f32sigm $RESULT_1, $ACTS_1
   }
   {
-    ld64 $ACTS_PAIR, $\IO_BASE, $\IO_PTR, \STRIDE
+    ld64step $ACTS_PAIR, $\IO_BASE, $\IN_PTR+=, \STRIDE
     f32v2mul $RESULT_PAIR, $RESULT_PAIR, $ACTS_PAIR
   }
   {
-    st64step $RESULT_PAIR, $\IO_BASE, $\IO_PTR+=, \STRIDE
+    st64step $RESULT_PAIR, $\IO_BASE, $\OUT_PTR+=, \STRIDE
     f32sigm $RESULT_0, $ACTS_0
   }
 f32sigm $RESULT_1, $ACTS_1
 f32v2mul $RESULT_PAIR, $RESULT_PAIR, $ACTS_PAIR
-st64step $RESULT_PAIR, $\IO_BASE, $\IO_PTR+=, \STRIDE
+st64step $RESULT_PAIR, $\IO_BASE, $\OUT_PTR+=, \STRIDE
 .endm
 
 #-------------------------------------------------------------------------------

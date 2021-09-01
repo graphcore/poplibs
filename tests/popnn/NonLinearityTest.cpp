@@ -57,7 +57,7 @@ BOOST_AUTO_TEST_CASE(
   auto deltaH =
       graph.addVariable(HALF, {1, zNGroups, ySize, xSize, zChunk}, "actH");
 
-  // arbitraray mappings
+  // arbitrary mappings
   mapTensorLinearly(graph, actF);
   mapTensorLinearly(graph, actH);
   mapTensorLinearly(graph, deltaF);
@@ -130,7 +130,6 @@ BOOST_AUTO_TEST_CASE(
       }
     }
   }
-
   for (auto n : {
            NonLinearityType::RELU,
            NonLinearityType::SIGMOID,
@@ -146,9 +145,30 @@ BOOST_AUTO_TEST_CASE(
     poplibs_test::nonLinearity(n, hRefActOut);
     // build and run the target code
     auto fwdProg = Sequence();
+
+    std::size_t outFSize = 0;
+    std::size_t outHSize = 0;
+    std::unique_ptr<char[]> rawHOutF, rawHOutH;
+    bool doForwardNonInPlace =
+        (n == NonLinearityType::SWISH) || (n == NonLinearityType::TANH) ||
+        (n == NonLinearityType::SIGMOID) || (n == NonLinearityType::RELU);
+    Tensor outF, outH;
+    std::stringstream floatStreamName, halfStreamName;
+    floatStreamName << "notInPlaceOutF_" << n;
+    halfStreamName << "notInPlaceOutH_" << n;
+    if (doForwardNonInPlace) {
+      outF = nonLinearity(graph, n, actF, fwdProg);
+      outH = nonLinearity(graph, n, actH, fwdProg);
+      graph.createHostRead(floatStreamName.str(), outF);
+      graph.createHostRead(halfStreamName.str(), outH);
+      rawHOutF = allocateHostMemoryForTensor(target, outF, 1, outFSize);
+      rawHOutH = allocateHostMemoryForTensor(target, outH, 1, outHSize);
+    }
+    // Note - these overwrite the input so have to come after the non-inplace
+    // function runs
     nonLinearityInPlace(graph, n, actF, fwdProg);
     nonLinearityInPlace(graph, n, actH, fwdProg);
-    ;
+
     Engine fwdEng(graph, fwdProg);
     device.bind([&](const Device &d) {
       fwdEng.load(d);
@@ -159,6 +179,12 @@ BOOST_AUTO_TEST_CASE(
       fwdEng.writeTensor("inH", rawHActInH.get(),
                          rawHActInH.get() + actInHSize);
       fwdEng.run();
+      if (doForwardNonInPlace) {
+        fwdEng.readTensor(floatStreamName.str(), rawHOutF.get(),
+                          rawHOutF.get() + outFSize);
+        fwdEng.readTensor(halfStreamName.str(), rawHOutH.get(),
+                          rawHOutH.get() + outHSize);
+      }
       fwdEng.readTensor("outF", rawHActOutF.get(),
                         rawHActOutF.get() + actOutFSize);
       fwdEng.readTensor("outH", rawHActOutH.get(),
@@ -170,6 +196,15 @@ BOOST_AUTO_TEST_CASE(
     BOOST_TEST(checkIsClose("outF", hActOutF, hRefActOut, TOL, FLOAT_ATOL));
     BOOST_TEST(checkIsClose("outH", hActOutH, hRefActOut, TOL, HALF_ATOL));
 
+    if (doForwardNonInPlace) {
+      copy(target, HALF, rawHOutH.get(), hActOutH);
+      copy(target, FLOAT, rawHOutF.get(), hActOutF);
+
+      BOOST_TEST(checkIsClose(floatStreamName.str(), hActOutF, hRefActOut, TOL,
+                              FLOAT_ATOL));
+      BOOST_TEST(checkIsClose(halfStreamName.str(), hActOutH, hRefActOut, TOL,
+                              HALF_ATOL));
+    }
     hRefDeltaOut = hDeltaIn;
     poplibs_test::bwdNonLinearity(n, hActIn, hRefDeltaOut);
     // build and run the target code

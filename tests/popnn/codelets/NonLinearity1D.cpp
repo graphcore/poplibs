@@ -70,7 +70,8 @@ struct SliceDesc {
 };
 
 void doTest(const DeviceType &deviceType, const Type &dataType,
-            const NonLinearityType &nlType, bool testFwd, bool testBwd) {
+            const NonLinearityType &nlType, bool testFwd, bool testBwd,
+            bool inPlace) {
   auto device = createTestDevice(deviceType);
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -86,9 +87,11 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
   assert(randomData2Size >= maxElements);
 
   auto acts = graph.addVariable(dataType, {maxElements});
+  auto out = graph.addVariable(dataType, {maxElements});
   auto outgrad = graph.addVariable(dataType, {maxElements});
   auto ingrad = graph.addVariable(dataType, {maxElements});
   graph.setTileMapping(acts, 0);
+  graph.setTileMapping(out, 0);
   graph.setTileMapping(outgrad, 0);
   graph.setTileMapping(ingrad, 0);
 
@@ -97,6 +100,8 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostActsIn = allocateHostMemoryForTensor(
       acts, "test acts", graph, uploadProg, downloadProg, tmap);
+  auto rawHostOut = allocateHostMemoryForTensor(out, "test out", graph,
+                                                uploadProg, downloadProg, tmap);
   auto rawHostGradOut = allocateHostMemoryForTensor(
       outgrad, "test outgrad", graph, uploadProg, downloadProg, tmap);
   auto rawHostGradIn = allocateHostMemoryForTensor(
@@ -115,8 +120,9 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
   poplibs_test::bwdNonLinearity(nlType, hostActsIn.data(), modelGradIn.data(),
                                 maxElements);
 
-  const auto fwdVertexClass =
-      templateVertex("popnn::NonLinearity1D", dataType, nlType);
+  const auto fwdVertexClass = templateVertex(
+      inPlace ? "popnn::NonLinearity1DInPlace" : "popnn::NonLinearity1D",
+      dataType, nlType);
   const auto bwdVertexClass =
       templateVertex("popnn::NonLinearityGrad1D", dataType, nlType);
 
@@ -132,6 +138,7 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
          ++numElements) {
       // Get a slice into our common tensor to perform the non-linearity on
       auto actsTestSlice = acts.slice(offset, offset + numElements);
+      auto outTestSlice = out.slice(offset, offset + numElements);
       auto outgradTestSlice = outgrad.slice(offset, offset + numElements);
       auto ingradTestSlice = ingrad.slice(offset, offset + numElements);
 
@@ -142,6 +149,9 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
         auto fwdV = graph.addVertex(fwdCS, fwdVertexClass);
         graph.setTileMapping(fwdV, 0);
         graph.connect(fwdV["data"], actsTestSlice);
+        if (!inPlace) {
+          graph.connect(fwdV["out"], outTestSlice);
+        }
         graph.setInitialValue(fwdV["n"], numElements);
         if (!testBwd) {
           programs.push_back(Sequence{Execute(fwdCS)});
@@ -183,6 +193,7 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
     e.load(d);
     for (std::size_t testId = 0; testId < numTests; ++testId) {
       copy(target, hostActsIn, dataType, rawHostActsIn.get());
+      copy(target, hostActsIn, dataType, rawHostOut.get());
       copy(target, hostGradOut, dataType, rawHostGradOut.get());
       // Fill the grad result with a value to check that it isn't overwritten
       std::fill_n(hostGradIn.data(), hostGradIn.num_elements(), 50.0);
@@ -190,7 +201,11 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
       e.run(uploadProgIndex);
       e.run(testId);
       e.run(downloadProgIndex);
-      copy(target, dataType, rawHostActsIn.get(), hostActsOut);
+      if (inPlace) {
+        copy(target, dataType, rawHostActsIn.get(), hostActsOut);
+      } else {
+        copy(target, dataType, rawHostOut.get(), hostActsOut);
+      }
       copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 
       auto &testDesc = programSlices[testId];
@@ -244,6 +259,7 @@ int main(int argc, char **argv) {
   NonLinearityType nlType;
   bool testFwd = true;
   bool testBwd = true;
+  bool inPlace = true;
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -260,6 +276,9 @@ int main(int argc, char **argv) {
     ("test-bwd",
       po::value<bool>(&testBwd)->default_value(testBwd),
      "Test bwd (grad) vertex")
+    ("fwd-inplace",
+      po::value<bool>(&inPlace)->default_value(inPlace),
+      "Test the fwd in place vertex")
     ("nl-type",
      po::value<NonLinearityType>(&nlType)->required(),
      "Non-linearity type");
@@ -282,7 +301,7 @@ int main(int argc, char **argv) {
                                  " and RELU are implemented as unary ops. ");
   }
   try {
-    doTest(deviceType, dataType, nlType, testFwd, testBwd);
+    doTest(deviceType, dataType, nlType, testFwd, testBwd, inPlace);
   } catch (std::exception &e) {
     std::cerr << "Test failed: " << e.what() << "\n";
     return 1;

@@ -67,9 +67,10 @@ static std::uint64_t nonlinearityGradFlops(const NonLinearityType &nlType) {
 }
 
 VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(NonLinearity1D)(const VertexIntrospector &vertex,
-                                         const Target &target, const Type &type,
-                                         const NonLinearityType &nlType) {
+nonLinearity1DCycleEstimator(const VertexIntrospector &vertex,
+                             const Target &target, const Type &type,
+                             const NonLinearityType &nlType, bool inPlace) {
+  bool isNonInPlaceSwish = nlType == NonLinearityType::SWISH && inPlace;
   bool isFloat = type == FLOAT;
   CODELET_FIELD(data);
   const auto numWorkers = target.getNumWorkerContexts();
@@ -90,16 +91,19 @@ MAKE_PERF_ESTIMATOR_NAME(NonLinearity1D)(const VertexIntrospector &vertex,
   // The cost of misalignment is ~9 cycles for half, less for float.
   std::uint64_t cycles = 9; // Supervisor vertex overhead
   std::uint64_t workerCycles =
-      2 + // Load input pointer and size
-      5 + // Divide & Remainder to split work between workers
-      2 + // Get worker ID
-      2 + // Check 64-bit aligned and branch
-      5 + // Setup remainders and size for worker
-      2 + // Offset worker's pointer and branch if done
-      (vectorsPerWorker ? 1 : 0) *
-          (2 + opCycles + // Warm up pipeline, rpt
-           (vectorsPerWorker - 1) * vectorLoopCycles + 1 +
-           opCycles); // Handle remaining element from pipeline
+      3 + // Load input pointer, output pointer and size
+              isNonInPlaceSwish
+          ? 1
+          : 0 +     // Branch into shared code
+                5 + // Divide & Remainder to split work between workers
+                2 + // Get worker ID
+                2 + // Check 64-bit aligned and branch
+                5 + // Setup remainders and size for worker
+                3 + // Offset worker's pointers and branch if done
+                (vectorsPerWorker ? 1 : 0) *
+                    (2 + opCycles + // Warm up pipeline, rpt
+                     (vectorsPerWorker - 1) * vectorLoopCycles + 1 +
+                     opCycles); // Handle remaining element from pipeline
 
   // possibly unpack pointers
   workerCycles +=
@@ -126,6 +130,18 @@ MAKE_PERF_ESTIMATOR_NAME(NonLinearity1D)(const VertexIntrospector &vertex,
 
   return {cycles + (workerCycles * numWorkers),
           convertToTypeFlops(flops, type)};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(NonLinearity1D)(const VertexIntrospector &vertex,
+                                         const Target &target, const Type &type,
+                                         const NonLinearityType &nlType) {
+  return nonLinearity1DCycleEstimator(vertex, target, type, nlType, false);
+}
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearity1DInPlace)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const NonLinearityType &nlType) {
+  return nonLinearity1DCycleEstimator(vertex, target, type, nlType, true);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad1D)(
@@ -186,9 +202,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad1D)(
 }
 
 VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
-                                         const Target &target, const Type &type,
-                                         const NonLinearityType &nlType) {
+nonLinearity2DCycleEstimator(const VertexIntrospector &vertex,
+                             const Target &target, const Type &type,
+                             const NonLinearityType &nlType, bool inPlace) {
+  bool isNonInPlaceSwish = nlType == NonLinearityType::SWISH && inPlace;
   bool isFloat = type == FLOAT;
   const auto vectorWidth = target.getVectorWidth(type);
   CODELET_FIELD(data);
@@ -200,9 +217,12 @@ MAKE_PERF_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
   const auto opCycles = getNonLinearityOpCycles(nlType, isFloat, false);
   const auto vectorLoopCycles = getNonLinearityOpCycles(nlType, isFloat, true);
 
-  cycles += 2 + // Load base pointer, DeltaN pointer
-            5 + // Unpack base pointer, n0, DeltaN pointer
-            2;  // Set mask for inner loop, sub for brnzdec
+  cycles += isNonInPlaceSwish
+                ? 1
+                : 0 +     // Load out pointer
+                      2 + // Load base pointer, DeltaN pointer
+                      5 + // Unpack base pointer, n0, DeltaN pointer
+                      2;  // Set mask for inner loop, sub for brnzdec
 
   // Following 64-bit aligned path
   unsigned totalElements = 0;
@@ -213,8 +233,9 @@ MAKE_PERF_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
     const auto remainder = n1 % vectorWidth;
 
     cycles += 4 +                 // Load DeltaN, calculate inner pointer and n1
+              1 +                 // Load next out ptr or copy data ptr
               (isFloat ? 0 : 2) + // Test 32-bit aligned
-              2 +                 // Test 64-bit aligned
+              (isFloat ? 2 : 3) + // Test 64-bit aligned
               2 +                 // Shift to get num vectors, branch if 0
               (numVectors ? 1 : 0) * (2 + opCycles + // Warm up pipeline
                                       (numVectors - 1) * vectorLoopCycles + 1 +
@@ -237,6 +258,17 @@ MAKE_PERF_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
   }
 
   return {cycles, convertToTypeFlops(totalElements * flopsPerElement, type)};
+}
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
+                                         const Target &target, const Type &type,
+                                         const NonLinearityType &nlType) {
+  return nonLinearity2DCycleEstimator(vertex, target, type, nlType, false);
+}
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearity2DInPlace)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const NonLinearityType &nlType) {
+  return nonLinearity2DCycleEstimator(vertex, target, type, nlType, true);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad2D)(
@@ -939,9 +971,18 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateOutput, UNSIGNED_INT),
 
       INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGrad1D),
-      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity1D),
+      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity1DInPlace),
+      CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearity1D, FLOAT,
+                            popnn::NonLinearityType::SWISH),
+      CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearity1D, HALF,
+                            popnn::NonLinearityType::SWISH),
+
       INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGrad2D),
-      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity2D)};
+      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity2DInPlace),
+      CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearity2D, FLOAT,
+                            popnn::NonLinearityType::SWISH),
+      CYCLE_ESTIMATOR_ENTRY(popnn, NonLinearity2D, HALF,
+                            popnn::NonLinearityType::SWISH)};
 }
 
 } // end namespace popnn

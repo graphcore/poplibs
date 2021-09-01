@@ -17,14 +17,24 @@
   __runCodelet_popnn__NonLinearity1D___half_popnn__NonLinearityType__SWISH
 #define FLOAT_SYMBOL \
   __runCodelet_popnn__NonLinearity1D___float_popnn__NonLinearityType__SWISH
+#define HALF_SYMBOL_INPLACE \
+  __runCodelet_popnn__NonLinearity1DInPlace___half_popnn__NonLinearityType__SWISH
+#define FLOAT_SYMBOL_INPLACE \
+  __runCodelet_popnn__NonLinearity1DInPlace___float_popnn__NonLinearityType__SWISH
 
 // Constants
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
 #define DATA_PTR_VOFFSET 0
-#define SIZE_VOFFSET 2
+#define INPLACE_SIZE_VOFFSET 2
+// Non inplace
+#define OUT_PTR_VOFFSET 2
+#define SIZE_VOFFSET 4
 #else
 #define DATA_PTR_VOFFSET 0
-#define SIZE_VOFFSET 4
+#define INPLACE_SIZE_VOFFSET 4
+// Non inplace
+#define OUT_PTR_VOFFSET 4
+#define SIZE_VOFFSET 8
 #endif
 
 // Worker register aliases
@@ -39,19 +49,42 @@
 #define REM m4
 #define REM_32BIT m5
 #define REM_16BIT m6
+#define OUT_PTR m7
 
 #define MSCRATCH m10
 
-DEF_STACK_USAGE 0 HALF_SYMBOL
-
-
+.section .text.HALF_SYMBOL
 .globl HALF_SYMBOL
-
-.align 8
+DEF_STACK_USAGE 0 HALF_SYMBOL
+    .align 4
 HALF_SYMBOL:
 .worker
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+    ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/2
+#else
+    ld32 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
+#endif
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
+    bri HALF_SYMBOL_COMMON
+.size HALF_SYMBOL, .-HALF_SYMBOL
 
+
+.section .text.HALF_SYMBOL_INPLACE
+DEF_STACK_USAGE 0 HALF_SYMBOL_INPLACE
+
+
+.globl HALF_SYMBOL_INPLACE
+    .align 8
+HALF_SYMBOL_INPLACE:
+.worker
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+    ldz16 $OUT_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
+#else
+    ld32 $OUT_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+#endif
+    ldz16 $MSCRATCH, $mvertex_base, $mzero, INPLACE_SIZE_VOFFSET/2
+
+HALF_SYMBOL_COMMON:
     // $SIZE = No. of 64-bit elements each worker should process
     // $REM = No. of remaining elements between workers
     HALF_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
@@ -62,9 +95,11 @@ HALF_SYMBOL:
     //
     ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
     shl $DATA_PTR, $DATA_PTR, 2
+    shl $OUT_PTR, $OUT_PTR, 2
     setzi $BASE, TMEM_REGION0_BASE_ADDR
 #else
-    ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+    {ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+     fnop  } // Repeat alignment
 #endif
 
     // Get worker ID
@@ -96,10 +131,11 @@ HALF_SYMBOL:
 
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
     SwishActivationHalfV2 RESULT_0 ACTS_0
-    st32 $RESULT_0, $DATA_PTR, $BASE, 0
+    st32 $RESULT_0, $OUT_PTR, $BASE, 0
 
 .Lhalf_skip_32_bit_lead:
     ld32step $azero, $BASE, $DATA_PTR+=, 1
+    ld32step $azero, $BASE, $OUT_PTR+=, 1
 
     // Decrement remaining element count
     add $REM, $REM, -2
@@ -122,10 +158,11 @@ HALF_SYMBOL:
 
     // Offset each worker's pointer into the data to interleave them.
     ld64step $azeros, $BASE, $DATA_PTR+=, $WORKER_ID
+    ld64step $azeros, $BASE, $OUT_PTR+=, $WORKER_ID
     brz $SIZE, .Lhalf_64_bit_loop_exit
     add $SIZE, $SIZE, -1
     // Do the inner loop
-    SwishActivationLoopHalfV4 DATA_PTR BASE SIZE CTXT_WORKERS
+    SwishActivationLoopHalfV4 DATA_PTR OUT_PTR BASE SIZE CTXT_WORKERS
 
 .Lhalf_64_bit_loop_exit:
 
@@ -138,9 +175,9 @@ HALF_SYMBOL:
 .Lhalf_32_bit_remainder:
     brz $REM_32BIT, .Lhalf_16_bit_remainder
 
-    ld32 $ACTS_0, $DATA_PTR, $BASE, 0
+    ld32step $ACTS_0, $BASE, $DATA_PTR+=, 1
     SwishActivationHalfV2 RESULT_0 ACTS_0
-    st32step $RESULT_0, $BASE, $DATA_PTR+=, 1
+    st32step $RESULT_0, $BASE, $OUT_PTR+=, 1
 
 .Lhalf_16_bit_remainder:
     brz $REM_16BIT, .Lhalf_end
@@ -149,14 +186,14 @@ HALF_SYMBOL:
     // with the remaining
     ldb16 $ACTS_0, $DATA_PTR, $BASE, 0
     SwishActivationHalfV2 RESULT_0 ACTS_0
-    ldb16 $RESULT_1, $DATA_PTR, $BASE, 1
+    ldb16 $RESULT_1, $OUT_PTR, $BASE, 1
     roll16 $RESULT_0, $RESULT_0, $RESULT_1
-    st32 $RESULT_0, $DATA_PTR, $BASE, 0
+    st32 $RESULT_0, $OUT_PTR, $BASE, 0
 
 .Lhalf_end:
     exitz $mzero
 
-.size HALF_SYMBOL, .-HALF_SYMBOL
+.size HALF_SYMBOL_INPLACE, .-HALF_SYMBOL_INPLACE
 
 DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .section .text.FLOAT_SYMBOL
@@ -164,11 +201,38 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function
 
-.align 8
-.globl FLOAT_SYMBOL
+.align 4
 FLOAT_SYMBOL:
-.worker
+    .worker
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+    ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/2
+#else
+    ld32 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
+#endif
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
+    bri FLOAT_SYMBOL_COMMON
+ .size FLOAT_SYMBOL, .-FLOAT_SYMBOL
+   
+.globl FLOAT_SYMBOL
+.type FLOAT_SYMBOL, @function
+
+DEF_STACK_USAGE 0 FLOAT_SYMBOL_INPLACE
+.section .text.FLOAT_SYMBOL_INPLACE
+
+.globl FLOAT_SYMBOL_INPLACE
+.type FLOAT_SYMBOL_INPLACE, @function
+
+.align 8
+FLOAT_SYMBOL_INPLACE:
+.worker
+#if defined(VECTOR_AVAIL_SCALED_PTR32)
+    ldz16 $OUT_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
+#else
+    ld32 $OUT_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+#endif
+    ldz16 $MSCRATCH, $mvertex_base, $mzero, INPLACE_SIZE_VOFFSET/2
+
+FLOAT_SYMBOL_COMMON:
 
     // $SIZE = No. of 64-bit elements each worker should process
     // $REM = No. of remaining elements between workers
@@ -180,9 +244,11 @@ FLOAT_SYMBOL:
     //
     ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
     shl $DATA_PTR, $DATA_PTR, 2
+    shl $OUT_PTR, $OUT_PTR, 2
     setzi $BASE, TMEM_REGION0_BASE_ADDR
 #else
-    ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+    {ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
+    fnop} // Rpt alignment
 #endif
 
     // Get worker ID
@@ -200,10 +266,11 @@ FLOAT_SYMBOL:
 
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
     SwishActivationFloatV1 RESULT_0 ACTS_0
-    st32 $RESULT_0, $DATA_PTR, $BASE, 0
+    st32 $RESULT_0, $OUT_PTR, $BASE, 0
 
 .Lfloat_skip_32_bit_lead:
     ld32step $azero, $BASE, $DATA_PTR+=, 1
+    ld32step $azero, $BASE, $OUT_PTR+=, 1
 
     // Decrement remaining element count
     add $REM, $REM, -1
@@ -223,10 +290,11 @@ FLOAT_SYMBOL:
     cmpult $MSCRATCH, $WORKER_ID, $REM
     add $SIZE, $SIZE, $MSCRATCH
     ld64step $azeros, $BASE, $DATA_PTR+=, $WORKER_ID
+    ld64step $azeros, $BASE, $OUT_PTR+=, $WORKER_ID
     brz $SIZE, .Lfloat_64_bit_loop_exit
     add $SIZE, $SIZE, -1
     // Do the loop processing V2 floats at a time
-    SwishActivationLoopFloatV2 DATA_PTR BASE SIZE CTXT_WORKERS
+    SwishActivationLoopFloatV2 DATA_PTR OUT_PTR BASE SIZE CTXT_WORKERS
 
 .Lfloat_64_bit_loop_exit:
 
@@ -240,11 +308,11 @@ FLOAT_SYMBOL:
 .Lfloat_32_bit_remainder:
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
     SwishActivationFloatV1 RESULT_0 ACTS_0
-    st32step $RESULT_0, $BASE, $DATA_PTR+=, 1
+    st32step $RESULT_0, $BASE, $OUT_PTR+=, 1
 
 .Lfloat_end:
     exitz $mzero
 
-.size FLOAT_SYMBOL, .-FLOAT_SYMBOL
+.size FLOAT_SYMBOL_INPLACE, .-FLOAT_SYMBOL_INPLACE
 
 #endif // __IPU__
