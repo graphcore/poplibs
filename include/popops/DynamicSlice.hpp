@@ -387,6 +387,14 @@ namespace embedding {
  *       operation. An error is thrown if set to false and `usedForSlice` is
  *       set to false.
  *
+ *     * `operationForUpdate` ("none", "add", "max") [="add"]
+ *
+ *       Only applicable when `usedForUpdate` = true. Is the type of operation
+ *       used in multi-update.
+ *         Set to "none" for multiUpdate
+ *                "add" for multiUpdateAdd
+ *                "max" for multiUpdateMax
+ *
  *     * `availableMemoryProportion` Positive decimal
  *
  *       If set, gives the proportion of tile memory made available for

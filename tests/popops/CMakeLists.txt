@@ -210,9 +210,15 @@ add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(RegroupTest RegroupTest.cpp)
 add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
-              SUITES SingleDim MultiDim LargeBuffer Update Misc MultiSlice
-                     MultiUpdateSingles MultiUpdateMultiples)
+              SUITES SingleDim MultiDim LargeBuffer Misc MultiSlice)
+
 add_unit_test(MultiUpdateTest DynamicSliceTest.cpp
+              SUITES Update MultiUpdate  MultiUpdateSingles MultiUpdateMultiples)
+
+add_unit_test(MultiUpdatePlanTest DynamicSliceTest.cpp
+              SUITES MultiUpdatePlanLookupSplit MultiUpdatePlan VARIANTS IpuModel2)
+
+add_unit_test(MultiUpdateTestMax DynamicSliceTest.cpp
               SUITES MultiUpdateMaxHalf MultiUpdateMaxFloat VARIANTS Hw;Sim2;IpuModel2)
 add_unit_test(SeqSliceTest SeqSliceTest.cpp)
 add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp SUITES CpuChecks VARIANTS Cpu)

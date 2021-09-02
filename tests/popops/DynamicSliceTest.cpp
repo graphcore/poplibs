@@ -626,14 +626,14 @@ BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
   BOOST_CHECK_EQUAL(s1.dim(0), M);
   BOOST_CHECK_EQUAL(getTileImbalance(graph, s1), 0);
 
-  OptionFlags engineOptions{{"showExecutionSteps", "true"},
-                            {"showVarStorage", "true"}};
+  OptionFlags profileOptions{{"showExecutionSteps", "true"},
+                             {"showVarStorage", "true"}};
   // Actually build the graph to check that it fits onto the target
   // This will fail if many edge pointers or significant exchange is required
   Engine eng(graph, prog, options);
 
   std::stringstream ss;
-  eng.printProfileSummary(ss, engineOptions);
+  eng.printProfileSummary(ss, profileOptions);
   BOOST_TEST_MESSAGE(ss.str());
 }
 
@@ -756,24 +756,24 @@ void multislice(const std::vector<uint32_t> &indicies,
   std::vector<std::size_t> sliceDims{0};
   std::vector<std::size_t> sliceSizes{1};
 
-  const auto options = OptionFlags();
+  const auto sliceOptions = OptionFlags();
   auto plan = SlicePlan();
   if (planAsEmbedding) {
-    plan = embedding::plan(graph, FLOAT, D, E, {indicies.size()}, options);
+    plan = embedding::plan(graph, FLOAT, D, E, {indicies.size()}, sliceOptions);
   }
   // Map the tensor carefully to ensure balance and minimise edge pointers
   auto t = createSliceableTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes,
-                                 plan, options, "t");
+                                 plan, sliceOptions, "t");
   Sequence prog;
 
   auto offsetInit =
       graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(), "offset");
   graph.setTileMapping(offsetInit, 0);
   auto offset = createIndicesTensor(graph, sliceDims, indicies.size(), plan,
-                                    options, "offset");
+                                    sliceOptions, "offset");
   prog.add(Copy(offsetInit, offset));
   auto s = multiSlice(graph, t, offset, sliceDims, sliceSizes, prog, plan,
-                      options, "MultisliceTest");
+                      sliceOptions, "MultisliceTest");
 
   BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
   BOOST_CHECK_EQUAL(s.dim(0), indiciesShape[0]);
@@ -785,8 +785,8 @@ void multislice(const std::vector<uint32_t> &indicies,
   std::vector<uint32_t> hIn(t.numElements());
   std::vector<uint32_t> hOut(s.numElements());
   std::iota(hIn.begin(), hIn.end(), 0u);
-  OptionFlags engineOptions{{"showExecutionSteps", "true"},
-                            {"showVarStorage", "true"}};
+  OptionFlags profileOptions{{"showExecutionSteps", "true"},
+                             {"showVarStorage", "true"}};
   // Engine creation will fail for non-cpu targets if many edge pointers or
   // significant exchange is required; this should not happen if
   // createSliceableTensor() has given a good layout
@@ -808,7 +808,7 @@ void multislice(const std::vector<uint32_t> &indicies,
     }
   }
   std::stringstream ss;
-  eng.printProfileSummary(ss, engineOptions);
+  eng.printProfileSummary(ss, profileOptions);
   BOOST_TEST_MESSAGE(ss.str());
 }
 
@@ -858,7 +858,7 @@ BOOST_AUTO_TEST_CASE(MultiSlicePoorlyMapped) {
   const std::vector<std::size_t> sliceSizes{1};
   const std::vector<std::uint32_t> indices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
-  const auto options = OptionFlags();
+  const auto sliceOptions = OptionFlags();
   const auto plan = SlicePlan();
   // We'll create this with the sliced dimension as the innermost
   // so that our rearrangement is hopefully niceish anyway mostly
@@ -877,11 +877,11 @@ BOOST_AUTO_TEST_CASE(MultiSlicePoorlyMapped) {
                                       indices.data(), "offset");
   graph.setTileMapping(offsetInit, 0);
   auto offset = createIndicesTensor(graph, sliceDims, indices.size(), plan,
-                                    options, "offset");
+                                    sliceOptions, "offset");
 
   prog.add(Copy(offsetInit, offset));
   auto s = multiSlice(graph, t, offset, sliceDims, sliceSizes, prog, plan,
-                      options, "multiSliceTest");
+                      sliceOptions, "multiSliceTest");
 
   BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
   BOOST_CHECK_EQUAL(s.dim(0), indices.size());
@@ -927,8 +927,8 @@ void multiupdate(const std::vector<uint32_t> &indicies,
                  bool planAsEmbedding,
                  boost::optional<popops::Operation> op = boost::none,
                  const Type &dType = HALF, float updateScaling = 1.0,
-                 const unsigned E = 8) // embedding size
-{
+                 const unsigned E = 8, // unsliced dim
+                 boost::optional<unsigned> dictSize = boost::none) {
   const bool updateOp = op != boost::none;
   const bool opUsesScale = updateOp && *op == popops::Operation::ADD;
 
@@ -940,7 +940,8 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   // simulator and H/w are run for those ops and we want to reduce the test
   // time.
   const auto T = (updateOp && !opUsesScale) ? 4U : 16; // tiles
-  const auto D = T == 4 ? 203U * 10 : 1501U * 10;      // dictionary
+  const auto D = dictSize == boost::none ? T == 4 ? 203U * 10 : 1501U * 10
+                                         : *dictSize; // dictionary
   auto device = createTestDevice(TEST_TARGET, 1, T);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -948,37 +949,45 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   std::vector<std::size_t> sliceSizes{1};
   Tensor scale;
 
-  const auto options = OptionFlags();
+  auto sliceOptions = OptionFlags();
+  if (op == boost::none) {
+    sliceOptions.set({{"operationForUpdate", "none"}});
+  } else if (*op == Operation::ADD) {
+    sliceOptions.set({{"operationForUpdate", "add"}});
+  } else if (*op == Operation::MAX) {
+    sliceOptions.set({{"operationForUpdate", "max"}});
+  }
   auto plan = SlicePlan();
   if (planAsEmbedding) {
-    plan = embedding::plan(graph, dType, D, E, {indicies.size()}, options);
+    sliceOptions.set({{"usedForSlice", "false"}, {"usedForUpdate", "true"}});
+    plan = embedding::plan(graph, dType, D, E, {indicies.size()}, sliceOptions);
   }
 
   // Map the tensor carefully to ensure balance and minimise edge pointers
   auto t = createSliceableTensor(graph, dType, {D, E}, sliceDims, sliceSizes,
-                                 plan, options, "t");
+                                 plan, sliceOptions, "t");
   auto s = createSliceTensor(graph, dType, {D, E}, sliceDims, sliceSizes,
-                             indicies.size(), plan, options, "s");
+                             indicies.size(), plan, sliceOptions, "s");
   Sequence prog;
   auto offsetInit =
       graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(), "offset");
   graph.setTileMapping(offsetInit, 0);
   auto offset = createIndicesTensor(graph, sliceDims, indicies.size(), plan,
-                                    options, "offset");
+                                    sliceOptions, "offset");
   prog.add(Copy(offsetInit, offset));
   if (!updateOp) {
-    multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog, plan, options,
-                "MultisliceTest");
+    multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog, plan,
+                sliceOptions, "MultisliceTest");
   } else {
     if (*op == popops::Operation::ADD) {
       scale = graph.addVariable(dType, {}, "scale");
       graph.setTileMapping(scale, 0);
 
       multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
-                     plan, options, "MultisliceTest");
+                     plan, sliceOptions, "MultisliceTest");
     } else if (*op == popops::Operation::MAX) {
       multiUpdateMax(graph, t, s, offset, sliceDims, sliceSizes, prog, plan,
-                     options, "MultisliceTest");
+                     sliceOptions, "MultisliceTest");
 
     } else {
       std::cerr << "\n Unsupported op in multiUpdateOp\n";
@@ -1014,8 +1023,8 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   copy(target, hIn, dType, rawIn.data());
   copy(target, hOut, dType, rawOut.data());
 
-  OptionFlags engineOptions{{"showExecutionSteps", "true"},
-                            {"showVarStorage", "true"}};
+  OptionFlags profileOptions{{"showExecutionSteps", "true"},
+                             {"showVarStorage", "true"}};
   // Engine creation will fail for non-cpu targets if many edge pointers or
   // significant exchange is required; this should not happen if
   // createSliceableTensor() has given a good layout
@@ -1058,7 +1067,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
     BOOST_CHECK_EQUAL(hOut[i], expected[i]);
 
   std::stringstream ss;
-  eng.printProfileSummary(ss, engineOptions);
+  eng.printProfileSummary(ss, profileOptions);
   BOOST_TEST_MESSAGE(ss.str());
 }
 
@@ -1088,6 +1097,54 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAdd2) {
   multiupdate({100, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5);
 }
 
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(MultiUpdatePlan)
+
+// test the looping multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdate5Plan) {
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true);
+}
+
+// test the inlined multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdate2Plan) {
+  multiupdate({100, 0}, {2, 1}, true, Operation::ADD);
+}
+
+// test the fast vertex
+BOOST_AUTO_TEST_CASE(MultiUpdate10Plan) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
+              Operation::MAX);
+}
+
+// test the looping multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd5Plan) {
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true, popops::Operation::ADD, HALF,
+              0.5);
+}
+
+// test the inlined multiupdate
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd2Plan) {
+  multiupdate({100, 0}, {2, 1}, true, popops::Operation::ADD, HALF, 0.5);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(MultiUpdatePlanLookupSplit)
+
+// Test lookup split with ADD
+BOOST_AUTO_TEST_CASE(MultiUpdateAddLookupSplitPlan) {
+  multiupdate({20, 0, 1, 2, 3, 4, 5, 6, 7, 8, 1, 1, 2, 2,  3,
+               3,  4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10},
+              {30, 1}, true, popops::Operation::ADD, HALF, 0.5, 8, 21);
+}
+
+// Test lookup split with None
+BOOST_AUTO_TEST_CASE(MultiUpdateNoLookupSplitPlan) {
+  multiupdate({20, 0, 1, 2, 3, 4, 5, 6, 7, 7, 1, 1, 2, 2,  3,
+               3,  4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10},
+              {30, 1}, true, boost::none, HALF, 0.5, 8, 21);
+}
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(MultiUpdateSingles)
@@ -1157,24 +1214,17 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Multiples) {
 
 // test the looping multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdate5_AsEmbedding) {
-  // Currently unhandled
-  BOOST_CHECK_THROW(multiupdate({100, 0, 50, 48, 49}, {5, 1}, true),
-                    poputil::poplibs_error);
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, true);
 }
 
 // test the inlined multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdate2_AsEmbedding) {
-  // Currently unhandled
-  BOOST_CHECK_THROW(multiupdate({100, 0}, {2, 1}, true),
-                    poputil::poplibs_error);
+  multiupdate({100, 0}, {2, 1}, true);
 }
 
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiUpdate10_AsEmbedding) {
-  // Currently unhandled
-  BOOST_CHECK_THROW(
-      multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true),
-      poputil::poplibs_error);
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true);
 }
 
 // test the looping multiupdate
@@ -1216,7 +1266,7 @@ static void multiUpdatePoorlyMapped(bool accumulate) {
   const std::vector<std::size_t> sliceSizes{1};
   const std::vector<std::uint32_t> indices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
-  const auto options = OptionFlags();
+  const auto sliceOptions = OptionFlags();
   const auto plan = SlicePlan();
   // We'll create this with the sliced dimension as the innermost
   // so that our rearrangement is hopefully niceish anyway mostly
@@ -1230,7 +1280,7 @@ static void multiUpdatePoorlyMapped(bool accumulate) {
   mapTensorLinearly(graph, t, 0, 1);
 
   auto s = createSliceTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes,
-                             indices.size(), plan, options, "s");
+                             indices.size(), plan, sliceOptions, "s");
 
   Sequence prog;
 
@@ -1238,17 +1288,17 @@ static void multiUpdatePoorlyMapped(bool accumulate) {
                                       indices.data(), "offset");
   graph.setTileMapping(offsetInit, 0);
   auto offset = createIndicesTensor(graph, sliceDims, indices.size(), plan,
-                                    options, "offset");
+                                    sliceOptions, "offset");
 
   prog.add(Copy(offsetInit, offset));
   auto scale = graph.addVariable(FLOAT, {}, "scale");
   graph.setTileMapping(scale, 0);
   if (accumulate) {
     multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
-                   plan, options, "multiUpdateAddTest");
+                   plan, sliceOptions, "multiUpdateAddTest");
   } else {
-    multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog, plan, options,
-                "multiUpdateTest");
+    multiUpdate(graph, t, s, offset, sliceDims, sliceSizes, prog, plan,
+                sliceOptions, "multiUpdateTest");
   }
 
   BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);

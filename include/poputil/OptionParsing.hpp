@@ -189,6 +189,26 @@ public:
   }
 };
 
+template <typename T>
+inline OptionHandler createOptionalDoubleHandler(std::optional<T> &output) {
+  return OptionHandler{[&output](poplar::StringRef value) {
+    output = parse::asFloatingPoint<double>(value);
+  }};
+}
+
+template <typename T, typename ValueMapT = std::map<std::string, T>>
+inline OptionHandler createOptionalEnumHandler(std::optional<T> &output,
+                                               ValueMapT &&valueMap) {
+  return OptionHandler{[&output, map = std::forward<ValueMapT>(valueMap)](
+                           poplar::StringRef value) {
+    if (value == "none") {
+      output = std::nullopt;
+      return;
+    }
+    output = parse::asEnum(value, map);
+  }};
+}
+
 } // end namespace poplibs
 
 #endif // poputil_OptionParsing_hpp

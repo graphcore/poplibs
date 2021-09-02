@@ -142,6 +142,9 @@ struct SliceOptions {
   // Specify whether a plan is to be used for an update.
   bool usedForUpdate = true;
 
+  // Specify the update operation to perform.
+  std::optional<Operation> opForUpdate = Operation::ADD;
+
   // TODO: T12930 Add option to specify whether a plan is to be used for a
   // lookup.
 
@@ -160,8 +163,13 @@ struct SliceOptions {
 
 std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
   os << "{usedForSlice=" << (o.usedForSlice ? "true" : "false")
-     << ", usedForUpdate=" << (o.usedForUpdate ? "true" : "false")
-     << ", availableMemoryProportion=";
+     << ", usedForUpdate=" << (o.usedForUpdate ? "true" : "false");
+  if (o.opForUpdate == std::nullopt) {
+    os << " (op=none)";
+  } else {
+    os << "(op=" << *o.opForUpdate << ")";
+  }
+  os << ", availableMemoryProportion=";
   if (o.availableMemoryProportion) {
     os << *o.availableMemoryProportion;
   } else {
@@ -238,13 +246,6 @@ std::ostream &operator<<(std::ostream &o, const SlicePlan &p) {
   return o;
 }
 
-template <typename T>
-static OptionHandler createOptionalDoubleHandler(std::optional<T> &output) {
-  return OptionHandler{[&output](poplar::StringRef value) {
-    output = parse::asFloatingPoint<double>(value);
-  }};
-}
-
 static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
   SliceOptions options;
 
@@ -264,6 +265,10 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
        makeSlicePlanConstraintsOptionHandler(options.planConstraints)},
       {"usedForSlice", OptionHandler::createWithBool(options.usedForSlice)},
       {"usedForUpdate", OptionHandler::createWithBool(options.usedForUpdate)},
+      {"operationForUpdate",
+       createOptionalEnumHandler(
+           options.opForUpdate,
+           {{"add", Operation::ADD}, {"max", Operation::MAX}})},
       {"availableMemoryProportion",
        createOptionalDoubleHandler(options.availableMemoryProportion)},
       {"indicesDistribution",
@@ -523,7 +528,7 @@ static void generateMultiSliceVerticesOnTile(
       graph.connect(v["scale"], scale.get());
     }
     if (op != boost::none) {
-      // Divide work for multi-update
+      // Divide work for multi-update with an operation
       assert(numParallelWorkers == 1);
       const auto tileElements = base.dim(baseSlicedDim);
       const auto maxElementsPerWorker = getMultiUpdateOpMaxElemsPerWorker(
@@ -685,6 +690,7 @@ static void generateMultiSliceVertices(
           multiUpdateSubwordTiles.emplace_back(tile);
         vertexName = templateVertex(vertexNameUntemplated, base.elementType(),
                                     needSubwordWrites, *op);
+
       } else {
         // For halves we process 32-bit at a time and therefore pad the tensors
         // in the case where region size is odd.
@@ -739,7 +745,8 @@ static void generatePlannedMultiUpdateOp(
     const std::string &vertexNameUntemplated, const SlicePlanInternal &plan,
     Graph &graph, Sequence &seq, const Tensor &offsets, Tensor base,
     Tensor slices, boost::optional<Tensor> scale, unsigned baseSlicedDim,
-    Operation op, const OptionFlags &options, const DebugNameAndId &dnai) {
+    boost::optional<Operation> op, const OptionFlags &options,
+    const DebugNameAndId &dnai) {
 
   // When a two-stage update is perform we use 32bit partials
   const auto twoStagePartialType = FLOAT;
@@ -940,8 +947,11 @@ static void generatePlannedMultiUpdateOp(
           multiUpdateSubwordTiles.emplace_back(tile);
         }
 
-        const auto vertexName = templateVertex(
-            vertexNameUntemplated, stage0OutputType, needSubwordWrites, op);
+        const auto vertexName =
+            op == boost::none
+                ? templateVertex(vertexNameUntemplated, stage0OutputType)
+                : templateVertex(vertexNameUntemplated, stage0OutputType,
+                                 needSubwordWrites, *op);
 
         logging::popops::trace("generatePlannedMultiUpdateOp: "
                                "Offsets {}/{} ({}); "
@@ -1013,7 +1023,7 @@ static void generatePlannedMultiUpdateOp(
         });
 
     reduceWithOutput(graph, concat(stage0OutputReordered, 1u),
-                     concat(cumulativeUpdateReordered), {0}, {op}, seq,
+                     concat(cumulativeUpdateReordered), {0}, {*op}, seq,
                      {dnai, "Reduce"});
 
     // Add the sum of the partials to the base tensor
@@ -1026,13 +1036,13 @@ static void generatePlannedMultiUpdateOp(
       }
     }();
 
-    if (op == Operation::ADD) {
+    if (*op == Operation::ADD) {
       scaledAddTo(graph, addDst, cumulativeUpdate, stage1Scale, seq,
                   {dnai, "Add"});
-    } else if (op == Operation::MAX) {
+    } else if (*op == Operation::MAX) {
       maxInPlace(graph, addDst, cumulativeUpdate, seq, {dnai, "Max"});
     } else {
-      const std::string opName = asString(op);
+      const std::string opName = asString(*op);
       throw poplibs_error("Unsupported multiUpdate operation" + opName);
     }
 
@@ -2268,6 +2278,67 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   return sMulti;
 }
 
+static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
+                          const Tensor &offset, boost::optional<Tensor> scale,
+                          const std::vector<std::size_t> &dims,
+                          const std::vector<std::size_t> &sizes, Sequence &prog,
+                          const SlicePlan &plan, boost::optional<Operation> op,
+                          const OptionFlags &options,
+                          const DebugNameAndId &dnai) {
+  const std::string opName = op == boost::none ? "" : asString(*op);
+  const std::string multiUpdateName = "multiUpdate" + opName;
+  logging::popops::info(multiUpdateName + " {} into {}, name={}, nullplan={}",
+                        sMulti.shape(), t.shape(), dnai.getPathName(),
+                        plan.getImpl().isNull);
+  // Check the offsets have been specified with a multi-slice dimension
+  if (offset.rank() != 2)
+    throw poputil::poplibs_error(multiUpdateName +
+                                 " expects offset.rank() == 2 but it is" +
+                                 std::to_string(offset.rank()));
+  if (offset.dim(1) != dims.size())
+    throw poputil::poplibs_error(
+        multiUpdateName +
+        " expects offset.dim(1) == dims.size(); offset.dim(1)==" +
+        std::to_string(offset.dim(1)) +
+        ", dims.size()== " + std::to_string(dims.size()));
+  validateParams(multiUpdateName, plan, options, t.shape(), offset[0], dims,
+                 sizes);
+
+  if (t.rank() != 2 || dims.size() != 1 || offset.rank() != 2 ||
+      offset.dim(1) != 1)
+    throw poputil::poplibs_error(
+        multiUpdateName +
+        " requires t to have 2 dimensions and dims to specify "
+        "1 dimension");
+  if (t.elementType() != sMulti.elementType())
+    throw poputil::poplibs_error(multiUpdateName +
+                                 " expects t, sMulti to have the same type");
+  if (scale != boost::none) {
+    if (scale->rank() != 0)
+      throw poputil::poplibs_error(multiUpdateName + " scale must be a scaler");
+    if (scale->elementType() != t.elementType()) {
+      throw poputil::poplibs_error(multiUpdateName +
+                                   " scale type must match t");
+    }
+  }
+  std::string vertexName;
+  if (op == boost::none) {
+    vertexName = "popops::MultiUpdate";
+  } else {
+    vertexName = scale == boost::none ? "popops::MultiUpdateOp"
+                                      : "popops::ScaledMultiUpdateOp";
+  }
+  if (plan.getImpl().isNull) {
+    generateMultiSliceVertices(vertexName, true, op, graph, prog, offset, t,
+                               sMulti, scale, dims[0], boost::none, options,
+                               {dnai, multiUpdateName});
+  } else {
+    generatePlannedMultiUpdateOp(vertexName, plan.getImpl(), graph, prog,
+                                 offset, t, sMulti, scale, dims[0], op, options,
+                                 {dnai, multiUpdateName});
+  }
+}
+
 // This is derived from multiSlice with \a s input rather than generated,
 // the tensors swapped, etc
 void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
@@ -2295,10 +2366,21 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
         "multiUpdate expects offset.dim(1) == dims.size(); offset.dim(1)==" +
         std::to_string(offset.dim(1)) +
         ", dims.size()== " + std::to_string(dims.size()));
+
+  // when planned we just use the multi-update op path with op set to
+  // boost::none
   if (!plan.getImpl().isNull) {
-    throw poputil::poplibs_error(
-        "multiUpdate does not currently handle non-default SlicePlans");
+    // there can't be a look-up split with a planned multi-update
+    if (plan.getImpl().partition.lookupSplit != 1) {
+      throw poplibs_error("Planned multiUpdate may not have been given the "
+                          "the correct options (operationForUpdate possibly "
+                          "set incorrectly");
+    }
+    multiUpdateOp(graph, t, sMulti, offset, boost::none, dims, sizes, prog,
+                  plan, boost::none, options, {di});
+    return;
   }
+
   validateParams("multiUpdate", plan, options, t.shape(), offset[0], dims,
                  sizes);
 
@@ -2339,62 +2421,6 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
                          return body;
                        },
                        {di, dName + "/loop"}));
-}
-
-static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
-                          const Tensor &offset, boost::optional<Tensor> scale,
-                          const std::vector<std::size_t> &dims,
-                          const std::vector<std::size_t> &sizes, Sequence &prog,
-                          const SlicePlan &plan, Operation op,
-                          const OptionFlags &options,
-                          const DebugNameAndId &dnai) {
-  const std::string opName = asString(op);
-  const std::string multiUpdateName = "multiUpdate" + opName;
-  logging::popops::info(multiUpdateName + " {} into {}, name={}, nullplan={}",
-                        sMulti.shape(), t.shape(), dnai.getPathName(),
-                        plan.getImpl().isNull);
-  // Check the offsets have been specified with a multi-slice dimension
-  if (offset.rank() != 2)
-    throw poputil::poplibs_error(multiUpdateName +
-                                 " expects offset.rank() == 2 but it is" +
-                                 std::to_string(offset.rank()));
-  if (offset.dim(1) != dims.size())
-    throw poputil::poplibs_error(
-        multiUpdateName +
-        " expects offset.dim(1) == dims.size(); offset.dim(1)==" +
-        std::to_string(offset.dim(1)) +
-        ", dims.size()== " + std::to_string(dims.size()));
-  validateParams(multiUpdateName, plan, options, t.shape(), offset[0], dims,
-                 sizes);
-
-  if (t.rank() != 2 || dims.size() != 1 || offset.rank() != 2 ||
-      offset.dim(1) != 1)
-    throw poputil::poplibs_error(
-        multiUpdateName +
-        " requires t to have 2 dimensions and dims to specify "
-        "1 dimension");
-  if (t.elementType() != sMulti.elementType())
-    throw poputil::poplibs_error(multiUpdateName +
-                                 " expects t, sMulti to have the same type");
-  if (scale != boost::none) {
-    if (scale->rank() != 0)
-      throw poputil::poplibs_error(multiUpdateName + " scale must be a scaler");
-    if (scale->elementType() != t.elementType()) {
-      throw poputil::poplibs_error(multiUpdateName +
-                                   " scale type must match t");
-    }
-  }
-  const auto vertexName = scale == boost::none ? "popops::MultiUpdateOp"
-                                               : "popops::ScaledMultiUpdateOp";
-  if (plan.getImpl().isNull) {
-    generateMultiSliceVertices(vertexName, true, op, graph, prog, offset, t,
-                               sMulti, scale, dims[0], boost::none, options,
-                               {dnai, multiUpdateName});
-  } else {
-    generatePlannedMultiUpdateOp(vertexName, plan.getImpl(), graph, prog,
-                                 offset, t, sMulti, scale, dims[0], op, options,
-                                 {dnai, multiUpdateName});
-  }
 }
 
 // This is derived from multiUpdate, but s is added to t rather than replacing
@@ -2471,7 +2497,7 @@ template <typename T> struct EmbeddingEstimates {
         updateFirstStageExchangeCycles(init),
         updateFirstStageComputeCycles(init), updateReduceExchangeCycles(init),
         updateReduceComputeCycles(init), updateCastBasePreCycles(init),
-        updateScaledAddCycles(init), updateCastBasePostCycles(init),
+        updateFinalElemwiseCycles(init), updateCastBasePostCycles(init),
         updateTotalCycles(init), totalCycles(init) {}
 
   // Memory (all per-tile)
@@ -2500,7 +2526,7 @@ template <typename T> struct EmbeddingEstimates {
   T updateReduceExchangeCycles;
   T updateReduceComputeCycles;
   T updateCastBasePreCycles;
-  T updateScaledAddCycles;
+  T updateFinalElemwiseCycles;
   T updateCastBasePostCycles;
   T updateTotalCycles;
 
@@ -2517,7 +2543,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   const auto numWorkerContexts = target.getNumWorkerContexts();
   // TODO: Get the correct op + scale parameters in here for
   // multiUpdateMax or other possible future update rules.
-  const auto operation = Operation::ADD;
+  const auto operation = options.opForUpdate;
 
   if (!options.usedForSlice && !options.usedForUpdate) {
     throw poplibs_error("Slice plan must be for either slice or update, or "
@@ -2588,7 +2614,15 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   // to be serialised or reduced on update
   // When there is an indices split a temporary embedding buffer is required
   // in both passes
-  partition.lookupSplit = m.addVariable(1, plannedNumIndices, "lookupSplit");
+
+  // We can't split lookup for a multiUpdate without an operation because it
+  // would entail a reduction and we can't guarantee a reduction would be valid
+  // as the data may not be reduce-able.
+  const auto maxLookupSplits =
+      options.usedForUpdate && options.opForUpdate == std::nullopt
+          ? 1
+          : plannedNumIndices;
+  partition.lookupSplit = m.addVariable(1, maxLookupSplits, "lookupSplit");
   const auto mLookupsAreSplit = m.reifiedLess(m.one(), partition.lookupSplit);
   const auto mNumTiles = m.addConstant(target.getNumTiles(), "numTiles");
   const auto mNumEntries = m.addConstant(numEntries);
@@ -2788,7 +2822,10 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // For now we force float partial type for the update.
     const auto mFloatData = m.addConstant(dataType == FLOAT ? 1u : 0u);
     const auto mNotFloatData = m.booleanNot(mFloatData);
-    const auto mNeedsCast = m.booleanAnd(mNotFloatData, mLookupsAreSplit);
+    const auto mOpIsAdd = m.addConstant(
+        operation != std::nullopt && *operation == Operation::ADD ? 1u : 0u);
+    const auto mNeedsCast =
+        m.booleanAnd(m.booleanAnd(mNotFloatData, mLookupsAreSplit), mOpIsAdd);
     const auto mUpdatesCastTempBytesPerTile =
         m.product({mNeedsCast, mOutputElemsPerTile, mBytesPerFloat});
     // Temp bytes needed if the updates are multi-cast to tiles.
@@ -2824,11 +2861,14 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     e.updateFirstStageExchangeCycles = exchangeEstimator(
         mUpdatesTempBytesPerTile, ipuLevel, "update.0.exchange.cycles");
     {
-      const MultiUpdateOpTargetParameters targetParams{target};
+      const MultiUpdateOpTargetParameters targetMultiUpdateOpParams{target};
+      // Update without op uses the same compute estimator as a slice
+      const MultiSliceTargetParameters targetMultiUpdateParams{target,
+                                                               dataType};
       e.updateFirstStageComputeCycles = m.call<unsigned>(
           {mUnslicedElemsPerTile, mLookupsPerTile, mFloatData, mNumEntries,
            mDictEntriesPerTile},
-          [targetParams, options,
+          [targetMultiUpdateOpParams, targetMultiUpdateParams, options,
            operation](const std::vector<unsigned> &values) {
             const auto elemsPerSlice = values[0];
             const auto numOffsets = values[1];
@@ -2837,15 +2877,29 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
             const auto maxDictEntriesPerTile = values[4];
             const auto maxDictEntriesPerWorker =
                 getMultiUpdateOpMaxElemsPerWorker(
-                    targetParams.numWorkerContexts, maxDictEntriesPerTile);
+                    targetMultiUpdateOpParams.numWorkerContexts,
+                    maxDictEntriesPerTile);
             const double maxProportionOfIndicesRangePerWorker =
                 double(maxDictEntriesPerWorker) / double(numDictEntries);
             const bool isScaled = true;
-            const auto cycles = getMultiUpdateOpCycleEstimate(
-                targetParams, /* floatData */ floatData,
-                /* subWordWritesRequired */ false, elemsPerSlice, numOffsets,
-                operation, isScaled, maxProportionOfIndicesRangePerWorker,
-                options.indicesDistribution == IndicesDistribution::ONE_POINT);
+            const double proportionIndicesInRange =
+                double(maxDictEntriesPerTile) / double(numDictEntries);
+            // cycle estimates for update without an operation has same cycles
+            // as a slice.
+            const auto cycles =
+                operation == std::nullopt
+                    ? getMultiSliceCycleEstimate(
+                          targetMultiUpdateParams, elemsPerSlice, numOffsets,
+                          proportionIndicesInRange,
+                          options.indicesDistribution ==
+                              IndicesDistribution::ONE_POINT)
+                    : getMultiUpdateOpCycleEstimate(
+                          targetMultiUpdateOpParams, /* floatData */ floatData,
+                          /* subWordWritesRequired */ false, elemsPerSlice,
+                          numOffsets, *operation, isScaled,
+                          maxProportionOfIndicesRangePerWorker,
+                          options.indicesDistribution ==
+                              IndicesDistribution::ONE_POINT);
             return popsolver::DataType{cycles};
           },
           "update.0.compute.cycles");
@@ -2853,43 +2907,62 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
 
     const auto mPartialsBytesPerTile =
         m.product({mLookupsAreSplit, mPartialElemsPerTile, mBytesPerFloat});
+    auto mReduceEstimateCyles = m.zero();
 
-    const auto mUpdateReduceEstimates = modelBalancedIntertileReduction(
-        target, hierarchy, FLOAT, FLOAT, operation, /* isUpdate */ false, m,
-        exchangeEstimator, mPartialElemsPerTile, partition.lookupSplit,
-        "update.1.reduce");
-    e.updateReduceExchangeCycles =
-        mUpdateReduceEstimates.cyclesBreakdown.exchange;
-    e.updateReduceComputeCycles =
-        mUpdateReduceEstimates.cyclesBreakdown.compute;
-    e.updateCastBasePreCycles =
-        modelContiguousCast(target, dataType, FLOAT, m,
-                            mBaseElemsStoragePerTile, "update.1.castBase")
-            .cycles;
-    e.updateCastBasePreCycles =
-        m.product({mNeedsCast, e.updateCastBasePreCycles});
-    // NOTE: Optimistically assuming fast path - this is not forced
-    // but a runtime check opportunistically selects the fast path if
-    // inputs are in different memory elements.
-    e.updateScaledAddCycles =
-        modelContiguousScaledAdd(
-            target, FLOAT, FLOAT, /* scaleIsConstant */ false,
-            /* usesMemoryConstraints */ true, m, mBaseElemsStoragePerTile,
-            "update.1.updateBase")
-            .cycles;
-    e.updateScaledAddCycles =
-        m.product({mLookupsAreSplit, e.updateScaledAddCycles});
-    e.updateCastBasePostCycles =
-        modelContiguousCast(target, FLOAT, dataType, m,
-                            mBaseElemsStoragePerTile, "update.1.castBaseBack")
-            .cycles;
-    e.updateCastBasePostCycles =
-        m.product({mNeedsCast, e.updateCastBasePostCycles});
+    // We can't do a reduction or cast if there is no operation in the
+    // multi-update. Take conditional paths only because there is no
+    // reduction defined for no update operation.
+    if (operation != std::nullopt) {
+      const auto mUpdateReduceEstimates = modelBalancedIntertileReduction(
+          target, hierarchy, FLOAT, FLOAT, *operation, /* isUpdate */ false, m,
+          exchangeEstimator, mPartialElemsPerTile, partition.lookupSplit,
+          "update.1.reduce");
+      e.updateReduceExchangeCycles =
+          mUpdateReduceEstimates.cyclesBreakdown.exchange;
+      e.updateReduceComputeCycles =
+          mUpdateReduceEstimates.cyclesBreakdown.compute;
+      mReduceEstimateCyles = mUpdateReduceEstimates.cycles;
+      if (*operation == Operation::ADD) {
+        e.updateCastBasePreCycles =
+            modelContiguousCast(target, dataType, FLOAT, m,
+                                mBaseElemsStoragePerTile, "update.1.castBase")
+                .cycles;
+        e.updateCastBasePreCycles =
+            m.product({mNeedsCast, e.updateCastBasePreCycles});
+        // NOTE: Optimistically assuming fast path - this is not forced
+        // but a runtime check opportunistically selects the fast path if
+        // inputs are in different memory elements.
+        e.updateFinalElemwiseCycles =
+            modelContiguousScaledAdd(
+                target, FLOAT, FLOAT, /* scaleIsConstant */ false,
+                /* usesMemoryConstraints */ true, m, mBaseElemsStoragePerTile,
+                "update.1.updateBase")
+                .cycles;
+        e.updateFinalElemwiseCycles =
+            m.product({mLookupsAreSplit, e.updateFinalElemwiseCycles});
+        e.updateCastBasePostCycles =
+            modelContiguousCast(target, FLOAT, dataType, m,
+                                mBaseElemsStoragePerTile,
+                                "update.1.castBaseBack")
+                .cycles;
+        e.updateCastBasePostCycles =
+            m.product({mNeedsCast, e.updateCastBasePostCycles});
+      } else if (*operation == Operation::MAX) {
+        // estimate a maxInPlace.
+        // TODO: use modelled estimates that are general for other operations
+        // (T45159)
+        e.updateFinalElemwiseCycles =
+            m.ceildiv(mBaseElemsStoragePerTile,
+                      m.addConstant(target.getVectorWidth(dataType)));
+        e.updateFinalElemwiseCycles =
+            m.product({mLookupsAreSplit, e.updateFinalElemwiseCycles});
+      }
+    }
     e.updateTotalCycles = m.sum(
         {e.updateCastSlicesCycles, e.updateZeroPartialsCycles,
          e.updateFirstStageExchangeCycles, e.updateFirstStageComputeCycles,
-         mUpdateReduceEstimates.cycles, e.updateCastBasePreCycles,
-         e.updateScaledAddCycles, e.updateCastBasePostCycles});
+         mReduceEstimateCyles, e.updateCastBasePreCycles,
+         e.updateFinalElemwiseCycles, e.updateCastBasePostCycles});
 
     e.totalCycles = m.sum({e.totalCycles, e.updateTotalCycles});
 
@@ -3046,7 +3119,7 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       "  update reduce exchange {},\n"
       "  update reduce compute {},\n"
       "  update cast base pre cycles {},\n"
-      "  update scaled add cycles {},\n"
+      "  update final elementwise cycles {},\n"
       "  update cast base post cycles {},\n"
       "  update total {},\n"
       "  total {}",
@@ -3060,7 +3133,8 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       s[estimates.updateFirstStageComputeCycles],
       s[estimates.updateReduceExchangeCycles],
       s[estimates.updateReduceComputeCycles],
-      s[estimates.updateCastBasePreCycles], s[estimates.updateScaledAddCycles],
+      s[estimates.updateCastBasePreCycles],
+      s[estimates.updateFinalElemwiseCycles],
       s[estimates.updateCastBasePostCycles], s[estimates.updateTotalCycles],
       s[estimates.totalCycles]);
 
