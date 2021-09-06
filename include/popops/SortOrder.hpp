@@ -1,4 +1,7 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Defintions of sort ordering.
+ */
 
 #ifndef _popops_SortOrder_hpp_
 #define _popops_SortOrder_hpp_

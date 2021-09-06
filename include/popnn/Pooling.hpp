@@ -1,4 +1,7 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Support for pooling operations.
+ */
 
 #ifndef popnn_Pooling_hpp
 #define popnn_Pooling_hpp

@@ -1,4 +1,8 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Functions for random number generation and applying random functions
+ *  to tensors.
+ */
 
 #ifndef poprand_RandomGen_hpp
 #define poprand_RandomGen_hpp

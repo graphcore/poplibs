@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Basic representation of a sparse tensor.
+ */
 #ifndef popsparse_SparseTensor_hpp
 #define popsparse_SparseTensor_hpp
 

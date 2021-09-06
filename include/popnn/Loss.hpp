@@ -1,4 +1,7 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Loss and gradient calculations.
+ */
 
 #ifndef popnn_Loss_hpp
 #define popnn_Loss_hpp

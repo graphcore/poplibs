@@ -1,4 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Normalisation operations.
+ */
 
 #ifndef popnn_Norms_hpp
 #define popnn_Norms_hpp

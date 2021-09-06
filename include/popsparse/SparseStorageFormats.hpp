@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-//
-// Contains public headers for Sparse Storage formats
+/** \file
+ *  Storage formats for a block sparse matrix.
+ */
 
 #ifndef _poplibs_popsparse_SparseStorageFormats_hpp_
 #define _poplibs_popsparse_SparseStorageFormats_hpp_

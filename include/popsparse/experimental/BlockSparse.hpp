@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Block sparse operations.
+ */
 
 #ifndef POPSPARSE_BLOCK_SPARSE_H
 #define POPSPARSE_BLOCK_SPARSE_H

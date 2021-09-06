@@ -1,4 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Definitions for non-linearity operations.
+ */
 
 #ifndef poplibs_NonLinearityDefUtil_hpp_
 #define poplibs_NonLinearityDefUtil_hpp_

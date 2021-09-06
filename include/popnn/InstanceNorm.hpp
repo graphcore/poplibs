@@ -1,11 +1,14 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Instance normalization operations.
+ *
+ * Instance norm uses group norm with number of groups = number of channels.
+ */
 
 #ifndef popnn_InstanceNorm_hpp
 #define popnn_InstanceNorm_hpp
 #include "popnn/GroupNorm.hpp"
 #include "poputil/DebugInfo.hpp"
-
-// Instance norm uses group norm with number of groups = number of channels
 
 /* **Instance normalisation options**
  *

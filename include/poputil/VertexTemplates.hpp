@@ -1,5 +1,5 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
-/** \file VertextTemplates.hpp
+/** \file VertexTemplates.hpp
  *
  * Generate a string describing a vertex type.
  *

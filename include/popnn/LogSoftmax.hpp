@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Log of softmax functions.
+ */
 
 #ifndef popnn_LogSoftmax_hpp
 #define popnn_LogSoftmax_hpp

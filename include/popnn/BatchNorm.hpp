@@ -1,4 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Batch normalization operations.
+ */
 
 #ifndef popnn_BatchNorm_hpp
 #define popnn_BatchNorm_hpp

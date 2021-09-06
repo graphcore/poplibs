@@ -1,4 +1,7 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Functions for recurrent neural networks (RNN).
+ */
 
 #ifndef popnn_Rnn_hpp
 #define popnn_Rnn_hpp

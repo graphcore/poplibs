@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Caching of plans for dynamically sparse operations.
+ */
 
 #ifndef popsparse_PlanningCache_hpp
 #define popsparse_PlanningCache_hpp

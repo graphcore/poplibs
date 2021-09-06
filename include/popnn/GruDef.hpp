@@ -1,4 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Definitions for GRU cell operations.
+ */
 
 #ifndef popnn_GruDef_hpp
 #define popnn_GruDef_hpp

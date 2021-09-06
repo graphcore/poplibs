@@ -1,4 +1,7 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Non-linearity operations.
+ */
 
 #ifndef popnn_NonLinearity_hpp
 #define popnn_NonLinearity_hpp

@@ -1,5 +1,5 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
-/** \file GraphFunctions.hpp
+/** \file GraphFunction.hpp
  *
  * Definitions for reusing graph structures.
  *

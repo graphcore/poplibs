@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Functions for slicing and mapping sparse tensors.
+ */
 
 #ifndef popsparse_Embedding_hpp
 #define popsparse_Embedding_hpp

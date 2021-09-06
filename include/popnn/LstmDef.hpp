@@ -1,4 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Definitions for LSTM cell operations.
+ */
 
 #ifndef popnn_LstmDef_hpp
 #define popnn_LstmDef_hpp

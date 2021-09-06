@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Fully-connected layers using sparse tensors.
+ */
 
 #ifndef popsparse_FullyConnected_hpp
 #define popsparse_FullyConnected_hpp

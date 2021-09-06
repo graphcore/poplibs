@@ -1,4 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Functions for spatial softmax.
+ */
 
 #ifndef poplin_SpatialSoftMax_hpp
 #define poplin_SpatialSoftMax_hpp

@@ -1,7 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 /** \file OptionParsing.hpp
  *
- * OptionSpec/OptionHandler used to build up a specification of what
+ * OptionSpec and OptionHandler used to build up a specification of what
  * options and their values should be, and to translate the value strings
  * to real values.
  *

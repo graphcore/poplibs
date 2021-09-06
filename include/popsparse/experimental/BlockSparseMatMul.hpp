@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Block sparse matrix multiply.
+ */
 
 #ifndef POPSPARSE_BLOCK_SPARSE_MATMUL_H
 #define POPSPARSE_BLOCK_SPARSE_MATMUL_H

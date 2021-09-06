@@ -1,4 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Group normalization operations.
+ */
 
 #ifndef popnn_GroupNorm_hpp
 #define popnn_GroupNorm_hpp

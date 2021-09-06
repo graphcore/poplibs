@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Sparse matrix multiply operations.
+ */
 
 #ifndef popsparse_MatMul_hpp
 #define popsparse_MatMul_hpp

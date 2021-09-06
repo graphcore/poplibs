@@ -1,6 +1,8 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-//
-// Contains public headers for Sparse Partitioner
+/** \file
+ *  Translation and encoding of sparsity information for a fully connected
+ *  layer.
+ */
 
 #ifndef _poplibs_popsparse_SparsePartitioner_hpp_
 #define _poplibs_popsparse_SparsePartitioner_hpp_

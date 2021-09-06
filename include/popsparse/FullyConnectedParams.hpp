@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Parameters used for fully-connected layers using sparse tensors.
+ */
 
 #ifndef popsparse_FullyConnectedParams_hpp
 #define popsparse_FullyConnectedParams_hpp

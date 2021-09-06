@@ -1,11 +1,14 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Layer normalisation operations.
+ *
+ * Layer norm uses group norm with number of groups = 1.
+ */
 
 #ifndef popnn_LayerNorm_hpp
 #define popnn_LayerNorm_hpp
 #include "popnn/GroupNorm.hpp"
 #include "poputil/DebugInfo.hpp"
-
-// Layer norm uses group norm with number of groups = 1
 
 /* **Layer normalisation options**
  *

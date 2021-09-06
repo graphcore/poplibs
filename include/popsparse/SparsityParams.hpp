@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Parameters used for sparse tensors.
+ */
 
 #ifndef popsparse_SparsityParams_hpp
 #define popsparse_SparsityParams_hpp

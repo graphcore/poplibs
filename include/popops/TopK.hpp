@@ -1,4 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *  Functions for finding the top k elements.
+ */
 
 #ifndef _popops_TopK_hpp_
 #define _popops_TopK_hpp_
