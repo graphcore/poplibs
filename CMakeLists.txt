@@ -127,8 +127,12 @@ endif()
 
 
 if(NOT BUILD_SHARED_LIBS)
-  set(Boost_USE_STATIC_LIBS ON)
-  set(Boost_USE_STATIC_RUNTIME ON)
+  if(NOT DEFINED Boost_USE_STATIC_LIBS)
+    set(Boost_USE_STATIC_LIBS ON)
+  endif()
+  if(NOT DEFINED Boost_USE_STATIC_RUNTIME)
+    set(Boost_USE_STATIC_RUNTIME ON)
+  endif()
 endif()
 
 find_package(Boost 1.70.0 REQUIRED regex program_options filesystem unit_test_framework timer system)
