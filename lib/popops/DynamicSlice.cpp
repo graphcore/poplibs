@@ -509,10 +509,6 @@ static void generateMultiSliceVerticesOnTile(
     }
   }
 
-  // TODO: T12931 Consider splitting the sliced dimension between the workers.
-  // All workers would have to check every offset but time to copy/update
-  // entries would be distributed; this would not be effective if many
-  // offsets were in the same split of the sliced dimension.
   offsetsPerThread = std::min(offsetsPerThread,
                               graph.getMaxFieldDim(vertexName, "offsets", 0));
   for (unsigned o = 0; o != offset.numElements();) {
@@ -527,7 +523,7 @@ static void generateMultiSliceVerticesOnTile(
     if (scale) {
       graph.connect(v["scale"], scale.get());
     }
-    if (op != boost::none) {
+    if (isUpdate) {
       // Divide work for multi-update with an operation
       assert(numParallelWorkers == 1);
       const auto tileElements = base.dim(baseSlicedDim);
@@ -2719,7 +2715,8 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           const auto cycles = getMultiSliceCycleEstimate(
               targetParams, elemsPerSlice, maxOffsetsPerWorker,
               proportionIndicesInRange,
-              options.indicesDistribution == IndicesDistribution::ONE_POINT);
+              options.indicesDistribution == IndicesDistribution::ONE_POINT,
+              false);
           return popsolver::DataType{cycles * numWorkerContexts};
         },
         "slice.0.compute.cycles");
@@ -2751,7 +2748,8 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           const auto cycles = getMultiSliceCycleEstimate(
               targetParams, elemsPerSlice, maxOffsetsPerWorker,
               proportionIndicesInRange,
-              options.indicesDistribution == IndicesDistribution::ONE_POINT);
+              options.indicesDistribution == IndicesDistribution::ONE_POINT,
+              false);
           return popsolver::DataType{cycles * numWorkerContexts};
         },
         "slice.1.compute.cycles");
@@ -2882,17 +2880,16 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
             const double maxProportionOfIndicesRangePerWorker =
                 double(maxDictEntriesPerWorker) / double(numDictEntries);
             const bool isScaled = true;
-            const double proportionIndicesInRange =
-                double(maxDictEntriesPerTile) / double(numDictEntries);
             // cycle estimates for update without an operation has same cycles
             // as a slice.
             const auto cycles =
                 operation == std::nullopt
                     ? getMultiSliceCycleEstimate(
                           targetMultiUpdateParams, elemsPerSlice, numOffsets,
-                          proportionIndicesInRange,
+                          maxProportionOfIndicesRangePerWorker,
                           options.indicesDistribution ==
-                              IndicesDistribution::ONE_POINT)
+                              IndicesDistribution::ONE_POINT,
+                          true)
                     : getMultiUpdateOpCycleEstimate(
                           targetMultiUpdateOpParams, /* floatData */ floatData,
                           /* subWordWritesRequired */ false, elemsPerSlice,

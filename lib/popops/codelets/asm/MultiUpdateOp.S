@@ -1,10 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
-#include "poplar/AvailableVTypes.h"
-#include "poplar/TileConstants.hpp"
-#include "poplar/StackSizeDefs.hpp"
-
+#include "MultiSliceUpdateCommon.h.S"
 
 #define WORKER_FUNCTION(type,op,scaled) MultiUpdateOp_##type##_##op##_##scaled
 #define STACK_SIZE 0
@@ -64,27 +61,6 @@
 // scratch variables
 #define mscratch m11
 
-// Update worker offset and sizes
-// Updated/new outputs :
-//   - $baseOffset, $wkrStart, $numBaseElements
-// Given the baseOffset and numBaseElements for this supervisor vertex, computes
-// the baseOffset and numBaseElements for this worker. This it does by using
-// the "maxElementsPerWorker" vertex field. Workers have atmost "maxElementsPerWorker"
-// elements in the sliced dimension.
-.macro UPDATE_OFFSET_AND_SIZES
-  ld32 $numBaseElements, $mzero, $mvertex_base, VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET/4
-  ld32 $maxElementsPerWorker, $mzero, $mvertex_base, VERTEX_STATE_ELEMENTS_PER_WORKER/4
-  get $workerId, $WSR
-  and $workerId, $workerId, CSR_W_WSR__CTXTID_M1__MASK
-  mul $wkrStart, $workerId, $maxElementsPerWorker
-  min $wkrStart, $wkrStart, $numBaseElements
-  add $wkrEnd, $wkrStart, $maxElementsPerWorker
-  min $wkrEnd, $wkrEnd, $numBaseElements
-  sub $numBaseElements, $wkrEnd, $wkrStart
-  ld32 $baseOffset, $mzero, $mvertex_base, VERTEX_STATE_BASE_OFFSET_OFFSET/4
-  add  $baseOffset, $baseOffset, $wkrStart
-.endm
-
 #define SCALED_CODELET_NAME(type) __runCodelet_popops__ScaledMultiUpdateOp___##type##_false_popops__Operation__\OPTYPE\()
 #define UNSCALED_CODELET_NAME(type) __runCodelet_popops__MultiUpdateOp___##type##_false_popops__Operation__\OPTYPE\()
 
@@ -115,7 +91,7 @@ UNSCALED_CODELET_NAME(float):
   ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
   brz $offsetSize, .Lfloat_\OPTYPE\()_\SCALED\()_epilogue
 
-  UPDATE_OFFSET_AND_SIZES
+  UPDATE_OFFSET_AND_SIZES $numBaseElements $maxElementsPerWorker $workerId $wkrStart $wkrEnd $baseOffset VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET VERTEX_STATE_ELEMENTS_PER_WORKER VERTEX_STATE_BASE_OFFSET_OFFSET
 
   ld32 $offsetPtr, $mzero, $mvertex_base, VERTEX_STATE_POINTER_OFFSET/4
   ld32 $subTPtr, $mzero, $mvertex_base, VERTEX_STATE_SUB_T_OFFSET/4
@@ -271,7 +247,7 @@ UNSCALED_CODELET_NAME(half):
     setzi $a0, ZAACC_BITMASK
   }
 
-  UPDATE_OFFSET_AND_SIZES
+  UPDATE_OFFSET_AND_SIZES $numBaseElements $maxElementsPerWorker $workerId $wkrStart $wkrEnd $baseOffset VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET VERTEX_STATE_ELEMENTS_PER_WORKER VERTEX_STATE_BASE_OFFSET_OFFSET
 
   // clear the accumulators incase there is anything nefarious in there for the
   // first call to f16v4mix.

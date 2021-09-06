@@ -102,12 +102,11 @@ struct MultiSliceTargetParameters {
   unsigned bytesPerElem;
 };
 
-std::uint64_t
-getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
-                           const unsigned elemsPerSlice,
-                           const unsigned numOffsets,
-                           const double proportionOfIndexableRange,
-                           const bool useOnePointDistribution = false);
+std::uint64_t getMultiSliceCycleEstimate(
+    const MultiSliceTargetParameters &targetParams,
+    const unsigned elemsPerSlice, const unsigned numOffsets,
+    const double proportionOfIndexableRange,
+    const bool useOnePointDistribution = false, const bool isUpdate = false);
 
 /** Cycle estimate for MultiUpdateAdd vertex.
  */

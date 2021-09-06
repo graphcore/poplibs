@@ -4,6 +4,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "dynamicSlice.inc"
+#include "MultiSliceUpdateCommon.h.S"
 
 /* -------------------------------------------------------------------------- */
 // Dynamic Slice and Dynamic Update Slice vertex code for int, half and float
@@ -19,7 +20,13 @@
 #define mRegionSizeInBytes m6
 #define mBaseIdx           m8 // Alias to mSrcPtr. Re-use m8
 #define mSubIdx            m9 // Alias to mDstPtr. Re-use m9
+#define mWkrStart          m4
+#define mMaxElementsPerWorker m3
+#define mWkrEnd            m6
+#define mWorkerId          m2
 
+
+#define STACK_SIZE         8
 //****************************************************************************
 // The input structure parameters:
 // 32 bit offset vector
@@ -36,6 +43,7 @@
 #define VOFF_BASE_OFFSET     4
 #define VOFF_BASE_ELEM       5
 #define VOFF_REGION_SIZE    (6*2) // 16 bit - offsets for use with 16 bit loads
+#define VOFF_ELEMS_PER_WORKER 7
 
 //******************************************************************************
 // Labels names for each variant
@@ -116,7 +124,7 @@
 // Entry points for each function, each setting up a pointer to the copy
 // function and then using common code
 //******************************************************************************
-DEF_STACK_USAGE 0 .text.MultiSlice_8_entry
+DEF_STACK_USAGE STACK_SIZE .text.MultiSlice_8_entry
 .section .text.MultiSlice_8_entry
 .align 4
 MultiSlice_8_entry:
@@ -126,7 +134,7 @@ MU_UCHAR_FUNC:
 MU_SCHAR_FUNC:
    setzi   $mCopyPtr, copy_loop_MU_8
    setzi   $mRegionSize, 0
-   bri     MultiSlice_common
+   bri     MultiSlice_common_u
 
 MS_BOOL_FUNC:
 MS_CHAR_FUNC:
@@ -134,27 +142,27 @@ MS_UCHAR_FUNC:
 MS_SCHAR_FUNC:
    setzi   $mCopyPtr, copy_loop_MS_8
    setzi   $mRegionSize, 0
-   bri     MultiSlice_common
+   bri     MultiSlice_common_s
 
 .size MultiSlice_8_entry, .-MultiSlice_8_entry
 
-DEF_STACK_USAGE 0 .text.MultiSlice_16_entry
+DEF_STACK_USAGE STACK_SIZE .text.MultiSlice_16_entry
 .section .text.MultiSlice_16_entry
 MultiSlice_16_entry:
 .align 4
 MU_HALF_FUNC:
    setzi   $mCopyPtr, copy_loop_MU_16
    setzi   $mRegionSize, 1
-   bri     MultiSlice_common
+   bri     MultiSlice_common_u
 
 MS_HALF_FUNC:
    setzi   $mCopyPtr, copy_loop_MS_16
    setzi   $mRegionSize, 1
-   bri     MultiSlice_common
+   bri     MultiSlice_common_s
 
 .size MultiSlice_16_entry, .-MultiSlice_16_entry
 
-DEF_STACK_USAGE 0 .text.MultiSlice_32_entry
+DEF_STACK_USAGE STACK_SIZE .text.MultiSlice_32_entry
 .section .text.MultiSlice_32_entry
 .align 4
 MultiSlice_32_entry:
@@ -163,14 +171,14 @@ MU_INT_FUNC:
 MU_UNSIGNED_FUNC:
    setzi   $mCopyPtr, copy_loop_MU_32
    setzi   $mRegionSize, 2
-   bri     MultiSlice_common
+   bri     MultiSlice_common_u
 
 MS_FLOAT_FUNC:
 MS_INT_FUNC:
 MS_UNSIGNED_FUNC:
    setzi   $mCopyPtr, copy_loop_MS_32
    setzi   $mRegionSize, 2
-   bri     MultiSlice_common
+   bri     MultiSlice_common_s
 
 .size MultiSlice_32_entry, .-MultiSlice_32_entry
 
@@ -181,21 +189,35 @@ MS_UNSIGNED_FUNC:
 .section .text.MultiSlice_common
 .align 4
 MultiSlice_common:
-    ld32  $mScratch, $mzero, $mvertex_base, VOFF_OFFSET_SIZE
-    brz   $mScratch, MultiSlice_common_exit
-    add   $mOffsetSize, $mScratch, -1
+MultiSlice_common_u:
+  UPDATE_OFFSET_AND_SIZES $mBaseElem $mMaxElementsPerWorker $mWorkerId $mWkrStart $mWkrEnd $mBaseIdx (4*VOFF_BASE_ELEM) (4*VOFF_ELEMS_PER_WORKER) (4*VOFF_BASE_OFFSET)
+  bri MultiSlice_common_check_no_elem
+MultiSlice_common_s:
+    // Load states
+    ld32  $mBaseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
+    ld32  $mBaseIdx, $mzero, $mvertex_base, VOFF_BASE_OFFSET
+    setzi $mWkrStart, 0
+    
+MultiSlice_common_check_no_elem:
+    ld32  $mOffsetSize, $mzero, $mvertex_base, VOFF_OFFSET_SIZE
+    brnzdec $mOffsetSize, MultiSlice_common_start
+    exitz   $mzero
+
+MultiSlice_common_start:
+    st32  $mBaseIdx, $mzero, $mworker_base, 0
 
     // Load region size and get it in bytes
     ldz16 $mScratch, $mzero, $mvertex_base, VOFF_REGION_SIZE
     shl   $mRegionSizeInBytes, $mScratch, $mRegionSize
 
+    mul   $mWkrStart, $mWkrStart, $mRegionSizeInBytes
+
     // Load vectors pointers
     ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
     ld32  $mBaseTPtr, $mzero, $mvertex_base, VOFF_BASET_PTR
+    add   $mBaseTPtr, $mBaseTPtr, $mWkrStart
     ld32  $mSubTPtr, $mzero, $mvertex_base, VOFF_SUBT_PTR
 
-    // Load states
-    ld32  $mBaseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
 
 MultiSlice_common_outer_loop_begin:
 
@@ -203,7 +225,7 @@ MultiSlice_common_outer_loop_begin:
     ld32step $mScratch,    $mzero, $mOffsetPtr+=, 1
 
     // Reload states
-    ld32   $mBaseIdx, $mzero, $mvertex_base, VOFF_BASE_OFFSET
+    ld32   $mBaseIdx, $mzero, $mworker_base, 0
     ldz16  $mRegionSize, $mzero, $mvertex_base, VOFF_REGION_SIZE
 
     // Check if offset is a part of BaseT;

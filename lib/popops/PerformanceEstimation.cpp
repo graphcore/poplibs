@@ -36,12 +36,11 @@ std::uint64_t basicOpLoopCycles(const unsigned numElems,
   return cyclesPerVector * (numElems + vectorSize - 1) / vectorSize;
 }
 
-std::uint64_t
-getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
-                           const unsigned elemsPerSlice,
-                           const unsigned numOffsets,
-                           const double proportionOfIndexableRange,
-                           const bool useOnePointDistribution) {
+std::uint64_t getMultiSliceCycleEstimate(
+    const MultiSliceTargetParameters &targetParams,
+    const unsigned elemsPerSlice, const unsigned numOffsets,
+    const double proportionOfIndexableRange, const bool useOnePointDistribution,
+    const bool isUpdate) {
   (void)useOnePointDistribution;
   assert(numOffsets != 0);
 
@@ -66,7 +65,7 @@ getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
     assert(false && "getMultiSliceCycleEstimate for unhandled element size");
     break;
   }
-  constexpr std::uint64_t proAndEpilogueCycles = 13;
+  const std::uint64_t proAndEpilogueCycles = isUpdate ? 24 : 14;
   // Almost exactly the same for each copy function assuming fastest
   // (aligned) path.
   constexpr std::uint64_t cyclesOverheadPerOffsetInRange = 19;

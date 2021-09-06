@@ -246,6 +246,7 @@ add_gp_library(
   HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.inc
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.h.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSliceUpdateCommon.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOpsOps.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/workDivision.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SliceCopyFunction_8bit.inc

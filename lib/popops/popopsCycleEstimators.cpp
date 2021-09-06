@@ -2165,7 +2165,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice1D)(
 
 static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
                                  const Target &target, const Type &type,
-                                 bool /*isUpdate*/) {
+                                 bool isUpdate) {
   const auto regionSize =
       vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
   const auto offsets = vertex.getFieldInfo("offsets");
@@ -2173,7 +2173,7 @@ static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
   const bool useOnePointDistribution = true;
   return getMultiSliceCycleEstimate(MultiSliceTargetParameters{target, type},
                                     regionSize, offsets.size(), 1.0,
-                                    useOnePointDistribution);
+                                    useOnePointDistribution, isUpdate);
 }
 
 VertexPerfEstimate

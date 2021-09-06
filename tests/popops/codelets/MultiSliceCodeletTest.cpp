@@ -2,11 +2,11 @@
 // Test for the Dynamic Slice adn Dynamic Slice update 2d vertices
 //
 #define BOOST_TEST_MODULE MultiSliceCodeletTest
+#include "poputil/VertexTemplates.hpp"
 #include <poplar/Engine.hpp>
+#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <popops/Zero.hpp>
-
-#include "poputil/VertexTemplates.hpp"
 
 #include <poplibs_test/Util.hpp>
 #include <popops/codelets.hpp>
@@ -35,7 +35,7 @@ std::vector<TestParams> TestList = {
     {80, 7, 1, 80, 7, false},
 };
 
-std::vector<unsigned> offsetsTest = {2, 1, 2, 1, 80, 0, 60, 55, 40, 30};
+std::vector<unsigned> offsetsTest = {2, 2, 6, 5, 80, 0, 60, 55, 40, 30};
 
 //*************************************************
 // C test function, based on the original C version of the vertex
@@ -183,6 +183,10 @@ void MultiSliceCodeletTest(const Type &dataType) {
     graph.setInitialValue(dsVertex["baseOffset"], baseOffset);
     graph.setInitialValue(dsVertex["numBaseElements"], numBaseElements);
     graph.setInitialValue(dsVertex["regionSize"], regionSize);
+    if (update) {
+      auto maxElems = ceildiv(numBaseElements, target.getNumWorkerContexts());
+      graph.setInitialValue(dsVertex["maxElementsPerWorker"], maxElems);
+    }
     graph.setTileMapping(dsVertex, 0);
 
     popops::zero(graph, out, sequence, "Zero output");
@@ -245,9 +249,11 @@ void MultiSliceCodeletTest(const Type &dataType) {
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_half) {
   MultiSliceCodeletTest(HALF);
 }
+
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_float) {
   MultiSliceCodeletTest(FLOAT);
 }
+
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_int) { MultiSliceCodeletTest(INT); }
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_unsigned) {
   MultiSliceCodeletTest(UNSIGNED_INT);
