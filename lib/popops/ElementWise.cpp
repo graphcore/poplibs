@@ -3,6 +3,7 @@
 #include "ElementWiseInternal.hpp"
 #include "ElementWiseUtilInternal.hpp"
 #include "ExprOpUtil.hpp"
+#include "ScalarMultiply.hpp"
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Tracepoint.hpp"
@@ -2320,6 +2321,11 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
 
   const auto tTypes = getTypesFromTensors(ts);
 
+  if ((ts.size() == 2) && expr.deepEquals(expr::Mul(_1, _2)) &&
+      inputsMatchMixedPrecisionScalarMultiplyPattern(ts[0], ts[1], true)) {
+    return scalarMultiply(graph, ts[0], ts[1], prog, di, options);
+  }
+
   std::unique_ptr<expr::Expr> newExpr;
   if (opts.enableExpressionOptimizations) {
     newExpr = optimise(expr, tTypes).expression;
@@ -2345,7 +2351,7 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
                     .first;
   di.addOutput(output);
   return output;
-}
+} // namespace popops
 
 void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const std::vector<Tensor> &ts, program::Sequence &prog,
@@ -2357,6 +2363,12 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   auto opts = parseOptionFlags(options);
 
   const auto tTypes = getTypesFromTensors(ts);
+
+  if ((ts.size() == 2) && expr.deepEquals(expr::Mul(_1, _2)) &&
+      inputsMatchMixedPrecisionScalarMultiplyPattern(ts[0], ts[1])) {
+    scalarMultiplyInplace(graph, ts[0], ts[1], prog, di, options);
+    return;
+  }
 
   std::unique_ptr<expr::Expr> newExpr;
   if (opts.enableExpressionOptimizations) {

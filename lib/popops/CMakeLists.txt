@@ -47,6 +47,8 @@ add_library(popops SHARED
   PerformanceEstimation.cpp
   popopsCycleEstimators.cpp
   Rearrange.cpp
+  ScalarMultiply.cpp
+  ScalarMultiply.hpp
   ScaledAdd.cpp
   ScaledAddModelling.cpp
   ScaledAddModelling.hpp
@@ -192,7 +194,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterOps1D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByLimit.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByData.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/exp_inner_loop.S    
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/exp_inner_loop.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram2D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unary2DNonLinearity.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOps1DNonLinearity.S
@@ -207,6 +209,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInner2DInPlace.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInner1DInPlace.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInner1D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CheckAccuracyWhenCast.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CircBufIncrIndex.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CircOffset.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CompareAndSwapAtDistance.cpp
@@ -226,6 +229,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdateOp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NormaliseImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Reduce.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScalarMultiply.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledContinuousReduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledReduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromInterval.cpp
@@ -250,6 +254,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOpsOps.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/workDivision.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SliceCopyFunction_8bit.inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CheckAccuracyWhenCast.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp

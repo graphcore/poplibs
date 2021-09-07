@@ -30,7 +30,7 @@
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
 // A C function to check the accuracy when casting.  Extracted from the elf file
-#define CHECK_ACCURACY_WHEN_CAST _ZN6popops21CheckAccuracyWhenCastIfDhE11computeImplEff
+#define CHECK_ACCURACY_WHEN_CAST _ZN6popops32checkAccuracyWhenCastComputeImplIfDhEEbT_f
 //******************************************************************************
 // Common definitions and subroutines used by both the 2D and Supervisor cases
 //******************************************************************************

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <math.h>
 
+#include "CheckAccuracyWhenCast.hpp"
 #include "elementwiseCodelets.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/TileConstants.hpp"
@@ -30,109 +31,6 @@ static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
 using namespace poplar;
 
 namespace popops {
-template <typename InputType, typename OutputType>
-class CheckAccuracyWhenCast : public Vertex {
-public:
-  const float tolerance;
-  Input<InputType> input;
-
-  CheckAccuracyWhenCast();
-
-  // Do the actual casting and accuracy check. This must be done in a separate
-  // function while T12725 is not solved to prevent LLVM schedulers from
-  // reordering the corresponding instructions before the UPUT.
-  static bool __attribute__((noinline))
-  castAndCheck(InputType input, float tolerance) {
-    const auto castInput = static_cast<OutputType>(input);
-    const auto relativeError = static_cast<InputType>(
-        (static_cast<float>(std::fabs(input)) * tolerance));
-    return relativeError > std::abs(static_cast<InputType>(castInput) - input);
-  }
-
-  static bool computeImpl(InputType input, float tolerance) {
-#ifdef __IPU__
-    // Disable exceptions as the following can create numbers that are out of
-    // range in half precision.  We need to store / restore the FP_CTL as
-    // the worker will continue to run the actual scaledAdd code - done
-    // outside this function
-    __builtin_ipu_uput(0x00000000,
-                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
-#endif
-    return castAndCheck(input, tolerance);
-  }
-
-  bool compute() { return computeImpl(*input, tolerance); }
-};
-
-template <> class CheckAccuracyWhenCast<float, half> : public Vertex {
-public:
-  const float tolerance;
-  Input<float> input;
-
-  CheckAccuracyWhenCast();
-
-  // Do the actual casting and accuracy check. This must be done in a separate
-  // function while T12725 is not solved to prevent LLVM schedulers from
-  // reordering the corresponding instructions before the UPUT.
-  static bool __attribute__((noinline))
-  castAndCheck(float input, float tolerance) {
-#ifdef __IPU__
-    // Cast to half and back to float, decision is based on relative error
-    const auto castInput = static_cast<half>(input);
-    return (ipu::fabs(input) * tolerance) >
-           ipu::fabs(static_cast<float>(castInput) - input);
-
-#else
-    const auto castInput = static_cast<half>(input);
-    // As the CPU doesn't deal with halves correctly, then exclude out of
-    // range numbers (as half) from being considered accurate.
-    return std::fabs(input) > 65504
-               ? false
-               : (std::fabs(input) * tolerance) >
-                     std::fabs(static_cast<float>(castInput) - input);
-#endif
-  }
-
-  static bool computeImpl(float input, float tolerance) {
-#ifdef __IPU__
-    // Disable exceptions as the following can create numbers that are out of
-    // range in half precision.  We need to store / restore the FP_CTL as
-    // the worker will continue to run the actual scaledAdd code - done outside
-    // this function
-    __builtin_ipu_uput(0x00000000,
-                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
-#endif
-    return castAndCheck(input, tolerance);
-  }
-  bool compute() { return computeImpl(*input, tolerance); }
-};
-
-// Check if two values x0, x1 are "accurate enough" when cast to HALF.
-// For each value 'x' we compute a maximum acceptable error which is
-// x*tolerance and then we check if (x-half(x)) is (strictly) smaller than
-// that error.
-// Return 'true' if both values pass the check.
-bool checkAccuracyWhenCastFloatV2ToHalf(float x0, float x1, float tolerance) {
-  if (std::fabs(x0) > 65504 || std::fabs(x1) > 65504)
-    return false;
-#ifdef __IPU__
-  unsigned save_fp_ctl =
-      __builtin_ipu_uget(CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
-  __builtin_ipu_uput(0x00000000,
-                     CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
-#endif
-  float maxErr0 = std::fabs(tolerance * x0);
-  float maxErr1 = std::fabs(tolerance * x1);
-  half x0half = static_cast<half>(x0);
-  half x1half = static_cast<half>(x1);
-  float diff0 = static_cast<float>(x0half) - x0;
-  float diff1 = static_cast<float>(x1half) - x1;
-#ifdef __IPU__
-  __builtin_ipu_uput(save_fp_ctl,
-                     CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
-#endif
-  return std::fabs(diff0) < maxErr0 && std::fabs(diff1) < maxErr1;
-}
 
 template <typename AType>
 using InputScaleType = Input<Vector<AType, PTR_ALIGN64, 8>>;
@@ -274,8 +172,8 @@ template class ScaledAddSupervisor<half, float, float, false, false>;
                                                                                \
     bool compute() {                                                           \
       unsigned limI = size;                                                    \
-      if (CheckAccuracyWhenCast<float, half>::computeImpl(scaleB[0],           \
-                                                          tolerance)) {        \
+      if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB[0],             \
+                                                        tolerance)) {          \
         const auto halfScale = static_cast<half>(scaleB[0]);                   \
         for (unsigned i = 0; i < limI; ++i) {                                  \
           A[i] += halfScale * B[i];                                            \
@@ -407,8 +305,7 @@ template class ScaledAdd2D<float, half, float, false, false>;
                                                                                \
     bool compute() {                                                           \
       unsigned limI = A.size();                                                \
-      if (CheckAccuracyWhenCast<float, half>::computeImpl(scaleB,              \
-                                                          tolerance)) {        \
+      if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB, tolerance)) {  \
         const auto halfScale = static_cast<half>(*scaleB);                     \
         for (unsigned i = 0; i < limI; ++i) {                                  \
           unsigned limJ = A[i].size();                                         \
@@ -508,8 +405,8 @@ public:
                                                                                \
     bool compute() {                                                           \
       unsigned limI = size;                                                    \
-      if (CheckAccuracyWhenCast<float, half>::computeImpl(scaleB[0],           \
-                                                          tolerance)) {        \
+      if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB[0],             \
+                                                        tolerance)) {          \
         const auto halfScale = static_cast<half>(scaleB[0]);                   \
         for (unsigned i = 0; i < limI; ++i) {                                  \
           A[i] -= halfScale * B[i];                                            \
@@ -603,8 +500,7 @@ public:
                                                                                \
     bool compute() {                                                           \
       unsigned limI = A.size();                                                \
-      if (CheckAccuracyWhenCast<float, half>::computeImpl(scaleB,              \
-                                                          tolerance)) {        \
+      if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB, tolerance)) {  \
         const auto halfScale = static_cast<half>(*scaleB);                     \
         for (unsigned i = 0; i < limI; ++i) {                                  \
           unsigned limJ = A[i].size();                                         \
