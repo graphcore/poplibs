@@ -323,7 +323,36 @@ foreach(dtype unsigned int)
   endforeach()
 endforeach()
 
+add_multi_target_test_executable(MapExprMultiVertexTest MapExprMultiVertex.cpp)
+foreach(dtype unsigned half float)
+  foreach(length 1 2 3 4 6 12 24 25 26 27)
+    foreach(slices 1 2)
+      add_multitarget_test(
+            NAME MapExprMultiVertexTest_${dtype}_${length}_${slices}
+            COMMAND MapExprMultiVertexTest
+            --data-type ${dtype}
+            --length ${length}
+            --slices ${slices}
+            --in-place true
+            VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+    endforeach()
+  endforeach()
+endforeach()
 
+foreach(dtype unsigned half float)
+  foreach(inPlace true false)
+    foreach(slices 1 2)
+      add_multitarget_test(
+            NAME MapExprMultiVertexTest_${dtype}_${inPlace}_${slices}
+            COMMAND MapExprMultiVertexTest
+            --data-type ${dtype}
+            --length 25
+            --slices ${slices}
+            --in-place ${inPlace}
+            VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+    endforeach()
+  endforeach()
+endforeach()
 
 add_multi_target_test_executable(ReductionTests ReductionTests.cpp)
 add_multitarget_test(NAME Reduce_100x100_float_float_noupdate
