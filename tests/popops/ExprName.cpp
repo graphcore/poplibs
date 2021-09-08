@@ -26,11 +26,11 @@ static void checkNames(const Expr &A, const Expr &B, const bool match = false,
       inputs.push_back(graph.addVariable(type, {i}, "some_name"));
     }
   }
-  const auto aName = GenerateCodeletFromMapExpr::createVertexName(
-      A, inputs, inPlace, false, false);
+  const auto aName =
+      GenerateCodeletFromMapExpr::createVertexName(A, inputs, inPlace, false);
 
-  const auto bName = GenerateCodeletFromMapExpr::createVertexName(
-      B, inputs, inPlace, false, false);
+  const auto bName =
+      GenerateCodeletFromMapExpr::createVertexName(B, inputs, inPlace, false);
 
   BOOST_CHECK((aName == bName) == match);
   std::cerr << "A " << aName << " ------ B " << bName

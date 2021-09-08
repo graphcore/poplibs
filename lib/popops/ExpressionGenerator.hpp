@@ -30,12 +30,6 @@ struct ExprInfo {
   bool allInputsScalar;
 };
 
-struct InitializerStrings {
-  std::string initializerString;
-  std::string constantInitalizerStringScalar;
-  std::string constantInitalizerStringVector;
-};
-
 ExprInfo analyseExpr(const expr::Expr &expr,
                      const std::vector<poplar::Tensor> &ins, bool isForcedOn);
 
@@ -57,11 +51,7 @@ public:
   // Create the codelet, save it to file, register the codelet to poplar, then
   // remove the file.
   std::string generateCodelet(poplar::Graph &graph, bool allInputsScalar,
-                              const expr::Expr &expr,
-                              const InitializerStrings &initializerStrings,
-                              bool isMultiVertex);
-
-  InitializerStrings generateInitializerStrings(const poplar::Graph &graph);
+                              const expr::Expr &expr);
 
   poplar::Type deduceReturnType() const { return data.top().second; }
 
@@ -79,18 +69,15 @@ private:
   // Add a vectorized loop to the codelet.
   void addVectorizedSection(std::stringstream &stream,
                             size_t vectorizationWidth,
-                            const std::string &initalizerString,
-                            const std::string &constantInitalizerStringVector,
-                            bool isMultivertex, unsigned numWorkers);
+                            std::string &initalizerString,
+                            std::string &constantInitalizerStringVector);
 
   // We always have non-vectorized serial equivalent. We always add this even if
   // we have a vectorized section as we may need to process a remainder as well.
   void addSerialSection(std::stringstream &stream,
-                        const std::string &initalizerString,
-                        const std::string &constantInitalizerString,
-                        bool allInputsScalar, unsigned vectorizationWidth,
-                        bool vectorizationIsSupported, bool isMultivertex,
-                        unsigned numWorkers);
+                        std::string &initalizerString,
+                        std::string &constantInitalizerString,
+                        bool allInputsScalar);
 
   // The string "data" which can be either a previously evaluated expression
   // (represented as a C++ variable name), a constant or a placeholder value.
@@ -148,8 +135,7 @@ public:
   static std::string createVertexName(const expr::Expr &expr,
                                       const std::vector<poplar::Tensor> &inputs,
                                       const bool inPlace,
-                                      const bool allInputsScalar,
-                                      const bool isMultiVertex);
+                                      const bool allInputsScalar);
 };
 } // namespace popops
 
