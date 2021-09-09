@@ -97,6 +97,31 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     throw poputil::poplibs_error("Input Tensors for scaled arithmetic must"
                                  " have the same shape");
 
+  if (speciality != ScaledAddSpecialisation::DEFAULT) {
+    logging::popops::debug("XMinusaXPlusbY Const({}) Debug:{}", scaleType,
+                           dnai.getPathName());
+    logging::popops::debug("  inOutA{}({}): {}", A.shapeToString(),
+                           A.elementType(), A.getDebugStr());
+    logging::popops::debug("  inputB{}({}): {}", B.shapeToString(),
+                           B.elementType(), B.getDebugStr());
+    logging::popops::debug("  scaleA: {}", scaleA);
+    logging::popops::debug("  scaleB: {}", scaleB);
+    logging::popops::debug("  {}{} -= {}{} * {} + {}{} * {}", A.getVarStr(),
+                           A.shapeToString(), A.getVarStr(), A.shapeToString(),
+                           scaleA, B.getVarStr(), B.shapeToString(), scaleB);
+  } else {
+    logging::popops::debug("ScaledAdd Const({}) Debug:{}", scaleType,
+                           dnai.getPathName());
+    logging::popops::debug("  inOutA{}({}): {}", A.shapeToString(),
+                           A.elementType(), A.getDebugStr());
+    logging::popops::debug("  inputB{}({}): {}", B.shapeToString(),
+                           B.elementType(), B.getDebugStr());
+    logging::popops::debug("  scaleA: {}", scaleA);
+    logging::popops::debug("  scaleB: {}", scaleB);
+    logging::popops::debug("  {}{} = {}{} * {} + {}{} * {}", A.getVarStr(),
+                           A.shapeToString(), A.getVarStr(), A.shapeToString(),
+                           scaleA, B.getVarStr(), B.shapeToString(), scaleB);
+  }
   const auto &target = graph.getTarget();
   const auto dataType = A.elementType();
   const auto deltaType = B.elementType();
@@ -233,6 +258,34 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A,
           "with doaXPlusbY option");
     if (doSubtract)
       throw poputil::poplibs_error("Subtraction not supported with X-aX+bY");
+  }
+
+  if (doaXPlusbY) {
+    logging::popops::debug("aXPlusbY Tensor Debug: {}", dnai.getPathName());
+    logging::popops::debug("  inOutA{}({}): {}", A.shapeToString(),
+                           A.elementType(), A.getDebugStr());
+    logging::popops::debug("  inputB{}({}): {}", B.shapeToString(),
+                           B.elementType(), B.getDebugStr());
+    logging::popops::debug("  scaleA{}({}): {} ", scaleA->shapeToString(),
+                           scaleA->elementType(), scaleA->getDebugStr());
+    logging::popops::debug("  scaleB{}({}): {}", scaleB.shapeToString(),
+                           scaleB.elementType(), scaleB.getDebugStr());
+    logging::popops::debug("  {}{} = {}{} * {}{} + {}{} * {}{}", A.getVarStr(),
+                           A.shapeToString(), A.getVarStr(), A.shapeToString(),
+                           scaleA->getVarStr(), scaleA->shapeToString(),
+                           B.getVarStr(), B.shapeToString(), scaleB.getVarStr(),
+                           scaleB.shapeToString());
+  } else {
+    logging::popops::debug("ScaledAdd Tensor Debug: {}", dnai.getPathName());
+    logging::popops::debug("  inOutA{}({}): {}", A.shapeToString(),
+                           A.elementType(), A.getDebugStr());
+    logging::popops::debug("  inputB{}({}): {}", B.shapeToString(),
+                           B.elementType(), B.getDebugStr());
+    logging::popops::debug("  scaleB{}({}): {}", scaleB.shapeToString(),
+                           scaleB.elementType(), scaleB.getDebugStr());
+    logging::popops::debug("  {}{} += {}{} * {}{}", A.getVarStr(),
+                           A.shapeToString(), B.getVarStr(), B.shapeToString(),
+                           scaleB.getVarStr(), scaleB.shapeToString());
   }
 
   const auto &target = graph.getTarget();

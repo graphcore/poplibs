@@ -640,9 +640,23 @@ static void reduceWithOutputCss(
     printContainer(t.shape(), ss);
     return ss.str();
   };
-  logging::popops::info("reduce in={}, out={}, dims={}, name={}", in.shape(),
-                        fmap(out, getShape), dims, dnai.getPathName());
-  logging::popops::debug("Reduce begin DebugStr: {}", dnai.getPathName());
+  const bool withOutput = out != boost::none;
+  logging::popops::debug("Reduce{} Op: {} Update:{} Begin DebugStr: {}",
+                         withOutput ? "WithOutput" : "", params.op,
+                         params.update, dnai.getPathName());
+  logging::popops::debug("  in({}){} : {}", in.elementType(), in.shape(),
+                         in.getDebugStr());
+  if (out) {
+    logging::popops::debug("  out({}){}: {}", out.get().elementType(),
+                           out.get().shape(), out.get().getDebugStr());
+
+    logging::popops::debug("  {}{} = reduce({}{}), dims={}",
+                           out.get().getVarStr(), out.get().shape(),
+                           in.getVarStr(), in.shape(), dims);
+  } else {
+    logging::popops::debug("  {} = reduce({}{}), dims={}", fmap(out, getShape),
+                           in.getVarStr(), in.shape(), dims);
+  }
 
   // Decide the reduction types for each stage.
   ReductionTypes reductionTypes;
@@ -742,6 +756,16 @@ static void reduceWithOutputCss(
   // Do the 2D->1D reduction.
   reduceFirstDim2D(graph, input2D, out, outputShape, outputType, params,
                    reductionTypes, css, reductionResultTensors, {dnai});
+  if (!withOutput) {
+    logging::popops::debug("  out({}){}: {}", out.get().elementType(),
+                           out.get().shape(), out.get().getDebugStr());
+    logging::popops::debug("  {}{} = reduce({}{}), dims={}",
+                           out.get().getVarStr(), out.get().shape(),
+                           in.getVarStr(), in.shape(), dims);
+  }
+  logging::popops::debug("Reduce{} Op:{} End DebugStr: {}",
+                         withOutput ? "WithOutput" : "", params.op,
+                         dnai.getPathName());
 }
 
 // Same as reduceWithOutputCss except it takes a program instead of a compute

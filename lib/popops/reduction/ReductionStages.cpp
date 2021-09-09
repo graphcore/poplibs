@@ -663,11 +663,13 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
   if (mappingComplete) {
     if (!shouldReduceAtDestination(target, ipIn, mapping, inVertexType,
                                    out.numElements())) {
+      logging::popops::debug("Mapping temporary output");
       mapping =
           poputil::calcLinearTileMapping(graph, out.shape(), minElementsPerTile,
                                          target.getVectorWidth(inVertexType));
     }
   } else {
+    logging::popops::debug("Mapping output");
     mapping =
         poputil::calcLinearTileMapping(graph, out.shape(), minElementsPerTile,
                                        target.getVectorWidth(inVertexType));

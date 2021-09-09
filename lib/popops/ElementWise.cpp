@@ -498,7 +498,7 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
   const auto cs = graph.addComputeSet({dnai, layer});
   const auto numWorkers = target.getNumWorkerContexts();
 
-  logging::popops::debug("UnaryOp begin DebugStr: {}",
+  logging::popops::debug("  UnaryOp{} DebugStr: {}", inPlace ? "InPlace" : "",
                          dnai.getPathName() + "/" + layer);
   const auto outType = outputType(inType, op);
   Tensor out;
@@ -508,6 +508,19 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
     out = createOutputForElementWiseOp(graph, {in}, outType,
                                        {dnai, layer + "/Out"});
   }
+
+  if (inPlace) {
+    logging::popops::debug("  inOut{}({}): {}", in.shapeToString(),
+                           in.elementType(), in.getDebugStr());
+  } else {
+    logging::popops::debug("  in{}({}):  {}", in.shapeToString(),
+                           in.elementType(), in.getDebugStr());
+    logging::popops::debug("  out{}({}): {}", out.shapeToString(),
+                           out.elementType(), out.getDebugStr());
+  }
+  logging::popops::debug("  {}{} = {} {}{}", out.getVarStr(),
+                         out.shapeToString(), debugName(op), in.getVarStr(),
+                         in.shapeToString());
 
   auto inFlat = in.flatten();
   auto outFlat = out.flatten();
@@ -1709,6 +1722,20 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   const bool in2IsScalar = in2.numElements() == 1;
   validateBinaryOpInputs(op, in1, in2, {dnai, layer});
 
+  logging::popops::debug("  BinaryOp{} DebugStr: {}", inPlace ? "InPlace" : "",
+                         dnai.getPathName() + "/" + layer);
+  if (inPlace) {
+    logging::popops::debug("  in2{}({})  : {}", in2.shapeToString(),
+                           in2.elementType(), in2.getDebugStr());
+    logging::popops::debug("  inOut{}({}): {}", in1.shapeToString(),
+                           in1.elementType(), in1.getDebugStr());
+  } else {
+
+    logging::popops::debug("  in1{}({}): {}", in1.shapeToString(),
+                           in1.elementType(), in1.getDebugStr());
+    logging::popops::debug("  in2{}({}): {}", in2.shapeToString(),
+                           in2.elementType(), in2.getDebugStr());
+  }
   // Broadcast the inputs to have the same shape here to cover all paths
   // for binary ops
 
@@ -1722,6 +1749,16 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
     out = createOutputForElementWiseOp(graph, {in1, in2}, outType,
                                        {dnai, layer + "/Out"});
   }
+
+  if (!inPlace) {
+    logging::popops::debug("  out{}({}): {}", out.shapeToString(),
+                           out.elementType(), out.getDebugStr());
+  }
+
+  logging::popops::debug("  {}{} = {}{} {} {}{}", out.getVarStr(),
+                         out.shapeToString(), in1.getVarStr(),
+                         in1.shapeToString(), debugName(op), in2.getVarStr(),
+                         in2.shapeToString());
 
   // Special case for scalar broadcast, because knowing this is a binary
   // op and that the broadcasted tensor is a single element means we
@@ -2317,6 +2354,8 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, expr, options));
 
+  logging::popops::debug("MapExpression DebugStr:{}", debugContext);
+
   auto opts = parseOptionFlags(options);
 
   const auto tTypes = getTypesFromTensors(ts);
@@ -2359,6 +2398,8 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const OptionFlags &options) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, expr, options));
+
+  logging::popops::debug("MapInPlaceExpression DebugStr:{}", debugContext);
 
   auto opts = parseOptionFlags(options);
 

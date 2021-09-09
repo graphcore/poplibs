@@ -193,6 +193,9 @@ bool shouldReduceAtDestination(const Target &target,
       target, ipIn, reducedType, numReducedElements, outMapping, 8);
   auto destCycles = estimateReduceAtDstCost(target, ipIn, outMapping);
 
+  if (!(destCycles < balancedCycles)) {
+    logging::popops::debug("Reduce with temporary balanced output");
+  }
   return destCycles < balancedCycles;
 }
 

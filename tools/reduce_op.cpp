@@ -589,29 +589,31 @@ int main(int argc, char **argv) {
   if (withOutput) {
     // Make the output.
     auto reducedShape = getReducedShape(input.shape(), dims);
-    output = graph.addVariable(input.elementType(), reducedShape);
+    output = graph.addVariable(input.elementType(), reducedShape, "output");
     mapTensorLinearly(graph, output);
 
     if (computeSetApi) {
       std::vector<ComputeSet> css;
-      popops::reduceWithOutput(graph, input, output, dims, reductionParams,
-                               css);
+      popops::reduceWithOutput(graph, input, output, dims, reductionParams, css,
+                               "testReduceWithOutputCss");
       for (const auto &cs : css) {
         prog.add(Execute(cs));
       }
     } else {
       popops::reduceWithOutput(graph, input, output, dims, reductionParams,
-                               prog);
+                               prog, "testReduceWithOutputProg");
     }
   } else {
     if (computeSetApi) {
       std::vector<ComputeSet> css;
-      output = popops::reduce(graph, input, dims, reductionParams, css);
+      output = popops::reduce(graph, input, dims, reductionParams, css,
+                              "testReduceCss");
       for (const auto &cs : css) {
         prog.add(Execute(cs));
       }
     } else {
-      output = popops::reduce(graph, input, dims, reductionParams, prog);
+      output = popops::reduce(graph, input, dims, reductionParams, prog,
+                              "testReduceProg");
     }
   }
 

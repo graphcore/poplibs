@@ -2,6 +2,7 @@
 #include "poputil/TileMapping.hpp"
 #include "poplar/Program.hpp"
 #include "poplibs_support/Tracepoint.hpp"
+#include "poplibs_support/logging.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
@@ -9,10 +10,31 @@
 #include <boost/icl/interval_map.hpp>
 #include <boost/icl/interval_set.hpp>
 #include <boost/integer/common_factor.hpp>
+#include <poplibs_support/VectorUtils.hpp>
 #include <set>
 #include <tbb/parallel_for.h>
 
+using namespace poplibs_support;
+
 namespace poputil {
+
+struct MappingSummary {
+  unsigned first;
+  unsigned last;
+  unsigned used;
+};
+MappingSummary
+getMappingSummary(const std::vector<std::vector<poplar::Interval>> &map) {
+  MappingSummary summary = {static_cast<unsigned>(map.size()), 0, 0};
+  for (unsigned i = 0; i < map.size(); i++) {
+    if (map[i].size()) {
+      summary.last = i;
+      summary.first = std::min(summary.first, i);
+      summary.used++;
+    }
+  }
+  return summary;
+}
 
 std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph,
@@ -22,7 +44,18 @@ calcLinearTileMapping(const poplar::Graph &graph,
   const auto numElements = std::accumulate(shape.begin(), shape.end(), 1UL,
                                            std::multiplies<std::size_t>());
   std::vector<poplar::Interval> regions = {{0, numElements}};
-  return splitRegions(regions, grainSize, numTiles, minElementsPerTile);
+  const auto mapping =
+      splitRegions(regions, grainSize, numTiles, minElementsPerTile);
+
+  if (logging::popops::shouldLog(logging::Level::Debug)) {
+    const auto summary = getMappingSummary(mapping);
+    logging::popops::debug(
+        "  CalcLinearMapping Summary: Tiles:[{}, {}) Used:{} MeanPerTile:{}",
+        summary.first, summary.last, summary.used,
+        static_cast<float>(product(shape)) / summary.used);
+  }
+
+  return mapping;
 }
 
 std::vector<std::vector<poplar::Interval>>
@@ -38,11 +71,22 @@ calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t) {
 
 void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
                        unsigned minElementsPerTile, unsigned grainSize) {
+  logging::popops::debug(
+      "LinearMapping minPerTile:{} grain:{} Tensor:{}({}):{}",
+      minElementsPerTile, grainSize, t.shape(), t.elementType(),
+      t.getDebugStr());
+  logging::popops::debug("  Var:{}", t.getVarStr());
+
   graph.setTileMapping(t, calcLinearTileMapping(graph, t.shape(),
                                                 minElementsPerTile, grainSize));
 }
 
 void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t) {
+  logging::popops::debug(
+      "LinearMapping minPerTile:Default grain:Default Tensor{}({}):{}",
+      t.shape(), t.elementType(), t.getDebugStr());
+  logging::popops::debug("  Var:{}", t.getVarStr());
+
   graph.setTileMapping(t, calcLinearTileMapping(graph, t));
 }
 
@@ -276,6 +320,10 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(fullTensor, type, dim, ditherMapping));
 
+  logging::popops::debug("createBroadcastOperand DebugStr:{}", debugContext);
+  logging::popops::debug("  dither:{} dim:{} fullTensor:{}({}):{}",
+                         ditherMapping, dim, fullTensor.shape(),
+                         fullTensor.elementType(), fullTensor.getDebugStr());
   assert(dim < fullTensor.rank());
   const auto &target = graph.getTarget();
   auto t = fullTensor.dimRoll(dim, fullTensor.rank() - 1);
@@ -325,6 +373,7 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
   });
 
   if (useTracker.empty()) {
+    logging::popops::debug("  Mapping linearly");
     mapTensorLinearly(graph, out);
   } else {
     const auto grainSize =
@@ -346,6 +395,7 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
 
     poplar::Graph::TileToTensorMapping newMapping(numTiles);
     std::size_t dstTile = seed % numTiles;
+    logging::popops::debug("  Dither start:{}", dstTile);
     for (unsigned tile = 0; tile != numTiles; ++tile) {
       if (!outMapping[tile].empty()) {
         newMapping[dstTile] = std::move(outMapping[tile]);
@@ -357,6 +407,18 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
     }
     graph.setTileMapping(out, newMapping);
   }
+  if (logging::popops::shouldLog(logging::Level::Debug)) {
+    const auto summary = getMappingSummary(graph.getTileMapping(out));
+    logging::popops::debug("  Tensor:{}({}):{}", out.shape(), out.elementType(),
+                           out.getDebugStr());
+    logging::popops::debug("  TensorVar:{}", out.getVarStr());
+
+    logging::popops::debug("  Summary: Tiles:[{}, {}) Used:{} MeanPerTile:{}",
+                           summary.first, summary.last, summary.used,
+                           static_cast<float>(out.numElements()) /
+                               summary.used);
+  }
+
   di.addOutput(out);
   return out;
 }
