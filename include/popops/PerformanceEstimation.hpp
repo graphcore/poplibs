@@ -123,7 +123,8 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
     bool subWordWritesRequired, const unsigned elemsPerSlice,
     const unsigned numOffsets, const Operation op, const bool scaled,
     const double proportionOfIndexableRangePerWorker,
-    const bool useOnePointDistribution = false);
+    const bool useOnePointDistribution = false,
+    const bool scaleHigherPrecisionThanData = false);
 
 /// Target parameters used in cast estimation
 struct CastTargetParameters {

@@ -44,6 +44,7 @@
 #define numBaseElements m5
 #define regionSize m6
 #define regionSizeM1 m7
+#define regionSizeM2 m7
 #define regionBytesOffset m8
 #define baseIdx m9
 #define subTOffset m10
@@ -61,15 +62,17 @@
 // scratch variables
 #define mscratch m11
 
-#define SCALED_CODELET_NAME(type) __runCodelet_popops__ScaledMultiUpdateOp___##type##_false_popops__Operation__\OPTYPE\()
+#define SCALED_CODELET_NAME(type, scaleType) __runCodelet_popops__ScaledMultiUpdateOp___##type##_##scaleType##_false_popops__Operation__\OPTYPE\()
 #define UNSCALED_CODELET_NAME(type) __runCodelet_popops__MultiUpdateOp___##type##_false_popops__Operation__\OPTYPE\()
 
+// Float versions have scale type of float and hence the macro is not 
+// parametrised by scale type.
 .macro CODELET_FUNCTION_FLOAT OPTYPE, SCALED
 .ifc \SCALED, true
-.type SCALED_CODELET_NAME(float), @function
-DEF_STACK_USAGE 0 SCALED_CODELET_NAME(float)
-.section .text.SCALED_CODELET_NAME(float)
-.globl SCALED_CODELET_NAME(float)
+.type SCALED_CODELET_NAME(float, float), @function
+DEF_STACK_USAGE 0 SCALED_CODELET_NAME(float, float)
+.section .text.SCALED_CODELET_NAME(float, float)
+.globl SCALED_CODELET_NAME(float, float)
 .else 
 .type UNSCALED_CODELET_NAME(float), @function
 DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(float)
@@ -83,7 +86,7 @@ DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(float)
 #endif
 
 .ifc \SCALED, true
-SCALED_CODELET_NAME(float):
+SCALED_CODELET_NAME(float, float):
 .else
 UNSCALED_CODELET_NAME(float):
 .endif
@@ -212,20 +215,30 @@ UNSCALED_CODELET_NAME(float):
 .Lfloat_\OPTYPE\()_\SCALED\()_epilogue:
   exitz $mzero
 .ifc \SCALED, true
-.size SCALED_CODELET_NAME(float), . -  SCALED_CODELET_NAME(float)
+.size SCALED_CODELET_NAME(float, float), . -  SCALED_CODELET_NAME(float, float)
 .else
 .size  UNSCALED_CODELET_NAME(float), . - UNSCALED_CODELET_NAME(float)
 .endif
 .endm
 
-.macro CODELET_FUNCTION_HALF OPTYPE, SCALED
+//------------------------------------------------------------------------------
+
+.macro CODELET_FUNCTION_HALF OPTYPE, SCALED, SCALE_TYPE
 
 .ifc \SCALED, true
-.type SCALED_CODELET_NAME(half), @function
-DEF_STACK_USAGE 0 SCALED_CODELET_NAME(half)
-.section .text.SCALED_CODELET_NAME(half)
-.globl SCALED_CODELET_NAME(half)
-.else 
+
+.ifnc \SCALE_TYPE, half
+.ifnc \SCALE_TYPE, float
+.error "Only half and float scale type supported for scaled multiupdateOp vertex"
+.endif
+.endif
+
+.type SCALED_CODELET_NAME(half,  \SCALE_TYPE\()), @function
+DEF_STACK_USAGE 0 SCALED_CODELET_NAME(half, \SCALE_TYPE\())
+.section .text.SCALED_CODELET_NAME(half, \SCALE_TYPE\())
+.globl SCALED_CODELET_NAME(half, \SCALE_TYPE\())
+
+.else // .ifc \SCALED, true
 .type UNSCALED_CODELET_NAME(half), @function
 DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(half)
 .section .text.UNSCALED_CODELET_NAME(half)
@@ -236,14 +249,14 @@ DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(half)
   nop // rpt loop aligment
 #endif
 .ifc \SCALED, true
-SCALED_CODELET_NAME(half):
+SCALED_CODELET_NAME(half, \SCALE_TYPE\()):
 .else
 UNSCALED_CODELET_NAME(half):
 .endif
   // load vertex state, do a size check on offsets
   ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
   {
-    brz $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_epilogue
+    brz $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_epilogue
     setzi $a0, ZAACC_BITMASK
   }
 
@@ -265,7 +278,8 @@ UNSCALED_CODELET_NAME(half):
 .ifc \SCALED, true
    ld32 $mscratch, $mzero, $mvertex_base, VERTEX_STATE_SCALE_OFFSET/4
 
-  // load scale and place {1, scale} into the $TAS CSR
+.ifc \SCALE_TYPE, half
+  // load scale and place {1, scale} into the $TAS CSR 
   {
     ldb16 $scale, $mzero, $mscratch, 0
     f16v2exp $a0, $azero
@@ -274,6 +288,11 @@ UNSCALED_CODELET_NAME(half):
     ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET/2
     sort4x16lo $scale, $a0, $scale
   }
+.else
+  ld32 $scale, $mzero, $mscratch, 0
+  ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET/2
+.endif // .ifc \SCALE_TYPE, half
+
   // we process 32-bits at a time so halve the region size. the host code must
   // enforce this. finally minus 1 from the result because we pipeline it.
   // also as we don't have an f16v2mix instruction need to zero the odd
@@ -282,6 +301,7 @@ UNSCALED_CODELET_NAME(half):
     shr $regionSizeM1, $regionSize, 1
     uput $TAS, $scale
   }
+
 .else
   ldz16 $regionSize, $mzero, $mvertex_base, VERTEX_STATE_REGION_SIZE_OFFSET/2
   {
@@ -298,7 +318,15 @@ UNSCALED_CODELET_NAME(half):
 #endif
 
   {
+.ifc \SCALED, true
+.ifc \SCALE_TYPE, half   
     sub $regionSizeM1, $regionSizeM1, 1
+.else
+    sub $regionSizeM2, $regionSizeM1, 2
+.endif
+.else
+    sub $regionSizeM1, $regionSizeM1, 1
+.endif
     zero $a1
   }
 
@@ -314,7 +342,7 @@ UNSCALED_CODELET_NAME(half):
   add $baseTPtr, $baseTPtr, $wkrStart
 
   sub $offsetSize, $offsetSize, 1
-.Lhalf_\OPTYPE\()_\SCALED\()_offset_loop:
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_loop:
   ld32 $baseIdx, $offsetPtr, $mzero, $offsetSize
 
   sub $baseIdx, $baseIdx, $baseOffset
@@ -323,7 +351,7 @@ UNSCALED_CODELET_NAME(half):
   // note: this overflow relies on baseIdx and numBaseElements being smaller
   // then 2^31.
   cmpult $mscratch, $baseIdx, $numBaseElements
-  brz $mscratch, .Lhalf_\OPTYPE\()_\SCALED\()_offset_loop_epilogue
+  brz $mscratch, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_loop_epilogue
 
   // correct baseIdx to the current offset and move it onto the correct region
   mul $baseIdx, $baseIdx, $regionBytesOffset
@@ -336,6 +364,8 @@ UNSCALED_CODELET_NAME(half):
   ld32step $a2, $subTPtr, $subTOffset+=, 1
 .ifc \SCALED, true
 .ifc \OPTYPE, ADD
+.ifc \SCALE_TYPE, half
+
   {
     rpt $regionSizeM1, (2f-1f)/8-1
     f16v4mix $azeros, $a0:1, $a2:3
@@ -356,6 +386,56 @@ UNSCALED_CODELET_NAME(half):
 2:
   // process the final element
   f16v4mix $a4:5, $azeros, $azeros
+
+.else // .ifc \SCALE_TYPE, half
+
+  {
+    ld32 $a6, $baseTPtr, $baseIdx, 1
+    f16v2tof32 $a0:1, $a0
+  }
+  {
+    ld32step $a2, $subTPtr, $subTOffset+=, 1
+    f16v2tof32 $a4:5, $a2
+  }
+  // branch to avoid conversion of over-read data and to avoid running for
+  // 2^16-2 loops when there's only a single element to process
+  {
+    brneg $regionSizeM2, 3f
+    f32v2axpy $azeros, $a4:5, $a0:1
+  }
+  {
+    rpt $regionSizeM2, (2f-1f)/8-1
+    f16v2tof32 $a0:1, $a6
+  }
+1:
+    {
+      ld32 $a6, $baseTPtr, $baseIdx, 2
+      f16v2tof32 $a4:5, $a2
+    }
+    {
+      ld32step $a2, $subTPtr, $subTOffset+=, 1
+      f32v2axpy $a0:1, $a4:5, $a0:1
+    }
+    {
+      nop
+      f32v2tof16 $a0, $a0:1
+    }
+    {
+      st32step $a0, $baseTPtr, $baseIdx+=, 1
+      f16v2tof32 $a0:1, $a6
+    }
+2:
+  f16v2tof32 $a4:5, $a2
+  f32v2axpy $a0:1, $a4:5, $a0:1
+  f32v2tof16 $a0, $a0:1
+  st32step $a0, $baseTPtr, $baseIdx+=, 1
+3:
+  f32v2axpy $a0:1, $azeros, $azeros
+
+  f32v2tof16 $a4, $a0:1
+
+.endif // .ifc \SCALE_TYPE, half
+
 .else // .ifc \OPTYPE, ADD
 .error "Scaled variant of multiUpdateOp is only supported for operand type ADD"
 .endif // .ifc \OPTYPE, ADD
@@ -391,23 +471,25 @@ UNSCALED_CODELET_NAME(half):
 
   st32 $a4, $baseTPtr, $baseIdx, 0
 
-.Lhalf_\OPTYPE\()_\SCALED\()_offset_loop_epilogue:
-  brnzdec $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_offset_loop
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_loop_epilogue:
+  brnzdec $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_loop
 
-.Lhalf_\OPTYPE\()_\SCALED\()_epilogue:
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_epilogue:
   exitz $mzero
+
 .ifc \SCALED, true
-.size SCALED_CODELET_NAME(half), . - SCALED_CODELET_NAME(half)
-.else
+.size SCALED_CODELET_NAME(half, \SCALE_TYPE\()), . - SCALED_CODELET_NAME(half, \SCALE_TYPE\())
+.else // .ifc \SCALED, true
 .size UNSCALED_CODELET_NAME(half), . -  UNSCALED_CODELET_NAME(half)
 .endif
 .endm
 
 // Instantiate workers
 CODELET_FUNCTION_FLOAT ADD true
-CODELET_FUNCTION_HALF ADD true
-CODELET_FUNCTION_FLOAT MAX false
-CODELET_FUNCTION_HALF MAX false
+CODELET_FUNCTION_HALF ADD true half
+CODELET_FUNCTION_HALF ADD true float
 
+CODELET_FUNCTION_FLOAT MAX false
+CODELET_FUNCTION_HALF MAX false none
 
 #endif // __IPU__

@@ -64,7 +64,8 @@ template class MultiUpdateOp<float, false, Operation::MAX>;
 template class MultiUpdateOp<int, false, Operation::MAX>;
 template class MultiUpdateOp<unsigned, false, Operation::MAX>;
 
-template <typename Type, bool subwordWritesSupported, Operation op>
+template <typename Type, typename SType, bool subwordWritesSupported,
+          Operation op>
 class ScaledMultiUpdateOp : public MultiVertex {
 public:
   ScaledMultiUpdateOp();
@@ -79,7 +80,7 @@ public:
   // in the slice dimension (ceil numBaseElements / numWorkers). Required only
   // by assembler
   const unsigned maxElementsPerWorker;
-  Input<Type> scale;
+  Input<SType> scale;
 
   bool compute(unsigned wid) {
     if (wid == 0) {
@@ -88,7 +89,7 @@ public:
       // For halves, accumulate in float so that stochastic rounding will take
       // effect.
       using ScaleType =
-          std::conditional_t<std::is_same<Type, half>::value, float, Type>;
+          std::conditional_t<std::is_same<SType, half>::value, float, SType>;
       // load scale once
       const auto scaleL = ScaleType(*scale);
 
@@ -120,10 +121,12 @@ public:
   }
 };
 
-template class ScaledMultiUpdateOp<half, true, Operation::ADD>;
-template class ScaledMultiUpdateOp<half, false, Operation::ADD>;
-template class ScaledMultiUpdateOp<float, false, Operation::ADD>;
-template class ScaledMultiUpdateOp<int, false, Operation::ADD>;
-template class ScaledMultiUpdateOp<unsigned, false, Operation::ADD>;
+template class ScaledMultiUpdateOp<half, half, true, Operation::ADD>;
+template class ScaledMultiUpdateOp<half, float, true, Operation::ADD>;
+template class ScaledMultiUpdateOp<half, half, false, Operation::ADD>;
+template class ScaledMultiUpdateOp<half, float, false, Operation::ADD>;
+template class ScaledMultiUpdateOp<float, float, false, Operation::ADD>;
+template class ScaledMultiUpdateOp<int, int, false, Operation::ADD>;
+template class ScaledMultiUpdateOp<unsigned, unsigned, false, Operation::ADD>;
 
 } // namespace popops

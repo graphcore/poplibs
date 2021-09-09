@@ -2189,7 +2189,8 @@ MAKE_PERF_ESTIMATOR_NAME(MultiUpdate)(const VertexIntrospector &vertex,
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledMultiUpdateOp)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
-    const bool &subWordWritesRequired, const Operation &op) {
+    const Type &scaleType, const bool &subWordWritesRequired,
+    const Operation &op) {
 
   // based off the assembly (optimistic for integral types which are still
   // handled by the compiler). Assumes the worst case where all indices are
@@ -2204,7 +2205,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledMultiUpdateOp)(
   const auto cycles = getMultiUpdateOpCycleEstimate(
       MultiUpdateOpTargetParameters{target}, type == FLOAT,
       subWordWritesRequired, regionSize, offsets.size(), op, isScaled, 1.0,
-      useOnePointDistribution);
+      useOnePointDistribution, type == HALF && type != scaleType);
   return {cycles, static_cast<std::uint64_t>(regionSize) *
                       (flopsPerBinaryOpElement(BinaryOpType::ADD) +
                        flopsPerBinaryOpElement(BinaryOpType::MULTIPLY))};
@@ -3157,16 +3158,20 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, CHAR),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, BOOL),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, true,
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, HALF, true,
                             Operation::ADD),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, false,
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, FLOAT, true,
                             Operation::ADD),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, FLOAT, false,
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, HALF, false,
                             Operation::ADD),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, INT, false,
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, FLOAT, false,
                             Operation::ADD),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, UNSIGNED_INT, false,
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, FLOAT, FLOAT, false,
                             Operation::ADD),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, INT, INT, false,
+                            Operation::ADD),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, UNSIGNED_INT, 
+                            UNSIGNED_INT, false, Operation::ADD),
 
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, HALF, true, Operation::MAX),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, HALF, false, Operation::MAX),

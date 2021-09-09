@@ -928,9 +928,13 @@ void multiupdate(const std::vector<uint32_t> &indicies,
                  boost::optional<popops::Operation> op = boost::none,
                  const Type &dType = HALF, float updateScaling = 1.0,
                  const unsigned E = 8, // unsliced dim
-                 boost::optional<unsigned> dictSize = boost::none) {
+                 boost::optional<unsigned> dictSize = boost::none,
+                 bool useFloatScalingForHalf = false) {
   const bool updateOp = op != boost::none;
   const bool opUsesScale = updateOp && *op == popops::Operation::ADD;
+
+  const Type scaleTensorType =
+      dType == HALF && useFloatScalingForHalf ? FLOAT : dType;
 
   // This test should pass with large T - but graph construction becomes
   // slow (a couple of minutes for T=1024)
@@ -980,7 +984,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
                 sliceOptions, "MultisliceTest");
   } else {
     if (*op == popops::Operation::ADD) {
-      scale = graph.addVariable(dType, {}, "scale");
+      scale = graph.addVariable(scaleTensorType, {}, "scale");
       graph.setTileMapping(scale, 0);
 
       multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
@@ -1006,8 +1010,22 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   if (updateOp && opUsesScale)
     graph.createHostWrite("scale", scale, true);
   std::vector<float> hIn(s.numElements());
+  // This to get value in range for the addition
   const float outBaseValue = 100.0f;
+
+  auto updateSlices = [&](std::vector<float> &h) {
+    const unsigned numElements = h.size();
+    // Most tests use index 0 and 1. Change those entries such that unsliced
+    // dimension has at most 16 unique entries where possible. This tests that
+    // consecutive 4 half reads will be different
+    for (unsigned i = 0; i != std::min(2 * E, numElements); ++i) {
+      h[i] += (i % 16);
+    }
+  };
+
   std::vector<float> hOut(t.numElements(), outBaseValue);
+  updateSlices(hOut);
+
   // This test checks halves - some of these entries will be >maxHalf so the
   // test may fail if large offsets are indexed
   for (unsigned i = 0; i != hIn.size(); ++i)
@@ -1016,10 +1034,10 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   auto target = device.getTarget();
   std::vector<char> rawIn(target.getTypeSize(dType) * hIn.size());
   std::vector<char> rawOut(target.getTypeSize(dType) * hOut.size());
-  std::vector<char> rawScaleIn(target.getTypeSize(dType) * 1);
+  std::vector<char> rawScaleIn(target.getTypeSize(scaleTensorType) * 1);
 
   std::vector<float> scalingF = {updateScaling};
-  copy(target, scalingF, dType, rawScaleIn.data());
+  copy(target, scalingF, scaleTensorType, rawScaleIn.data());
   copy(target, hIn, dType, rawIn.data());
   copy(target, hOut, dType, rawOut.data());
 
@@ -1048,6 +1066,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
     outIdx++;
   }
   std::vector<float> expected(t.numElements(), outBaseValue);
+  updateSlices(expected);
   for (unsigned i = 0; i != indicies.size(); ++i) {
     auto d = indicies[i];
     for (unsigned elem = 0; elem != E; ++elem) {
@@ -1153,6 +1172,27 @@ BOOST_AUTO_TEST_SUITE(MultiUpdateSingles)
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd10Singles) {
   multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
               popops::Operation::ADD, HALF, 0.5);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(MultiUpdateAddHalfScale)
+// Unsliced dimension of 2 per tile
+BOOST_AUTO_TEST_CASE(MultiUpdateAddHalfScaleUnsliced2_10Multiples) {
+  multiupdate({0, 3, 1, 0, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
+              popops::Operation::ADD, HALF, 0.5, 32, boost::none, true);
+}
+
+// Unsliced dimension of 4 per tile
+BOOST_AUTO_TEST_CASE(MultiUpdateAddHalfScaleUnsliced4_10Multiples) {
+  multiupdate({0, 3, 1, 0, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
+              popops::Operation::ADD, HALF, 0.5, 64, boost::none, true);
+}
+
+// Unsliced dimension of 8 per tile
+BOOST_AUTO_TEST_CASE(MultiUpdateAddHalfScaleUnsliced8_10Multiples) {
+  multiupdate({0, 3, 1, 0, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
+              popops::Operation::ADD, HALF, 0.5, 128, boost::none, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

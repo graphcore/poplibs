@@ -316,13 +316,16 @@ void multiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
 /** Accumulate multiple slices in a tensor
  * for i offsets:
  *   t[offsets[i]] += scale * s[i]
- * \p t, \p s and \p scale must have the same element type
- *
+ * \p t, \p s must be of the same type
+ * 
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated (must be rank 2).
  *  \param s           The slices to accumulate.
  *  \param offsets     The offsets within \p t to be accumulated.
- *  \param scale       The scaling to apply to the update.
+ *  \param scale       The scaling to apply to the update. The type of the
+ *                     tensor should be the same as that of \p t and \p s except
+ *                     for the case when \p t and \p s are of type HALF. In
+ *                     which case \p scale can be of type FLOAT or HALF.
  *  \param dims        The dimensions of \p t to be accumulated
  *                     (must be rank 1).
  *  \param sizes       The size of the accumulate in each of the dimensions in

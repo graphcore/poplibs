@@ -684,9 +684,14 @@ static void generateMultiSliceVertices(
 
         if (needSubwordWrites)
           multiUpdateSubwordTiles.emplace_back(tile);
-        vertexName = templateVertex(vertexNameUntemplated, base.elementType(),
-                                    needSubwordWrites, *op);
-
+        if (scale == boost::none) {
+          vertexName = templateVertex(vertexNameUntemplated, base.elementType(),
+                                      needSubwordWrites, *op);
+        } else {
+          vertexName =
+              templateVertex(vertexNameUntemplated, base.elementType(),
+                             scale->elementType(), needSubwordWrites, *op);
+        }
       } else {
         // For halves we process 32-bit at a time and therefore pad the tensors
         // in the case where region size is odd.
@@ -711,8 +716,14 @@ static void generateMultiSliceVertices(
           tileBase = padWithSelf("baseT", tileBase);
           tileSub = padWithSelf("subT", tileSub);
           ++regionSize;
-          vertexName = templateVertex(vertexNameUntemplated, base.elementType(),
-                                      false, *op);
+          if (scale == boost::none) {
+            vertexName = templateVertex(vertexNameUntemplated,
+                                        base.elementType(), false, *op);
+          } else {
+            vertexName =
+                templateVertex(vertexNameUntemplated, base.elementType(), 
+                               scale->elementType(), false, *op);
+          }
         }
       }
     } else {
@@ -943,11 +954,18 @@ static void generatePlannedMultiUpdateOp(
           multiUpdateSubwordTiles.emplace_back(tile);
         }
 
-        const auto vertexName =
-            op == boost::none
-                ? templateVertex(vertexNameUntemplated, stage0OutputType)
-                : templateVertex(vertexNameUntemplated, stage0OutputType,
-                                 needSubwordWrites, *op);
+        std::string vertexName;
+        if (op == boost::none) {
+          vertexName = templateVertex(vertexNameUntemplated, stage0OutputType);
+        } else {
+          vertexName =
+              stage0Scale == boost::none
+                  ? templateVertex(vertexNameUntemplated, stage0OutputType,
+                                   needSubwordWrites, *op)
+                  : templateVertex(vertexNameUntemplated, stage0OutputType,
+                                   stage0Scale->elementType(), 
+                                   needSubwordWrites, *op);
+        }
 
         logging::popops::trace("generatePlannedMultiUpdateOp: "
                                "Offsets {}/{} ({}); "
@@ -2312,10 +2330,6 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
   if (scale != boost::none) {
     if (scale->rank() != 0)
       throw poputil::poplibs_error(multiUpdateName + " scale must be a scaler");
-    if (scale->elementType() != t.elementType()) {
-      throw poputil::poplibs_error(multiUpdateName +
-                                   " scale type must match t");
-    }
   }
   std::string vertexName;
   if (op == boost::none) {
@@ -2432,6 +2446,11 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(t, sMulti, offset, scale, dims, sizes, plan, options));
+
+  if (t.elementType() != HALF && scale.elementType() != t.elementType()) {
+    throw poplibs_error("Scale type can be different from data type only for "
+                        "multiUpdateAdd of type half");
+  }
 
   multiUpdateOp(graph, t, sMulti, offset, scale, dims, sizes, prog, plan,
                 Operation::ADD, options, {di});

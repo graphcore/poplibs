@@ -221,6 +221,8 @@ add_unit_test(MultiUpdatePlanTest DynamicSliceTest.cpp
 add_unit_test(MultiUpdateTestMax DynamicSliceTest.cpp
               SUITES MultiUpdateMaxHalf MultiUpdateMaxFloat VARIANTS Hw;Sim2;IpuModel2)
 
+add_unit_test(MultiUpdateAddHalfScaleTest DynamicSliceTest.cpp
+              SUITES MultiUpdateAddHalfScale VARIANTS Hw;Sim2;IpuModel2)
 
 add_unit_test(SeqSliceTest SeqSliceTest.cpp)
 add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp SUITES CpuChecks VARIANTS Cpu)
