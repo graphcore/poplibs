@@ -1,6 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "ExpressionGenerator.hpp"
 #include "ExprOpUtil.hpp"
+#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "popops/ElementWise.hpp"
@@ -156,19 +157,46 @@ std::string getTypeAlias(const std::string &typeAsStr) {
 }
 
 void executeCodelet(Graph &graph, const std::string &codeletName,
+                    const std::string &multiVertexCodeletName,
                     std::vector<Tensor> inputs, const Tensor &out,
                     const std::vector<std::vector<Interval>> &intervals,
                     unsigned tile, const ComputeSet &cs, size_t numFusedOps,
-                    bool vectorizationIsSupported, bool inPlace) {
+                    unsigned vectorizationWidth, bool inPlace) {
   const auto dType = inputs[0].elementType();
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getVectorWidth(dType);
   const auto grainSize =
       std::max<unsigned>(vectorWidth, target.getAtomicStoreGranularity());
-  auto vertexRegions =
-      splitRegionsBetweenWorkers(target, intervals, grainSize, 2 * grainSize);
+  const auto numWorkers = target.getNumWorkerContexts();
+
+  // Check if each worker in a multivertex can write without conflicting with
+  // other workers
+  const auto outputWritesAreAtomic =
+      target.getTypeSize(out.elementType()) * vectorizationWidth >=
+      target.getAtomicStoreGranularity();
+
+  const bool isMultiVertex = outputWritesAreAtomic && intervals.size() == 1;
+
+  const auto vertexRegions = [&]() {
+    if (isMultiVertex) {
+      std::vector<std::vector<std::vector<poplar::Interval>>> result(1);
+      result[0].resize(1);
+      result[0][0] = intervals[0];
+      logging::popops::trace("Creating 1 MultiVertex on tile {}, name {}", tile,
+                             multiVertexCodeletName);
+      return result;
+    }
+    auto result =
+        splitRegionsBetweenWorkers(target, intervals, grainSize, 2 * grainSize);
+    if (intervals.size()) {
+      logging::popops::trace("Creating {} Vertices on tile {}, name {}",
+                             result.size(), tile, codeletName);
+    }
+    return result;
+  }();
   for (const auto &regions : vertexRegions) {
-    auto v = graph.addVertex(cs, codeletName);
+    auto v = graph.addVertex(cs, isMultiVertex ? multiVertexCodeletName
+                                               : codeletName);
 
     poplar::Tensor outRegions = poplar::concat(out.flatten().slices(regions));
 
@@ -179,7 +207,7 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
                      return poplar::concat(t.flatten().slices(regions));
                    });
 
-    std::uint64_t estimate = 13;
+    std::uint64_t estimate = isMultiVertex ? 20 : 13;
     for (unsigned i = 0; i < inRegions.size(); ++i) {
       if (inputs[i].numElements() == 1) {
 
@@ -191,7 +219,9 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
       estimate += inRegions[i].numElements() / vectorWidth * numFusedOps;
       estimate += inRegions[i].numElements() % vectorWidth * numFusedOps;
     }
-
+    if (isMultiVertex) {
+      estimate = ceildiv(estimate, numWorkers) * numWorkers;
+    }
     graph.setPerfEstimate(v, estimate);
 
     if (!inPlace) {
@@ -219,14 +249,20 @@ poplar::Tensor generateAndExecuteMappedOperations(
 
   poplar::Type returnType = generate.deduceReturnType();
 
-  // Generate the actual codelet which will be run, compile it, add it to the
-  // graph, and store the name of the generated codelet in codeletName.
-  const std::string codeletName =
-      generate.generateCodelet(graph, allInputsScalar, expr);
+  // Generate the actual codelet (single worker 1D) and a MultiVertex.
+  // Both or just one of these may actually be executed depending on if each
+  // tile contains > 1 region or not.
+  // However both are compiled, added to the graph, and the names of the
+  // generated codelets are stored in codeletName, codeletNameMultiVertex.
+  const auto initialiserStrings = generate.generateInitializerStrings(graph);
+  const auto codeletName = generate.generateCodelet(
+      graph, allInputsScalar, expr, initialiserStrings, false);
+  const auto codeletNameMultiVertex = generate.generateCodelet(
+      graph, allInputsScalar, expr, initialiserStrings, true);
 
   size_t numFusedOp = generate.getNumFusedOps();
 
-  bool isVectorizationSupported = generate.isVectorized();
+  const auto vectorizationWidth = generate.getVectorizationWidth(graph);
 
   std::vector<Tensor> flattenedIns;
   std::vector<Tensor *> asPtr;
@@ -264,9 +300,9 @@ poplar::Tensor generateAndExecuteMappedOperations(
     const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
-    executeCodelet(graph, codeletName, flattenedIns, outFlat,
-                   tileContiguousRegions, tile, cs, numFusedOp,
-                   isVectorizationSupported, inPlace);
+    executeCodelet(graph, codeletName, codeletNameMultiVertex, flattenedIns,
+                   outFlat, tileContiguousRegions, tile, cs, numFusedOp,
+                   vectorizationWidth, inPlace);
   }
   prog.add(Execute(cs, {dnai}));
 
@@ -604,10 +640,29 @@ void GenerateCodeletFromMapExpr::addFooter(std::stringstream &stream) {
   )l";
 }
 
+std::string loopCountString(const std::string &sizeStr,
+                            unsigned vectorizationWidth, unsigned numWorkers,
+                            bool isMultiVertex) {
+  auto log2VectorWidth = ceilLog2(vectorizationWidth);
+  if (!isMultiVertex) {
+    return "unsigned loopCount = " + sizeStr + ".size() >>" +
+           std::to_string(log2VectorWidth) + ";";
+  }
+  if (vectorizationWidth == 1) {
+    return "unsigned loopCount = ((" + sizeStr + "+" +
+           std::to_string(numWorkers - 1) + "-wid)*0xaaab)>>18;\n";
+  }
+  return "unsigned loopCount = (((" + sizeStr + ".size() >>" +
+         std::to_string(log2VectorWidth) + ")+" +
+         std::to_string(numWorkers - 1) + "-wid)*0xaaab)>>18;\n";
+}
+
 // Add a vectorized loop to the codelet.
 void GenerateCodeletFromMapExpr::addVectorizedSection(
     std::stringstream &stream, size_t vectorizationWidth,
-    std::string &initalizerString, std::string &constantInitalizerString) {
+    const std::string &initalizerString,
+    const std::string &constantInitalizerString, bool isMultiVertex,
+    unsigned numWorkers) {
 
   stream << R"l(// Vectorized code
             #ifdef __IPU__
@@ -619,6 +674,16 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
            << type.toString() << std::to_string(vectorizationWidth) << ";\n";
   }
 
+  // MultiVertex initial offset and stride
+  if (isMultiVertex) {
+    stream << "const unsigned workerOffset = wid * "
+           << std::to_string(vectorizationWidth) << ";\n";
+    stream << "constexpr unsigned stride = " << numWorkers << ";\n";
+  } else {
+    stream << "constexpr unsigned workerOffset = 0;\n";
+    stream << "constexpr unsigned stride = 1;\n";
+  }
+
   // Add each input as a pointer cast.
   for (std::size_t index : usedPlaceholders) {
     const std::string type =
@@ -627,7 +692,7 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
     // Add: "const {type} * In{id} = reinterpret_cast<{type}*>(in{id});"
     if (inputs[index - 1].numElements() != 1) {
       stream << "const " << type << " * In" << id << " = reinterpret_cast<"
-             << type << "*>(&in" << id << "[0]);\n";
+             << type << "*>(&in" << id << "[workerOffset]);\n";
     }
   }
 
@@ -639,17 +704,19 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
   // Add: "{outType} * In{id} = reinterpret_cast<{type}*>({in1/out});"
   stream << outType << " * Out "
          << " = reinterpret_cast<" << outType << "*>(&" << outString
-         << "[0]);\n";
+         << "[workerOffset]);\n";
 
   stream << "remainder = " << outString << " .size() %"
          << std::to_string(vectorizationWidth)
          << ";\nstartIndex = " << outString << ".size() - remainder;\n";
 
+  stream << loopCountString(outString, vectorizationWidth, numWorkers,
+                            isMultiVertex);
   stream << R"l(
       asm volatile ("# Thwart loop rotation (start)" ::: "memory");
-            for (unsigned i = 0; i <()l"
-         << outString << ".size()/" << std::to_string(vectorizationWidth)
-         << "u); ++i) {\n";
+            while (loopCount) {
+              loopCount--;
+              )l";
 
   // Load the data.
   for (std::size_t index : usedPlaceholders) {
@@ -657,10 +724,10 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
         getTypeAlias(inputs[index - 1].elementType().toString());
     const std::string id = std::to_string(index);
 
-    // Add: load{id} = ipu::load_postinc(&In{id}, 1);
+    // Add: load{id} = ipu::load_postinc(&In{id}, stride);
     if (inputs[index - 1].numElements() != 1) {
       stream << type << " load" + id << "= ipu::load_postinc(&In" << id
-             << ", 1);\n";
+             << ", stride);\n";
     }
   }
 
@@ -669,8 +736,8 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
   stream << initalizerString;
 
   assert(!data.empty() && "Attempting to read data stack which is empty");
-  // Add: "ipu::store_postinc(&Out, {result}, 1);"
-  stream << "ipu::store_postinc(&Out," << data.top().first << ",1);\n";
+  // Add: "ipu::store_postinc(&Out, {result}, stride);"
+  stream << "ipu::store_postinc(&Out," << data.top().first << ",stride);\n";
 
   stream << R"l(
         } // End loop
@@ -681,8 +748,10 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
 
 // Adds the serial section of the codelet to the stream.
 void GenerateCodeletFromMapExpr::addSerialSection(
-    std::stringstream &stream, std::string &initalizerString,
-    std::string &constantInitalizerString, bool allInputsScalar) {
+    std::stringstream &stream, const std::string &initalizerString,
+    const std::string &constantInitalizerString, bool allInputsScalar,
+    unsigned vectorizationWidth, bool vectorizationIsSupported,
+    bool isMultiVertex, unsigned numWorkers) {
 
   stream << R"l(
         // Remainder/Serial fallback.
@@ -695,11 +764,45 @@ void GenerateCodeletFromMapExpr::addSerialSection(
     stream << "using " << asStr << " = " << type.toString() << ";\n";
   }
 
-  // Loop over the remainder
-  stream << R"l(
-          for (unsigned i = startIndex; i < startIndex + remainder; ++i) {
-    )l";
+  if (isMultiVertex && (vectorizationWidth > 1)) {
+    // This function is generating code to deal with the remainder, and
+    // only the last worker deals with the remainder
+    stream << R"l(
+          if(wid == )l"
+           << numWorkers - 1 << R"l() {
+      )l";
+  }
+  bool useWhileLoop = vectorizationWidth == 1 && isMultiVertex;
+  if (useWhileLoop) {
+    // This function is generating the code to deal with a non vectorised type
+    // and it is a multivertex
+    stream << loopCountString("remainder", vectorizationWidth, numWorkers,
+                              isMultiVertex);
+    stream << R"l(
+          unsigned i = wid;
+          while (loopCount) {
+            loopCount--;
 
+      )l";
+  } else if (vectorizationWidth == 2 && vectorizationIsSupported) {
+    // If the vectorization width = 2 there can only be 1 remainder so we don't
+    // need a loop to deal with it.
+    // However if !IPUModel then this is a serial, scalar loop instead which
+    // deals with all the data.
+    stream << R"l(
+          #ifdef __IPU__
+            if(remainder) {
+              unsigned i = startIndex;
+          #else
+              for (unsigned i = startIndex; i < startIndex + remainder; ++i) {
+          #endif
+      )l";
+  } else {
+    // Loop over the remainder - case of vectorization width > 2
+    stream << R"l(
+          for (unsigned i = startIndex; i < startIndex + remainder; ++i) {
+      )l";
+  }
   // Add the aliases to the "load" variable names which the placeholders are
   // using.
   for (std::size_t index : usedPlaceholders) {
@@ -730,67 +833,67 @@ void GenerateCodeletFromMapExpr::addSerialSection(
 
   assert(!data.empty() && "Attempting to read data stack which is empty");
   stream << data.top().first << ";\n";
+
+  if (useWhileLoop) {
+    stream << "i+=" << numWorkers << ";\n";
+  }
 }
 
-std::string GenerateCodeletFromMapExpr::generateCodelet(
-    poplar::Graph &graph, bool allInputsScalar, const expr::Expr &expr) {
-
+InitializerStrings GenerateCodeletFromMapExpr::generateInitializerStrings(
+    const poplar::Graph &graph) {
   // Each stage of the operation is stored as a variable initalization.
-  std::string initalizerString;
+  InitializerStrings result;
+
   while (!initalizers.empty()) {
-    initalizerString += initalizers.front();
+    result.initializerString += initalizers.front();
     initalizers.pop();
   }
 
-  const auto &target = graph.getTarget();
-  poplar::Type smallestVector = *std::min_element(
-      TypesNeedingAlias.begin(), TypesNeedingAlias.end(),
-      [&target](const poplar::Type &lhs, const poplar::Type &rhs) {
-        return target.getVectorWidth(lhs) < target.getVectorWidth(rhs);
-      });
-
-  // Get the smallest vectorization width of all the types.
-  const auto smallestVectorPer64Bits = 8u / target.getTypeSize(smallestVector);
-  const auto vectorizationWidth = std::min<std::size_t>(
-      target.getVectorWidth(smallestVector), smallestVectorPer64Bits);
+  const auto vectorizationWidth = getVectorizationWidth(graph);
   // Process the constant values. We need this step as we cannot just embed
   // the constants if we are working with vectors.
-  std::string constantInitalizerStringScalar;
-  std::string constantInitalizerStringVector;
   while (!constantInitalizers.empty()) {
 
     auto &pair = constantInitalizers.front();
 
     // Just output the constant as "const T C1 = CONST;"
-    constantInitalizerStringScalar += pair.first + pair.second + ";\n";
+    result.constantInitalizerStringScalar += pair.first + pair.second + ";\n";
 
     // Turn the constant into a vector. I.E for vector size of 2: "const T C1
     // = {CONST, CONST};"
-    constantInitalizerStringVector += pair.first + "{";
+    result.constantInitalizerStringVector += pair.first + "{";
     for (unsigned i = 0; i < vectorizationWidth; ++i) {
-      constantInitalizerStringVector += pair.second;
+      result.constantInitalizerStringVector += pair.second;
       if (i != vectorizationWidth - 1) {
-        constantInitalizerStringVector += ", ";
+        result.constantInitalizerStringVector += ", ";
       }
     }
-    constantInitalizerStringVector += "};\n";
+    result.constantInitalizerStringVector += "};\n";
     constantInitalizers.pop();
   }
   // Create vectorised versions of all the scalar Tensors
   for (unsigned i = 0; i < inputs.size(); i++) {
     if (inputs[i].numElements() == 1) {
       const std::string type = getTypeAlias(inputs[i].elementType().toString());
-      constantInitalizerStringVector +=
+      result.constantInitalizerStringVector +=
           type + " load" + std::to_string(i + 1) + "={";
       for (unsigned j = 0; j < vectorizationWidth; j++) {
-        constantInitalizerStringVector +=
+        result.constantInitalizerStringVector +=
             "in" + std::to_string(i + 1) +
             (j != vectorizationWidth - 1 ? "," : "};\n");
       }
     }
   }
+  return result;
+}
+
+std::string GenerateCodeletFromMapExpr::generateCodelet(
+    poplar::Graph &graph, bool allInputsScalar, const expr::Expr &expr,
+    const InitializerStrings &initializerStrings, bool isMultiVertex) {
+
+  const auto vectorizationWidth = getVectorizationWidth(graph);
   const std::string vertexName =
-      createVertexName(expr, inputs, inPlace, allInputsScalar);
+      createVertexName(expr, inputs, inPlace, allInputsScalar, isMultiVertex);
 
   const std::string namespacedVertexName = "popops::map::" + vertexName;
 
@@ -807,7 +910,9 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
   stream << R"l(
   class )l";
 
-  stream << vertexName << " : public Vertex {\npublic:\n";
+  stream << vertexName << " : public";
+  stream << (isMultiVertex ? " MultiVertex" : " Vertex");
+  stream << "{\npublic:\n";
 
   // Constructor.
   stream << vertexName << "();\n";
@@ -846,8 +951,13 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
   }
 
   // Add the start of the actual compute function.
-  body_stream << R"l(
-          bool compute() {)l";
+  if (isMultiVertex) {
+    body_stream << R"l(
+            bool compute(unsigned wid) {)l";
+  } else {
+    body_stream << R"l(
+            bool compute() {)l";
+  }
 
   // If we are vectorizing we will need a serial section to calculate the
   // remainder if the vectorization amount doesn't divide evenly.
@@ -868,17 +978,24 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
               unsigned remainder = out.size();)l";
     }
   }
+  const auto numWorkers = graph.getTarget().getNumWorkerContexts();
   // If we can generate a vectorized version add it to the codelet.
   if (vectorizationIsSupported && vectorizationWidth > 1 && !allInputsScalar) {
-    addVectorizedSection(body_stream, vectorizationWidth, initalizerString,
-                         constantInitalizerStringVector);
+    addVectorizedSection(body_stream, vectorizationWidth,
+                         initializerStrings.initializerString,
+                         initializerStrings.constantInitalizerStringVector,
+                         isMultiVertex, numWorkers);
   }
 
-  addSerialSection(body_stream, initalizerString,
-                   constantInitalizerStringScalar, allInputsScalar);
+  addSerialSection(body_stream, initializerStrings.initializerString,
+                   initializerStrings.constantInitalizerStringScalar,
+                   allInputsScalar, vectorizationWidth,
+                   vectorizationIsSupported, isMultiVertex, numWorkers);
 
   stream << body_stream.str();
-
+  if (isMultiVertex && vectorizationWidth > 1) {
+    stream << " } // End if (wid == numWorkers-1) ";
+  }
   stream << R"l(
           }  // End loop
         }// End serial version.
@@ -888,7 +1005,6 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
   )l";
 
   addFooter(stream);
-
   logging::popops::debug("Adding codelet {} to graph", namespacedVertexName);
   graph.addCodelets(stream);
 
@@ -897,15 +1013,33 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
 
 std::string GenerateCodeletFromMapExpr::createVertexName(
     const expr::Expr &expr, const std::vector<poplar::Tensor> &inputs,
-    const bool inPlace, const bool allInputsScalar) {
+    const bool inPlace, const bool allInputsScalar, const bool isMultiVertex) {
   std::string result = expr.name(inputs);
   result += std::to_string(inPlace);
   result += std::to_string(allInputsScalar);
   for (const auto &input : inputs) {
     result += std::to_string(input.numElements() == 1);
   }
-
+  if (isMultiVertex) {
+    result += "_MultiVertex";
+  }
   return result;
+}
+
+unsigned
+GenerateCodeletFromMapExpr::getVectorizationWidth(const Graph &graph) const {
+  const auto &target = graph.getTarget();
+  // Get the smallest vectorization width of all the types.
+  poplar::Type smallestVector = *std::min_element(
+      TypesNeedingAlias.begin(), TypesNeedingAlias.end(),
+      [&target](const poplar::Type &lhs, const poplar::Type &rhs) {
+        return target.getVectorWidth(lhs) < target.getVectorWidth(rhs);
+      });
+
+  const auto smallestVectorPer64Bits = 8u / target.getTypeSize(smallestVector);
+  const auto vectorizationWidth = std::min<std::size_t>(
+      target.getVectorWidth(smallestVector), smallestVectorPer64Bits);
+  return vectorizationWidth;
 }
 
 } // namespace popops
