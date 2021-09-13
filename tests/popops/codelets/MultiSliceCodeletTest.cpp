@@ -32,10 +32,13 @@ std::vector<TestParams> TestList = {
     {100, 8, 1, 80, 8, false},
     {80, 7, 1, 80, 7, false},
     {100, 8, 1, 80, 8, true},
+    // This should split sliced dimension per worker such that for float
+    // only one element gets allocated per worker
+    {120, 1, 0, 2, 1, true},
     {80, 7, 1, 80, 7, false},
 };
 
-std::vector<unsigned> offsetsTest = {2, 2, 6, 5, 80, 0, 60, 55, 40, 30};
+std::vector<unsigned> offsetsTest = {2, 2, 6, 5, 80, 0, 1, 60, 55, 40, 30};
 
 //*************************************************
 // C test function, based on the original C version of the vertex
@@ -184,7 +187,14 @@ void MultiSliceCodeletTest(const Type &dataType) {
     graph.setInitialValue(dsVertex["numBaseElements"], numBaseElements);
     graph.setInitialValue(dsVertex["regionSize"], regionSize);
     if (update) {
-      auto maxElems = ceildiv(numBaseElements, target.getNumWorkerContexts());
+      unsigned grainSize =
+          std::max(static_cast<unsigned>(target.getAtomicStoreGranularity() /
+                                         target.getTypeSize(dataType)),
+                   1U);
+      unsigned numGrains = ceildiv(numBaseElements, grainSize);
+      unsigned grainsPerWorker =
+          ceildiv(numGrains, target.getNumWorkerContexts());
+      auto maxElems = std::min(numBaseElements, grainsPerWorker * grainSize);
       graph.setInitialValue(dsVertex["maxElementsPerWorker"], maxElems);
     }
     graph.setTileMapping(dsVertex, 0);

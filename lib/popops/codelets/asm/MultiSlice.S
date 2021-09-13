@@ -218,7 +218,6 @@ MultiSlice_common_start:
     add   $mBaseTPtr, $mBaseTPtr, $mWkrStart
     ld32  $mSubTPtr, $mzero, $mvertex_base, VOFF_SUBT_PTR
 
-
 MultiSlice_common_outer_loop_begin:
 
     // Load next offset
@@ -230,8 +229,8 @@ MultiSlice_common_outer_loop_begin:
 
     // Check if offset is a part of BaseT;
     sub    $mBaseIdx, $mScratch, $mBaseIdx
-    cmpult $mScratch, $mBaseElem, $mBaseIdx
-    brnz   $mScratch, MultiSlice_common_outer_loop_resume
+    cmpult $mScratch, $mBaseIdx, $mBaseElem
+    brz   $mScratch, MultiSlice_common_outer_loop_resume
 
     // Substruct baseOffset and prepare BaseT pointer
     mul    $mBaseIdx, $mBaseIdx, $mRegionSizeInBytes
