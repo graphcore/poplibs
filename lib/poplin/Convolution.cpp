@@ -2572,7 +2572,8 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
 }
 
 static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
-                                Sequence &prog, unsigned numConvGroups,
+                                const Plan &plan, Sequence &prog,
+                                unsigned numConvGroups,
                                 unsigned chansPerConvGroup,
                                 const DebugNameAndId &dnai) {
 
@@ -2605,7 +2606,10 @@ static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
   // could also create a grouping for the channels if possible
   auto remappedOutput = graph.addVariable(output.elementType(), remapShape,
                                           {dnai, "remappedOutput"});
-  mapTensorLinearly(graph, remappedOutput, minElementsPerTile, grainSize);
+  bool ascendingMapping =
+      plan.linearizeTileDirection == Plan::LinearizeTileDirection::ASCENDING;
+  mapTensorLinearlyWithOffset(graph, remappedOutput, minElementsPerTile,
+                              grainSize, plan.startTile, ascendingMapping);
   remappedOutput =
       actsToExternalShape(unsplitActivationFromGroups(remappedOutput));
   // Explicity copy to remapped tensor with a benign layout
@@ -2657,7 +2661,7 @@ convolutionInternal(Graph &graph, const poplar::Tensor &in_,
   if (!isWeightUpdatePass && options.remapOutputTensor) {
     const auto dimGroupings = detectDimGroupings(graph, output);
     if (dimGroupings.empty()) {
-      output = remapOutputTensor(graph, output, cpt.finalizeProg,
+      output = remapOutputTensor(graph, output, plan, cpt.finalizeProg,
                                  params->numConvGroups,
                                  params->outputChannelsPerConvGroup, {dnai});
     }
