@@ -54,6 +54,11 @@ using namespace poplibs;
 using namespace popops::internal;
 using namespace popops::modelling;
 
+// Temporary environment variable that can be used to globally force the
+// planning target (memory/cycles) for a planned multiSlice/Update.
+static const char forceUsePlanningTargetVar[] =
+    "POPLIBS_SLICE_PLAN_FORCE_TARGET";
+
 namespace poputil {
 template <> poplar::ProfileValue toProfileValue(const popops::SlicePlan &p) {
   poplar::ProfileValue::Map v;
@@ -246,7 +251,8 @@ std::ostream &operator<<(std::ostream &o, const SlicePlan &p) {
   return o;
 }
 
-static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
+static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
+  auto optionFlags = optionFlags_;
   SliceOptions options;
 
   using poplibs::OptionHandler;
@@ -255,6 +261,13 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
 
   const auto makeSlicePlanConstraintsOptionHandler =
       &makePlanConstraintsOptionHandler<ValidateSlicePlanConstraintsOption>;
+
+  // TODO: T45888 - Remove this environment variable and the option it
+  // forces.
+  if (const char *forcedPlanningTarget =
+          std::getenv(forceUsePlanningTargetVar)) {
+    optionFlags.set("planMinimisationTarget", forcedPlanningTarget);
+  }
 
   /*
    * Any changes to spec must be reflected in the documentation comment in
@@ -274,6 +287,7 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
       {"indicesDistribution",
        OptionHandler::createWithEnum(options.indicesDistribution,
                                      indicesDistributionMap)},
+      // TODO: T45888 - Remove this option
       {"planMinimisationTarget",
        OptionHandler::createWithEnum(
            options.planMinimisationTarget,
@@ -721,7 +735,7 @@ static void generateMultiSliceVertices(
                                         base.elementType(), false, *op);
           } else {
             vertexName =
-                templateVertex(vertexNameUntemplated, base.elementType(), 
+                templateVertex(vertexNameUntemplated, base.elementType(),
                                scale->elementType(), false, *op);
           }
         }
@@ -963,7 +977,7 @@ static void generatePlannedMultiUpdateOp(
                   ? templateVertex(vertexNameUntemplated, stage0OutputType,
                                    needSubwordWrites, *op)
                   : templateVertex(vertexNameUntemplated, stage0OutputType,
-                                   stage0Scale->elementType(), 
+                                   stage0Scale->elementType(),
                                    needSubwordWrites, *op);
         }
 
