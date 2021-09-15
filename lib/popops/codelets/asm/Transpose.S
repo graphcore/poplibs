@@ -16,6 +16,8 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#define DEFINITIONS_ONLY
+#include "elementwiseStubs.S"
 
 // Register aliases
 
@@ -903,10 +905,8 @@ TRANSPOSE_SUPERVISOR_HALF:
 TRANSPOSE_SUPERVISOR_UNSIGNED_SHORT:
 TRANSPOSE_SUPERVISOR_SHORT:
 
-  setzi       $m1, TransposeAT2FromSupervisor
-  runall      $m1, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+  setzi  $WORKER_ENTRY, TransposeAT2FromSupervisor
+  bri    __popops_SupervisorRunallSyncAndReturn
 
   .size TRANSPOSE_HALF_SUPERVISOR, .- TRANSPOSE_HALF_SUPERVISOR
   .size TRANSPOSE_UNSIGNED_SHORT_SUPERVISOR, .- TRANSPOSE_UNSIGNED_SHORT_SUPERVISOR

@@ -4,6 +4,8 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
+#define DEFINITIONS_ONLY
+#include "elementwiseStubs.S"
 
 // vertex state (byte increments)
 #define VERTEX_BROADCAST_IN1_PTR_OFFSET 0
@@ -16,10 +18,6 @@
 #define VERTEX_BROADCAST_INPLACE_IN2_PTR_OFFSET 8
 
 // Register aliases
-
-// Supervisor registers
-#define SUP_VERTEX_BASE m0
-#define WORKER_ENTRY    m1
 
 // Worker registers
 // integer variables
@@ -207,9 +205,7 @@ DEF_STACK_USAGE 0 .text.VERTEX
 .supervisor
 VERTEX:
   setzi        $WORKER_ENTRY, worker_entry\@
-  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
+  bri          __popops_SupervisorRunallSyncAndReturn
 
 // If float is being output there is no inPlace option
 .ifeq \FLOAT_OUT
@@ -219,9 +215,7 @@ VERTEX:
 
 VERTEX_INPLACE:
   setzi        $WORKER_ENTRY, worker_entry_inplace\@
-  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
+  bri          __popops_SupervisorRunallSyncAndReturn
 
 .worker
 worker_entry_inplace\@:

@@ -35,6 +35,8 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#define DEFINITIONS_ONLY
+#include "elementwiseStubs.S"
 
 // This macro defines a label as global, function
 .macro EXPORT_FN label
@@ -184,8 +186,8 @@ FUNC_SECTION(InPlaceSupervisor)
 .supervisor
 CPP_FUNCNAME(InPlaceSupervisor):
   // Set the entry point for the workers.
-  setzi $worker_entry, .LvectorInnerMul_inplace_worker
-  bri .Lrun_workers
+  setzi $WORKER_ENTRY, .LvectorInnerMul_inplace_worker
+  bri    __popops_SupervisorRunallSyncAndReturn
 
 FN_SIZE CPP_FUNCNAME(InPlaceSupervisor)
 
@@ -196,16 +198,8 @@ FUNC_SECTION(Supervisor)
 .supervisor
 CPP_FUNCNAME(Supervisor):
   // Set the entry point for the workers.
-  setzi        $worker_entry, .LvectorInnerMul_worker
-  // Fall through
-
-.Lrun_workers:
-  // Start all workers. Some may have no work to do and just exit.
-  runall       $worker_entry, $supervisor_vertex_base, 0
-  // Wait for all the workers to exit.
-  sync         TEXCH_SYNCZONE_LOCAL
-  // Return to caller.
-  br           $lr
+  setzi  $WORKER_ENTRY, .LvectorInnerMul_worker
+  bri    __popops_SupervisorRunallSyncAndReturn
 
 FN_SIZE CPP_FUNCNAME(Supervisor)
 

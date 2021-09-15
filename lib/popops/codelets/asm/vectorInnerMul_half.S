@@ -143,6 +143,8 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#define DEFINITIONS_ONLY
+#include "elementwiseStubs.S"
 
 // This macro defines a label as global, function
 .macro EXPORT_FN label
@@ -673,19 +675,13 @@ FN_SIZE VectorInnerMul_core_half
 #define VERTEX_DATA_ACTS_OUT_OFFSET 4              // In 32-bits
 
 
-// The following supervisor variables are used. The vertex base is
-// passed in as $m0.
-#define supervisor_vertex_base m0
-#define worker_entry m1
-
 DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor)
 FUNC_SECTION(InPlaceSupervisor)
 .align 4
 .supervisor
 CPP_FUNCNAME(InPlaceSupervisor):
-  setzi $worker_entry, .LvectorInnerMul_inplace_worker
-  bri .Lrun_workers
-
+  setzi $WORKER_ENTRY, .LvectorInnerMul_inplace_worker
+  bri    __popops_SupervisorRunallSyncAndReturn
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor)
 FUNC_SECTION(Supervisor)
@@ -693,20 +689,10 @@ FUNC_SECTION(Supervisor)
 .supervisor
 CPP_FUNCNAME(Supervisor):
   // Set the entry point for the workers.
-  setzi $worker_entry, .LvectorInnerMul_worker
-
-.Lrun_workers:
-  // Start all workers. Some may have no work to do and just exit.
-  runall $worker_entry, $supervisor_vertex_base, 0
-  // Wait for all the workers to exit.
-  sync TEXCH_SYNCZONE_LOCAL
-  // Return to caller.
-  br $lr
+  setzi $WORKER_ENTRY, .LvectorInnerMul_worker
+  bri    __popops_SupervisorRunallSyncAndReturn
 
 FN_SIZE CPP_FUNCNAME(Supervisor)
-
-#undef supervisor_vertex_base
-#undef worker_entry
 
 // Worker code
 

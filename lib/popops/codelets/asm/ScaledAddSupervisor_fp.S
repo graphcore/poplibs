@@ -779,9 +779,7 @@ VERTEX(supervisor):
   runall $sv_workerFunction, $sp, 0 // 6 cycles
   // restore the stack pointer that was changed in the supervisor common code.
   add  $sp, $sp, STACK_SIZE
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
+  bri  __popops_SupervisorSyncAndReturn
 
 .size VERTEX(supervisor), .-VERTEX(supervisor)
 

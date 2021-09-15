@@ -7,6 +7,7 @@
 #define SUP_VERTEX_BASE m0
 #define WORKER_ENTRY    m4
 
+#ifndef DEFINITIONS_ONLY
 //************************************************
 // macro to create mangled names as an entry label into the supervior vertex code,
 // and to reference the worker code entry point.
@@ -21,13 +22,23 @@ DEF_STACK_SIZE_OWN 0 __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr_
  .supervisor
 __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE:
   setzi        $WORKER_ENTRY, __runCodelet_popops__\FULLNAME\()___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE
-  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-
+  bri          __popops_SupervisorRunallSyncAndReturn
   .size __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE,\
     .-__runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE
 .endm
+
+DEF_STACK_SIZE_OWN 0 __popops_SupervisorRunallSyncAndReturn
+.globl __popops_SupervisorRunallSyncAndReturn
+.globl __popops_SupervisorSyncAndReturn
+.section .text.__popops_SupervisorRunallSyncAndReturn:
+.align 4
+ .supervisor
+__popops_SupervisorRunallSyncAndReturn:
+  runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
+__popops_SupervisorSyncAndReturn:
+  sync         TEXCH_SYNCZONE_LOCAL
+  br           $lr
+.size __popops_SupervisorRunallSyncAndReturn, .-__popops_SupervisorRunallSyncAndReturn
 
 //************************************************
 // Macro to make binary operation supervisor stubs
@@ -280,5 +291,7 @@ INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRowInPlace, SUBTRACT, half_true, 
 
 INSTANTIATE_OP BinaryOp, BroadcastVectorInner, DIVIDE, half, float
 INSTANTIATE_OP BinaryOp, BroadcastVectorInnerInPlace, DIVIDE, half, float
+
+#endif // DEFINITIONS_ONLY
 
 #endif

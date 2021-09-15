@@ -134,6 +134,8 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#define DEFINITIONS_ONLY
+#include "elementwiseStubs.S"
 
 // This macro defines a label as global, function
 .macro EXPORT_FN label
@@ -654,20 +656,14 @@ FN_SIZE VectorInnerAdd_core_half
 #define VERTEX_DATA_OUT_OFFSET  4               // In 32-bits
 
 
-// The following supervisor variables are used. The vertex base is
-// passed in as $m0.
-#define supervisor_vertex_base m0
-#define worker_entry m1
-
 DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,SUBTRACT)
 FUNC_SECTION(Supervisor,SUBTRACT)
 .align 4
 .supervisor
 CPP_FUNCNAME(Supervisor,SUBTRACT):
   // Set the entry point for the workers.
-  setzi $worker_entry, .LvectorInnerSubtract_worker
-  // Run the workers.
-  bri .Lrun_workers
+  setzi $WORKER_ENTRY, .LvectorInnerSubtract_worker
+  bri   __popops_SupervisorRunallSyncAndReturn
 
 FN_SIZE CPP_FUNCNAME(Supervisor,SUBTRACT)
 
@@ -678,9 +674,8 @@ FUNC_SECTION(Supervisor,ADD)
 .supervisor
 CPP_FUNCNAME(Supervisor,ADD):
   // Set the entry point for the workers.
-  setzi $worker_entry, .LvectorInnerAdd_worker
-  // Run the workers.
-  bri .Lrun_workers
+  setzi $WORKER_ENTRY, .LvectorInnerAdd_worker
+  bri   __popops_SupervisorRunallSyncAndReturn
 
 FN_SIZE CPP_FUNCNAME(Supervisor,ADD)
 
@@ -691,9 +686,8 @@ FUNC_SECTION(InPlaceSupervisor,SUBTRACT)
 .supervisor
 CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT):
   // Set the entry point for the workers.
-  setzi $worker_entry, .LvectorInnerSubtract_inplace_worker
-  // Run the workers.
-  bri .Lrun_workers
+  setzi $WORKER_ENTRY, .LvectorInnerSubtract_inplace_worker
+  bri   __popops_SupervisorRunallSyncAndReturn
 
 FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
 
@@ -704,22 +698,10 @@ FUNC_SECTION(InPlaceSupervisor,ADD)
 .supervisor
 CPP_FUNCNAME(InPlaceSupervisor,ADD):
   // Set the entry point for the workers.
-  setzi $worker_entry, .LvectorInnerAdd_inplace_worker
-  // Fall through.
-
-.Lrun_workers:
-  // Start all workers. Some may have no work to do and just exit.
-  runall $worker_entry, $supervisor_vertex_base, 0
-  // Wait for all the workers to exit.
-  sync TEXCH_SYNCZONE_LOCAL
-  // Return to caller.
-  br $lr
+  setzi $WORKER_ENTRY, .LvectorInnerAdd_inplace_worker
+  bri   __popops_SupervisorRunallSyncAndReturn
 
 FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,ADD)
-
-
-#undef supervisor_vertex_base
-#undef worker_entry
 
 // Worker code
 

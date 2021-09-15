@@ -15,6 +15,8 @@
 // defined in separate files.
 
 #include "CastCommon.inc"
+#define DEFINITIONS_ONLY
+#include "elementwiseStubs.S"
 
 // Offsets for fields both in the Supervisor and 1D vertex state.
 // All offsets are in bytes
@@ -328,10 +330,8 @@ EXPORT_FN FUNC_SV(\TYPES)
   FUNC_SV(\ALIAS_TYPES):
 .endif
 FUNC_SV(\TYPES):
-  setzi       $m1, __runCodelet_popops__CastWorker___\TYPES
-  runall      $m1, $m0, 0
-  sync        TEXCH_SYNCZONE_LOCAL
-  br          $lr
+  setzi       $WORKER_ENTRY, __runCodelet_popops__CastWorker___\TYPES
+  bri         __popops_SupervisorRunallSyncAndReturn
 FN_SIZE FUNC_SV(\TYPES)
 .endm
 
