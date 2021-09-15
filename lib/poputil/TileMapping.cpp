@@ -36,41 +36,88 @@ getMappingSummary(const std::vector<std::vector<poplar::Interval>> &map) {
   return summary;
 }
 
+static poplar::Graph::TileToTensorMapping
+remapWithOffset(const poplar::Graph::TileToTensorMapping &mapping,
+                std::size_t numTiles, std::size_t offset, bool ascendingOrder) {
+  if (numTiles == 0) {
+    throw poputil::poplibs_error("Cannot remap Tensor over zero tiles");
+  }
+  poplar::Graph::TileToTensorMapping newMapping(numTiles);
+  std::size_t dstTile = ascendingOrder ? offset : numTiles - offset - 1;
+  dstTile = dstTile % numTiles;
+  auto increment = ascendingOrder ? 1 : -1;
+  for (unsigned tile = 0; tile != mapping.size(); ++tile) {
+    if (!mapping[tile].empty()) {
+      newMapping[dstTile] = std::move(mapping[tile]);
+    }
+    if (dstTile == 0 && !ascendingOrder) {
+      dstTile = numTiles - 1;
+    } else if (dstTile == numTiles - 1 && ascendingOrder) {
+      dstTile = 0;
+    } else {
+      dstTile += increment;
+    }
+  }
+  return newMapping;
+}
+
+std::size_t chooseMappingOffset(std::size_t numTiles,
+                                const std::vector<std::size_t> &shape,
+                                std::size_t seed) {
+  if (numTiles == 0) {
+    throw poputil::poplibs_error("Cannot choose a offset from zero tiles");
+  }
+  boost::hash_range(seed, shape.begin(), shape.end());
+  return seed % numTiles;
+}
+
+std::size_t chooseMappingOffset(std::size_t numTiles,
+                                const std::vector<std::size_t> &shape) {
+  return chooseMappingOffset(numTiles, shape, 0x9e3779b9UL);
+}
+
 std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph,
                       std::vector<std::size_t> shape,
-                      unsigned minElementsPerTile, unsigned grainSize) {
+                      unsigned minElementsPerTile, unsigned grainSize,
+                      unsigned offset, bool ascendingOrder) {
   const auto numTiles = graph.getTarget().getNumTiles();
   const auto numElements = std::accumulate(shape.begin(), shape.end(), 1UL,
                                            std::multiplies<std::size_t>());
   std::vector<poplar::Interval> regions = {{0, numElements}};
-  const auto mapping =
-      splitRegions(regions, grainSize, numTiles, minElementsPerTile);
+  auto mapping = splitRegions(regions, grainSize, numTiles, minElementsPerTile);
 
+  if (offset != 0 || !ascendingOrder) {
+    mapping = remapWithOffset(mapping, numTiles, offset, ascendingOrder);
+  }
   if (logging::popops::shouldLog(logging::Level::Debug)) {
     const auto summary = getMappingSummary(mapping);
-    logging::popops::debug(
-        "  CalcLinearMapping Summary: Tiles:[{}, {}) Used:{} MeanPerTile:{}",
-        summary.first, summary.last, summary.used,
-        static_cast<float>(product(shape)) / summary.used);
+    logging::popops::debug("  CalcLinearMapping Offset:{} ascendingOrder:{}"
+                           " Summary: Tiles:[{}, {}) Used:{} MeanPerTile:{}",
+                           offset, ascendingOrder, summary.first, summary.last,
+                           summary.used,
+                           static_cast<float>(product(shape)) / summary.used);
   }
-
   return mapping;
 }
 
 std::vector<std::vector<poplar::Interval>>
-calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t) {
+calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t,
+                      unsigned offset, bool ascendingOrder) {
   const auto dType = t.elementType();
   const auto &target = graph.getTarget();
   const auto typeSize = target.getTypeSize(dType);
   unsigned grainSize = target.getVectorWidth(dType);
   const auto minBytesPerTile = 128;
   const auto minElementsPerTile = (minBytesPerTile + typeSize - 1) / typeSize;
-  return calcLinearTileMapping(graph, t.shape(), minElementsPerTile, grainSize);
+  return calcLinearTileMapping(graph, t.shape(), minElementsPerTile, grainSize,
+                               offset, ascendingOrder);
 }
 
-void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
-                       unsigned minElementsPerTile, unsigned grainSize) {
+void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
+                                 unsigned minElementsPerTile,
+                                 unsigned grainSize, unsigned offset,
+                                 bool ascendingOrder) {
   logging::popops::debug(
       "LinearMapping minPerTile:{} grain:{} Tensor:{}({}):{}",
       minElementsPerTile, grainSize, t.shape(), t.elementType(),
@@ -78,16 +125,27 @@ void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
   logging::popops::debug("  Var:{}", t.getVarStr());
 
   graph.setTileMapping(t, calcLinearTileMapping(graph, t.shape(),
-                                                minElementsPerTile, grainSize));
+                                                minElementsPerTile, grainSize,
+                                                offset, ascendingOrder));
 }
 
-void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t) {
+void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
+                                 unsigned offset, bool ascendingOrder) {
   logging::popops::debug(
       "LinearMapping minPerTile:Default grain:Default Tensor{}({}):{}",
       t.shape(), t.elementType(), t.getDebugStr());
   logging::popops::debug("  Var:{}", t.getVarStr());
+  graph.setTileMapping(t,
+                       calcLinearTileMapping(graph, t, offset, ascendingOrder));
+}
 
-  graph.setTileMapping(t, calcLinearTileMapping(graph, t));
+void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
+                       unsigned minElementsPerTile, unsigned grainSize) {
+  mapTensorLinearlyWithOffset(graph, t, minElementsPerTile, grainSize, 0, true);
+}
+
+void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t) {
+  mapTensorLinearlyWithOffset(graph, t, 0, true);
 }
 
 unsigned getTileImbalance(const poplar::Graph::TileToTensorMapping &mapping,
@@ -385,26 +443,12 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
 
   // remap with dithering
   if (ditherMapping) {
-    // Randomise the start tile for mapping of the variable
-    std::size_t seed = 0x9e3779b9UL;
-    const auto shape = fullTensor.shape();
-    boost::hash_range(seed, shape.begin(), shape.end());
-
+    // Randomise the offset to the start tile for mapping of the variable
     const auto outMapping = graph.getTileMapping(out);
-    const auto numTiles = outMapping.size();
-
-    poplar::Graph::TileToTensorMapping newMapping(numTiles);
-    std::size_t dstTile = seed % numTiles;
-    logging::popops::debug("  Dither start:{}", dstTile);
-    for (unsigned tile = 0; tile != numTiles; ++tile) {
-      if (!outMapping[tile].empty()) {
-        newMapping[dstTile] = std::move(outMapping[tile]);
-      }
-
-      if (++dstTile == numTiles) {
-        dstTile = 0;
-      }
-    }
+    const auto offset =
+        chooseMappingOffset(outMapping.size(), fullTensor.shape());
+    const auto newMapping =
+        remapWithOffset(outMapping, outMapping.size(), offset, true);
     graph.setTileMapping(out, newMapping);
   }
   if (logging::popops::shouldLog(logging::Level::Debug)) {

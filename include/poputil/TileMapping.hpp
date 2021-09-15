@@ -17,8 +17,8 @@ namespace poputil {
 /** Calculate a tile mapping that spreads the tensor evenly over the tiles
  * in a graph.
  *
- * The indices of the flattened tensor are mapped from low to high tile
- * numbers.
+ * By default the indices of the resulting mapping go from from low to high
+ * tile numbers, however offset and direction can be specified.
  *
  * \param graph     The graph to calculate the mapping for.
  * \param shape     The shape of the tensor to be mapped: a vector containing
@@ -28,18 +28,27 @@ namespace poputil {
  *                  tile.
  * \param grainSize The number of elements mapped to each tile will be an
  *                  integer multiple of the grain size.
+ * \param offset    The offset to the first tile used for mapping
+ * \param ascendingOrder
+ *                  If true, the first tile used = offset and tiles are
+ *                  allocated in increasing order
+ *                  If false, the
+ *                  first tile used = (number of device tiles -1 - offset) and
+ *                  tiles are allocated in decreasing order
  *
- * \returns A vector containing
+ * \returns A vector specifying the mapping
  */
 std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph,
                       std::vector<std::size_t> shape,
-                      unsigned minElementsPerTile, unsigned grainSize);
+                      unsigned minElementsPerTile, unsigned grainSize,
+                      unsigned offset = 0, bool ascendingOrder = true);
 
 /** Calculate a tile mapping that spreads the tensor evenly over the tiles in a
  * graph.
  *
- * The indices of the flattened tensor are mapped from low to high tile numbers.
+ * By default the indices of the resulting mapping go from from low to high
+ * tile numbers, however offset and direction can be specified.
  *
  * In this case the elements are distributed so that groups of elements of the
  * device's natural vector width will not be split. It effectively sets the
@@ -55,15 +64,100 @@ calcLinearTileMapping(const poplar::Graph &graph,
  * high exchange costs.
  *
  * \param graph     The graph to add the operation to.
- * \param shape     The tensor to be mapped.
+ * \param t         The tensor to be mapped
+ * \param offset    The offset to the first tile used for mapping
+ * \param ascendingOrder
+ *                  If true, the first tile used = offset and tiles are
+ *                  allocated in increasing order
+ *                  If false, the
+ *                  first tile used = (number of device tiles - 1 - offset) and
+ *                  tiles are allocated in decreasing order
+ *
+ * \returns A vector specifying the mapping
  */
 std::vector<std::vector<poplar::Interval>>
-calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t);
+calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t,
+                      unsigned offset = 0, bool ascendingOrder = true);
 
+/** Map the specified tensor, spreading the tensor evenly over the tiles
+ * in a graph.
+ *
+ * The indices of the flattened tensor are mapped from low to high
+ * tile numbers, however offset and direction can be specified.
+ *
+ * \param graph     The graph to calculate the mapping for.
+ * \param t         The tensor to be mapped.
+ * \param minElementsPerTile
+ *                  The minimum number of tensor elements to be allocated to a
+ *                  tile.
+ * \param grainSize The number of elements mapped to each tile will be an
+ *                  integer multiple of the grain size.
+ * \param offset    The offset to the first tile used for mapping
+ * \param ascendingOrder
+ *                  If true, the first tile used = offset and tiles are
+ *                  allocated in increasing order
+ *                  If false, the
+ *                  first tile used = (number of device tiles -1 - offset) and
+ *                  tiles are allocated in decreasing order
+ */
 void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
                        unsigned minElementsPerTile, unsigned grainSize);
 
+void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
+                                 unsigned minElementsPerTile,
+                                 unsigned grainSize, unsigned offset,
+                                 bool ascendingOrder = true);
+
+/** Map the specified tensor, spreading the tensor evenly over the tiles
+ * in a graph.
+ *
+ * The indices of the flattened tensor are mapped from low to high
+ * tile numbers, however offset and direction can be specified.
+ *
+ * In this case the elements are distributed so that groups of elements of the
+ * device's natural vector width will not be split. It effectively sets the
+ * grain size to the natural vector width for the data type. This means the
+ * number of elements on each tile will be a multiple of the natural vector
+ * width and the index of the first element is aligned to the natural vector
+ * width.
+ *
+ * The natural vector width is the largest vector width supported in hardware
+ * for arithmetic operations on that data type.
+ *
+ * It will also try to keep at least 128 bytes of data on each tile to avoid
+ * high exchange costs.
+ *
+ * \param graph     The graph to add the operation to.
+ * \param t         The tensor to be mapped.
+ * \param offset    The offset to the first tile used for mapping
+ * \param ascendingOrder
+ *                  If true, the first tile used = offset and tiles are
+ *                  allocated in increasing order
+ *                  If false, the
+ *                  first tile used = (number of device tiles -1 - offset) and
+ *                  tiles are allocated in decreasing order
+ */
 void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t);
+
+void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
+                                 unsigned startTile = 0,
+                                 bool ascendingOrder = true);
+
+/** Choose a offset for use with tensor mapping functions using a hash of the
+ * shape provided with the seed provided.
+ *
+ *  \param numTiles      The number of tiles of the intended target device.
+ *  \param shape         The shape to produce a hash of.
+ *  \param seed          Optional seed to use in producing the hash.
+ *
+ *  \returns             The selected offset in the range 0 to numTiles - 1
+ **/
+std::size_t chooseMappingOffset(std::size_t numTiles,
+                                const std::vector<std::size_t> &shape);
+
+std::size_t chooseMappingOffset(std::size_t numTiles,
+                                const std::vector<std::size_t> &shape,
+                                std::size_t seed);
 
 /** Determine how unbalanced a tensor is when mapped over tiles in a graph.
  *

@@ -383,3 +383,106 @@ BOOST_AUTO_TEST_CASE(CloneToGraphBadRange) {
   BOOST_CHECK_THROW(poputil::cloneToGraph(vgraph1, vgraph2, t1),
                     poputil::poplibs_error);
 }
+
+BOOST_AUTO_TEST_CASE(ChooseMappingOffset) {
+  constexpr std::size_t numTiles = 1024;
+
+  // Verifying specific values as observed - the test is that they are in
+  // an acceptable range and are different to each other
+  BOOST_CHECK_EQUAL(chooseMappingOffset(numTiles, {4, 64}), 239);
+  // Check the max tile is respected, result is < 4 and would otherwise be 239
+  BOOST_CHECK_EQUAL(chooseMappingOffset(4, {4, 64}), 3);
+  // Check the seed has an effect, result would be 239 otherwise
+  BOOST_CHECK_EQUAL(chooseMappingOffset(numTiles, {4, 64}, 0x1234), 2);
+  // Check the shape has an effect, result would be 239 otherwise
+  BOOST_CHECK_EQUAL(chooseMappingOffset(numTiles, {256}), 206);
+}
+
+BOOST_AUTO_TEST_CASE(OffsetLinearMapping) {
+  constexpr std::size_t numTiles = 64;
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+
+  TensorUseTracker tracker(target.getNumTiles());
+
+  constexpr std::size_t numElems = numTiles * 10;
+
+  struct Test {
+    unsigned offset;
+    bool ascending;
+  };
+
+  struct MappingSummary {
+    std::size_t first;
+    std::size_t last;
+    std::size_t used;
+    std::size_t firstUnused;
+    std::size_t lastUnused;
+  };
+  auto summariseMap = [](const std::vector<std::vector<Interval>> &map) {
+    MappingSummary result = {map.size(), 0, 0, map.size(), 0};
+    for (std::size_t j = 0; j < map.size(); j++) {
+      if (map[j].size()) {
+        result.first = std::min(j, result.first);
+        result.last = std::max(j, result.last);
+        result.used++;
+      } else {
+        result.firstUnused = std::min(j, result.firstUnused);
+        result.lastUnused = std::max(j, result.lastUnused);
+      }
+    }
+    return result;
+  };
+  std::vector<Test> tests = {{16, true},  {32, false},         {60, true},
+                             {60, false}, {1, true},           {0, false},
+                             {1, false},  {numTiles - 1, true}};
+  std::vector<Tensor> tensors(tests.size());
+  std::vector<MappingSummary> results(tests.size());
+
+  for (unsigned i = 0; i < tests.size(); i++) {
+    tensors[i] = graph.addVariable(FLOAT, {numElems});
+    mapTensorLinearlyWithOffset(graph, tensors[i], tests[i].offset,
+                                tests[i].ascending);
+    auto map = graph.getTileMapping(tensors[i]);
+    results[i] = summariseMap(map);
+  }
+  // As a reference
+  auto tFromZero = graph.addVariable(FLOAT, {numElems});
+  mapTensorLinearly(graph, tFromZero);
+  auto mapFromZero = graph.getTileMapping(tFromZero);
+  auto mapFromZeroSummary = summariseMap(mapFromZero);
+
+  for (unsigned i = 0; i < tests.size(); i++) {
+    BOOST_CHECK_EQUAL(results[i].used, mapFromZeroSummary.used);
+    if (tests[i].ascending) {
+      bool wrapAround = tests[i].offset + mapFromZeroSummary.used > numTiles;
+      if (wrapAround) {
+        BOOST_CHECK_EQUAL(results[i].first, 0);
+        BOOST_CHECK_EQUAL(results[i].last, numTiles - 1);
+        BOOST_CHECK_EQUAL(results[i].lastUnused, tests[i].offset - 1);
+        BOOST_CHECK_EQUAL(results[i].firstUnused,
+                          (tests[i].offset + mapFromZeroSummary.used) %
+                              numTiles);
+      } else {
+        BOOST_CHECK_EQUAL(results[i].first, tests[i].offset);
+        BOOST_CHECK_EQUAL(results[i].last + 1,
+                          tests[i].offset + mapFromZeroSummary.used);
+      }
+    } else {
+      const auto firstMappedTile = (numTiles - tests[i].offset - 1);
+      bool wrapAround = firstMappedTile < mapFromZeroSummary.used;
+      if (wrapAround) {
+        BOOST_CHECK_EQUAL(results[i].first, 0);
+        BOOST_CHECK_EQUAL(results[i].last, numTiles - 1);
+        BOOST_CHECK_EQUAL(results[i].firstUnused, firstMappedTile + 1);
+        BOOST_CHECK_EQUAL(results[i].lastUnused,
+                          numTiles + firstMappedTile - mapFromZeroSummary.used);
+      } else {
+        BOOST_CHECK_EQUAL(results[i].first,
+                          firstMappedTile - mapFromZeroSummary.used + 1);
+        BOOST_CHECK_EQUAL(results[i].last, firstMappedTile);
+      }
+    }
+  }
+}
