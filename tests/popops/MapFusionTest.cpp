@@ -126,14 +126,25 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
     }
 
     // Check the name of the vertex, first by checking that there is only one
-    // vertex type.
+    // vertex type, regardless of if a multivertex was chosen
+    auto sanitizeName = [&](const std::string &in) {
+      auto multiPos = in.find("_MultiVertex");
+      if (multiPos == std::string::npos) {
+        return in;
+      } else {
+        auto out = in;
+        out.erase(multiPos, out.length() - multiPos);
+        return out;
+      }
+    };
+
     std::string name;
     for (const auto &t : report.compilation().tiles()) {
       for (const auto &v : t.memory().vertices()) {
         if (name.empty()) {
-          name = v.type().name();
+          name = sanitizeName(v.type().name());
         } else {
-          if (name != v.type().name()) {
+          if (name != sanitizeName(v.type().name())) {
             std::cerr << "Too many vertex types in graph (is operation fused?)";
             return false;
           }
@@ -209,6 +220,16 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
         InTypeArg3 tmp = hostIn3[i];
         hostIn3[i] = hostIn2[i];
         hostIn2[i] = tmp;
+      }
+    }
+  }
+  if constexpr (std::is_integral<InType>::value) {
+    // Limit the range of a shift to be within the number of bits in the data
+    // type to ensure the expected result isn't undefined
+    if (expr.isA<pe::Shl>()) {
+      auto sizeInBits = sizeof(InType) * 8;
+      for (int i = 0; i < Size; ++i) {
+        hostIn2[i] = hostIn2[i] & (sizeInBits - 1);
       }
     }
   }

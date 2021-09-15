@@ -175,7 +175,14 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
       target.getTypeSize(out.elementType()) * vectorizationWidth >=
       target.getAtomicStoreGranularity();
 
-  const bool isMultiVertex = outputWritesAreAtomic && intervals.size() == 1;
+  // When the alternative is a 1D single worker vertex it's not worth using
+  // a Multivertex
+  const bool inputIsSmallAndContiguous = intervals.size() == 1 &&
+                                         intervals[0].size() == 1 &&
+                                         intervals[0][0].size() <= vectorWidth;
+
+  const bool isMultiVertex = outputWritesAreAtomic && intervals.size() == 1 &&
+                             !inputIsSmallAndContiguous;
 
   const auto vertexRegions = [&]() {
     if (isMultiVertex) {
