@@ -317,7 +317,7 @@ void multiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
  * for i offsets:
  *   t[offsets[i]] += scale * s[i]
  * \p t, \p s must be of the same type
- * 
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated (must be rank 2).
  *  \param s           The slices to accumulate.

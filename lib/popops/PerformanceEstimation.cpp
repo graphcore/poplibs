@@ -98,7 +98,7 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
     bool subWordWritesRequired, const unsigned elemsPerSlice,
     const unsigned numOffsets, const Operation op, const bool scaled,
     const double maxProportionOfIndexableRangePerWorker,
-    const bool useOnePointDistribution, 
+    const bool useOnePointDistribution,
     const bool scaleHigherPrecisionThanData) {
 
   std::uint64_t cycles = 3; // load size, zero check and exitz.

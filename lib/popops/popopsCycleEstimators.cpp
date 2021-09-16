@@ -3170,7 +3170,7 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             Operation::ADD),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, INT, INT, false,
                             Operation::ADD),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, UNSIGNED_INT, 
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, UNSIGNED_INT,
                             UNSIGNED_INT, false, Operation::ADD),
 
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, HALF, true, Operation::MAX),
