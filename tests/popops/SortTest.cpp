@@ -505,3 +505,104 @@ BOOST_AUTO_TEST_CASE(DeviceSortKVFloatUInt) {
     BOOST_CHECK(std::is_sorted(begin, end));
   }
 }
+
+BOOST_AUTO_TEST_CASE(DeviceSortKVFloatInt) {
+  std::array<float, 64> key;
+  std::array<int, 64> value;
+  boost::random::mt19937 gen;
+  boost::random::uniform_real_distribution<> dist(-1024, 1024);
+  std::generate(std::begin(key), std::end(key), std::bind(dist, gen));
+  std::iota(value.begin(), value.end(), 0);
+  auto out = deviceSortKV(key, value);
+
+  // Check that we have the same elements in some order
+  BOOST_CHECK(
+      std::is_permutation(std::begin(value), std::end(value), std::begin(out)));
+
+  // Check that the elements are in sorted order
+  std::array<float, 64> keyPermuted;
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    keyPermuted[i] = key[out[i]];
+  }
+  BOOST_CHECK(std::is_sorted(std::begin(keyPermuted), std::begin(keyPermuted)));
+
+  out = deviceSortKV(key, value, {4, 4, 4}, 2);
+  BOOST_CHECK(
+      std::is_permutation(std::begin(value), std::end(value), std::begin(out)));
+
+  // Check that the elements are in sorted order on the specified dimension
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    keyPermuted[i] = key[out[i]];
+  }
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      const auto begin = keyPermuted.data() + (i * 16 + j * 4);
+      const auto end = keyPermuted.data() + (i * 16 + (j + 1) * 4);
+
+      BOOST_CHECK(std::is_sorted(begin, end));
+    }
+  }
+
+  out = deviceSortKV(key, value, {4, 4, 4}, 1);
+  BOOST_CHECK(
+      std::is_permutation(std::begin(value), std::end(value), std::begin(out)));
+
+  // Check that the elements are in sorted order on the specified dimension
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    keyPermuted[i] = key[out[i]];
+  }
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      for (int k = 0; k < 4; ++k) {
+        BOOST_CHECK(keyPermuted[i * 16 + j * 4 + k] <=
+                    keyPermuted[i * 16 + (j + 1) * 4 + k]);
+      }
+    }
+  }
+
+  out = deviceSortKV(key, value, {4, 4, 4}, 0);
+  BOOST_CHECK(
+      std::is_permutation(std::begin(value), std::end(value), std::begin(out)));
+
+  // Check that the elements are in sorted order on the specified dimension
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    keyPermuted[i] = key[out[i]];
+  }
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      for (int k = 0; k < 4; ++k) {
+        BOOST_CHECK(keyPermuted[i * 16 + j * 4 + k] <=
+                    keyPermuted[(i + 1) * 16 + j * 4 + k]);
+      }
+    }
+  }
+
+  out = deviceSortKV(key, value, {16, 4}, 0);
+  BOOST_CHECK(
+      std::is_permutation(std::begin(value), std::end(value), std::begin(out)));
+
+  // Check that the elements are in sorted order on the specified dimension
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    keyPermuted[i] = key[out[i]];
+  }
+  for (int i = 0; i < 15; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      BOOST_CHECK(keyPermuted[i * 4 + j] <= keyPermuted[(i + 1) * 4 + j]);
+    }
+  }
+
+  out = deviceSortKV(key, value, {16, 4}, 1);
+  BOOST_CHECK(
+      std::is_permutation(std::begin(value), std::end(value), std::begin(out)));
+
+  // Check that the elements are in sorted order on the specified dimension
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    keyPermuted[i] = key[out[i]];
+  }
+  for (int i = 0; i < 15; ++i) {
+    const auto begin = keyPermuted.data() + (i * 4);
+    const auto end = keyPermuted.data() + ((i + 1) * 4);
+
+    BOOST_CHECK(std::is_sorted(begin, end));
+  }
+}

@@ -343,8 +343,11 @@ poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
 
   auto key = k;
   auto value = v;
-  if (v.elementType() == poplar::UNSIGNED_INT &&
+  if (graph.getTarget().getTypeSize(v.elementType()) ==
+          graph.getTarget().getTypeSize(poplar::UNSIGNED_INT) &&
       (k.elementType() == poplar::FLOAT || k.elementType() == poplar::HALF)) {
+    value = value.reinterpret(poplar::UNSIGNED_INT);
+
     // k == n for full sort.
     const auto n = k.dim(dim);
     const bool largest = true;
@@ -355,6 +358,7 @@ poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
         popops::topKKeyValue(graph, prog, key, value, params, {di});
     key = key.dimRoll(key.rank() - 1, dim);
     value = value.dimRoll(value.rank() - 1, dim);
+    value = value.reinterpret(v.elementType());
   } else {
     key = poputil::duplicate(graph, key, prog, {di});
     value = poputil::duplicate(graph, value, prog, {di});
@@ -382,13 +386,19 @@ void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
         "dimension in the input tensor");
   }
 
-  if (v.elementType() == poplar::UNSIGNED_INT &&
+  auto key = k;
+  auto value = v;
+
+  if (graph.getTarget().getTypeSize(v.elementType()) ==
+          graph.getTarget().getTypeSize(poplar::UNSIGNED_INT) &&
       (k.elementType() == poplar::FLOAT || k.elementType() == poplar::HALF)) {
+    value = value.reinterpret(poplar::UNSIGNED_INT);
+
     const auto n = k.dim(dim);
     const bool largest = true;
     const TopKParams params(n, largest, popops::SortOrder::ASCENDING);
-    auto key = k.dimRoll(dim, k.rank() - 1);
-    auto value = v.dimRoll(dim, v.rank() - 1);
+    key = key.dimRoll(dim, key.rank() - 1);
+    value = value.dimRoll(dim, value.rank() - 1);
     // We just use the non in-place API with a copy after the fact
     // as with bitonic sort there is not much difference.
     std::tie(key, value) =
@@ -397,7 +407,8 @@ void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
     value = value.dimRoll(value.rank() - 1, dim);
 
     prog.add(poplar::program::Copy(std::move(key), k));
-    prog.add(poplar::program::Copy(std::move(value), v));
+    prog.add(poplar::program::Copy(std::move(value),
+                                   v.reinterpret(poplar::UNSIGNED_INT)));
   } else {
     poplar::Tensor keyView = flattenDimension(k, dim);
     poplar::Tensor valueView = flattenDimension(v, dim);
