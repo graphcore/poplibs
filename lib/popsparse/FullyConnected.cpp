@@ -1419,7 +1419,8 @@ finalReduction(Graph &graph, ProgBuilder &progBuilder,
                      partialsInMemOrder.rank() - 1);
       result = poplin::multiStageGroupedReduce(
           graph, partialsInMemOrderWithGrouping, resultType,
-          progBuilder.reductionCSs.at(level), convOpts, {dnai, levelPrefix});
+          progBuilder.reductionCSs.at(level), convOpts, 0, true,
+          {dnai, levelPrefix});
       // Remove grouping of inner-most dimension as used by conv reductions.
       result = unfactorDims(result, 1, result.rank() - 2);
       // Reorder back to internal dimension ordering and restore groupings.

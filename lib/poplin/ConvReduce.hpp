@@ -17,7 +17,8 @@ poplar::Tensor
 multiStageGroupedReduce(poplar::Graph &graph, poplar::Tensor partials,
                         const poplar::Type &resultType,
                         std::vector<poplar::ComputeSet> &computeSets,
-                        const ConvOptions &options,
+                        const ConvOptions &options, unsigned startTile,
+                        bool ascendingMapping,
                         const poplar::DebugNameAndId &dnai);
 } // namespace poplin
 

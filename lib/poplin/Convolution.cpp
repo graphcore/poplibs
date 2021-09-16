@@ -2420,9 +2420,11 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       // until inPlace addition of all serial splits have completed.
       auto reducedType =
           (partition.inChanSplit.serial > 1) ? partialType : resultType;
+      bool ascendingMapping = plan.linearizeTileDirection ==
+                              Plan::LinearizeTileDirection::ASCENDING;
       out = multiStageGroupedReduce(graph, partials, reducedType,
                                     cpt.reduceOrCastComputeSets[level], options,
-                                    {dnai});
+                                    plan.startTile, ascendingMapping, {dnai});
       out = unsplitActivationFromGroups(out);
     }
   }
