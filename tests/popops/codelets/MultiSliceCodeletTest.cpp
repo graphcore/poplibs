@@ -119,7 +119,7 @@ void MultiSliceCodeletTest(const Type &dataType) {
   // Initialise input pattern, dummy data to check its overwritten when
   // it should be, and not when its not. Also need to limit data range otherwise
   // it will fail a check on small data types (8bit types and HALF). 2048 is the
-  // lagest integer number that can be represented bit-exact by HALFs
+  // largest integer number that can be represented bit-exact by HALF's
   // (significant)
   unsigned limit =
       (dataType == CHAR || dataType == UNSIGNED_CHAR || dataType == SIGNED_CHAR)
