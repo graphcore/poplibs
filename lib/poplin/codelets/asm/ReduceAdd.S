@@ -41,13 +41,7 @@
 //****************************************************************************
 // Supervisor registers
 #define S_VERTEX_BASE   m0
-#define S_PARTIALS      m1
-#define S_OUT_PTR       m2
-#define S_ELEMS_LOOPS   m3
 #define S_WORKER_ENTRY  m4
-#define S_ELEMS_REM     m5
-#define S_NUM_ELEMS     m6
-#define S_SCRATCH       m7
 //****************************************************************************
 // Worker Registers
 #define PARTIALS    m0
@@ -58,7 +52,11 @@
 #define OUT_PTR      m4
 #define PARTIALS_PTR m5
 #define BASE         m6
-#define ELEMS_REM    m7
+#if COMPACT_VECTOR_TYPES_AVAILABLE
+#define MEM_BASE     m7
+#else
+#define MEM_BASE mzero
+#endif
 #define OUT_PTR_STORE m8
 #define SCRATCH2      m9
 #define WKR_ID       m10
@@ -105,116 +103,47 @@
 // Constants
 //****************************************************************************
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
+#define STACK_SIZE (0)
 
 //****************************************************************************
-// Constants to divide by 24 (24 is the number of input floats
-// processed in 1 loop pass by all workers combined)
+// Work division
 //****************************************************************************
 #define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
 #define LOG2_24_OVER_3 3
 #define LOG2_12_OVER_3 2
-//****************************************************************************
-// Constants to divide by 48 (48 is the number of input halves
-// processed in 1 loop pass by all workers combined)
-//****************************************************************************
-#define LOG2_48_OVER_3 4
 
-//****************************************************************************
-// Supervisor pre-process:
-// Expand the 2 scaled pointers in the vertex state
-// Divide the work between workers
-// Pass the results to the workers on the stack
-// Include pointer to the original vertex state so the workers can access other
-// counts etc.
-//****************************************************************************
-#define STACK_SIZE (6*4)
+#define DIV_6_SHIFT 18
 
-#define STACK_ELEMS_LOOPS 0
-#define STACK_ELEMS_REM 1
-#define STACK_PARTIALS 2
-#define STACK_OUT_PTR 3
-#define STACK_NUM_ELEMS 4
-#define STACK_NUM_PARTIALS 5
-
-//Using ---------- Every 6 instructions to indicate supervisor pipeline -------
-
-.macro SUPERVISOR_PRE_PROCESS WKR_DIV_MPY WORKER_ENTRY_LABEL
-
-.if \WKR_DIV_MPY == 48
-  .equ  WKR_DIV_SHIFT, LOG2_48_OVER_3
-.else
-  .equ  WKR_DIV_SHIFT, LOG2_24_OVER_3
-.endif
-  // NOTE: S_ELEMS_REM calculation is a bootleneck here so need to keep all
-  //       these NOP instruction to preserve 6 instructions pipeline
-  // Load and decode the output SCALED32_PTR for an output ptr
-  ldz16 $S_NUM_ELEMS, $mzero, $S_VERTEX_BASE, VOFF_NUM_ELEMS/2
-  setzi $S_ELEMS_LOOPS, RECIPROCAL_3_SHL17
-#if COMPACT_VECTOR_TYPES_AVAILABLE
-  ldz16 $S_OUT_PTR, $mzero, $S_VERTEX_BASE, VOFF_OUT/2
-  ldz16 $S_PARTIALS, $mzero, $S_VERTEX_BASE, VOFF_PARTIALS/2
-  setzi $S_SCRATCH, TMEM_REGION0_BASE_ADDR
-#else
-  ld32 $S_OUT_PTR, $mzero, $S_VERTEX_BASE, VOFF_OUT/4
-  ld32 $S_PARTIALS, $mzero, $S_VERTEX_BASE, VOFF_PARTIALS/4
-  nop   // keep nop for 6 instructions pipeline
-#endif
-  add   $sp, $sp, -STACK_SIZE
-//-----------------------------------------------------------------------------
-  setzi $S_WORKER_ENTRY, \WORKER_ENTRY_LABEL
-  mul   $S_ELEMS_LOOPS, $S_NUM_ELEMS, $S_ELEMS_LOOPS
-#if COMPACT_VECTOR_TYPES_AVAILABLE
-  shl   $S_OUT_PTR, $S_OUT_PTR, 3
-  shl   $S_PARTIALS, $S_PARTIALS, 2
-#else
-  nop   // keep nop for 6 instructions pipeline
-  nop   // keep nop for 6 instructions pipeline
-#endif
-  nop
-  // Include storing the original vertex state on the stack so that the workers can access it
-  st32  $S_NUM_ELEMS, $sp, $mzero, STACK_NUM_ELEMS
-//-----------------------------------------------------------------------------
-  nop
-  shr   $S_ELEMS_LOOPS, $S_ELEMS_LOOPS, (17 + WKR_DIV_SHIFT)
-#if COMPACT_VECTOR_TYPES_AVAILABLE
-  nop   // keep nop for 6 instructions pipeline
-  add   $S_PARTIALS, $S_PARTIALS, $S_SCRATCH
-#else
-  nop   // keep nop for 6 instructions pipeline
-  nop   // keep nop for 6 instructions pipeline
-#endif
-  ldz16 $S_SCRATCH, $mzero, $S_VERTEX_BASE, VOFF_NUM_PARTIALS/2
-  nop
-//-----------------------------------------------------------------------------
-  nop
-  mul   $S_ELEMS_REM, $S_ELEMS_LOOPS, \WKR_DIV_MPY
-  st32  $S_OUT_PTR, $sp, $mzero, STACK_OUT_PTR
-  st32  $S_PARTIALS, $sp, $mzero, STACK_PARTIALS
-  st32  $S_ELEMS_LOOPS, $sp, $mzero, STACK_ELEMS_LOOPS
-  st32  $S_SCRATCH, $sp, $mzero, STACK_NUM_PARTIALS
-//-----------------------------------------------------------------------------
-  nop
-  sub   $S_ELEMS_REM, $S_NUM_ELEMS, $S_ELEMS_REM
-  st32  $S_ELEMS_REM, $sp, $mzero, STACK_ELEMS_REM // 6 cycles
-
+.macro DIVIDE_BY_WORKER mIN mWORKER mSCRATCH mOUT SHIFTS_FOR_GRAINSIZE
+  shr \mOUT, \mIN, \SHIFTS_FOR_GRAINSIZE
+  add \mOUT, \mOUT, CTXT_WORKERS-1
+  sub \mOUT, \mOUT, \mWORKER
+  setzi \mSCRATCH, RECIPROCAL_3_SHL17
+  mul \mOUT, \mOUT, \mSCRATCH
+  shr \mOUT, \mOUT, DIV_6_SHIFT
 .endm
 
 //****************************************************************************
-// Macro to load vertex state, state pre-processed by the supervisor
-// and worker ID / Init accumulators
+// Macro to load vertex state
 //****************************************************************************
 
 .macro WORKER_PREAMBLE
   .worker
-  // Read the supervisor processed state (on the stack) to get the
-  // divided work information and the pointers
-  ld32 $NUM_ELEMS, $mzero, $mvertex_base, STACK_NUM_ELEMS
-  ld32 $NUM_PARTIALS, $mzero, $mvertex_base, STACK_NUM_PARTIALS
-  ld32  $ELEMS_LOOPS, $mvertex_base, $mzero, STACK_ELEMS_LOOPS
-  ld32  $ELEMS_REM, $mvertex_base, $mzero, STACK_ELEMS_REM
+  ldz16 $NUM_ELEMS, $mzero, $mvertex_base, VOFF_NUM_ELEMS/2
+  ldz16 $NUM_PARTIALS, $mzero, $mvertex_base, VOFF_NUM_PARTIALS/2
 
-  ld32  $PARTIALS, $mvertex_base, $mzero, STACK_PARTIALS
-  ld32  $OUT_PTR, $mvertex_base, $mzero, STACK_OUT_PTR
+#if COMPACT_VECTOR_TYPES_AVAILABLE
+  ldz16  $PARTIALS, $mvertex_base, $mzero, VOFF_PARTIALS/2
+  ldz16  $OUT_PTR, $mvertex_base, $mzero, VOFF_OUT/2
+  shl   $OUT_PTR, $OUT_PTR, 3
+  shl   $PARTIALS, $PARTIALS, 2
+  {setzi $MEM_BASE, TMEM_REGION0_BASE_ADDR
+   fnop} // rpt align
+#else
+  ld32 $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT/4
+  ld32 $PARTIALS, $mzero, $mvertex_base, VOFF_PARTIALS/4
+#endif
+
   {mov   $OUT_PTR_STORE, $OUT_PTR
    setzi $ZAACC, ZAACC_BITMASK}
 
@@ -239,12 +168,8 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Half
 .supervisor
 
 ReduceAdd_Float_Half:
-
-  SUPERVISOR_PRE_PROCESS 48 reduce_add_worker_fh
-
-  // Pass the stack pointer to the worker, so it sees the pre-processed vertex state
-  runall       $S_WORKER_ENTRY, $sp, 0
-  add          $sp, $sp, STACK_SIZE
+  setzi        $S_WORKER_ENTRY, reduce_add_worker_fh
+  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
   sync         TEXCH_SYNCZONE_LOCAL
   br           $lr
 
@@ -260,10 +185,7 @@ reduce_add_worker_fh:
   add   $OUT_PTR, $OUT_PTR, $BASE
   shl   $BASE, $WKR_ID, 4
 
-  // If WKR_ID < Remainder/8 then this worker must do one more group of 8
-  shr     $SCRATCH, $ELEMS_REM, 3
-  cmpult  $SCRATCH, $WKR_ID, $SCRATCH
-  add     $ELEMS_LOOPS, $ELEMS_LOOPS, $SCRATCH
+ DIVIDE_BY_WORKER $NUM_ELEMS $WKR_ID $SCRATCH $ELEMS_LOOPS LOG2_24_OVER_3
 
   // Decrement loop count as we use brnzdec, and skip loop if this worker
   // has no groups of 8 to process
@@ -272,7 +194,7 @@ reduce_add_worker_fh:
 
 .Lelems_loop8_fh:
   mov      $SCRATCH, $PARTIALS
-  ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
+  ld32step $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
 
   rpt     $NUM_PARTIALS, (2f-1f)/8 -1
 
@@ -281,7 +203,7 @@ reduce_add_worker_fh:
    fnop}
   {ld64     $VAL34, $BASE, $PARTIALS_PTR, 1
    fnop}
-  {ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
    f16v8acc $VAL14}
 2:
   // Store the results from the independent sums of 8 columns found in the loop
@@ -356,14 +278,14 @@ reduce_add_worker_fh:
   add         $BASE, $NUM_ELEMS, -1
   shl         $BASE, $BASE, 1
 
-  ld32step    $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  ld32step    $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
 
   {rpt        $NUM_PARTIALS, (2f-1f)/8 -1
    zero       $VAL1}
 1:
   {ldb16      $VAL3, $BASE, $PARTIALS_PTR, 0
    fnop}
-  {ld32step   $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step   $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    f16v2add   $VAL1, $VAL1, $VAL3}
 2:
   // Store the results. Base will now index to floats, not halves so double it
@@ -379,7 +301,7 @@ reduce_add_worker_fh:
   sub         $BASE, $NUM_ELEMS, $SCRATCH
   shl         $BASE, $BASE, 1
 
-  {ld32step $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    zero     $VAL1}
 
   {rpt    $NUM_PARTIALS, (2f-1f)/8 -1
@@ -387,7 +309,7 @@ reduce_add_worker_fh:
 1:
   {ld32     $VAL3, $BASE, $PARTIALS_PTR, 0
    fnop}
-  {ld32step $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    f16v2add $VAL1, $VAL1, $VAL3}
 2:
   // Store the results. Base will now index to floats, not halves so double it
@@ -402,13 +324,13 @@ reduce_add_worker_fh:
   sub         $BASE, $NUM_ELEMS, $SCRATCH
   shl         $BASE, $BASE, 1
 
-  ld32step    $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  ld32step    $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
 
   rpt   $NUM_PARTIALS, (2f-1f)/8 -1
 1:
   {ld64     $VAL12, $BASE, $PARTIALS_PTR,0
    fnop}
-  {ld32step $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    f16v4acc    $VAL12}
 2:
   // Store the results. Base will now index to floats, not halves so double it
@@ -435,14 +357,14 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Half
 .supervisor
 
 ReduceAdd_Half_Half:
-  SUPERVISOR_PRE_PROCESS 48 reduce_add_worker_hh
-  runall       $S_WORKER_ENTRY, $sp, 0
-  add          $sp, $sp, STACK_SIZE
+  setzi        $S_WORKER_ENTRY, reduce_add_worker_hh
+  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
   sync         TEXCH_SYNCZONE_LOCAL
   br           $lr
+
 //****************************************************************************
   .worker
-  fnop        //For repeat alignment below
+  nop          // For repeat alignment
 reduce_add_worker_hh:
   WORKER_PREAMBLE
   // Each worker will start writing strided 8 halves (16 bytes) apart
@@ -450,10 +372,7 @@ reduce_add_worker_hh:
   shl   $BASE, $WKR_ID, 4
   add   $OUT_PTR, $OUT_PTR, $BASE
 
-  // If WKR_ID < Remainder/8 then this worker must do one more group of 8
-  shr     $SCRATCH, $ELEMS_REM, 3
-  cmpult  $SCRATCH, $WKR_ID, $SCRATCH
-  add     $ELEMS_LOOPS, $ELEMS_LOOPS, $SCRATCH
+  DIVIDE_BY_WORKER $NUM_ELEMS $WKR_ID $SCRATCH $ELEMS_LOOPS LOG2_24_OVER_3
 
   // Decrement loop count as we use brnzdec, and skip loop if this worker
   // has no groups of 8 to process
@@ -467,8 +386,7 @@ reduce_add_worker_hh:
   st64step    $VAL12, $mzero, $OUT_PTR+=,1+(5*2)
 .Lelems_loop8_hh_1st:
   mov      $SCRATCH, $PARTIALS
-  ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
-
+  ld32step $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
   rpt      $NUM_PARTIALS, (2f-1f)/8 -1
 
 1:
@@ -476,7 +394,7 @@ reduce_add_worker_hh:
    fnop}
   {ld64     $VAL34, $BASE, $PARTIALS_PTR, 1
    fnop}
-  {ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
    f16v8acc $VAL14}
 2:
   // Store the results from the independent sums of 8 columns found in the loop
@@ -555,14 +473,14 @@ reduce_add_worker_hh:
   add         $BASE, $NUM_ELEMS, -1
   shl         $BASE, $BASE, 1
 
-  ld32step    $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  ld32step    $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
 
   {rpt        $NUM_PARTIALS, (2f-1f)/8 -1
    zero        $VAL1}
 1:
   {ldb16      $VAL3, $BASE, $PARTIALS_PTR, 0
    fnop}
-  {ld32step   $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step   $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    f16v2add     $VAL1, $VAL1, $VAL3}
 2:
   ldb16       $VAL2, $BASE, $OUT_PTR_STORE, 1
@@ -577,7 +495,7 @@ reduce_add_worker_hh:
   sub         $BASE, $NUM_ELEMS, $SCRATCH
   shl         $BASE, $BASE, 1
 
-  {ld32step $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    zero     $VAL1}
 
   {rpt    $NUM_PARTIALS, (2f-1f)/8 -1
@@ -585,7 +503,7 @@ reduce_add_worker_hh:
 1:
   {ld32     $VAL3, $BASE, $PARTIALS_PTR, 0
    fnop}
-  {ld32step $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    f16v2add $VAL1, $VAL1, $VAL3}
 2:
   st32      $VAL1, $BASE, $OUT_PTR_STORE,0
@@ -597,13 +515,13 @@ reduce_add_worker_hh:
   sub         $BASE, $NUM_ELEMS, $SCRATCH
   shl         $BASE, $BASE, 1
 
-  ld32step    $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  ld32step    $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
 
   rpt   $NUM_PARTIALS, (2f-1f)/8 -1
 1:
   {ld64     $VAL12, $BASE, $PARTIALS_PTR,0
    fnop}
-  {ld32step $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    f16v4acc    $VAL12}
 2:
   // Store the results
@@ -628,9 +546,8 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Float
 .align 8
 .supervisor
 ReduceAdd_Half_Float:
-  SUPERVISOR_PRE_PROCESS 24 reduce_add_worker_hf
-  runall       $S_WORKER_ENTRY, $sp, 0
-  add          $sp, $sp, STACK_SIZE
+  setzi        $S_WORKER_ENTRY, reduce_add_worker_hf
+  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
   sync         TEXCH_SYNCZONE_LOCAL
   br           $lr
 
@@ -644,10 +561,7 @@ reduce_add_worker_hf:
   add   $OUT_PTR, $OUT_PTR, $BASE
   shl   $BASE, $WKR_ID, 4
 
-  // If WKR_ID < Remainder/4 then this worker must do one more group of 4
-  shr     $SCRATCH, $ELEMS_REM, 2
-  cmpult  $SCRATCH, $WKR_ID, $SCRATCH
-  add     $ELEMS_LOOPS, $ELEMS_LOOPS, $SCRATCH
+ DIVIDE_BY_WORKER $NUM_ELEMS $WKR_ID $SCRATCH $ELEMS_LOOPS LOG2_12_OVER_3
 
   // Decrement loop count as we use brnzdec, and skip loop if this worker
   // has no groups of 4 to copy
@@ -659,7 +573,7 @@ reduce_add_worker_hf:
   st64step    $VAL12, $mzero, $OUT_PTR+=,6
 .Lelems_loop4_hf_1st:
   mov      $SCRATCH, $PARTIALS
-  ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
+  ld32step $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
 
   rpt     $NUM_PARTIALS, (2f-1f)/8 -1
 
@@ -668,7 +582,7 @@ reduce_add_worker_hf:
    fnop}
   {ld64     $VAL34, $BASE, $PARTIALS_PTR, 1
    fnop}
-  {ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
    f32v4acc    $VAL14}
 2:
   // Store the results from the independent sums of 4 columns found in the loop
@@ -716,14 +630,14 @@ reduce_add_worker_hf:
   add         $BASE, $NUM_ELEMS, -1
   shl         $BASE, $BASE, 2
 
-  {ld32step    $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step    $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    fnop}       // For loop alignment
   {rpt        $NUM_PARTIALS, (2f-1f)/8 -1
    zero       $VAL1}
 1:
   {ld32       $VAL3, $BASE, $PARTIALS_PTR, 0
    fnop}
-  {ld32step   $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step   $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    f32add     $VAL1, $VAL1, $VAL3}
 2:
   // Output base is in halves, not floats so needs to be half the size
@@ -740,7 +654,7 @@ reduce_add_worker_hf:
   sub       $BASE, $NUM_ELEMS, $SCRATCH
   shl       $BASE, $BASE, 2
 
-  {ld32step $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    zero     $VAL12}
 
   {rpt      $NUM_PARTIALS, (2f-1f)/8 -1
@@ -748,7 +662,7 @@ reduce_add_worker_hf:
 1:
   {ld64     $VAL34, $BASE, $PARTIALS_PTR, 0
    fnop}
-  {ld32step $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    f32v2add $VAL12, $VAL12, $VAL34}
 2:
   // Store result.
@@ -775,9 +689,8 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Float
 .align 8
 .supervisor
 ReduceAdd_Float_Float:
-  SUPERVISOR_PRE_PROCESS 24 reduce_add_worker_ff
-  runall       $S_WORKER_ENTRY, $sp, 0
-  add          $sp, $sp, STACK_SIZE
+  setzi        $S_WORKER_ENTRY, reduce_add_worker_ff
+  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
   sync         TEXCH_SYNCZONE_LOCAL
   br           $lr
 //****************************************************************************
@@ -789,10 +702,7 @@ reduce_add_worker_ff:
   shl   $BASE, $WKR_ID, 4
   add   $OUT_PTR, $OUT_PTR, $BASE
 
-  // If WKR_ID < Remainder/4 then this worker must do one more group of 4
-  shr     $SCRATCH, $ELEMS_REM, 2
-  cmpult  $SCRATCH, $WKR_ID, $SCRATCH
-  add     $ELEMS_LOOPS, $ELEMS_LOOPS, $SCRATCH
+  DIVIDE_BY_WORKER $NUM_ELEMS $WKR_ID $SCRATCH $ELEMS_LOOPS LOG2_12_OVER_3
 
   // Decrement loop count as we use brnzdec, and skip loop if this worker
   // has no groups of 4 to copy
@@ -801,7 +711,7 @@ reduce_add_worker_ff:
 
 .Lelems_loop4_ff:
   mov       $SCRATCH, $PARTIALS
-  ld32step  $PARTIALS_PTR, $mzero, $SCRATCH+=,1
+  ld32step  $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
 
   rpt       $NUM_PARTIALS, (2f-1f)/8 -1
 
@@ -810,7 +720,7 @@ reduce_add_worker_ff:
    fnop}
   {ld64     $VAL34, $BASE, $PARTIALS_PTR, 1
    fnop}
-  {ld32step $PARTIALS_PTR, $mzero, $SCRATCH+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
    f32v4acc $VAL14}
 2:
   // Store the results from the independent sums of 4 columns found in the loop
@@ -843,14 +753,14 @@ no_loop4_ff:
   add         $BASE, $BASE, -6
   shl         $BASE, $BASE, 2
 
-  {ld32step   $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step   $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    fnop}      // For loop alignment
   {rpt        $NUM_PARTIALS, (2f-1f)/8 -1
    zero       $VAL1}
 1:
   {ld32      $VAL3, $BASE, $PARTIALS_PTR, 0
    fnop}
-  {ld32step   $PARTIALS_PTR, $mzero, $PARTIALS+=,1
+  {ld32step   $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
    f32add     $VAL1, $VAL1, $VAL3}
 2:
   // Store the result
