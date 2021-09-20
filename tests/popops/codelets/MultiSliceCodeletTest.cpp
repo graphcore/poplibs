@@ -6,17 +6,20 @@
 #include <poplar/Engine.hpp>
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/TestDevice.hpp>
-#include <popops/Zero.hpp>
-
 #include <poplibs_test/Util.hpp>
+#include <popops/Operation.hpp>
+#include <popops/OperationDefUtil.hpp>
+#include <popops/Zero.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <vector>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace poplibs_support;
+using namespace popops;
 
 // Define a number of tests to run:
 struct TestParams {
@@ -26,19 +29,29 @@ struct TestParams {
   unsigned numBaseElements;
   unsigned regionSize;
   bool update;
+  bool indicesAreSorted;
+  std::optional<Operation> op;
 };
+
+// Scale used for MultiUpdateAdd. Use a fixed scale and always use float
+// type.
+const float scaleForMultiUpdateAdd = 0.5;
 
 std::vector<TestParams> TestList = {
-    {100, 8, 1, 80, 8, false},
-    {80, 7, 1, 80, 7, false},
-    {100, 8, 1, 80, 8, true},
+    {100, 8, 1, 80, 8, false, false, std::nullopt},
+    {80, 7, 1, 80, 7, false, true, std::nullopt},
+    {100, 8, 1, 80, 8, true, true, Operation::ADD},
+    {100, 8, 1, 80, 8, true, false, Operation::ADD},
     // This should split sliced dimension per worker such that for float
     // only one element gets allocated per worker
-    {120, 1, 0, 2, 1, true},
-    {80, 7, 1, 80, 7, false},
+    {120, 1, 0, 2, 1, true, false, std::nullopt},
+    {80, 7, 1, 80, 7, true, true, Operation::MAX},
+    {80, 7, 1, 80, 7, true, false, Operation::MAX},
 };
 
-std::vector<unsigned> offsetsTest = {2, 2, 6, 5, 80, 0, 1, 60, 55, 40, 30};
+// nust have the same size to stream to device
+std::vector<unsigned> offsetsTestUnsorted = {2, 2, 6, 5, 80, 0, 60, 55, 40, 30};
+std::vector<unsigned> offsetsTestSorted = {2, 2, 2, 5, 5, 30, 40, 40, 40, 50};
 
 //*************************************************
 // C test function, based on the original C version of the vertex
@@ -65,7 +78,8 @@ void MultiSliceHost(std::vector<unsigned> &offsets, std::vector<double> &baseT,
 //*************************************************
 void MultiUpdateHost(std::vector<unsigned> &offsets, std::vector<double> &baseT,
                      std::vector<double> &subT, unsigned baseOffset,
-                     unsigned numBaseElements, unsigned short regionSize) {
+                     unsigned numBaseElements, unsigned short regionSize,
+                     std::optional<Operation> op) {
 
   for (unsigned o = 0; o != offsets.size(); ++o) {
     auto baseIdx = offsets[o];
@@ -76,7 +90,18 @@ void MultiUpdateHost(std::vector<unsigned> &offsets, std::vector<double> &baseT,
     baseIdx -= baseOffset;
 
     for (unsigned e = 0; e != regionSize; ++e) {
-      baseT[baseIdx * regionSize + e] = subT[o * regionSize + e];
+      if (op == std::nullopt) {
+        baseT[baseIdx * regionSize + e] = subT[o * regionSize + e];
+      } else {
+        if (*op == Operation::MAX) {
+          baseT[baseIdx * regionSize + e] = std::max(
+              subT[o * regionSize + e], baseT[baseIdx * regionSize + e]);
+
+        } else if (*op == Operation::ADD) {
+          baseT[baseIdx * regionSize + e] +=
+              subT[o * regionSize + e] * scaleForMultiUpdateAdd;
+        }
+      }
     }
   }
 }
@@ -135,11 +160,13 @@ void MultiSliceCodeletTest(const Type &dataType) {
   Graph graph(target);
   popops::addCodelets(graph);
 
+  assert(offsetsTestSorted.size() == offsetsTestUnsorted.size());
+
   // Test In and out tensor
   Tensor in = graph.addVariable(dataType, {total_size}, "Input");
   Tensor out = graph.addVariable(dataType, {total_size}, "Output");
   Tensor offsets =
-      graph.addVariable(UNSIGNED_INT, {offsetsTest.size()}, "Offsets");
+      graph.addVariable(UNSIGNED_INT, {offsetsTestUnsorted.size()}, "Offsets");
   graph.setTileMapping(in, 0);
   graph.setTileMapping(out, 0);
   graph.setTileMapping(offsets, 0);
@@ -155,9 +182,22 @@ void MultiSliceCodeletTest(const Type &dataType) {
   auto offs = allocateHostMemoryForTensor(offsets, "offsets", graph, uploadProg,
                                           downloadProg, tmap);
 
+  auto scaleTensor = graph.addVariable(poplar::FLOAT, {});
+  graph.setTileMapping(scaleTensor, 0);
+  auto scale = allocateHostMemoryForTensor(scaleTensor, "scale", graph,
+                                           uploadProg, downloadProg, tmap);
+
   // Make multiple programs to test dynamic slice, each selecting
   // different slices, for different output sizes and offsets
   std::vector<Program> programs;
+
+  // allow multi-update op only for HALF, FLOAT, UNSIGNED_INT and INT
+  const auto allowMultiUpdateOp = dataType == HALF || dataType == FLOAT ||
+                                  dataType == UNSIGNED_INT || dataType == INT;
+
+  // allow only multi-update ADD on HALF and FLOAT types. i.e. a subset of
+  // allowed multi-update op
+  const auto allowMultiUpdateAdd = dataType == HALF || dataType == FLOAT;
 
   for (unsigned tests = 0; tests < test_count; tests++) {
     auto rows = TestList[tests].rows;
@@ -166,7 +206,14 @@ void MultiSliceCodeletTest(const Type &dataType) {
     auto numBaseElements = TestList[tests].numBaseElements;
     auto regionSize = TestList[tests].regionSize;
     auto update = TestList[tests].update;
+    auto indicesAreSorted = TestList[tests].indicesAreSorted;
+    auto op = TestList[tests].op;
 
+    const auto isMultiUpdateAdd = op != std::nullopt && *op == Operation::ADD;
+    if ((isMultiUpdateAdd && !allowMultiUpdateAdd) ||
+        (op != std::nullopt && !allowMultiUpdateOp)) {
+      continue;
+    }
     Sequence sequence;
 
     ComputeSet testComputeSet = graph.addComputeSet("computeMultiSlice");
@@ -175,7 +222,19 @@ void MultiSliceCodeletTest(const Type &dataType) {
     auto base = in.slice(0, rows * columns);
     auto sub = out.slice(0, regionSize * offsets.numElements());
     if (update) {
-      vertexClass = templateVertex("popops::MultiUpdate", dataType);
+      if (op == std::nullopt) {
+        vertexClass = templateVertex("popops::MultiUpdate", dataType);
+      } else {
+        auto subWordWrites = ((regionSize * target.getTypeSize(dataType)) %
+                              target.getAtomicStoreGranularity()) != 0;
+        if (*op == Operation::MAX) {
+          vertexClass = templateVertex("popops::MultiUpdateOp", dataType,
+                                       subWordWrites, *op);
+        } else if (*op == Operation::ADD) {
+          vertexClass = templateVertex("popops::ScaledMultiUpdateOp", dataType,
+                                       FLOAT, subWordWrites, *op);
+        }
+      }
       base = out.slice(0, rows * columns);
       sub = in.slice(0, regionSize * offsets.numElements());
     }
@@ -186,6 +245,7 @@ void MultiSliceCodeletTest(const Type &dataType) {
     graph.setInitialValue(dsVertex["baseOffset"], baseOffset);
     graph.setInitialValue(dsVertex["numBaseElements"], numBaseElements);
     graph.setInitialValue(dsVertex["regionSize"], regionSize);
+    graph.setInitialValue(dsVertex["indicesAreSorted"], indicesAreSorted);
     if (update) {
       unsigned grainSize =
           std::max(static_cast<unsigned>(target.getAtomicStoreGranularity() /
@@ -196,6 +256,9 @@ void MultiSliceCodeletTest(const Type &dataType) {
           ceildiv(numGrains, target.getNumWorkerContexts());
       auto maxElems = std::min(numBaseElements, grainsPerWorker * grainSize);
       graph.setInitialValue(dsVertex["maxElementsPerWorker"], maxElems);
+      if (isMultiUpdateAdd) {
+        graph.connect(dsVertex["scale"], scaleTensor);
+      }
     }
     graph.setTileMapping(dsVertex, 0);
 
@@ -216,20 +279,33 @@ void MultiSliceCodeletTest(const Type &dataType) {
   // Put test inputs into an array of the correct type ready to use
   std::vector<double> outHost(total_size);
 
-  for (unsigned tests = 0; tests < test_count; tests++) {
+  for (unsigned tests = 0, progNum = 0; tests < test_count; tests++) {
     auto baseOffset = TestList[tests].baseOffset;
     auto numBaseElements = TestList[tests].numBaseElements;
     auto regionSize = TestList[tests].regionSize;
     auto update = TestList[tests].update;
+    auto indicesAreSorted = TestList[tests].indicesAreSorted;
+    auto op = TestList[tests].op;
 
+    const auto isMultiUpdateAdd = op != std::nullopt && *op == Operation::ADD;
+    if ((isMultiUpdateAdd && !allowMultiUpdateAdd) ||
+        (op != std::nullopt && !allowMultiUpdateOp)) {
+      continue;
+    }
+    auto &offsetsTest =
+        indicesAreSorted ? offsetsTestSorted : offsetsTestUnsorted;
     copy(target, inTest.data(), inTest.size(), dataType, input.get());
     copy(target, offsetsTest.data(), offsetsTest.size(), UNSIGNED_INT,
          offs.get());
 
+    if (allowMultiUpdateAdd && isMultiUpdateAdd) {
+      copy(target, &scaleForMultiUpdateAdd, 1, FLOAT, scale.get());
+    }
+
     device.bind([&](const Device &d) {
       engine.load(d);
       engine.run(uploadProgIndex);
-      engine.run(tests);
+      engine.run(progNum);
       engine.run(downloadProgIndex);
     });
 
@@ -241,7 +317,7 @@ void MultiSliceCodeletTest(const Type &dataType) {
 
     if (update) {
       MultiUpdateHost(offsetsTest, outTest, inTest, baseOffset, numBaseElements,
-                      regionSize);
+                      regionSize, op);
     } else {
       MultiSliceHost(offsetsTest, inTest, outTest, baseOffset, numBaseElements,
                      regionSize);
@@ -253,17 +329,16 @@ void MultiSliceCodeletTest(const Type &dataType) {
                               {outHost.size()}, outTest.data(), outTest.size(),
                               0.0, 0.0);
     BOOST_CHECK(check);
+    ++progNum;
   }
 }
 
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_half) {
   MultiSliceCodeletTest(HALF);
 }
-
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_float) {
   MultiSliceCodeletTest(FLOAT);
 }
-
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_int) { MultiSliceCodeletTest(INT); }
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_unsigned) {
   MultiSliceCodeletTest(UNSIGNED_INT);

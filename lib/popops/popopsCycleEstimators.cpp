@@ -2170,10 +2170,9 @@ static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
       vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
   const auto offsets = vertex.getFieldInfo("offsets");
   // Assume worst case scenario where every index is in range for the vertex.
-  const bool useOnePointDistribution = true;
   return getMultiSliceCycleEstimate(MultiSliceTargetParameters{target, type},
-                                    regionSize, offsets.size(), 1.0,
-                                    useOnePointDistribution, isUpdate);
+                                    regionSize, offsets.size(), offsets.size(),
+                                    0, isUpdate);
 }
 
 VertexPerfEstimate
@@ -2201,11 +2200,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledMultiUpdateOp)(
   // Assume worst case scenario where every index is in range for one of the
   // workers in the vertex.
   const bool isScaled = true;
-  const bool useOnePointDistribution = true;
   const auto cycles = getMultiUpdateOpCycleEstimate(
-      MultiUpdateOpTargetParameters{target}, type == FLOAT,
-      subWordWritesRequired, regionSize, offsets.size(), op, isScaled, 1.0,
-      useOnePointDistribution, type == HALF && type != scaleType);
+      MultiUpdateOpTargetParameters{target, type}, subWordWritesRequired,
+      regionSize, offsets.size(), offsets.size(), 0, op, isScaled,
+      type == HALF && type != scaleType, false);
   return {cycles, static_cast<std::uint64_t>(regionSize) *
                       (flopsPerBinaryOpElement(BinaryOpType::ADD) +
                        flopsPerBinaryOpElement(BinaryOpType::MULTIPLY))};
@@ -2224,11 +2222,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(MultiUpdateOp)(
   // Assume worst case scenario where every index is in range for one of the
   // workers in the vertex.
   const bool isScaled = false;
-  const bool useOnePointDistribution = true;
   const auto cycles = getMultiUpdateOpCycleEstimate(
-      MultiUpdateOpTargetParameters{target}, type == FLOAT,
-      subWordWritesRequired, regionSize, offsets.size(), op, isScaled, 1.0,
-      useOnePointDistribution);
+      MultiUpdateOpTargetParameters{target, type}, subWordWritesRequired,
+      regionSize, offsets.size(), offsets.size(), 0, op, isScaled, false,
+      false);
   return {cycles, static_cast<std::uint64_t>(regionSize) *
                       flopsPerBinaryOpElement(BinaryOpType::ADD)};
 }

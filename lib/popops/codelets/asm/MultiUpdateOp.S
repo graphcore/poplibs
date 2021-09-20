@@ -2,9 +2,15 @@
 #ifdef __IPU__
 
 #include "MultiSliceUpdateCommon.h.S"
+#include "BinarySearch.h.S"
 
 #define WORKER_FUNCTION(type,op,scaled) MultiUpdateOp_##type##_##op##_##scaled
-#define STACK_SIZE 0
+#define STACK_SIZE 2
+
+// stack storage
+#define STACK_REG_M8             0
+#define STACK_REG_M9             1
+#define STACK_BS_START_INDEX     2
 
 // vertex states, all offsets are in bytes
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
@@ -13,16 +19,18 @@
 #define VERTEX_STATE_SUB_T_OFFSET             8
 #define VERTEX_STATE_BASE_T_OFFSET            12
 #define VERTEX_STATE_REGION_SIZE_OFFSET       14
-#define VERTEX_STATE_BASE_OFFSET_OFFSET       16
-#define VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET 20
-#define VERTEX_STATE_ELEMENTS_PER_WORKER      24
-#define VERTEX_STATE_SCALE_OFFSET             28
+#define VERTEX_STATE_INDICES_ARE_SORTED       16
+#define VERTEX_STATE_BASE_OFFSET_OFFSET       20
+#define VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET 24
+#define VERTEX_STATE_ELEMENTS_PER_WORKER      28
+#define VERTEX_STATE_SCALE_OFFSET             32
 #else
 #define VERTEX_STATE_POINTER_OFFSET           0
 #define VERTEX_STATE_SIZE_OFFSET              4
 #define VERTEX_STATE_SUB_T_OFFSET             8
 #define VERTEX_STATE_BASE_T_OFFSET            12
 #define VERTEX_STATE_REGION_SIZE_OFFSET       16
+#define VERTEX_STATE_INDICES_ARE_SORTED       18
 #define VERTEX_STATE_BASE_OFFSET_OFFSET       20
 #define VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET 24
 #define VERTEX_STATE_ELEMENTS_PER_WORKER      28
@@ -40,18 +48,18 @@
 #define offsetSize m1
 #define baseTPtr m2
 #define subTPtr m3
-#define baseOffset m4
+#define baseOffset m8
 #define numBaseElements m5
 #define regionSize m6
 #define regionSizeM1 m7
 #define regionSizeM2 m7
-#define regionBytesOffset m8
+#define regionBytesOffset m4
 #define baseIdx m9
 #define subTOffset m10
 #define maxElementsPerWorker m7
-#define workerId m8
+#define workerId m4
 #define wkrStart m9
-#define wkrEnd m8
+#define wkrEnd m4
 
 // supervisor register aliases
 #define sv_workerFunction m1
@@ -64,6 +72,42 @@
 
 #define SCALED_CODELET_NAME(type, scaleType) __runCodelet_popops__ScaledMultiUpdateOp___##type##_##scaleType##_false_popops__Operation__\OPTYPE\()
 #define UNSCALED_CODELET_NAME(type) __runCodelet_popops__MultiUpdateOp___##type##_false_popops__Operation__\OPTYPE\()
+
+// Code to perform binary search
+.macro BINARY_SEARCH_AND_UPDATE_OFFSETS LABEL1, LABEL2
+  // Do a binary search over the sorted entries. The lowest entry greater than
+  // equal to the dictionary entry allocated to his tile and the highest entry
+  // less than equal to largest dictionary entry is searched for. We use this
+  // information to find the number of offset positions to process per worker and
+  // adjust the offset pointers accordingly
+
+  // store used registers on stack
+  st32 $m8, $mzero, $mworker_base, STACK_REG_M8
+  st32 $m9, $mzero, $mworker_base, STACK_REG_M9
+
+  ld32 $mBS_indicesPtr, $mzero, $mvertex_base, VERTEX_STATE_POINTER_OFFSET/4
+  ld32 $mBS_numIndices, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
+  mov  $mBS_targetValue, $baseOffset
+
+  // result in $mBS_startIndex
+  call $mBS_retLr, lowerBinarySearch
+
+  // $mBS_indicesPtr, $mBS_numIndices and  $mBS_targetValue are unmodified
+  add $mBS_targetValue, $mBS_targetValue, $numBaseElements
+  // result in $mBS_endIndex
+  call $mBS_retLr, upperBinarySearch
+  sub $offsetSize, $mBS_endIndex, $mBS_startIndex
+  brneg $offsetSize, \LABEL1\() // .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_epilogue
+
+  // offset pointer is the same as 
+  ld32step $mzero, $mzero, $offsetPtr+=, $mBS_startIndex
+
+  st32 $mBS_startIndex, $mworker_base, STACK_BS_START_INDEX
+  ld32 $m8, $mzero, $mworker_base, STACK_REG_M8
+  ld32 $m9, $mzero, $mworker_base, STACK_REG_M9
+
+  bri \LABEL2\() // .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_CheckOffsets
+.endm
 
 // Float versions have scale type of float and hence the macro is not 
 // parametrised by scale type.
@@ -81,7 +125,7 @@ DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(float)
 .endif
 
 .align 8
-#ifndef VECTOR_AVAIL_SCALED_PTR32
+#ifdef VECTOR_AVAIL_SCALED_PTR32
   nop // rpt loop aligment
 #endif
 
@@ -90,13 +134,26 @@ SCALED_CODELET_NAME(float, float):
 .else
 UNSCALED_CODELET_NAME(float):
 .endif
-  // load vertex state, do a size check on offsets
-  ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
-  brz $offsetSize, .Lfloat_\OPTYPE\()_\SCALED\()_epilogue
 
   UPDATE_OFFSET_AND_SIZES $numBaseElements $maxElementsPerWorker $workerId $wkrStart $wkrEnd $baseOffset VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET VERTEX_STATE_ELEMENTS_PER_WORKER VERTEX_STATE_BASE_OFFSET_OFFSET
 
+  ldz8 $mscratch, $mvertex_base, VERTEX_STATE_INDICES_ARE_SORTED
+  brz $mscratch, .Lfloat_\OPTYPE\()_\SCALED\()_LoadOffset
+
+  BINARY_SEARCH_AND_UPDATE_OFFSETS .Lfloat_\OPTYPE\()_\SCALED\()_epilogue .Lfloat_\OPTYPE\()_\SCALED\()_CheckOffset
+
+.Lfloat_\OPTYPE\()_\SCALED\()_LoadOffset:
+  ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
   ld32 $offsetPtr, $mzero, $mvertex_base, VERTEX_STATE_POINTER_OFFSET/4
+  st32 $mzero, $mworker_base, STACK_BS_START_INDEX
+
+.Lfloat_\OPTYPE\()_\SCALED\()_CheckOffset:
+
+  // early exit if there are no indices to process
+  brnzdec $offsetSize, .Lfloat_\OPTYPE\()_\SCALED\()_LoadPtrs
+  exitz $mzero
+
+.Lfloat_\OPTYPE\()_\SCALED\()_LoadPtrs:
   ld32 $subTPtr, $mzero, $mvertex_base, VERTEX_STATE_SUB_T_OFFSET/4
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
   ldz16 $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET/2
@@ -124,12 +181,14 @@ UNSCALED_CODELET_NAME(float):
   // we offset both baseT and subT by regionSize * sizeof(T) so precalculate
   // that outside of the main loop.
   mul $regionBytesOffset, $regionSize, SIZEOF_FLOAT
+  ld32 $mscratch, $mworker_base, STACK_BS_START_INDEX
+  mul $mscratch, $mscratch, $regionBytesOffset
+  add $subTPtr, $subTPtr, $mscratch
 
   // adjust pointers by offset for this worker
   mul $wkrStart, $wkrStart, $regionBytesOffset
   add $baseTPtr, $baseTPtr, $wkrStart
   
-  sub $offsetSize, $offsetSize, 1
 .LFloat_\OPTYPE\()_\SCALED\()_offset_loop:
   ld32 $baseIdx, $offsetPtr, $mzero, $offsetSize
 
@@ -245,7 +304,7 @@ DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(half)
 .globl UNSCALED_CODELET_NAME(half)
 .endif
 .align 8
-#ifdef VECTOR_AVAIL_SCALED_PTR32
+#ifndef VECTOR_AVAIL_SCALED_PTR32
   nop // rpt loop aligment
 #endif
 .ifc \SCALED, true
@@ -253,22 +312,33 @@ SCALED_CODELET_NAME(half, \SCALE_TYPE\()):
 .else
 UNSCALED_CODELET_NAME(half):
 .endif
-  // load vertex state, do a size check on offsets
-  ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
-  {
-    brz $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_epilogue
-    setzi $a0, ZAACC_BITMASK
-  }
 
   UPDATE_OFFSET_AND_SIZES $numBaseElements $maxElementsPerWorker $workerId $wkrStart $wkrEnd $baseOffset VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET VERTEX_STATE_ELEMENTS_PER_WORKER VERTEX_STATE_BASE_OFFSET_OFFSET
-
-  // clear the accumulators incase there is anything nefarious in there for the
-  // first call to f16v4mix.
   {
-    ld32 $offsetPtr, $mzero, $mvertex_base, VERTEX_STATE_POINTER_OFFSET/4
+    ldz8 $mscratch, $mvertex_base, VERTEX_STATE_INDICES_ARE_SORTED
+    setzi $a0, ZAACC_BITMASK
+  }
+  brz $mscratch, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_LoadOffset
+
+  BINARY_SEARCH_AND_UPDATE_OFFSETS .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_epilogue .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_CheckOffsets
+
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_LoadOffset:
+  ld32 $offsetSize, $mzero, $mvertex_base, VERTEX_STATE_SIZE_OFFSET/4
+  ld32 $offsetPtr, $mzero, $mvertex_base, VERTEX_STATE_POINTER_OFFSET/4
+  st32 $mzero, $mworker_base, STACK_BS_START_INDEX
+
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_CheckOffsets:
+  // early exit if there are no indices to process
+  brnzdec $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_LoadPtrs
+  exitz $mzero
+
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_LoadPtrs:
+  {
+    ld32 $subTPtr, $mzero, $mvertex_base, VERTEX_STATE_SUB_T_OFFSET/4
+    // clear the accumulators incase there is anything nefarious in there for the
+    // first call to f16v4mix.
     uput $FP_CLR, $a0
   }
-  ld32 $subTPtr, $mzero, $mvertex_base, VERTEX_STATE_SUB_T_OFFSET/4
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
   ldz16 $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET/2
 #else
@@ -341,7 +411,10 @@ UNSCALED_CODELET_NAME(half):
   mul $wkrStart, $wkrStart, $regionBytesOffset
   add $baseTPtr, $baseTPtr, $wkrStart
 
-  sub $offsetSize, $offsetSize, 1
+  ld32 $mscratch, $mworker_base, STACK_BS_START_INDEX
+  mul $mscratch, $mscratch, $regionBytesOffset
+  add $subTPtr, $subTPtr, $mscratch
+
 .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_loop:
   ld32 $baseIdx, $offsetPtr, $mzero, $offsetSize
 

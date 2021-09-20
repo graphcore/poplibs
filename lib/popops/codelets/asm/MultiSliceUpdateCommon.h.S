@@ -31,5 +31,18 @@
 .endm
 
 
+// Binary search functions
+.extern lowerBinarySearch
+.extern upperBinarySearch
+
+
+// binary search register aliases
+#define mBS_indicesPtr     m0
+#define mBS_numIndices     m1
+#define mBS_targetValue    m2
+#define mBS_retLr          m11
+#define mBS_startIndex     m7
+#define mBS_endIndex       m10
+
 #endif // __IPU__
 #endif // MultiSliceUpdateCommon_h_S

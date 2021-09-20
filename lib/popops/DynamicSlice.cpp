@@ -164,6 +164,9 @@ struct SliceOptions {
   // Controls the target for optimisation when planning.
   PlanMinimisationTarget planMinimisationTarget =
       PlanMinimisationTarget::MEMORY;
+
+  // Indices are sorted in increasing order
+  bool indicesAreSorted = false;
 };
 
 std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
@@ -182,6 +185,8 @@ std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
   }
   os << ", indicesDistribution=" << o.indicesDistribution
      << ", planMinimisationTarget=" << o.planMinimisationTarget << "}";
+
+  os << ", indicesAreSorted=" << (o.indicesAreSorted ? "true" : "false");
   return os;
 }
 
@@ -194,11 +199,16 @@ struct ValidateSlicePlanConstraintsOption {
     for (const auto &child : t) {
       if (child.first != "lookupSplit" && child.first != "slicedDimSplit" &&
           child.first != "unslicedDimSplit" &&
-          child.first != "unslicedGrainSize") {
+          child.first != "unslicedGrainSize" &&
+          child.first != "useOrderingInfo") {
         throw poplibs_error("Unrecognised constraint " + child.first);
       }
 
-      validatePlanConstraintsUnsigned(child.first, child.second);
+      if (child.first == "useOrderingInfo") {
+        validatePlanConstraintsBoolean(child.first, child.second);
+      } else {
+        validatePlanConstraintsUnsigned(child.first, child.second);
+      }
     }
   }
 };
@@ -212,6 +222,8 @@ std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p) {
   o << "    slicedDimSplit=" << p.partition.slicedDimSplit << "\n";
   o << "    unslicedDimSplit=" << p.partition.unslicedDimSplit << "\n";
   o << "    unslicedGrainSize=" << p.partition.unslicedGrainSize << "\n";
+  o << "  useIndicesOrderingInfo="
+    << (p.useIndicesOrderingInfo ? " true" : "false");
   return o;
 }
 
@@ -292,7 +304,9 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
        OptionHandler::createWithEnum(
            options.planMinimisationTarget,
            {{"memory", PlanMinimisationTarget::MEMORY},
-            {"cycles", PlanMinimisationTarget::CYCLES}})}};
+            {"cycles", PlanMinimisationTarget::CYCLES}})},
+      {"indicesAreSorted",
+       OptionHandler::createWithBool(options.indicesAreSorted)}};
 
   for (const auto &entry : optionFlags) {
     spec.parse(entry.first, entry.second);
@@ -491,7 +505,8 @@ static void generateMultiSliceVerticesOnTile(
     const Tensor &offset, const Tensor &slices,
     const boost::optional<Tensor> &scale, const std::string &vertexName,
     bool isUpdate, unsigned baseSlicedDim, boost::optional<unsigned> baseOffset,
-    boost::optional<Operation> op, const DebugNameAndId &dnai) {
+    boost::optional<Operation> op, bool indicesAreSorted,
+    const DebugNameAndId &dnai) {
   assert(base.rank() == 2);
   assert(offset.rank() == 1);
   assert(slices.rank() == base.rank() + 1);
@@ -546,6 +561,7 @@ static void generateMultiSliceVerticesOnTile(
       graph.setInitialValue(v["maxElementsPerWorker"], maxElementsPerWorker);
     }
 
+    graph.setInitialValue(v["indicesAreSorted"], indicesAreSorted && isUpdate);
     graph.setInitialValue(v["baseOffset"], baseOffset ? *baseOffset : 0u);
     graph.setInitialValue(v["numBaseElements"], base.dim(baseSlicedDim));
     graph.setInitialValue(v["regionSize"], regionSize);
@@ -746,7 +762,7 @@ static void generateMultiSliceVertices(
 
     generateMultiSliceVerticesOnTile(graph, cs, tile, tileBase, offsets1d,
                                      tileSub, scale, vertexName, isUpdate, 0u,
-                                     baseOffset, op, {dnai});
+                                     baseOffset, op, false, {dnai});
   }
 
   if (!multiUpdateSubwordTiles.empty()) {
@@ -762,15 +778,30 @@ static void generateMultiSliceVertices(
   }
 }
 
+static void
+checkOrderingInfoConsistencyWithOptions(const bool useIndicesOrderingInfo,
+                                        const bool indicesAreSorted) {
+  if (useIndicesOrderingInfo && !indicesAreSorted) {
+    throw poplibs_error("Cannot use indices ordering constraint when option "
+                        "flags does not indictate indices are sorted");
+  }
+}
+
 static void generatePlannedMultiUpdateOp(
     const std::string &vertexNameUntemplated, const SlicePlanInternal &plan,
     Graph &graph, Sequence &seq, const Tensor &offsets, Tensor base,
     Tensor slices, boost::optional<Tensor> scale, unsigned baseSlicedDim,
-    boost::optional<Operation> op, const OptionFlags &options,
+    boost::optional<Operation> op, const OptionFlags &optionFlags,
     const DebugNameAndId &dnai) {
 
   // When a two-stage update is perform we use 32bit partials
   const auto twoStagePartialType = FLOAT;
+  const auto options = parseSliceOptions(optionFlags);
+
+  if (!plan.isNull) {
+    checkOrderingInfoConsistencyWithOptions(plan.useIndicesOrderingInfo,
+                                            options.indicesAreSorted);
+  }
 
   const auto csU = graph.addComputeSet({dnai, "Update"});
 
@@ -861,7 +892,7 @@ static void generatePlannedMultiUpdateOp(
       slicedSplit >= slicesBroadcastDestRearrangeThreshold) {
     const auto slicesRearranged = createSliceTensor(
         graph, type, base.shape(), slicedDim, offsets1d.numElements(), plan,
-        options, {dnai, "slicesRearranged"});
+        optionFlags, {dnai, "slicesRearranged"});
     seq.add(Copy(slices, slicesRearranged, false, {dnai}));
     slices = slicesRearranged;
     logging::popops::trace(
@@ -1014,9 +1045,10 @@ static void generatePlannedMultiUpdateOp(
                 std::to_string(tile));
           }
         }
-        generateMultiSliceVerticesOnTile(
-            graph, csU, tile, tileBase, indices, tileSlice, stage0Scale,
-            vertexName, true, baseSlicedDim, baseOffset, op, {dnai});
+        generateMultiSliceVerticesOnTile(graph, csU, tile, tileBase, indices,
+                                         tileSlice, stage0Scale, vertexName,
+                                         true, baseSlicedDim, baseOffset, op,
+                                         plan.useIndicesOrderingInfo, {dnai});
       }
     }
   }
@@ -1203,9 +1235,9 @@ bestSliceOrder(const std::vector<std::size_t> &shape,
 }
 
 static void validatePlanForGivenParameters(
-    const SlicePlanInternal &p, const OptionFlags &options,
-    const std::vector<std::size_t> &shape, const std::vector<std::size_t> &dims,
-    const std::vector<std::size_t> &sizes, const std::string &callerDebugStr) {
+    const SlicePlanInternal &p, const std::vector<std::size_t> &shape,
+    const std::vector<std::size_t> &dims, const std::vector<std::size_t> &sizes,
+    const std::string &callerDebugStr) {
   if (p.slicedDims != dims) {
     std::stringstream ss;
     ss << callerDebugStr
@@ -1246,8 +1278,8 @@ static void validateParams(std::string name, const SlicePlan &plan,
                            bool checkSizes = true,
                            bool sizesAreSlices = false) {
   if (!plan.getImpl().isNull) {
-    validatePlanForGivenParameters(plan.getImpl(), options, shape, dims,
-                                   sizesOrSlices, name);
+    validatePlanForGivenParameters(plan.getImpl(), shape, dims, sizesOrSlices,
+                                   name);
   }
   auto tRank = shape.size();
   std::string exceptionStr;
@@ -1957,7 +1989,7 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
                               const std::vector<std::size_t> &dims,
                               const std::vector<std::size_t> &sizes,
                               Sequence &prog, const SlicePlanInternal &p,
-                              const OptionFlags &options,
+                              const OptionFlags &optionFlags,
                               const DebugNameAndId &dnai) {
   assert(!p.isNull);
   assert(offset.rank() == 2);
@@ -1973,6 +2005,7 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
   const auto iSplit = p.partition.lookupSplit;
   const auto sSplit = p.partition.slicedDimSplit;
   const auto hSplit = p.partition.unslicedDimSplit;
+  const auto options = parseSliceOptions(optionFlags);
 
   const auto iTotalElems = offset.dim(0);
   const auto iElemsPerPartition = ceildiv(offset.dim(0), iSplit);
@@ -2039,7 +2072,8 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
         graph.setTileMapping(output, tile);
         generateMultiSliceVerticesOnTile(
             graph, cs1, tile, input, indices, output, boost::none, vertexClass,
-            false, slicedDim, baseOffset, boost::none, {dnai});
+            false, slicedDim, baseOffset, boost::none, options.indicesAreSorted,
+            {dnai});
       }
     }
   }
@@ -2203,7 +2237,7 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
           const Tensor output = sSplitByS.slice(hBegin, hEnd, 2);
           generateMultiSliceVerticesOnTile(
               graph, cs2, tile, input, indices, output, boost::none,
-              vertexClass, false, slicedDim, 0, boost::none, {dnai});
+              vertexClass, false, slicedDim, 0, boost::none, false, {dnai});
         }
       }
     }
@@ -2566,7 +2600,7 @@ static std::tuple<sliceInternal::Partition<popsolver::Variable>,
                   EmbeddingEstimates<popsolver::Variable>>
 constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                const std::size_t numEntries, const std::size_t outputSize,
-               const std::vector<std::size_t> &numLookups,
+               const std::vector<std::size_t> &numLookups, bool useOrderingInfo,
                const SliceOptions &options) {
   const auto dataElementSize = target.getTypeSize(dataType);
   const auto numWorkerContexts = target.getNumWorkerContexts();
@@ -2594,6 +2628,12 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   sliceInternal::Partition<popsolver::Variable> partition;
   EmbeddingEstimates<popsolver::Variable> e(m.zero());
 
+  // The number of repeated indices per dictionary entry is a function only of
+  // the distribution
+  const double offsetsPerDictEntry =
+      options.indicesDistribution == IndicesDistribution::UNIFORM
+          ? static_cast<double>(plannedNumIndices) / numEntries
+          : plannedNumIndices;
   const auto hierarchy = getTileHierarchy(target);
   const auto perLevelExchangeBytesPerCycle =
       getPerLevelExchangeBytesPerCycle(target);
@@ -2745,11 +2785,16 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
               double(maxDictEntriesPerTile) / double(numDictEntries);
           const auto maxOffsetsPerWorker =
               ceildiv(numOffsets, numWorkerContexts);
+          unsigned offsetsInRangePerWorker =
+              options.indicesDistribution == IndicesDistribution::ONE_POINT
+                  ? maxOffsetsPerWorker
+                  :
+                  // Samples are assumed to be IID
+                  // with uniform distribution and a random mapping to tiles.
+                  std::ceil(maxOffsetsPerWorker * proportionIndicesInRange);
           const auto cycles = getMultiSliceCycleEstimate(
               targetParams, elemsPerSlice, maxOffsetsPerWorker,
-              proportionIndicesInRange,
-              options.indicesDistribution == IndicesDistribution::ONE_POINT,
-              false);
+              offsetsInRangePerWorker, 0, false, false);
           return popsolver::DataType{cycles * numWorkerContexts};
         },
         "slice.0.compute.cycles");
@@ -2778,11 +2823,19 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
               double(maxDictEntriesPerTile) / double(numDictEntries);
           const auto maxOffsetsPerWorker =
               ceildiv(numOffsets, numWorkerContexts);
+          unsigned offsetsInRangePerWorker =
+              options.indicesDistribution == IndicesDistribution::ONE_POINT
+                  ? maxOffsetsPerWorker
+                  :
+                  // Samples are assumed to be IID
+                  // with uniform distribution and a random mapping to tiles.
+                  std::ceil(maxOffsetsPerWorker * proportionIndicesInRange);
+
           const auto cycles = getMultiSliceCycleEstimate(
               targetParams, elemsPerSlice, maxOffsetsPerWorker,
-              proportionIndicesInRange,
-              options.indicesDistribution == IndicesDistribution::ONE_POINT,
-              false);
+              offsetsInRangePerWorker,
+              0, // Sorting information is not used
+              false, false);
           return popsolver::DataType{cycles * numWorkerContexts};
         },
         "slice.1.compute.cycles");
@@ -2892,26 +2945,49 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     e.updateFirstStageExchangeCycles = exchangeEstimator(
         mUpdatesTempBytesPerTile, ipuLevel, "update.0.exchange.cycles");
     {
-      const MultiUpdateOpTargetParameters targetMultiUpdateOpParams{target};
+      const MultiUpdateOpTargetParameters targetMultiUpdateOpParams{target,
+                                                                    dataType};
       // Update without op uses the same compute estimator as a slice
       const MultiSliceTargetParameters targetMultiUpdateParams{target,
                                                                dataType};
       e.updateFirstStageComputeCycles = m.call<unsigned>(
-          {mUnslicedElemsPerTile, mLookupsPerTile, mFloatData, mNumEntries,
+          {mUnslicedElemsPerTile, mLookupsPerTile, mNumEntries,
            mDictEntriesPerTile},
           [targetMultiUpdateOpParams, targetMultiUpdateParams, options,
-           operation](const std::vector<unsigned> &values) {
+           operation, offsetsPerDictEntry,
+           useOrderingInfo](const std::vector<unsigned> &values) {
             const auto elemsPerSlice = values[0];
             const auto numOffsets = values[1];
-            const bool floatData = values[2];
-            const auto numDictEntries = values[3];
-            const auto maxDictEntriesPerTile = values[4];
+            const auto numDictEntries = values[2];
+            const auto maxDictEntriesPerTile = values[3];
+
             const auto maxDictEntriesPerWorker =
                 getMultiUpdateOpMaxElemsPerWorker(
                     targetMultiUpdateOpParams.numWorkerContexts,
                     maxDictEntriesPerTile);
-            const double maxProportionOfIndicesRangePerWorker =
+            const unsigned maxOffsetsPerDictEntry =
+                std::ceil(offsetsPerDictEntry);
+            const double maxProportionOfIndexableRangePerWorker =
                 double(maxDictEntriesPerWorker) / double(numDictEntries);
+
+            unsigned numOffsetsInRangePerWorker;
+            if (options.indicesDistribution == IndicesDistribution::ONE_POINT) {
+              numOffsetsInRangePerWorker = numOffsets;
+            } else {
+              // If indices are sorted we know the worst case in the average
+              if (options.indicesAreSorted) {
+                numOffsetsInRangePerWorker = std::min(
+                    static_cast<unsigned>(std::ceil(maxDictEntriesPerWorker *
+                                                    offsetsPerDictEntry)),
+                    numOffsets);
+              } else {
+                // If indices are not sorted the samples are assumed to be IID
+                // with uniform distribution and a random mapping to tiles.
+                numOffsetsInRangePerWorker = std::ceil(
+                    numOffsets * maxProportionOfIndexableRangePerWorker);
+              }
+            }
+
             const bool isScaled = true;
             // cycle estimates for update without an operation has same cycles
             // as a slice.
@@ -2919,17 +2995,15 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                 operation == std::nullopt
                     ? getMultiSliceCycleEstimate(
                           targetMultiUpdateParams, elemsPerSlice, numOffsets,
-                          maxProportionOfIndicesRangePerWorker,
-                          options.indicesDistribution ==
-                              IndicesDistribution::ONE_POINT,
-                          true)
+                          numOffsetsInRangePerWorker, maxOffsetsPerDictEntry,
+                          true, useOrderingInfo)
                     : getMultiUpdateOpCycleEstimate(
-                          targetMultiUpdateOpParams, /* floatData */ floatData,
+                          targetMultiUpdateOpParams,
                           /* subWordWritesRequired */ false, elemsPerSlice,
-                          numOffsets, *operation, isScaled,
-                          maxProportionOfIndicesRangePerWorker,
-                          options.indicesDistribution ==
-                              IndicesDistribution::ONE_POINT);
+                          numOffsets, numOffsetsInRangePerWorker,
+                          maxOffsetsPerDictEntry, *operation, isScaled,
+
+                          false, useOrderingInfo);
             return popsolver::DataType{cycles};
           },
           "update.0.compute.cycles");
@@ -3069,6 +3143,126 @@ minimize(popsolver::Model &m, const Target &target,
   return m.minimize({goal});
 }
 
+// Estimates for a solution and plan
+struct PlanAndEstimates {
+  struct Estimates {
+    // Memory estimates
+    std::size_t baseStorageBytesPerTile;
+    std::size_t outputStorageBytesPerTile;
+    std::size_t indicesStorageBytesPerTile;
+    std::size_t exchangeCodeBytes;
+    std::size_t sliceTempBytes;
+    std::size_t updateTempBytes;
+    std::size_t peakTempBytes;
+
+    // Cycles estimates
+    std::size_t sliceFirstStageExchangeCycles;
+    std::size_t sliceFirstStageComputeCycles;
+    std::size_t sliceSecondStageExchangeCycles;
+    std::size_t sliceSecondStageComputeCycles;
+    std::size_t sliceTotalCycles;
+    std::size_t updateCastSlicesCycles;
+    std::size_t updateZeroPartialsCycles;
+    std::size_t updateFirstStageExchangeCycles;
+    std::size_t updateFirstStageComputeCycles;
+    std::size_t updateReduceExchangeCycles;
+    std::size_t updateReduceComputeCycles;
+    std::size_t updateCastBasePreCycles;
+    std::size_t updateFinalElemwiseCycles;
+    std::size_t updateCastBasePostCycles;
+    std::size_t updateTotalCycles;
+    std::size_t totalCycles;
+  } e;
+
+  SlicePlanInternal plan;
+};
+
+static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
+                                   const std::size_t numEntries,
+                                   const std::size_t outputSize,
+                                   const std::vector<std::size_t> &numLookups,
+                                   const SliceOptions &options) {
+  std::uint64_t bestPlanCyclesCost = std::numeric_limits<std::size_t>::max();
+  std::vector<bool> sortedIndicesCandidates;
+
+  auto useOrderingInfoConstraint =
+      options.planConstraints.get_optional<bool>("useOrderingInfo");
+  if (useOrderingInfoConstraint) {
+    checkOrderingInfoConsistencyWithOptions(*useOrderingInfoConstraint,
+                                            options.indicesAreSorted);
+    sortedIndicesCandidates.push_back(*useOrderingInfoConstraint);
+  } else {
+    sortedIndicesCandidates.push_back(false);
+    if (options.indicesAreSorted) {
+      sortedIndicesCandidates.push_back(true);
+    }
+  }
+
+  PlanAndEstimates best{};
+
+  for (auto useOrderingInfo : sortedIndicesCandidates) {
+    popsolver::Model m;
+    auto [partition, estimates] =
+        constructModel(m, target, dataType, numEntries, outputSize, numLookups,
+                       useOrderingInfo, options);
+    applyConstraints(m, target, partition, estimates, options, true);
+    auto s = minimize(m, target, estimates, options.planMinimisationTarget);
+    if (s.validSolution()) {
+      auto totalCycles = *s[estimates.totalCycles];
+      SlicePlanInternal p;
+      p.partition = fromSolution(s, partition);
+      p.useIndicesOrderingInfo = useOrderingInfo;
+      p.rank = 2;
+      p.slicedDims = {0};
+      p.slicedDimSizes = {1};
+      p.isNull = false;
+      if (totalCycles < bestPlanCyclesCost && s.validSolution()) {
+        bestPlanCyclesCost = totalCycles;
+        best.plan = p;
+
+        best.e.baseStorageBytesPerTile = *s[estimates.baseStorageBytesPerTile];
+        best.e.outputStorageBytesPerTile =
+            *s[estimates.outputStorageBytesPerTile];
+        best.e.indicesStorageBytesPerTile =
+            *s[estimates.indicesStorageBytesPerTile];
+        best.e.exchangeCodeBytes = *s[estimates.exchangeCodeBytes];
+        best.e.sliceTempBytes = *s[estimates.sliceTempBytes];
+        best.e.updateTempBytes = *s[estimates.updateTempBytes];
+        best.e.peakTempBytes = *s[estimates.peakTempBytes];
+
+        best.e.sliceFirstStageExchangeCycles =
+            *s[estimates.sliceFirstStageExchangeCycles];
+        best.e.sliceFirstStageComputeCycles =
+            *s[estimates.sliceFirstStageComputeCycles];
+        best.e.sliceSecondStageExchangeCycles =
+            *s[estimates.sliceSecondStageExchangeCycles];
+        best.e.sliceSecondStageComputeCycles =
+            *s[estimates.sliceSecondStageComputeCycles];
+        best.e.sliceTotalCycles = *s[estimates.sliceTotalCycles];
+        best.e.updateCastSlicesCycles = *s[estimates.updateCastSlicesCycles];
+        best.e.updateZeroPartialsCycles =
+            *s[estimates.updateZeroPartialsCycles];
+        best.e.updateFirstStageExchangeCycles =
+            *s[estimates.updateFirstStageExchangeCycles];
+        best.e.updateFirstStageComputeCycles =
+            *s[estimates.updateFirstStageComputeCycles];
+        best.e.updateReduceExchangeCycles =
+            *s[estimates.updateReduceExchangeCycles];
+        best.e.updateReduceComputeCycles =
+            *s[estimates.updateReduceComputeCycles];
+        best.e.updateCastBasePreCycles = *s[estimates.updateCastBasePreCycles];
+        best.e.updateFinalElemwiseCycles =
+            *s[estimates.updateFinalElemwiseCycles];
+        best.e.updateCastBasePostCycles =
+            *s[estimates.updateCastBasePostCycles];
+        best.e.updateTotalCycles = *s[estimates.updateTotalCycles];
+        best.e.totalCycles = *s[estimates.totalCycles];
+      }
+    }
+  }
+  return best;
+}
+
 // Plan an embedding layer for slicing/updating.
 // This planner aims to minimise the persistent tile memory while keeping
 // temporary memory below a bound.
@@ -3085,40 +3279,28 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       dataType, numEntries, outputSize, numLookups, options);
   const auto &target = graph.getTarget();
 
-  popsolver::Model m;
-  auto [partition, estimates] = constructModel(m, target, dataType, numEntries,
-                                               outputSize, numLookups, options);
-  applyConstraints(m, target, partition, estimates, options, true);
-  auto s = minimize(m, target, estimates, options.planMinimisationTarget);
+  auto best =
+      choosePlan(target, dataType, numEntries, outputSize, numLookups, options);
 
-  if (!s.validSolution() && options.availableMemoryProportion) {
+  if (best.plan.isNull && options.availableMemoryProportion) {
     // Warn and try again without the available memory proportion if
     // no solution could be found.
     logging::popops::warn("embedding::plan could not find a valid solution "
                           "with availableMemoryProportion={}, trying again "
                           "with unlimited temporary memory",
                           *options.availableMemoryProportion);
-    std::tie(partition, estimates) = constructModel(
-        m, target, dataType, numEntries, outputSize, numLookups, options);
-    applyConstraints(m, target, partition, estimates, options, false);
-    s = minimize(m, target, estimates, options.planMinimisationTarget);
+    best = choosePlan(target, dataType, numEntries, outputSize, numLookups,
+                      options);
   }
 
-  // If we don't have a valid solution, warn and return a null plan.
-  if (!s.validSolution()) {
+  // If we don't have a valid plan, warn and return a null plan.
+  if (best.plan.isNull) {
     logging::popops::warn(
         "Slice planner could not find a valid solution, opting for no plan");
     return std::make_unique<SlicePlanInternal>();
   }
 
-  SlicePlanInternal p;
-  p.partition = fromSolution(s, partition);
-  p.rank = 2;
-  p.slicedDims = {0};
-  p.slicedDimSizes = {1};
-  p.isNull = false;
-
-  logging::popops::debug("Embedding plan {}", p);
+  logging::popops::debug("Embedding plan {}", best.plan);
 
   logging::popops::debug(
       "Tile memory estimates (bytes on worst tile):\n"
@@ -3129,11 +3311,9 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       "  slice peak temporary memory {},\n"
       "  update peak temporary memory {}, \n"
       "  peak temporary memory {}\n",
-      s[estimates.baseStorageBytesPerTile],
-      s[estimates.outputStorageBytesPerTile],
-      s[estimates.indicesStorageBytesPerTile], s[estimates.exchangeCodeBytes],
-      s[estimates.sliceTempBytes], s[estimates.updateTempBytes],
-      s[estimates.peakTempBytes]);
+      best.e.baseStorageBytesPerTile, best.e.outputStorageBytesPerTile,
+      best.e.indicesStorageBytesPerTile, best.e.exchangeCodeBytes,
+      best.e.sliceTempBytes, best.e.updateTempBytes, best.e.peakTempBytes);
 
   logging::popops::debug(
       "Cycle estimates (worst tile):\n"
@@ -3153,22 +3333,17 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       "  update cast base post cycles {},\n"
       "  update total {},\n"
       "  total {}",
-      s[estimates.sliceFirstStageExchangeCycles],
-      s[estimates.sliceFirstStageComputeCycles],
-      s[estimates.sliceSecondStageExchangeCycles],
-      s[estimates.sliceSecondStageComputeCycles], s[estimates.sliceTotalCycles],
-      s[estimates.updateCastSlicesCycles],
-      s[estimates.updateZeroPartialsCycles],
-      s[estimates.updateFirstStageExchangeCycles],
-      s[estimates.updateFirstStageComputeCycles],
-      s[estimates.updateReduceExchangeCycles],
-      s[estimates.updateReduceComputeCycles],
-      s[estimates.updateCastBasePreCycles],
-      s[estimates.updateFinalElemwiseCycles],
-      s[estimates.updateCastBasePostCycles], s[estimates.updateTotalCycles],
-      s[estimates.totalCycles]);
+      best.e.sliceFirstStageExchangeCycles, best.e.sliceFirstStageComputeCycles,
+      best.e.sliceSecondStageExchangeCycles,
+      best.e.sliceSecondStageComputeCycles, best.e.sliceTotalCycles,
+      best.e.updateCastSlicesCycles, best.e.updateZeroPartialsCycles,
+      best.e.updateFirstStageExchangeCycles,
+      best.e.updateFirstStageComputeCycles, best.e.updateReduceExchangeCycles,
+      best.e.updateReduceComputeCycles, best.e.updateCastBasePreCycles,
+      best.e.updateFinalElemwiseCycles, best.e.updateCastBasePostCycles,
+      best.e.updateTotalCycles, best.e.totalCycles);
 
-  return std::make_unique<SlicePlanInternal>(std::move(p));
+  return std::make_unique<SlicePlanInternal>(std::move(best.plan));
 }
 
 } // end namespace embedding

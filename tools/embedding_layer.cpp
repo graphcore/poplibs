@@ -109,6 +109,8 @@ int main(int argc, char **argv) {
     ShapeOption<std::size_t> numIndices;
     double scale = 1.;
 
+    bool indicesAreSorted = false;
+
     bool useEmbeddingPlan = true;
     boost::optional<double> availableMemoryProportion;
     std::string planMinimisationTarget;
@@ -129,6 +131,10 @@ int main(int argc, char **argv) {
     ("profile",
      po::value<bool>(&opts.profile)->default_value(opts.profile),
      "Output profiling report")
+    ("indices-are-sorted",
+     po::value<bool>(&opts.indicesAreSorted)
+      ->default_value(opts.indicesAreSorted),
+     "Indices are sorted (requires plan to be enabled)")
     ("profile-dir",
      po::value<boost::optional<std::string>>(&opts.profileDir)
       ->default_value(boost::none),
@@ -264,6 +270,9 @@ int main(int argc, char **argv) {
                    passEnabled(opts.pass, Pass::FWD) ? "true" : "false");
   sliceOptions.set("usedForUpdate",
                    passEnabled(opts.pass, Pass::WU) ? "true" : "false");
+  sliceOptions.set("indicesAreSorted",
+                   opts.indicesAreSorted && opts.useEmbeddingPlan ? "true"
+                                                                  : "false");
 
   popops::SlicePlan plan;
   Tensor embeddingMatrix;
@@ -313,6 +322,10 @@ int main(int argc, char **argv) {
     writeRandomValues(target, opts.indicesType, perIndexSet[i].hostIdxs, 0u,
                       static_cast<unsigned>(opts.shape->at(0) - 1),
                       randomEngine);
+    if (opts.indicesAreSorted) {
+      std::sort(perIndexSet[i].hostIdxs.begin(), perIndexSet[i].hostIdxs.end());
+    }
+
     const std::string handle = "indices_" + std::to_string(i);
     logging::popops::trace("Indices[{}]: {}", i, perIndexSet[i].hostIdxs);
     perIndexSet[i].idxs = createIndicesTensor(graph, {0}, numIndices[i], plan,

@@ -36,12 +36,23 @@ std::uint64_t basicOpLoopCycles(const unsigned numElems,
   return cyclesPerVector * (numElems + vectorSize - 1) / vectorSize;
 }
 
-std::uint64_t getMultiSliceCycleEstimate(
-    const MultiSliceTargetParameters &targetParams,
-    const unsigned elemsPerSlice, const unsigned numOffsets,
-    const double proportionOfIndexableRange, const bool useOnePointDistribution,
-    const bool isUpdate) {
-  (void)useOnePointDistribution;
+static uint64_t
+binarySearchForIndicesCycleEstimate(const unsigned numOffsets,
+                                    const unsigned offsetsPerDictEntry) {
+  // 2 for upper and lower binary search
+  std::uint64_t binarySearch = 2 * poplibs_support::ceilLog2(numOffsets) * 10;
+  // for lower and upper binary search
+  std::uint64_t repeatedEntriesSearch = offsetsPerDictEntry * (7 + 8);
+  return binarySearch + repeatedEntriesSearch + 4 + 5;
+}
+
+std::uint64_t
+getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
+                           const unsigned elemsPerSlice,
+                           const unsigned numOffsets,
+                           const unsigned numOffsetsInRangePerWorker,
+                           const unsigned offsetsPerDictEntry,
+                           const bool isUpdate, const bool indicesAreSorted) {
   assert(numOffsets != 0);
 
   unsigned vectorWidth;
@@ -65,7 +76,16 @@ std::uint64_t getMultiSliceCycleEstimate(
     assert(false && "getMultiSliceCycleEstimate for unhandled element size");
     break;
   }
-  const std::uint64_t proAndEpilogueCycles = isUpdate ? 24 : 14;
+  const std::uint64_t proAndEpilogueCycles = isUpdate ? 29 : 19;
+
+  std::uint64_t binarySearchCycles = 0;
+  if (indicesAreSorted) {
+    binarySearchCycles +=
+        binarySearchForIndicesCycleEstimate(numOffsets, offsetsPerDictEntry);
+    // additional overhead associated with the binary search
+    binarySearchCycles += 20;
+  }
+
   // Almost exactly the same for each copy function assuming fastest
   // (aligned) path.
   constexpr std::uint64_t cyclesOverheadPerOffsetInRange = 19;
@@ -77,11 +97,11 @@ std::uint64_t getMultiSliceCycleEstimate(
   // skip the copying cycles in a data-dependent way.
   const auto vectorsPerOffset = ceildiv(elemsPerSlice, vectorWidth);
 
-  const unsigned numOffsetsInRange =
-      useOnePointDistribution
-          ? numOffsets
-          : std::ceil(numOffsets * proportionOfIndexableRange);
-  const unsigned numOffsetsOutOfRange = numOffsets - numOffsetsInRange;
+  unsigned numOffsetsInRange = numOffsetsInRangePerWorker;
+
+  // out of range sorted indices are not processed
+  const unsigned numOffsetsOutOfRange =
+      indicesAreSorted ? 0 : numOffsets - numOffsetsInRange;
 
   const std::uint64_t offsetsInRangeCycles =
       numOffsetsInRange *
@@ -90,37 +110,45 @@ std::uint64_t getMultiSliceCycleEstimate(
       numOffsetsOutOfRange * cyclesOverheadPerOffsetOutOfRange;
   const std::uint64_t coreCycles =
       offsetsInRangeCycles + offsetsOutOfRangeCycles;
-  return proAndEpilogueCycles + coreCycles;
+
+  return (proAndEpilogueCycles + coreCycles + binarySearchCycles) *
+         (isUpdate ? targetParams.numWorkerContexts : 1);
 }
 
 std::uint64_t getMultiUpdateOpCycleEstimate(
-    const MultiUpdateOpTargetParameters &targetParams, bool floatData,
+    const MultiUpdateOpTargetParameters &targetParams,
     bool subWordWritesRequired, const unsigned elemsPerSlice,
-    const unsigned numOffsets, const Operation op, const bool scaled,
-    const double maxProportionOfIndexableRangePerWorker,
-    const bool useOnePointDistribution,
-    const bool scaleHigherPrecisionThanData) {
+    const unsigned numOffsets, const unsigned numOffsetsInRangePerWorker,
+    const unsigned offsetsPerDictEntry, const Operation op, const bool scaled,
+    const bool scaleHigherPrecisionThanData, const bool indicesAreSorted) {
 
   std::uint64_t cycles = 3; // load size, zero check and exitz.
+  const auto bytesPerElemEqual4 = targetParams.bytesPerElem == 4;
 
-  if (numOffsets == 0) {
-    return cycles;
-  }
-
-  // pre-outer loop overhead.
-  cycles += floatData ? 24 : 25;
+  // pre-outer loop overhead: here we distinguish between float/int/unsigned int
+  // and half
+  cycles += bytesPerElemEqual4 ? 29 : 30;
 
   if (scaled) {
     cycles += 2;
   }
 
+  if (indicesAreSorted) {
+    cycles +=
+        binarySearchForIndicesCycleEstimate(numOffsets, offsetsPerDictEntry);
+    cycles += 15;
+  }
+
+  if (numOffsets == 0) {
+    return cycles;
+  }
   // outer loop overhead, before and after the inner loop.
   // cycle cost is data dependent on values of offsets.
-  std::uint64_t cyclesPerOffsetInRange = floatData ? 11 : 12;
-  cyclesPerOffsetInRange += (!floatData && scaled) ? 1u : 0u;
+  std::uint64_t cyclesPerOffsetInRange = bytesPerElemEqual4 ? 11 : 12;
+  cyclesPerOffsetInRange += (!bytesPerElemEqual4 && scaled) ? 1u : 0u;
   const std::uint64_t cyclesPerOffsetOutOfRange = 5;
 
-  const unsigned bytesPerElem = floatData ? 4 : 2;
+  const unsigned bytesPerElem = targetParams.bytesPerElem;
 
   // inner loop cost.
   // Note gcd is used here for e.g. CPU where the atomic write size is 1.
@@ -129,7 +157,7 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
   // for the assembly implementation elemsPerSlice % vectorWidth == 0 must be
   // zero.
   if (subWordWritesRequired) {
-    assert(!floatData);
+    assert(!bytesPerElemEqual4);
     // Not based on anything in particular other than per-element cost in
     // generated code for C++ being high (even higher for half type).
     cyclesPerOffsetInRange += elemsPerSlice * 20;
@@ -139,15 +167,14 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
         (elemsPerSlice / elemsPerAtom - 1) * (3 + scaleHigherPrecisionThanData);
   }
 
-  const unsigned numOffsetsInRange =
-      useOnePointDistribution
-          ? numOffsets
-          : std::ceil(numOffsets * maxProportionOfIndexableRangePerWorker);
-  const unsigned numOffsetsOutOfRange = numOffsets - numOffsetsInRange;
-  cycles += cyclesPerOffsetInRange * numOffsetsInRange;
+  unsigned numOffsetsInRange = numOffsetsInRangePerWorker;
+
+  // when indices are sorted, there out of range offsets are not processed
+  const unsigned numOffsetsOutOfRange =
+      indicesAreSorted ? 0 : numOffsets - numOffsetsInRange;
+  cycles += (cyclesPerOffsetInRange)*numOffsetsInRange;
   cycles += cyclesPerOffsetOutOfRange * numOffsetsOutOfRange;
-  constexpr unsigned supervisorCycles = 25;
-  return cycles * targetParams.numWorkerContexts + supervisorCycles;
+  return cycles * targetParams.numWorkerContexts;
 }
 
 // Returns the cycles of one to the 'cast_XXX_XXX_core' functions in assembly,

@@ -140,6 +140,7 @@ target_include_directories(popops
 
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BroadcastSelect.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BinarySearch.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastFromInt8.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastHalfFloat.S
@@ -227,6 +228,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiSlice.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdate.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdateOp.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiSliceUpdateCommon.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NormaliseImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Reduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScalarMultiply.cpp
@@ -248,6 +250,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseScaledAddCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
   HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BinarySearch.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.inc
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSliceUpdateCommon.h.S
@@ -263,6 +266,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseBinaryOps.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramCommon.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdateOp.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiSliceUpdateCommon.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/LogArithmetic.hpp

@@ -1,4 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#include "MultiSliceUpdateCommon.hpp"
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <cassert>
@@ -6,7 +7,6 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 #include <type_traits>
-
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
@@ -28,9 +28,20 @@ public:
   const unsigned baseOffset;       // in the slice dimension
   const unsigned numBaseElements;  // in the slice dimension
   const unsigned short regionSize; // stride between slices
+  const bool indicesAreSorted;     // indices are sorted in increasing order
 
   bool compute() {
-    for (unsigned o = 0; o != offsets.size(); ++o) {
+    unsigned offsetIndexBegin = 0;
+    unsigned offsetIndexEnd = offsets.size();
+    if (indicesAreSorted) {
+      offsetIndexBegin = lowerBinarySearch(reinterpret_cast<int *>(&offsets[0]),
+                                           offsets.size(), baseOffset);
+      offsetIndexEnd =
+          upperBinarySearch(reinterpret_cast<int *>(&offsets[0]),
+                            offsets.size(), baseOffset + numBaseElements);
+    }
+
+    for (unsigned o = offsetIndexBegin; o != offsetIndexEnd; ++o) {
       auto baseIdx = offsets[o];
 
       // the assembly uses this same logic here but without bounds checks on

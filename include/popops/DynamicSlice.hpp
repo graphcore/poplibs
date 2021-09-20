@@ -425,6 +425,12 @@ namespace embedding {
  *                     operands, and temporary variables for the operation.
  *       * `cycles`    Minimise estimated total cycles for the operation.
  *
+ *     * `indicesAreSorted` (true, false) [=false]
+ *
+ *       Plan assuming indices used in MultiUpdate/MultiUpdateOp are sorted in
+ *       increasing order. The same option must then be used along with the plan
+ *       when calling MultiUpdate with and without an operation.
+ *
  * \param graph       The graph the operation will be added to.
  * \param dataType    The data type of the entries in the embedding matrix
  *                    and the resulting lookups from the matrix.

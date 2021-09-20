@@ -97,34 +97,40 @@ struct MultiSliceTargetParameters {
   MultiSliceTargetParameters(const poplar::Target &target,
                              const poplar::Type &type)
       : dataPathWidth(target.getDataPathWidth()),
-        bytesPerElem(target.getTypeSize(type)) {}
+        bytesPerElem(target.getTypeSize(type)),
+        numWorkerContexts(target.getNumWorkerContexts()) {}
   unsigned dataPathWidth;
   unsigned bytesPerElem;
+  unsigned numWorkerContexts;
 };
 
 std::uint64_t getMultiSliceCycleEstimate(
     const MultiSliceTargetParameters &targetParams,
     const unsigned elemsPerSlice, const unsigned numOffsets,
-    const double proportionOfIndexableRange,
-    const bool useOnePointDistribution = false, const bool isUpdate = false);
+    const unsigned numOffsetsInRangePerWorker,
+    const unsigned offsetsPerDictEntry, const bool isUpdate = false,
+    const bool indicesAreSorted = false);
 
 /** Cycle estimate for MultiUpdateAdd vertex.
  */
 struct MultiUpdateOpTargetParameters {
-  MultiUpdateOpTargetParameters(const poplar::Target &target)
+  MultiUpdateOpTargetParameters(const poplar::Target &target,
+                                const poplar::Type &type)
       : atomicWriteSize(target.getAtomicStoreGranularity()),
-        numWorkerContexts(target.getNumWorkerContexts()) {}
+        numWorkerContexts(target.getNumWorkerContexts()),
+        bytesPerElem(target.getTypeSize(type)) {}
   unsigned atomicWriteSize;
   unsigned numWorkerContexts;
+  unsigned bytesPerElem;
 };
 
 std::uint64_t getMultiUpdateOpCycleEstimate(
-    const MultiUpdateOpTargetParameters &targetParams, bool floatData,
+    const MultiUpdateOpTargetParameters &targetParams,
     bool subWordWritesRequired, const unsigned elemsPerSlice,
-    const unsigned numOffsets, const Operation op, const bool scaled,
-    const double proportionOfIndexableRangePerWorker,
-    const bool useOnePointDistribution = false,
-    const bool scaleHigherPrecisionThanData = false);
+    const unsigned numOffsets, const unsigned numOffsetsInRangePerWorker,
+    const unsigned offsetsPerDictEntry, const Operation op, const bool scaled,
+    const bool scaleHigherPrecisionThanData = false,
+    const bool indicesAreSorted = false);
 
 /// Target parameters used in cast estimation
 struct CastTargetParameters {

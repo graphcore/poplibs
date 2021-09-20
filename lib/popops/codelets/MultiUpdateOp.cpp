@@ -1,5 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "MultiUpdateOp.hpp"
+#include "MultiSliceUpdateCommon.hpp"
 #include "poplar/TileConstants.hpp"
 #include <type_traits>
 
@@ -23,6 +24,7 @@ public:
   Input<Vector<Type, ONE_PTR, 4>> subT;
   InOut<Vector<Type, COMPACT_PTR, 4>> baseT;
   const unsigned short regionSize; // stride between slices
+  const bool indicesAreSorted;     // indices are sorted in increasing order
   const unsigned baseOffset;       // in the slice dimension
   const unsigned numBaseElements;  // in the slice dimension
   // in the slice dimension (ceil numBaseElements / numWorkers). Required only
@@ -34,7 +36,18 @@ public:
       unsigned restrictedRegionSize = regionSize;
       if (std::is_same<Type, half>::value && !subwordWritesSupported)
         restrictedRegionSize &= ~0x1;
-      for (unsigned o = 0; o != offsets.size(); ++o) {
+
+      unsigned offsetIndexBegin = 0;
+      unsigned offsetIndexEnd = offsets.size();
+      if (indicesAreSorted) {
+        offsetIndexBegin = lowerBinarySearch(
+            reinterpret_cast<int *>(&offsets[0]), offsets.size(), baseOffset);
+        offsetIndexEnd =
+            upperBinarySearch(reinterpret_cast<int *>(&offsets[0]),
+                              offsets.size(), baseOffset + numBaseElements);
+      }
+
+      for (unsigned o = offsetIndexBegin; o != offsetIndexEnd; ++o) {
         auto baseIdx = offsets[o];
 
         // the assembly uses this same logic here but without bounds checks on
@@ -75,6 +88,7 @@ public:
   Input<Vector<Type, ONE_PTR, 4>> subT;
   InOut<Vector<Type, COMPACT_PTR, 4>> baseT;
   const unsigned short regionSize; // stride between slices
+  const bool indicesAreSorted;     // indices are sorted in increasing order
   const unsigned baseOffset;       // in the slice dimension
   const unsigned numBaseElements;  // in the slice dimension
   // in the slice dimension (ceil numBaseElements / numWorkers). Required only
@@ -96,7 +110,18 @@ public:
       unsigned restrictedRegionSize = regionSize;
       if (std::is_same<Type, half>::value && !subwordWritesSupported)
         restrictedRegionSize &= ~0x1;
-      for (unsigned o = 0; o != offsets.size(); ++o) {
+
+      unsigned offsetIndexBegin = 0;
+      unsigned offsetIndexEnd = offsets.size();
+      if (indicesAreSorted) {
+        offsetIndexBegin = lowerBinarySearch(
+            reinterpret_cast<int *>(&offsets[0]), offsets.size(), baseOffset);
+        offsetIndexEnd =
+            upperBinarySearch(reinterpret_cast<int *>(&offsets[0]),
+                              offsets.size(), baseOffset + numBaseElements);
+      }
+
+      for (unsigned o = offsetIndexBegin; o != offsetIndexEnd; ++o) {
         auto baseIdx = offsets[o];
 
         // the assembly uses this same logic here but without bounds checks on

@@ -46,6 +46,7 @@ public:
 
 public:
   bool isNull;
+  bool useIndicesOrderingInfo;
   sliceInternal::Partition<std::size_t> partition;
 
   // For validation, to identify the restrictions on what this
@@ -61,16 +62,18 @@ public:
 
 bool operator<(const SlicePlanInternal &a,
                const SlicePlanInternal &b) noexcept {
-  return std::tie(a.isNull, a.partition, a.rank, a.slicedDims,
-                  a.slicedDimSizes) < std::tie(b.isNull, b.partition, b.rank,
-                                               b.slicedDims, b.slicedDimSizes);
+  return std::tie(a.isNull, a.useIndicesOrderingInfo, a.partition, a.rank,
+                  a.slicedDims, a.slicedDimSizes) <
+         std::tie(b.isNull, b.useIndicesOrderingInfo, b.partition, b.rank,
+                  b.slicedDims, b.slicedDimSizes);
 }
 
 bool operator==(const SlicePlanInternal &a,
                 const SlicePlanInternal &b) noexcept {
-  return std::tie(a.isNull, a.partition, a.rank, a.slicedDims,
-                  a.slicedDimSizes) == std::tie(b.isNull, b.partition, b.rank,
-                                                b.slicedDims, b.slicedDimSizes);
+  return std::tie(a.isNull, a.useIndicesOrderingInfo, a.partition, a.rank,
+                  a.slicedDims, a.slicedDimSizes) ==
+         std::tie(b.isNull, b.useIndicesOrderingInfo, b.partition, b.rank,
+                  b.slicedDims, b.slicedDimSizes);
 }
 
 std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p);

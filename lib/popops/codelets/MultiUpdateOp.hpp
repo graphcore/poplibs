@@ -1,10 +1,11 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+#ifndef _MultiUpdateOp_hpp_
+#define _MultiUpdateOp_hpp_
+
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "popops/OperationDef.hpp"
-// Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-#ifndef _MultiUpdateOp_hpp_
-#define _MultiUpdateOp_hpp_
+
 #include <cassert>
 #include <cmath>
 #include <poplar/HalfFloat.hpp>

@@ -5,6 +5,7 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "dynamicSlice.inc"
 #include "MultiSliceUpdateCommon.h.S"
+#include "BinarySearch.h.S"
 
 /* -------------------------------------------------------------------------- */
 // Dynamic Slice and Dynamic Update Slice vertex code for int, half and float
@@ -24,9 +25,10 @@
 #define mMaxElementsPerWorker m3
 #define mWkrEnd            m6
 #define mWorkerId          m2
+#define mIndicesAreSorted  m6
 
+#define STACK_SIZE         24
 
-#define STACK_SIZE         8
 //****************************************************************************
 // The input structure parameters:
 // 32 bit offset vector
@@ -35,6 +37,7 @@
 // 32 bit baseOffset
 // 32 bit numBaseElements
 // 16 bit numregions
+// 8  bit indicesAreSorted
 //****************************************************************************
 #define VOFF_OFFSET_PTR      0
 #define VOFF_OFFSET_SIZE     1
@@ -43,6 +46,7 @@
 #define VOFF_BASE_OFFSET     4
 #define VOFF_BASE_ELEM       5
 #define VOFF_REGION_SIZE    (6*2) // 16 bit - offsets for use with 16 bit loads
+#define VOFF_INDICES_ARE_SORTED (6*4 + 2)
 #define VOFF_ELEMS_PER_WORKER 7
 
 //******************************************************************************
@@ -191,15 +195,65 @@ MS_UNSIGNED_FUNC:
 MultiSlice_common:
 MultiSlice_common_u:
   UPDATE_OFFSET_AND_SIZES $mBaseElem $mMaxElementsPerWorker $mWorkerId $mWkrStart $mWkrEnd $mBaseIdx (4*VOFF_BASE_ELEM) (4*VOFF_ELEMS_PER_WORKER) (4*VOFF_BASE_OFFSET)
+  
+  // save registers used by binary search
+  ldz8 $mIndicesAreSorted, $mvertex_base, VOFF_INDICES_ARE_SORTED
+  brz $mIndicesAreSorted, MultiSlice_common_ld_offsets_span
+
+  // Do a binary search over the sorted entries. The lowest entry greater than
+  // equal to the dictionary entry allocated to his tile and the highest entry
+  // less than equal to largest dictionary entry is searched for. We use this
+  // information to find the number of offset positions to process per worker and
+  // adjust the offset pointers accordingly
+
+  // store used registers on stack. These are used by the binary search function
+  st32 $m0, $mzero, $mworker_base, 1
+  st32 $m10, $mzero, $mworker_base, 2
+  st32 $m4, $mzero, $mworker_base, 3
+  st32 $m8, $mzero, $mworker_base, 4
+
+  ld32 $mBS_indicesPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
+  ld32 $mBS_numIndices, $mzero, $mvertex_base, VOFF_OFFSET_SIZE
+  mov  $mBS_targetValue, $mBaseIdx
+
+  // result in $mBS_startIndex
+  call $mBS_retLr, lowerBinarySearch
+
+  // $mBS_indicesPtr, $mBS_numIndices and  $mBS_targetValue are unmodified
+  add $mBS_targetValue, $mBS_targetValue, $mBaseElem
+  // result in $mBS_endIndex
+  call $mBS_retLr, upperBinarySearch
+  // new offset size
+  sub $mOffsetSize, $mBS_endIndex, $mBS_startIndex
+  brneg $mOffsetSize, MultiSlice_common_exit
+
+  // adjust offset pointer
+  ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
+  ld32step $mzero, $mzero, $mOffsetPtr+=, $mBS_startIndex
+  st32 $mBS_startIndex, $mworker_base, 5
+
+  // restore registers from stack
+  ld32 $m0, $mzero, $mworker_base, 1
+  ld32 $m10, $mzero, $mworker_base, 2
+  ld32 $m4, $mzero, $mworker_base, 3
+  ld32 $m8, $mzero, $mworker_base, 4
+
+  bri MultiSlice_common_check_no_elem
+
+  ld32 $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
   bri MultiSlice_common_check_no_elem
 MultiSlice_common_s:
     // Load states
     ld32  $mBaseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
     ld32  $mBaseIdx, $mzero, $mvertex_base, VOFF_BASE_OFFSET
     setzi $mWkrStart, 0
-    
-MultiSlice_common_check_no_elem:
+
+MultiSlice_common_ld_offsets_span:
+    st32  $mzero, $mworker_base, 5
+    ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
     ld32  $mOffsetSize, $mzero, $mvertex_base, VOFF_OFFSET_SIZE
+
+MultiSlice_common_check_no_elem:
     brnzdec $mOffsetSize, MultiSlice_common_start
     exitz   $mzero
 
@@ -213,10 +267,12 @@ MultiSlice_common_start:
     mul   $mWkrStart, $mWkrStart, $mRegionSizeInBytes
 
     // Load vectors pointers
-    ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
     ld32  $mBaseTPtr, $mzero, $mvertex_base, VOFF_BASET_PTR
     add   $mBaseTPtr, $mBaseTPtr, $mWkrStart
     ld32  $mSubTPtr, $mzero, $mvertex_base, VOFF_SUBT_PTR
+    ld32  $mScratch, $mworker_base, 5
+    mul   $mScratch, $mScratch, $mRegionSizeInBytes
+    add   $mSubTPtr,  $mSubTPtr, $mScratch
 
 MultiSlice_common_outer_loop_begin:
 

@@ -975,6 +975,30 @@ add_multitarget_test(
 	   --data-type half
 	   --tiles-per-ipu 4)
 
+
+add_multitarget_test(
+   NAME embedding_layer_half_sorted_indices
+   COMMAND embedding_layer
+     --shape {128,8}
+     --num-indices 32
+     --use-embedding-plan=1
+     --data-type half
+     --indices-are-sorted=1 
+     --plan-minimisation-target cycles      
+     --tiles-per-ipu 4)
+
+add_multitarget_test(
+   NAME embedding_layer_float_sorted_indices
+   COMMAND embedding_layer
+     --shape {32,8}
+     --num-indices 32
+     --use-embedding-plan=1
+     --data-type half
+     --indices-are-sorted=1 
+     --plan-minimisation-target cycles      
+     --tiles-per-ipu 4)
+
+
 foreach(MINIMISATION_TARGET memory cycles)
   add_multitarget_test(
            NAME embedding_layer_float_10x20_${MINIMISATION_TARGET}
