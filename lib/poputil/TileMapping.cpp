@@ -467,4 +467,22 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
   return out;
 }
 
+unsigned transformTileIndex(unsigned tile, unsigned numTiles, unsigned offset,
+                            bool ascending) {
+  if (ascending) {
+    return (numTiles + tile - offset) % numTiles;
+  } else {
+    return (2 * numTiles - offset - tile) % numTiles;
+  }
+}
+
+unsigned invTransformTileIndex(unsigned tile, unsigned numTiles,
+                               unsigned offset, bool ascending) {
+  if (ascending) {
+    return (tile + offset) % numTiles;
+  } else {
+    return (2 * numTiles - offset - tile) % numTiles;
+  }
+}
+
 } // namespace poputil

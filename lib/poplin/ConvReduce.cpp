@@ -123,32 +123,6 @@ reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
   logging::poplin::debug("    Tiles used : {} max outWidth: {}", tilesUsed,
                          maxOutWidth);
 }
-// Transform the tile index such that the tile at the given offset maps to zero
-// and tile allocations increment.  Prior to that the tile allocation would be:
-// ASCENDING:  Allocation begins at the offset and increments, wrapping around
-//             to zero after numTiles-1
-// DESCENDING: Allocation begins at (numTiles - offset) and decrements,
-//             wrapping around to numTiles-1 after zero
-//
-// Note: Extra add of numTiles to ensure positive result which behaves nicely
-//       when using the % operator
-static unsigned transformTileIndex(unsigned inTile, unsigned numTiles,
-                                   unsigned offset, bool ascending) {
-  if (ascending) {
-    return (numTiles + inTile - offset) % numTiles;
-  } else {
-    return (2 * numTiles - offset - inTile) % numTiles;
-  }
-}
-
-static unsigned invTransformTileIndex(unsigned inTile, unsigned numTiles,
-                                      unsigned offset, bool ascending) {
-  if (ascending) {
-    return (inTile + offset) % numTiles;
-  } else {
-    return (2 * numTiles - offset - inTile) % numTiles;
-  }
-}
 
 static Tensor partialGroupedReduce(
     Graph &graph, const std::vector<std::vector<unsigned>> &tileGroups,

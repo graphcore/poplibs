@@ -1199,17 +1199,19 @@ static Tensor convolutionPostprocess(Graph &graph,
  *                        in the hierarchy.
  *  \param options        Options for this convolution.
  */
+
 static TensorUseTracker iterateUsageByPartition(
     Graph &graph, CanonicalConvParams params, Plan plan, unsigned level,
     bool serial, boost::optional<Tensor> acts, boost::optional<Tensor> weights,
     const std::vector<Split<ConvIndices>> &indices, unsigned grainSize,
-    unsigned minElementsPerTile, const ConvOptions &options) {
+    unsigned minElementsPerTile, const ConvOptions &options, unsigned startTile,
+    bool ascendingMapping) {
   // Pre-process prior to the parallel partition at this level.
   params = convolutionPreprocess(graph, params.releaseParams(), options, plan,
                                  level, indices, acts, weights, serial);
+  const auto numTiles = graph.getTarget().getNumTiles();
 
-  TensorUseTracker tracker(graph.getTarget().getNumTiles());
-
+  TensorUseTracker tracker(numTiles, startTile, ascendingMapping);
   // TODO: T12870 Where it is known that partitioning does not cause elements of
   // either the inputs or weights to be used on multiple tiles, this should
   // skip calculating the mapping for all but the first serial (and parallel?)
@@ -1217,7 +1219,10 @@ static TensorUseTracker iterateUsageByPartition(
 
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
-    const auto tile = linearizeTileIndices(target, options, indices, plan);
+    auto tile = linearizeTileIndices(target, options, indices, plan);
+    if (weights) {
+      tile = transformTileIndex(tile, numTiles, startTile, ascendingMapping);
+    }
     assert(bool(acts) != bool(weights));
     tracker.add(graph, tile, acts ? *acts : *weights);
   } else {
@@ -1237,7 +1242,8 @@ static TensorUseTracker iterateUsageByPartition(
                 slice, params, subActs.get_ptr(), subWeights.get_ptr());
             auto usage = iterateUsageByPartition(
                 graph, subParams, plan, level, false, subActs, subWeights,
-                subIndices, grainSize, minElementsPerTile, options);
+                subIndices, grainSize, minElementsPerTile, options, startTile,
+                ascendingMapping);
             if (totalSerialSplit == 1) {
               // N.B. we do not resolve usage if there is no serial splitting.
               tracker = std::move(usage);
@@ -1263,7 +1269,8 @@ static TensorUseTracker iterateUsageByPartition(
                 slice, params, subActs.get_ptr(), subWeights.get_ptr());
             auto usage = iterateUsageByPartition(
                 graph, subParams, plan, level + 1, true, subActs, subWeights,
-                subIndices, grainSize, minElementsPerTile, options);
+                subIndices, grainSize, minElementsPerTile, options, startTile,
+                ascendingMapping);
             if (totalParallelSplit == 1) {
               tracker = std::move(usage);
             } else {
@@ -1288,9 +1295,29 @@ static TensorUseTracker calculateActivationsOrWeightsUsage(
     weights = *weightsPtr;
   }
 
-  return iterateUsageByPartition(graph, params, plan, level, serial, acts,
-                                 weights, indices, grainSize,
-                                 minElementsPerTile, options);
+  const auto [startTile, ascendingMapping] = [&]() {
+    if (acts) {
+      // Allow the planned dithering to be applied to the activations
+      return std::make_pair(0u, true);
+    }
+    bool ascendingPlanMapping =
+        plan.linearizeTileDirection == Plan::LinearizeTileDirection::ASCENDING;
+    bool respectDithering = !(ascendingPlanMapping && plan.startTile == 0);
+    if (respectDithering) {
+      // The plan includes dithering so allocate weights consistently with that
+      // dithering
+      return std::make_pair(plan.startTile, ascendingPlanMapping);
+    } else {
+      // The plan contains no dithering - allocate from the end of the set of
+      // tiles used by the plan
+      return std::make_pair(
+          graph.getTarget().getNumTiles() - (plan.totalTiles() - 1), false);
+    }
+  }();
+
+  return iterateUsageByPartition(
+      graph, params, plan, level, serial, acts, weights, indices, grainSize,
+      minElementsPerTile, options, startTile, ascendingMapping);
 }
 
 /// Map the input tensor such that the exchange required during the
@@ -1570,7 +1597,8 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
 }
 
 static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
-                      const poplar::Tensor &out) {
+                      const poplar::Tensor &out,
+                      const boost::optional<Plan> &plan) {
   const auto &target = graph.getTarget();
   const auto dType = out.elementType();
   const auto grainSize = target.getVectorWidth(dType);
@@ -1586,18 +1614,50 @@ static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
     mapTensorLinearly(graph, biases, minElementsPerTile, grainSize);
   }
   const auto numTiles = target.getNumTiles();
-  TensorUseTracker useTracker(numTiles);
   // Create a view of the output where channels are the outermost dimension.
   auto outRegrouped = out.dimShufflePartial({out.rank() - 1}, {1})
                           .flatten(2, out.rank())
                           .flatten(0, 2);
   auto outMapping = graph.getTileMapping(outRegrouped);
+
+  // If there is a plan with dithered tile allocation then respect that -
+  // otherwise allocate the biases at the highest tile on which they will be
+  // used
+  auto highestTileWithDataAllocation =
+      [](const std::vector<std::vector<Interval>> &mapping) {
+        for (unsigned i = mapping.size() - 1; i != 0; i--) {
+          if (mapping[i].size()) {
+            return i;
+          }
+        }
+        return 0u;
+      };
+
+  const bool respectDithering = [&]() {
+    if (plan) {
+      return plan.get().startTile != 0 ||
+             plan.get().linearizeTileDirection ==
+                 Plan::LinearizeTileDirection::DESCENDING;
+    }
+    return false;
+  }();
+  const unsigned startTile =
+      respectDithering ? plan.get().startTile
+                       : numTiles - highestTileWithDataAllocation(outMapping);
+  const bool ascendingMapping =
+      respectDithering ? plan.get().linearizeTileDirection ==
+                             Plan::LinearizeTileDirection::ASCENDING
+                       : false;
+  TensorUseTracker useTracker(numTiles, startTile, ascendingMapping);
   for (unsigned tile = 0; tile < numTiles; ++tile) {
     for (const auto &interval : outMapping[tile]) {
       unsigned chanBegin = interval.begin() / outRegrouped.dim(1);
       unsigned chanEnd =
           (interval.end() + outRegrouped.dim(1) - 1) / outRegrouped.dim(1);
-      useTracker.add(graph, tile, biases.slice(chanBegin, chanEnd));
+
+      auto tileIdx = transformTileIndex(tile, target.getNumTiles(), startTile,
+                                        ascendingMapping);
+      useTracker.add(graph, tileIdx, biases.slice(chanBegin, chanEnd));
     }
   }
 
@@ -1605,18 +1665,32 @@ static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
                              true /* extendPartialUsage */);
 }
 
-poplar::Tensor createBiases(poplar::Graph &graph, const Tensor &acts_,
-                            const poplar::DebugContext &debugContext) {
+static Tensor createBiases(Graph &graph, const Tensor &acts_,
+                           const boost::optional<Plan> &plan,
+                           const DebugContext &debugContext) {
   POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts_), "createBiases");
-
   const auto acts = actsToInternalShape(acts_, 1, acts_.dim(1));
   const auto numOutChans = acts.dim(acts.rank() - 1);
   const auto dType = acts.elementType();
   auto biases = graph.addVariable(dType, {numOutChans}, {di});
-  mapBiases(graph, biases, acts);
+  mapBiases(graph, biases, acts, plan);
   di.addOutput(biases);
   return biases;
+}
+
+poplar::Tensor createBiases(poplar::Graph &graph, const Tensor &acts,
+                            const poplar::DebugContext &debugContext) {
+  return createBiases(graph, acts, boost::none, debugContext);
+}
+
+poplar::Tensor createBiases(poplar::Graph &graph, const Tensor &acts,
+                            const ConvParams &params,
+                            const poplar::DebugContext &debugContext,
+                            const poplar::OptionFlags &options,
+                            PlanningCache *cache) {
+  const auto plan = getPlan(graph.getTarget(), params, options, cache);
+  return createBiases(graph, acts, plan, debugContext);
 }
 
 Tensor sliceOutput(const Tensor &out, const ConvSlice &slice,

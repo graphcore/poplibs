@@ -217,7 +217,7 @@ poplar::Tensor createWeights(poplar::Graph &graph, const ConvParams &params,
                              const poplar::OptionFlags &options = {},
                              PlanningCache *cache = nullptr);
 
-/** Create a bias tensor suitable for input to addBias() function
+/** Create a bias tensor suitable for input to the addBias() function
  *
  * The tensor will have the shape [outChans]
  *
@@ -230,6 +230,28 @@ poplar::Tensor createWeights(poplar::Graph &graph, const ConvParams &params,
 poplar::Tensor
 createBiases(poplar::Graph &graph, const poplar::Tensor &activations,
              const poplar::DebugContext &debugContext = {"biases"});
+
+/** Create a bias tensor suitable for input to the addBias() function
+ *  with allocation consistent with plan parameters
+ *
+ * The tensor will have the shape [outChans]
+ *
+ * \param graph         The graph that the tensor will be added to.
+ * \param activations   The activation tensor which is output from the
+ *                      convolution.
+ * \param params        Parameters as passed to the target convolution.
+ * \param name          Debugging name for the tensor.
+ * \param options       Options controlling the implementation. See
+ *                      createWeights().
+ * \param cache         Optional pointer to planning cache to use.
+ * \return              The tensor of biases.
+ */
+poplar::Tensor
+createBiases(poplar::Graph &graph, const poplar::Tensor &activations,
+             const ConvParams &params,
+             const poplar::DebugContext &debugContext = {"biases"},
+             const poplar::OptionFlags &options = {},
+             PlanningCache *cache = nullptr);
 
 /** Create an input tensor for a convolution.
  *

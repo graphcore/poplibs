@@ -208,7 +208,8 @@ class TensorUseTracker {
   std::unique_ptr<TensorUseTrackerState> st;
 
 public:
-  TensorUseTracker(unsigned numTiles);
+  TensorUseTracker(unsigned numTiles, unsigned startTile = 0,
+                   bool ascendingMappingOrder = true);
   TensorUseTracker(const TensorUseTracker &other);
   TensorUseTracker(TensorUseTracker &&other);
   TensorUseTracker &operator=(const TensorUseTracker &other);
@@ -442,6 +443,46 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
                        const poplar::Type &type, unsigned dim,
                        bool ditherMapping = false,
                        const poplar::DebugContext &debugContext = {});
+
+/** Transform a tile index such that the result begins at zero and increments
+ *
+ * \param tile      The tile number to transform.
+ * \param numTiles  The number of tiles on the target device.
+ * \param offset    The offset to the first tile used for the mapping before the
+ *                  transform takes place.
+ * \param ascendingOrder
+ *                  Mapping order before the transform takes place:
+ *                  If true, the first tile used = offset and tiles are
+ *                  allocated in increasing order
+ *                  If false, the
+ *                  first tile used = (number of device tiles -1 - offset) and
+ *                  tiles are allocated in decreasing order
+ *
+ * \returns Transformed tile number
+ */
+
+unsigned transformTileIndex(unsigned tile, unsigned numTiles, unsigned offset,
+                            bool ascending);
+
+/** Transform a tile index such that the result begins at an offset and
+ *  increments or decrements.
+ *
+ * \param tile      The tile number to transform.
+ * \param numTiles  The number of tiles on the target device.
+ * \param offset    The offset to the first tile used for the mapping after the
+ *                  transform takes place.
+ * \param ascendingOrder
+ *                  Mapping order after the transform takes place:
+ *                  If true, the first tile used = offset and tiles are
+ *                  allocated in increasing order
+ *                  If false, the
+ *                  first tile used = (number of device tiles -1 - offset) and
+ *                  tiles are allocated in decreasing order
+ *
+ * \returns Transformed tile number
+ */
+unsigned invTransformTileIndex(unsigned tile, unsigned numTiles,
+                               unsigned offset, bool ascending);
 
 } // namespace poputil
 

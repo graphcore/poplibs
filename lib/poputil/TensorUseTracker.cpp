@@ -18,7 +18,12 @@ public:
                                 std::hash<poplar::VariableRef>>
       usage;
   unsigned numTiles;
-  TensorUseTrackerState(unsigned numTiles) : numTiles(numTiles) {}
+  unsigned startTile;
+  bool ascendingMappingOrder;
+  TensorUseTrackerState(unsigned numTiles, unsigned startTile,
+                        bool ascendingMappingOrder)
+      : numTiles(numTiles), startTile(startTile),
+        ascendingMappingOrder(ascendingMappingOrder) {}
   TensorUseTrackerState(const TensorUseTrackerState &other) = default;
   TileUsage &getUsage(poplar::VariableRef v) {
     auto m = usage.find(v);
@@ -34,9 +39,10 @@ toIclInterval(const poplar::Interval &interval) {
                                                     interval.end());
 }
 
-TensorUseTracker::TensorUseTracker(unsigned numTiles) {
+TensorUseTracker::TensorUseTracker(unsigned numTiles, unsigned startTile,
+                                   bool ascendingMappingOrder) {
   st = std::unique_ptr<TensorUseTrackerState>(
-      new TensorUseTrackerState(numTiles));
+      new TensorUseTrackerState(numTiles, startTile, ascendingMappingOrder));
 }
 
 TensorUseTracker::TensorUseTracker(const TensorUseTracker &other)
@@ -286,10 +292,12 @@ void TensorUseTracker::mapTensorsByUse(
 
     std::vector<std::vector<poplar::Interval>> mapping(numTiles);
     for (unsigned tile = 0; tile < usage.size(); ++tile) {
-      mapping[tile].reserve(usage[tile].iterative_size());
+      auto tileIdx =
+          invTransformTileIndex(tile, graph.getTarget().getNumTiles(),
+                                st->startTile, st->ascendingMappingOrder);
+      mapping[tileIdx].reserve(usage[tile].iterative_size());
       for (const auto &interval : usage[tile]) {
-
-        mapping[tile].emplace_back(interval.lower(), interval.upper());
+        mapping[tileIdx].emplace_back(interval.lower(), interval.upper());
       }
     }
     graph.setTileMapping(t, mapping);

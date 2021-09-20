@@ -813,7 +813,8 @@ int main(int argc, char **argv) try {
 
   Tensor biases;
   if (bias) {
-    biases = poplin::createBiases(graph, nextAct);
+    biases = poplin::createBiases(graph, nextAct, params, "biases", fwdOptions,
+                                  &cache);
     poplin::addBias(graph, nextAct, biases, fwdProg, "bias");
   }
   if (!doFwdPass) {
