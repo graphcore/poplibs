@@ -1,4 +1,9 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Support for gated recurrent units.
+ *
+ */
 
 #ifndef popnn_Gru_hpp
 #define popnn_Gru_hpp
@@ -25,16 +30,16 @@ struct GruParams {
   rnn::RnnParams rnn;
 
   // The datatype of the GRU.
-  /// \deprecated Use \ref rnn.dataType instead.
+  /// \deprecated Use rnn::RnnParams.dataType instead.
   poplar::Type dataType;
   /// The batch size
-  /// \deprecated Use rnn.batchSize instead.
+  /// \deprecated Use rnn::RnnParams.batchSize instead.
   std::size_t batchSize;
   /// The number of time steps in the sequence of the GRU.
-  /// \deprecated Use rnn.timeSteps instead.
+  /// \deprecated Use rnn::RnnParams.maxTimeSteps instead.
   std::size_t timeSteps;
   /// The number of neurons for the input and output layer.
-  /// \deprecated Use rnn.layerSizes instead.
+  /// \deprecated Use rnn::RnnParams.layerSizes instead.
   std::vector<std::size_t> layerSizes;
   /// If true the GRU function returns the entire sequence of outputs,
   /// otherwise it returns just the final output.
@@ -42,11 +47,11 @@ struct GruParams {
   /// If this parameter is set to false then the GRU will skip the
   /// calculation of the gradients of the inputs.
   bool calcInputGradients = true;
-  /// The weight and bias tensors are concatenated tensors in terms of which
-  /// gates they service. This option allows the user to specify the order of
-  /// the gates in that outermost dimension.
-  /// The default order is:
-  /// [Reset gate, Update gate, Candidate].
+  /// The weights and biases for all of the layers being processed are
+  /// concatenated in the outermost dimension of the weights and biases tensors.
+  /// This option allows you to specify the order of the gates in that outermost
+  /// dimension. The default order can be obtained with
+  /// getDefaultBasicGruCellOrder().
   std::vector<BasicGruCellUnit> cellOrder = getDefaultBasicGruCellOrder();
   /// Controls whether the reset gate is applied before or after the candidate
   /// weights and biases.
@@ -76,24 +81,24 @@ uint64_t getBasicGruCellBwdFlops(const GruParams &params);
 
 uint64_t getBasicGruCellWuFlops(const GruParams &params);
 
-/** Create an input tensor of shape [numSteps, batchSize, inputSize] which is
- *  optimally mapped to multiply the whole input sequence in a single matrix
- *  multiply operation.
+/** Create an input tensor of shape [\p numSteps, \p batchSize, \p inputSize],
+ *  that is optimally mapped to multiply the whole input sequence in a single
+ *  matrix multiply operation.
  *
  * **GRU options**
  *
- *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive)
+ *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive).
  *
- *      See createWeights().
+ *      See poplin::createWeights() for more information.
  *
  *    * `inferenceOnly` (true, false) [=true]
  *
- *      Sets convolution pass to INFERENCE_FWD if true; TRAINING_FWD otherwise.
- *      See createWeights().
+ *      Sets convolution pass to `INFERENCE_FWD` if true; `TRAINING_FWD`
+ *      otherwise. See the `pass` option in poplin::createWeights().
  *
  *    * `partialsType` (half, float) [=float]
  *
- *      See createWeights().
+ *      See poplin::createWeights() for more information.
  *
  * \param graph           Graph object to add the tensor to.
  * \param params          The GRU parameters.
@@ -102,7 +107,7 @@ uint64_t getBasicGruCellWuFlops(const GruParams &params);
  * \param planningCache   A poplin matrix multiply planning cache.
  *
  * \return                A tensor created in the graph of shape
- *                        [timeSteps, batchSize, inputSize].
+ *                        [\p timeSteps, \p batchSize, \p inputSize].
  */
 poplar::Tensor
 createInput(poplar::Graph &graph, const GruParams &params,
@@ -125,7 +130,7 @@ struct GruWeights {
 };
 
 /** Create the weights kernel used to weight the input and output
- *  of a GRU. Returns the inputWeights and outputWeights.
+ *  of a GRU. Returns the \p inputWeights and \p outputWeights.
  */
 std::pair<poplar::Tensor, poplar::Tensor>
 createWeightsKernel(poplar::Graph &graph, const GruParams &params,
@@ -150,7 +155,7 @@ createWeights(poplar::Graph &graph, const GruParams &params,
               const poplar::OptionFlags &options = {},
               poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Create attention tensor for AUGRU.
+/** Create an attention tensor for AUGRU.
  */
 poplar::Tensor createAttention(poplar::Graph &graph, const GruParams &params,
                                const poplar::DebugContext &debugContext,
@@ -160,41 +165,44 @@ poplar::Tensor createAttention(poplar::Graph &graph, const GruParams &params,
  *
  * The following are the formulas for a GRU cell:
  *
- *   - r_t = sigmoid(w_r * x_t + u_r * h_t-1 + b_r)
- *   - u_t = sigmoid(w_u * x_t + u_u * h_t-1 + b_u)
- *   - c_t = tanh(w_c * x_t + u_c * (r_t x h_t-1) + b_c)
- *   - h_t = u_t x h_t-1 + (1 - u_t) x c_t
+ * - \f$r_t = \operatorname{sigmoid}(w_r \times x_t + u_r \times h_{t-1} + b_r)\f$
+ * - \f$u_t = \operatorname{sigmoid}(w_u \times x_t + u_u \times h_{t-1} + b_u)\f$
+ * - \f$c_t = \tanh(w_c \times x_t + u_c \times (r_t \circ h_{t-1}) + b_c)\f$
+ * - \f$h_t = u_t \circ h_{t-1} + (1 - u_t) \circ c_t\f$
  *
  * Where:
- *   - \b * is matrix multiplication
- *   - \b x is Hadamard product
+ *   - \f$\times\f$ is matrix multiplication
+ *   - \f$\circ\f$ is Hadamard product
  *
- * The GRU is run for seqSize steps each with a batch of size batchSize and
- * input size inputSize and output size outputSize. The total number of units
- * within each GRU cell is `BASIC_GRU_CELL_NUM_UNITS`.
+ * The GRU is run for rnn::RnnParams.maxTimeSteps, each with a batch of size
+ * \p batchSize and input size \p inputSize and output size \p outputSize. The
+ * total number of units within each GRU cell is `BASIC_GRU_CELL_NUM_UNITS`.
  *
  * \param graph              Graph to which the GRU cell belongs.
  * \param params             The parameters of the GRU.
  * \param stateInit          Initial state for the GRU.
  * \param in                 The input tensor to the GRU of dimension
- *                           [timesteps, batch, inputSize].
+ *                           [\p timeSteps, \p batchSize, \p inputSize].
  * \param weights            The GRU weights structure.
  * \param[out] intermediates Intermediate results that are retained in the
  *                           forward pass of training for use in the backward
  *                           pass. It includes the data for reset gate, update
- *                           gate, candidate, and output if outputFullSequence
- *                           is false. This argument should be set to null if we
+ *                           gate, candidate, and output if
+ *                           \p outputFullSequence is false.
+ *                           This argument should be set to null if we
  *                           are only doing inference.
  * \param fwdProg            Program sequence.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The output of the GRU.
- *         Depending on the outputFullSequence parameter the output tensor is
+ *         Depending on the \p outputFullSequence parameter the output tensor is
  *         either the output of the last timestep in the shape
- *         [batch, outputSize] or it is the sequence of outputs for every
- *         timestep in the shape [timesteps, batch, outputSize].
+ *         [\p batchSize, \p outputSize] or it is the sequence of outputs for
+ *         every timestep in the shape [\p timeSteps, \p batchSize,
+ *         \p outputSize].
  */
 poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::Tensor &stateInit, const poplar::Tensor &in,
@@ -204,50 +212,52 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::OptionFlags &options = {},
                       poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** \deprecated
- *  **deprecated** Use previously defined popnn::gruFwd() instead.
+/** Calculate the result of applying a GRU across a sequence.
  *
- * Calculate the result of applying a GRU across a sequence.
+ * \deprecated Use previously defined gruFwd() instead.
  *
  * The following are the formulas for a GRU cell:
  *
- *   - r_t = sigmoid(w_r * x_t + u_r * h_t-1 + b_r)
- *   - u_t = sigmoid(w_u * x_t + u_u * h_t-1 + b_u)
- *   - c_t = tanh(w_c * x_t + u_c * (r_t x h_t-1) + b_c)
- *   - h_t = u_t x h_t-1 + (1 - u_t) x c_t
+ *   - \f$r_t = \operatorname{sigmoid}(w_r \times x_t + u_r \times h_{t-1} + b_r)\f$
+ *   - \f$u_t = \operatorname{sigmoid}(w_u \times x_t + u_u \times h_{t-1} + b_u)\f$
+ *   - \f$c_t = \tanh(w_c \times x_t + u_c \times (r_t \circ h_{t-1}) + b_c)\f$
+ *   - \f$h_t = u_t \circ h_{t-1} + (1 - u_t) \circ c_t\f$
  *
  * Where:
- *   - \b * is matrix multiplication
- *   - \b x is Hadamard product
+ *   - \f$\times\f$ is matrix multiplication
+ *   - \f$\circ\f$ is Hadamard product
  *
- * The GRU is run for seqSize steps each with a batch of size batchSize and
- * input size inputSize and output size outputSize. The total number of units
- * within each GRU cell is `BASIC_GRU_CELL_NUM_UNITS`.
+ * The GRU is run for rnn::RnnParams.maxTimeSteps, each with a batch of size
+ * \p batchSize and input size \p inputSize and output size \p outputSize. The
+ * total number of units within each GRU cell is `BASIC_GRU_CELL_NUM_UNITS`.
  *
  * \param graph              Graph to which the GRU cell belongs.
  * \param params             The parameters of the GRU.
  * \param stateInit          Initial state for the GRU.
  * \param in                 The input tensor to the GRU of dimension
- *                           [timesteps, batch, inputSize].
- * \param realTimeSteps      The tensor contain real Time steps each seq,
- *                           shape : [batch].
+ *                           [\p timeSteps, \p batchSize, \p inputSize].
+ * \param realTimeSteps      A tensor containing real timesteps for each
+ *                           sequence, of shape [\p batch].
  * \param weights            The GRU weights structure.
  * \param[out] intermediates Intermediate results that are retained in the
  *                           forward pass of training for use in the backward
  *                           pass. It includes the data for reset gate, update
- *                           gate, candidate, and output if outputFullSequence
- *                           is false. This argument should be set to null if we
+ *                           gate, candidate, and output if
+ *                           \p outputFullSequence is false.
+ *                           This argument should be set to null if we
  *                           are only doing inference.
  * \param fwdProg            Program sequence.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The output of the GRU.
- *         Depending on the outputFullSequence parameter the output tensor is
+ *         Depending on the \p outputFullSequence parameter the output tensor is
  *         either the output of the last timestep in the shape
- *         [batch, outputSize] or it is the sequence of outputs for every
- *         timestep in the shape [timesteps, batch, outputSize].
+ *         [\p batchSize, \p outputSize] or it is the sequence of outputs for
+ *         every timestep in the shape [\p timeSteps, \p batchSize,
+ *         \p outputSize].
  */
 poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::Tensor &stateInit, const poplar::Tensor &in,
@@ -258,48 +268,51 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::OptionFlags &options = {},
                       poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Calculate the result of applying a AUGRU across a sequence.
+/** Calculate the result of applying an AUGRU across a sequence.
  *
- * The following are the formulas for a AUGRU cell:
+ * The following are the formulas for an AUGRU cell:
  *
- *   - r_t = sigmod(w_r * x_t + u_r * h_t-1 + b_r)
- *   - u_t = sigmod(w_u * x_t + u_u * h_t-1 + b_u)
- *   - c_t = tanh(w_c * x_t + u_c * (r_t x h_t-1) + b_c)
- *   - u_t = (1 - a_t) * u_t
- *   - h_t = u_t x h_t-1 + (1 - u_t) x c_t
+ *   - \f$r_t = sigmod(w_r \times x_t + u_r \times h_{t-1} + b_r)\f$
+ *   - \f$u_t = sigmod(w_u \times x_t + u_u \times h_{t-1} + b_u)\f$
+ *   - \f$c_t = tanh(w_c \times x_t + u_c \times (r_t \circ h_{t-1}) + b_c)\f$
+ *   - \f$u_t = (1 - a_t) \times u_t\f$
+ *   - \f$h_t = u_t \circ h_{t-1} + (1 - u_t) \circ c_t\f$
  *
  * Where:
- *   - \b * is matrix multiplication
- *   - \b x is Hadamard product
- *   - a_t is a scalar
+ *   - \f$\times\f$ is matrix multiplication
+ *   - \f$\circ\f$ is Hadamard product
+ *   - \f$a_t\f$ is a scalar
  *
- * The AUGRU is run for seqSize steps each with a batch of size batchSize and
- * input size inputSize and output size outputSize. The total number of units
- * within each AUGRU cell is `BASIC_GRU_CELL_NUM_UNITS`.
+ * The AUGRU is run for rnn::RnnParams.maxTimeSteps, each with a batch of size
+ * \p batchSize and input size \p inputSize and output size \p outputSize. The
+ * total number of units within each AUGRU cell is `BASIC_GRU_CELL_NUM_UNITS`.
  *
  * \param graph              Graph to which the AUGRU cell belongs.
  * \param params             The parameters of the AUGRU.
  * \param stateInit          Initial state for the AUGRU.
  * \param in                 The input tensor to the AUGRU of dimension
- *                           [timesteps, batch, inputSize].
+ *                           [\p timeSteps, \p batchSize, \p inputSize].
  * \param weights            The AUGRU weights structure.
  * \param[out] intermediates Intermediate results that are retained in the
  *                           forward pass of training for use in the backward
  *                           pass. It includes the data for reset gate, update
- *                           gate, candidate, and output if outputFullSequence
- *                           is false. This argument should be set to null if we
+ *                           gate, candidate, and output if
+ *                           \p outputFullSequence is false.
+ *                           This argument should be set to null if we
  *                           are only doing inference.
- * \param attScores          Attention for each time step.
+ * \param attScores          Attention for each timestep.
  * \param fwdProg            Program sequence.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The output of the GRU.
- *         Depending on the outputFullSequence parameter the output tensor is
+ *         Depending on the \p outputFullSequence parameter the output tensor is
  *         either the output of the last timestep in the shape
- *         [batch, outputSize] or it is the sequence of outputs for every
- *         timestep in the shape [timesteps, batch, outputSize].
+ *         [\p batchSize, \p outputSize] or it is the sequence of outputs for
+ *         every timestep in the shape [\p timeSteps, \p batchSize,
+ *         \p outputSize].
  */
 poplar::Tensor auGruFwd(poplar::Graph &graph, const GruParams &params,
                         const poplar::Tensor &stateInit,
@@ -311,53 +324,55 @@ poplar::Tensor auGruFwd(poplar::Graph &graph, const GruParams &params,
                         const poplar::OptionFlags &options = {},
                         poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** \deprecated
- *  **deprecated** Use previously defined popnn::auGruFwd() instead.
+/** Calculate the result of applying an AUGRU across a sequence.
  *
- * Calculate the result of applying a AUGRU across a sequence.
+ * \deprecated Use previously defined auGruFwd() instead.
  *
- * The following are the formulas for a AUGRU cell:
+ * The following are the formulas for an AUGRU cell:
  *
- *   - r_t = sigmod(w_r * x_t + u_r * h_t-1 + b_r)
- *   - u_t = sigmod(w_u * x_t + u_u * h_t-1 + b_u)
- *   - c_t = tanh(w_c * x_t + u_c * (r_t x h_t-1) + b_c)
- *   - u_t = (1 - a_t) * u_t
- *   - h_t = u_t x h_t-1 + (1 - u_t) x c_t
+ *   - \f$r_t = sigmod(w_r \times x_t + u_r \times h_{t-1} + b_r)\f$
+ *   - \f$u_t = sigmod(w_u \times x_t + u_u \times h_{t-1} + b_u)\f$
+ *   - \f$c_t = tanh(w_c \times x_t + u_c \times (r_t \circ h_{t-1}) + b_c)\f$
+ *   - \f$u_t = (1 - a_t) \times u_t\f$
+ *   - \f$h_t = u_t \circ h_{t-1} + (1 - u_t) \circ c_t\f$
  *
  * Where:
- *   - \b * is matrix multiplication
- *   - \b x is Hadamard product
- *   - a_t is a scalar
+ *   - \f$\times\f$ is matrix multiplication
+ *   - \f$\circ\f$ is Hadamard product
+ *   - \f$a_t\f$ is a scalar
  *
- * The AUGRU is run for seqSize steps each with a batch of size batchSize and
- * input size inputSize and output size outputSize. The total number of units
- * within each AUGRU cell is `BASIC_GRU_CELL_NUM_UNITS`.
+ * The AUGRU is run for rnn::RnnParams.maxTimeSteps, each with a batch of size
+ * \p batchSize and input size \p inputSize and output size \p outputSize. The
+ * total number of units within each AUGRU cell is `BASIC_GRU_CELL_NUM_UNITS`.
  *
  * \param graph              Graph to which the AUGRU cell belongs.
  * \param params             The parameters of the AUGRU.
  * \param stateInit          Initial state for the AUGRU.
  * \param in                 The input tensor to the AUGRU of dimension
- *                           [timesteps, batch, inputSize].
- * \param realTimeSteps      The tensor contain real Time steps each seq,
- *                           shape: [batch].
+ *                           [\p timeSteps, \p batchSize, \p inputSize].
+ * \param realTimeSteps      A tensor containing real timesteps for each
+ *                           sequence, of shape [\p batch].
  * \param weights            The AUGRU weights structure.
  * \param[out] intermediates Intermediate results that are retained in the
  *                           forward pass of training for use in the backward
  *                           pass. It includes the data for reset gate, update
- *                           gate, candidate, and output if outputFullSequence
- *                           is false. This argument should be set to null if we
+ *                           gate, candidate, and output if
+ *                           \p outputFullSequence is false.
+ *                           This argument should be set to null if we
  *                           are only doing inference.
- * \param attScores          Attention for each time step.
+ * \param attScores          Attention for each timestep.
  * \param fwdProg            Program sequence.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The output of the GRU.
- *         Depending on the outputFullSequence parameter the output tensor is
+ *         Depending on the \p outputFullSequence parameter the output tensor is
  *         either the output of the last timestep in the shape
- *         [batch, outputSize] or it is the sequence of outputs for every
- *         timestep in the shape [timesteps, batch, outputSize].
+ *         [\p batchSize, \p outputSize] or it is the sequence of outputs for
+ *         every timestep in the shape [\p timeSteps, \p batchSize,
+ *         \p outputSize].
  */
 poplar::Tensor
 auGruFwd(poplar::Graph &graph, const GruParams &params,
@@ -381,14 +396,14 @@ auGruFwd(poplar::Graph &graph, const GruParams &params,
  * \param fwdOutputInit       Forward output tensor for initial step.
  * \param fwdIntermediatesSeq Intermediates results from the forward pass.
  * \param weights             The GRU weights structure.
- * \param fwdInputSeq         The input tensor to the GRU of shape:
- *                            [timesteps, batch, inputSize]
+ * \param fwdInputSeq         The input tensor to the GRU, of shape
+ *                            [\p timeSteps, \p batchSize, \p inputSize]
  * \param fwdOutput           The output tensor from the forward pass. Depending
- *                            on the outputFullSequence parameter this is either
- *                            the output for the last timestep or it is a
+ *                            on the \p outputFullSequence parameter this is
+ *                            either the output for the last timestep or it is a
  *                            sequence of outputs for each timestep.
  * \param gradLayerNext       The gradients of the output. Depending on the
- *                            outputFullSequence parameter this is either the
+ *                            \p outputFullSequence parameter this is either the
  *                            gradient of the output for the last timestep or
  *                            it is a sequence output gradients for each
  *                            timestep.
@@ -401,7 +416,8 @@ auGruFwd(poplar::Graph &graph, const GruParams &params,
  *                           This argument should be set to null if you do not
  *                           need to calculate weight deltas.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial output.
@@ -417,10 +433,11 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
        const poplar::OptionFlags &options_,
        poplin::matmul::PlanningCache *planningCache);
 
-/** \deprecated
- *  **deprecated** Use previously defined popnn::gruBwd() instead.
+/** Run GRU backward pass.
  *
- *  Run GRU backward pass. The backward pass executes in reverse order compared
+ *  \deprecated Use previously defined popnn::gruBwd() instead.
+ *
+ *  The backward pass executes in reverse order compared
  *  to the forward pass. If the forward steps for a GRU layer are sf =
  *  {0, 1, 2, ..., S - 1} then the backward steps run for sb = {S - 1, S - 2,
  *  .... , 1, 0}.
@@ -431,16 +448,16 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
  * \param fwdOutputInit       Forward output tensor for initial step.
  * \param fwdIntermediatesSeq Intermediates results from the forward pass.
  * \param weights             The GRU weights structure.
- * \param realTimeSteps       The tensor contain real Time steps each seq,
- *                            shape : [batch].
- * \param fwdInputSeq         The input tensor to the GRU of shape:
- *                            [timesteps, batch, inputSize]
+ * \param realTimeSteps       A tensor containing real timesteps for each
+ *                            sequence, with shape [\p batch].
+ * \param fwdInputSeq         The input tensor to the GRU, of shape
+ *                            [\p timeSteps, \p batchSize, \p inputSize]
  * \param fwdOutput           The output tensor from the forward pass. Depending
- *                            on the outputFullSequence parameter this is either
- *                            the output for the last timestep or it is a
+ *                            on the \p outputFullSequence parameter this is
+ *                            either the output for the last timestep or it is a
  *                            sequence of outputs for each timestep.
  * \param gradLayerNext       The gradients of the output. Depending on the
- *                            outputFullSequence parameter this is either the
+ *                            \p outputFullSequence parameter this is either the
  *                            gradient of the output for the last timestep or
  *                            it is a sequence output gradients for each
  *                            timestep.
@@ -453,7 +470,8 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
  *                           This argument should be set to null if you do not
  *                           need to calculate weight deltas.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial output.
@@ -471,9 +489,9 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
 
 /**
  *  Run AUGRU backward pass. The backward pass executes in reverse order
- * compared to the forward pass. If the forward steps for a AUGRU layer are sf =
- *  {0, 1, 2, ..., S - 1} then the backward steps run for sb = {S - 1, S - 2,
- *  .... , 1, 0}.
+ * compared to the forward pass. If the forward steps for an AUGRU layer are
+ *  sf = {0, 1, 2, ..., S - 1} then the backward steps run for
+ *  sb = {S - 1, S - 2, .... , 1, 0}.
  *
  * \param graph               Graph to which the AUGRU cell belongs.
  * \param params              The parameters of the AUGRU.
@@ -481,14 +499,14 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
  * \param fwdOutputInit       Forward output tensor for initial step.
  * \param fwdIntermediatesSeq Intermediates results from the forward pass.
  * \param weights             The AUGRU weights structure.
- * \param fwdInputSeq         The input tensor to the AUGRU of shape:
- *                            [timesteps, batch, inputSize]
+ * \param fwdInputSeq         The input tensor to the AUGRU, of shape
+ *                            [\p timeSteps, \p batchSize, \p inputSize]
  * \param fwdOutput           The output tensor from the forward pass. Depending
- *                            on the outputFullSequence parameter this is either
- *                            the output for the last timestep or it is a
+ *                            on the \p outputFullSequence parameter this is
+ *                            either the output for the last timestep or it is a
  *                            sequence of outputs for each timestep.
  * \param gradLayerNext       The gradients of the output. Depending on the
- *                            outputFullSequence parameter this is either the
+ *                            \p outputFullSequence parameter this is either the
  *                            gradient of the output for the last timestep or
  *                            it is a sequence output gradients for each
  *                            timestep.
@@ -500,10 +518,11 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
  *                           reset gate, update gate, and candidate.
  *                           This argument should be set to null if you do not
  *                           need to calculate weight deltas.
- * \param attentions         Attentions for each time step.
+ * \param attentions         Attentions for each timestep.
  * \param[out] attentionsGrad Gradients for attentions.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial output.
@@ -520,13 +539,14 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
          const poplar::OptionFlags &options_,
          poplin::matmul::PlanningCache *planningCache);
 
-/** \deprecated
- *  **deprecated** Use previously defined popnn::auGruBwd() instead.
+/** Run AUGRU backward pass.
  *
- *  Run AUGRU backward pass. The backward pass executes in reverse order
- * compared to the forward pass. If the forward steps for a AUGRU layer are sf =
- *  {0, 1, 2, ..., S - 1} then the backward steps run for sb = {S - 1, S - 2,
- *  .... , 1, 0}.
+ *  \deprecated Use previously defined auGruBwd() instead.
+ *
+ *  The backward pass executes in reverse order
+ *  compared to the forward pass. If the forward steps for an AUGRU layer are
+ *  sf = {0, 1, 2, ..., S - 1} then the backward steps run for
+ *  sb = {S - 1, S - 2, .... , 1, 0}.
  *
  * \param graph               Graph to which the AUGRU cell belongs.
  * \param params              The parameters of the AUGRU.
@@ -534,16 +554,16 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
  * \param fwdOutputInit       Forward output tensor for initial step.
  * \param fwdIntermediatesSeq Intermediates results from the forward pass.
  * \param weights             The AUGRU weights structure.
- * \param fwdInputSeq         The input tensor to the AUGRU of shape:
- *                            [timesteps, batch, inputSize]
- * \param realTimeSteps       The tensor contain real Time steps each seq,
- *                            shape: [batch].
+ * \param fwdInputSeq         The input tensor to the AUGRU, of shape
+ *                            [\p timeSteps, \p batchSize, \p inputSize]
+ * \param realTimeSteps       A tensor containing real timesteps for each
+ *                            sequence, of shape [\p batch].
  * \param fwdOutput           The output tensor from the forward pass. Depending
- *                            on the outputFullSequence parameter this is either
- *                            the output for the last timestep or it is a
+ *                            on the \p outputFullSequence parameter this is
+ *                            either the output for the last timestep or it is a
  *                            sequence of outputs for each timestep.
  * \param gradLayerNext       The gradients of the output. Depending on the
- *                            outputFullSequence parameter this is either the
+ *                            \p outputFullSequence parameter this is either the
  *                            gradient of the output for the last timestep or
  *                            it is a sequence output gradients for each
  *                            timestep.
@@ -555,10 +575,11 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
  *                           reset gate, update gate, and candidate.
  *                           This argument should be set to null if you do not
  *                           need to calculate weight deltas.
- * \param attentions         Attentions for each time step.
+ * \param attentions         Attentions for each timestep.
  * \param[out] attentionsGrad Gradients for attentions.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial output.
@@ -579,7 +600,7 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
  * Run a standalone weight update pass. Takes intermediates and gradients from
  * the backward pass and calculates and returns weight deltas.
  *
- * Note: If the time step limit is variable, the entries above the given time
+ * Note: If the timestep limit is variable, the entries above the given time
  *       step limit must be explicitly set to zero in `fwdIntermediates`, in
  *       order for the weights to be correctly updated.
  *
@@ -590,14 +611,15 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
  * \param fwdIntermediates Intermediate results from the forward pass.
  * \param bwdIntermediates Intermediate results from the backward pass.
  * \param weights          The GRU weights structure.
- * \param input            The input tensor to the GRU of shape:
- *                          [timesteps, batch, inputSize]
+ * \param input            The input tensor to the GRU, of shape
+ *                          [\p timeSteps, \p batchSize, \p inputSize]
  * \param output           The output tensor from the forward pass. Depending
- *                         on the outputFullSequence parameter this is either
+ *                         on the \p outputFullSequence parameter this is either
  *                         the output for the last timestep or it is a
  *                         sequence of outputs for each timestep.
  * \param debugContext     Optional debug information.
- * \param options          GRU implementation options. See createInput().
+ * \param options          GRU implementation options.
+ *                         See createInput().
  * \param planningCache    The matmul planning cache.
  *
  * \return A set of weight gradients to sum with weights.
@@ -617,8 +639,8 @@ GruWeights gruWU(poplar::Graph &graph, const GruParams &params,
  * Run a standalone weight update pass. Takes intermediates and gradients from
  * the backward pass and calculates and returns weight deltas.
  *
- * Note: If the time step limit is variable, the entries above the given time
- *       step limit must be explicitly set to zero in `fwdIntermediates`, in
+ * Note: If the timestep limit is variable, the entries above the given time
+ *       step limit must be explicitly set to zero in \p fwdIntermediates, in
  *       order for the weights to be correctly updated.
  *
  * \param graph            Graph to which the GRU cell belongs.
@@ -628,14 +650,15 @@ GruWeights gruWU(poplar::Graph &graph, const GruParams &params,
  * \param fwdIntermediates Intermediate results from the forward pass.
  * \param bwdIntermediates Intermediate results from the backward pass.
  * \param weights          The GRU weights structure.
- * \param input            The input tensor to the GRU of shape:
- *                          [timesteps, batch, inputSize]
+ * \param input            The input tensor to the GRU, of shape
+ *                          [\p timeSteps, \p batchSize, \p inputSize]
  * \param output           The output tensor from the forward pass. Depending
- *                         on the outputFullSequence parameter this is either
+ *                         on the \p outputFullSequence parameter this is either
  *                         the output for the last timestep or it is a
  *                         sequence of outputs for each timestep.
  * \param debugContext      Optional debug information.
- * \param options          GRU implementation options. See createInput().
+ * \param options          GRU implementation options.
+ *                         See createInput().
  * \param planningCache    The matmul planning cache.
  *
  * \return A set of weight gradients to sum with weights.
@@ -653,11 +676,11 @@ GruWeights auGruWU(poplar::Graph &graph, const GruParams &params,
 
 /**
  * Run a combined GRU backward and weight update pass. Use this combined
- * backward and weight update pass in preference to `gruBwd` and `gruWU`
+ * backward and weight update pass in preference to gruBwd() and gruWU()
  * separately in order to allow the most efficient implementation to be chosen
  * if you do not need to split the operation.
  *
- * Note: If the time step limit is variable, the entries above the given time
+ * Note: If the timestep limit is variable, the entries above the given time
  *       step limit must be explicitly set to zero in `fwdIntermediates`, in
  *       order for the weights to be correctly updated.
  *
@@ -667,21 +690,22 @@ GruWeights auGruWU(poplar::Graph &graph, const GruParams &params,
  * \param fwdOutputInit      Forward output tensor for initial step.
  * \param fwdIntermediates   Intermediates results from the forward pass.
  * \param weights            The GRU weights structure.
- * \param input              The input tensor to the GRU of shape:
- *                           [timesteps, batch, inputSize]
+ * \param input              The input tensor to the GRU, of shape
+ *                           [\p timeSteps, \p batchSize, \p inputSize]
  * \param output             The output tensor from the forward pass. Depending
- *                           on the outputFullSequence parameter this is either
- *                           the output for the last timestep or it is a
+ *                           on the \p outputFullSequence parameter this is
+ *                           either the output for the last timestep or it is a
  *                           sequence of outputs for each timestep.
  * \param outputGrad         The gradients of the output. Depending on the
- *                           outputFullSequence parameter this is either the
+ *                           \p outputFullSequence parameter this is either the
  *                           gradient of the output for the last timestep or it
  *                           is a sequence output gradients for each timestep.
  * \param[out] *inputGrad    The gradients of the inputs - may be null if
  *                           this information is not required.
  * \param weightsGrad        A set of weight deltas to sum with weights.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial output.
@@ -697,15 +721,15 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
              const poplar::OptionFlags &options_,
              poplin::matmul::PlanningCache *planningCache);
 
-/** \deprecated
- *  **deprecated** Use previously defined popnn::gruBwdWithWU() instead.
+/** Run a combined GRU backward and weight update pass.
  *
- * Run a combined GRU backward and weight update pass. Use this combined
- * backward and weight update pass in preference to `gruBwd` and `gruWU`
- * separately in order to allow the most efficient implementation to be chosen
- * if you do not need to split the operation.
+ * \deprecated Use previously defined gruBwdWithWU() instead.
  *
- * Note: If the time step limit is variable, the entries above the given time
+ * Use this combined backward and weight update pass in preference to gruBwd()
+ * and gruWU() separately in order to allow the most efficient implementation to
+ * be chosen if you do not need to split the operation.
+ *
+ * Note: If the timestep limit is variable, the entries above the given time
  *       step limit must be explicitly set to zero in `fwdIntermediates`, in
  *       order for the weights to be correctly updated.
  *
@@ -715,23 +739,24 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
  * \param fwdOutputInit      Forward output tensor for initial step.
  * \param fwdIntermediates   Intermediates results from the forward pass.
  * \param weights            The GRU weights structure.
- * \param input              The input tensor to the GRU of shape:
- *                           [timesteps, batch, inputSize]
- * \param realTimeSteps      The tensor contain real Time steps each seq,
- *                           shape: [batch].
+ * \param input              The input tensor to the GRU, of shape
+ *                           [\p timeSteps, \p batchSize, \p inputSize]
+ * \param realTimeSteps      A tensor containing real timesteps for each
+ *                           sequence, of shape [\p batch].
  * \param output             The output tensor from the forward pass. Depending
- *                           on the outputFullSequence parameter this is either
- *                           the output for the last timestep or it is a
+ *                           on the \p outputFullSequence parameter this is
+ *                           either the output for the last timestep or it is a
  *                           sequence of outputs for each timestep.
  * \param outputGrad         The gradients of the output. Depending on the
- *                           outputFullSequence parameter this is either the
+ *                           \p outputFullSequence parameter this is either the
  *                           gradient of the output for the last timestep or it
  *                           is a sequence output gradients for each timestep.
  * \param[out] *inputGrad    The gradients of the inputs - may be null if
  *                           this information is not required.
  * \param weightsGrad        A set of weight deltas to sum with weights.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial output.
@@ -750,12 +775,12 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
 
 /**
  * Run a combined AUGRU backward and weight update pass. Use this combined
- * backward and weight update pass in preference to `augruBwd` and `augruWU`
+ * backward and weight update pass in preference to augruBwd() and augruWU()
  * separately in order to allow the most efficient implementation to be chosen
  * if you do not need to split the operation.
  *
- * Note: If the time step limit is variable, the entries above the given time
- *       step limit must be explicitly set to zero in `fwdIntermediates`, in
+ * Note: If the timestep limit is variable, the entries above the given time
+ *       step limit must be explicitly set to zero in \p fwdIntermediates, in
  *       order for the weights to be correctly updated.
  *
  * \param graph              Graph to which the GRU cell belongs.
@@ -764,23 +789,24 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
  * \param fwdOutputInit      Forward output tensor for initial step.
  * \param fwdIntermediates   Intermediates results from the forward pass.
  * \param weights            The GRU weights structure.
- * \param input              The input tensor to the GRU of shape:
- *                           [timesteps, batch, inputSize]
+ * \param input              The input tensor to the GRU, of shape
+ *                           [\p timeSteps, \p batchSize, \p inputSize]
  * \param output             The output tensor from the forward pass. Depending
- *                           on the outputFullSequence parameter this is either
- *                           the output for the last timestep or it is a
+ *                           on the \p outputFullSequence parameter this is
+ *                           either the output for the last timestep or it is a
  *                           sequence of outputs for each timestep.
  * \param outputGrad         The gradients of the output. Depending on the
- *                           outputFullSequence parameter this is either the
+ *                           \p outputFullSequence parameter this is either the
  *                           gradient of the output for the last timestep or it
  *                           is a sequence output gradients for each timestep.
  * \param[out] *inputGrad    The gradients of the inputs - may be null if
  *                           this information is not required.
  * \param weightsGrad        A set of weight deltas to sum with weights.
- * \param attentions         Attention for each time step.
+ * \param attentions         Attention for each timestep.
  * \param[out] attentionsGrad Gradients for attentions.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial output.
@@ -796,15 +822,15 @@ poplar::Tensor auGruBwdWithWU(
     const poplar::OptionFlags &options_,
     poplin::matmul::PlanningCache *planningCache);
 
-/** \deprecated
- *  **deprecated** Use previously defined popnn::auGruBwdWithWU() instead.
+/** Run a combined AUGRU backward and weight update pass.
  *
- * Run a combined AUGRU backward and weight update pass. Use this combined
- * backward and weight update pass in preference to `augruBwd` and `augruWU`
- * separately in order to allow the most efficient implementation to be chosen
- * if you do not need to split the operation.
+ * \deprecated Use previously defined auGruBwdWithWU() instead.
  *
- * Note: If the time step limit is variable, the entries above the given time
+ * Use this combined backward and weight update pass in preference to augruBwd()
+ * and augruWU() separately in order to allow the most efficient implementation
+ * to be chosen if you do not need to split the operation.
+ *
+ * Note: If the timestep limit is variable, the entries above the given time
  *       step limit must be explicitly set to zero in `fwdIntermediates`, in
  *       order for the weights to be correctly updated.
  *
@@ -814,25 +840,26 @@ poplar::Tensor auGruBwdWithWU(
  * \param fwdOutputInit      Forward output tensor for initial step.
  * \param fwdIntermediates   Intermediates results from the forward pass.
  * \param weights            The GRU weights structure.
- * \param input              The input tensor to the GRU of shape:
- *                           [timesteps, batch, inputSize]
- * \param realTimeSteps      The tensor contain real Time steps each seq,
- *                           shape: [batch].
+ * \param input              The input tensor to the GRU, of shape
+ *                           [\p timeSteps, \p batchSize, \p inputSize].
+ * \param realTimeSteps      A tensor containing real timesteps for each
+ *                           sequence, of shape [\p batch].
  * \param output             The output tensor from the forward pass. Depending
- *                           on the outputFullSequence parameter this is either
- *                           the output for the last timestep or it is a
+ *                           on the \p outputFullSequence parameter this is
+ *                           either the output for the last timestep or it is a
  *                           sequence of outputs for each timestep.
  * \param outputGrad         The gradients of the output. Depending on the
- *                           outputFullSequence parameter this is either the
+ *                           \p outputFullSequence parameter this is either the
  *                           gradient of the output for the last timestep or it
  *                           is a sequence output gradients for each timestep.
  * \param[out] *inputGrad    The gradients of the inputs - may be null if
  *                           this information is not required.
  * \param weightsGrad        A set of weight deltas to sum with weights.
- * \param attentions         Attention for each time step.
+ * \param attentions         Attention for each timestep.
  * \param[out] attentionsGrad Gradients for attentions.
  * \param debugContext       Optional debug information.
- * \param options            GRU implementation options. See createInput().
+ * \param options            GRU implementation options.
+ *                           See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial output.
