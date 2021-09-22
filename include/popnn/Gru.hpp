@@ -165,8 +165,10 @@ poplar::Tensor createAttention(poplar::Graph &graph, const GruParams &params,
  *
  * The following are the formulas for a GRU cell:
  *
- * - \f$r_t = \operatorname{sigmoid}(w_r \times x_t + u_r \times h_{t-1} + b_r)\f$
- * - \f$u_t = \operatorname{sigmoid}(w_u \times x_t + u_u \times h_{t-1} + b_u)\f$
+ * - \f$r_t = \operatorname{sigmoid}(w_r \times x_t + u_r \times h_{t-1} +
+ * b_r)\f$
+ * - \f$u_t = \operatorname{sigmoid}(w_u \times x_t + u_u \times h_{t-1} +
+ * b_u)\f$
  * - \f$c_t = \tanh(w_c \times x_t + u_c \times (r_t \circ h_{t-1}) + b_c)\f$
  * - \f$h_t = u_t \circ h_{t-1} + (1 - u_t) \circ c_t\f$
  *
@@ -218,8 +220,10 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
  *
  * The following are the formulas for a GRU cell:
  *
- *   - \f$r_t = \operatorname{sigmoid}(w_r \times x_t + u_r \times h_{t-1} + b_r)\f$
- *   - \f$u_t = \operatorname{sigmoid}(w_u \times x_t + u_u \times h_{t-1} + b_u)\f$
+ *   - \f$r_t = \operatorname{sigmoid}(w_r \times x_t + u_r \times h_{t-1} +
+ * b_r)\f$
+ *   - \f$u_t = \operatorname{sigmoid}(w_u \times x_t + u_u \times h_{t-1} +
+ * b_u)\f$
  *   - \f$c_t = \tanh(w_c \times x_t + u_c \times (r_t \circ h_{t-1}) + b_c)\f$
  *   - \f$h_t = u_t \circ h_{t-1} + (1 - u_t) \circ c_t\f$
  *
