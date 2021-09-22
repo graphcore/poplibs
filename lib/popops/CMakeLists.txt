@@ -159,6 +159,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01NoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial2.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial3.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScalarMultiply.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2DXminusaXPlusbY_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_float_half.S

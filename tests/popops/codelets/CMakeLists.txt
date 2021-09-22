@@ -937,3 +937,39 @@ add_multitarget_test(NAME CastCodeletsTest_from_char
               LABELS codelet
               TEST_IPUMODEL
               VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+
+add_multi_target_test_executable(ScalarMultiplyCodeletTest
+                                 ScalarMultiplyCodeletTest.cpp)
+
+function(add_scalar_multiply_codelet_test a_size inplace n_regions tol)
+  set(test_args --a-size "${a_size}" --inplace ${inplace}
+                --n-regions ${n_regions} --tol ${tol})
+
+  add_multitarget_test(
+    ScalarMultiplyCodeletTest_${a_size}_${inplace}_${n_regions}_${tol}
+    COMMAND ScalarMultiplyCodeletTest -- "${test_args}"
+    LABELS codelet
+    VARIANTS ${SIM_VARIANTS})
+endfunction()
+
+# Test the ScalarMultiply1D vertex variants.
+foreach(a_size RANGE 1 27)
+  add_scalar_multiply_codelet_test(${a_size} false 1 0)
+  add_scalar_multiply_codelet_test(${a_size} false 1 1)
+endforeach()
+
+foreach(a_size 1 2 3 4 24 25 26 27)
+  add_scalar_multiply_codelet_test(${a_size} true 1 0)
+  add_scalar_multiply_codelet_test(${a_size} true 1 1)
+endforeach()
+
+foreach(a_size RANGE 48 51)
+  add_scalar_multiply_codelet_test(${a_size} false 1 0)
+  add_scalar_multiply_codelet_test(${a_size} false 1 1)
+endforeach()
+
+# Test the ScalarMultiply2D vertex variants.
+add_scalar_multiply_codelet_test(7 false 4 0)
+add_scalar_multiply_codelet_test(7 false 4 1)
+add_scalar_multiply_codelet_test(7 true 4 0)
+add_scalar_multiply_codelet_test(7 true 4 1)

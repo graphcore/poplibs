@@ -2788,7 +2788,10 @@ VertexPerfEstimate ScalarMultiply2DEstimator(const std::vector<unsigned> sizes,
   };
 
   auto getRemainderCycles = [](unsigned remainder) {
-    unsigned cycles = 2;
+    unsigned cycles = 1;
+    if (!remainder)
+      return cycles;
+    cycles += 2;
     cycles += remainder != 0 ? 4 : 0;
     cycles += remainder > 1 ? 5 : 0;
     cycles += (remainder == 1 || remainder == 3) ? 6 : 0;
@@ -2808,7 +2811,7 @@ VertexPerfEstimate ScalarMultiply2DEstimator(const std::vector<unsigned> sizes,
     return cycles;
   };
 
-  cycles += inplace ? 36 : 37;
+  cycles += inplace ? 35 : 36;
 
   for (auto size : sizes) {
     cycles += 11;
@@ -2838,7 +2841,10 @@ VertexPerfEstimate ScalarMultiply1DEstimator(const Target &target,
   };
 
   auto getRemainderCycles = [](unsigned remainder) {
-    unsigned cycles = 2;
+    unsigned cycles = 1;
+    if (!remainder)
+      return cycles;
+    cycles += 2;
     cycles += remainder != 0 ? 4 : 0;
     cycles += remainder > 1 ? 5 : 0;
     cycles += (remainder == 1 || remainder == 3) ? 6 : 0;
@@ -2866,7 +2872,7 @@ VertexPerfEstimate ScalarMultiply1DEstimator(const Target &target,
   //   - Checking float to half conversion accuracy.
   //   - Loading vertex state.
   //   - Splitting work between 6 workers.
-  workerCycles += 48;
+  workerCycles += 50;
 
   unsigned slowestWorkerCycles = 0;
   for (unsigned wid = 0; wid < 6; wid++) {

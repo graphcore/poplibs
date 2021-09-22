@@ -3,10 +3,12 @@
 #include "CheckAccuracyWhenCast.hpp"
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
+#include <poplibs_support/ExternalCodelet.hpp>
 
 using namespace poplar;
 
 static constexpr auto SPAN = VectorLayout::SPAN;
+static constexpr auto ONE_PTR = VectorLayout::ONE_PTR;
 
 namespace popops {
 
@@ -15,11 +17,13 @@ class ScalarMultiply1D : public MultiVertex {
 public:
   ScalarMultiply1D();
 
-  Input<Vector<TensorType>> in1;
-  Input<Vector<ScalarType>> in2;
+  Input<Vector<TensorType, SPAN, 8>> in1;
+  Input<Vector<ScalarType, ONE_PTR>> in2;
   const float tolerance;
 
-  Output<Vector<TensorType>> out;
+  Output<Vector<TensorType, ONE_PTR, 8>> out;
+
+  IS_EXTERNAL_CODELET(true);
 
   bool compute(unsigned wid) {
     if (wid == 0) {
@@ -44,9 +48,11 @@ class ScalarMultiply1DInplace : public MultiVertex {
 public:
   ScalarMultiply1DInplace();
 
-  InOut<Vector<TensorType>> in1Out;
-  Input<Vector<ScalarType>> in2;
+  InOut<Vector<TensorType, SPAN, 8>> in1Out;
+  Input<Vector<ScalarType, ONE_PTR>> in2;
   const float tolerance;
+
+  IS_EXTERNAL_CODELET(true);
 
   bool compute(unsigned wid) {
     if (wid == 0) {
@@ -70,11 +76,13 @@ class ScalarMultiply2D : public Vertex {
 public:
   ScalarMultiply2D();
 
-  Vector<Input<Vector<TensorType, SPAN, 8>>> in1;
-  Input<Vector<ScalarType>> in2;
+  Vector<Input<Vector<TensorType, SPAN, 8>>, SPAN> in1;
+  Input<Vector<ScalarType, ONE_PTR>> in2;
   const float tolerance;
 
-  Vector<Output<Vector<TensorType, SPAN, 8>>> out;
+  Vector<Output<Vector<TensorType, ONE_PTR, 8>>, ONE_PTR> out;
+
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     if (checkAccuracyWhenCastComputeImpl<float, half>(in2[0], tolerance)) {
@@ -101,9 +109,11 @@ class ScalarMultiply2DInplace : public Vertex {
 public:
   ScalarMultiply2DInplace();
 
-  Vector<InOut<Vector<TensorType, SPAN, 8>>> in1Out;
-  Input<Vector<ScalarType>> in2;
+  Vector<InOut<Vector<TensorType, SPAN, 8>>, SPAN> in1Out;
+  Input<Vector<ScalarType, ONE_PTR>> in2;
   const float tolerance;
+
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     if (checkAccuracyWhenCastComputeImpl<float, half>(in2[0], tolerance)) {

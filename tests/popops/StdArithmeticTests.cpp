@@ -2,6 +2,7 @@
 #define BOOST_TEST_MODULE StdArithmeticTests
 
 #include "popops/ElementWise.hpp"
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/multi_array.hpp>
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
@@ -14,9 +15,12 @@
 #include <poplar/OptionFlags.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <popops/Cast.hpp>
+#include <popops/ScalarMultiply.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/VertexTemplates.hpp>
+#include <poputil/exceptions.hpp>
 #include <pva/pva.hpp>
 #include <vector>
 
@@ -1607,4 +1611,277 @@ BOOST_DATA_TEST_CASE_F(HalfTensorAXBYTestFixture,
   // We dont check for casts when scaling by a constant because type handling
   // happens in C++ in scaledSubtractFrom
   CHECK_OUTPUT_IS_XMINUSBY(b);
+}
+
+BOOST_AUTO_TEST_CASE(ScalarMultiplyInputValidationTest) {
+  auto device = createTestDevice(DeviceType::Cpu);
+  Graph graph(device.getTarget());
+
+  auto half1D = graph.addVariable(HALF, {1});
+  auto halfND = graph.addVariable(HALF, {2, 2});
+  auto float1D = graph.addVariable(FLOAT, {1});
+  auto floatND = graph.addVariable(FLOAT, {2, 2});
+
+  const auto inputsValFn = inputsMatchMixedPrecisionScalarMultiplyPattern;
+
+  BOOST_TEST(inputsValFn(float1D, floatND, true) == false);
+  BOOST_TEST(inputsValFn(float1D, half1D, true) == true);
+  BOOST_TEST(inputsValFn(float1D, halfND, true) == true);
+  BOOST_TEST(inputsValFn(floatND, float1D, true) == false);
+  BOOST_TEST(inputsValFn(floatND, half1D, true) == false);
+  BOOST_TEST(inputsValFn(floatND, halfND, true) == false);
+  BOOST_TEST(inputsValFn(half1D, float1D, true) == true);
+  BOOST_TEST(inputsValFn(half1D, floatND, true) == false);
+  BOOST_TEST(inputsValFn(half1D, halfND, true) == false);
+  BOOST_TEST(inputsValFn(halfND, float1D, true) == true);
+  BOOST_TEST(inputsValFn(halfND, floatND, true) == false);
+  BOOST_TEST(inputsValFn(halfND, half1D, true) == false);
+
+  BOOST_TEST(inputsValFn(float1D, floatND, false) == false);
+  BOOST_TEST(inputsValFn(float1D, half1D, false) == false);
+  BOOST_TEST(inputsValFn(float1D, halfND, false) == false);
+  BOOST_TEST(inputsValFn(floatND, float1D, false) == false);
+  BOOST_TEST(inputsValFn(floatND, half1D, false) == false);
+  BOOST_TEST(inputsValFn(floatND, halfND, false) == false);
+  BOOST_TEST(inputsValFn(half1D, float1D, false) == true);
+  BOOST_TEST(inputsValFn(half1D, floatND, false) == false);
+  BOOST_TEST(inputsValFn(half1D, halfND, false) == false);
+  BOOST_TEST(inputsValFn(halfND, float1D, false) == true);
+  BOOST_TEST(inputsValFn(halfND, floatND, false) == false);
+  BOOST_TEST(inputsValFn(halfND, half1D, false) == false);
+}
+
+BOOST_AUTO_TEST_CASE(ScalarMultiplyInvalidOperandsTest) {
+  auto device = createTestDevice(TEST_TARGET);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+  Sequence prog;
+  poputil::PoplibsOpDebugInfo di("");
+
+  auto half1D = graph.addVariable(HALF, {1});
+  auto halfND = graph.addVariable(HALF, {2, 2});
+  auto float1D = graph.addVariable(FLOAT, {1});
+  auto floatND = graph.addVariable(FLOAT, {2, 2});
+  graph.setTileMapping(half1D, 0);
+  graph.setTileMapping(halfND, 0);
+  graph.setTileMapping(float1D, 0);
+  graph.setTileMapping(floatND, 0);
+
+  std::string expectedMsg = "Invalid operands of shape and type";
+  auto isMsgCorrect = [&expectedMsg](poputil::poplibs_error const &ex) {
+    return boost::algorithm::starts_with(ex.what(), expectedMsg);
+  };
+
+  // Counter helpful for figuring out which test case fails without running a
+  // debugger. Use this argument `--log_level=message` to enable test messages.
+  unsigned caseCounter = 0;
+
+  auto checkException = [&](Tensor &a, Tensor &b, bool inplace) {
+    BOOST_TEST_MESSAGE("Running test case " + std::to_string(++caseCounter));
+    if (inplace) {
+      BOOST_CHECK_EXCEPTION(scalarMultiplyInplace(graph, a, b, prog, di),
+                            poputil::poplibs_error, isMsgCorrect);
+
+    } else {
+      BOOST_CHECK_EXCEPTION(scalarMultiply(graph, a, b, prog, di),
+                            poputil::poplibs_error, isMsgCorrect);
+    }
+  };
+
+  auto checkNoException = [&](Tensor &a, Tensor &b, bool inplace) {
+    BOOST_TEST_MESSAGE("Running test case " + std::to_string(++caseCounter));
+    if (inplace) {
+      BOOST_CHECK_NO_THROW(scalarMultiplyInplace(graph, a, b, prog, di));
+    } else {
+      BOOST_CHECK_NO_THROW(scalarMultiply(graph, a, b, prog, di));
+    }
+  };
+
+  checkException(float1D, floatND, false);
+  checkException(floatND, float1D, false);
+  checkException(floatND, half1D, false);
+  checkException(floatND, halfND, false);
+  checkException(half1D, floatND, false);
+  checkException(half1D, halfND, false);
+  checkException(halfND, floatND, false);
+  checkException(halfND, half1D, false);
+  checkNoException(float1D, half1D, false);
+  checkNoException(float1D, halfND, false);
+  checkNoException(half1D, float1D, false);
+  checkNoException(halfND, float1D, false);
+
+  checkException(float1D, floatND, true);
+  checkException(float1D, half1D, true);
+  checkException(float1D, halfND, true);
+  checkException(floatND, float1D, true);
+  checkException(floatND, half1D, true);
+  checkException(floatND, halfND, true);
+  checkException(half1D, floatND, true);
+  checkException(half1D, halfND, true);
+  checkException(halfND, floatND, true);
+  checkException(halfND, half1D, true);
+  checkNoException(half1D, float1D, true);
+  checkNoException(halfND, float1D, true);
+}
+
+static Tensor createInitTensor(Graph &graph, Type type,
+                               const std::vector<std::size_t> &shape,
+                               const std::vector<float> &data,
+                               bool multiRegion) {
+  Tensor t;
+  if (multiRegion) {
+    unsigned size = std::accumulate(shape.begin(), shape.end(), 0);
+    Tensor t0 = graph.addVariable(type, {size / 2});
+    Tensor t1 = graph.addVariable(type, {size - size / 2});
+    graph.setTileMapping(t0, 0);
+    graph.setTileMapping(t1, 0);
+    t = concat(t1, t0);
+    t = t.reshape(shape);
+  } else {
+    t = graph.addVariable(type, shape);
+    graph.setTileMapping(t, 0);
+  }
+  graph.setInitialValue<float>(t, data);
+  return t;
+}
+
+BOOST_AUTO_TEST_CASE(ScalarMultiplyCorrectCodeletTest) {
+  auto device = createTestDevice(TEST_TARGET);
+  const auto &target = device.getTarget();
+
+  // Counter helpful for figuring out which test case fails without running a
+  // debugger. Use this argument `--log_level=message` to enable test messages.
+  unsigned caseCounter = 0;
+
+  auto runTest = [&target, &caseCounter](bool inplace, bool multiRegion,
+                                         bool swapInputs = false) {
+    BOOST_TEST_MESSAGE("Running test case " + std::to_string(++caseCounter));
+    Graph graph(target);
+    popops::addCodelets(graph);
+    Sequence prog;
+    poputil::PoplibsOpDebugInfo di("");
+
+    Tensor a = createInitTensor(graph, HALF, {2}, {1, 1}, multiRegion);
+    Tensor b = createInitTensor(graph, FLOAT, {}, {1}, false);
+
+    if (inplace) {
+      scalarMultiplyInplace(graph, a, b, prog, di);
+    } else {
+      if (swapInputs) {
+        scalarMultiply(graph, b, a, prog, di);
+      } else {
+        scalarMultiply(graph, a, b, prog, di);
+      }
+    }
+
+    std::string expectedCodeletName = "popops::ScalarMultiply";
+    expectedCodeletName += multiRegion ? "2D" : "1D";
+    expectedCodeletName += inplace ? "Inplace" : "";
+    expectedCodeletName =
+        poputil::templateVertex(expectedCodeletName, HALF, FLOAT);
+
+    BOOST_TEST(graph.hasCodelet(expectedCodeletName));
+  };
+
+  runTest(true, true);
+  runTest(true, false);
+  runTest(false, true, false);
+  runTest(false, false, false);
+  runTest(false, true, true);
+  runTest(false, false, true);
+}
+
+BOOST_AUTO_TEST_CASE(ScalarMultiplyFunctionalTest) {
+  auto device = createTestDevice(TEST_TARGET);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+  Sequence prog;
+  poputil::PoplibsOpDebugInfo di("");
+
+  setFloatingPointBehaviour(graph, prog,
+                            {
+                                false, // exceptOnInv
+                                true,  // exceptOnDiv0
+                                false, // exceptOnOflo
+                                false, // enableStochasticRounding
+                                false, // nanOnOverflow
+                            },
+                            "");
+
+  const std::vector<std::size_t> aShape = {2, 2};
+  const std::vector<std::size_t> bShape = {};
+  const std::vector<float> aData = {1, 2, 3, 4};
+  const std::vector<float> bData = {5};
+
+  Tensor a0 = createInitTensor(graph, HALF, aShape, aData, false);
+  Tensor a1 = createInitTensor(graph, HALF, aShape, aData, true);
+  Tensor b = createInitTensor(graph, FLOAT, bShape, bData, false);
+
+  constexpr unsigned nTests = 12;
+  std::vector<Tensor> c(nTests);
+
+  // Out-of-place scalar multiply using graph builder.
+  c[0] = scalarMultiply(graph, b, a0, prog, di);
+  c[1] = scalarMultiply(graph, a0, b, prog, di);
+  c[2] = scalarMultiply(graph, b, a1, prog, di);
+  c[3] = scalarMultiply(graph, a1, b, prog, di);
+  // In-place scalar multiply using graph builder.
+  c[4] = createInitTensor(graph, HALF, aShape, aData, false);
+  c[5] = createInitTensor(graph, HALF, aShape, aData, true);
+  scalarMultiplyInplace(graph, c[4], b, prog, di);
+  scalarMultiplyInplace(graph, c[5], b, prog, di);
+  // Out-of-place scalar multiply using popops API.
+  c[6] = popops::mul(graph, b, a0, prog, di);
+  c[7] = popops::mul(graph, a0, b, prog, di);
+  c[8] = popops::mul(graph, b, a1, prog, di);
+  c[9] = popops::mul(graph, a1, b, prog, di);
+  // In-place scalar multiply using popops API.
+  c[10] = createInitTensor(graph, HALF, aShape, aData, false);
+  c[11] = createInitTensor(graph, HALF, aShape, aData, true);
+  popops::mulInPlace(graph, c[10], b, prog, di);
+  popops::mulInPlace(graph, c[11], b, prog, di);
+
+  for (unsigned i = 0; i < nTests; i++) {
+    graph.createHostRead("c" + std::to_string(i), c[i]);
+  }
+
+  std::vector<std::vector<char>> cDataRaw(
+      nTests, std::vector<char>(aData.size() * target.getTypeSize(HALF)));
+
+  Engine engine(graph, Sequence{prog}, {});
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run();
+    for (unsigned i = 0; i < nTests; i++) {
+      engine.readTensor("c" + std::to_string(i), cDataRaw[i].data(),
+                        cDataRaw[i].data() + cDataRaw[i].size());
+    }
+  });
+
+  std::vector<std::vector<float>> cData(nTests,
+                                        std::vector<float>(aData.size()));
+  for (unsigned i = 0; i < nTests; i++) {
+    poplar::copyDeviceHalfToFloat(target, cDataRaw[i].data(), cData[i].data(),
+                                  aData.size());
+  }
+
+  // Create expected result.
+  std::vector<float> cExpected(aData.size());
+  constexpr float halfMax = 65504;
+  for (unsigned i = 0; i < aData.size(); i++) {
+    cExpected[i] = aData[i] * bData[0];
+    cExpected[i] = std::min(cExpected[i], halfMax);
+  }
+
+  // Verify results.
+  for (unsigned i = 0; i < nTests; i++) {
+    // Counter helpful for figuring out which test case fails without running a
+    // debugger. Use this argument `--log_level=message` to enable test
+    // messages.
+    BOOST_TEST_MESSAGE("Verifying test case " + std::to_string(i));
+    BOOST_TEST(c[i].shape() == a0.shape());
+    BOOST_TEST(c[i].elementType() == a0.elementType());
+    BOOST_TEST(cExpected == cData[i]);
+  }
 }
