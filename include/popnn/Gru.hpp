@@ -163,7 +163,7 @@ poplar::Tensor createAttention(poplar::Graph &graph, const GruParams &params,
 
 /** Calculate the result of applying a GRU across a sequence.
  *
- * The following are the formulas for a GRU cell:
+ * The formulas for a GRU cell are:
  *
  * - \f$r_t = \operatorname{sigmoid}(w_r \times x_t + u_r \times h_{t-1} +
  * b_r)\f$
@@ -218,7 +218,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
  *
  * \deprecated Use previously defined gruFwd() instead.
  *
- * The following are the formulas for a GRU cell:
+ * The formulas for a GRU cell are:
  *
  *   - \f$r_t = \operatorname{sigmoid}(w_r \times x_t + u_r \times h_{t-1} +
  * b_r)\f$
@@ -274,7 +274,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
 
 /** Calculate the result of applying an AUGRU across a sequence.
  *
- * The following are the formulas for an AUGRU cell:
+ * The formulas for a AUGRU cell are:
  *
  *   - \f$r_t = sigmod(w_r \times x_t + u_r \times h_{t-1} + b_r)\f$
  *   - \f$u_t = sigmod(w_u \times x_t + u_u \times h_{t-1} + b_u)\f$
@@ -332,7 +332,7 @@ poplar::Tensor auGruFwd(poplar::Graph &graph, const GruParams &params,
  *
  * \deprecated Use previously defined auGruFwd() instead.
  *
- * The following are the formulas for an AUGRU cell:
+ * The formulas for a AUGRU cell are:
  *
  *   - \f$r_t = sigmod(w_r \times x_t + u_r \times h_{t-1} + b_r)\f$
  *   - \f$u_t = sigmod(w_u \times x_t + u_u \times h_{t-1} + b_u)\f$
@@ -779,7 +779,7 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
 
 /**
  * Run a combined AUGRU backward and weight update pass. Use this combined
- * backward and weight update pass in preference to augruBwd() and augruWU()
+ * backward and weight update pass in preference to auGruBwd() and auGruWU()
  * separately in order to allow the most efficient implementation to be chosen
  * if you do not need to split the operation.
  *
@@ -830,8 +830,8 @@ poplar::Tensor auGruBwdWithWU(
  *
  * \deprecated Use previously defined auGruBwdWithWU() instead.
  *
- * Use this combined backward and weight update pass in preference to augruBwd()
- * and augruWU() separately in order to allow the most efficient implementation
+ * Use this combined backward and weight update pass in preference to auGruBwd()
+ * and auGruWU() separately in order to allow the most efficient implementation
  * to be chosen if you do not need to split the operation.
  *
  * Note: If the timestep limit is variable, the entries above the given time

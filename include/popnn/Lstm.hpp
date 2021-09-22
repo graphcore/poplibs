@@ -267,8 +267,8 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
 /** Calculate the result of applying an LSTM across a sequence.
  *
  * The LSTM is run for rnn::RnnParams.maxTimeSteps, each with a batch of size \p
- * batchSize and input size \p inputSize and output size \p outputSize. The
- * total number of units within each LSTM cell is \c lstmUnits =
+ * batchSize, an input size of \p inputSize and output size of \p outputSize.
+ * The total number of units within each LSTM cell is \c lstmUnits =
  * \c BASIC_LSTM_CELL_NUM_UNITS.
  *
  * \param graph              Graph to which the LSTM cell belongs.
@@ -277,7 +277,7 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  * \param stateInit          Initial state for the LSTM.
  * \param weights            The LSTM weights structure.
  * \param in                 The input tensor to the LSTM, of shape
- *                           [\p timeSteps, \p batchSize, \p outputSize].
+ *                           [\p timeSteps, \p batchSize, \p inputSize].
  * \param[out] intermediates Intermediate results that are retained in the
  *                           the forward pass of training for use in the
  *                           backward pass. This argument should be set to
@@ -306,7 +306,7 @@ poplar::Tensor lstmFwd(poplar::Graph &graph, const LstmParams &params,
  * \deprecated Use previously defined lstmFwd() instead.
  *
  * The LSTM is run for rnn::RnnParams.maxTimeSteps, each with a batch of size \p
- * batchSize and input size \p inputSize and output size \p outputSize. The
+ * batchSize, input size of \p inputSize and output size of \p outputSize. The
  * total number of units within each LSTM cell is \c lstmUnits =
  * \c BASIC_LSTM_CELL_NUM_UNITS.
  *
@@ -314,7 +314,7 @@ poplar::Tensor lstmFwd(poplar::Graph &graph, const LstmParams &params,
  * \param params             The parameters of the LSTM.
  * \param stateInit          Initial state for the LSTM.
  * \param in                 The input tensor to the LSTM, of shape
- *                           [\p timeSteps, \p batchSize, \p outputSize].
+ *                           [\p timeSteps, \p batchSize, \p inputSize].
  * \param weights            The LSTM weights structure.
  * \param[out] intermediates Intermediate results that are retained in the
  *                           the forward pass of training for use in the
@@ -358,7 +358,7 @@ lstmFwd(poplar::Graph &graph, const LstmParams &params,
  * \param fwdIntermediates   Intermediates results from the forward pass.
  * \param weights            The LSTM weights structure.
  * \param input              The input tensor to the LSTM, of shape
- *                           [\p timeSteps, \p batchSize, \p outputSize].
+ *                           [\p timeSteps, \p batchSize, \p inputSize].
  * \param output             The output tensor from the forward pass. Depending
  *                           on the \p outputFullSequence parameter, this is
  *                           either the output for the last timestep or it is a
