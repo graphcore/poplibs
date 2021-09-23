@@ -181,6 +181,7 @@ void sliceTestND(unsigned tilesPerIPU, const std::vector<size_t> &testShape,
                  const std::vector<std::vector<std::vector<float>>> &testBase,
                  const std::vector<std::size_t> &sliceDims,
                  const std::vector<std::size_t> &sliceSizes,
+                 bool withOutput = false,
                  std::size_t maxTestedOffsetsPerDim = 25) {
   BOOST_TEST_MESSAGE(
       "Test " << boost::unit_test::framework::current_test_case().p_name);
@@ -208,8 +209,16 @@ void sliceTestND(unsigned tilesPerIPU, const std::vector<size_t> &testShape,
                               << toString(graph.getTileMapping(t1)));
 
   auto prog = Sequence();
-  auto tOut = dynamicSlice(graph, t1, tWantedOffsets, sliceDims, sliceSizes,
-                           prog, "DSND");
+  poplar::Tensor tOut;
+  if (withOutput) {
+    tOut = createSliceTensor(graph, t1, sliceDims, sliceSizes, 1, "tOut")
+               .squeeze({0});
+    dynamicSliceWithOutput(graph, tOut, t1, tWantedOffsets, sliceDims,
+                           sliceSizes, prog, "DSND");
+  } else {
+    tOut = dynamicSlice(graph, t1, tWantedOffsets, sliceDims, sliceSizes, prog,
+                        "DSND");
+  }
 
   const auto tOutShape = tOut.shape();
   BOOST_TEST_MESSAGE("output tensor is "
@@ -272,15 +281,17 @@ void sliceTestND(unsigned tilesPerIPU, const std::vector<size_t> &testShape,
 
 static void subTestSmallSlice(unsigned tilesPerIPU,
                               const std::vector<std::size_t> &sliceDims,
-                              const std::vector<std::size_t> &sliceSizes) {
-  sliceTestND(tilesPerIPU, smallTestShape, smallTestData, sliceDims,
-              sliceSizes);
+                              const std::vector<std::size_t> &sliceSizes,
+                              bool withOutput = false) {
+  sliceTestND(tilesPerIPU, smallTestShape, smallTestData, sliceDims, sliceSizes,
+              withOutput);
 }
 
 BOOST_AUTO_TEST_SUITE(SingleDim)
 
 // Test empty slice
 BOOST_AUTO_TEST_CASE(Slice_Empty) { subTestSmallSlice(5, {}, {}); }
+BOOST_AUTO_TEST_CASE(Slice_Empty_With_Output) { subTestSmallSlice(5, {}, {}); }
 
 // Test slicing of a single dimension
 BOOST_AUTO_TEST_CASE(Slice_5_0_1) { subTestSmallSlice(5, {0}, {1}); }
@@ -289,6 +300,24 @@ BOOST_AUTO_TEST_CASE(Slice_5_1_1) { subTestSmallSlice(5, {1}, {1}); }
 BOOST_AUTO_TEST_CASE(Slice_5_1_2) { subTestSmallSlice(5, {1}, {2}); }
 BOOST_AUTO_TEST_CASE(Slice_5_2_1) { subTestSmallSlice(5, {2}, {1}); }
 BOOST_AUTO_TEST_CASE(Slice_5_2_2) { subTestSmallSlice(5, {2}, {2}); }
+BOOST_AUTO_TEST_CASE(Slice_5_0_1_With_Output) {
+  subTestSmallSlice(5, {0}, {1}, true);
+}
+BOOST_AUTO_TEST_CASE(Slice_5_0_2_With_Output) {
+  subTestSmallSlice(5, {0}, {2}, true);
+}
+BOOST_AUTO_TEST_CASE(Slice_5_1_1_With_Output) {
+  subTestSmallSlice(5, {1}, {1}, true);
+}
+BOOST_AUTO_TEST_CASE(Slice_5_1_2_With_Output) {
+  subTestSmallSlice(5, {1}, {2}, true);
+}
+BOOST_AUTO_TEST_CASE(Slice_5_2_1_With_Output) {
+  subTestSmallSlice(5, {2}, {1}, true);
+}
+BOOST_AUTO_TEST_CASE(Slice_5_2_2_With_Output) {
+  subTestSmallSlice(5, {2}, {2}, true);
+}
 
 BOOST_AUTO_TEST_SUITE_END()
 
@@ -297,15 +326,29 @@ BOOST_AUTO_TEST_SUITE(MultiDim)
 
 // dimensions 1 & 2
 BOOST_AUTO_TEST_CASE(ND_1_1_0) { subTestSmallSlice(5, {0, 1}, {1, 1}); }
+BOOST_AUTO_TEST_CASE(ND_1_1_0_With_Output) {
+  subTestSmallSlice(5, {0, 1}, {1, 1}, true);
+}
 // all 3 dimensions
 BOOST_AUTO_TEST_CASE(ND_1_1_1) { subTestSmallSlice(5, {0, 1, 2}, {1, 1, 1}); }
+BOOST_AUTO_TEST_CASE(ND_1_1_1_With_Output) {
+  subTestSmallSlice(5, {0, 1, 2}, {1, 1, 1}, true);
+}
 // dimensions 0 and 2, producing 2xdimBx2 output
 BOOST_AUTO_TEST_CASE(ND_2_0_2) { subTestSmallSlice(5, {0, 2}, {2, 2}); }
+BOOST_AUTO_TEST_CASE(ND_2_0_2_With_Output) {
+  subTestSmallSlice(5, {0, 2}, {2, 2}, true);
+}
 // 2x2x2 outputs
 BOOST_AUTO_TEST_CASE(ND_2_4_2) {
   // The same result has as for 2_0_2 but with an extra compute set and
   // additional testing of dim1 at all 4 offsets
   subTestSmallSlice(5, {0, 1, 2}, {2, 4, 2});
+}
+BOOST_AUTO_TEST_CASE(ND_2_4_2_With_Output) {
+  // The same result has as for 2_0_2 but with an extra compute set and
+  // additional testing of dim1 at all 4 offsets
+  subTestSmallSlice(5, {0, 1, 2}, {2, 4, 2}, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -316,6 +359,11 @@ BOOST_AUTO_TEST_SUITE(LargeBuffer)
 BOOST_AUTO_TEST_CASE(circTest) {
   auto delayTestData = GenDelayData();
   sliceTestND(24, delayTestShape, delayTestData, {1}, {1});
+}
+
+BOOST_AUTO_TEST_CASE(circTestWithOutput) {
+  auto delayTestData = GenDelayData();
+  sliceTestND(24, delayTestShape, delayTestData, {1}, {1}, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

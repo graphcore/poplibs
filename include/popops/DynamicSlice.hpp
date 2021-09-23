@@ -220,6 +220,34 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, const poplar::Tensor &t,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {});
 
+/** Slice a tensor based on offsets specified by a tensor.
+ *
+ *  \p dims gives the dimensions to slice, \p sizes defines the size of the
+ *  slice in those dimensions and \p offset gives the base offsets on each
+ *  execution.
+ *
+ *  \p offset[0], \p dims and \p sizes must have the same size. \p offset may
+ *  have a second dimension with an element per tile, which can eliminate
+ *  exchange.
+ *  \param graph       The Poplar graph.
+ *  \param output      The output tensor, This should ideally be created with
+ *                     `createSliceTensor` to maximise efficiency,
+ *  \param t           The source tensor.
+ *  \param offset      A tensor of offsets at which the output is extracted.
+ *  \param dims        The dimensions of \p t to slice.
+ *  \param sizes       The size of the slice in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended \param debugContext Optional
+ *                     debug information.
+ **/
+void dynamicSliceWithOutput(poplar::Graph &graph, const poplar::Tensor &output,
+                            const poplar::Tensor &t,
+                            const poplar::Tensor &offset,
+                            const std::vector<std::size_t> &dims,
+                            const std::vector<std::size_t> &sizes,
+                            poplar::program::Sequence &prog,
+                            const poplar::DebugContext &debugContext = {});
+
 /** Get the tile mapping for a slice of a tensor.
  *
  *  \p dims gives the dimensions to slice, \p sizes defines the size of the

@@ -1116,6 +1116,39 @@ static void generatePlannedMultiUpdateOp(
   }
 }
 
+/** Copy the sub-tensor acquired by indexing 't' at position 'offset' in
+ * dimension 'dim' to 's'. The other output dimensions will match the size of
+ * the corresponding input dimensions.
+ *
+ * \param graph           The poplar graph
+ * \param s               The destination tensor
+ * \param t               The source tensor
+ * \param offset          The offset in \a's \a dim dimension. This tensor must
+ *                        have a single element, or an element per tile
+ * \param dim             The dimension to slice
+ * \param numOutIndices   The size of the output Tensor in the sliced dimension
+ * \param prog            Program to be updated.
+ * \param dnai            The debug reference
+ */
+static void sliceWithOutput(Graph &graph, const Tensor &s, const Tensor &t,
+                            const Tensor &offset, unsigned dim,
+                            unsigned numOutIndices, Sequence &prog,
+                            const DebugNameAndId &dnai) {
+  const unsigned numInIndices = t.dim(dim);
+  assert(dim < t.rank());
+  assert(numOutIndices <= t.dim(dim));
+  // Get a 2d view of the source tensor, with the dim we're slicing at dim0
+  // and the other dimensions collapsed into dim1
+  Tensor t2d =
+      t.dimRoll(dim).reshape({numInIndices, t.numElements() / numInIndices});
+
+  Tensor s2d =
+      s.dimRoll(dim).reshape({numOutIndices, s.numElements() / numOutIndices});
+
+  generateVertices("popops::DynamicSlice", graph, prog, offset, t2d, s2d,
+                   {dnai, "slice"});
+}
+
 /** Return the sub-tensor acquired by indexing 't' at position 'offset' in
  * dimension 'dim'. The other output dimensions will match the size of the
  * corresponding input dimensions.
@@ -1135,22 +1168,15 @@ static Tensor slice(Graph &graph, const Tensor &t,
                     const boost::optional<Tensor> &offset, unsigned dim,
                     unsigned numOutIndices, boost::optional<Sequence &> prog,
                     const DebugNameAndId &dnai) {
-  const unsigned numInIndices = t.dim(dim);
   assert(dim < t.rank());
   assert(numOutIndices <= t.dim(dim));
-  // Get a 2d view of the source tensor, with the dim we're slicing at dim0
-  // and the other dimensions collapsed into dim1
-  Tensor t2d =
-      t.dimRoll(dim).reshape({numInIndices, t.numElements() / numInIndices});
+
   Tensor s = graph.clone(t.slice(0, numOutIndices, dim),
                          {dnai, std::string("sliced_") + std::to_string(dim)});
 
   if (prog && offset) {
-    Tensor s2d = s.dimRoll(dim).reshape(
-        {numOutIndices, s.numElements() / numOutIndices});
-
-    generateVertices("popops::DynamicSlice", graph, prog.get(), offset.get(),
-                     t2d, s2d, {dnai, "slice"});
+    sliceWithOutput(graph, s, t, offset.get(), dim, numOutIndices, prog.get(),
+                    dnai);
   }
   return s;
 }
@@ -1312,6 +1338,45 @@ static void validateParams(std::string name, const SlicePlan &plan,
                                    " specified multiple times");
     dimUsed[dims[i]] = true;
   }
+}
+
+static void validateParamsWithOutput(
+    std::string name, const SlicePlan &plan, const OptionFlags &options,
+    const std::vector<std::size_t> &outputShape,
+    const std::vector<std::size_t> &shape,
+    const boost::optional<Tensor> &offset, const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &sizesOrSlices) {
+
+  // Check the output rank matches.
+  if (outputShape.size() != shape.size()) {
+    throw graph_connection_error(
+        fmt::format("{} output rank (shape=[{}]) does not match the input rank "
+                    "(shape=[{}])",
+                    name, outputShape, shape));
+  }
+
+  // Check the output non-sliced dimensions matches the input.
+  std::unordered_set<std::size_t> dims_set(dims.begin(), dims.end());
+  for (std::size_t dim = 0u; dim < shape.size(); ++dim) {
+    if (!dims_set.count(dim) && shape[dim] != outputShape[dim]) {
+      throw graph_connection_error(
+          fmt::format("{} output non-sliced dimension {} (shape=[{}]) does not "
+                      "match the input dimension (shape=[{}])",
+                      name, dim, outputShape, shape));
+    }
+  }
+
+  // Check the output sliced dimensions matches the slice sizes.
+  for (std::size_t dim = 0u; dim < dims.size(); ++dim) {
+    if (outputShape[dims[dim]] != sizesOrSlices[dim]) {
+      throw graph_connection_error(fmt::format(
+          "{} output dimension {} (shape=[{}]) does not match the slice count "
+          "{} (sizes=[{}])",
+          name, dims[dim], outputShape, sizesOrSlices[dim], sizesOrSlices));
+    }
+  }
+
+  validateParams(name, plan, options, shape, offset, dims, sizesOrSlices);
 }
 
 // Create and map a tensor so that dynamic slicing of it will not require
@@ -1862,6 +1927,48 @@ createSliceableTensorFromSlice(Graph &graph, const Tensor &s,
   return t;
 }
 
+static void dynamicSliceWithOutputImpl(Graph &graph, const Tensor &out,
+                                       const Tensor &t, const Tensor &offset,
+                                       const std::vector<std::size_t> &dims,
+                                       const std::vector<std::size_t> &sizes,
+                                       Sequence &prog,
+                                       const DebugNameAndId &dnai) {
+  logging::popops::info(
+      "dynamicSlice out={}, t={}, offset={}, dims={}, sizes={}, name={}",
+      out.shape(), t.shape(), offset.shape(), dims, sizes, dnai.getPathName());
+
+  validateParamsWithOutput("dynamicSlice", {}, {}, out.shape(), t.shape(),
+                           offset, dims, sizes);
+
+  for (unsigned i = 0; i != dims.size(); ++i) {
+    if (sizes[i] == 0) {
+      // Since one of the slice sizes is zero, the resulting tensor has no
+      // elements. We can return immediately.
+      return;
+    }
+  }
+  Tensor temp = t;
+
+  auto idxOrder = bestSliceOrder(t.shape(), dims, sizes);
+
+  // Extract the last slice. This is used to slice into the output tensor
+  auto last = idxOrder.back();
+  idxOrder.pop_back();
+
+  for (auto i : idxOrder) {
+    // don't care about offset if vertices are not mapped as we are only
+    // interested in the mapping
+    temp =
+        slice(graph, temp, offset[i], dims[i], sizes[i], prog,
+              {dnai, std::string("dynamicSlice_d") + std::to_string(dims[i])});
+  }
+
+  // Apply the final slice into the output tensor.
+  sliceWithOutput(
+      graph, out, temp, offset[last], dims[last], sizes[last], prog,
+      {dnai, std::string("dynamicSlice_d") + std::to_string(dims[last])});
+}
+
 static Tensor dynamicSliceImpl(Graph &graph, const Tensor &t,
                                const boost::optional<Tensor> &offset,
                                const std::vector<std::size_t> &dims,
@@ -1918,6 +2025,19 @@ Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   auto output = dynamicSliceImpl(graph, t, offset, dims, sizes, prog, {di});
   di.addOutput(output);
   return output;
+}
+
+void dynamicSliceWithOutput(poplar::Graph &graph, const poplar::Tensor &output,
+                            const poplar::Tensor &t,
+                            const poplar::Tensor &offset,
+                            const std::vector<std::size_t> &dims,
+                            const std::vector<std::size_t> &sizes,
+                            poplar::program::Sequence &prog,
+                            const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(output, t, offset, dims, sizes));
+  dynamicSliceWithOutputImpl(graph, output, t, offset, dims, sizes, prog, {di});
 }
 
 Graph::TileToTensorMapping
