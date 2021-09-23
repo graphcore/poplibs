@@ -599,9 +599,20 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
     useFloatScale = !(poputil::checkAccuracyWhenCast(
         graph.getTarget(), scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
   }
-  scaledArithmeticConstImpl(
-      graph, A, 1.0, B, scaleB, useFloatScale ? FLOAT : scaleType,
-      ScaledAddSpecialisation::DEFAULT, prog, !regroupBeforeCast, {di}, opts);
+
+  if (A.elementType() == FLOAT && B.elementType() == FLOAT) {
+    // Use a Tensor variant of the codelet as its vertex state is more compact.
+    const auto scaleBTensor =
+        graph.addConstant(targetType, {}, scaleB, {di, "/scaleB"});
+    graph.setTileMapping(scaleBTensor, 0);
+    scaledArithmeticTensorImpl(graph, A, std::nullopt, B, scaleBTensor, false,
+                               false, ScaledAddSpecialisation::DEFAULT, prog,
+                               !regroupBeforeCast, {di}, opts);
+  } else {
+    scaledArithmeticConstImpl(
+        graph, A, 1.0, B, scaleB, useFloatScale ? FLOAT : scaleType,
+        ScaledAddSpecialisation::DEFAULT, prog, !regroupBeforeCast, {di}, opts);
+  }
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
@@ -675,10 +686,19 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
     useFloatScale = !(poputil::checkAccuracyWhenCast(
         graph.getTarget(), scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
   }
-
-  scaledArithmeticConstImpl(
-      graph, A, 1.0, B, -scaleB, useFloatScale ? FLOAT : scaleType,
-      ScaledAddSpecialisation::DEFAULT, prog, !regroupBeforeCast, {di}, opts);
+  if (A.elementType() == FLOAT && B.elementType() == FLOAT) {
+    // Use a Tensor variant of the codelet as its vertex state is more compact.
+    const auto scaleBTensor =
+        graph.addConstant(targetType, {}, -1 * scaleB, {di, "/scaleB"});
+    graph.setTileMapping(scaleBTensor, 0);
+    scaledArithmeticTensorImpl(graph, A, std::nullopt, B, scaleBTensor, false,
+                               false, ScaledAddSpecialisation::DEFAULT, prog,
+                               !regroupBeforeCast, {di}, opts);
+  } else {
+    scaledArithmeticConstImpl(
+        graph, A, 1.0, B, -scaleB, useFloatScale ? FLOAT : scaleType,
+        ScaledAddSpecialisation::DEFAULT, prog, !regroupBeforeCast, {di}, opts);
+  }
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,

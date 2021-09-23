@@ -56,6 +56,7 @@
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   #define SCALED_PTR64_SHIFTS       3
 #endif
+  #define SCALED_PTR128_SHIFTS       4
 
 #if defined(VECTOR_AVAIL_SHORT_SPAN)
   #define SHORT_SPAN_PTR_SIZE      20
@@ -140,12 +141,12 @@ scaleA & scaleB values are constant:
                       /----- 16 bits -----\ byte   word
                                             offs   offs
   +-------------------+-------------------+
-  |       Count       | 'A' ('X') data PTR|   0      0   SCALED_PTR64
+  | 'B' ('Y') data PTR| 'A' ('X') data PTR|   0      0   SCALED_PTR64
   +-------------------+-------------------+
-  | . . . . . . . . . | 'B' ('Y') data PTR|   4      1   SCALED_PTR64
-  +-------------------+-------------------+
-  |           Scale A float value         |   8      2   float
+  |           Scale A float value         |   4      1   float
   +---------------------------------------+
+  | . . . . . . . . . | Count             |   8      2   unsigned short
+  +-------------------+-------------------+
   |           Scale B float value         |  12      3   float
   +---------------------------------------+
 
@@ -155,32 +156,47 @@ scaleA & scaleB values are contained in a 1-value Tensor:
                       /----- 16 bits -----\ byte   word
                                             offs   offs
   +-------------------+-------------------+
-  |       Count       | 'A' ('X') data PTR|   0      0   SCALED_PTR64
+  | 'B' ('Y') data PTR| 'A' ('X') data PTR|   0      0   SCALED_PTR64
   +-------------------+-------------------+
-  |    scale A PTR    | 'B' ('Y') data PTR|   4      1   SCALED_PTR64
+  |    Count          |    scale A PTR    |   4      1   SCALED_PTR128
   +-------------------+-------------------+
-  | . . . . . . . . . |    scale B PTR    |   8      2   SCALED_PTR64
+  | . . . . . . . . . |    scale B PTR    |   8      2   SCALED_PTR128
   +-------------------+-------------------+
-  |               tolerance               |  12      3   float value
+  |               tolerance               |  12      3   float
   +---------------------------------------+
 
 
        ============== SCALED_PTR_64 *NOT* available ==============
 
-Constant or tensor scaleA & scaleB values:
+scaleA & scaleB values are constant:
 
   +---------------------------------------+
   |          'A' ('X') data PTR           |   0      0   ONE_PTR type
   +-------------------+-------------------+
-  | . . . . . . . . . |       Count       |   4      1
+  |          'B' ('Y') data PTR           |   4      1   ONE_PTR type
+  +---------------------------------------+
+  |        Scale A float value            |   8      2   float
+  +---------------------------------------+
+  | . . . . . . . . . |       Count       |  12      3   unsigned short
   +-------------------+-------------------+
-  |          'B' ('Y') data PTR           |   8      2   ONE_PTR type
+  |        Scale B float value            |  16      4   float
   +---------------------------------------+
-  |        Scale A float [value/PTR]      |  12      3   \   float value or
-  +---------------------------------------+              |-- PTR depending
-  |        Scale B float [value/PTR]      |  16      4   /   if CONSTANT/TENSOR
+  |               tolerance               |  20      5   float
   +---------------------------------------+
-  |               tolerance               |  20      5   float value
+
+
+scaleA & scaleB values are contained in a 1-value Tensor:
+
+  +---------------------------------------+
+  |          'A' ('X') data PTR           |   0      0   ONE_PTR type
+  +-------------------+-------------------+
+  |          'B' ('Y') data PTR           |   4      1   ONE_PTR type
+  +---------------------------------------+
+  |    Count          | Scale A PTR       |   8      2   SCALED_PTR128
+  +---------------------------------------+
+  | . . . . . . . . . | Scale B PTR       |  12      3   SCALED_PTR128
+  +---------------------------------------+
+  |               tolerance               |  16      4   float
   +---------------------------------------+
 
 -~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~
@@ -198,25 +214,29 @@ Constant or tensor scaleA & scaleB values:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   // ======== Short pointers =======
   #define VERTEX_SV_DATA_A_OFFSET           0
-  #define VERTEX_SV_COUNT_OFFSET            2
-  #define VERTEX_SV_DATA_B_OFFSET           4
+  #define VERTEX_SV_DATA_B_OFFSET           2
+  #define VERTEX_SV_SCALE_A_OFFSET          4
 
   // ... constant scale coefficients
-  #define VERTEX_SV_SCALE_A_CONST_OFFSET    8
+  #define VERTEX_SV_COUNT_CONST_OFFSET      8
   #define VERTEX_SV_SCALE_B_CONST_OFFSET    12
 
   // ... or tensor scale coefficients
-  #define VERTEX_SV_SCALE_A_TENS_OFFSET     6
+  #define VERTEX_SV_COUNT_OFFSET            6
   #define VERTEX_SV_SCALE_B_TENS_OFFSET     8
   #define VERTEX_SV_TOLERANCE_OFFSET       12
 #else
   // ======== No short pointers =======
   #define VERTEX_SV_DATA_A_OFFSET     0
-  #define VERTEX_SV_COUNT_OFFSET      4
-  #define VERTEX_SV_DATA_B_OFFSET     8
-  #define VERTEX_SV_SCALE_A_OFFSET    12
-  #define VERTEX_SV_SCALE_B_OFFSET    16
-  #define VERTEX_SV_TOLERANCE_OFFSET  20
+  #define VERTEX_SV_DATA_B_OFFSET     4
+  #define VERTEX_SV_SCALE_A_OFFSET    8
+
+  #define VERTEX_SV_COUNT_CONST_OFFSET      12
+  #define VERTEX_SV_SCALE_B_CONST_OFFSET    16
+
+  #define VERTEX_SV_COUNT_OFFSET      10
+  #define VERTEX_SV_SCALE_B_OFFSET    12
+  #define VERTEX_SV_TOLERANCE_OFFSET  16
 #endif
 
 
@@ -278,14 +298,14 @@ Constant or tensor scaleA & scaleB values:
 // Load parameters and jumps to the worker partitioning function
 DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_CONST_OFFSET/4
+ #if defined(VECTOR_AVAIL_SCALED_PTR64)
+  ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
   ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_CONST_OFFSET/4
-  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
+  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_CONST_OFFSET/2
 #else
   ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
-  ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_OFFSET/4
-  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
+  ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_CONST_OFFSET/4
+  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_CONST_OFFSET/2
 #endif
   add     $sp, $sp, -STACK_SIZE
   setzi   $sv_log2AtomSize, 1
@@ -302,26 +322,22 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 // Common setup code used by both the AXMinusBY and AXPlusBY supervisors.
 .macro AXBY_MIXED_SUPERVISOR_SETUP
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ldz16   $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_TENS_OFFSET/2
+  ldz16   $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/2
   ldz16   $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_TENS_OFFSET/2
   ld32    $tolerance, $vertexPtr, $mzero, VERTEX_SV_TOLERANCE_OFFSET/4
   ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
   add     $sp, $sp, -STACK_SIZE
-  nop
-  shl     $sv_scale, $sv_scale, SCALED_PTR64_SHIFTS
-  shl     $scaleB, $scaleB, SCALED_PTR64_SHIFTS
   setzi   $memBase, TMEM_REGION0_BASE_ADDR
-  nop
-  nop
-  nop
 #else
-  ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
-  ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_OFFSET/4
+  ldz16   $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/2
+  ldz16   $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_OFFSET/2
   ld32    $tolerance, $vertexPtr, $mzero, VERTEX_SV_TOLERANCE_OFFSET/4
   add     $sp, $sp, -STACK_SIZE
   ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
   setzi   $memBase, TMEM_REGION0_BASE_ADDR
 #endif
+  shl     $sv_scale, $sv_scale, SCALED_PTR128_SHIFTS
+  shl     $scaleB, $scaleB, SCALED_PTR128_SHIFTS
 .endm
 
 // ---------------------------------------------------------------

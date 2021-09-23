@@ -43,6 +43,7 @@
 #ifdef VECTOR_AVAIL_SCALED_PTR64
 #define SCALED_PTR64_SHL_BITS 3
 #endif
+#define SCALED_PTR128_SHL_BITS 4
 
 // Integer variables
 #define dataPtr m1
@@ -438,18 +439,30 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 //******************************************************************************
 // Supervisor case
 //******************************************************************************
+#undef VERTEX_DATA_A_OFFSET
+#undef VERTEX_DATA_B_OFFSET
 
 // Variable offsets (in bytes)
 #ifdef VECTOR_AVAIL_SCALED_PTR64
-#define VERTEX_PACKED_COUNT_OFFSET 2
-#define VERTEX_SCALE_OFFSET 6
-#define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
+// Data pointers are 16 bits
+#define VERTEX_DATA_A_OFFSET 0
+#define VERTEX_DATA_B_OFFSET 2
+#define VERTEX_SCALE_OFFSET 4
+
+#define VERTEX_PACKED_COUNT_OFFSET 6
+#define VERTEX_PACKED_COUNT_CONST_OFFSET 8
+
 #define VERTEX_TOLERANCE_OFFSET_SV 8
 #else
-#define VERTEX_PACKED_COUNT_OFFSET 4
-#define VERTEX_SCALE_OFFSET 12
-#define VERTEX_SCALE_OFFSET_FLOAT_CONST 12
-#define VERTEX_TOLERANCE_OFFSET_SV 16
+// Data pointers are 32 bits
+#define VERTEX_DATA_A_OFFSET 0
+#define VERTEX_DATA_B_OFFSET 4
+#define VERTEX_SCALE_OFFSET 8
+
+#define VERTEX_PACKED_COUNT_OFFSET 10
+#define VERTEX_PACKED_COUNT_CONST_OFFSET 12
+
+#define VERTEX_TOLERANCE_OFFSET_SV 12
 #endif
 
 
@@ -487,17 +500,14 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
 .align 4
 .supervisor
 VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW:
-   setzi $sv_memConstraints, 0
-   bri   1f
+  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
+  setzi $sv_memConstraints, 0
+  bri   1f
 VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST:
+  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  shl $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
-#else
-  ld32 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
-#endif
+  shl   $factorPtr, $factorPtr, SCALED_PTR128_SHL_BITS
   ld32 $sv_scale, $mzero, $factorPtr, 0
   or   $tmp_countD2, $mzero, NEGATE_FLOAT_BY_XOR
   xor  $sv_scale, $sv_scale, $tmp_countD2
@@ -516,19 +526,16 @@ DEF_STACK_SIZE_OWN  STACK_SIZE  .text.VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 .align 4
 .supervisor
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW:
-   setzi $sv_memConstraints, 0
-   bri   1f
+  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
+  setzi $sv_memConstraints, 0
+  bri   1f
 
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
+  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  shl $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
-#else
-  ld32 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
-#endif
-  ld32 $sv_scale, $mzero, $factorPtr, 0
+  shl   $factorPtr, $factorPtr, SCALED_PTR128_SHL_BITS
+  ld32  $sv_scale, $mzero, $factorPtr, 0
 
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW_RUN_WORKERS:
   // Use a worker to test if the float scale is accurate enough to use when cast
@@ -592,7 +599,7 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
 .worker
 VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW:
 VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST:
-  ld32  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4
+  ld32  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
 
   add   $sp, $sp, -STACK_SIZE
   setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
@@ -600,7 +607,7 @@ VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST:
 
   // pointer to the worker code to run
   setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON_CONST
-  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_CONST_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX_SV_SCALE_CONST, .-VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
 
@@ -619,12 +626,8 @@ VERTEX_SV_SCALE_FLOAT_CHECK:
   mov $sp, $m12
   // passing scale and tolerance.
   // FP_CTL will be modified in the call but as we exit as a worker this won't matter
-#ifdef VECTOR_AVAIL_SCALED_PTR64
   ldz16 $factorPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl   $factorPtr, $factorPtr, SCALED_PTR64_SHL_BITS
-#else
-  ld32 $factorPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
-#endif
+  shl   $factorPtr, $factorPtr, SCALED_PTR128_SHL_BITS
   ld32  $C_CALL_SCALE, $mzero, $factorPtr, 0
 
   ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, VERTEX_TOLERANCE_OFFSET_SV/4

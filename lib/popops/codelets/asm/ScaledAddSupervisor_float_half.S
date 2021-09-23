@@ -15,48 +15,42 @@
   // Vertex state where Scale type is half or Scale pointer occupies 16 bits
   //
   #define VERTEX_DATA_A_OFFSET 0
-  #define VERTEX_PACKED_COUNT_OFFSET 2
-  #define VERTEX_DATA_B_OFFSET 4
-  #define VERTEX_SCALE_OFFSET 6
-  #define VERTEX_SCALE_B_CONST_OFFSET 8
+  #define VERTEX_DATA_B_OFFSET 2
+  #define VERTEX_SCALE_OFFSET 4
+  #define VERTEX_PACKED_COUNT_OFFSET 6
 
   //
-  // Vertex state where Scale type is float or Scale pointer occupies 32 bits
+  // Vertex state where Scale type is float and occupies 32 bits
   //
   #define VERTEX_DATA_A_OFFSET 0
-  #define VERTEX_PACKED_COUNT_OFFSET 2
-  #define VERTEX_DATA_B_OFFSET 4
-  #define VERTEX_SCALE_B_TENSOR_OFFSET 8
-  // scale variable offset (float) option.
-  #define VERTEX_SCALE_OFFSET_FLOAT_CONST 8
-  #define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 12
+  #define VERTEX_DATA_B_OFFSET 2
+  #define VERTEX_PACKED_COUNT_FLOAT_CONST_OFFSET 8
+  #define VERTEX_PACKED_COUNT_HALF_CONST_OFFSET 6
 #else
   //
   // Vertex state where Scale type is half and occupies 16 bits
   //
   #define VERTEX_DATA_A_OFFSET 0
-  #define VERTEX_PACKED_COUNT_OFFSET 4
-  #define VERTEX_DATA_B_OFFSET 8
-  #define VERTEX_SCALE_OFFSET 12
-  #define VERTEX_SCALE_B_CONST_OFFSET 14
+  #define VERTEX_DATA_B_OFFSET 4
+  #define VERTEX_SCALE_OFFSET 8
+  #define VERTEX_PACKED_COUNT_OFFSET 10
 
   //
-  // Vertex state where Scale type is float or Scale pointer occupies 32 bits
+  // Vertex state where Scale type is float and occupies 32 bits
   //
   #define VERTEX_DATA_A_OFFSET 0
-  #define VERTEX_PACKED_COUNT_OFFSET 4
-  #define VERTEX_DATA_B_OFFSET 8
-  #define VERTEX_SCALE_OFFSET 12
-  #define VERTEX_SCALE_B_TENSOR_OFFSET 16
-  // scale variable offset (float) option.
-  #define VERTEX_SCALE_OFFSET_FLOAT_CONST 12
-  #define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 16
+  #define VERTEX_DATA_B_OFFSET 4
+  #define VERTEX_SCALE_OFFSET 8
+
+  #define VERTEX_PACKED_COUNT_FLOAT_CONST_OFFSET 12
+  #define VERTEX_PACKED_COUNT_HALF_CONST_OFFSET 10
 #endif
 
 
 // constants
 #define SCALED_PTR32_SHL_BITS 2
 #define SCALED_PTR64_SHL_BITS 3
+#define SCALED_PTR128_SHL_BITS 4
 
 // supervisor variables
 #define vertexPtr m0
@@ -78,15 +72,12 @@ DEF_STACK_SIZE_OWN STACK_SIZE VERTEX(\LABEL)
 .supervisor
 VERTEX(\LABEL):
 .if \TENSOR
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  shl   $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
-#else
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
-#endif
+  shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+
 .else
 .if \FLOAT_SCALE
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4
+  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
 .else
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
 .endif
@@ -98,13 +89,19 @@ VERTEX(\LABEL):
 
   // pointer to the worker code to run
   setzi $sv_workerFunction, VERTEX(\WORKER_FUNCTION\()).kernel
-  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
 .if \TENSOR
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   // load factor using its pointer - here to avoid pipeline hit
 .if \FLOAT_SCALE
   ld32  $sv_scale, $mzero, $mscratch, 0
 .else
   ldz16 $sv_scale, $mzero, $mscratch, 0
+.endif
+.else
+.if \FLOAT_SCALE
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_FLOAT_CONST_OFFSET/2
+.else
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_HALF_CONST_OFFSET/2
 .endif
 .endif
   // Branch, divide work, store vertex state for the worker and then call the workers
