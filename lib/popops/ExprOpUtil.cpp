@@ -483,6 +483,7 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::FLOOR:
   case UnaryOpType::LOGARITHM:
   case UnaryOpType::LOGARITHM_ONE_PLUS:
+  case UnaryOpType::NEGATE:
   case UnaryOpType::SIN:
   case UnaryOpType::TAN:
   case UnaryOpType::TANH:
@@ -498,7 +499,6 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::ERF:
   case UnaryOpType::IS_FINITE:
   case UnaryOpType::LOGICAL_NOT:
-  case UnaryOpType::NEGATE:
   case UnaryOpType::COUNT_LEADING_ZEROS:
   case UnaryOpType::POPCOUNT:
   case UnaryOpType::SIGNUM:
