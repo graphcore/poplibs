@@ -117,6 +117,8 @@ int main(int argc, char **argv) {
     std::string planConstraints;
     std::string planConstraintsFile;
 
+    std::string sliceOptionsString;
+
     Pass pass = Pass::BOTH;
     bool ignoreData;
   };
@@ -201,6 +203,9 @@ int main(int argc, char **argv) {
     ("plan-constraints-file",
      po::value<std::string>(&opts.planConstraintsFile),
      "Constraints on the plan for the embedding as a path to a JSON file")
+    ("slice-options",
+     po::value<std::string>(&opts.sliceOptionsString),
+     "String with JSON formatted options to pass to the slice operation")
     ;
   // clang-format on
 
@@ -273,6 +278,11 @@ int main(int argc, char **argv) {
   sliceOptions.set("indicesAreSorted",
                    opts.indicesAreSorted && opts.useEmbeddingPlan ? "true"
                                                                   : "false");
+
+  if (!opts.sliceOptionsString.empty()) {
+    std::stringstream ss(opts.sliceOptionsString);
+    poplar::readJSON(ss, sliceOptions);
+  }
 
   popops::SlicePlan plan;
   Tensor embeddingMatrix;
