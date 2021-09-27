@@ -157,11 +157,11 @@ std::string getTypeAlias(const std::string &typeAsStr) {
 }
 
 void executeCodelet(Graph &graph, const std::string &codeletName,
-                    const std::string &multiVertexCodeletName,
+                    const boost::optional<std::string> &multiVertexCodeletName,
                     std::vector<Tensor> inputs, const Tensor &out,
                     const std::vector<std::vector<Interval>> &intervals,
                     unsigned tile, const ComputeSet &cs, size_t numFusedOps,
-                    unsigned vectorizationWidth, bool inPlace) {
+                    bool inPlace) {
   const auto dType = inputs[0].elementType();
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getVectorWidth(dType);
@@ -169,19 +169,13 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
       std::max<unsigned>(vectorWidth, target.getAtomicStoreGranularity());
   const auto numWorkers = target.getNumWorkerContexts();
 
-  // Check if each worker in a multivertex can write without conflicting with
-  // other workers
-  const auto outputWritesAreAtomic =
-      target.getTypeSize(out.elementType()) * vectorizationWidth >=
-      target.getAtomicStoreGranularity();
-
   // When the alternative is a 1D single worker vertex it's not worth using
   // a Multivertex
   const bool inputIsSmallAndContiguous = intervals.size() == 1 &&
                                          intervals[0].size() == 1 &&
                                          intervals[0][0].size() <= vectorWidth;
 
-  const bool isMultiVertex = outputWritesAreAtomic && intervals.size() == 1 &&
+  const bool isMultiVertex = multiVertexCodeletName && intervals.size() == 1 &&
                              !inputIsSmallAndContiguous;
 
   const auto vertexRegions = [&]() {
@@ -190,7 +184,7 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
       result[0].resize(1);
       result[0][0] = intervals[0];
       logging::popops::trace("Creating 1 MultiVertex on tile {}, name {}", tile,
-                             multiVertexCodeletName);
+                             multiVertexCodeletName.get());
       return result;
     }
     auto result =
@@ -202,7 +196,7 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
     return result;
   }();
   for (const auto &regions : vertexRegions) {
-    auto v = graph.addVertex(cs, isMultiVertex ? multiVertexCodeletName
+    auto v = graph.addVertex(cs, isMultiVertex ? multiVertexCodeletName.get()
                                                : codeletName);
 
     poplar::Tensor outRegions = poplar::concat(out.flatten().slices(regions));
@@ -264,8 +258,6 @@ poplar::Tensor generateAndExecuteMappedOperations(
   const auto initialiserStrings = generate.generateInitializerStrings(graph);
   const auto codeletName = generate.generateCodelet(
       graph, allInputsScalar, expr, initialiserStrings, false);
-  const auto codeletNameMultiVertex = generate.generateCodelet(
-      graph, allInputsScalar, expr, initialiserStrings, true);
 
   size_t numFusedOp = generate.getNumFusedOps();
 
@@ -297,6 +289,30 @@ poplar::Tensor generateAndExecuteMappedOperations(
         graph, vectorIns.size() == 0 ? inputs : vectorIns, returnType,
         {dnai, codeletName + "/Out"});
   }
+
+  const auto codeletNameMultiVertex = [&]() {
+    // Check if each worker in a multivertex can write without conflicting with
+    // other workers
+    auto target = graph.getTarget();
+    const auto outputWritesAreAtomic =
+        target.getTypeSize(out.elementType()) * vectorizationWidth >=
+        target.getAtomicStoreGranularity();
+
+    const auto vectorizedMultivertex =
+        generate.isVectorized() && vectorizationWidth > 1;
+    const auto nonVectorizedMultivertex =
+        !generate.isVectorized() && vectorizationWidth == 1;
+
+    // Only make a multivertex where we can do so
+    boost::optional<std::string> result;
+    if (outputWritesAreAtomic &&
+        (vectorizedMultivertex || nonVectorizedMultivertex)) {
+      result = generate.generateCodelet(graph, allInputsScalar, expr,
+                                        initialiserStrings, true);
+    }
+    return result;
+  }();
+
   auto outFlat = out.flatten();
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
@@ -309,7 +325,7 @@ poplar::Tensor generateAndExecuteMappedOperations(
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     executeCodelet(graph, codeletName, codeletNameMultiVertex, flattenedIns,
                    outFlat, tileContiguousRegions, tile, cs, numFusedOp,
-                   vectorizationWidth, inPlace);
+                   inPlace);
   }
   prog.add(Execute(cs, {dnai}));
 
@@ -770,8 +786,8 @@ void GenerateCodeletFromMapExpr::addSerialSection(
 
     stream << "using " << asStr << " = " << type.toString() << ";\n";
   }
-
-  if (isMultiVertex && (vectorizationWidth > 1)) {
+  const bool doRemainder = isMultiVertex && (vectorizationWidth > 1);
+  if (doRemainder) {
     // This function is generating code to deal with the remainder, and
     // only the last worker deals with the remainder
     stream << R"l(
@@ -779,8 +795,9 @@ void GenerateCodeletFromMapExpr::addSerialSection(
            << numWorkers - 1 << R"l() {
       )l";
   }
-  bool useWhileLoop = vectorizationWidth == 1 && isMultiVertex;
-  if (useWhileLoop) {
+  const bool nonVectorizedMultivertex =
+      vectorizationWidth == 1 && isMultiVertex;
+  if (nonVectorizedMultivertex) {
     // This function is generating the code to deal with a non vectorised type
     // and it is a multivertex
     stream << loopCountString("remainder", vectorizationWidth, numWorkers,
@@ -841,7 +858,7 @@ void GenerateCodeletFromMapExpr::addSerialSection(
   assert(!data.empty() && "Attempting to read data stack which is empty");
   stream << data.top().first << ";\n";
 
-  if (useWhileLoop) {
+  if (nonVectorizedMultivertex) {
     stream << "i+=" << numWorkers << ";\n";
   }
 }
