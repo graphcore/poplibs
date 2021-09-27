@@ -51,7 +51,7 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags) {
    */
   const OptionSpec spec{
       {"availableMemoryProportion",
-       OptionHandler::createWithDouble(options.availableMemoryProportion)}};
+       OptionHandler::createWithDouble(options.availableMemoryProportion, 0.)}};
 
   for (const auto &entry : optionFlags) {
     spec.parse(entry.first, entry.second);

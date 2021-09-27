@@ -108,7 +108,7 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
 
   const OptionSpec convSpec{
       {"availableMemoryProportion",
-       OptionHandler::createWithDouble(availableMemoryProportion)},
+       OptionHandler::createWithDouble(availableMemoryProportion, 0.)},
       {"pass", OptionHandler::createWithEnum(pass, passMap)},
       {"partialsType",
        OptionHandler::createWithEnum(partialsType, partialsTypeMap)},

@@ -12,6 +12,7 @@
 
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <map>
 #include <poplar/StringRef.hpp>
 #include <poplar/exceptions.hpp>
@@ -120,10 +121,41 @@ public:
   }
 
   template <typename T>
-  static inline OptionHandler createWithDouble(T &output) {
-    return OptionHandler{[&output](poplar::StringRef value) {
-      output = parse::asFloatingPoint<double>(value);
-    }};
+  static inline void ensureValueIsWithinBounds(T value, const T &lowerBound,
+                                               bool lowerBoundIsInclusive,
+                                               const T &upperBound,
+                                               bool upperBoundIsInclusive) {
+    if (value < lowerBound || (!lowerBoundIsInclusive && value == lowerBound)) {
+      throw poplar::invalid_option(
+          "Value must be greater than " +
+          std::string(lowerBoundIsInclusive ? "or equal to " : "") +
+          std::to_string(lowerBound));
+    }
+
+    if (value > upperBound || (!upperBoundIsInclusive && value == upperBound)) {
+      throw poplar::invalid_option(
+          "Value must be less than " +
+          std::string(upperBoundIsInclusive ? "or equal to " : "") +
+          std::to_string(upperBound));
+    }
+  }
+
+  template <typename T>
+  static inline OptionHandler
+  createWithDouble(T &output,
+                   double lowerBound = std::numeric_limits<double>::min(),
+                   bool lowerBoundIsInclusive = true,
+                   double upperBound = std::numeric_limits<double>::max(),
+                   bool upperBoundIsInclusive = true) {
+    return OptionHandler{
+        [&output, lowerBound, lowerBoundIsInclusive, upperBound,
+         upperBoundIsInclusive](poplar::StringRef value) {
+          double output_ = parse::asFloatingPoint<double>(value);
+          ensureValueIsWithinBounds(output_, lowerBound, lowerBoundIsInclusive,
+                                    upperBound, upperBoundIsInclusive);
+          output = output_;
+        },
+    };
   }
 
   static inline OptionHandler createWithString(std::string &output) {
@@ -190,9 +222,19 @@ public:
 };
 
 template <typename T>
-inline OptionHandler createOptionalDoubleHandler(std::optional<T> &output) {
-  return OptionHandler{[&output](poplar::StringRef value) {
-    output = parse::asFloatingPoint<double>(value);
+inline OptionHandler createOptionalDoubleHandler(
+    std::optional<T> &output,
+    double lowerBound = std::numeric_limits<double>::min(),
+    bool lowerBoundIsInclusive = true,
+    double upperBound = std::numeric_limits<double>::max(),
+    bool upperBoundIsInclusive = true) {
+  return OptionHandler{[&output, lowerBound, lowerBoundIsInclusive, upperBound,
+                        upperBoundIsInclusive](poplar::StringRef value) {
+    T output_ = parse::asFloatingPoint<double>(value);
+    OptionHandler::ensureValueIsWithinBounds(output_, lowerBound,
+                                             lowerBoundIsInclusive, upperBound,
+                                             upperBoundIsInclusive);
+    output = output_;
   }};
 }
 

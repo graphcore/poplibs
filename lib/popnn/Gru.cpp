@@ -188,13 +188,14 @@ static GruOpts parseOptions(const OptionFlags &options) {
       {"partialsType",
        OptionHandler::createWithEnum(gruOpts.partialsType, partialsTypeMap)},
       {"availableMemoryProportion",
-       OptionHandler::createWithDouble(gruOpts.availableMemoryProportion)},
+       OptionHandler::createWithDouble(gruOpts.availableMemoryProportion, 0.)},
       {"numShards", OptionHandler::createWithInteger(gruOpts.numShards)},
       {"rnnCodeReuse", OptionHandler::createWithBool(gruOpts.rnnCodeReuse)},
   };
   for (const auto &entry : options) {
     gruSpec.parse(entry.first, entry.second);
   }
+
   return gruOpts;
 }
 

@@ -147,8 +147,8 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
       {"remapOutputTensor",
        OptionHandler::createWithBool(matMulOptions.remapOutputTensor)},
       {"availableMemoryProportion",
-       OptionHandler::createWithDouble(
-           matMulOptions.availableMemoryProportion)},
+       OptionHandler::createWithDouble(matMulOptions.availableMemoryProportion,
+                                       0.)},
       {"planConstraints",
        OptionHandler::createWithString(matMulOptions.planConstraints)},
       {"gatherOutput",

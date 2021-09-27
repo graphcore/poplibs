@@ -298,7 +298,7 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
            options.opForUpdate,
            {{"add", Operation::ADD}, {"max", Operation::MAX}})},
       {"availableMemoryProportion",
-       createOptionalDoubleHandler(options.availableMemoryProportion)},
+       createOptionalDoubleHandler(options.availableMemoryProportion, 0.)},
       {"indicesDistribution",
        OptionHandler::createWithEnum(options.indicesDistribution,
                                      indicesDistributionMap)},

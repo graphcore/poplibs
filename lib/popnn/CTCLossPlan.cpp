@@ -127,7 +127,7 @@ static CtcOpts parseOptions(const poplar::OptionFlags &options) {
       {"partialsType", poplibs::OptionHandler::createWithEnum(opts.partialsType,
                                                               partialsTypeMap)},
       {"availableMemoryProportion", poplibs::OptionHandler::createWithDouble(
-                                        opts.availableMemoryProportion)},
+                                        opts.availableMemoryProportion, 0.)},
   };
   for (const auto &entry : options) {
     spec.parse(entry.first, entry.second);

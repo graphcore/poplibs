@@ -292,7 +292,7 @@ static LstmOpts parseOptions(const OptionFlags &options,
        OptionHandler::createWithEnum(lstmOpts.recomputationMode,
                                      recomputationModeMap)},
       {"availableMemoryProportion",
-       OptionHandler::createWithDouble(lstmOpts.availableMemoryProportion)},
+       OptionHandler::createWithDouble(lstmOpts.availableMemoryProportion, 0.)},
       {"numShards", OptionHandler::createWithInteger(lstmOpts.numShards)},
       {"rnnCodeReuse", OptionHandler::createWithBool(lstmOpts.rnnCodeReuse)},
       {"rnnStepsPerWU",
@@ -303,6 +303,7 @@ static LstmOpts parseOptions(const OptionFlags &options,
   for (const auto &entry : options) {
     lstmSpec.parse(entry.first, entry.second);
   }
+
   return lstmOpts;
 }
 

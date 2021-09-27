@@ -50,7 +50,7 @@ MatMulOptions parseMatMulOptionFlags(const OptionFlags &flags) {
   MatMulOptions options;
   const OptionSpec optSpec{
       {"availableMemoryProportion",
-       OptionHandler::createWithDouble(options.availableMemoryProportion)},
+       OptionHandler::createWithDouble(options.availableMemoryProportion, 0.)},
       {"metaInfoBucketOversizeProportion",
        OptionHandler::createWithDouble(
            options.metaInfoBucketOversizeProportion)},
