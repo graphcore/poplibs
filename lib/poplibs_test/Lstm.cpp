@@ -240,6 +240,8 @@ void poplibs_test::lstm::basicLstmCellBackwardPass(
     bool outputFullSequence, const Array3dRef weightsInput,
     const Array3dRef weightsOutput, const Array3dRef gradsNextLayer,
     const Array2dRef prevCellState, const Array4dRef fwdState,
+    const boost::optional<Array2dRef> initOutputGrad,
+    const boost::optional<Array2dRef> initCellStateGrad,
     const boost::optional<Array1dRefUNSIGNED> &timeSteps, Array4dRef bwdState,
     Array3dRef gradsPrevLayer, Array2dRef lastGradLayerOut,
     Array2dRef lastGradCellState,
@@ -277,19 +279,18 @@ void poplibs_test::lstm::basicLstmCellBackwardPass(
 
   // gradient of cell state for this step
   Array2d prevGradCellState(boost::extents[batchSize][outputSize]);
-  for (auto it = prevGradCellState.data(),
-            end = prevGradCellState.data() + prevGradCellState.num_elements();
-       it != end; ++it) {
-    *it = 0;
+  if (initCellStateGrad) {
+    prevGradCellState = *initCellStateGrad;
+  } else {
+    matrixZero(prevGradCellState);
   }
 
   // gradient of output of this step
   Array2d gradOutput(boost::extents[batchSize][outputSize]);
-  matrixZero(gradOutput);
-  for (auto it = prevGradCellState.data(),
-            end = prevGradCellState.data() + prevGradCellState.num_elements();
-       it != end; ++it) {
-    *it = 0;
+  if (initOutputGrad) {
+    gradOutput = *initOutputGrad;
+  } else {
+    matrixZero(gradOutput);
   }
 
   for (auto i = sequenceSize; i != 0; --i) {

@@ -247,7 +247,7 @@ add_multitarget_test(NAME max_pool_layer_folded_spatial_dims
                  --use-introspection=1)
 
 # In debug test memory is initialised to nan.  Testing bwd only makes sure
-# that the fwd pass operation didn't change the data.  Here a lot of the 
+# that the fwd pass operation didn't change the data.  Here a lot of the
 # output is not written by the kernel due to the large stride but should be
 # written by the poplibs pooling function
 add_multitarget_test(NAME pool_bwd_stride_bigger_than_kernel
@@ -745,21 +745,24 @@ endforeach()
 
 foreach(ACTIVATION tanh sigmoid hard_sigmoid relu softmax)
         foreach(RECURRENT_ACTIVATION tanh sigmoid hard_sigmoid softmax)
-                add_multitarget_test(
-                        NAME basic_lstm_act_config_40x1x38_seq_2_float_${ACTIVATION}_${RECURRENT_ACTIVATION}
-                        COMMAND lstm_layer
-                                --input-size 40
-                                --output-size 38
-                                --tiles-per-ipu=16
-                                --data-type=float
-                                --sequence-size 2
-                                --shards=1
-                                --phase all
-                                --activation ${ACTIVATION}
-                                --recurrent-activation ${RECURRENT_ACTIVATION}
-                                VARIANTS ${TimesOutOnSim}
-                                LABELS lstm)
+                foreach(LEGACY_BWD_API 0 1)
+                        add_multitarget_test(
+                                NAME basic_lstm_act_config_40x1x38_seq_2_float_${ACTIVATION}_${RECURRENT_ACTIVATION}_${LEGACY_BWD_API}
+                                COMMAND lstm_layer
+                                        --input-size 40
+                                        --output-size 38
+                                        --tiles-per-ipu=16
+                                        --data-type=float
+                                        --sequence-size 2
+                                        --shards=1
+                                        --phase all
+                                        --activation ${ACTIVATION}
+                                        --recurrent-activation ${RECURRENT_ACTIVATION}
+                                        --legacy-bwd-api=${LEGACY_BWD_API}
+                                        VARIANTS ${TimesOutOnSim}
+                                        LABELS lstm)
                 endforeach()
+        endforeach()
 endforeach()
 
 
@@ -1146,7 +1149,6 @@ foreach(ALL_OUTPUT  0 1)
                                         --output-all-sequence=${ALL_OUTPUT}
                                         --variable-time-steps={57}
                                         --steps-per-wu=${STEPS_PER_WU}
-                                        --ignore-final-state=1
                                         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
                         add_multitarget_test(
                                 NAME lstm_16x2x32_seq_123_shards_3_allOutput_${ALL_OUTPUT}_partials_${PARTIALS_TYPE}_varTS_57_stepsPerWU_${STEPS_PER_WU}_ignore_input_gradient
@@ -1164,7 +1166,6 @@ foreach(ALL_OUTPUT  0 1)
                                         --output-all-sequence=${ALL_OUTPUT}
                                         --variable-time-steps={57}
                                         --steps-per-wu=${STEPS_PER_WU}
-                                        --ignore-final-state=1
                                         --ignore-input-gradient
                                         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
                         add_multitarget_test(
@@ -1183,7 +1184,6 @@ foreach(ALL_OUTPUT  0 1)
                                         --output-all-sequence=${ALL_OUTPUT}
                                         --variable-time-steps={23,41,80}
                                         --steps-per-wu=${STEPS_PER_WU}
-                                        --ignore-final-state=1
                                         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
                         add_multitarget_test(
                                 NAME lstm_16x3x32_seq_123_shards_3_allOutput_${ALL_OUTPUT}_partials_${PARTIALS_TYPE}_varTS_23_41_80_stepsPerWU_${STEPS_PER_WU}_ignore_input_gradient
@@ -1201,7 +1201,6 @@ foreach(ALL_OUTPUT  0 1)
                                         --output-all-sequence=${ALL_OUTPUT}
                                         --variable-time-steps={23,41,80}
                                         --steps-per-wu=${STEPS_PER_WU}
-                                        --ignore-final-state=1
                                         --ignore-input-gradient
                                         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
                 endforeach()

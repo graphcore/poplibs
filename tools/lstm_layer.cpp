@@ -117,6 +117,7 @@ int main(int argc, char **argv) {
   bool outputAllSequence = true;
   bool preweightInput = false;
   bool ignoreFinalState = false;
+  bool legacyBwdApi = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   std::string recompMode;
   unsigned runs = 1;
@@ -188,9 +189,9 @@ int main(int argc, char **argv) {
     ("output-all-sequence",
        po::value<bool>(&outputAllSequence)->default_value(outputAllSequence),
      "output the data from all cells (1 / 0)")
-    ("ignore-final-state",
-       po::value<bool>(&ignoreFinalState)->default_value(ignoreFinalState),
-     "use new lstmFwd() API that ignores final cell state")
+    ("legacy-bwd-api",
+       po::value<bool>(&legacyBwdApi)->default_value(legacyBwdApi),
+     "use legacy lstmBwd() API which ignores initial output state gradient")
     ("pre-weight-input",
        po::value<bool>(&preweightInput)->default_value(preweightInput),
      "Pre-weight whole sequence before recursive part is computed (0 / 1)")
@@ -285,12 +286,9 @@ int main(int argc, char **argv) {
     timeSteps = graph.addVariable(UNSIGNED_INT, {varTimeSteps.size()},
                                   "var-time-steps");
     mapTensorLinearly(graph, timeSteps);
-    if (!ignoreFinalState) {
-      // Final cell state is not calculated for variable time steps.
-      std::cout << "Forcing `ignoreFinalState=true` since variable time steps "
-                   "options is set!\n";
-      ignoreFinalState = true;
-    }
+
+    // Ignore final state if variable time steps is used
+    ignoreFinalState = true;
   }
 
   poplin::matmul::PlanningCache cache;
@@ -359,16 +357,9 @@ int main(int argc, char **argv) {
   Tensor fwdOutputSeq, lastCellState, fwdIntermediates;
   Tensor *fwdIntermediatesPtr =
       (doBwdPass || doWuPass) ? &fwdIntermediates : nullptr;
-  if (ignoreFinalState) {
-    fwdOutputSeq =
-        popnn::lstm::lstmFwd(graph, params, prog, fwdStateInit, weights, input,
-                             fwdIntermediatesPtr, "fwd", fwdOptions, &cache);
-  } else {
-    // Test deprecated API
-    std::tie(fwdOutputSeq, lastCellState) = popnn::lstm::lstmFwd(
-        graph, params, fwdStateInit, input, weights, fwdIntermediatesPtr, prog,
-        "fwd", fwdOptions, &cache);
-  }
+  std::tie(fwdOutputSeq, lastCellState) = popnn::lstm::lstmFwd(
+      graph, params, fwdStateInit, input, weights, fwdIntermediatesPtr, prog,
+      "fwd", fwdOptions, &cache);
   auto nextLayerGrads = graph.addVariable(
       dataType, {sequenceSize, batchSize, outputSize}, "nextLayerGrads");
   mapTensorLinearly(graph, nextLayerGrads);
@@ -378,21 +369,42 @@ int main(int argc, char **argv) {
   lstm::LstmWeights weightGrads;
   Tensor lastGradLayerOut;
   Tensor lastGradCellState;
+  auto lastStepStateGrad = lstm::createInitialState(
+      graph, params, "initlastStepStateGrad", bwdOptions, &cache);
+  auto outputGradInit = lastStepStateGrad.output;
+  auto cellStateGradInit = lastStepStateGrad.cellState;
   if (doBwdPass || doWuPass) {
-    const Tensor *lastCellStateGradPtr = nullptr;
     const Tensor nextGrad =
         params.outputFullSequence ? nextLayerGrads : nextLayerGrads[0];
     lstm::LstmState lastGradLayer;
-    if (doWuPass) {
-      lastGradLayer = lstm::lstmBwdWithWU(
-          graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
-          fwdOutputSeq, nextGrad, lastCellStateGradPtr, inputGrad, weightGrads,
-          "bwd", bwdOptions, &cache);
+    if (legacyBwdApi) {
+      if (doWuPass) {
+        lastGradLayer = lstm::lstmBwdWithWU(
+            graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
+            fwdOutputSeq, nextGrad, &lastStepStateGrad.cellState, inputGrad,
+            weightGrads, "bwd", bwdOptions, &cache);
+      } else {
+        lastGradLayer = lstm::lstmBwd(
+            graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
+            fwdOutputSeq, nextGrad, &lastStepStateGrad.cellState, inputGrad,
+            nullptr, "bwd", bwdOptions, &cache);
+      }
     } else {
-      lastGradLayer = lstm::lstmBwd(
-          graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
-          fwdOutputSeq, nextGrad, lastCellStateGradPtr, inputGrad, nullptr,
-          "bwd", bwdOptions, &cache);
+      // If variable time step is used, the initial state gradients are set to
+      // zero.
+      lstm::LstmState *lastStepStateGradPtr =
+          params.rnn.variableTimeSteps() ? nullptr : &lastStepStateGrad;
+      if (doWuPass) {
+        lastGradLayer = lstm::lstmBwdWithWU(
+            graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
+            fwdOutputSeq, nextGrad, lastStepStateGradPtr, inputGrad,
+            weightGrads, "bwd", bwdOptions, &cache);
+      } else {
+        lastGradLayer = lstm::lstmBwd(
+            graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
+            fwdOutputSeq, nextGrad, lastStepStateGradPtr, inputGrad, nullptr,
+            "bwd", bwdOptions, &cache);
+      }
     }
     lastGradLayerOut = lastGradLayer.output;
     lastGradCellState = lastGradLayer.cellState;
@@ -407,6 +419,8 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostCellStateInit;
   std::unique_ptr<char[]> rawHostNextLayerGrads;
   std::unique_ptr<char[]> rawHostPrevLayerGrads;
+  std::unique_ptr<char[]> rawHostOutputGradInit;
+  std::unique_ptr<char[]> rawHostCellStateGradInit;
   std::unique_ptr<char[]> rawHostWeightsInputDeltas;
   std::unique_ptr<char[]> rawHostWeightsOutputDeltas;
   std::unique_ptr<char[]> rawHostBiasDeltas;
@@ -445,6 +459,13 @@ int main(int argc, char **argv) {
             allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
                                         uploadProg, downloadProg, tmap);
       }
+
+      rawHostOutputGradInit =
+          allocateHostMemoryForTensor(outputGradInit, "outputGradInit", graph,
+                                      uploadProg, downloadProg, tmap);
+      rawHostCellStateGradInit =
+          allocateHostMemoryForTensor(cellStateGradInit, "cellStateGradInit",
+                                      graph, uploadProg, downloadProg, tmap);
     }
     if (doWuPass) {
       rawHostWeightsInputDeltas = allocateHostMemoryForTensor(
@@ -523,6 +544,10 @@ int main(int argc, char **argv) {
       boost::extents[sequenceSize][batchSize][outputSize]);
   boost::multi_array<double, 3> hostPrevLayerGrads(
       boost::extents[sequenceSize][batchSize][inputSize]);
+  boost::multi_array<double, 2> hostCellStateGradInit(
+      boost::extents[batchSize][outputSize]);
+  boost::multi_array<double, 2> hostOutputGradInit(
+      boost::extents[batchSize][outputSize]);
   boost::multi_array<double, 3> modelPrevLayerGrads(
       boost::extents[sequenceSize][batchSize][inputSize]);
   boost::multi_array<double, 4> modelBwdState(
@@ -554,6 +579,12 @@ int main(int argc, char **argv) {
                       randomEngine);
     writeRandomValues(target, dataType, hostBiases, -1.0, 1.0, randomEngine);
 
+    if (doBwdPass) {
+      writeRandomValues(target, dataType, hostOutputGradInit, -3.0, 3.0,
+                        randomEngine);
+      writeRandomValues(target, dataType, hostCellStateGradInit, -3.0, 3.0,
+                        randomEngine);
+    }
     if (params.outputFullSequence) {
       writeRandomValues(target, dataType, hostNextAct, -1.0, 1.0, randomEngine);
     }
@@ -577,6 +608,9 @@ int main(int argc, char **argv) {
     copy(target, hostWeightsInput, dataType, rawHostWeightsInput.get());
     copy(target, hostWeightsOutput, dataType, rawHostWeightsOutput.get());
     if (doBwdPass) {
+      copy(target, hostOutputGradInit, dataType, rawHostOutputGradInit.get());
+      copy(target, hostCellStateGradInit, dataType,
+           rawHostCellStateGradInit.get());
       copy(target, hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
     }
 
@@ -620,12 +654,22 @@ int main(int argc, char **argv) {
         recurrentActivation);
 
     if (doBwdPass) {
+      boost::optional<boost::multi_array_ref<double, 2>> hostOutputGradInitOpt;
+      if (!legacyBwdApi && !ignoreFinalState) {
+        hostOutputGradInitOpt = hostOutputGradInit;
+      }
+      boost::optional<boost::multi_array_ref<double, 2>>
+          hostCellStateGradInitOpt;
+      if (!ignoreFinalState) {
+        hostCellStateGradInitOpt = hostCellStateGradInit;
+      }
       poplibs_test::lstm::basicLstmCellBackwardPass(
           params.outputFullSequence, hostWeightsInput, hostWeightsOutput,
           hostNextLayerGrads, hostCellStateInit, modelFwdState,
-          hostTimeStepsOpt, modelBwdState, modelPrevLayerGrads,
-          modelGradPrevLayerOut, modelGradPrevCellState, params.cellOrder,
-          activation, recurrentActivation);
+          hostOutputGradInitOpt, hostCellStateGradInitOpt, hostTimeStepsOpt,
+          modelBwdState, modelPrevLayerGrads, modelGradPrevLayerOut,
+          modelGradPrevCellState, params.cellOrder, activation,
+          recurrentActivation);
     }
 
     boost::multi_array<double, 3> matImpl(
@@ -640,13 +684,13 @@ int main(int argc, char **argv) {
         matchesModel &= checkIsClose("nextLayerAct", subMatImpl, subMatRef,
                                      relativeTolerance, absoluteTolerance);
       }
-    } else if (!ignoreFinalState) {
-      const boost::multi_array<double, 2> subMatImpl = matImpl[0];
-      matchesModel &= checkIsClose("nextLayerAct", subMatImpl, modelLastOutput,
-                                   relativeTolerance, absoluteTolerance);
     }
 
     if (!ignoreFinalState) {
+      const boost::multi_array<double, 2> subMatImpl =
+          params.outputFullSequence ? matImpl[sequenceSize - 1] : matImpl[0];
+      matchesModel &= checkIsClose("nextLayerAct", subMatImpl, modelLastOutput,
+                                   relativeTolerance, absoluteTolerance);
       boost::multi_array<double, 2> hostLastCellState(
           boost::extents[batchSize][outputSize]);
       copy(target, dataType, rawLastCellState.get(), hostLastCellState);

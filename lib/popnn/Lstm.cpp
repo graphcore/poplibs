@@ -1641,7 +1641,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
             const LstmState &fwdStateInit, const Tensor &fwdIntermediatesSeq,
             const LstmWeights &weights, const Tensor &fwdInputSeq,
             const Tensor &fwdOutput, const Tensor &gradLayerNext,
-            const Tensor *lastCellStateGradPtr, Tensor *inputGradSeq,
+            const LstmState *lastStepStateGrad, Tensor *inputGradSeq,
             Tensor *bwdIntermediatesPtr, LstmWeights *weightsGrad,
             const boost::optional<unsigned> &stepsPerWU,
             const boost::optional<PlanConstraints> &wuPlanConstraints,
@@ -1761,16 +1761,26 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
       fwdIntermediatesSeq, recomputedIntermediatesSeq, params, options);
   auto lastOutGradInit = rnn::createInitialState(
       graph, params.rnn, true, 1, numShards, {dnai, "lastOutGradInit"});
-  if (params.outputFullSequence) {
-    zero(graph, lastOutGradInit, prog, {dnai, "zeroLastOutGrad"});
+
+  // lastStepState->output may be an invalid tensor. This is currently
+  // required for the support of the deprecated lstmBwd() API
+  if (lastStepStateGrad != nullptr && lastStepStateGrad->output.valid()) {
+    prog.add(Copy(lastStepStateGrad->output, lastOutGradInit, false, {dnai}));
+    if (!params.outputFullSequence) {
+      addInPlace(graph, lastOutGradInit, gradLayerNext, prog, {dnai});
+    }
   } else {
-    prog.add(Copy(gradLayerNext, lastOutGradInit, false, {dnai}));
+    if (params.outputFullSequence) {
+      zero(graph, lastOutGradInit, prog, {dnai, "initOutGradInit"});
+    } else {
+      prog.add(Copy(gradLayerNext, lastOutGradInit, false, {dnai}));
+    }
   }
   auto lastCellStateGradInit = rnn::createInitialState(
       graph, params.rnn, true, 1, numShards, {dnai, "lastCellStateGradInit"});
-  if (lastCellStateGradPtr) {
-    prog.add(Copy(*lastCellStateGradPtr, lastCellStateGradInit, false,
-                  {dnai, "initLastOutGrad"}));
+  if (lastStepStateGrad != nullptr) {
+    prog.add(Copy(lastStepStateGrad->cellState, lastCellStateGradInit, false,
+                  {dnai}));
   } else {
     zero(graph, lastCellStateGradInit, prog, {dnai, "initCellStateGrad"});
   }
@@ -1856,7 +1866,7 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
                   const Tensor &fwdIntermediatesSeq, const LstmWeights &weights,
                   const Tensor &fwdInputSeq, const Tensor &fwdOutput,
                   const Tensor &gradLayerNext,
-                  const Tensor *lastCellStateGradPtr, Tensor *inputGrad,
+                  const LstmState *lastStepStateGrad, Tensor *inputGrad,
                   Tensor *bwdIntermediates,
                   const poplar::DebugContext &debugContext,
                   const OptionFlags &options_,
@@ -1865,12 +1875,18 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(fwdIntermediatesSeq, weights, fwdInputSeq, fwdOutput,
-              gradLayerNext, lastCellStateGradPtr, inputGrad, bwdIntermediates,
+              gradLayerNext, lastStepStateGrad, inputGrad, bwdIntermediates,
               fwdStateInit, params, options_, planningCache));
 
   validateParams(params);
   auto options = parseOptions(options_, params.rnn.dataType);
 
+  if (params.rnn.variableTimeSteps() and (lastStepStateGrad != nullptr)) {
+    throw poplibs_error("Since variable LSTM time steps has been used, "
+                        "the initial state gradients will be internally "
+                        "zero-initialised and the lastStepStateGrad "
+                        "parameter will be ignored.");
+  }
   if (bool(inputGrad) != params.calcInputGradients) {
     throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                         (inputGrad ? "non null" : "null") +
@@ -1881,10 +1897,40 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
   LstmState outputs =
       lstmBwdImpl(graph, params, prog, fwdStateInit, fwdIntermediatesSeq,
                   weights, fwdInputSeq, fwdOutput, gradLayerNext,
-                  lastCellStateGradPtr, inputGrad, bwdIntermediates, nullptr,
-                  {}, {}, {di}, std::move(options), planningCache);
+                  lastStepStateGrad, inputGrad, bwdIntermediates, nullptr, {},
+                  {}, {di}, std::move(options), planningCache);
   di.addOutputs(DI_ARGS(outputs));
   return outputs;
+}
+
+LstmState lstmBwd(Graph &graph, const LstmParams &params,
+                  program::Sequence &prog, const LstmState &fwdStateInit,
+                  const Tensor &fwdIntermediatesSeq, const LstmWeights &weights,
+                  const Tensor &fwdInputSeq, const Tensor &fwdOutput,
+                  const Tensor &gradLayerNext,
+                  const Tensor *lastCellStateGradPtr, Tensor *inputGrad,
+                  Tensor *bwdIntermediates,
+                  const poplar::DebugContext &debugContext,
+                  const OptionFlags &options_,
+                  poplin::matmul::PlanningCache *planningCache) {
+  LstmState lastStepStateGrad;
+  if (lastCellStateGradPtr != nullptr) {
+    lastStepStateGrad.cellState = *lastCellStateGradPtr;
+  }
+  if (params.rnn.variableTimeSteps() and (lastCellStateGradPtr != nullptr)) {
+    logging::popnn::warn("Since variable LSTM time steps has been used, "
+                         "the initial state gradients will be internally "
+                         "zero-initialised and the lastCellStateGradPtr "
+                         "parameter will be ignored.");
+  }
+  LstmState *lastStepStateGradPtr =
+      (params.rnn.variableTimeSteps() || (lastCellStateGradPtr == nullptr))
+          ? nullptr
+          : &lastStepStateGrad;
+  return lstmBwd(graph, params, prog, fwdStateInit, fwdIntermediatesSeq,
+                 weights, fwdInputSeq, fwdOutput, gradLayerNext,
+                 lastStepStateGradPtr, inputGrad, bwdIntermediates,
+                 debugContext, options_, planningCache);
 }
 
 static LstmWeights
@@ -1971,7 +2017,7 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
                         const LstmWeights &weights, const poplar::Tensor &input,
                         const poplar::Tensor &output,
                         const poplar::Tensor &outputGrad,
-                        const poplar::Tensor *lastCellStateGrad,
+                        const LstmState *lastStepStateGrad,
                         poplar::Tensor *inputGrad, LstmWeights &weightsGrad_,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options_,
@@ -1979,13 +2025,19 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(fwdIntermediates, weights, input,
-                                         output, outputGrad, lastCellStateGrad,
+                                         output, outputGrad, lastStepStateGrad,
                                          inputGrad, weightsGrad_, fwdStateInit,
                                          params, options_, planningCache));
 
   validateParams(params);
   auto options = parseOptions(options_, params.rnn.dataType);
 
+  if (params.rnn.variableTimeSteps() and (lastStepStateGrad != nullptr)) {
+    throw poplibs_error("Since variable LSTM time steps has been used, "
+                        "the initial state gradients will be internally "
+                        "zero-initialised and the lastStepStateGrad "
+                        "parameter will be ignored.");
+  }
   if (bool(inputGrad) != params.calcInputGradients) {
     throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                         (inputGrad ? "non null" : "null") +
@@ -2005,7 +2057,7 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
   // calculate weight deltas below.
   LstmState stateGrads =
       lstmBwdImpl(graph, params, prog, fwdStateInit, fwdIntermediates, weights,
-                  input, output, outputGrad, lastCellStateGrad, inputGrad,
+                  input, output, outputGrad, lastStepStateGrad, inputGrad,
                   minimiseMemoryUsage ? &bwdIntermediates : nullptr,
                   minimiseMemoryUsage ? nullptr : &weightsGrad_, wuCadence,
                   wuPlanConstraints, {di}, options, planningCache);
@@ -2018,6 +2070,38 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
 
   di.addOutputs(DI_ARGS(stateGrads));
   return stateGrads;
+}
+
+LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
+                        poplar::program::Sequence &prog,
+                        const LstmState &fwdStateInit,
+                        const poplar::Tensor &fwdIntermediates,
+                        const LstmWeights &weights, const poplar::Tensor &input,
+                        const poplar::Tensor &output,
+                        const poplar::Tensor &outputGrad,
+                        const poplar::Tensor *lastCellStateGradPtr,
+                        poplar::Tensor *inputGrad, LstmWeights &weightsGrad_,
+                        const poplar::DebugContext &debugContext,
+                        const poplar::OptionFlags &options_,
+                        poplin::matmul::PlanningCache *planningCache) {
+  LstmState lastStepStateGrad;
+  if (lastCellStateGradPtr != nullptr) {
+    lastStepStateGrad.cellState = *lastCellStateGradPtr;
+  }
+  if (params.rnn.variableTimeSteps() and (lastCellStateGradPtr != nullptr)) {
+    logging::popnn::warn("Since variable LSTM time steps has been used, "
+                         "the initial state gradients will be internally "
+                         "zero-initialised and the lastCellStateGradPtr "
+                         "parameter will be ignored.");
+  }
+  LstmState *lastStepStateGradPtr =
+      (params.rnn.variableTimeSteps() || (lastCellStateGradPtr == nullptr))
+          ? nullptr
+          : &lastStepStateGrad;
+  return lstmBwdWithWU(graph, params, prog, fwdStateInit, fwdIntermediates,
+                       weights, input, output, outputGrad, lastStepStateGradPtr,
+                       inputGrad, weightsGrad_, debugContext, options_,
+                       planningCache);
 }
 
 uint64_t getBasicLstmCellFwdFlops(const LstmParams &params) {
