@@ -56,6 +56,7 @@ scalarMultiplyImpl(poplar::Graph &graph, const poplar::Tensor &a,
 
   auto aFlat = a.flatten();
   auto cFlat = c.flatten();
+  auto b1D = b.reshape({1});
 
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getVectorWidth(bType);
@@ -89,7 +90,7 @@ scalarMultiplyImpl(poplar::Graph &graph, const poplar::Tensor &a,
         graph.connect(vertex["in1"], aContiguous);
         graph.connect(vertex["out"], cContiguous);
       }
-      graph.connect(vertex["in2"], b);
+      graph.connect(vertex["in2"], b1D);
       graph.setInitialValue(vertex["tolerance"], options.floatToHalfTolerance);
       graph.setTileMapping(vertex, tile);
     } else {
@@ -112,7 +113,7 @@ scalarMultiplyImpl(poplar::Graph &graph, const poplar::Tensor &a,
           graph.connect(vertex["in1"], aFlat.slices(regions));
           graph.connect(vertex["out"], cFlat.slices(regions));
         }
-        graph.connect(vertex["in2"], b);
+        graph.connect(vertex["in2"], b1D);
         graph.setInitialValue(vertex["tolerance"],
                               options.floatToHalfTolerance);
         graph.setTileMapping(vertex, tile);
