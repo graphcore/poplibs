@@ -238,6 +238,9 @@ struct TestRecord {
 //  |                          |half  -     float | false  false  |          |
 //  |                          |                  | false  true   |       3  |
 //  |                          |                  | true   false  |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |float -     float | false  false  |          |
+//  |                          |                  | true   false  |       2  |
 //  +--------------------------+------------------+---------------+----------+
 //  | aXPlusbY2D               |half  -     half  | false  false  |          |
 //  |                          |                  | false  true   |       4  |
@@ -247,12 +250,19 @@ struct TestRecord {
 //  |                          |half  -     float | false  false  |          |
 //  |                          |                  | false  true   |       3  |
 //  |                          |                  | true   false  |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |float -     float | false  false  |          |
+//  |                          |                  | true   false  |       2  |
 //  +--------------------------+------------------+---------------+----------+
 //  | aXMinusbYSupervisor      |half  -     half  | false  false  | 2x2 = 4  |
 //  |                          |half  -     float | false  true   |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |float -     float | false  false  |       1  |
 //  +--------------------------+------------------+---------------+----------+
 //  | aXMinusbY2D              |half  -     half  | false  false  | 2x2 = 4  |
 //  |                          |half  -     float | false  true   |          |
+//  |                          +------------------+---------------+----------+
+//  |                          |float -     float | false  false  |       1  |
 //  +--------------------------+------------------+---------------+----------+
 //  | XMinusaXPlusbYSupervisor |half  -     -     | false  false  |          |
 //  |                          |                  | false  true   |       4  |
@@ -264,7 +274,7 @@ struct TestRecord {
 //  |                          |                  | true   false  |          |
 //  |                          |                  | true   true   |          |
 //  +--------------------------+------------------+---------------+----------+
-//                                                                        92
+//                                                                        98
 bool isImplementedCombination(const std::string &name, const Type AType,
                               const Type BType, const Type scaleType,
                               const std::optional<bool> scaleIsConstant,
@@ -360,15 +370,25 @@ bool isImplementedCombination(const std::string &name, const Type AType,
     {{{HALF, nullopt, FLOAT}},
      {{false,     false},
       {false,     true },
-      {true,      false}}}};
+      {true,      false}}},
+
+    {{{FLOAT, nullopt, FLOAT}},
+     {{false,     false},
+      {true,      false}}}
+    };
     return isValid(cs);
   } else if (name == "aXMinusbYSupervisor" ||
              name == "aXMinusbY2D") {
     static const Combinations cs = {
-    {{{HALF, nullopt, HALF },
+    {
+     {{HALF, nullopt, HALF },
       {HALF, nullopt, FLOAT}},
      {{false,     false},
-      {false,     true }}}};
+      {false,     true }}},
+
+     {{{FLOAT, nullopt, FLOAT}},
+     {{false,     false}}}
+    };
     return isValid(cs);
   } else if (name == "XMinusaXPlusbYSupervisor" ||
              name == "XMinusaXPlusbY2D") {

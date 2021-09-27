@@ -87,6 +87,7 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   // <half,float> vertices are unconstrained
   const auto addConstraints =
       (A.elementType() == HALF || A.elementType() == FLOAT) &&
+      !(A.elementType() == FLOAT && B.elementType() == FLOAT) &&
       !(A.elementType() == HALF && B.elementType() == FLOAT &&
         speciality == ScaledAddSpecialisation::DEFAULT) &&
       opts.optimizeForSpeed;
@@ -237,6 +238,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A,
 
   const auto addConstraints =
       (A.elementType() == HALF || A.elementType() == FLOAT) &&
+      !(A.elementType() == FLOAT && B.elementType() == FLOAT) &&
       !(A.elementType() == FLOAT && B.elementType() == HALF) &&
       !(A.elementType() == HALF && B.elementType() == FLOAT &&
         speciality == ScaledAddSpecialisation::DEFAULT) &&
@@ -438,8 +440,8 @@ void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   if (scaleAType != scaleType) {
     scaleA = cast(graph, scaleA, scaleType, prog, {dnai, layer + "scaleA"});
   }
-  // We only support half axpby vertex. Synthesize using mul and scaledAdd
-  if (A.elementType() != HALF) {
+  // We only support half,float axpby vertex. Synthesize using mul and scaledAdd
+  if (A.elementType() != HALF && A.elementType() != FLOAT) {
     mulInPlace(graph, A, scaleA, prog, {dnai, layer});
     axpby = false;
   }
@@ -478,8 +480,8 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   const auto targetType = A.elementType();
   const std::string layer = subtract ? "scaledSubtract" : "scaledAdd";
 
-  // we only support half axpby. Synthesize using mul and scaledAdd
-  if (A.elementType() != HALF && scaleA != 1.0f) {
+  // we only support half,float axpby. Synthesize using mul and scaledAdd
+  if (A.elementType() != HALF && A.elementType() != FLOAT && scaleA != 1.0f) {
     const auto scaleATensor =
         graph.addConstant(targetType, {}, scaleA, {dnai, layer + "/scaleA"});
     graph.setTileMapping(scaleATensor, 0);
@@ -513,8 +515,23 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
       scaleType = FLOAT;
     }
   }
-  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, scaleType, speciality,
-                            prog, !regroupBeforeCast, {dnai}, opts);
+  if (speciality == ScaledAddSpecialisation::DEFAULT &&
+      A.elementType() == FLOAT && B.elementType() == FLOAT) {
+    // Use a Tensor variant of the codelet as its vertex state is more compact.
+    const auto scaleATensor =
+        graph.addConstant(targetType, {}, scaleA, {dnai, "/scaleA"});
+    const auto scaleBTensor =
+        graph.addConstant(targetType, {}, scaleB, {dnai, "/scaleB"});
+    graph.setTileMapping(scaleATensor, 0);
+    graph.setTileMapping(scaleBTensor, 0);
+    scaledArithmeticTensorImpl(graph, A, scaleATensor, B, scaleBTensor, false,
+                               scaleA != 1.0f, ScaledAddSpecialisation::DEFAULT,
+                               prog, !regroupBeforeCast, {dnai}, opts);
+  } else {
+    scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, scaleType,
+                              speciality, prog, !regroupBeforeCast, {dnai},
+                              opts);
+  }
 }
 
 bool specialisedVertexExists(const Tensor &A, const Tensor &B,

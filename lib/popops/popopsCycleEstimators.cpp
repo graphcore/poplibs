@@ -595,8 +595,12 @@ VertexPerfEstimate ScaledArithmetic2DCycleEstimate(
     assert(type == HALF || type == FLOAT);
   }
 
-  unsigned innerLoopCycles = memConstrained ? 2 : 3;
-  if (getForceInterleavedEstimates()) {
+  const bool isFloataXPbY = (operation == ScaledArithmeticOp::AXPLUSBY ||
+                             operation == ScaledArithmeticOp::AXMINUSBY) &&
+                            type == FLOAT;
+
+  unsigned innerLoopCycles = memConstrained && !isFloataXPbY ? 2 : 3;
+  if (getForceInterleavedEstimates() && !isFloataXPbY) {
     innerLoopCycles -= 1;
   }
   const auto grain = target.getVectorWidth(type);
@@ -3145,6 +3149,10 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, FLOAT, false,
                             false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, FLOAT, FLOAT, true,
+                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, FLOAT, FLOAT, false,
+                            false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, true, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, true, false),
@@ -3154,6 +3162,8 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, FLOAT, FLOAT, true, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, FLOAT, FLOAT, false, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, HALF, false,
                             true),
@@ -3163,10 +3173,14 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, FLOAT, false,
                             true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, FLOAT, FLOAT, false,
+                            false),
+
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, false, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, FLOAT, FLOAT, false, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true, true),
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true,

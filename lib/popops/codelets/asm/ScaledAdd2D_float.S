@@ -13,7 +13,12 @@
 #define VERTEX_ADD_TENSOR_SLOW __runCodelet_popops__ScaledAdd2D___float_float_float_false_false
 #define VERTEX_SUBTRACT_SLOW __runCodelet_popops__ScaledSubtract2D___float_float_false
 
+#define VERTEX_AXPBY_CONST __runCodelet_popops__aXPlusbY2D___float_float_true_false
+#define VERTEX_AXPBY_TENSOR __runCodelet_popops__aXPlusbY2D___float_float_false_false
+#define VERTEX_AX_MINUS_BY_TENSOR __runCodelet_popops__aXMinusbY2D___float_float_false_false
+
 #define VERTEX_COMMON __ScaledAdd2D___float_common
+#define VERTEX_AXPBY_COMMON __aXPlusbY2D___float_common
 
 // constants
 #define FLOAT_MINUS_ONE 0xbf800000
@@ -23,6 +28,8 @@
 // 2 versions: one has a constant, which is a float
 // the other a pointer to a tensor float
 #define VERTEX_SCALE_OFFSET 3
+// For ax+by we have a second scale value
+#define VERTEX_SCALE_B_OFFSET 4
 
 // integer variables
 #define outData m0
@@ -41,13 +48,16 @@
 
 // float variables
 #define data0 a0:1
+#define data0i0 a0
 #define dataB0 a2:3
+#define dataB0i0 a2
 #define data1 a4:5
 #define data1i0 a4
 #define data1i1 a5
 #define dataB1 a6:7
 #define dataB1i0 a6
 #define dataB1i1 a7
+#define ascaleB  a7
 
 // scratch variables
 #define mscratch m8
@@ -79,6 +89,15 @@
 
 .globl VERTEX_SUBTRACT_SLOW
 .type VERTEX_SUBTRACT_SLOW, @function
+
+.globl VERTEX_AXPBY_CONST
+.type VERTEX_AXPBY_CONST, @function
+
+.globl VERTEX_AXPBY_TENSOR
+.type VERTEX_AXPBY_TENSOR, @function
+
+.globl VERTEX_AX_MINUS_BY_TENSOR
+.type VERTEX_AX_MINUS_BY_TENSOR, @function
 
 
 .macro CHOOSE_FAST_OR_SLOW_PATH FAST_PATH_LABEL
@@ -263,5 +282,113 @@ VERTEX_COMMON:
   exitz $mzero
 
 .size VERTEX_COMMON, .-VERTEX_ADD_CONST_SLOW
+
+//------------------------------------------------------------------------------
+DEF_STACK_USAGE 0 .text.VERTEX_AX_MINUS_BY_TENSOR
+.section .text.VERTEX_AX_MINUS_BY_TENSOR
+.align 4
+VERTEX_AX_MINUS_BY_TENSOR:
+  // load vertex state specific to this version of the vertex : Tensor: via a pointer
+  ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
+  ld32  $ascratch, $mzero, $data, 0
+  ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
+  {ld32  $ascaleB, $mzero, $data, 0
+  or $data0i0, $azero, FLOAT_MINUS_ONE}
+  {bri   VERTEX_AXPBY_COMMON
+  f32mul $ascaleB, $ascaleB, $data0i0}
+.size VERTEX_AX_MINUS_BY_TENSOR, .-VERTEX_AX_MINUS_BY_TENSOR
+
+
+DEF_STACK_USAGE 0 .text.VERTEX_AXPBY_TENSOR
+.section .text.VERTEX_AXPBY_TENSOR
+.align 4
+VERTEX_AXPBY_TENSOR:
+  // load vertex state specific to this version of the vertex : Tensor: via a pointer
+  ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
+  ld32  $ascratch, $mzero, $data, 0
+  ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
+  ld32  $ascaleB, $mzero, $data, 0
+  bri   VERTEX_AXPBY_COMMON
+.size VERTEX_AXPBY_TENSOR, .-VERTEX_AXPBY_TENSOR
+
+
+DEF_STACK_USAGE 0 .text.VERTEX_AXPBY_COMMON
+.section .text.VERTEX_AXPBY_COMMON
+.align 8
+#ifndef VECTOR_AVAIL_SCALED_PTR64
+  nop //rpt align
+#endif
+VERTEX_AXPBY_CONST:
+  // load vertex state specific to this version of the vertex : k, constant
+  ld32  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
+  ld32  $ascaleB, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
+
+VERTEX_AXPBY_COMMON:
+  // load vertex state
+  ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
+  ld32 $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_A_SIZE_OFFSET
+  ld32 $outDataB, $mvertex_base, $mzero, VERTEX_DATA_B_OFFSET
+  // minus 1 for the brnzdec
+  add $outDataSize, $outDataSize, -1
+
+.Louter_loop_axpby:
+#ifdef VECTOR_AVAIL_SHORT_SPAN
+  ld32step $data, $mzero, $outData+=, 1
+  shr $origDataSize, $data, SHORT_SPAN_PTR_SIZE
+  shl $data, $data, SHORT_SPAN_LENGTH_SIZE
+  shr $data, $data, SHORT_SPAN_LENGTH_SIZE
+#else
+  ld32step $data, $mzero, $outData+=, 1
+  ld32step $origDataSize, $mzero, $outData+=, 1
+#endif
+
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+  ldz16step $dataB, $mzero, $outDataB+=, 1
+  shl $dataB, $dataB, SCALED_PTR64_SHIFTS
+#else
+  ld32step $dataB, $mzero, $outDataB+=, 1
+#endif
+  // process 2 at a time first as this is the optimal scenario
+  shr $dataSizeD2, $origDataSize, 1
+  brz $dataSizeD2, .Lvector2_loop_end_axpby
+
+  ld64 $data0, $mzero, $data, 0
+  {ld64step $dataB0, $mzero, $dataB+=, 1
+   f32v2mul $data0, $ascratch:B, $data0}
+  {add $dataSizeD2, $dataSizeD2, -1
+   f32v2mul $dataB0, $ascaleB:B, $dataB0}
+
+  rpt $dataSizeD2, (2f-1f)/8-1
+1:
+  {ld64 $data0, $mzero, $data, 1
+   f32v2add $data1, $data0, $dataB0}
+
+  {ld64step $dataB0, $mzero, $dataB+=, 1
+   f32v2mul $data0, $ascratch:B, $data0}
+
+  {st64step $data1, $mzero, $data+=, 1
+   f32v2mul $dataB0, $ascaleB:B, $dataB0}
+2:
+  f32v2add $data1, $data0, $dataB0
+  st64step $data1, $mzero, $data+=, 1
+
+ .Lvector2_loop_end_axpby:
+  // how many left? maximum of 1.
+  and $dataSize, $origDataSize, 0x1
+  brz $dataSize, .Lend_axpby
+
+.Lscalar_axpby:
+  ld32 $data0i0, $mzero, $data, 0
+  {ld32 $dataB0i0, $mzero, $dataB, 0
+   f32mul $data0i0, $data0i0, $ascratch}
+  f32mul $dataB0i0, $dataB0i0, $ascaleB
+  f32add $data0i0, $dataB0i0, $data0i0
+  st32 $data0i0, $mzero, $data, 0
+.Lend_axpby:
+  brnzdec $outDataSize, .Louter_loop_axpby
+
+  exitz $mzero
+
+.size VERTEX_AXPBY_COMMON, .-VERTEX_AXPBY_CONST
 
 #endif // __IPU__

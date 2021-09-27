@@ -611,6 +611,9 @@ template class aXPlusbYSupervisor<half, half, false, true>;
 template class aXPlusbYSupervisor<half, half, true, false>;
 template class aXPlusbYSupervisor<half, half, false, false>;
 
+template class aXPlusbYSupervisor<float, float, true, false>;
+template class aXPlusbYSupervisor<float, float, false, false>;
+
 // This is for the vertex having data=HALF; scale values=FLOAT. This vertex
 // has an extra 'tolerance' field, and extra code to check the accuracy of
 // the scale values
@@ -727,6 +730,9 @@ template class aXPlusbY2D<half, half, true, true>;
 template class aXPlusbY2D<half, half, false, true>;
 template class aXPlusbY2D<half, half, true, false>;
 template class aXPlusbY2D<half, half, false, false>;
+
+template class aXPlusbY2D<float, float, true, false>;
+template class aXPlusbY2D<float, float, false, false>;
 
 // This is for the vertex having data=HALF; scale values=FLOAT. This vertex
 // has an extra 'tolerance' field, and extra code to check the accuracy of
@@ -858,6 +864,8 @@ DEF_AXMINUSBY_SUPER_VERTEX(InputScaleType<DataType>, [0], , false, false)
 template class aXMinusbYSupervisor<half, half, false, true>;
 template class aXMinusbYSupervisor<half, half, false, false>;
 
+template class aXMinusbYSupervisor<float, float, false, false>;
+
 #define DEF_AXMINUSBY_MIXED_SUPER_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS,         \
                                          IS_CONSTANT, IS_CONSTRAINED)          \
   template <>                                                                  \
@@ -965,6 +973,8 @@ DEF_AXMINUSBY_2D_VERTEX(Input<DataType>, *, , false, false)
 
 template class aXMinusbY2D<half, half, false, true>;
 template class aXMinusbY2D<half, half, false, false>;
+
+template class aXMinusbY2D<float, float, false, false>;
 
 // This is for the vertex having data=HALF; scale values=FLOAT. This vertex
 // has an extra 'tolerance' field, and extra code to check the accuracy of

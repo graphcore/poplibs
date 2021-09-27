@@ -565,9 +565,31 @@ std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
       cycles += 1; // exitz
       workerCycles.push_back(cycles);
     }
-  }
-  // (half,half), (float, half) and (float, float) versions
-  else {
+  } else if (dataType == FLOAT &&
+             (operation == ScaledArithmeticOp::AXPLUSBY ||
+              operation == ScaledArithmeticOp::AXMINUSBY)) {
+    // aX + bY with float data
+    unsigned innerLoopCycles = 3;
+    for (unsigned wid = 0; wid < targetParams.numWorkerContexts; ++wid) {
+      std::uint64_t cycles = 16; // constant worker prologue cycles
+      const auto numVectors = vectorsPerWorker + (remainingVectors < 0);
+      if (numVectors != 0) {
+        cycles += 6 // inner loop constant overhead
+                  + (innerLoopCycles * (numVectors - 1)); // loop cycles
+      }
+      if (wid == remainingVectors) {
+        cycles += 1; // final == 0?
+        if (remainingElems != 0) {
+          if (dataType == FLOAT) {
+            cycles += 5; // process final float.
+          }
+        }
+      }
+      cycles += 1; // exitz
+      workerCycles.push_back(cycles);
+    }
+  } else {
+    // (half,half), (float, half) and (float, float) versions
     // half/float case handled above
     assert(dataType != HALF || dataBType != FLOAT);
     unsigned innerLoopCycles =
