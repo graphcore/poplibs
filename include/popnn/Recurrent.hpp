@@ -39,6 +39,7 @@ class PlanningCache;
 } // namespace poplin
 
 namespace popnn {
+/// Functions for Recurrent Neural Networks (RNN)
 namespace rnn {
 
 /**
@@ -54,19 +55,19 @@ getMatMulPrePlanParameters(std::size_t numSteps, std::size_t batchSize,
                            bool hasFeedforwardWeights = true);
 
 /**
- * Compute the total flops for the forward pass of RNN
+ * Compute the total floating point operations for the forward pass of RNN
  */
 uint64_t getFwdFlops(unsigned sequenceSize, unsigned batchSize,
                      unsigned inputSize, unsigned outputSize,
                      bool weightInput = true);
 /**
- * Compute the total flops for the backward pass of RNN
+ * Compute the total floating point operations for the backward pass of RNN
  */
 uint64_t getBwdFlops(unsigned sequenceSize, unsigned batchSize,
                      unsigned inputSize, unsigned outputSize,
                      bool calcInputGrad = true);
 /**
- * Compute the total flops for the weight update pass of RNN
+ * Compute the total floating point operations for the weight update pass of RNN
  */
 uint64_t getWuFlops(unsigned sequenceSize, unsigned batchSize,
                     unsigned inputSize, unsigned outputSize);
@@ -76,20 +77,21 @@ uint64_t getWuFlops(unsigned sequenceSize, unsigned batchSize,
  * best for a multiplication of the input weight matrix with the given
  * number of steps.
  *
- * \param graph           Graph object
- * \param numSteps        Number of steps used in the forward weighting of input
- * \param batchSize       Number of batch elements
- * \param inputSize       Size of the input for each sequence step
- * \param outputSize      Output(hidden) size of each sequence element
- * \param inferenceOnly   Whether the RNN layer is for inference only.
- *                        If true, we can ignore backwards and weight
- *                        update passes
- * \param dType           Data type of the created tensor
- * \param partialsType    Data type of intermediate calculations
+ * \param graph           The graph object.
+ * \param numSteps        The number of steps used in the forward weighting of
+ *                        the input.
+ * \param batchSize       The number of batch elements.
+ * \param inputSize       The size of the input for each sequence step.
+ * \param outputSize      Output (hidden) size of each sequence element.
+ * \param inferenceOnly   Indicates whether the RNN layer is for
+ *                        inference only. If true, we can ignore the backwards
+ *                        and weight update passes.
+ * \param dType           Data type of the created tensor.
+ * \param partialsType    Data type of intermediate calculations.
  * \param debugContext    Optional debug information.
  * \param planningCache   The matmul planning cache.
  *
- * \return Tensor of shape {numSteps, batchSize, inputSize}
+ * \return Tensor of shape [`numSteps`, `batchSize`, `inputSize`]
  */
 poplar::Tensor
 createInput(poplar::Graph &graph, unsigned numSteps, unsigned batchSize,
@@ -100,25 +102,26 @@ createInput(poplar::Graph &graph, unsigned numSteps, unsigned batchSize,
             poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
- * Create initial state for a vanilla RNN. The state apart from the activations
- * are initialised by the control program
+ * Create initial state for a vanilla RNN. The state, apart from the
+ * activations, is initialised by the control program.
  *
- * The amount of hidden state may depend on whether the RNN is used for
+ * The number of hidden states may depend on whether the RNN is used for
  * inference or training.
  *
- * \param graph           Graph object
- * \param dType           data type of the created tensor
- * \param batchSize       Number of batch elements
- * \param outputSize      Output(hidden) of each sequence element
- * \param prog            Control program
- * \param initState       Initialise the state
- * \param inferenceOnly   Whether the RNN layer is for inference only.
+ * \param graph           The graph object.
+ * \param dType           Data type of the created tensor.
+ * \param batchSize       The number of batch elements.
+ * \param outputSize      Output (hidden) of each sequence element.
+ * \param prog            The control program.
+ * \param initState       If true, indicates that the state should be
+ *                        initialised.
+ * \param inferenceOnly   Indicates whether the RNN layer is for inference only.
  *                        If true, we can ignore backwards and weight
- *                        update passes
+ *                        update passes.
  * \param debugContext    Optional debug information.
  * \param planningCache   The matmul planning cache.
  *
- * \return A 2D tensor of shape {batchSize, outputSize}
+ * \return A 2D tensor of shape [`batchSize`, `outputSize`]
  */
 poplar::Tensor createFwdState(
     poplar::Graph &graph, const poplar::Type &dType, unsigned batchSize,
@@ -126,28 +129,28 @@ poplar::Tensor createFwdState(
     bool inferenceOnly, const poplar::DebugContext &debugContext = {},
     poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Extract prev output tensor from hidden state. The returned tensor is a
- *  view of tensor and can be used to initialise the tensor if required
+/** Extract previous output tensor from the hidden state. The returned tensor is
+ *  a view of the tensor and can be used to initialise the tensor, if required.
  */
 poplar::Tensor getOutputFromFwdState(const poplar::Tensor &fwdState);
 
-/** Create the weights used to weight the input of a vanilla RNN layer. The tile
- *  mapping of the weight tensor is best for multiplication with a sequence
- *  size in the input activation tensor used to multiply with the input weights.
+/** Create the weights used to weight the input of a vanilla RNN layer. The best
+ *  tile mapping of the weight tensor is when it matches the sequence size in
+ *  the input activation tensor used to multiply the input weights.
  *
- * \param graph           Graph object
- * \param sequenceSize    Number of sequence steps used in the forward weighting
- *                        of the input. The best tile mapping is when this
- *                        matches the sequence size of the input activation
- *                        tensor
- * \param batchSize       Number of batch elements
- * \param inputSize       Input size of each sequence
- * \param outputSize      Output(hidden) size of each sequence
- * \param dType           Data type of the created tensor
- * \param partialsType    Data type of partial results in the computation
- * \param inferenceOnly   Whether the RNN layer is for inference only.
+ * \param graph           The graph object.
+ * \param sequenceSize    The number of sequence steps used in the forward
+ *                        weighting of the input. The best tile mapping is when
+ *                        this matches the sequence size of the input activation
+ *                        tensor.
+ * \param batchSize       The number of batch elements.
+ * \param inputSize       Input size of each sequence.
+ * \param outputSize      Output (hidden) size of each sequence.
+ * \param dType           Data type of the created tensor.
+ * \param partialsType    Data type of partial results in the computation.
+ * \param inferenceOnly   Indicates whether the RNN layer is for inference only.
  *                        If true, we can ignore backwards and weight
- *                        update passes
+ *                        update passes.
  * \param debugContext    Optional debug information.
  * \param planningCache   The matmul planning cache.
  */
@@ -158,16 +161,16 @@ poplar::Tensor createWeightsInput(
     bool inferenceOnly = false, const poplar::DebugContext &debugContext = {},
     poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Create the weights used in the recurrent part of a vanilla RNN layer
+/** Create the weights used in the recurrent part of a vanilla RNN layer.
  *
- * \param graph           Graph object
- * \param batchSize       Number of batch elements
- * \param outputSize      Output(hidden) size of each sequence
- * \param dType           Data type of the created tensor
+ * \param graph           The graph object.
+ * \param batchSize       The number of batch elements.
+ * \param outputSize      Output (hidden) size of each sequence.
+ * \param dType           Data type of the created tensor.
  * \param partialsType    Data type of partial results in the computation
- * \param inferenceOnly   Whether the RNN layer is for inference only.
+ * \param inferenceOnly   Indicates whether the RNN layer is for inference only.
  *                        If true, we can ignore backwards and weight
- *                        update passes
+ *                        update passes.
  * \param debugContext    Optional debug information.
  * \param planningCache   The matmul planning cache.
  */
@@ -178,32 +181,34 @@ poplar::Tensor createWeightsFeedback(
     poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
- * Perform feedforward part of a RNN layer. The feedforward part of the RNN
- * layer must be followed by the feedback part to complete the RNN layer. i.e.
- * the output must be fed as the feedforward input to the feedback part.
+ * Perform the feedforward part of a RNN layer. The feedforward part of the RNN
+ * layer must be followed by the feedback part to complete the RNN layer. In
+ * other words, the output must be fed as the feedforward input to the feedback
+ * part.
  * \see forwardIterate
  *
- * The following definitions are used below:
- *   numSteps is the number of sequence steps
- *   batchSize is the batchSize
- *   inputSize is the size of the input for each step
- *   outputSize is the size of the output for each step
+ * The following definitions apply:
+ *   - `numSteps` is the number of sequence steps.
+ *   - `batchSize` is the number of batch elements.
+ *   - `inputSize` is the size of the input for each step.
+ *   - `outputSize` is the size of the output for each step.
  *
- * \param graph           Graph pbject
- * \param actIn           Input activation tensor with shape
- *                        {numSteps, batchSize, inputSize}
- * \param weights         Feedforward weights with shape {outputSize, inputSize}
- * \param prog            Program sequence to which  programs added by this
- *                        function are appended to
- * \param partialsType    Data type for intermediates
- * \param inferenceOnly   Whether the RNN layer is for inference only.
+ * \param graph           The graph object.
+ * \param actIn           The input activation tensor with shape
+ *                        [`numSteps`, `batchSize`, `inputSize`].
+ * \param weights         Feedforward weights with shape [`outputSize`,
+ *                        `inputSize`].
+ * \param prog            Program sequence. Programs added by this
+ *                        function are appended to this program sequence.
+ * \param partialsType    Data type for intermediates.
+ * \param inferenceOnly   Indicates whether the RNN layer is for inference only.
  *                        If true, we can ignore backwards and weight
- *                        update passes
+ *                        update passes.
  * \param debugContext    Optional debug information.
  * \param planningCache   The matmul planning cache.
  *
- * \return                Output tensor with shape {numSteps, batchSize,
- *                        outputSize}
+ * \return                Output tensor with shape [`numSteps`, `batchSize`,
+ *                        `outputSize`].
  */
 poplar::Tensor forwardWeightInput(
     poplar::Graph &graph, const poplar::Tensor &actIn,
@@ -215,33 +220,33 @@ poplar::Tensor forwardWeightInput(
 /**
  * Perform the feedback part of the RNN layer. The feedback part of the RNN
  * layer must be preceded by the feedforward part of the RNN layer to complete
- * the layer
+ * the layer.
  * \see forwardWeightInput
  *
- * The following definitions are used below:
- *   numSteps is the number of steps
- *   batchSize is the batchSize
- *   inputSize is the size of the input for each step
- *   outputSize is the size of the output for each step
+ * The following definitions apply:
+ *   - `numSteps` is the number of steps.
+ *   - `batchSize` is the number of batch elements.
+ *   - `inputSize` is the size of the input for each step.
+ *   - `outputSize` is the size of the output for each step.
  *
- * \param graph           Graph object
- * \param feedFwdIn       Input to this function (output from feedforward part
- *                        of the RNN layer
- * \param initState       The initial state of the RNN layer(i.e. the previous
- *                        output)
- * \param feedbackWeights Feedback weights
- * \param biases          Biases
- * \param prog            Program sequence to which programs added by
- *                        this function are appended to
+ * \param graph           The graph object.
+ * \param feedFwdIn       Input to this function (output from the feedforward
+ *                        part of the RNN layer.
+ * \param initState       The initial state of the RNN layer, which means the
+ *                        the previous output.
+ * \param feedbackWeights Feedback weights.
+ * \param biases          Biases.
+ * \param prog            Program sequence. Programs added by this
+ *                        function are appended to this program sequence.
  * \param nonLinearityType Non linearity used for the output activations
- * \param partialsType    Data type for intermediates
- * \param inferenceOnly   Whether the RNN layer is for inference only.
+ * \param partialsType    Data type for intermediates.
+ * \param inferenceOnly   Indicates whether the RNN layer is for inference only.
  *                        If true, we can ignore backwards and weight
- *                        update passes
+ *                        update passes.
  * \param debugContext    Optional debug information.
  * \param planningCache   The matmul planning cache.
  *
- * \return                Output activations of RNN layer
+ * \return                Output activations of the RNN layer.
  *
  */
 poplar::Tensor forwardIterate(
@@ -253,17 +258,17 @@ poplar::Tensor forwardIterate(
     bool inferenceOnly = false, const poplar::DebugContext &debugContext = {},
     poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Create initial state for backward pass of a vanilla RNN
+/** Create initial state for backward pass of a vanilla RNN.
  *
- * \param graph           Graph object
- * \param dType           Data type of the created tensor
- * \param batchSize       Number of batch elements processed
- * \param outputSize      Number of output activations
- * \param prog            Control program
+ * \param graph           The graph object.
+ * \param dType           Data type of the created tensor.
+ * \param batchSize       The number of batch elements processed.
+ * \param outputSize      The number of output activations.
+ * \param prog            Control program.
  * \param debugContext    Optional debug information.
  * \param planningCache   The matmul planning cache.
  *
- * \return Tile mapped initial state tensor
+ * \return Tile mapped initial state tensor.
  */
 poplar::Tensor
 createBwdState(poplar::Graph &graph, const poplar::Type &dType,
@@ -272,10 +277,10 @@ createBwdState(poplar::Graph &graph, const poplar::Type &dType,
                const poplar::DebugContext &debugContext = {},
                poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Compute a single step of backward pass of a vanilla RNN layer. Two gradient
- *  outputs are produced. The first is at the input of the RNN layer for the
- *  step. The second is at the adder and can be used to backward propagate
- *  through the earlier steps.
+/** Compute a single step of the backward pass of a vanilla RNN layer. Two
+ *  gradient outputs are produced. The first gradient is at the input of the RNN
+ *  layer for the step. The second gradient is at the adder and can be used to
+ *  backward propagate through the earlier steps.
  */
 /*       ------        ----           -----
  *  <---| Wfb |<------| + |<---------| NL |<------- (bwd:gradientOut
@@ -290,23 +295,21 @@ createBwdState(poplar::Graph &graph, const poplar::Type &dType,
  *  Wff are the input weights
  */
 /**
- * \param graph           Graph object
- * \param nextLayerGrad   Loss gradient fed as input to this step
- * \param bwdState        Gradient state for previous step
- * \param actOut          Output activation
- * \param weightsInput    Input weights
- * \param weightsFeedback Feedback weights
- * \param prog            Control program to which to add programs to
- * \param nonLinearityType Type of non-linearity
- * \param firstStep       Set to true to indicate if first step in the backward
- *                        pass
- * \param partialsType    Data type used in intermediate calculations
+ * \param graph           The graph object.
+ * \param nextLayerGrad   Loss gradient fed as input to this step.
+ * \param bwdState        Gradient state for the previous step.
+ * \param actOut          Output activation.
+ * \param weightsInput    Input weights.
+ * \param weightsFeedback Feedback weights.
+ * \param prog            Control program to which programs are added.
+ * \param nonLinearityType Type of non-linearity.
+ * \param partialsType    Data type used in intermediate calculations.
  * \param debugContext    Optional debug information.
  * \param planningCache   The matmul planning cache.
  *
- * \return A pair of tensors. The first is the loss gradient at the input
- *         layer. The second is the backward state needed to run the next
- *         backward  step
+ * \return A pair of tensors. The first tensor is the loss gradient at the input
+ *         layer. The second tensor is the backward state needed to run the next
+ *         backward step.
  */
 std::pair<poplar::Tensor, poplar::Tensor> backwardGradientStep(
     poplar::Graph &graph, const poplar::Tensor &nextLayerGrad,
@@ -317,9 +320,11 @@ std::pair<poplar::Tensor, poplar::Tensor> backwardGradientStep(
     const poplar::DebugContext &debugContext = {},
     poplin::matmul::PlanningCache *planningCache = nullptr);
 
-/** Same as function above with the difference that the input gradients are
- *  not computed
+// clang-format off
+// To handle long lines in Doxygen for auto-linking of overloaded functions.
+/** Same as backwardGradientStep(poplar::Graph&, const poplar::Tensor&, const poplar::Tensor&, const poplar::Tensor&, const poplar::Tensor&, const poplar::Tensor &, poplar::program::Sequence&, popnn::NonLinearityType, const poplar::Type&, const poplar::DebugContext&, poplin::matmul::PlanningCache*) with the difference that the input gradients are not computed.
  */
+// clang-format on
 poplar::Tensor backwardGradientStep(
     poplar::Graph &graph, const poplar::Tensor &nextLayerGrad,
     const poplar::Tensor &bwdState, const poplar::Tensor &actOut,
@@ -338,7 +343,7 @@ poplar::Tensor backwardGradientStep(
  *  from previous steps. The caller must zero the accumulated tensors at the
  *  first call if the tensors to maintain the result are in-place.
  *
- * \param graph           Graph object.
+ * \param graph           The graph object.
  * \param bwdState        Gradient state for this step.
  * \param actIn           Input activations for this step.
  * \param prevOut         Previous RNN output activations for this step.
@@ -351,7 +356,7 @@ poplar::Tensor backwardGradientStep(
  * \param biasDeltasAcc   Previous bias deltas tensor. This tensor must be
  *                        tile-mapped. The deltas from this step are added to
  *                        this tensor.
- * \param prog            Control program to which to add programs to.
+ * \param prog            Control program to which programs are added.
  * \param partialsType    Data type used in intermediate calculations.
  * \param debugContext    Optional debug information.
  * \param planningCache   The matmul planning cache.
@@ -373,30 +378,32 @@ void paramDeltaUpdate(poplar::Graph &graph, const poplar::Tensor &bwdState,
  * layer.
  * \see forwardWeightInput
  *
- * The following definitions are used below:
- *   - numSteps is the number of steps
- *   - batchSize is the batchSize
- *   - inputSize is the size of the input for each step
- *   - outputSize is the size of the output for each step
+ * The following definitions apply:
+ *   - `numSteps` is the number of steps
+ *   - `batchSize` is the number of batch elements.
+ *   - `inputSize` is the size of the input for each step.
+ *   - `outputSize` is the size of the output for each step.
  *
- * \param graph           Graph object.
- * \param prog            Control program.
- * \param fwdStateInit    Forward state tensor for initial step.
- * \param weightedIn      Preweighted input, or nullptr if Wff is to be applied.
- * \param biases          Biases.
- * \param feedFwdWeights  Input weights Wff.
- * \param feedbackWeights Feedback weights Wfb.
- * \param prevLayerActs   Activations from previous layer (output from
- *                        feedforward part of the RNN layer.
- * \param nonLinearityType Non linearity used for the output activations.
- * \param partialsType    Data type for intermediates.
- * \param inferenceOnly   Whether the RNN layer is for inference only.
- *                        If true, we can ignore backwards and weight
- *                        update passes
- * \param debugContext    Optional debug information.
- * \param planningCache   The matmul planning cache.
+ * \param graph             The graph object.
+ * \param prog              Control program.
+ * \param fwdStateInit      Forward state tensor for initial step.
+ * \param weightedIn        Preweighted input, or `nullptr` if `feedFwdWeights`
+ *                          is to be applied.
+ * \param biases            Biases.
+ * \param feedFwdWeights    Input weights.
+ * \param feedbackWeights   Feedback weights.
+ * \param prevLayerActs     Activations from previous layer (output from
+ *                          feedforward part of the RNN layer.
+ * \param nonLinearityType  Type of non-linearity used for the output
+ *                          activations.
+ * \param partialsType      Data type for intermediates.
+ * \param inferenceOnly     Indicates whether the RNN layer is for inference
+ *                          only. If true, we can ignore backwards and weight
+ *                          update passes.
+ * \param debugContext      Optional debug information.
+ * \param planningCache     The matmul planning cache.
  *
- * \return Forward state tensor for all steps [0:seqSize)
+ * \return Forward state tensor for all steps [0:seqSize).
  */
 poplar::Tensor rnnFwdSequence(
     poplar::Graph &graph, poplar::program::Sequence &prog,
@@ -414,36 +421,39 @@ poplar::Tensor rnnFwdSequence(
  * the layer.
  * \see forwardWeightInput
  *
- * The following definitions are used below:
- *   - numSteps is the number of steps
- *   - batchSize is the batchSize
- *   - inputSize is the size of the input for each step
- *   - outputSize is the size of the output for each step
+ * The following definitions apply:
+ *   - `numSteps` is the number of steps.
+ *   - `batchSize` is the number of batch elements.
+ *   - `inputSize` is the size of the input for each step.
+ *   - `outputSize` is the size of the output for each step.
  *
- * \param graph           Graph object
- * \param doWU            Calculate weight updates
- * \param ignoreInputGradientCalc Do not calculate the gradients over the input
- *                        weights
- * \param prog            Control program
- * \param fwdStateInit    Forward state tensor for initial step
- * \param fwdState        Forward state tensor for all steps [0:seqSize)
- * \param biases          Biases
- * \param feedFwdWeights  Input weights Wff
- * \param feedbackWeights Feedback weights Wfb
- * \param outGradient     Gradient from next layer
- * \param actIn           Activations from previous layer (output from
- *                        feedforward part of the RNN layer
- * \param nonLinearityType Non linearity used for the output activations
- * \param partialsType    Data type for intermediates
- * \param debugContext    Optional debug information.
- * \param planningCache   The matmul planning cache.
+ * \param graph                     The graph object.
+ * \param doWU                      Calculate weight updates.
+ * \param ignoreInputGradientCalc   Do not calculate the gradients over the
+ *                                  input weights.
+ * \param prog                      Control program.
+ * \param fwdStateInit              Forward state tensor for initial step.
+ * \param fwdState                  Forward state tensor for all steps
+ *                                  [0:seqSize).
+ * \param biases                    Biases.
+ * \param feedFwdWeights            Input weights.
+ * \param feedbackWeights           Feedback weights.
+ * \param outGradient               Gradient from next layer.
+ * \param actIn                     Activations
+ *                                  from the previous layer, so the output from
+ *                                  the feedforward part of the RNN layer.
+ * \param nonLinearityType          Type of non-linearity used for the output
+ *                                  activations.
+ * \param partialsType              Data type for intermediates.
+ * \param debugContext              Optional debug information.
+ * \param planningCache             The matmul planning cache.
  *
  * \return Returns four tensors:
- *         - gradients for previous layer
+ *         - gradients for the previous layer
  *         - input weight deltas
  *         - output weight deltas
- *         - bias deltas\n
- * When doWU is false the weight and bias deltas are not calculated
+ *         - bias deltas
+ * When \p doWU is false, the weight and bias deltas are not calculated.
  *
  */
 std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
