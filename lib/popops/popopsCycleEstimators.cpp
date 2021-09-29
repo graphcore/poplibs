@@ -2768,6 +2768,157 @@ MAKE_PERF_ESTIMATOR_NAME(NormaliseImage)(const VertexIntrospector &vertex,
   cycles = nWorkers * workerCycles;
   return {cycles, flops};
 }
+
+VertexPerfEstimate ScalarMultiply2DEstimator(const std::vector<unsigned> sizes,
+                                             bool inplace) {
+  const auto elementsPerLoop = 4;
+
+  unsigned cycles = 0;
+  unsigned flops = 0;
+
+  auto getLoopCycles = [](unsigned nloops) {
+    unsigned cycles = 1;
+    cycles += nloops > 0 ? 7 : 0;
+    cycles += nloops > 1 ? 5 * (nloops - 1) : 0;
+    return cycles;
+  };
+
+  auto getRemainderCycles = [](unsigned remainder) {
+    unsigned cycles = 2;
+    cycles += remainder != 0 ? 4 : 0;
+    cycles += remainder > 1 ? 5 : 0;
+    cycles += (remainder == 1 || remainder == 3) ? 6 : 0;
+    cycles += 1;
+    return cycles;
+  };
+
+  auto getInnerLoopCycles = [&getLoopCycles, &getRemainderCycles,
+                             elementsPerLoop](unsigned size) {
+    unsigned nloops = size / elementsPerLoop;
+    unsigned remainder = size % elementsPerLoop;
+
+    unsigned cycles = 0;
+    cycles += getLoopCycles(nloops);
+    cycles += getRemainderCycles(remainder);
+    cycles += 6;
+    return cycles;
+  };
+
+  cycles += inplace ? 36 : 37;
+
+  for (auto size : sizes) {
+    cycles += 11;
+    auto cycles_ = getInnerLoopCycles(size);
+    cycles += cycles_;
+    flops += size * flopsPerBinaryOpElement(BinaryOpType::MULTIPLY);
+  }
+
+  // exitz
+  cycles += 1;
+
+  return {cycles, convertToTypeFlops(flops, FLOAT)};
+}
+
+VertexPerfEstimate ScalarMultiply1DEstimator(const Target &target,
+                                             const unsigned size) {
+  const auto elementsPerLoop = 4;
+  const auto nWorkers = target.getNumWorkerContexts();
+
+  unsigned workerCycles = 0;
+
+  auto getLoopCycles = [](unsigned nloops) {
+    unsigned cycles = 1;
+    cycles += nloops > 0 ? 7 : 0;
+    cycles += nloops > 1 ? 5 * (nloops - 1) : 0;
+    return cycles;
+  };
+
+  auto getRemainderCycles = [](unsigned remainder) {
+    unsigned cycles = 2;
+    cycles += remainder != 0 ? 4 : 0;
+    cycles += remainder > 1 ? 5 : 0;
+    cycles += (remainder == 1 || remainder == 3) ? 6 : 0;
+    cycles += 1;
+    return cycles;
+  };
+
+  auto getInnerLoopCycles = [&getLoopCycles, &getRemainderCycles,
+                             elementsPerLoop,
+                             nWorkers](unsigned size, unsigned wid) {
+    // Does this worker process the remainder?
+    bool flag =
+        (((size % (elementsPerLoop * nWorkers)) - 1) / elementsPerLoop) == wid;
+    unsigned nloops = (size + elementsPerLoop * (nWorkers - 1 - wid)) /
+                      (elementsPerLoop * nWorkers);
+    unsigned remainder = (size % elementsPerLoop) * flag;
+
+    unsigned cycles = 0;
+    cycles += getLoopCycles(nloops);
+    cycles += getRemainderCycles(remainder);
+    return cycles;
+  };
+
+  // Number of cycles before the main loop. This involves:
+  //   - Checking float to half conversion accuracy.
+  //   - Loading vertex state.
+  //   - Splitting work between 6 workers.
+  workerCycles += 48;
+
+  unsigned slowestWorkerCycles = 0;
+  for (unsigned wid = 0; wid < 6; wid++) {
+    auto workerCycles = getInnerLoopCycles(size, wid);
+    slowestWorkerCycles = std::max(slowestWorkerCycles, workerCycles);
+  }
+  workerCycles += slowestWorkerCycles;
+
+  // Number of cycles after the main loop. This includes exitz.
+  workerCycles += 1;
+
+  unsigned flops = size * flopsPerBinaryOpElement(BinaryOpType::MULTIPLY);
+
+  return {workerCycles * nWorkers, convertToTypeFlops(flops, FLOAT)};
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply1D)(
+    const VertexIntrospector &vertex, const Target &target, const Type &in1Type,
+    const Type &in2Type) {
+  CODELET_FIELD(in1);
+  return ScalarMultiply1DEstimator(target, in1.size());
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply1DInplace)(
+    const VertexIntrospector &vertex, const Target &target, const Type &in1Type,
+    const Type &in2Type) {
+  CODELET_FIELD(in1Out);
+  return ScalarMultiply1DEstimator(target, in1Out.size());
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2D)(
+    const VertexIntrospector &vertex, const Target &target, const Type &in1Type,
+    const Type &in2Type) {
+  CODELET_FIELD(in1);
+
+  std::vector<unsigned> sizes;
+  for (unsigned i = 0; i < in1.size(); i++) {
+    sizes.push_back(in1.getSizeAtIndex(i));
+  }
+
+  return ScalarMultiply2DEstimator(sizes, false);
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
+    const VertexIntrospector &vertex, const Target &target, const Type &in1Type,
+    const Type &in2Type) {
+  CODELET_FIELD(in1Out);
+
+  std::vector<unsigned> sizes;
+  for (unsigned i = 0; i < in1Out.size(); i++) {
+    sizes.push_back(in1Out.getSizeAtIndex(i));
+  }
+
+  return ScalarMultiply2DEstimator(sizes, true);
+}
+
 #define BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(vertexName)                        \
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                    \
                         BinaryOpType::VARIANCE_TO_INV_STD_DEV, FLOAT, HALF),   \
@@ -2887,7 +3038,10 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, FLOAT, FLOAT, FLOAT),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, HALF, HALF),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, HALF, FLOAT),
-
+      CYCLE_ESTIMATOR_ENTRY(popops, ScalarMultiply1D, HALF, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScalarMultiply1DInplace, HALF, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScalarMultiply2D, HALF, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScalarMultiply2DInplace, HALF, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, HALF, HALF,
                             true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, HALF, HALF,
