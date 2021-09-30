@@ -574,8 +574,10 @@ static void createStridedReduceVertex(
   }
   graph.setInitialValue(vertex["numOutputsM1"], numOutputs);
   graph.setInitialValue(vertex["partialsWidth"], partialsWidth);
-  graph.setInitialValue(vertex["outerStride"], vertexOuterStride);
   graph.setInitialValue(vertex["numOuterStridesM1"], numOuterStridesM1);
+  if (specialisation == ReductionSpecialisation::STRIDED_REDUCE_OUTER) {
+    graph.setInitialValue(vertex["outerStride"], vertexOuterStride);
+  }
 }
 
 static void createSingleOutputVertex(
@@ -940,6 +942,31 @@ void createVertex(poplar::Graph &graph,
     }
   }
   // Logging end
+  auto qualifyVertexSpecialisation =
+      [&](ReductionSpecialisation specialisation) {
+        // Throughout the decision making process the 2 strided reduce
+        // specialisations can be considered identical.  At the point of vertex
+        // creation however we need to qualify which to use
+        if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
+          if (reductions[0].regularPartials()) {
+            const auto partialsType =
+                reductions[0].getPartials()[0].elementType();
+            const auto partialsElemWidth =
+                (targetIsCpu && partialsType == poplar::HALF)
+                    ? 2
+                    : graph.getTarget().getTypeSize(partialsType);
+            const auto strideIsCompatible =
+                (reductions[0].getStride() * partialsElemWidth) % 8 == 0;
+            const auto outerStrideIsCompatible =
+                (reductions[0].getOuterStride() * partialsElemWidth) % 8 == 0;
+            if (strideIsCompatible && outerStrideIsCompatible &&
+                reductions[0].getNumOuterStrides() > 1) {
+              specialisation = ReductionSpecialisation::STRIDED_REDUCE_OUTER;
+            }
+          }
+        }
+        return specialisation;
+      };
 
   // The vector of RegionReductions can be implemented by 1 or many vertices.
   // Sometimes, using many will have a lower cost than using one, if those
@@ -955,8 +982,9 @@ void createVertex(poplar::Graph &graph,
                  reductionUsesInput);
 
   for (auto &range : reductionsAndRanges.plan) {
-    auto specialisation = getReductionVertexSpecialisation(
-        graph, params, range, partialType, reductionUsesInput);
+    const auto specialisation =
+        qualifyVertexSpecialisation(getReductionVertexSpecialisation(
+            graph, params, range, partialType, reductionUsesInput));
 
     const auto name = getReductionVertexName(params, partialType, outputType,
                                              specialisation, params.useScale);
@@ -970,7 +998,9 @@ void createVertex(poplar::Graph &graph,
     if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
       createSingleOutputVertex(graph, range, targetIsCpu, vertex,
                                specialisation);
-    } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
+    } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE ||
+               specialisation ==
+                   ReductionSpecialisation::STRIDED_REDUCE_OUTER) {
       createStridedReduceVertex(graph, range, targetIsCpu, vertex,
                                 specialisation);
 
