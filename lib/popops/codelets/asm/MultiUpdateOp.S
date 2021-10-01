@@ -38,7 +38,7 @@
 #endif
 
 // constants
-#define SCALED_PTR32_SHL_BITS 2
+#define SCALED_PTR64_SHL_BITS 3
 #define SIZEOF_HALF 2
 #define SIZEOF_FLOAT 4
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
@@ -51,8 +51,11 @@
 #define baseOffset m8
 #define numBaseElements m5
 #define regionSize m6
+#define offsetSizeScaled m6
 #define regionSizeM1 m7
 #define regionSizeM2 m7
+#define baseIdxWorker m7
+#define baseIdxWorkerScaled m4
 #define regionBytesOffset m4
 #define baseIdx m9
 #define subTOffset m10
@@ -155,7 +158,7 @@ UNSCALED_CODELET_NAME(float):
 
 .Lfloat_\OPTYPE\()_\SCALED\()_LoadPtrs:
   ld32 $subTPtr, $mzero, $mvertex_base, VERTEX_STATE_SUB_T_OFFSET/4
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16 $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET/2
 #else
   ld32  $baseTPtr, $mzero, $mvertex_base, VERTEX_STATE_BASE_T_OFFSET/4
@@ -168,12 +171,19 @@ UNSCALED_CODELET_NAME(float):
   ld32 $scale, $mzero, $mscratch, 0
 .endif
 
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
   // expand the SCALED_PTR32 pointer
-  shl $baseTPtr, $baseTPtr, SCALED_PTR32_SHL_BITS
-  setzi $mscratch, TMEM_REGION0_BASE_ADDR
-  add $baseTPtr, $baseTPtr, $mscratch
+  shl $baseTPtr, $baseTPtr, SCALED_PTR64_SHL_BITS
 #endif
+
+
+  // Specialise region size 2 
+.ifc \SCALED, true
+  cmpeq $mscratch, $regionSize, 2 
+  brnz $mscratch, .LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_2
+  cmpeq $mscratch, $regionSize, 4 
+  brnz $mscratch, .LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_4
+.endif
 
   // minus 1 from the region size because we pipeline it.
   sub $regionSizeM1, $regionSize, 1
@@ -270,6 +280,97 @@ UNSCALED_CODELET_NAME(float):
 
 .LFloat_\OPTYPE\()_\SCALED\()_offset_loop_epilogue:
   brnzdec $offsetSize, .LFloat_\OPTYPE\()_\SCALED\()_offset_loop
+  exitz $mzero
+
+.ifc \SCALED, true
+// code fragment to process a region size of 2
+.LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_2:
+  ld32 $mscratch, $mworker_base, STACK_BS_START_INDEX
+  ld64step $azeros, $mzero, $subTPtr+=, $mscratch
+  ld64step $azeros, $mzero, $baseTPtr+=, $wkrStart
+  // offsetPtr points to last element to be in sync with the counter in the
+  // loop below
+  ld32step $mzero, $mzero, $offsetPtr+=, $offsetSize
+
+.LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_2_loop:
+  ld32step $baseIdx, $mzero, $offsetPtr+=, -1
+
+.LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_2_post_idx_load:
+  sub $baseIdxWorker, $baseIdx, $baseOffset
+  // check baseIdx is within the range of the values in baseT by doing:
+  //  if (baseIdx > numBaseElements) continue;
+  // note: this overflow relies on baseIdx and numBaseElements being smaller
+  // then 2^31.
+  cmpult $mscratch, $baseIdxWorker, $numBaseElements
+  brz $mscratch, .LFloat_\OPTYPE\()_\SCALED\()_offset_loop_region_size_2_epilogue
+  ld64 $a2:3, $mzero, $subTPtr, $offsetSize
+  {
+    ld64 $a0:1, $mzero, $baseTPtr, $baseIdxWorker
+    f32v2mul $a4:5, $scale:B, $a2:3
+  }
+  {
+    ld32step $baseIdx, $mzero, $offsetPtr+=, -1
+    f32v2add $a4:5, $a0:1, $a4:5
+  }
+  st64 $a4:5, $mzero, $baseTPtr, $baseIdxWorker
+  brnzdec $offsetSize, .LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_2_post_idx_load
+  exitz $mzero
+
+.LFloat_\OPTYPE\()_\SCALED\()_offset_loop_region_size_2_epilogue:
+  brnzdec $offsetSize, .LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_2_loop
+  exitz $mzero
+
+// code fragment to process a region size of 4: we have this specialisation
+// because halves with a grain size of 4 could be cast up to floats.
+.LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_4:
+  ld32 $mscratch, $mworker_base, STACK_BS_START_INDEX
+  shl $mscratch, $mscratch, 4
+  add $subTPtr, $subTPtr, $mscratch
+  shl $wkrStart, $wkrStart, 4
+  add $baseTPtr, $baseTPtr, $wkrStart
+  ld32step $baseIdx, $mzero, $offsetPtr+=, $offsetSize
+
+.LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_4_loop:
+  ld32step $baseIdx, $mzero, $offsetPtr+=, -1
+
+  sub $baseIdxWorker, $baseIdx, $baseOffset
+  // check baseIdx is within the range of the values in baseT by doing:
+  //  if (baseIdx > numBaseElements) continue;
+  // note: this overflow relies on baseIdx and numBaseElements being smaller
+  // then 2^31.
+  cmpult $mscratch, $baseIdxWorker, $numBaseElements
+
+.LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_4_post_idx_load:
+  brz $mscratch, .LFloat_\OPTYPE\()_\SCALED\()_offset_loop_region_size_4_epilogue
+  shl $offsetSizeScaled, $offsetSize, 4
+  ld64 $a2:3, $offsetSizeScaled, $subTPtr, 0
+  ld64 $a4:5, $offsetSizeScaled, $subTPtr, 1
+  shl $baseIdxWorkerScaled, $baseIdxWorker, 4
+  ld64 $a0:1, $baseIdxWorkerScaled, $baseTPtr, 0
+  {
+    ld32step $baseIdx, $mzero, $offsetPtr+=, -1
+    f32v2mul $a2:3, $scale:B, $a2:3
+  }
+  {
+    sub $baseIdxWorker, $baseIdx, $baseOffset
+    f32v2add $a0:1, $a0:1, $a2:3
+  }
+  {
+    st64 $a0:1, $baseIdxWorkerScaled, $baseTPtr, 0
+    f32v2mul $a4:5, $scale:B, $a4:5
+  }
+  ld64 $a0:1, $baseIdxWorkerScaled, $baseTPtr, 1
+  {
+    cmpult $mscratch, $baseIdxWorker, $numBaseElements
+    f32v2add $a0:1, $a0:1, $a4:5
+  }
+  st64 $a0:1, $baseIdxWorkerScaled, $baseTPtr, 1
+  brnzdec $offsetSize, .LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_4_post_idx_load
+  exitz $mzero
+
+.LFloat_\OPTYPE\()_\SCALED\()_offset_loop_region_size_4_epilogue:
+  brnzdec $offsetSize, .LFloat_\OPTYPE\()_\SCALED\()_offset_region_size_4_loop
+.endif // .ifc \SCALED, true
 
 .Lfloat_\OPTYPE\()_\SCALED\()_epilogue:
   exitz $mzero
@@ -380,12 +481,16 @@ UNSCALED_CODELET_NAME(half):
   }
 .endif
 
-#if defined(VECTOR_AVAIL_SCALED_PTR32)  
-  // expand the SCALED_PTR32 pointer
-  setzi $mscratch, TMEM_REGION0_BASE_ADDR
-  shl $baseTPtr, $baseTPtr, SCALED_PTR32_SHL_BITS
-  add $baseTPtr, $baseTPtr, $mscratch
+#if defined(VECTOR_AVAIL_SCALED_PTR64)  
+  // expand the SCALED_PTR64 pointer
+  shl $baseTPtr, $baseTPtr, SCALED_PTR64_SHL_BITS
 #endif
+
+.ifc \SCALED, true
+  cmpeq $mscratch, $regionSize, 4
+  brnz $mscratch, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4
+.endif
+
 
   {
 .ifc \SCALED, true
@@ -546,6 +651,77 @@ UNSCALED_CODELET_NAME(half):
 
 .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_loop_epilogue:
   brnzdec $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_loop
+  exitz $mzero
+
+.ifc \SCALED, true
+// Code fragment to process a region size of exactly 4 
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4:
+  ld32 $mscratch, $mworker_base, STACK_BS_START_INDEX
+  ld64step $azeros, $mzero, $subTPtr+=, $mscratch
+  ld64step $azeros, $mzero, $baseTPtr+=, $wkrStart
+  // offsetPtr points to last element to be in sync with the counter in the
+  // loop below
+  ld32step $mzero, $mzero, $offsetPtr+=, $offsetSize  
+
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4_loop:
+  ld32step $baseIdx, $mzero, $offsetPtr+=, -1
+
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4_post_idx_load:
+  sub $baseIdxWorker, $baseIdx, $baseOffset
+  // check baseIdx is within the range of the values in baseT by doing:
+  //  if (baseIdx > numBaseElements) continue;
+  // note: this overflow relies on baseIdx and numBaseElements being smaller
+  // then 2^31.
+  cmpult $mscratch, $baseIdxWorker, $numBaseElements
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4_post_idx_load1:
+  brz $mscratch, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4_loop_epilogue
+
+.ifc \SCALE_TYPE, half 
+  ld64 $a0:1, $mzero, $baseTPtr, $baseIdxWorker
+  ld64 $a2:3, $mzero, $subTPtr, $offsetSize
+  {
+    ld32step $baseIdx, $mzero, $offsetPtr+=, -1
+    f16v4mix $azeros, $a0:1, $a2:3
+  }
+  f16v4mix $a4:5, $azeros, $azeros
+  st64 $a4:5, $mzero, $baseTPtr, $baseIdxWorker
+  brnzdec $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4_post_idx_load
+.else
+  ld64 $a2:3, $mzero, $subTPtr, $offsetSize
+  {
+    ld64 $a0:1, $mzero, $baseTPtr, $baseIdxWorker
+    f16v2tof32 $a6:7, $a2
+  }
+  {
+    mov $baseIdxWorkerScaled, $baseIdxWorker
+    f16v2tof32 $a4:5, $a0
+  }
+  {
+    ld32step $baseIdx, $mzero, $offsetPtr+=, -1
+    f32v2axpy $azeros, $a6:7, $a4:5
+  }
+  {
+    sub $baseIdxWorker, $baseIdx, $baseOffset
+    f16v2tof32 $a4:5, $a1
+  }
+  {
+    cmpult $mscratch, $baseIdxWorker, $numBaseElements
+    f16v2tof32 $a6:7, $a3
+  }
+  f32v2axpy $a4:5, $a6:7, $a4:5
+  f32v2axpy $a6:7, $azeros, $azeros
+  f32v4tof16 $a4:5, $a4:7
+  st64 $a4:5, $mzero, $baseTPtr, $baseIdxWorkerScaled
+  brnzdec $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4_post_idx_load1
+.endif
+
+  exitz $mzero
+  
+.Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4_loop_epilogue:
+  brnzdec $offsetSize, .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_offset_region_size_4_loop
+
+.endif // .ifc \SCALED, true
+
 
 .Lhalf_\OPTYPE\()_\SCALED\()_\SCALE_TYPE\()_epilogue:
   exitz $mzero

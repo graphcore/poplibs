@@ -31,6 +31,7 @@ struct TestParams {
   bool update;
   bool indicesAreSorted;
   std::optional<Operation> op;
+  bool floatScale; // only applicable for scaled update vertices
 };
 
 // Scale used for MultiUpdateAdd. Use a fixed scale and always use float
@@ -38,15 +39,24 @@ struct TestParams {
 const float scaleForMultiUpdateAdd = 0.5;
 
 std::vector<TestParams> TestList = {
-    {100, 8, 1, 80, 8, false, false, std::nullopt},
-    {80, 7, 1, 80, 7, false, true, std::nullopt},
-    {100, 8, 1, 80, 8, true, true, Operation::ADD},
-    {100, 8, 1, 80, 8, true, false, Operation::ADD},
+    {100, 8, 1, 80, 8, false, false, std::nullopt, false},
+    {80, 7, 1, 80, 7, false, true, std::nullopt, false},
+    {100, 8, 1, 80, 8, true, true, Operation::ADD, true},
+    {100, 8, 1, 80, 8, true, false, Operation::ADD, true},
     // This should split sliced dimension per worker such that for float
     // only one element gets allocated per worker
-    {120, 1, 0, 2, 1, true, false, std::nullopt},
-    {80, 7, 1, 80, 7, true, true, Operation::MAX},
-    {80, 7, 1, 80, 7, true, false, Operation::MAX},
+    {120, 1, 0, 2, 1, true, false, std::nullopt, false},
+
+    // This to check branch path for float region size 2
+    {120, 1, 0, 8, 2, true, true, Operation::ADD, true},
+    {120, 1, 0, 8, 2, true, false, Operation::ADD, false},
+
+    // This to check for branch path for half region size 4
+    {120, 1, 0, 16, 4, true, true, Operation::ADD, true},
+    {120, 1, 0, 16, 4, true, false, Operation::ADD, false},
+
+    {80, 7, 1, 80, 7, true, true, Operation::MAX, false},
+    {80, 7, 1, 80, 7, true, false, Operation::MAX, false},
 };
 
 // nust have the same size to stream to device
@@ -182,10 +192,15 @@ void MultiSliceCodeletTest(const Type &dataType) {
   auto offs = allocateHostMemoryForTensor(offsets, "offsets", graph, uploadProg,
                                           downloadProg, tmap);
 
-  auto scaleTensor = graph.addVariable(poplar::FLOAT, {});
-  graph.setTileMapping(scaleTensor, 0);
-  auto scale = allocateHostMemoryForTensor(scaleTensor, "scale", graph,
-                                           uploadProg, downloadProg, tmap);
+  auto scaleTensorF = graph.addVariable(poplar::FLOAT, {});
+  auto scaleTensorH = graph.addVariable(poplar::HALF, {});
+  graph.setTileMapping(scaleTensorF, 0);
+  graph.setTileMapping(scaleTensorH, 0);
+
+  auto scaleF = allocateHostMemoryForTensor(scaleTensorF, "scaleF", graph,
+                                            uploadProg, downloadProg, tmap);
+  auto scaleH = allocateHostMemoryForTensor(scaleTensorH, "scaleH", graph,
+                                            uploadProg, downloadProg, tmap);
 
   // Make multiple programs to test dynamic slice, each selecting
   // different slices, for different output sizes and offsets
@@ -208,6 +223,7 @@ void MultiSliceCodeletTest(const Type &dataType) {
     auto update = TestList[tests].update;
     auto indicesAreSorted = TestList[tests].indicesAreSorted;
     auto op = TestList[tests].op;
+    auto scaleIsFloat = TestList[tests].floatScale || dataType == FLOAT;
 
     const auto isMultiUpdateAdd = op != std::nullopt && *op == Operation::ADD;
     if ((isMultiUpdateAdd && !allowMultiUpdateAdd) ||
@@ -231,8 +247,9 @@ void MultiSliceCodeletTest(const Type &dataType) {
           vertexClass = templateVertex("popops::MultiUpdateOp", dataType,
                                        subWordWrites, *op);
         } else if (*op == Operation::ADD) {
-          vertexClass = templateVertex("popops::ScaledMultiUpdateOp", dataType,
-                                       FLOAT, subWordWrites, *op);
+          vertexClass =
+              templateVertex("popops::ScaledMultiUpdateOp", dataType,
+                             scaleIsFloat ? FLOAT : HALF, subWordWrites, *op);
         }
       }
       base = out.slice(0, rows * columns);
@@ -257,7 +274,8 @@ void MultiSliceCodeletTest(const Type &dataType) {
       auto maxElems = std::min(numBaseElements, grainsPerWorker * grainSize);
       graph.setInitialValue(dsVertex["maxElementsPerWorker"], maxElems);
       if (isMultiUpdateAdd) {
-        graph.connect(dsVertex["scale"], scaleTensor);
+        graph.connect(dsVertex["scale"],
+                      scaleIsFloat ? scaleTensorF : scaleTensorH);
       }
     }
     graph.setTileMapping(dsVertex, 0);
@@ -286,6 +304,7 @@ void MultiSliceCodeletTest(const Type &dataType) {
     auto update = TestList[tests].update;
     auto indicesAreSorted = TestList[tests].indicesAreSorted;
     auto op = TestList[tests].op;
+    auto scaleIsFloat = TestList[tests].floatScale || dataType == FLOAT;
 
     const auto isMultiUpdateAdd = op != std::nullopt && *op == Operation::ADD;
     if ((isMultiUpdateAdd && !allowMultiUpdateAdd) ||
@@ -299,7 +318,11 @@ void MultiSliceCodeletTest(const Type &dataType) {
          offs.get());
 
     if (allowMultiUpdateAdd && isMultiUpdateAdd) {
-      copy(target, &scaleForMultiUpdateAdd, 1, FLOAT, scale.get());
+      if (scaleIsFloat) {
+        copy(target, &scaleForMultiUpdateAdd, 1, FLOAT, scaleF.get());
+      } else {
+        copy(target, &scaleForMultiUpdateAdd, 1, HALF, scaleH.get());
+      }
     }
 
     device.bind([&](const Device &d) {
@@ -336,9 +359,11 @@ void MultiSliceCodeletTest(const Type &dataType) {
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_half) {
   MultiSliceCodeletTest(HALF);
 }
+
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_float) {
   MultiSliceCodeletTest(FLOAT);
 }
+
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_int) { MultiSliceCodeletTest(INT); }
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_unsigned) {
   MultiSliceCodeletTest(UNSIGNED_INT);

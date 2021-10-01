@@ -3105,22 +3105,24 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // will be broadcast by the number of splits of the sliced dimension.
     e.updateFirstStageExchangeCycles = exchangeEstimator(
         mUpdatesTempBytesPerTile, ipuLevel, "update.0.exchange.cycles");
+
     {
-      const MultiUpdateOpTargetParameters targetMultiUpdateOpParams{target,
-                                                                    dataType};
-      // Update without op uses the same compute estimator as a slice
-      const MultiSliceTargetParameters targetMultiUpdateParams{target,
-                                                               dataType};
       e.updateFirstStageComputeCycles = m.call<unsigned>(
           {mUnslicedElemsPerTile, mLookupsPerTile, mNumEntries,
-           mDictEntriesPerTile},
-          [targetMultiUpdateOpParams, targetMultiUpdateParams, options,
-           operation, offsetsPerDictEntry,
-           useOrderingInfo](const std::vector<unsigned> &values) {
+           mDictEntriesPerTile, mNeedsCast},
+          [&target, &options, operation, offsetsPerDictEntry, useOrderingInfo,
+           &dataType](const std::vector<unsigned> &values) {
             const auto elemsPerSlice = values[0];
             const auto numOffsets = values[1];
             const auto numDictEntries = values[2];
             const auto maxDictEntriesPerTile = values[3];
+            const auto needsCast = values[4];
+
+            const MultiUpdateOpTargetParameters targetMultiUpdateOpParams{
+                target, needsCast ? FLOAT : dataType};
+
+            const MultiSliceTargetParameters targetMultiUpdateParams{
+                target, needsCast ? FLOAT : dataType};
 
             const auto maxDictEntriesPerWorker =
                 getMultiUpdateOpMaxElemsPerWorker(

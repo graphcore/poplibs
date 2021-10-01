@@ -123,14 +123,26 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
     const bool scaleHigherPrecisionThanData, const bool indicesAreSorted) {
 
   std::uint64_t cycles = 3; // load size, zero check and exitz.
-  const auto bytesPerElemEqual4 = targetParams.bytesPerElem == 4;
+  const unsigned bytesPerElem = targetParams.bytesPerElem;
+
+  const auto bytesPerElemEqual4 = bytesPerElem == 4;
+
+  // Special code path to deal with 64-bit region size for multi-update ADD
+  const bool isSpecialisedRegionSize =
+      (scaled && op == Operation::ADD) &&
+      ((bytesPerElemEqual4 && (elemsPerSlice == 2 || elemsPerSlice == 4)) ||
+       (bytesPerElem == 2 && elemsPerSlice == 4));
 
   // pre-outer loop overhead: here we distinguish between float/int/unsigned int
   // and half
   cycles += bytesPerElemEqual4 ? 29 : 30;
+  if (isSpecialisedRegionSize) {
+    cycles -= 1;
+  }
 
   if (scaled) {
-    cycles += 2;
+    // load scales and check for region sizes
+    cycles += 2 + 2 + bytesPerElemEqual4 * 2;
   }
 
   if (indicesAreSorted) {
@@ -148,8 +160,6 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
   cyclesPerOffsetInRange += (!bytesPerElemEqual4 && scaled) ? 1u : 0u;
   const std::uint64_t cyclesPerOffsetOutOfRange = 5;
 
-  const unsigned bytesPerElem = targetParams.bytesPerElem;
-
   // inner loop cost.
   // Note gcd is used here for e.g. CPU where the atomic write size is 1.
   const unsigned bytesPerAtom = lcm(targetParams.atomicWriteSize, bytesPerElem);
@@ -163,8 +173,17 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
     cyclesPerOffsetInRange += elemsPerSlice * 20;
   } else {
     assert(elemsPerSlice != 0 && elemsPerSlice % elemsPerAtom == 0);
-    cyclesPerOffsetInRange +=
-        (elemsPerSlice / elemsPerAtom - 1) * (3 + scaleHigherPrecisionThanData);
+    if (isSpecialisedRegionSize) {
+      // overwrite cycles for the 64-bit region code path
+      if (bytesPerElemEqual4) {
+        cyclesPerOffsetInRange = elemsPerSlice == 2 ? 8 : 16;
+      } else {
+        cyclesPerOffsetInRange = scaleHigherPrecisionThanData ? 12 : 9;
+      }
+    } else {
+      cyclesPerOffsetInRange += (elemsPerSlice / elemsPerAtom - 1) *
+                                (3 + scaleHigherPrecisionThanData);
+    }
   }
 
   unsigned numOffsetsInRange = numOffsetsInRangePerWorker;
@@ -172,7 +191,7 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
   // when indices are sorted, there out of range offsets are not processed
   const unsigned numOffsetsOutOfRange =
       indicesAreSorted ? 0 : numOffsets - numOffsetsInRange;
-  cycles += (cyclesPerOffsetInRange)*numOffsetsInRange;
+  cycles += cyclesPerOffsetInRange * numOffsetsInRange;
   cycles += cyclesPerOffsetOutOfRange * numOffsetsOutOfRange;
   return cycles * targetParams.numWorkerContexts;
 }
