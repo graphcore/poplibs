@@ -21,8 +21,8 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssembly<Type, subwordWritesSupported>()));
   Input<Vector<unsigned>> offsets; // in \a baseT
-  Input<Vector<Type, ONE_PTR, 4>> subT;
-  InOut<Vector<Type, COMPACT_PTR, 4>> baseT;
+  Input<Vector<Type, ONE_PTR, 8>> subT;
+  InOut<Vector<Type, COMPACT_PTR, 8>> baseT;
   const unsigned short regionSize; // stride between slices
   const bool indicesAreSorted;     // indices are sorted in increasing order
   const unsigned baseOffset;       // in the slice dimension
@@ -85,8 +85,8 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssembly<Type, subwordWritesSupported>()));
   Input<Vector<unsigned>> offsets; // in \a baseT
-  Input<Vector<Type, ONE_PTR, 4>> subT;
-  InOut<Vector<Type, COMPACT_PTR, 4>> baseT;
+  Input<Vector<Type, ONE_PTR, 8>> subT;
+  InOut<Vector<Type, COMPACT_PTR, 8>> baseT;
   const unsigned short regionSize; // stride between slices
   const bool indicesAreSorted;     // indices are sorted in increasing order
   const unsigned baseOffset;       // in the slice dimension
