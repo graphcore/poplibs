@@ -459,6 +459,13 @@ namespace embedding {
  *       increasing order. The same option must then be used along with the plan
  *       when calling MultiUpdate with and without an operation.
  *
+ *     * `partialType` (half, float)
+ *       If not provided, defaults to using the same as the data type.
+ *       Partials type should always be the same or higher precision than the
+ *       data type of the embedding matrix. Is applicable only for the case
+ *       where `operationForUpdate` is `add`. It is ignored for all other
+ *       operations and multi-slice.
+ *
  * \param graph       The graph the operation will be added to.
  * \param dataType    The data type of the entries in the embedding matrix
  *                    and the resulting lookups from the matrix.

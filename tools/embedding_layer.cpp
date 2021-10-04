@@ -113,6 +113,7 @@ int main(int argc, char **argv) {
 
     bool useEmbeddingPlan = true;
     boost::optional<double> availableMemoryProportion;
+    boost::optional<Type> partialType;
     std::string planMinimisationTarget;
     std::string planConstraints;
     std::string planConstraintsFile;
@@ -124,7 +125,6 @@ int main(int argc, char **argv) {
   };
 
   Options opts;
-
   po::options_description desc("embedding_layer options");
   // clang-format off
   desc.add_options()
@@ -141,6 +141,10 @@ int main(int argc, char **argv) {
      po::value<boost::optional<std::string>>(&opts.profileDir)
       ->default_value(boost::none),
      "Write profile files to the specified directory.")
+    ("partial-type",
+     po::value<boost::optional<Type>>(&opts.partialType)
+      ->default_value(boost::none),
+     "Partials type (defaults to data type ")     
     ("show-execution-steps",
      po::value<bool>(&opts.showExecutionSteps)
        ->default_value(opts.showExecutionSteps),
@@ -278,6 +282,9 @@ int main(int argc, char **argv) {
   sliceOptions.set("indicesAreSorted",
                    opts.indicesAreSorted && opts.useEmbeddingPlan ? "true"
                                                                   : "false");
+  if (opts.partialType) {
+    sliceOptions.set("partialType", opts.partialType->toString());
+  }
 
   if (!opts.sliceOptionsString.empty()) {
     std::stringstream ss(opts.sliceOptionsString);

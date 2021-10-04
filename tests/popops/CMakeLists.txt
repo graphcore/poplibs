@@ -965,6 +965,7 @@ add_multitarget_test(
 	   --data-type half
 	   --tiles-per-ipu 4)
 
+
 add_multitarget_test(
    NAME embedding_layer_half_pad_grain3
    COMMAND embedding_layer
@@ -988,12 +989,36 @@ add_multitarget_test(
      --tiles-per-ipu 4)
 
 add_multitarget_test(
+   NAME embedding_layer_half_sorted_indices_float_partial
+   COMMAND embedding_layer
+     --shape {128,8}
+     --num-indices 32
+     --use-embedding-plan=1
+     --data-type half
+     --partial-type float
+     --indices-are-sorted=1 
+     --plan-minimisation-target cycles      
+     --tiles-per-ipu 4)
+
+add_multitarget_test(
+   NAME embedding_layer_half_unsorted_indices_float_partial_large_lookup
+   COMMAND embedding_layer
+     --shape {128,2}
+     --num-indices 128
+     --use-embedding-plan=1
+     --data-type half
+     --partial-type float
+     --indices-are-sorted=0 
+     --plan-minimisation-target cycles      
+     --tiles-per-ipu 4)
+
+add_multitarget_test(
    NAME embedding_layer_float_sorted_indices
    COMMAND embedding_layer
      --shape {32,8}
      --num-indices 32
      --use-embedding-plan=1
-     --data-type half
+     --data-type float
      --indices-are-sorted=1 
      --plan-minimisation-target cycles      
      --tiles-per-ipu 4)

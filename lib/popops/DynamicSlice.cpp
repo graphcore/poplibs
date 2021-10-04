@@ -150,6 +150,9 @@ struct SliceOptions {
   // Specify the update operation to perform.
   std::optional<Operation> opForUpdate = Operation::ADD;
 
+  // Partial type
+  std::optional<Type> partialType;
+
   // TODO: T12930 Add option to specify whether a plan is to be used for a
   // lookup.
 
@@ -178,6 +181,11 @@ std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
     os << " (op=none)";
   } else {
     os << "(op=" << *o.opForUpdate << ")";
+  }
+  if (o.partialType == std::nullopt) {
+    os << " (partialType=none)";
+  } else {
+    os << " (partialType=" << *o.partialType << ")";
   }
   os << ", availableMemoryProportion=";
   if (o.availableMemoryProportion) {
@@ -297,6 +305,9 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
        createOptionalEnumHandler(
            options.opForUpdate,
            {{"add", Operation::ADD}, {"max", Operation::MAX}})},
+      {"partialType", createOptionalEnumHandler(
+                          options.partialType,
+                          {{"half", poplar::HALF}, {"float", poplar::FLOAT}})},
       {"availableMemoryProportion",
        createOptionalDoubleHandler(options.availableMemoryProportion, 0.)},
       {"indicesDistribution",
@@ -324,6 +335,22 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
 template <typename T>
 static T valueOr(const std::optional<T> &value, const T &otherwise) {
   return value ? *value : otherwise;
+}
+
+poplar::Type partialTypeToUse(std::optional<poplar::Type> partialType,
+                              std::optional<Operation> op,
+                              const poplar::Type &dataType) {
+  if (partialType == std::nullopt || op == std::nullopt ||
+      *op != Operation::ADD) {
+    return dataType;
+  }
+
+  if (dataType == FLOAT && *partialType == HALF) {
+    throw poplibs_error("MultiUpdateAdd partial type " +
+                        partialType->toString() + " and data type " +
+                        dataType.toString() + " is not supported");
+  }
+  return *partialType;
 }
 
 static Tensor createSliceTensor(Graph &graph, const Type &type,
@@ -800,9 +827,11 @@ static void generatePlannedMultiUpdateOp(
     boost::optional<Operation> op, const OptionFlags &optionFlags,
     const DebugNameAndId &dnai) {
 
-  // When a two-stage update is perform we use 32bit partials
-  const auto twoStagePartialType = FLOAT;
   const auto options = parseSliceOptions(optionFlags);
+  const auto partialType = partialTypeToUse(
+      options.partialType,
+      op == boost::none ? std::nullopt : std::make_optional(*op),
+      base.elementType());
 
   if (!plan.isNull) {
     checkOrderingInfoConsistencyWithOptions(plan.useIndicesOrderingInfo,
@@ -863,7 +892,7 @@ static void generatePlannedMultiUpdateOp(
 
   const unsigned numUsedTiles =
       slicedSplit * unslicedSplit * nonEmptyLookupSplits;
-  bool multipleStages = nonEmptyLookupSplits > 1;
+  bool multipleStages = partialType != base.elementType() || p.lookupSplit > 1;
 
   // Each subSplit holds a subset of the subIndices. When numSubSplits>1 dense
   // updates are made into zeroed partials then reduced into the base.
@@ -894,7 +923,7 @@ static void generatePlannedMultiUpdateOp(
   // likely to not have the layout we expected when we planned the operation.
   //
   constexpr static unsigned slicesBroadcastDestRearrangeThreshold = 4;
-  if ((multipleStages && type != twoStagePartialType) ||
+  if ((type != partialType) ||
       slicedSplit >= slicesBroadcastDestRearrangeThreshold) {
     const auto slicesRearranged = createSliceTensor(
         graph, type, base.shape(), slicedDim, offsets1d.numElements(), plan,
@@ -925,7 +954,7 @@ static void generatePlannedMultiUpdateOp(
     // Separate accumulation for each lookupSplit into temporary partial buffers
     // with temporary input and accumulation buffers if the base/slice tensors
     // have type half.
-    stage0OutputType = twoStagePartialType;
+    stage0OutputType = partialType;
     if (scale != boost::none) {
       stage0Scale = graph.addConstant(stage0OutputType, {}, 1., {dnai, "one"});
       graph.setTileMapping(*stage0Scale, 0);
@@ -941,12 +970,12 @@ static void generatePlannedMultiUpdateOp(
     // vertices to save time spent exchanging the larger data type. This may be
     // a tradeoff with temporary memory usage in order to keep a broadcasted
     // half and float copy of the slices during the cast.
-    slicesInput = slices.elementType() == twoStagePartialType
+    slicesInput = slices.elementType() == partialType
                       ? slices
-                      : popops::cast(graph, slices, twoStagePartialType, seq,
+                      : popops::cast(graph, slices, partialType, seq,
                                      {dnai, "CastSlices"});
     stage0Output = createPartitionableTensor(
-        graph, twoStagePartialType, wantedShape,
+        graph, partialType, wantedShape,
         {nonEmptyLookupSplits, p.slicedDimSplit, p.unslicedDimSplit},
         {dnai, "gathered"});
 
@@ -1036,7 +1065,7 @@ static void generatePlannedMultiUpdateOp(
             slicesInput.slice(beginSubIdx, endSubIdx, subSlicedDim)
                 .slice(beginOffset, endOffset, 1 + unslicedDim);
 
-        if (p.lookupSplit > 1) {
+        if (multipleStages) {
           // base tensor was distributed across `p.lookupSplit` groups
           // so we must copy our input
           graph.setTileMapping(tileBase, tile);
@@ -1070,7 +1099,7 @@ static void generatePlannedMultiUpdateOp(
     seq.add(Execute(csU, {dnai}));
 
     const auto cumulativeUpdate =
-        graph.clone(twoStagePartialType, base, {dnai, "opUpdates"});
+        graph.clone(partialType, base, {dnai, "opUpdates"});
 
     // Given we know that partials for a set of columns on each tile are always
     // contiguous in the same way, we can use our knowledge to reorder the
@@ -1093,10 +1122,10 @@ static void generatePlannedMultiUpdateOp(
                      {dnai, "Reduce"});
 
     // Add the sum of the partials to the base tensor
-    bool baseCastRequired = base.elementType() != twoStagePartialType;
+    bool baseCastRequired = base.elementType() != partialType;
     const Tensor addDst = [&] {
       if (baseCastRequired) {
-        return cast(graph, base, twoStagePartialType, seq, {dnai, "castBase"});
+        return cast(graph, base, partialType, seq, {dnai, "castBase"});
       } else {
         return base;
       }
@@ -2735,6 +2764,9 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   // multiUpdateMax or other possible future update rules.
   const auto operation = options.opForUpdate;
 
+  const auto partialType =
+      partialTypeToUse(options.partialType, options.opForUpdate, dataType);
+
   if (!options.usedForSlice && !options.usedForUpdate) {
     throw poplibs_error("Slice plan must be for either slice or update, or "
                         "both");
@@ -2770,7 +2802,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
 
   // Indices are int32 so 4bytes each
   const auto mBytesPerIndex = m.addConstant(target.getTypeSize(UNSIGNED_INT));
-  const auto mBytesPerFloat = m.addConstant(target.getTypeSize(FLOAT));
+  const auto mBytesPerPartial = m.addConstant(target.getTypeSize(partialType));
 
   // The grainsize can be constrained externally so bytesPerGrain must be
   // derived from it
@@ -3056,20 +3088,13 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // When `mLookupsAreSplit` the indices and updates are rearranged onto the
     // tile, the updates are cast to FLOAT and then accumulated
     // with a FLOAT copy of the base tensor.
-
-    // For now we force float partial type for the update.
-    const auto mFloatData = m.addConstant(dataType == FLOAT ? 1u : 0u);
-    const auto mNotFloatData = m.booleanNot(mFloatData);
-    const auto mOpIsAdd = m.addConstant(
-        operation != std::nullopt && *operation == Operation::ADD ? 1u : 0u);
-    const auto mNeedsCast =
-        m.booleanAnd(m.booleanAnd(mNotFloatData, mLookupsAreSplit), mOpIsAdd);
+    const auto mNeedsCast = m.addConstant(partialType != dataType ? 1u : 0u);
     const auto mUpdatesCastTempBytesPerTile =
-        m.product({mNeedsCast, mOutputElemsPerTile, mBytesPerFloat});
+        m.product({mNeedsCast, mOutputElemsPerTile, mBytesPerPartial});
     // Temp bytes needed if the updates are multi-cast to tiles.
     const auto mUpdatesTempBytesPerTile =
         m.product({mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile,
-                   partition.unslicedGrainSize, mBytesPerFloat});
+                   partition.unslicedGrainSize, mBytesPerPartial});
     // Temp bytes needed if the updates need to be cast to a higher precision
     // if they do not also need to be multi-cast - i.e. if not multi-cast
     // we will directly use the casted updates and they will stay live,
@@ -3173,7 +3198,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     }
 
     const auto mPartialsBytesPerTile =
-        m.product({mLookupsAreSplit, mPartialElemsPerTile, mBytesPerFloat});
+        m.product({mLookupsAreSplit, mPartialElemsPerTile, mBytesPerPartial});
     auto mReduceEstimateCyles = m.zero();
 
     // We can't do a reduction or cast if there is no operation in the
