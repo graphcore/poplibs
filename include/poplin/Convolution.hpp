@@ -108,6 +108,10 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *      FC_INFERENCE_FWD, FC_TRAINING_FWD, FC_TRAINING_BWD, FC_TRAINING_WU)
  *      [=NONE]
  *
+ *      Optimize the plan for the specified type of pass. Note the
+ *      abbreviations:
+ *      FWD (forward), BWD (backward), WU (weight-update), FC (fully-connected).
+ *
  *    * `use128BitConvUnitLoad` (true, false) [=false]
  *
  *      If true, convolution weights are loaded 128-bits at a time. Otherwise,
@@ -135,10 +139,6 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *    * `numIPUs` Integer [=target.getNumIPUs()]
  *
  *      Number of IPUs to be used.
- *
- *      Optimize the plan for the specified type of pass. Note the
- *      abbreviations:
- *      FWD (forward), BWD (backward), WU (weight-update), FC (fully-connected).
  *
  *   * `remapOutputTensor`       (true, false) [=true]
  *
