@@ -461,7 +461,8 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
     return getCyclesEstimateForSingleInput(
         numPartials, dataPathWidth, target.getVectorWidth(partialsType),
         opVectorWidth, outType, operation, cyclesPerVector, isUpdate);
-  } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
+  } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE ||
+             specialisation == ReductionSpecialisation::STRIDED_REDUCE_OUTER) {
     CODELET_SCALAR_VAL(numPartialsM1, unsigned);
     CODELET_SCALAR_VAL(numOutputsM1, unsigned);
     CODELET_SCALAR_VAL(numOuterStridesM1, unsigned);
