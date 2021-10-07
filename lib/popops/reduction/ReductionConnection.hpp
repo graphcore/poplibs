@@ -287,8 +287,7 @@ bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {
   return specialisation == ReductionSpecialisation::DEFAULT ||
          specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS ||
          specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS ||
-         specialisation == ReductionSpecialisation::STRIDED_REDUCE ||
-         specialisation == ReductionSpecialisation::STRIDED_REDUCE_OUTER;
+         specialisation == ReductionSpecialisation::STRIDED_REDUCE;
 }
 } // namespace popops
 #endif // ReductionConnection_hpp

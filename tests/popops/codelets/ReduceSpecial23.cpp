@@ -102,19 +102,10 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
 
   bool useScale = (op == popops::Operation::LOG_ADD && scale != 0.0f) ||
                   (op != popops::Operation::LOG_ADD && scale != 1.0f);
-
-  const auto vertexClass = [&]() {
-    auto vertexTypeSpecialisation = specialisation;
-    if (vertexTypeSpecialisation == ReductionSpecialisation::STRIDED_REDUCE &&
-        (numOuterStrides.get() - 1) != 0) {
-      vertexTypeSpecialisation = ReductionSpecialisation::STRIDED_REDUCE_OUTER;
-    }
-
-    return templateVertex(useScale ? "popops::ScaledReduce" : "popops::Reduce",
-                          "popops::" + getReductionVertexOpName(op),
-                          partialsType, outType, isUpdate,
-                          vertexTypeSpecialisation);
-  }();
+  const auto vertexClass =
+      templateVertex(useScale ? "popops::ScaledReduce" : "popops::Reduce",
+                     "popops::" + getReductionVertexOpName(op), partialsType,
+                     outType, isUpdate, specialisation);
 
   auto v1 = graph.addVertex(cs, vertexClass);
 
@@ -127,12 +118,9 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
                           outputDim / partialsGrainSize - 1);
     graph.setInitialValue(v1["numPartialsM1"], numPartials.get() - 1);
     graph.setInitialValue(v1["partialsWidth"], innerDim / partialsGrainSize);
+    graph.setInitialValue(v1["outerStride"], (outerStride.get() + 1) *
+                                                 innerDim / partialsGrainSize);
     graph.setInitialValue(v1["numOuterStridesM1"], numOuterStrides.get() - 1);
-    if (numOuterStrides.get() - 1 != 0) {
-      graph.setInitialValue(v1["outerStride"], (outerStride.get() + 1) *
-                                                   innerDim /
-                                                   partialsGrainSize);
-    }
   }
   auto scaleTensor = graph.addVariable(FLOAT, {});
   graph.setTileMapping(scaleTensor, 0);

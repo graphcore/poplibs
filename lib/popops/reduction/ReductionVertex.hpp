@@ -19,8 +19,6 @@ template <> struct VertexTemplateToString<popops::ReductionSpecialisation> {
       return "popops::ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT";
     case popops::ReductionSpecialisation::STRIDED_REDUCE:
       return "popops::ReductionSpecialisation::STRIDED_REDUCE";
-    case popops::ReductionSpecialisation::STRIDED_REDUCE_OUTER:
-      return "popops::ReductionSpecialisation::STRIDED_REDUCE_OUTER";
     case popops::ReductionSpecialisation::ALL_REGIONS_CONTINUOUS:
       throw poputil::poplibs_error("Reduction specialisation ");
     default:
