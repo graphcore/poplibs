@@ -296,6 +296,9 @@ add_map_fusion_test(Tanh)
 add_map_fusion_test(Fusion)
 add_map_fusion_test(MissingPlaceholder)
 
+# MapScalarTests
+add_unit_test(MapExprScalar MapExprScalar.cpp)
+
 add_unit_test(PaddingTest PaddingTest.cpp)
 add_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
 

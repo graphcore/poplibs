@@ -36,15 +36,34 @@ using namespace poplibs_support;
 
 namespace popops {
 
-static bool isSupportedType(poplar::Type t) {
-  return t == poplar::FLOAT || t == poplar::HALF || t == poplar::INT ||
-         t == poplar::UNSIGNED_INT || t == poplar::BOOL ||
-         t == poplar::UNSIGNED_LONGLONG || t == poplar::LONGLONG;
+static bool isSupportedFpType(poplar::Type t) {
+  return t == poplar::FLOAT || t == poplar::HALF;
 }
+
+static bool isSupportedSignedType(poplar::Type t) {
+  return t == poplar::INT || t == poplar::LONGLONG;
+}
+
+static bool isSupportedUnsignedType(poplar::Type t) {
+  return t == poplar::UNSIGNED_INT || t == poplar::BOOL ||
+         t == poplar::UNSIGNED_LONGLONG;
+}
+static bool isSupportedType(poplar::Type t) {
+  return isSupportedFpType(t) || isSupportedSignedType(t) ||
+         isSupportedUnsignedType(t);
+}
+
+struct exprLog {
+  uint32_t numberOfOperations = 0;
+  std::vector<uint64_t> unintConstants;
+  std::vector<int64_t> intConstants;
+  std::vector<float> floatConstants;
+  std::vector<BinaryOpType> binaryOps;
+};
 
 static bool traverseAndCheck(const expr::Expr &expr,
                              const std::vector<poplar::Tensor> &inputs,
-                             uint32_t &numberOfOperations) {
+                             exprLog &exprLog) {
 
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
 
@@ -56,6 +75,7 @@ static bool traverseAndCheck(const expr::Expr &expr,
       if (std::isinf(val) || std::isnan(val)) {
         return false;
       }
+      exprLog.floatConstants.push_back(val);
     } else if (type == poplar::HALF) {
       assert(c->getTypeTraits().isFloat == true &&
              c->getTypeTraits().size == sizeof(float));
@@ -64,6 +84,27 @@ static bool traverseAndCheck(const expr::Expr &expr,
       if (std::isinf(val) || std::isnan(val)) {
         return false;
       }
+      exprLog.floatConstants.push_back(val);
+    } else if (isSupportedUnsignedType(type)) {
+      uint64_t val;
+      if (type == poplar::UNSIGNED_INT) {
+        val =
+            static_cast<uint64_t>(*reinterpret_cast<uint32_t *>(c->getData()));
+      } else if (type == poplar::UNSIGNED_LONGLONG) {
+        val = *reinterpret_cast<uint64_t *>(c->getData());
+
+      } else if (type == poplar::BOOL) {
+        val = static_cast<uint64_t>(*reinterpret_cast<bool *>(c->getData()));
+      }
+      exprLog.unintConstants.push_back(val);
+    } else if (isSupportedSignedType(type)) {
+      int64_t val;
+      if (type == poplar::INT) {
+        val = static_cast<int64_t>(*reinterpret_cast<int *>(c->getData()));
+      } else if (type == poplar::LONGLONG) {
+        val = *reinterpret_cast<int64_t *>(c->getData());
+      }
+      exprLog.intConstants.push_back(val);
     }
 
     return isSupportedType(c->getType());
@@ -80,17 +121,17 @@ static bool traverseAndCheck(const expr::Expr &expr,
   } else if (const expr::Cast *c = expr.getAs<expr::Cast>()) {
 
     poplar::Type typeCastingTo = c->getRHSType();
-    numberOfOperations++;
+    exprLog.numberOfOperations++;
 
     // Check the type being casted to is supported and also the type being
     // casted.
     return isSupportedType(typeCastingTo) &&
-           traverseAndCheck(c->getLHS(), inputs, numberOfOperations);
+           traverseAndCheck(c->getLHS(), inputs, exprLog);
 
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
-    numberOfOperations++;
+    exprLog.numberOfOperations++;
 
-    return traverseAndCheck(u->getArg(), inputs, numberOfOperations);
+    return traverseAndCheck(u->getArg(), inputs, exprLog);
   } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
 
     BinaryOpType opType = b->getOpType();
@@ -99,23 +140,85 @@ static bool traverseAndCheck(const expr::Expr &expr,
         opType == BinaryOpType::INV_STD_DEV_TO_VARIANCE) {
       return false;
     }
-    numberOfOperations++;
-    if (!traverseAndCheck(b->getRHS(), inputs, numberOfOperations) ||
-        !traverseAndCheck(b->getLHS(), inputs, numberOfOperations)) {
+    exprLog.numberOfOperations++;
+    exprLog.binaryOps.push_back(opType);
+    if (!traverseAndCheck(b->getRHS(), inputs, exprLog) ||
+        !traverseAndCheck(b->getLHS(), inputs, exprLog)) {
       return false;
     }
 
   } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
 
-    numberOfOperations++;
-    if (!traverseAndCheck(t->getArg2(), inputs, numberOfOperations) ||
-        !traverseAndCheck(t->getArg1(), inputs, numberOfOperations) ||
-        !traverseAndCheck(t->getArg0(), inputs, numberOfOperations)) {
+    exprLog.numberOfOperations++;
+    if (!traverseAndCheck(t->getArg2(), inputs, exprLog) ||
+        !traverseAndCheck(t->getArg1(), inputs, exprLog) ||
+        !traverseAndCheck(t->getArg0(), inputs, exprLog)) {
       return false;
     }
   }
 
   return true;
+}
+
+static bool validateScalarOperations(const exprLog &exprLog) {
+  // When all inputs are scalar there is no need for length information
+  // in the vertex state. A fused vertex is optimised to do this, whereas
+  // the elementwise codelets are not.
+  // Also, when we generate fused vertices constants get absorbed into the
+  // code rather than becoming tensors. So making a fused vertex is
+  // generally beneficial, unless we generate many functions with specific
+  // constants.
+  // For example `add(x,const)` with different constants 1,2,3, 5.7 ...
+  //
+  // Scalar operations on 2 tensors are similarly better represented with a
+  // fused vertex, but if there was one for every type and every operation
+  // code space could grow.
+  //
+  // So limit the representation to a subset of operations and constant values
+  // This is somewhat arbitrary but intended to cover likely loop increments
+  // and other similar simple operations such as scaling results
+  const std::vector<float> validFloatConstants = {-2.0f, -1.0f, -0.5f, 0.0f,
+                                                  0.5f,  1.0f,  2.0f};
+  const std::vector<uint64_t> validUintConstants = {0, 1, 2};
+  const std::vector<int64_t> validIntConstants = {-2, -1, 0, 1, 2};
+
+  using namespace popops::expr;
+  const std::vector<BinaryOpType> validBinaryOps = {
+      BinaryOpType::ADD, BinaryOpType::MULTIPLY, BinaryOpType::SUBTRACT};
+
+  if (exprLog.unintConstants.size() + exprLog.intConstants.size() +
+          exprLog.floatConstants.size() ==
+      1) {
+    // The expression contains a single constant, limit use to a number of
+    // allowed values depending on type
+    unsigned mismatches = 0;
+    for (const auto val : exprLog.floatConstants) {
+      mismatches +=
+          std::find(validFloatConstants.begin(), validFloatConstants.end(),
+                    val) == validFloatConstants.end();
+    }
+    for (const auto val : exprLog.unintConstants) {
+      mismatches +=
+          std::find(validUintConstants.begin(), validUintConstants.end(),
+                    val) == validUintConstants.end();
+    }
+    for (const auto val : exprLog.intConstants) {
+      mismatches +=
+          std::find(validIntConstants.begin(), validIntConstants.end(), val) ==
+          validIntConstants.end();
+    }
+    return mismatches == 0;
+  } else if (exprLog.binaryOps.size() == 1) {
+    // The expression contains a single binary op and therefore 2 tensors,
+    // limit use depending on operation
+    unsigned mismatches = 0;
+    for (const auto op : exprLog.binaryOps) {
+      mismatches += std::find(validBinaryOps.begin(), validBinaryOps.end(),
+                              op) == validBinaryOps.end();
+    }
+    return mismatches == 0;
+  }
+  return false;
 }
 
 ExprInfo analyseExpr(const expr::Expr &expr,
@@ -136,11 +239,16 @@ ExprInfo analyseExpr(const expr::Expr &expr,
       return {false, false};
     }
   }
-  uint32_t numberOfOperations = 0;
-  bool isOk = traverseAndCheck(expr, inputs, numberOfOperations);
+  exprLog exprLog;
+  bool isOk = traverseAndCheck(expr, inputs, exprLog);
 
   // Check that this is not just a single operation.
-  isOk &= isForcedOn || numberOfOperations > 1;
+  isOk &= isForcedOn || exprLog.numberOfOperations > 1;
+  if (size == 1 && exprLog.numberOfOperations == 1) {
+    // If it is a single operation using only scalar values some cases are
+    // still worthwhile making a codelet
+    isOk |= validateScalarOperations(exprLog);
+  }
   return {isOk, (size == 1)};
 }
 
@@ -284,6 +392,14 @@ poplar::Tensor generateAndExecuteMappedOperations(
 
   if (inPlace) {
     out = inputs[0];
+  } else if (allInputsScalar) {
+    // All tensors have 1 element, the output will be the tensor with the
+    // highest rank
+    // Eg from {1,1,1}, {1} the result is {1,1,1}
+    const auto inputToClone = *std::max_element(
+        inputs.begin(), inputs.end(),
+        [](const Tensor &a, const Tensor &b) { return a.rank() < b.rank(); });
+    out = graph.clone(returnType, inputToClone, {dnai, codeletName + "/Out"});
   } else {
     out = createOutputForElementWiseOp(
         graph, vectorIns.size() == 0 ? inputs : vectorIns, returnType,
