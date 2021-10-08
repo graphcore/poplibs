@@ -26,50 +26,36 @@ namespace logging = poplibs_support::logging;
 
 namespace poplin {
 
-static std::pair<Tensor, Tensor>
-normReduce(Graph &graph, const Tensor &gradsInMultActs,
-           const Tensor &gradsInMaybeRegrouped, const Tensor &scale,
-           bool doSquare, Sequence &prog,
-           const Type &, // partialsType,
-           const Type &outputType, const Tensor *outputToCloneFrom,
-           const DebugNameAndId &dnai) {
+static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped,
+                         const Tensor &scale, bool doSquare, Sequence &prog,
+                         const Type &, // partialsType,
+                         const Type &outputType,
+                         const Tensor *outputToCloneFrom,
+                         const DebugNameAndId &dnai) {
   std::string layer = "ReduceResult";
-  Tensor t0, t1;
+  Tensor t;
 
   // The output tensor mapping may be specified or created
-
   if (outputToCloneFrom) {
-    auto t = graph.clone(outputType, *outputToCloneFrom, {dnai, layer});
-    t0 = t.slice(0, gradsInMultActs.dim(1));
-    t1 = t.slice(gradsInMultActs.dim(1), 2 * gradsInMultActs.dim(1));
+    t = graph.clone(outputType, *outputToCloneFrom, {dnai, layer});
   } else {
-    // Create 2 individual variables with function calls that should result in
-    // the same mapping (Per tile layout and dithering choice) as beta and
-    // gamma.  This is so that when the result of this reduction is used for
-    // weight update we avoid copy or exchange to do the necessary operations.
-    //
-    // The reduction can still be carried out in one call however
-    t0 = createBroadcastOperand(graph, gradsInMultActs, outputType, 1, true,
-                                {dnai, layer});
-    t1 = createBroadcastOperand(graph, gradsInMaybeRegrouped, outputType, 1,
-                                true, {dnai, layer});
+    t = createBroadcastOperand(graph, actsUngrouped, outputType, 1, true,
+                               {dnai, layer});
   }
 
-  if (gradsInMultActs.rank() < 2)
+  if (actsUngrouped.rank() < 2)
     throw poplibs_error("NormReduce with rank " +
-                        std::to_string(gradsInMultActs.rank()) +
-                        " expected >=2");
+                        std::to_string(actsUngrouped.rank()) + " expected >=2");
 
-  std::vector<std::size_t> reduceDims(gradsInMultActs.rank() - 1);
+  std::vector<std::size_t> reduceDims(actsUngrouped.rank() - 1);
   std::iota(reduceDims.begin() + 1, reduceDims.end(), 2);
 
   popops::reduceWithOutput(
-      graph, concat(gradsInMultActs, gradsInMaybeRegrouped, 1), concat(t0, t1),
-      reduceDims,
+      graph, actsUngrouped, t, reduceDims,
       {doSquare ? popops::Operation::SQUARE_ADD : popops::Operation::ADD, false,
        scale},
       prog, {dnai});
-  return std::make_pair(t0, t1);
+  return t;
 }
 
 static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
@@ -403,6 +389,9 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
   const auto gradsInMultActs =
       mul(graph, actsWhitened, gradsInMaybeRegrouped, prog, {dnai, layer});
 
+  auto numChannels = gradsInMultActs.dim(1);
+  const auto concatInputs = concat({gradsInMultActs, gradsInMaybeRegrouped}, 1);
+
   // For beta = Re{gradsIn} where Re{x} reduces the tensor x along the
   //                              second dimension to produce a vector
   //                              of length x.dim(1)
@@ -413,11 +402,13 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
   auto scaleTensor = graph.addConstant(FLOAT, {}, scale, {dnai, "scaleTensor"});
   graph.setTileMapping(scaleTensor, 0);
 
-  return normReduce(graph, gradsInMultActs,
-                    gradsInMaybeRegrouped, // concatInputs,
-                    scaleTensor, false, prog, partialsType,
-                    gradsInMaybeRegrouped.elementType(), nullptr,
-                    {dnai, layer + "/JointGammaDelta"});
+  const auto concatDeltas =
+      normReduce(graph, concatInputs, scaleTensor, false, prog, partialsType,
+                 gradsInMaybeRegrouped.elementType(), nullptr,
+                 {dnai, layer + "/JointGammaDelta"});
+
+  return std::make_pair(concatDeltas.slice(0, numChannels),
+                        concatDeltas.slice(numChannels, 2 * numChannels));
 }
 
 std::pair<Tensor, Tensor>
