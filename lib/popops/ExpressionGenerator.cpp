@@ -184,7 +184,8 @@ static bool validateScalarOperations(const exprLog &exprLog) {
 
   using namespace popops::expr;
   const std::vector<BinaryOpType> validBinaryOps = {
-      BinaryOpType::ADD, BinaryOpType::MULTIPLY, BinaryOpType::SUBTRACT};
+      BinaryOpType::ADD, BinaryOpType::MULTIPLY, BinaryOpType::SUBTRACT,
+      BinaryOpType::EQUAL};
 
   if (exprLog.unintConstants.size() + exprLog.intConstants.size() +
           exprLog.floatConstants.size() ==

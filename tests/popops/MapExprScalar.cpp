@@ -100,6 +100,7 @@ BOOST_AUTO_TEST_CASE(MapExprScalarSupportedOps) {
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Add(_1, _1), type), 1);
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Sub(_1, _1), type), 1);
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, _1), type), 1);
+  BOOST_CHECK_EQUAL(numMapVerticesCreated(Equal(_1, _1), type), 1);
   // These do not
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Divide(_1, _1), type), 0);
 }
