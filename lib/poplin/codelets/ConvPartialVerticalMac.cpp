@@ -22,10 +22,13 @@ template <typename FPType, typename AccumType, bool useLimitedVer,
 constexpr bool hasAssembly() {
   constexpr bool floatActivations = std::is_same<FPType, float>();
   constexpr bool floatPartials = std::is_same<AccumType, float>();
-  constexpr unsigned convGroupsImplemented = floatActivations ? 2 : 4;
-  // We haven't implemented anything but half->float in assembly
+  constexpr bool halfHalfVersion =
+      !floatPartials && (convGroupsPerGroup == 4 || convGroupsPerGroup == 8 ||
+                         convGroupsPerGroup == 16);
+
+  constexpr bool halfFloatVersion = floatPartials && (convGroupsPerGroup == 4);
   return !floatActivations && useLimitedVer &&
-         convGroupsPerGroup == convGroupsImplemented;
+         (halfHalfVersion || halfFloatVersion);
 }
 
 /* Perform a series of 1x1 convolutions in parallel using the MUL & ACC
@@ -39,6 +42,10 @@ class [[poplar::constraint(
           hasAssembly<FPType, AccumType, useLimitedVer, convGroupsPerGroup>() &&
           ASM_CODELETS_ENABLED> {
   static const bool needsAlignWorkers = false;
+  // ConvGroupsPerGroup 8 and 16 codelets use load128 that requries 16 bytes
+  // alignment
+  static constexpr bool use128bitLoad = (convGroupsPerGroup > 4) ? true : false;
+  static constexpr unsigned dataAlignment = use128bitLoad ? 16 : 8;
 
 public:
   ConvPartialVerticalMac();
@@ -47,10 +54,14 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType =
       typename std::conditional<useLimitedVer, short, signed int>::type;
-  Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, ONE_PTR> in;
-  Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, ONE_PTR> weights;
+  Vector<Input<Vector<FPType, COMPACT_PTR, dataAlignment, use128bitLoad>>,
+         ONE_PTR>
+      in;
+  Vector<Input<Vector<FPType, COMPACT_PTR, dataAlignment, use128bitLoad>>,
+         ONE_PTR>
+      weights;
   Vector<Output<Vector<AccumType, COMPACT_PTR, 8>>, ONE_PTR> out;
-  Output<Vector<AccumType, COMPACT_PTR, 8>> partials;
+  Output<Vector<AccumType, COMPACT_PTR, dataAlignment, use128bitLoad>> partials;
   const unsigned zerosInfo;
   const unsigned numInGroups;
   const unsigned numConvGroupsM1;
@@ -128,5 +139,10 @@ template class ConvPartialVerticalMac<half, float, true, 8>;
 template class ConvPartialVerticalMac<half, float, false, 8>;
 template class ConvPartialVerticalMac<half, half, true, 8>;
 template class ConvPartialVerticalMac<half, half, false, 8>;
+
+template class ConvPartialVerticalMac<half, float, true, 16>;
+template class ConvPartialVerticalMac<half, float, false, 16>;
+template class ConvPartialVerticalMac<half, half, true, 16>;
+template class ConvPartialVerticalMac<half, half, false, 16>;
 
 } // end namespace poplin

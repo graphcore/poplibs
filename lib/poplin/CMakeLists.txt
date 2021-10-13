@@ -90,6 +90,8 @@ set(IPU1_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAddSingleInput.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_half_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_half_half.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_half_half_8.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_half_half_16.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_half.S

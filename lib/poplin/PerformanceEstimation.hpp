@@ -206,36 +206,68 @@ inline std::uint64_t getVerticalMacDotProductCycles(bool floatActivations,
                                                     unsigned size,
                                                     unsigned numChannels) {
   assert(!floatActivations);
-  const auto innerCyclesOverhead = 4;
-  return innerCyclesOverhead + (2 * (size - 1));
+  uint64_t cycles = 3; // inner cycles overhead
+  if (numChannels >= 8) {
+    cycles += (3 * (size - 1)) * (numChannels / 8);
+  } else {
+    cycles += (2 * (size - 1)) * (numChannels / 4);
+  }
+  return cycles;
 }
 
 inline std::uint64_t getConvPartialVerticalMacCycleEstimate(
     bool floatActivations, bool floatPartials, unsigned convGroupsPerGroup,
     const std::vector<unsigned> &convSizes) {
-  // Reload state
-  uint64_t cycles = floatPartials ? 20 : 19;
-  for (auto convSize : convSizes) {
-    cycles += 7;
 
-    // Cycles to store accumulators and then reload. Note that
-    // this is an overestimate since these cycles should only be
-    // incurred  when the output differs from that of the
-    // previous worklist.
-    cycles += floatPartials ? 5 : 3;
-    auto dotProdCycles = getVerticalMacDotProductCycles(
-        floatActivations, floatPartials, convSize, convGroupsPerGroup);
-    cycles += dotProdCycles;
+  uint64_t cycles = 0;
+
+  if (convGroupsPerGroup >= 8 && !floatPartials) {
+    // convVerticalMacFlattenedReentry to the end except PartitionLoop cycles
+    cycles = (convGroupsPerGroup == 8) ? 13 : 25;
+
+    uint64_t cyclesPer8Chans = 0;
+    for (auto convSize : convSizes) {
+      cyclesPer8Chans +=
+          7 + // PARTITION_LOOP_8CHANS cycles - Partition_loop_start loop cycles
+          15 + // Store and reload acc
+          getVerticalMacDotProductCycles(floatActivations, floatPartials,
+                                         convSize, 8);
+    }
+
+    // 16 groups processed as 2 x 8/
+    cyclesPer8Chans *= (convGroupsPerGroup == 8) ? 1 : 2;
+    cycles += cyclesPer8Chans;
+
+  } else { // if (convGroupsPerGroup == 4)
+    // Reload state
+    // Cycles convVerticalMacFlattenedReentry to the end except PartitionLoop
+    // cycles
+    cycles = floatPartials ? 19 : 18;
+
+    for (auto convSize : convSizes) {
+      cycles += 7;
+
+      // Cycles to store accumulators and then reload. Note that
+      // this is an overestimate since these cycles should only be
+      // incurred  when the output differs from that of the
+      // previous worklist.
+      cycles += floatPartials ? 5 : 3;
+      auto dotProdCycles = getVerticalMacDotProductCycles(
+          floatActivations, floatPartials, convSize, convGroupsPerGroup);
+      cycles += dotProdCycles;
+    }
   }
+
   return cycles;
 }
 
 inline std::uint64_t getConvPartialVerticalReductionCycleEstimate(
-    unsigned numElems, unsigned numWorkers, bool floatPartials) {
+    unsigned numElems, unsigned numWorkers, bool floatPartials,
+    unsigned numGroupsPerGroup) {
   const auto cyclesPerRpt = floatPartials ? 2 : 1;
-  return 11 - floatPartials +
+  return 10 - floatPartials +
          ((7 + 2 * floatPartials + (cyclesPerRpt * (numWorkers - 1))) *
-          numElems / 4);
+          numElems / numGroupsPerGroup);
 }
 
 inline std::uint64_t getConvPartialVerticalMacSupervisorInnerLoopCycleEstimate(
@@ -272,21 +304,22 @@ getConvPartialVerticalMacSupervisorZeroInnerLoopCycleEstimate(
 
 inline std::uint64_t
 getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
-    unsigned numOutElems, unsigned numWorkerContexts, bool floatPartials) {
+    unsigned numOutElems, unsigned numWorkerContexts, bool floatPartials,
+    unsigned convGroupsPerGroup) {
   auto numElemsPerWorker =
       (numOutElems + numWorkerContexts - 1) / numWorkerContexts;
   uint64_t cycles = getConvPartialVerticalReductionCycleEstimate(
-      numElemsPerWorker, numWorkerContexts, floatPartials);
+      numElemsPerWorker, numWorkerContexts, floatPartials, convGroupsPerGroup);
   return cycles;
 }
 
 inline std::uint64_t getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
     std::uint64_t innerLoopCycles, std::uint64_t zeroInitInnerCycles,
     std::uint64_t reductionInnerCycles, unsigned numConvGroups,
-    unsigned numInGroups) {
+    unsigned numInGroups, bool floatPartials) {
   const auto supOverheadCycles = 61;
-  const auto wkrCoreVMACInit = 13;
-  const auto wkrStateRetentionInit = 26;
+  const auto wkrCoreVMACInit = 14;
+  const auto wkrStateRetentionInit = 25 + floatPartials ? 1 : 0;
   auto outerLoopCycles = 32 + numInGroups * (24 + innerLoopCycles);
   return supOverheadCycles + wkrCoreVMACInit + wkrStateRetentionInit +
          (zeroInitInnerCycles + outerLoopCycles + reductionInnerCycles) *
@@ -312,10 +345,10 @@ inline std::uint64_t getConvPartialVerticalMacSupervisorCycleEstimate(
           numOutElems, floatPartials);
   auto reductionCycles =
       getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
-          numOutElems, numWorkerContexts, floatPartials);
+          numOutElems, numWorkerContexts, floatPartials, convGroupsPerGroup);
   cycles += getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
       innerLoopCycles, zeroInitCycles, reductionCycles, numConvGroups,
-      numInGroups);
+      numInGroups, floatPartials);
   return cycles;
 }
 

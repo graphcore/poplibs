@@ -702,6 +702,15 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, HALF, false,
                             8),
 
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, true,
+                            16),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, false,
+                            16),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, HALF, true,
+                            16),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, HALF, false,
+                            16),
+
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, false,
                             8),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, FLOAT, true, false,

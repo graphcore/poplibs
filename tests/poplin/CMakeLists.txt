@@ -1631,57 +1631,69 @@ add_multitarget_test(
 endforeach() # FLIP_INPUT
 endforeach() # PARTIALS_TYPE
 
-foreach(CONV_GROUPS 1 3 4 5 11)
-  foreach(BATCH_SIZE 1 5 9)
-    foreach(PARTIALS_TYPE half float)
-      add_multitarget_test(
-           NAME "conv_vmac_cg_${CONV_GROUPS}_b_${BATCH_SIZE}_${PARTIALS_TYPE}_partials"
-             COMMAND single_conv_layer
-                   --input-channels=1
-                   --output-channels=1
-                   --field={10,7}
-                   --kernel-size={4,4}
-                   --conv-groups=${CONV_GROUPS}
-                   --batch-size=${BATCH_SIZE}
-                   --tiles-per-ipu=1
-                   --single-phase=wu
-                   --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                   --wu-plan-constraints={"method":"VMAC","0":{"transform":{"swapOperands":false}}}
-                   --bias=0
-                   --flip-input=0
-                   --in-dilation={2,1}
-                   --kernel-dilation={3,2}
-                   --stride={3,5})
-    endforeach() # PARTIALS_TYPE
-  endforeach() # BATCH_SIZE
-endforeach() # CONV_GROUPS
-
-foreach(FLIP_INPUT 0 1)
-  foreach(CONV_GROUPS 5 11)
-    foreach(BATCH_SIZE 3 7)
+foreach(CONV_GROUPS_PER_GROUP 4 8 16)
+  foreach(CONV_GROUPS 1 3 4 5 11 16)
+    foreach(BATCH_SIZE 1 5 9)
       foreach(PARTIALS_TYPE half float)
-        add_multitarget_test(
-           NAME "conv_vmac_cg_${CONV_GROUPS}_b_${BATCH_SIZE}_flip_input_${FLIP_INPUT}_${PARTIALS_TYPE}_partials"
-             COMMAND single_conv_layer
-                     --input-channels=1
-                     --output-channels=1
-                     --field={13,9}
-                     --kernel-size={5,4}
-                     --conv-groups=${CONV_GROUPS}
-                     --batch-size=${BATCH_SIZE}
-                     --tiles-per-ipu=1
-                     --single-phase=wu
-                     --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                     --wu-plan-constraints={"method":"VMAC","0":{"transform":{"swapOperands":false}}}
-                     --bias=0
-                     --flip-input=${FLIP_INPUT}
-                     --in-dilation={2,3}
-                     --kernel-dilation={3,5}
-                     --stride={2,3})
+          if ((${PARTIALS_TYPE} STREQUAL float) AND (${CONV_GROUPS_PER_GROUP} GREATER 4))
+            # Skip 8 and 16 codelets as they don't have assembly implementation
+            continue()
+          endif()
+          add_multitarget_test(
+            NAME "conv_vmac_cg_${CONV_GROUPS}_b_${BATCH_SIZE}_partials_${PARTIALS_TYPE}_cgpg_${CONV_GROUPS_PER_GROUP}"
+              COMMAND single_conv_layer
+                    --input-channels=1
+                    --output-channels=1
+                    --field={10,7}
+                    --kernel-size={4,4}
+                    --conv-groups=${CONV_GROUPS}
+                    --batch-size=${BATCH_SIZE}
+                    --tiles-per-ipu=1
+                    --single-phase=wu
+                    --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                    --wu-plan-constraints={"method":"VMAC","convGroupsPerGroup":${CONV_GROUPS_PER_GROUP},"0":{"transform":{"swapOperands":false}}}
+                    --bias=0
+                    --flip-input=0
+                    --in-dilation={2,1}
+                    --kernel-dilation={3,2}
+                    --stride={3,5})
       endforeach() # PARTIALS_TYPE
     endforeach() # BATCH_SIZE
   endforeach() # CONV_GROUPS
-endforeach() # FLIP_INPUT
+endforeach() # CONV_GROUPS_PER_GROUP
+
+foreach(CONV_GROUPS_PER_GROUP 4 8 16)
+  foreach(FLIP_INPUT 0 1)
+    foreach(CONV_GROUPS 5 11)
+      foreach(BATCH_SIZE 3 7)
+        foreach(PARTIALS_TYPE half float)
+                if ((${PARTIALS_TYPE} STREQUAL float) AND (${CONV_GROUPS_PER_GROUP} GREATER 4))
+                  # Skip 8 and 16 codelets as they don't have assembly implementation
+                  continue()
+                endif()
+                add_multitarget_test(
+                NAME "conv_vmac_cg_${CONV_GROUPS}_b_${BATCH_SIZE}_flip_input_${FLIP_INPUT}_partials_${PARTIALS_TYPE}_cgpg_${CONV_GROUPS_PER_GROUP}"
+                COMMAND single_conv_layer
+                        --input-channels=1
+                        --output-channels=1
+                        --field={13,9}
+                        --kernel-size={5,4}
+                        --conv-groups=${CONV_GROUPS}
+                        --batch-size=${BATCH_SIZE}
+                        --tiles-per-ipu=1
+                        --single-phase=wu
+                        --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                        --wu-plan-constraints={"method":"VMAC","convGroupsPerGroup":${CONV_GROUPS_PER_GROUP},"0":{"transform":{"swapOperands":false}}}
+                        --bias=0
+                        --flip-input=${FLIP_INPUT}
+                        --in-dilation={2,3}
+                        --kernel-dilation={3,5}
+                        --stride={2,3})
+        endforeach() # PARTIALS_TYPE
+      endforeach() # BATCH_SIZE
+    endforeach() # CONV_GROUPS
+  endforeach() # FLIP_INPUT
+endforeach() # CONV_GROUPS_PER_GROUP
 
 # Tests to target non-limited HMAC codelets
 add_multitarget_test(

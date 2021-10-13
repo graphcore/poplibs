@@ -91,7 +91,6 @@ partitionConvOutputBetweenWorkers(const Graph &graph, unsigned batchBegin,
                                   unsigned outZGroupBegin,
                                   unsigned outZGroupEnd, unsigned cgBegin,
                                   unsigned cgEnd) {
-  //  const auto numFieldDims = outFieldBegin.size();
   assert(outFieldEnd.size() >= numFieldDimsToPartition);
   std::vector<std::vector<ConvOutputSlice>> perWorkerConvOutputSlices;
   const auto &target = graph.getTarget();

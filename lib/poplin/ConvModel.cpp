@@ -475,12 +475,23 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   numOutElems, floatPartials);
           auto reductionCycles =
               getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
-                  numOutElems, target.getNumWorkerContexts(), floatPartials);
-          auto cycles = popsolver::DataType{
+                  numOutElems, target.getNumWorkerContexts(), floatPartials,
+                  convGroupsPerGroup);
+          auto cycles =
               getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
                   innerLoopCycles, zeroCycles, reductionCycles,
-                  tileNumConvGroups, tileNumInGroups)};
-          return cycles;
+                  tileNumConvGroups, tileNumInGroups, floatPartials);
+
+          // Planner doesn't know the memory layouts so need to bias
+          // estimates towards 16 channels codelets because that's most
+          // likely groupings we might get from a previous layer
+          if (convGroupsPerGroup == 4) {
+            cycles += (cycles / 5); // +20%
+          } else if (convGroupsPerGroup == 8) {
+            cycles += (cycles / 10); // +10%
+          }
+
+          return popsolver::DataType{cycles};
         },
         debugName);
   } break;

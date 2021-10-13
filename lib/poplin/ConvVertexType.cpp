@@ -180,6 +180,11 @@ static void getConvVertexVMACCandidates(
     const poplar::Type &outputType, const poplar::Type &partialType,
     const ConvParams &params, const ConvOptions &options, bool isJointPlan,
     std::vector<ConvVertexType> &candidates) {
+
+  const auto &planConstraints = options.planConstraints;
+  const auto constrainedConvGroupsPerGroup =
+      planConstraints.get_optional<popsolver::DataType>("convGroupsPerGroup");
+
   bool floatActivations = inputType == poplar::FLOAT;
 
   // Assembly version only available for half activations and float partials
@@ -205,7 +210,20 @@ static void getConvVertexVMACCandidates(
     vectorWidth >>= 1;
     convGroupsPerGroupCandidates.push_back(vectorWidth);
   }
+
+  // Explicitly add groupings of 8 and 16
+  if (partialType == poplar::HALF) {
+    convGroupsPerGroupCandidates.push_back(8);
+    convGroupsPerGroupCandidates.push_back(16);
+  }
+
   for (auto convGroupsPerGroup : convGroupsPerGroupCandidates) {
+    if (constrainedConvGroupsPerGroup &&
+        *constrainedConvGroupsPerGroup !=
+            popsolver::DataType{convGroupsPerGroup}) {
+      continue;
+    }
+
     candidates.emplace_back(Plan::Method::VMAC, inputType, partialType,
                             convGroupsPerGroup, inChansPerGroup,
                             partialChansPerGroup, 0, 0, false);
