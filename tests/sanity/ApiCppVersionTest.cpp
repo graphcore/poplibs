@@ -42,7 +42,6 @@
 #include <popops/ScaledAdd.hpp>
 #include <popops/Scatter.hpp>
 #include <popops/Sort.hpp>
-#include <popops/TensorCollectives.hpp>
 #include <popops/Zero.hpp>
 #include <popops/codelets.hpp>
 #include <poprand/RandomGen.hpp>
