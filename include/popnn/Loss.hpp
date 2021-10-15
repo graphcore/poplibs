@@ -109,7 +109,10 @@ calcAccuracy(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
              const poplar::Tensor &expected, const poplar::Tensor &numCorrect,
              const poplar::DebugContext &debugContext = {});
 
-/** Compute argmax for each of the outer dimensions of \p input tensor.
+/** \deprecated
+ *  **deprecated** Use popops::topKKeyValue() instead.
+ *
+ * Compute argmax for each of the outer dimensions of \p input tensor.
  *
  *  If \p input is a tensor of dim [y][x] then argmax is computed over x
  *  elements for each of the y outer dimension elements
@@ -138,7 +141,10 @@ maxAndArgMax(poplar::Graph &graph, const poplar::Tensor &input,
              poplar::program::Sequence &prog,
              const poplar::DebugContext &debugContext = {});
 
-/** Compute argmin for each of the outer dimensions of \p input tensor.
+/** \deprecated
+ *  **deprecated** Use popops::topKKeyValue() instead.
+ *
+ * Compute argmin for each of the outer dimensions of \p input tensor.
  *
  *  If \p input is a tensor of dim [y][x] then argmin is computed over x
  *  elements for each of the y outer dimension elements
@@ -167,7 +173,10 @@ minAndArgMin(poplar::Graph &graph, const poplar::Tensor &input,
              poplar::program::Sequence &prog,
              const poplar::DebugContext &debugContext = {});
 
-/** Find the top K elements of |input|. Takes a 2D tensor in the form of
+/** \deprecated
+ *  **deprecated** Use popops::topK() instead.
+ *
+ * Find the top K elements of |input|. Takes a 2D tensor in the form of
  * [batch][values] and will return a tensor in the shape of [batch][K] where K
  * is the max values of each batch of values.
  *

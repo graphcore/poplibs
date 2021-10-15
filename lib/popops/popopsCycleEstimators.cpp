@@ -2666,23 +2666,18 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TransposeSupervisor)(
   return 7 + 6 * maxCycles;
 }
 
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistance)(
-    const VertexIntrospector &vertex, const Target &target,
-    const Type &keyType) {
-  // TODO:
-  return 0;
-}
-
-VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistanceKeyVal)(
+static VertexPerfEstimate CompareAndSwapKeyValueCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, const Type &keyType,
-    const Type &valueType) {
+    const std::optional<Type> &valueType = std::nullopt) {
   std::uint64_t cycles = 0;
   std::uint64_t flops = 0;
 
   CODELET_VECTOR_2D_VALS(worklists, unsigned short);
   CODELET_SCALAR_VAL(distanceToChangeOrder, unsigned);
 
-  assert(keyType == FLOAT && valueType == UNSIGNED_INT);
+  assert(keyType == FLOAT || keyType == UNSIGNED_INT || keyType == INT);
+  assert(!valueType || *valueType == FLOAT || *valueType == UNSIGNED_INT ||
+         *valueType == INT);
 
   const auto usedWorkers = worklists.size();
   std::uint64_t maxWorkerCycles = 0;
@@ -2699,13 +2694,55 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistanceKeyVal)(
     unsigned firstInnerElemCount = *worklistIt++;
     unsigned changeOrderCounter = distanceToChangeOrder - initialCount;
 
+    // The following cycle estimates were obtained from manually analysing the
+    // assembly implementation of the vertex.
     std::uint64_t thisWorkerCycles = 0;
+    unsigned innerLoopCycles, firstInnerLoopCycles, outerLoopCycles,
+        firstOuterLoopCycles, workListItemCycles, overheadCycles;
+    if (valueType == std::nullopt) {
+      if (keyType == FLOAT) {
+        // C++ codelet
+        innerLoopCycles = 13;
+        firstInnerLoopCycles = innerLoopCycles;
+        outerLoopCycles = 13;
+        firstOuterLoopCycles = 3;
+        workListItemCycles = 17;
+        overheadCycles = 40;
+      } else if (keyType == UNSIGNED_INT || keyType == INT) {
+        // C++ codelet
+        innerLoopCycles = 12;
+        firstInnerLoopCycles = innerLoopCycles;
+        outerLoopCycles = 17;
+        firstOuterLoopCycles = 3;
+        workListItemCycles = 22;
+        overheadCycles = 42;
+      }
+    } else if (*valueType == FLOAT || *valueType == UNSIGNED_INT ||
+               *valueType == INT) {
+      if (keyType == FLOAT) {
+        // Assembly codelet
+        innerLoopCycles = 11;
+        firstInnerLoopCycles = 8;
+        outerLoopCycles = 11;
+        firstOuterLoopCycles = outerLoopCycles;
+        workListItemCycles = 4;
+        overheadCycles = 23;
+      } else if (keyType == UNSIGNED_INT || keyType == INT) {
+        // C++ codelet
+        innerLoopCycles = 17;
+        firstInnerLoopCycles = innerLoopCycles;
+        outerLoopCycles = 22;
+        firstOuterLoopCycles = 5;
+        workListItemCycles = 30;
+        overheadCycles = 43;
+      }
+    }
 
     // cycles for constant overhead pre/post numEntries loop
-    thisWorkerCycles += 23;
+    thisWorkerCycles += overheadCycles;
 
     // cycles per entry in the worklist
-    thisWorkerCycles += numEntries * 4;
+    thisWorkerCycles += numEntries * workListItemCycles;
 
     bool firstEntry = true;
     for (unsigned entry = 0; entry < numEntries; ++entry) {
@@ -2725,11 +2762,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistanceKeyVal)(
       // Cycles per element. Note we assume the worst case where every
       // pair of elements must be swapped but this is data dependent in
       // reality.
-      thisWorkerCycles += 8 + (numInnerLoops - 1) * 11;
+      thisWorkerCycles +=
+          firstInnerLoopCycles + (numInnerLoops - 1) * innerLoopCycles;
       // 1 floating point comparison per element
       flops += numInnerLoops;
       // additional cycles for each outer loop until numElems is exhausted
-      thisWorkerCycles += numOuterLoops * 11;
+      thisWorkerCycles +=
+          firstOuterLoopCycles + (numOuterLoops - 1) * outerLoopCycles;
       // cycles to change order and reset change order counter
       thisWorkerCycles += numChangesOfOrder * 2;
 
@@ -2744,6 +2783,19 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistanceKeyVal)(
   cycles += maxWorkerCycles * target.getNumWorkerContexts();
 
   return VertexPerfEstimate(cycles, flops);
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistance)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &keyType) {
+  return CompareAndSwapKeyValueCycleEstimate(vertex, target, keyType);
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistanceKeyVal)(
+    const VertexIntrospector &vertex, const Target &target, const Type &keyType,
+    const Type &valueType) {
+  return CompareAndSwapKeyValueCycleEstimate(vertex, target, keyType,
+                                             valueType);
 }
 
 VertexPerfEstimate
@@ -3506,8 +3558,18 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, SHORT),
 
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, INT),
+
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
-                            UNSIGNED_INT)};
+                            FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
+                            UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal,
+                            UNSIGNED_INT, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT, FLOAT),
+  };
 
   for (const auto &entry : unaryOpPerfInfo) {
     table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp2D, entry.first.first,
