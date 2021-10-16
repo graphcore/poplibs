@@ -506,7 +506,6 @@ static std::string getVertexClass(const Tensor &keys,
                           keys.elementType());
   }
 }
-
 static void
 compareAndSwapAtDistance(Graph &graph, Sequence &prog, const Tensor &keys,
                          const std::optional<Tensor> &values, unsigned distance,
@@ -674,29 +673,30 @@ std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
                                    const bool sorted, const bool ascendingOrder,
                                    const DebugNameAndId &dnai) {
 
-  if (other_ && (other_->shape() != t_.shape())) {
-    throw poplibs_error("t.shape() (" + toString(t_.shape()) +
-                        " != other.shape() (" + toString(other_->shape()) +
-                        "). Other tensor in topKKeyValue must have matching "
-                        "shape to tensor in which to find top-k.");
+  const auto inputType = t_.elementType();
+  if (inputType != HALF && inputType != FLOAT) {
+    throw poplibs_error(
+        "Unsupported data type for top-k " + inputType.toString() +
+        ". half and float are the only supported types at present.");
+  }
+
+  if (other_) {
+    const auto otherType = other_->elementType();
+    if (otherType != UNSIGNED_INT) {
+      throw poplibs_error("Unsupported data type for other tensor in top-k " +
+                          otherType.toString() +
+                          ". Only unsigned int is supported at present");
+    }
+    if (other_->shape() != t_.shape()) {
+      throw poplibs_error("t.shape() (" + toString(t_.shape()) +
+                          " != other.shape() (" + toString(other_->shape()) +
+                          "). Other tensor in topKKeyValue must have matching "
+                          "shape to tensor in which to find top-k.");
+    }
   }
 
   if (t_.rank() == 0) {
     throw poplibs_error("t must have at least one dimension");
-  }
-
-  const auto inputType = t_.elementType();
-  const auto &target = graph.getTarget();
-  if (inputType != HALF && inputType != FLOAT && inputType != UNSIGNED_INT &&
-      inputType != INT) {
-    throw poplibs_error("bitonic::topKImpl: Unsupported key type " +
-                        inputType.toString());
-  }
-  if (other_ && other_->elementType() != HALF &&
-      other_->elementType() != FLOAT && other_->elementType() != UNSIGNED_INT &&
-      other_->elementType() != INT) {
-    throw poplibs_error("bitonic::topKImpl: Unsupported value type " +
-                        other_->elementType().toString());
   }
 
   const std::vector<std::size_t> outputShape = [&] {
@@ -777,26 +777,10 @@ std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
     return std::make_pair(std::move(t), other.value_or(Tensor{}));
   }
 
-  if (target.getTypeSize(inputType) < target.getTypeSize(FLOAT)) {
-    t = cast(graph, t, FLOAT, prog, dnai);
-  }
-
-  std::optional<Type> valueType;
-  if (other && other->elementType() != FLOAT) {
-    valueType = other->elementType();
-    if (target.getTypeSize(*valueType) == target.getTypeSize(FLOAT)) {
-      // Since arithmetic operations are not performed on the value tensor, it
-      // is sufficient to use the float type for any type of the same size.
-
-      // Assembly codelets exist for key of type float.
-      if (inputType != FLOAT) {
-        other = other->reinterpret(FLOAT);
-      }
-    } else if (*valueType == HALF) {
-      // Use the float path to implement half data type in order to avoid
-      // sub-word writes by the worker threads.
-      other = cast(graph, *other, FLOAT, prog, dnai);
-    }
+  // We use the float path to implement half data type for now.
+  const auto dataType = FLOAT;
+  if (inputType != dataType) {
+    t = cast(graph, t, dataType, prog, dnai);
   }
 
   // Because we always discard the upper of a pair of sequences of k'
@@ -985,16 +969,8 @@ std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
     }
   }
 
-  if (inputType != t.elementType()) {
+  if (inputType != dataType) {
     t = cast(graph, t, inputType, prog, dnai);
-  }
-
-  if (valueType && *valueType != other->elementType()) {
-    if (target.getTypeSize(*valueType) == target.getTypeSize(FLOAT)) {
-      other = other->reinterpret(*valueType);
-    } else if (target.getTypeSize(*valueType) < target.getTypeSize(FLOAT)) {
-      other = cast(graph, *other, *valueType, prog, dnai);
-    }
   }
 
   t = t.reshape({k, b}).transpose().reshape(outputShape);

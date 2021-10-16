@@ -14,10 +14,7 @@
 
 namespace popops {
 
-/** \deprecated
- *  **deprecated** Use popops::topK() instead.
- *
- * Sort a tensor along the given dimension.
+/** Sort a tensor along the given dimension.
  *
  * This will return a tensor that is a permutation of the input tensor \p v with
  * all the elements of the 1D slices in the chosen dimension in ascending order.
@@ -40,10 +37,7 @@ poplar::Tensor sort(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
                     poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {});
 
-/** \deprecated
- *  **deprecated** Use popops::topK() instead.
- *
- * In-place sort a tensor along the given dimension.
+/** In-place sort a tensor along the given dimension.
  *
  *  This will permute the input tensor so that all the elements of 1D slices in
  *  the chosen dimension are in ascending order.
@@ -60,10 +54,7 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
                  poplar::program::Sequence &prog,
                  const poplar::DebugContext &debugContext = {});
 
-/** \deprecated
- *  **deprecated** Use popops::topKKeyValue() instead.
- *
- * Sort a tensor by a key tensor along the given dimension.
+/** Sort a tensor by a key tensor along the given dimension.
  *
  *  This will return a tensor that is a permutation of the input tensor \p v
  *  with the property that all 1D slices in the chosen dimensions are in
@@ -92,10 +83,7 @@ poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {});
 
-/** \deprecated
- *  **deprecated** Use popops::topKKeyValue() instead.
- *
- * In-place sort a given tensor by a key tensor along the given dimension.
+/** In-place sort a given tensor by a key tensor along the given dimension.
  *
  *  This will permute the key and value tensors so that all the elements of the
  *  1D slices in the chosen dimension are in ascending order with respect to the

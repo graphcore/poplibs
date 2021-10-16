@@ -1036,7 +1036,7 @@ foreach(MINIMISATION_TARGET memory cycles)
                    --num-indices=50
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --tiles-per-ipu=16)
-
+  
   add_multitarget_test(
            NAME embedding_layer_half_10x20_${MINIMISATION_TARGET}
            COMMAND embedding_layer
@@ -1045,7 +1045,7 @@ foreach(MINIMISATION_TARGET memory cycles)
                    --num-indices=50
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --tiles-per-ipu=16)
-
+  
   add_multitarget_test(
            NAME embedding_layer_float_10x20_2_index_sets_${MINIMISATION_TARGET}
            COMMAND embedding_layer
@@ -1054,7 +1054,7 @@ foreach(MINIMISATION_TARGET memory cycles)
                    --num-indices={100,10}
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --tiles-per-ipu=16)
-
+  
   add_multitarget_test(
   	 NAME embedding_layer_half_10x20_2_index_sets_${MINIMISATION_TARGET}
            COMMAND embedding_layer
@@ -1063,7 +1063,7 @@ foreach(MINIMISATION_TARGET memory cycles)
                    --num-indices={5,20}
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --tiles-per-ipu=16)
-
+  
   # These tests are quite slow to execute on the simulator
   add_multitarget_test(
            NAME embedding_layer_big_embedding_${MINIMISATION_TARGET}
@@ -1075,7 +1075,7 @@ foreach(MINIMISATION_TARGET memory cycles)
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --ignore-data
            VARIANTS ${IPUMODEL_VARIANTS};Hw)
-
+  
   add_multitarget_test(
            NAME embedding_layer_many_lookups_${MINIMISATION_TARGET}
            COMMAND embedding_layer
@@ -1086,7 +1086,7 @@ foreach(MINIMISATION_TARGET memory cycles)
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --ignore-data
            VARIANTS ${IPUMODEL_VARIANTS};Hw)
-
+  
   # This test is too slow and fails on MACS
   add_multitarget_test(
            NAME embedding_layer_vmany_lookups_${MINIMISATION_TARGET}
@@ -1098,7 +1098,7 @@ foreach(MINIMISATION_TARGET memory cycles)
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --ignore-data
            VARIANTS ${IPUMODEL_VARIANTS};Hw)
-
+  
   # This will also split the unsliced dim
   add_multitarget_test(
            NAME embedding_layer_quick_split_sliced_dim_${MINIMISATION_TARGET}
@@ -1111,7 +1111,7 @@ foreach(MINIMISATION_TARGET memory cycles)
                    --tiles-per-ipu=30
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --plan-constraints={\"slicedDimSplit\":\"6\"})
-
+  
   # This will also split the unsliced dim
   add_multitarget_test(
            NAME embedding_layer_quick_split_lookup_${MINIMISATION_TARGET}
@@ -1124,7 +1124,7 @@ foreach(MINIMISATION_TARGET memory cycles)
                    --tiles-per-ipu=30
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --plan-constraints={\"lookupSplit\":\"3\"})
-
+  
   add_multitarget_test(
            NAME embedding_layer_quick_unsliced_split_lookup_${MINIMISATION_TARGET}
            COMMAND embedding_layer
@@ -1136,7 +1136,7 @@ foreach(MINIMISATION_TARGET memory cycles)
                    --tiles-per-ipu=30
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --plan-constraints={\"unslicedDimSplit\":\"10\"})
-
+  
   add_multitarget_test(
            NAME embedding_layer_T24704_${MINIMISATION_TARGET}
            COMMAND embedding_layer
@@ -1146,7 +1146,7 @@ foreach(MINIMISATION_TARGET memory cycles)
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --plan-constraints={\"unslicedDimSplit\":\"3\",\"slicedDimSplit\":\"8\",\"lookupSplit\":\"21\"}
            VARIANTS ${TimesOutOnSim})
-
+  
   add_multitarget_test(
            NAME embedding_layer_T25957_${MINIMISATION_TARGET}
            COMMAND embedding_layer
@@ -1156,7 +1156,7 @@ foreach(MINIMISATION_TARGET memory cycles)
 		   --plan-minimisation-target=${MINIMISATION_TARGET}
                    --plan-constraints={\"unslicedDimSplit\":\"6\",\"slicedDimSplit\":\"6\",\"lookupSplit\":\"19\"}
            VARIANTS ${TimesOutOnSim})
-
+  
   add_multitarget_test(
   	 NAME embedding_layer_T30781_${MINIMISATION_TARGET}
            COMMAND embedding_layer
@@ -1280,7 +1280,7 @@ foreach(dType uchar half float)
                        COMMAND NormaliseImageTest --data-type ${dType} --batch-size 1 --field-size 3)
 endforeach()
 
-foreach(DATA_TYPE half float unsigned int)
+foreach(DATA_TYPE half float)
   add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_b0_n1000_k100_edge_case
     COMMAND topk
       --n 1000
