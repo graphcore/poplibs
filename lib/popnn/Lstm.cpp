@@ -1054,18 +1054,20 @@ static Tensor lstmFwd(Graph &graph, const LstmParams &params,
         0};
     if (params.rnn.variableTimeSteps()) {
       popops::zero(graph, stateSequence.output, prog, {di, "zeroOutput"});
+    } else {
+      prog.add(WriteUndef(stateSequence.output, {di}));
     }
-    prog.add(WriteUndef(stateSequence.output, {di}));
   }
   if (intermediatesSeq) {
     *intermediatesSeq =
         rnn::createOutputTensor(graph, params.rnn, numIntermediates, numShards,
                                 {di, "fwdIntermediatesSeq"})
             .reshapePartial(0, 1, {params.rnn.maxTimeSteps, numIntermediates});
-    prog.add(WriteUndef(*intermediatesSeq, {di}));
     if (params.rnn.variableTimeSteps()) {
       popops::zero(graph, *intermediatesSeq, prog,
                    {di, "zeroIntermediatesSeq"});
+    } else {
+      prog.add(WriteUndef(*intermediatesSeq, {di}));
     }
   }
   auto rnnOptions = getRnnOpts(opt);

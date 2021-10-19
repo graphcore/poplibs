@@ -1014,6 +1014,8 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
         0};
     if (params.rnn.variableTimeSteps()) {
       popops::zero(graph, stateSequence.output, fwdProg, {dnai, "zeroOutput"});
+    } else {
+      fwdProg.add(WriteUndef(stateSequence.output, {dnai}));
     }
   }
   if (intermediatesSeq) {
@@ -1022,10 +1024,11 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
         rnn::createOutputTensor(graph, params.rnn, numIntermediates, numShards,
                                 {dnai, "intermediatesSeq"})
             .reshapePartial(0, 1, {params.rnn.maxTimeSteps, numIntermediates});
-    fwdProg.add(WriteUndef(*intermediatesSeq, {dnai}));
     if (params.rnn.variableTimeSteps()) {
       popops::zero(graph, *intermediatesSeq, fwdProg,
                    {dnai, "zeroIntermediatesSeq"});
+    } else {
+      fwdProg.add(WriteUndef(*intermediatesSeq, {dnai}));
     }
   }
   const auto shardingLoop = std::bind(
@@ -1870,6 +1873,8 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
                                            {dnai, "inputGrad"});
     if (params.rnn.variableTimeSteps()) {
       zero(graph, *inputGradSeq, prog, {dnai, "zeroInputGrad"});
+    } else {
+      prog.add(WriteUndef(*inputGradSeq, {dnai}));
     }
     inputGrad = rnn::StateSequence{*inputGradSeq, 0};
   }
