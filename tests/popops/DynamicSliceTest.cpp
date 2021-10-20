@@ -788,9 +788,9 @@ BOOST_AUTO_TEST_CASE(GetSliceMapping) {
 
 BOOST_AUTO_TEST_SUITE_END()
 
-void multislice(const std::vector<uint32_t> &indicies,
+void multislice(const std::vector<unsigned> &indicies,
                 const std::vector<std::size_t> &indiciesShape,
-                bool planAsEmbedding) {
+                bool planAsEmbedding, bool dynamic = true) {
   // This test should pass with large T - but graph construction becomes
   // slow (a couple of minutes for T=1024)
   assert(indiciesShape.size() == 2); // max 2 dims supported by this test
@@ -820,8 +820,13 @@ void multislice(const std::vector<uint32_t> &indicies,
   auto offset = createIndicesTensor(graph, sliceDims, indicies.size(), plan,
                                     sliceOptions, "offset");
   prog.add(Copy(offsetInit, offset));
-  auto s = multiSlice(graph, t, offset, sliceDims, sliceSizes, prog, plan,
-                      sliceOptions, "MultisliceTest");
+  poplar::Tensor s;
+  if (dynamic) {
+    s = multiSlice(graph, t, offset, sliceDims, sliceSizes, prog, plan,
+                   sliceOptions, "MultisliceTest");
+  } else {
+    s = multiSlice(graph, t, indicies, sliceDims[0], prog, "MultisliceTest");
+  }
 
   BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
   BOOST_CHECK_EQUAL(s.dim(0), indiciesShape[0]);
@@ -865,29 +870,39 @@ BOOST_AUTO_TEST_SUITE(MultiSlice)
 // test the looping multislice
 BOOST_AUTO_TEST_CASE(MultiSlice5) {
   multislice({100, 0, 50, 48, 49}, {5, 1}, false);
+  multislice({100, 0, 50, 48, 49}, {5, 1}, false, /* dynamic = */ false);
 }
 
 // test the inlined multislice
-BOOST_AUTO_TEST_CASE(MultiSlice2) { multislice({100, 0}, {2, 1}, false); }
+BOOST_AUTO_TEST_CASE(MultiSlice2) {
+  multislice({100, 0}, {2, 1}, false);
+  multislice({100, 0}, {2, 1}, false, /* dynamic = */ false);
+}
 
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiSlice10) {
   multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false);
+  multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1},
+             /* dynamic = */ false);
 }
 
 // test the looping multislice
 BOOST_AUTO_TEST_CASE(MultiSlice5_AsEmbedding) {
   multislice({100, 0, 50, 48, 49}, {5, 1}, true);
+  multislice({100, 0, 50, 48, 49}, {5, 1}, true, /* dynamic = */ false);
 }
 
 // test the inlined multislice
 BOOST_AUTO_TEST_CASE(MultiSlice2_AsEmbedding) {
   multislice({100, 0}, {2, 1}, true);
+  multislice({100, 0}, {2, 1}, true, /* dynamic = */ false);
 }
 
 // test the fast vertex
 BOOST_AUTO_TEST_CASE(MultiSlice10_AsEmbedding) {
   multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true);
+  multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
+             /* dynamic = */ false);
 }
 
 // test heuristic which checks for mapping of a slice.

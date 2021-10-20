@@ -319,6 +319,23 @@ poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
                           const poplar::OptionFlags &options,
                           const poplar::DebugContext &debugContext = {});
 
+/** Take multiple slices from a base tensor.
+ *
+ * The returned tensor will have a rank one greater than \p t. Its outer
+ * dimension will be \p offsets.size(). Note that \p dim refers to a dimension
+ * of \p t.
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being sliced.
+ *  \param offsets     The offsets within \p t to be sliced.
+ *  \param dims        The dimension of \p t to be sliced.
+ *  \param prog        The program to be extended.
+ *  \param debugContext Optional debug information.
+ */
+poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
+                          poplar::ArrayRef<unsigned> offsets, std::size_t dim,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {});
+
 /** Update multiple slices in a tensor.
  *
  *  \param graph       The Poplar graph.

@@ -2489,6 +2489,44 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   return sMulti;
 }
 
+poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
+                          poplar::ArrayRef<unsigned> offsets, std::size_t dim,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, offsets, dim));
+
+  // Check for a invalid dimension.
+  if (dim >= t.rank()) {
+    throw poputil::poplibs_error(
+        fmt::format("multiSlice dimension {} is greater than or equal to the "
+                    "input rank {}.",
+                    dim, t.rank()));
+  }
+
+  // Check for invalid static offset.
+  for (auto offset : offsets) {
+    if (offset >= t.dim(dim)) {
+      throw poputil::poplibs_error(
+          fmt::format("multiSlice offset {} is greater than or equal to the "
+                      "input dim {}, which equals {}.",
+                      offset, dim, t.dim(dim)));
+    }
+  }
+
+  auto slices = t.slices(offsets, dim);
+
+  // Expand and concat on the outermost dimension, matching the behaviour of the
+  // dynamic multiSlice.
+  for (auto &slice : slices) {
+    slice = slice.expand({0});
+  }
+
+  // Return a duplicate to avoid any aliasing.
+  return poputil::duplicate(graph, poplar::concat(slices, 0), prog,
+                            debugContext);
+}
+
 static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
                           const Tensor &offset, boost::optional<Tensor> scale,
                           const std::vector<std::size_t> &dims,
