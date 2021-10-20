@@ -2653,6 +2653,176 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
                 Operation::ADD, options, {di});
 }
 
+static void multiUpdateAddUnique(Graph &graph, const Tensor &t, const Tensor &s,
+                                 poplar::ArrayRef<unsigned> offsets,
+                                 const Tensor &scale, std::size_t dim,
+                                 Sequence &prog,
+                                 const DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(t, s, offsets, scale, dim));
+
+  auto slices = t.slices(offsets, dim);
+
+  for (auto &slice : slices) {
+    slice = slice.expand({0});
+  }
+
+  // Just do a scaled add on the slices.
+  scaledAddTo(graph, poplar::concat(slices, 0), s, scale, prog, debugContext);
+}
+
+static void multiUpdateAddDuplicates(
+    Graph &graph, const Tensor &t, const Tensor &s,
+    poplar::ArrayRef<unsigned> offsets,
+    std::unordered_map<unsigned, std::size_t> &offset_count,
+    const Tensor &scale, std::size_t dim, Sequence &prog,
+    const DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(t, s, offsets, scale, dim));
+
+  const auto unique_pred = [&offsets,
+                            &offset_count](unsigned position) -> bool {
+    return offset_count[offsets[position]] == 1;
+  };
+
+  // Find the unique offsets by their position in the offsets vector.
+  std::vector<std::size_t> offsets_partitioned(offsets.size());
+  std::iota(offsets_partitioned.begin(), offsets_partitioned.end(), 0);
+  auto itr = std::stable_partition(offsets_partitioned.begin(),
+                                   offsets_partitioned.end(), unique_pred);
+
+  // If there are any unique offsets, fallback to the simple scaled add case.
+  if (std::distance(offsets_partitioned.begin(), itr) > 0) {
+    // The params for the unique case
+    std::vector<unsigned> unique_offsets(
+        std::distance(offsets_partitioned.begin(), itr));
+    std::vector<Tensor> unique_updates(
+        std::distance(offsets_partitioned.begin(), itr));
+
+    const auto get_offset = [&offsets](size_t index) -> unsigned {
+      return offsets[index];
+    };
+
+    const auto get_slice = [&s](size_t index) -> Tensor {
+      return s.slice(index, index + 1, 0);
+    };
+
+    std::transform(offsets_partitioned.begin(), itr, unique_offsets.begin(),
+                   get_offset);
+    std::transform(offsets_partitioned.begin(), itr, unique_updates.begin(),
+                   get_slice);
+
+    multiUpdateAddUnique(graph, t, poplar::concat(unique_updates),
+                         unique_offsets, scale, dim, prog, debugContext);
+  }
+
+  // If there are any duplicate offsets.
+  if (std::distance(itr, offsets_partitioned.end()) > 0) {
+    std::unordered_map<unsigned, std::vector<Tensor>> input_slices;
+    std::unordered_map<unsigned, Tensor> output_slices;
+
+    // Loop of the non-unique indices of offsets and collect the input and
+    // output tensors.
+    std::for_each(itr, offsets_partitioned.end(), [&](std::size_t i) mutable {
+      input_slices[offsets[i]].push_back(s[i]);
+      output_slices[offsets[i]] =
+          t.slice(offsets[i], offsets[i] + 1, dim).squeeze({dim});
+    });
+
+    // Construct the reduction for each offset.
+    std::unordered_map<unsigned, SingleReduceOp> reduction_map;
+    for (auto pair : input_slices) {
+      Tensor in = poplar::concat(pair.second, dim);
+      SingleReduceOp op(in, {dim},
+                        ReduceParams(popops::Operation::ADD, true, scale));
+
+      reduction_map.insert({pair.first, op});
+    }
+
+    // Create the vectors in the order defined by the user's offsets vector.
+    std::vector<SingleReduceOp> reductions;
+    std::vector<Tensor> outputs;
+    for (auto offset : offsets) {
+      auto itr = reduction_map.find(offset);
+
+      // Skip duplicates
+      if (itr != reduction_map.end()) {
+        reductions.push_back(itr->second);
+        outputs.push_back(output_slices[itr->first]);
+
+        // Erase the iterator so we don't revisit this reduction.
+        reduction_map.erase(itr);
+      }
+    }
+
+    // Construct the reduction program.
+    reduceMany(graph, reductions, outputs, prog, debugContext);
+  }
+}
+
+void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &s,
+                    poplar::ArrayRef<unsigned> offsets, const Tensor &scale,
+                    std::size_t dim, Sequence &prog,
+                    const DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(t, s, offsets, scale, dim));
+
+  if (offsets.size() != s.dim(0)) {
+    throw poplibs_error(fmt::format(
+        "multiUpdateAdd offset count ({}) and s.dim(0) ({}) must match",
+        offsets.size(), s.dim(0)));
+  }
+
+  // Do nothing for empty offsets.
+  if (offsets.empty()) {
+    return;
+  }
+
+  if (dim >= t.rank()) {
+    throw poplibs_error(
+        fmt::format("multiUpdateAdd dim ({}) must be less than t.rank() ({})",
+                    dim, t.rank()));
+  }
+
+  if (t.rank() != (s.rank() - 1)) {
+    throw poplibs_error(fmt::format(
+        "multiUpdateAdd s.rank ({}) must be one more than t.rank() ({})",
+        s.rank(), t.rank()));
+  }
+
+  if (s.dim(dim + 1) != 1) {
+    throw poplibs_error(fmt::format(
+        "multiUpdateAdd s[i].shape ({}) at dimension {} must have size 1",
+        s[0].shape(), dim));
+  }
+
+  for (std::size_t i = 0; i < t.rank(); ++i) {
+    if (i != dim && t.dim(i) != s[0].dim(i)) {
+      throw poplibs_error(fmt::format(
+          "multiUpdateAdd s[i].shape ({}) and t.shape ({}) must match in the "
+          "non-slice dimensions ({}). They mismatch at dimension {}",
+          s[0].shape(), t.shape(), dim, i));
+    }
+  }
+
+  // Count the frequency of each offset value.
+  std::unordered_map<unsigned, std::size_t> offset_count;
+  for (auto offset : offsets) {
+    offset_count[offset]++;
+  }
+
+  // If all offsets are unique
+  if (offsets.size() == offset_count.size()) {
+    multiUpdateAddUnique(graph, t, s, offsets, scale, dim, prog, debugContext);
+  } else {
+    multiUpdateAddDuplicates(graph, t, s, offsets, offset_count, scale, dim,
+                             prog, debugContext);
+  }
+}
+
 // This is derived from multiUpdate, but a max of s is and t is done rather than
 // replacing it. Currently only a single dimension may be sliced
 void multiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,

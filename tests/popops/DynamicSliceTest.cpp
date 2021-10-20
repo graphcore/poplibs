@@ -977,7 +977,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
                  const Type &dType = HALF, float updateScaling = 1.0,
                  const unsigned E = 8, // unsliced dim
                  boost::optional<unsigned> dictSize = boost::none,
-                 bool useFloatScalingForHalf = false) {
+                 bool useFloatScalingForHalf = false, bool dynamic = true) {
   const bool updateOp = op != boost::none;
   const bool opUsesScale = updateOp && *op == popops::Operation::ADD;
 
@@ -1035,9 +1035,15 @@ void multiupdate(const std::vector<uint32_t> &indicies,
       scale = graph.addVariable(scaleTensorType, {}, "scale");
       graph.setTileMapping(scale, 0);
 
-      multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
-                     plan, sliceOptions, "MultisliceTest");
+      if (dynamic) {
+        multiUpdateAdd(graph, t, s, offset, scale, sliceDims, sliceSizes, prog,
+                       plan, sliceOptions, "MultisliceTest");
+      } else {
+        multiUpdateAdd(graph, t, s, indicies, scale, sliceDims[0], prog,
+                       "MultisliceTest");
+      }
     } else if (*op == popops::Operation::MAX) {
+      BOOST_CHECK(dynamic);
       multiUpdateMax(graph, t, s, offset, sliceDims, sliceSizes, prog, plan,
                      sliceOptions, "MultisliceTest");
 
@@ -1157,11 +1163,30 @@ BOOST_AUTO_TEST_CASE(MultiUpdate10) {
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd5) {
   multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, popops::Operation::ADD, HALF,
               0.5);
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, popops::Operation::ADD, HALF,
+              0.5, 8, boost::none, false, /* dynamic = */ false);
 }
 
 // test the inlined multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd2) {
   multiupdate({100, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5);
+  multiupdate({100, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5, 8,
+              boost::none, false, /* dynamic = */ false);
+}
+
+// test the looping multiupdate with duplicate indices
+BOOST_AUTO_TEST_CASE(MultiUpdateAddDup5) {
+  multiupdate({100, 0, 50, 0, 100}, {5, 1}, false, popops::Operation::ADD, HALF,
+              0.5);
+  multiupdate({100, 0, 50, 0, 100}, {5, 1}, false, popops::Operation::ADD, HALF,
+              0.5, 8, boost::none, true, /* dynamic = */ false);
+}
+
+// test the inlined multiupdate with duplicate indices
+BOOST_AUTO_TEST_CASE(MultiUpdateAddDup2) {
+  multiupdate({100, 100}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5);
+  multiupdate({100, 100}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5, 8,
+              boost::none, true, /* dynamic = */ false);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -372,6 +372,29 @@ void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
                     const poplar::OptionFlags &options,
                     const poplar::DebugContext &debugContext = {});
 
+/** Accumulate multiple slices in a tensor
+ * for i offsets:
+ *   t[offsets[i]] += scale * s[i]
+ * \p t, \p s must be of the same type
+ *
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being updated.
+ *  \param s           The slices to accumulate.
+ *  \param offsets     The offsets within \p t to be accumulated.
+ *  \param scale       The scaling to apply to the update. The type of the
+ *                     tensor should be the same as that of \p t and \p s except
+ *                     for the case when \p t and \p s are of type HALF. In
+ *                     which case \p scale can be of type FLOAT or HALF.
+ *  \param dim         The dimension of \p t to be accumulated.
+ *  \param prog        The program to be extended.
+ *  \param debugContext Optional debug information.
+ */
+void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
+                    const poplar::Tensor &s, poplar::ArrayRef<unsigned> offsets,
+                    const poplar::Tensor &scale, std::size_t dim,
+                    poplar::program::Sequence &prog,
+                    const poplar::DebugContext &debugContext = {});
+
 /** Find maximum over multiple slices in a tensor
  * for i offsets:
  *   t[offsets[i]] = max(t[offsets[i]], s[i])
