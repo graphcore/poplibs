@@ -170,6 +170,8 @@ struct SliceOptions {
 
   // Indices are sorted in increasing order
   bool indicesAreSorted = false;
+
+  bool alwaysIncludeBaseRearrangementCost = true;
 };
 
 std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
@@ -192,9 +194,10 @@ std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
     os << "none";
   }
   os << ", indicesDistribution=" << o.indicesDistribution
-     << ", planMinimisationTarget=" << o.planMinimisationTarget << "}";
-
-  os << ", indicesAreSorted=" << (o.indicesAreSorted ? "true" : "false");
+     << ", planMinimisationTarget=" << o.planMinimisationTarget
+     << ", indicesAreSorted=" << (o.indicesAreSorted ? "true" : "false")
+     << ", internal.alwaysIncludeBaseRearrangementCost="
+     << (o.alwaysIncludeBaseRearrangementCost ? "true" : "false") << "}";
   return os;
 }
 
@@ -317,7 +320,10 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
            {{"memory", PlanMinimisationTarget::MEMORY},
             {"cycles", PlanMinimisationTarget::CYCLES}})},
       {"indicesAreSorted",
-       OptionHandler::createWithBool(options.indicesAreSorted)}};
+       OptionHandler::createWithBool(options.indicesAreSorted)},
+      {"internal.alwaysIncludeBaseRearrangementCost",
+       OptionHandler::createWithBool(
+           options.alwaysIncludeBaseRearrangementCost)}};
 
   for (const auto &entry : optionFlags) {
     spec.parse(entry.first, entry.second);
@@ -2906,6 +2912,7 @@ static sliceInternal::Partition<std::size_t> fromSolution(
 }
 
 template <typename T> struct EmbeddingEstimates {
+  EmbeddingEstimates() = default;
   EmbeddingEstimates(const T &init)
       : baseStorageBytesPerTile(init), outputStorageBytesPerTile(init),
         indicesStorageBytesPerTile(init), exchangeCodeBytes(init),
@@ -2913,8 +2920,8 @@ template <typename T> struct EmbeddingEstimates {
         sliceFirstStageExchangeCycles(init), sliceFirstStageComputeCycles(init),
         sliceSecondStageExchangeCycles(init),
         sliceSecondStageComputeCycles(init), sliceTotalCycles(init),
-        updateCastSlicesCycles(init), updateZeroPartialsCycles(init),
-        updateFirstStageExchangeCycles(init),
+        updateRearrangeBaseCycles(init), updateCastSlicesCycles(init),
+        updateZeroPartialsCycles(init), updateFirstStageExchangeCycles(init),
         updateFirstStageComputeCycles(init), updateReduceExchangeCycles(init),
         updateReduceComputeCycles(init), updateCastBasePreCycles(init),
         updateFinalElemwiseCycles(init), updateCastBasePostCycles(init),
@@ -2924,7 +2931,6 @@ template <typename T> struct EmbeddingEstimates {
   T baseStorageBytesPerTile;
   T outputStorageBytesPerTile;
   T indicesStorageBytesPerTile;
-
   T exchangeCodeBytes;
 
   T sliceTempBytes;
@@ -2939,6 +2945,7 @@ template <typename T> struct EmbeddingEstimates {
   T sliceTotalCycles;
 
   // mUpdate* only valid when usedForUpdate is set.
+  T updateRearrangeBaseCycles;
   T updateCastSlicesCycles;
   T updateZeroPartialsCycles;
   T updateFirstStageExchangeCycles;
@@ -3088,6 +3095,17 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   e.baseStorageBytesPerTile =
       m.product({mBaseGrainsStoragePerTile, mBytesPerGrain});
 
+  const auto mBaseBytesPerTile =
+      m.product({mBaseGrainsPerTile, mBytesPerGrain});
+  auto mBaseBytesPerTileDiffWithPerfectlyDistributed = m.zero();
+  if (options.alwaysIncludeBaseRearrangementCost) {
+    const auto mBaseBytesStoragePerTilePerfectlyDistributed = m.product(
+        {m.ceildiv(m.product({mNumEntries, mNumUnslicedGrains}), mNumTiles),
+         mBytesPerGrain});
+    mBaseBytesPerTileDiffWithPerfectlyDistributed =
+        m.sub(mBaseBytesPerTile, mBaseBytesStoragePerTilePerfectlyDistributed);
+  }
+
   // We allocate indices linearly with a minimum no. per-tile.
   const auto mMinIndicesPerTile =
       m.min({mNumIndices, m.addConstant(minIndicesPerTile)});
@@ -3119,15 +3137,31 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
       m.ceildiv(mLookupsPerTile, mIndicesPerTile);
 
   if (options.usedForSlice) {
+    // mBaseBytesPerTile gives the size of data taken as input to MultiSlice
+    // vertices in the first stage. If there is a lookup split then this data
+    // must be broadcast.
+    //
+    // If there is no lookup split and the base tensor is allocated according to
+    // the partition in the plan, we should not need to exchange anything.
+    // However, we add a cost anyway here based on the difference in memory
+    // usage with a perfectly spread base tensor over tiles.
+    // This biases the planner towards utilising more tiles, particularly
+    // when the base tensor is large but there is not much work to do (T46394).
+    // We justify this as being like assuming that if the base tensor is not
+    // well spread over tiles, we would not allocate it out according to the
+    // partition in the plan, and would therefore need to copy it to the tiles
+    // for each partition before the slice/update.
+    // This is controlled by the internal option
+    // "internal.alwaysIncludeBaseRearrangementCost".
+    const auto mBaseTempBytesPerTile =
+        m.max({m.product({mLookupsAreSplit, mBaseBytesPerTile}),
+               mBaseBytesPerTileDiffWithPerfectlyDistributed});
     // mBaseGrainsPerTile gives the number of grains taken as input
     // to MultiSlice vertices in the first stage. If there is a lookup
     // split then this data must be broadcast.
-    const auto mExchangeCycles =
-        exchangeEstimator(m.product({mBaseGrainsPerTile, mBytesPerGrain}),
-                          ipuLevel, "slice.0.exchange.cycles");
+    e.sliceFirstStageExchangeCycles = exchangeEstimator(
+        mBaseTempBytesPerTile, ipuLevel, "slice.0.exchange.cycles");
     const MultiSliceTargetParameters targetParams{target, dataType};
-    e.sliceFirstStageExchangeCycles =
-        m.product({mLookupsAreSplit, mExchangeCycles});
     e.sliceFirstStageComputeCycles = m.call<unsigned>(
         {
             mUnslicedElemsPerTile,
@@ -3224,11 +3258,6 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
          m.sum({mEmbeddingExchangeInstrs0, mIndicesExchangeInstrs0,
                 mOutputToInputExchangeInstrs1, mIndicesExchangeInstrs1})});
 
-    // We need temporary bytes for the dictionary if the lookups are split as
-    // this will require the dictionary to be multi-cast to tiles.
-    const auto mBaseTempBytesPerTile =
-        m.product({mLookupsAreSplit, mBaseGrainsPerTile, mBytesPerGrain});
-
     // When splitting the dictionary a the output of the first stage will be
     // rearranged for the second stage.
     const auto mSlicesFirstStageOutputTempBytes =
@@ -3256,6 +3285,11 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   }
 
   if (options.usedForUpdate) {
+    // See comment for base exchange cost in slice estimates.
+    // We bias the planner with a cost to rearrange the input tensor.
+    const auto mBaseTempBytesPerTile =
+        mBaseBytesPerTileDiffWithPerfectlyDistributed;
+
     // When no index split there are no temporaries beyond those used in a
     // lookup, the vertices work directly on the base, slices and indices
     // tensors.
@@ -3280,6 +3314,13 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     const auto mPartialElemsPerTile =
         m.product({mDictEntriesPerTile, mUnslicedGrainsPerTile,
                    partition.unslicedGrainSize});
+
+    // Multipled by 2 because we would need to copy from source base tensor
+    // *and back*.
+    e.updateRearrangeBaseCycles =
+        m.product({exchangeEstimator(mBaseTempBytesPerTile, ipuLevel,
+                                     "update.0.rearrangeBase.cycles"),
+                   m.addConstant(2u)});
 
     e.updateCastSlicesCycles =
         modelContiguousCast(target, dataType, FLOAT, m, mOutputElemsPerTile,
@@ -3417,34 +3458,36 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
             m.product({mLookupsAreSplit, e.updateFinalElemwiseCycles});
       }
     }
-    e.updateTotalCycles = m.sum(
-        {e.updateCastSlicesCycles, e.updateZeroPartialsCycles,
-         e.updateFirstStageExchangeCycles, e.updateFirstStageComputeCycles,
-         mReduceEstimateCyles, e.updateCastBasePreCycles,
-         e.updateFinalElemwiseCycles, e.updateCastBasePostCycles});
+    e.updateTotalCycles =
+        m.sum({e.updateRearrangeBaseCycles, e.updateCastSlicesCycles,
+               e.updateZeroPartialsCycles, e.updateFirstStageExchangeCycles,
+               e.updateFirstStageComputeCycles, mReduceEstimateCyles,
+               e.updateCastBasePreCycles, e.updateFinalElemwiseCycles,
+               e.updateCastBasePostCycles});
 
     e.totalCycles = m.sum({e.totalCycles, e.updateTotalCycles});
 
     const auto mIndicesTempBytesPerTile =
         m.product({mLookupsPerTile, mBytesPerIndex});
 
-    e.updateTempBytes =
-        m.max({// If we need a cast version of the updates, this will take
-               // temporary memory.
-               mUpdatesCastTempBytesPerTile,
-               // If we have split the dictionary, we will need to multi-cast
-               // the updates.
-               m.sum({mUpdatesCastTempBytesPerTile, mUpdatesTempBytesPerTile}),
-               // During the update, we have partials, casted/multi-cast
-               // updates, and multi-cast indices temporarily.
-               m.sum({mUpdatesCastTempBytesPerTileAfterMulticast,
-                      mUpdatesTempBytesPerTile, mPartialsBytesPerTile,
-                      mIndicesTempBytesPerTile}),
-               // If we need a reduction we will have
-               // reduction (also the actual update will have the base upcast to
-               // the same size as the partials, so the same footprint)
-               m.product({mLookupsAreSplit, mPartialsBytesPerTile,
-                          m.addConstant(2u)})});
+    e.updateTempBytes = m.sum(
+        {mBaseTempBytesPerTile,
+         m.max({// If we need a cast version of the updates, this will take
+                // temporary memory.
+                mUpdatesCastTempBytesPerTile,
+                // If we have split the dictionary, we will need to multi-cast
+                // the updates.
+                m.sum({mUpdatesCastTempBytesPerTile, mUpdatesTempBytesPerTile}),
+                // During the update, we have partials, casted/multi-cast
+                // updates, and multi-cast indices temporarily.
+                m.sum({mUpdatesCastTempBytesPerTileAfterMulticast,
+                       mUpdatesTempBytesPerTile, mPartialsBytesPerTile,
+                       mIndicesTempBytesPerTile}),
+                // If we need a reduction we will have
+                // reduction (also the actual update will have the base upcast
+                // to the same size as the partials, so the same footprint)
+                m.product({mLookupsAreSplit, mPartialsBytesPerTile,
+                           m.addConstant(2u)})})});
 
     // Indices are as for the forward pass;
     // plus the rearrangement will be an all-all exchange
@@ -3500,35 +3543,7 @@ minimize(popsolver::Model &m, const Target &target,
 
 // Estimates for a solution and plan
 struct PlanAndEstimates {
-  struct Estimates {
-    // Memory estimates
-    std::size_t baseStorageBytesPerTile;
-    std::size_t outputStorageBytesPerTile;
-    std::size_t indicesStorageBytesPerTile;
-    std::size_t exchangeCodeBytes;
-    std::size_t sliceTempBytes;
-    std::size_t updateTempBytes;
-    std::size_t peakTempBytes;
-
-    // Cycles estimates
-    std::size_t sliceFirstStageExchangeCycles;
-    std::size_t sliceFirstStageComputeCycles;
-    std::size_t sliceSecondStageExchangeCycles;
-    std::size_t sliceSecondStageComputeCycles;
-    std::size_t sliceTotalCycles;
-    std::size_t updateCastSlicesCycles;
-    std::size_t updateZeroPartialsCycles;
-    std::size_t updateFirstStageExchangeCycles;
-    std::size_t updateFirstStageComputeCycles;
-    std::size_t updateReduceExchangeCycles;
-    std::size_t updateReduceComputeCycles;
-    std::size_t updateCastBasePreCycles;
-    std::size_t updateFinalElemwiseCycles;
-    std::size_t updateCastBasePostCycles;
-    std::size_t updateTotalCycles;
-    std::size_t totalCycles;
-  } e;
-
+  EmbeddingEstimates<std::size_t> e;
   SlicePlanInternal plan;
 };
 
@@ -3594,6 +3609,8 @@ static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
         best.e.sliceSecondStageComputeCycles =
             *s[estimates.sliceSecondStageComputeCycles];
         best.e.sliceTotalCycles = *s[estimates.sliceTotalCycles];
+        best.e.updateRearrangeBaseCycles =
+            *s[estimates.updateRearrangeBaseCycles];
         best.e.updateCastSlicesCycles = *s[estimates.updateCastSlicesCycles];
         best.e.updateZeroPartialsCycles =
             *s[estimates.updateZeroPartialsCycles];
@@ -3677,6 +3694,7 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       "  slice second stage exchange {},\n"
       "  slice second stage compute {},\n"
       "  slice total {},\n"
+      "  update rearrange base cycles {},\n"
       "  update cast slices cycles {},\n"
       "  update zero partials cycles {},\n"
       "  update first stage exchange {},\n"
@@ -3691,8 +3709,8 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       best.e.sliceFirstStageExchangeCycles, best.e.sliceFirstStageComputeCycles,
       best.e.sliceSecondStageExchangeCycles,
       best.e.sliceSecondStageComputeCycles, best.e.sliceTotalCycles,
-      best.e.updateCastSlicesCycles, best.e.updateZeroPartialsCycles,
-      best.e.updateFirstStageExchangeCycles,
+      best.e.updateRearrangeBaseCycles, best.e.updateCastSlicesCycles,
+      best.e.updateZeroPartialsCycles, best.e.updateFirstStageExchangeCycles,
       best.e.updateFirstStageComputeCycles, best.e.updateReduceExchangeCycles,
       best.e.updateReduceComputeCycles, best.e.updateCastBasePreCycles,
       best.e.updateFinalElemwiseCycles, best.e.updateCastBasePostCycles,
