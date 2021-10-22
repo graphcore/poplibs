@@ -183,6 +183,12 @@ static bool doBinaryOpTest(
   std::vector<HostDataType> in2Host(nElems2);
   fillHostBuffers(operation, dataType, randomSeed, in1Host, in2Host);
 
+  // Setup const value based on user's input
+  if (!desc1.map.empty() && desc1.map[0].constVal)
+    in1Host[0] = *desc1.map[0].constVal;
+  else if (!desc2.map.empty() && desc2.map[0].constVal)
+    in2Host[0] = *desc2.map[0].constVal;
+
   // Create Graph object, target and device
   auto device = createTestDevice(deviceType, 1, tiles);
   Target target = device.getTarget();

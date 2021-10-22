@@ -306,3 +306,131 @@ BOOST_AUTO_TEST_CASE(Pow_sqrt_half_inplace_disable_fusedcodelets) {
     BOOST_CHECK_CLOSE(p.first[i], p.second[i], HALF_TOLERANCE);
   }
 }
+
+BOOST_AUTO_TEST_CASE(Ternary_pred_false) {
+  auto e1 = expr::TernaryOp(expr::TernaryOpType::SELECT, expr::_1, expr::_2,
+                            expr::Const(false));
+  auto p = executeExpr(e1, poplar::FLOAT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Ternary_pred_true) {
+  auto e1 = expr::TernaryOp(expr::TernaryOpType::SELECT, expr::_1, expr::_2,
+                            expr::Const(true));
+  auto p = executeExpr(e1, poplar::FLOAT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Add_float_const_lhs) {
+  auto e1 = popops::expr::Add(Const(0.f), _1);
+  auto p = executeExpr(e1, poplar::FLOAT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Add_float_const_rhs) {
+  auto e1 = popops::expr::Add(_1, Const(0.f));
+  auto p = executeExpr(e1, poplar::FLOAT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Sub_float_const_lhs) {
+  auto e1 = popops::expr::Sub(Const(0.f), _1);
+  auto p = executeExpr(e1, poplar::FLOAT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Sub_float_const_rhs) {
+  auto e1 = popops::expr::Sub(_1, Const(0.f));
+  auto p = executeExpr(e1, poplar::FLOAT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Mul_float_const_lhs) {
+  auto e1 = popops::expr::Mul(Const(1.f), _1);
+  auto p = executeExpr(e1, poplar::FLOAT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Mul_float_const_rhs) {
+  auto e1 = popops::expr::Mul(_1, Const(1.f));
+  auto p = executeExpr(e1, poplar::FLOAT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Div_float_const_rhs) {
+  auto e1 = popops::expr::Divide(_1, Const(1.f));
+  auto p = executeExpr(e1, poplar::FLOAT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(ShiftLeft_int_const_rhs) {
+  auto e1 = popops::expr::Shl(_1, Const(0));
+  auto p = executeExpr(e1, poplar::INT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(ShiftRight_int_const_rhs) {
+  auto e1 = popops::expr::Shr(_1, Const(0));
+  auto p = executeExpr(e1, poplar::INT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Add_half_const_lhs) {
+  auto e1 = popops::expr::Add(Const(0.f), _1);
+  auto p = executeExpr(e1, poplar::HALF, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Add_half_const_rhs) {
+  auto e1 = popops::expr::Add(_1, Const(0.f));
+  auto p = executeExpr(e1, poplar::HALF, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Sub_half_const_lhs) {
+  auto e1 = popops::expr::Sub(Const(0.f), _1);
+  auto p = executeExpr(e1, poplar::HALF, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Sub_half_const_rhs) {
+  auto e1 = popops::expr::Sub(_1, Const(0.f));
+  auto p = executeExpr(e1, poplar::HALF, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Mul_half_const_lhs) {
+  auto e1 = popops::expr::Mul(Const(1.f), _1);
+  auto p = executeExpr(e1, poplar::HALF, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Mul_half_const_rhs) {
+  auto e1 = popops::expr::Mul(_1, Const(1.f));
+  auto p = executeExpr(e1, poplar::HALF, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Div_half_const_rhs) {
+  auto e1 = popops::expr::Divide(_1, Const(1.f));
+  auto p = executeExpr(e1, poplar::HALF, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}

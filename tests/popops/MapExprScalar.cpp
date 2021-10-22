@@ -53,7 +53,7 @@ static unsigned numMapVerticesCreated(const Expr &expression,
 BOOST_AUTO_TEST_CASE(MapExprScalarFloatConsts) {
   const auto type = poplar::FLOAT;
   // These generate a map expression
-  BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(1.0f)), type), 1);
+  BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(0.0f)), type), 1);
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(0.5f)), type), 1);
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(-2.0f)), type), 1);
   // These do not
@@ -64,7 +64,6 @@ BOOST_AUTO_TEST_CASE(MapExprScalarFloatConsts) {
 BOOST_AUTO_TEST_CASE(MapExprScalarHalfConsts) {
   const auto type = poplar::HALF;
   // These generate a map expression
-  BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(1.0f)), type), 1);
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(0.5f)), type), 1);
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(-2.0f)), type), 1);
   // These do not
@@ -76,7 +75,6 @@ BOOST_AUTO_TEST_CASE(MapExprScalarUnsignedIntegerConsts) {
   const auto type = poplar::UNSIGNED_INT;
   // These generate a map expression
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(0u)), type), 1);
-  BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(1u)), type), 1);
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(2u)), type), 1);
   // These do not
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(4u)), type), 0);

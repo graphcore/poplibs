@@ -853,6 +853,7 @@ void parseOptions(int argc, char **argv, po::options_description &desc) {
 // a tensor on
 struct MappingDesc {
   bool isConst = false;
+  std::optional<float> constVal;
   unsigned tile;
   std::vector<size_t> slice;
 };
@@ -885,6 +886,19 @@ std::istream &operator>>(std::istream &in, MappingDesc &md) {
   if (c == 'c') {
     in >> c; // flush the peeked char
     md.isConst = true;
+
+    in.seekg(0, in.end);
+    int uiLength = in.tellg();
+    if (uiLength > 1) {
+      in.seekg(1, in.beg);
+      char delim = 0;
+      in >> delim;
+      if (delim == ':') {
+        float constVal = 0;
+        in >> constVal;
+        md.constVal = constVal;
+      }
+    }
   } else {
     in >> md.tile;
     in >> c;

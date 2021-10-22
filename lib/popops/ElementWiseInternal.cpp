@@ -169,7 +169,12 @@ inferType(const expr::Expr &expr, const std::vector<Type> &tTypes,
   } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
     auto opType = t->getOpType();
     if (opType == expr::TernaryOpType::SELECT) {
-      auto predType = inferType(t->getArg2(), tTypes, constTypes, unknown);
+      const auto *c = t->getArg2().getAs<expr::Const>();
+      auto predType = c ? c->getType()
+                        : inferType(t->getArg2(), tTypes, constTypes, unknown);
+      if (c)
+        constTypes[&t->getArg2()] = *predType;
+
       if (!predType || *predType != BOOL) {
         std::stringstream errStr;
         if (!predType) {
@@ -283,6 +288,151 @@ getConstType(const expr::Expr &expr, const std::vector<Type> &tTypes) {
   return constTypes;
 }
 
+// Return an optional constant value that is an identity for the given op. If
+// rhs is true, the constant is the right hand operand, otherwise it is the left
+// hand operand.
+static bool getBinaryOpIdentityValue(expr::BinaryOpType opType, double value,
+                                     bool rhs) {
+  if (value == 0 && (opType == expr::BinaryOpType::ADD ||
+                     (rhs && opType == expr::BinaryOpType::SUBTRACT))) {
+    return true;
+  } else if (value == 1 && (opType == expr::BinaryOpType::MULTIPLY ||
+                            (rhs && opType == expr::BinaryOpType::DIVIDE))) {
+    return true;
+  } else if (value == 0 && rhs &&
+             (opType == expr::BinaryOpType::SHIFT_LEFT ||
+              opType == expr::BinaryOpType::SHIFT_RIGHT)) {
+    return true;
+  }
+
+  return false;
+}
+
+static ExprAndType optimiseBinary(const expr::BinaryOp *b,
+                                  const std::vector<poplar::Type> &tTypes) {
+  auto infoLhs = optimise(b->getLHS(), tTypes);
+  auto infoRhs = optimise(b->getRHS(), tTypes);
+  const expr::Const *cLHS = b->getLHS().getAs<expr::Const>();
+  const expr::Const *cRHS = b->getRHS().getAs<expr::Const>();
+  const auto opType = b->getOpType();
+  if (opType == expr::BinaryOpType::POWER && cRHS) {
+    double value = cRHS->getDataAsDouble();
+    if (value == 0.5) {
+      return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
+                  expr::UnaryOpType::SQRT, *infoLhs.expression)),
+              infoLhs.type};
+    } else if (value == -0.5) {
+      return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
+                  expr::UnaryOpType::RSQRT, *infoLhs.expression)),
+              infoLhs.type};
+    } else if (value == 1) {
+      // This cast has the same source and destination types and should be
+      // a copy that gets elided.
+      return {std::unique_ptr<expr::Expr>(
+                  new expr::Cast(*infoLhs.expression, infoLhs.type)),
+              infoLhs.type};
+    } else if (value == -1) {
+      return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
+                  expr::UnaryOpType::INVERSE, *infoLhs.expression)),
+              infoLhs.type};
+    } else if (value == 2) {
+      return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
+                  expr::UnaryOpType::SQUARE, *infoLhs.expression)),
+              infoLhs.type};
+    }
+  } else if ((opType == expr::BinaryOpType::REMAINDER ||
+              opType == expr::BinaryOpType::DIVIDE) &&
+             cRHS) {
+    const auto rhsTraits = cRHS->getTypeTraits();
+    bool isLhsUnsignedAndIntegral = infoLhs.type == UNSIGNED_SHORT ||
+                                    infoLhs.type == UNSIGNED_INT ||
+                                    infoLhs.type == UNSIGNED_CHAR;
+    bool isRhsUnsignedAndIntegral = rhsTraits.isIntegral && !rhsTraits.isSigned;
+
+    if (isLhsUnsignedAndIntegral && isRhsUnsignedAndIntegral) {
+      // only allow types upto UNSIGED_INT as there are no codelets
+      // that support larger types
+      const unsigned value =
+          static_cast<unsigned>(cRHS->getDataForUnsignedIntegral());
+      if (value && !(value & (value - 1))) {
+        if (opType == expr::BinaryOpType::REMAINDER) {
+          logging::popops::debug(
+              "REMAINDER op optimised to an BITWISE_AND for type {} with "
+              "AND value {}",
+              infoLhs.type, value - 1);
+
+          return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
+                      expr::BinaryOpType::BITWISE_AND, *infoLhs.expression,
+                      expr::Const(value - 1))),
+                  infoLhs.type};
+
+        } else {
+          const unsigned log2Val = ceilLog2(value);
+          logging::popops::debug(
+              "DIVIDE op optimised to an SHR for type {} with shift "
+              "value {}",
+              infoLhs.type, log2Val);
+
+          return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
+                      expr::BinaryOpType::SHIFT_RIGHT, *infoLhs.expression,
+                      expr::Const(log2Val))),
+                  infoLhs.type};
+        }
+      }
+    }
+  }
+
+  const auto valAndExpr =
+      [&]() -> std::optional<std::pair<double, const ExprAndType *>> {
+    if (cRHS)
+      return std::make_pair(cRHS->getDataAsDouble(), &infoLhs);
+    else if (cLHS) {
+      return std::make_pair(cLHS->getDataAsDouble(), &infoRhs);
+    } else
+      return std::nullopt;
+  }();
+
+  if (const auto value = valAndExpr ? valAndExpr->first : 0;
+      valAndExpr && getBinaryOpIdentityValue(opType, value, cRHS)) {
+    // This cast has the same source and destination types and should be
+    // a copy that gets elided.
+    const auto &exprAndType = valAndExpr->second;
+    return {std::unique_ptr<expr::Expr>(
+                new expr::Cast(*exprAndType->expression, exprAndType->type)),
+            exprAndType->type};
+  }
+
+  auto argRhs = optimise(b->getRHS(), tTypes);
+  return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
+              b->getOpType(), *infoLhs.expression, *argRhs.expression)),
+          infoLhs.type};
+}
+
+static ExprAndType optimiseTernary(const expr::TernaryOp *t,
+                                   const std::vector<poplar::Type> &tTypes) {
+  auto arg0Info = optimise(t->getArg0(), tTypes);
+  auto arg1Info = optimise(t->getArg1(), tTypes);
+  auto arg2Info = optimise(t->getArg2(), tTypes);
+
+  const expr::Const *c = arg2Info.expression->getAs<expr::Const>();
+  if (c && t->getOpType() == expr::TernaryOpType::SELECT) {
+    if (c->getDataAsDouble() == 0) {
+      return {std::unique_ptr<expr::Expr>(
+                  new expr::Cast(*arg1Info.expression, arg1Info.type)),
+              arg0Info.type};
+    } else {
+      return {std::unique_ptr<expr::Expr>(
+                  new expr::Cast(*arg0Info.expression, arg0Info.type)),
+              arg0Info.type};
+    }
+  } else {
+    return {std::unique_ptr<expr::Expr>(new expr::TernaryOp(
+                t->getOpType(), *arg0Info.expression, *arg1Info.expression,
+                *arg2Info.expression)),
+            arg0Info.type};
+  }
+}
+
 ExprAndType optimise(const expr::Expr &expr,
                      const std::vector<poplar::Type> &tTypes) {
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
@@ -300,88 +450,9 @@ ExprAndType optimise(const expr::Expr &expr,
                 new expr::UnaryOp(u->getOpType(), *info.expression)),
             info.type};
   } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
-    const expr::Const *c = b->getRHS().getAs<expr::Const>();
-    auto infoLhs = optimise(b->getLHS(), tTypes);
-    const auto opType = b->getOpType();
-    if (opType == expr::BinaryOpType::POWER && c) {
-      double value = c->getDataAsDouble();
-      if (value == 0.5) {
-        return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
-                    expr::UnaryOpType::SQRT, *infoLhs.expression)),
-                infoLhs.type};
-      } else if (value == -0.5) {
-        return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
-                    expr::UnaryOpType::RSQRT, *infoLhs.expression)),
-                infoLhs.type};
-      } else if (value == 1) {
-        // This cast has the same source and destination types and should be
-        // a copy that gets elided.
-        return {std::unique_ptr<expr::Expr>(
-                    new expr::Cast(*infoLhs.expression, infoLhs.type)),
-                infoLhs.type};
-      } else if (value == -1) {
-        return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
-                    expr::UnaryOpType::INVERSE, *infoLhs.expression)),
-                infoLhs.type};
-      } else if (value == 2) {
-        return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
-                    expr::UnaryOpType::SQUARE, *infoLhs.expression)),
-                infoLhs.type};
-      }
-    } else if ((opType == expr::BinaryOpType::REMAINDER ||
-                opType == expr::BinaryOpType::DIVIDE) &&
-               c) {
-      const auto rhsTraits = c->getTypeTraits();
-      bool isLhsUnsignedAndIntegral = infoLhs.type == UNSIGNED_SHORT ||
-                                      infoLhs.type == UNSIGNED_INT ||
-                                      infoLhs.type == UNSIGNED_CHAR;
-      bool isRhsUnsignedAndIntegral =
-          rhsTraits.isIntegral && !rhsTraits.isSigned;
-
-      if (isLhsUnsignedAndIntegral && isRhsUnsignedAndIntegral) {
-        // only allow types upto UNSIGED_INT as there are no codelets
-        // that support larger types
-        const unsigned value =
-            static_cast<unsigned>(c->getDataForUnsignedIntegral());
-        if (value && !(value & (value - 1))) {
-          if (opType == expr::BinaryOpType::REMAINDER) {
-            logging::popops::debug(
-                "REMAINDER op optimised to an BITWISE_AND for type {} with "
-                "AND value {}",
-                infoLhs.type, value - 1);
-
-            return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
-                        expr::BinaryOpType::BITWISE_AND, *infoLhs.expression,
-                        expr::Const(value - 1))),
-                    infoLhs.type};
-
-          } else {
-            const unsigned log2Val = ceilLog2(value);
-            logging::popops::debug(
-                "DIVIDE op optimised to an SHR for type {} with shift "
-                "value {}",
-                infoLhs.type, log2Val);
-
-            return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
-                        expr::BinaryOpType::SHIFT_RIGHT, *infoLhs.expression,
-                        expr::Const(log2Val))),
-                    infoLhs.type};
-          }
-        }
-      }
-    }
-    auto argRhs = optimise(b->getRHS(), tTypes);
-    return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
-                b->getOpType(), *infoLhs.expression, *argRhs.expression)),
-            infoLhs.type};
+    return optimiseBinary(b, tTypes);
   } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
-    auto arg0Info = optimise(t->getArg0(), tTypes);
-    auto arg1Info = optimise(t->getArg1(), tTypes);
-    auto arg2Info = optimise(t->getArg2(), tTypes);
-    return {std::unique_ptr<expr::Expr>(new expr::TernaryOp(
-                t->getOpType(), *arg0Info.expression, *arg1Info.expression,
-                *arg2Info.expression)),
-            arg0Info.type};
+    return optimiseTernary(t, tTypes);
   } else {
     throw poputil::poplibs_error("Unsupported expression");
   }

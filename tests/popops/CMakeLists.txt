@@ -87,6 +87,15 @@ foreach(DATA_TYPE half float)
     VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
+add_multitarget_test(NAME BinaryOpConstInput
+  COMMAND BinaryOpTest
+  --ope=add
+  --data=float
+  --shape1={1}
+  --shape2={2}
+  --map1=c:0
+  --tiles=1)
+
 # Broadcast Optimise tests
 add_multi_target_test_executable(BroadcastOptimiseTest BroadcastOptimiseTest.cpp)
 
