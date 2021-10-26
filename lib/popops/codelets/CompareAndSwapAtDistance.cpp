@@ -127,10 +127,15 @@ public:
 };
 
 template class CompareAndSwapAtDistance<float>;
+template class CompareAndSwapAtDistance<unsigned>;
+template class CompareAndSwapAtDistance<int>;
 
 template <typename KeyType, typename ValueType>
 constexpr inline bool hasAssemblyVersionKeyVal() {
-  return std::is_same_v<KeyType, float> && std::is_same_v<ValueType, unsigned>;
+  return std::is_same_v<KeyType, float> &&
+         (std::is_same_v<ValueType, float> ||
+          std::is_same_v<ValueType, unsigned> ||
+          std::is_same_v<ValueType, int>);
 }
 
 template <typename KeyType, typename ValueType> struct KeyValImpl {
@@ -174,6 +179,10 @@ public:
   }
 };
 
+template class CompareAndSwapAtDistanceKeyVal<float, float>;
 template class CompareAndSwapAtDistanceKeyVal<float, unsigned>;
+template class CompareAndSwapAtDistanceKeyVal<float, int>;
+template class CompareAndSwapAtDistanceKeyVal<unsigned, float>;
+template class CompareAndSwapAtDistanceKeyVal<int, float>;
 
 } // end namespace popops

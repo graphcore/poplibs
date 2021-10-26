@@ -95,8 +95,8 @@ topKWithPermutation(Graph &graph, Sequence &prog, const Tensor &t,
                     const TopKParams &params,
                     const DebugContext &debugContext) {
   logging::popops::info(
-      "topKWithPermutation(shape={}, params={}, debugPath='{}')", t.shape(),
-      params, debugContext.getPathName());
+      "topKWithPermutation(shape={}, type={} params={}, debugPath='{}')",
+      t.shape(), t.elementType(), params, debugContext.getPathName());
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, params));
   const bool sorted = params.sortOrder != SortOrder::NONE;

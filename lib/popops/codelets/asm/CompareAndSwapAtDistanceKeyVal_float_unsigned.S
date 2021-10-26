@@ -6,7 +6,10 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define CODELET_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_unsigned_int
+#define COMPARE_AND_SWAP_KEY_FLOAT_SECTION .text.CompareAndSwapAtDistanceKeyVal_float
+#define COMPARE_AND_SWAP_VALUE_FLOAT_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_float
+#define COMPARE_AND_SWAP_VALUE_UNSIGNED_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_unsigned_int
+#define COMPARE_AND_SWAP_VALUE_INT_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_int
 
 #define STATE_OFFSET_keys 0
 #define STATE_OFFSET_values 4
@@ -14,12 +17,16 @@
 #define STATE_OFFSET_worklists_outer_count 12
 #define STATE_OFFSET_distanceToChangeOrder 16
 
-.section .text.CODELET_SYMBOL, "ax"
-DEF_STACK_USAGE 0 CODELET_SYMBOL
-.globl CODELET_SYMBOL, @function
+.section COMPARE_AND_SWAP_KEY_FLOAT_SECTION, "ax"
+DEF_STACK_USAGE 0 COMPARE_AND_SWAP_KEY_FLOAT_SECTION
+.globl COMPARE_AND_SWAP_VALUE_FLOAT_SYMBOL, @function
+.globl COMPARE_AND_SWAP_VALUE_UNSIGNED_SYMBOL, @function
+.globl COMPARE_AND_SWAP_VALUE_INT_SYMBOL, @function
 .align 8
 .worker
-CODELET_SYMBOL:
+COMPARE_AND_SWAP_VALUE_FLOAT_SYMBOL:
+COMPARE_AND_SWAP_VALUE_UNSIGNED_SYMBOL:
+COMPARE_AND_SWAP_VALUE_INT_SYMBOL:
 //=================
 #define w_id m0
 #define w_numWorkers m1

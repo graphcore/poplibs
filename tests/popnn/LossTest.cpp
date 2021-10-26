@@ -418,11 +418,12 @@ static bool maxMinArgMinMaxTest(bool max, const Type &inType,
   std::mt19937 randomEngine;
   boost::multi_array<double, 2> hostActivations(
       boost::extents[batchSize][numClasses]);
-  const bool isFpType = inType == HALF || inType == FLOAT;
+  auto rangeMax = (inType == HALF || inType == FLOAT)
+                      ? 1.0
+                      : std::numeric_limits<int>::max();
   const bool isInt = inType == INT;
   writeRandomValues(target, inType, hostActivations,
-                    isInt ? std::numeric_limits<int>::min() : 0.0,
-                    isFpType ? 1.0 : std::numeric_limits<int>::max(),
+                    isInt ? std::numeric_limits<int>::min() : 0.0, rangeMax,
                     randomEngine);
   copy(target, hostActivations, inType, rawHostActivations.get());
 
@@ -457,8 +458,13 @@ static bool maxMinArgMinMaxTest(bool max, const Type &inType,
       elementItr = std::min_element(hostActivations[b].begin(),
                                     hostActivations[b].end());
     }
-    matches = matches && std::fabs(static_cast<double>(*elementItr) -
-                                   valuesHost[b]) < 0.00001;
+    if (isInt) {
+      matches = matches && std::fabs(static_cast<double>(*elementItr) -
+                                     valuesHost[b]) == 0;
+    } else {
+      matches = matches && std::fabs(static_cast<double>(*elementItr) -
+                                     valuesHost[b]) < 0.00001;
+    }
     matches = matches && std::distance(hostActivations[b].begin(),
                                        elementItr) == indicesHost[b];
   }
