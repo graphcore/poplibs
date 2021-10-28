@@ -790,14 +790,16 @@ BOOST_AUTO_TEST_SUITE_END()
 
 void multislice(const std::vector<unsigned> &indicies,
                 const std::vector<std::size_t> &indiciesShape,
-                bool planAsEmbedding, bool dynamic = true) {
+                bool planAsEmbedding, bool dynamic = true,
+                bool createSliceableInputs = true,
+                unsigned E = 8, // unsliced dim
+                boost::optional<unsigned> dictSize = boost::none) {
   // This test should pass with large T - but graph construction becomes
   // slow (a couple of minutes for T=1024)
   assert(indiciesShape.size() == 2); // max 2 dims supported by this test
   assert(indicies.size() == indiciesShape[0] * indiciesShape[1]);
-  const auto T = 16;        // tiles
-  const auto D = 1501 * 10; // dictionary size
-  const auto E = 8;         // embedding size
+  const auto T = 16;                               // tiles
+  const auto D = dictSize ? *dictSize : 1501 * 10; // dictionary size
   auto device = createTestDevice(TEST_TARGET, 1, T);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -809,9 +811,18 @@ void multislice(const std::vector<unsigned> &indicies,
   if (planAsEmbedding) {
     plan = embedding::plan(graph, FLOAT, D, E, {indicies.size()}, sliceOptions);
   }
+
   // Map the tensor carefully to ensure balance and minimise edge pointers
-  auto t = createSliceableTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes,
-                                 plan, sliceOptions, "t");
+  Tensor t;
+  if (!createSliceableInputs && planAsEmbedding) {
+    t = graph.addVariable(FLOAT, {E, D}, "t");
+    mapTensorLinearly(graph, t, 0, 4);
+    t = t.transpose();
+  } else {
+    t = createSliceableTensor(graph, FLOAT, {D, E}, sliceDims, sliceSizes, plan,
+                              sliceOptions, "t");
+  }
+
   Sequence prog;
 
   auto offsetInit =
@@ -905,6 +916,12 @@ BOOST_AUTO_TEST_CASE(MultiSlice10_AsEmbedding) {
              /* dynamic = */ false);
 }
 
+// test the fast vertex
+BOOST_AUTO_TEST_CASE(MultiSlicePlannedRegroup) {
+  multislice({2, 1, 2, 1, 80, 70, 60, 50}, {8, 1}, true,
+             /* dynamic = */ true, false, 16, 256);
+}
+
 // test heuristic which checks for mapping of a slice.
 // if this doesn't kick in we will run out of memory on some
 // tiles hence we check for an error constructing the engine.
@@ -992,7 +1009,8 @@ void multiupdate(const std::vector<uint32_t> &indicies,
                  const Type &dType = HALF, float updateScaling = 1.0,
                  const unsigned E = 8, // unsliced dim
                  boost::optional<unsigned> dictSize = boost::none,
-                 bool useFloatScalingForHalf = false, bool dynamic = true) {
+                 bool useFloatScalingForHalf = false, bool dynamic = true,
+                 bool createSliceableInputs = true) {
   const bool updateOp = op != boost::none;
   const bool opUsesScale = updateOp && *op == popops::Operation::ADD;
 
@@ -1031,10 +1049,21 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   }
 
   // Map the tensor carefully to ensure balance and minimise edge pointers
-  auto t = createSliceableTensor(graph, dType, {D, E}, sliceDims, sliceSizes,
-                                 plan, sliceOptions, "t");
-  auto s = createSliceTensor(graph, dType, {D, E}, sliceDims, sliceSizes,
-                             indicies.size(), plan, sliceOptions, "s");
+  Tensor t, s;
+  if (!createSliceableInputs && planAsEmbedding) {
+    t = graph.addVariable(dType, {E, D}, "t");
+    mapTensorLinearly(graph, t, 0, 4);
+    t = t.transpose();
+    s = graph.addVariable(dType, {E, 1, indicies.size()}, "s");
+    mapTensorLinearly(graph, s, 0, 4);
+    s = s.dimShuffle({2, 1, 0});
+  } else {
+    t = createSliceableTensor(graph, dType, {D, E}, sliceDims, sliceSizes, plan,
+                              sliceOptions, "t");
+    s = createSliceTensor(graph, dType, {D, E}, sliceDims, sliceSizes,
+                          indicies.size(), plan, sliceOptions, "s");
+  }
+
   Sequence prog;
   auto offsetInit =
       graph.addConstant(UNSIGNED_INT, indiciesShape, indicies.data(), "offset");
@@ -1233,6 +1262,12 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAdd5Plan) {
 // test the inlined multiupdate
 BOOST_AUTO_TEST_CASE(MultiUpdateAdd2Plan) {
   multiupdate({100, 0}, {2, 1}, true, popops::Operation::ADD, HALF, 0.5);
+}
+
+BOOST_AUTO_TEST_CASE(MultiUpdateAddRegroup) {
+
+  multiupdate({100, 0, 50, 0, 100, 1, 2, 4}, {8, 1}, true,
+              popops::Operation::ADD, HALF, 1.0, 16, 128, false, true, false);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

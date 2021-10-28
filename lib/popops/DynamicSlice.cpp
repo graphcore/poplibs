@@ -26,6 +26,7 @@
 #include "popops/Loop.hpp"
 #include "popops/OperationDefUtil.hpp"
 #include "popops/PerformanceEstimation.hpp"
+#include "popops/Rearrange.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "popops/Zero.hpp"
@@ -2400,6 +2401,81 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
   }
 }
 
+// regroup base if rearrangement is required, base
+static std::pair<boost::optional<Tensor>, Tensor>
+regroupBaseTensor(Graph &graph, std::vector<Copy> &preCopies, ComputeSet &cs,
+                  const Tensor &t, const std::vector<std::size_t> &sliceDims,
+                  const std::vector<std::size_t> &sliceSizes,
+                  const SlicePlan &plan, const OptionFlags &options,
+                  const DebugNameAndId &dnai) {
+  auto base =
+      createSliceableTensor(graph, t.elementType(), t.shape(), sliceDims,
+                            sliceSizes, plan, options, {dnai, "base"});
+
+  boost::optional<Tensor> tRegrouped;
+  // explicity check if mapping is different if copy merging in poplar
+  // cannot/does not elide copies.
+  const auto tFlat = t.flatten();
+  const auto baseFlat = base.flatten();
+  const auto tMap = graph.getTileMapping(tFlat);
+  const auto baseMap = graph.getTileMapping(baseFlat);
+  auto hasSameMapping = [&]() {
+    for (unsigned tile = 0; tile != tMap.size(); ++tile) {
+      const auto tContiguousRegions =
+          graph.getSortedContiguousRegions(tFlat, tMap[tile]);
+      const auto baseContiguousRegions =
+          graph.getSortedContiguousRegions(baseFlat, baseMap[tile]);
+      if (tContiguousRegions != baseContiguousRegions) {
+        return false;
+      }
+    }
+    return true;
+  }();
+
+  if (!hasSameMapping) {
+    tRegrouped = rearrange::regroupIfBeneficial(graph, t, base, preCopies, cs,
+                                                {dnai, "PreRegroupBase"});
+  }
+  return std::make_pair(tRegrouped, base);
+}
+
+static Tensor regroupSliceTensor(Graph &graph, std::vector<Copy> &preCopies,
+                                 ComputeSet &cs, const Tensor &t,
+                                 const Tensor &s, unsigned numIndices,
+                                 const std::vector<std::size_t> &sliceDims,
+                                 const std::vector<std::size_t> &sliceSizes,
+                                 const SlicePlan &plan,
+                                 const OptionFlags &options,
+                                 const DebugNameAndId &dnai) {
+  auto slice =
+      createSliceTensor(graph, s.elementType(), t.shape(), sliceDims,
+                        sliceSizes, numIndices, plan, options, {dnai, "slice"});
+
+  auto sRearranged = rearrange::regroupIfBeneficial(
+      graph, s, slice, preCopies, cs, {dnai, "PreRegroupSlice"});
+  return sRearranged;
+}
+
+// Add programs for pre-regrouping
+static void addPreRegroupProgs(Sequence &prog,
+                               const std::vector<Copy> &preCopies,
+                               const ComputeSet &cs,
+                               boost::optional<Tensor> tRegroupedPre,
+                               Tensor base, const DebugNameAndId &dnai) {
+  // add pre-transpose copies
+  for (auto &copy : preCopies) {
+    prog.add(copy);
+  }
+
+  // Add transpose compute set
+  prog.add(Execute(cs));
+
+  // copy to temporary tensor if input base mapping requires a copy
+  if (tRegroupedPre) {
+    prog.add(Copy(*tRegroupedPre, base, false, {dnai}));
+  }
+}
+
 Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                   const std::vector<std::size_t> &dims,
                   const std::vector<std::size_t> &sizes, Sequence &prog,
@@ -2442,8 +2518,18 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                         plan.getImpl().isNull);
 
   if (!plan.getImpl().isNull) {
-    multiSlicePlanned(graph, t, offset, sMulti, dims, sizes, prog,
-                      plan.getImpl(), options, {di, dName});
+    std::vector<Copy> preCopies;
+    auto transposeCS = graph.addComputeSet({di, dName + "/preRegroup"});
+
+    auto [tRegroupedPre, base] =
+        regroupBaseTensor(graph, preCopies, transposeCS, t, dims, sizes, plan,
+                          options, {di, dName});
+
+    addPreRegroupProgs(prog, preCopies, transposeCS, tRegroupedPre, base,
+                       {di, dName});
+
+    multiSlicePlanned(graph, tRegroupedPre ? base : t, offset, sMulti, dims,
+                      sizes, prog, plan.getImpl(), options, {di, dName});
     di.addOutput(sMulti);
     return sMulti;
   }
@@ -2584,9 +2670,47 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
                                sMulti, scale, dims[0], boost::none, options,
                                {dnai, multiUpdateName});
   } else {
+    // The input base tensor may not have a layout that is good for efficient
+    // copy/exchange to the tensor layout required by the multi-update
+    // operation. We therefore have to do the following steps
+    //  - regroup input if possible
+    //  - transpose
+    //  - explicit copy to a tensor created for the multi-update
+    // The multi-update operation is then run on a copy followed by a copy
+    // back to the original input tensor. This final copy may require a
+    // regrouping.
+    //
+    // We detect the case when the input base tensor has exactly the same
+    // layout as a tensor input to the multi-update in case poplar copy
+    // merging doesn't/cannot elide copies.
+
+    auto transposeCS =
+        graph.addComputeSet({dnai, multiUpdateName + "/preRegroup"});
+    std::vector<Copy> preTranspose;
+
+    auto [tRegroupedPre, base] =
+        regroupBaseTensor(graph, preTranspose, transposeCS, t, dims, sizes,
+                          plan, options, {dnai, multiUpdateName});
+    auto sRearranged = regroupSliceTensor(
+        graph, preTranspose, transposeCS, t, sMulti, offset.dim(0), dims, sizes,
+        plan, options, {dnai, multiUpdateName});
+
+    addPreRegroupProgs(prog, preTranspose, transposeCS, tRegroupedPre, base,
+                       {dnai, multiUpdateName});
+
     generatePlannedMultiUpdateOp(vertexName, plan.getImpl(), graph, prog,
-                                 offset, t, sMulti, scale, dims[0], op, options,
+                                 offset, tRegroupedPre ? base : t, sRearranged,
+                                 scale, dims[0], op, options,
                                  {dnai, multiUpdateName});
+
+    // we need to keep the input tensor untouched, hence we explicitly copy the
+    // temporary base if created
+    if (tRegroupedPre) {
+      const auto str = multiUpdateName + "/PostRegroupBase";
+      auto tRegroupedPost =
+          rearrange::regroupIfBeneficial(graph, base, t, prog, {dnai, str});
+      prog.add(Copy(tRegroupedPost, t, false, {dnai, str}));
+    }
   }
 }
 
