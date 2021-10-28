@@ -93,6 +93,7 @@ struct ReductionTypes {
 unsigned getStartTile(const std::vector<std::size_t> &inShape,
                       const std::vector<std::size_t> &outShape,
                       const ReduceParams &params, const unsigned stageNumber,
+                      const unsigned reductionId,
                       const unsigned tilesInTarget) {
   // starting seed: 2^32/phi, where phi is the golden ratio.
   std::size_t seed = 0x9e3779b9UL;
@@ -103,6 +104,7 @@ unsigned getStartTile(const std::vector<std::size_t> &inShape,
   boost::hash_combine(seed, static_cast<T>(params.op));
   boost::hash_combine(seed, params.update);
   boost::hash_combine(seed, params.useScale);
+  boost::hash_combine(seed, reductionId);
   boost::hash_combine(seed, stageNumber);
 
   return seed % tilesInTarget;
@@ -125,7 +127,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
                       const ReductionTypes &reductionTypes,
                       std::vector<ComputeSet> &css,
                       ResultTensors &reductionResultTensors,
-                      const DebugNameAndId &dnai) {
+                      unsigned reductionId, const DebugNameAndId &dnai) {
   logging::popops::debug("Reducing first dimension");
   // We only accept reductions over 2D tensors.
   if (in_.rank() != 2) {
@@ -330,7 +332,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
     constexpr unsigned loopExit = ~0u;
     for (unsigned i = 0; i != loopExit; ++i) {
       const auto startTile = getStartTile(in.shape(), outputShape, params, i,
-                                          target.getNumTiles());
+                                          reductionId, target.getNumTiles());
       // At each point, see if it is worth doing another reduction stage or if
       // we should just do the final reduction, and if so should we do
       // it spread over the tiles int he graph or at the destination?
@@ -632,8 +634,8 @@ static void reduceWithOutputCss(
     Graph &graph, const Tensor &in, boost::optional<Tensor> &out,
     const poplar::Type &outputType, const std::vector<std::size_t> &dims,
     ReduceParams params, std::vector<ComputeSet> &css,
-    ResultTensors &reductionResultTensors, const DebugNameAndId &dnai,
-    const poplar::OptionFlags &options) {
+    ResultTensors &reductionResultTensors, unsigned reductionId,
+    const DebugNameAndId &dnai, const poplar::OptionFlags &options) {
 
   const auto getShape = [](const Tensor &t) {
     std::stringstream ss;
@@ -755,7 +757,8 @@ static void reduceWithOutputCss(
 
   // Do the 2D->1D reduction.
   reduceFirstDim2D(graph, input2D, out, outputShape, outputType, params,
-                   reductionTypes, css, reductionResultTensors, {dnai});
+                   reductionTypes, css, reductionResultTensors, reductionId,
+                   {dnai});
   if (!withOutput) {
     logging::popops::debug("  out({}){}: {}", out.get().elementType(),
                            out.get().shape(), out.get().getDebugStr());
@@ -785,7 +788,7 @@ static void reduceWithOutputProg(Graph &graph, const Tensor &in,
     std::vector<ComputeSet> css;
     ResultTensors reductionResultTensors;
     reduceWithOutputCss(graph, in, out, outputType, dims, params, css,
-                        reductionResultTensors, dnai, options);
+                        reductionResultTensors, 0, dnai, options);
     convertCssToProg(css, prog, reductionResultTensors, dnai);
   }
 }
@@ -802,7 +805,7 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
   ResultTensors r;
   boost::optional<Tensor> out = out_;
   reduceWithOutputCss(graph, in, out, out_.elementType(), dims, params, css, r,
-                      {di}, options);
+                      0, {di}, options);
 }
 
 void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
@@ -862,7 +865,7 @@ void reduceMany(poplar::Graph &graph,
 
     if (!canReduceWithMap(op.in, op.dims))
       reduceWithOutputCss(graph, op.in, optionalOut, outputType, op.dims,
-                          op.params, css, reductionResultTensors,
+                          op.params, css, reductionResultTensors, i,
                           std::move(dnai), options);
     else {
       // Convert all the compute sets we've created so far into programs,
@@ -925,7 +928,7 @@ Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
                                  "call reduceWithOutput() instead.");
   ResultTensors r;
   boost::optional<Tensor> out;
-  reduceWithOutputCss(graph, in, out, outType, dims, params, css, r, {di},
+  reduceWithOutputCss(graph, in, out, outType, dims, params, css, r, 0, {di},
                       options);
   auto output = out.get();
   di.addOutput(output);
