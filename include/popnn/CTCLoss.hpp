@@ -29,6 +29,11 @@ namespace ctc {
  *
  *      The maximum proportion of available memory on each tile that this
  *      layer should consume temporarily during the course of the operation.
+ *      \sa [Optimising Temporary Memory Usage for
+ *      Convolutions and Matmuls on the IPU]
+ *      (https://docs.graphcore.ai/projects/available-memory/)
+ *       technical note for some practical examples of using
+ *       `availableMemoryProportion`
  *
  * \param graph            The graph the operation will be added to
  * \param inType           The data type of the probability data input

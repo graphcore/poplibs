@@ -466,19 +466,25 @@ namespace embedding {
  *                "add" for multiUpdateAdd
  *                "max" for multiUpdateMax
  *
- *     * `availableMemoryProportion` Positive decimal
+ *     * `availableMemoryProportion` Decimal between 0 and 1 (inclusive) [=0.6]
  *
  *       If set, gives the proportion of tile memory made available for
- * temporary variables (variables that become live and die during the operation)
- *       for this operation. If not set, the operation has the freedom to
- *       use unlimited temporary memory.
+ *       temporary variables (variables that become live and die during the
+ *       operation) for this operation. If not set, the operation has the
+ *       freedom to use unlimited temporary memory.
+ *      \sa createWeights()
+ *      \sa [Optimising Temporary Memory Usage for
+ *      Convolutions and Matmuls on the IPU]
+ *      (https://docs.graphcore.ai/projects/available-memory/)
+ *       technical note for some practical examples of using
+ *       `availableMemoryProportion`
  *
  *     * `indicesDistribution` (uniform, onePoint) [=uniform]
  *
  *       A description of the statistical distribution of the indices that will
  *       be sliced/updated over the input size (\p numEntries) of the
  *       operation. This is used to when estimating the runtime of the
- *       multiSlice and multiUpdate* operation.
+ *       multiSlice and multiUpdate operation.
  *
  *       * `uniform`   Indices are assumed to be uniformly distributed over
  *                     the input size of the embedding.

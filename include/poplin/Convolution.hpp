@@ -85,18 +85,36 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *
  *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive) [=0.6]
  *
- *      The proportion of tile memory to be made available as temporary memory
- *      for this convolution. This constraint will be ignored (with a warning)
- *      if a conforming plan cannot be found and then the planner will replan
- *      for the smallest memory usage possible. Less temporary memory will
- *      generally result in a convolution that takes more cycles to complete.
- *      However, because always live memory (like code and vertex state) is not
- *      tracked by the planner, a convolution using less temporary memory may
- *      use more memory overall due to an increase of always live memory.
+ *      The amount of memory allocated for use for temporary data whilst the
+ *      operation is executing (for example, for intermediate calculated values
+ *      or temporary values passed between tiles on the IPU). The value is
+ *      specified as a proportion of available memory on the IPU. So, for
+ *      example, a value of 0.1 will constrain the library to use 10% of the
+ *      total memory for temporary data.
  *
- *      **Note**: We recommend using a value greater than 0.05. Below this value
- *      the volume of always live memory quickly increases and can result in
- *      out of memory errors.
+ *      The library will try and constrain the use of temporary memory to below
+ *      this value. An operation that has more temporary memory
+ *      available to use will run in the same or fewer cycles.
+ *
+ *      For a specific operation, the minimum amount of temporary memory the
+ *      library is able to use may be more than the amount specified by this
+ *      option. In this case, if `POPLIBS_LOG_LEVEL=WARN` or
+ *      `POPLIBS_POPLIN_LOG_LEVEL=WARN`, a warning
+ *      message will be output, and the amount specified by this option is
+ *      ignored.
+ *
+ *      Note: if this value is set to less than 5% of memory (so, a value less
+ *      than 0.05) then it is often the case that the library will need to
+ *      create a large amount of code and data structures to keep the temporary
+ *      memory low which could have a permanent memory overhead larger than the
+ *      saving of temporary memory. You should take great care when setting a
+ *      value this low.
+ *
+ *      \sa [Optimising Temporary Memory Usage for
+ *      Convolutions and Matmuls on the IPU]
+ *      (https://docs.graphcore.ai/projects/available-memory/)
+ *       technical note for some practical examples of using
+ *       `availableMemoryProportion`
  *
  *    * `partialsType` (half, float) [=float]
  *
