@@ -9,6 +9,7 @@
 #include <fstream>
 #include <numeric>
 
+#include <boost/functional/hash.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
@@ -595,7 +596,8 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                           Type outputType, ReduceParams params,
                           Type inVertexType, ComputeSetList &css,
                           ResultTensors &reductionResultTensors,
-                          const Tensor &in, const DebugNameAndId &dnai) {
+                          const Tensor &in, unsigned reductionId,
+                          const DebugNameAndId &dnai) {
   logging::popops::debug("DebugStr: {}", dnai.getPathName());
 
   const auto numOutElements = in.dim(1);
@@ -663,7 +665,10 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
   if (mappingComplete) {
     if (!shouldReduceAtDestination(target, ipIn, mapping, inVertexType,
                                    out.numElements())) {
-      auto offset = chooseMappingOffset(target.getNumTiles(), out.shape());
+      std::size_t seed = 0x9e3779b9UL;
+      boost::hash_combine(seed, reductionId);
+      auto offset =
+          chooseMappingOffset(target.getNumTiles(), out.shape(), seed);
       mapping = poputil::calcLinearTileMapping(
           graph, out.shape(), minElementsPerTile,
           target.getVectorWidth(inVertexType), offset);

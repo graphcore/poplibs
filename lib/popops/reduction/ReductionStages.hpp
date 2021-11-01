@@ -139,6 +139,9 @@ IntermediatePartials intermediateToIntermediate(
 ///                 added as a Sequence of Executes afterwards.
 /// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
+/// \param in        Input tensor
+/// \param reductionId Identifier which identifies a reduction when
+///                    multiple reductions are performed using reduceMany
 /// \param dnai
 ///
 void intermediateToOutput(poplar::Graph &graph,
@@ -149,7 +152,7 @@ void intermediateToOutput(poplar::Graph &graph,
                           poplar::Type outputType, ReduceParams params,
                           poplar::Type inVertexType, ComputeSetList &css,
                           ResultTensors &reductionResultTensors,
-                          const poplar::Tensor &in,
+                          const poplar::Tensor &in, unsigned reductionId,
                           const poplar::DebugNameAndId &dnai);
 
 unsigned findGrainSizeForOp(poplar::Graph &graph, poplar::Type partialType,

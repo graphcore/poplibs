@@ -362,7 +362,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
         logging::popops::debug("Creating final reduction stage");
         intermediateToOutput(graph, ip, outCopy, originalOutput, outputShape,
                              outputType, params, reductionStageInputType,
-                             csList, reductionResultTensors, in,
+                             csList, reductionResultTensors, in, reductionId,
                              {dnai, "ReduceFinalStage"});
 
         restoreOutputShape(outCopy);
