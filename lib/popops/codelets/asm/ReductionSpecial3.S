@@ -33,51 +33,45 @@
 #include "MathConstants.S"
 #include "poplar/StackSizeDefs.hpp"
 
-// Vertex state - the STRIDED_REDUCEvertex omits the OUTER_STRIDE
-// (OUTER_STRIDE_OFFSET) parameter as it is redundant when NUM_OUTER_STRIDES
-// indicates.  This means that the scale is at a different offset to the
-// STRIDED_REDUCE_OUTER version
-
-
+// Vertex state
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-#define OUT_OFFSET           0
-#define IN_OFFSET            2
-#define NUM_OUTPUTS_OFFSET   4
-#define NUM_PARTIALS_OFFSET  6
-#define PARTIALS_WIDTH_OFFSET 8
-#define NUM_OUTER_STRIDES_OFFSET 10
-#define OUTER_STRIDE_OFFSET  12
-#define SCALE_OFFSET_OUTER   14
-#define SCALE_OFFSET   12   // No outer stride
+#define OUT_OFFSET                  0
+#define IN_OFFSET                   2
+#define COUNTS_AND_STRIDES_OFFSET   4
+#define SCALE_OFFSET                8   
 #else
-#define OUT_OFFSET           0
-#define IN_OFFSET            4
-#define NUM_OUTPUTS_OFFSET   8
-#define NUM_PARTIALS_OFFSET  10
-#define PARTIALS_WIDTH_OFFSET 12
-#define NUM_OUTER_STRIDES_OFFSET 14
-#define OUTER_STRIDE_OFFSET  16
-#define SCALE_OFFSET_OUTER   20
-#define SCALE_OFFSET         16   // No outer stride
+#define OUT_OFFSET                  0
+#define IN_OFFSET                   4
+#define COUNTS_AND_STRIDES_OFFSET   8
+#define SCALE_OFFSET                12   
 #endif
 
+// Offsets into the COUNTS_AND_STRIDES tensor
+#define NUM_OUTPUTS_OFFSET   0
+#define NUM_PARTIALS_OFFSET  2
+#define PARTIALS_WIDTH_OFFSET 4
+// The STRIDED_REDUCE vertex omits the NUM_OUTER_STRIDES and OUTER_STRIDE parameters.
+#define NUM_OUTER_STRIDES_OFFSET 6
+#define OUTER_STRIDE_OFFSET  8
+
 #define PTR32_SHL_BITS   2
-#define PTR64_SHL_BITS   3
 
 // Defines when using the worker's pre-allocated scratch area
 #define SCRATCH_RESULT_UPPER 0
 
 // Register definitions
-#define SCRATCH        m5
-#define STRIDE         m7
+#define NUM_OUTER_STRIDES_CONST m2
+#define COUNTS_AND_STRIDES      m4
+#define SCRATCH                 m5
+#define STRIDE                  m7
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-#define BASE            m8
+#define BASE                    m8
 #else
-#define BASE            mzero
+#define BASE                    mzero
 #endif
-#define OUT_COUNT      m9
-#define NUM_OUTER_STRIDES m10
-#define OUTER_STRIDE m11
+#define OUT_COUNT               m9
+#define NUM_OUTER_STRIDES       m10
+#define OUTER_STRIDE            m11
 
 #define RESULT_LO       a2
 #define RESULT_HI       a3
@@ -166,8 +160,9 @@ DEF_STACK_USAGE 0 .text.REDUCE_FLOAT(ScaledReduceFloatCommon,STRIDED___REDUCE)
 .section .text.REDUCE_FLOAT(Reduce,STRIDED___REDUCE), "ax"
 .align 4
 REDUCE_FLOAT(Reduce,STRIDED___REDUCE):
-REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER):
-setzi $BASE, TMEM_REGION0_BASE_ADDR
+#ifdef VECTOR_AVAIL_SCALED_PTR32
+  setzi      $BASE, TMEM_REGION0_BASE_ADDR
+#endif
 .ifc "\OP_IMPL","log_add"
   // No scale implemented by adding 0 in log-mul op
   {bri         StridedReduceFloatCommon\@
@@ -177,6 +172,25 @@ setzi $BASE, TMEM_REGION0_BASE_ADDR
     or         $SCALE, $azero, FLOAT_1_0}
 .endif
 .size REDUCE_FLOAT(Reduce,STRIDED___REDUCE), .-REDUCE_FLOAT(Reduce,STRIDED___REDUCE)
+
+.section .text.REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER), "ax"
+.align 4
+REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER):
+#ifdef VECTOR_AVAIL_SCALED_PTR32
+  setzi      $BASE, TMEM_REGION0_BASE_ADDR
+#endif
+  ld32       $COUNTS_AND_STRIDES, $mvertex_base, $mzero, COUNTS_AND_STRIDES_OFFSET/4
+  ldz16      $OUTER_STRIDE, $COUNTS_AND_STRIDES, $mzero, OUTER_STRIDE_OFFSET/2
+  ldz16      $NUM_OUTER_STRIDES_CONST, $COUNTS_AND_STRIDES, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+.ifc "\OP_IMPL","log_add"
+  // No scale implemented by adding 0 in log-mul op
+  {bri         StridedReduceFloatCommonOuter\@
+    or         $SCALE, $azero, $azero}
+.else
+  {bri         StridedReduceFloatCommonOuter\@
+    or         $SCALE, $azero, FLOAT_1_0}
+.endif
+.size REDUCE_FLOAT(Reduce,STRIDED___REDUCE), .-REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER)
 
 .section .text.REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE), "ax"
 .align 4
@@ -189,7 +203,7 @@ REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE):
   ld32       $SCALE, $BASE, $mzero, $SCRATCH
 #else
   ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/4 // load scale
-  ld32      $SCALE, $mzero, $SCRATCH, 0
+  ld32       $SCALE, $mzero, $SCRATCH, 0
 #endif
   bri        StridedReduceFloatCommon\@
 .size REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE), .-REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE)
@@ -201,21 +215,26 @@ REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER):
   // As scale uses a SCALED_PTR32 there is no downside to having partials also
   // use SCALED_PTR32 as we can load and use the same base address
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-  ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET_OUTER/2 // load scale
+  ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/2 // load scale
   setzi      $BASE, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $BASE, $mzero, $SCRATCH
 #else
-  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET_OUTER/4 // load scale
-  ld32      $SCALE, $mzero, $SCRATCH, 0
+  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/4 // load scale
+  ld32       $SCALE, $mzero, $SCRATCH, 0
 #endif
-  ldz16 $OUTER_STRIDE, $mvertex_base, $mzero, OUTER_STRIDE_OFFSET/2
-  bri StridedReduceFloatCommon\@
+  ld32       $COUNTS_AND_STRIDES, $mvertex_base, $mzero, COUNTS_AND_STRIDES_OFFSET/4
+  ldz16      $OUTER_STRIDE, $COUNTS_AND_STRIDES, $mzero, OUTER_STRIDE_OFFSET/2
+  ldz16      $NUM_OUTER_STRIDES_CONST, $COUNTS_AND_STRIDES, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+  bri        StridedReduceFloatCommonOuter\@
 .size REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER), .-REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER)
 
 .section .text.REDUCE_FLOAT(ScaledReduceFloatCommon,STRIDED___REDUCE), "ax"
   .align 8
   nop
 StridedReduceFloatCommon\@:
+  ld32 $COUNTS_AND_STRIDES, $mvertex_base, $mzero, COUNTS_AND_STRIDES_OFFSET/4
+  mov  $NUM_OUTER_STRIDES_CONST, $mzero
+StridedReduceFloatCommonOuter\@:
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   ldz16 $m0, $mvertex_base, $mzero, OUT_OFFSET/2 // load output pointer
   ldz16 $m1, $mvertex_base, $mzero, IN_OFFSET/2  // load partials pointer
@@ -228,12 +247,12 @@ StridedReduceFloatCommon\@:
   ld32 $m1, $mvertex_base, $mzero, IN_OFFSET/4  // load partials pointer
 #endif
   // Ensure that the inputs being accumulated (that weren't loaded) are legal
-  {ldz16 $OUT_COUNT, $mvertex_base, $mzero, NUM_OUTPUTS_OFFSET/2 // load numOutputs
+  {ldz16 $OUT_COUNT, $COUNTS_AND_STRIDES, $mzero, NUM_OUTPUTS_OFFSET/2 // load numOutputs
    mov $RESULT, $azeros}
-  {ldz16 $m3, $mvertex_base, $mzero, NUM_PARTIALS_OFFSET/2 // load numPartials
+  {ldz16 $m3, $COUNTS_AND_STRIDES, $mzero, NUM_PARTIALS_OFFSET/2 // load numPartials
   setzi $ZAACC, ZAACC_BITMASK}
 
-  ldz16 $STRIDE, $mvertex_base, $mzero, PARTIALS_WIDTH_OFFSET/2
+  ldz16 $STRIDE, $COUNTS_AND_STRIDES, $mzero, PARTIALS_WIDTH_OFFSET/2
   {mov $m6, $m1 // Load working partials ptr
    uput  $FP_CLR, $ZAACC}
 
@@ -251,7 +270,7 @@ float_loop\@:
 
 .ifc "\OP_IMPL","acc"
   // Reading the second set of accumulators clears them for the next pass
- {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+ {mov $NUM_OUTER_STRIDES, $NUM_OUTER_STRIDES_CONST
   f32v2gina $RESULT, $azeros, 0}
 float_outer_stride_loop\@:
   // First input is unused, so zero it
@@ -274,7 +293,7 @@ float_outer_stride_loop\@:
 
 .ifc "\OP_IMPL","max_min"
 // Const value used to load the initial result
- {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+ {mov $NUM_OUTER_STRIDES, $NUM_OUTER_STRIDES_CONST
   or $RESULT_HI, $azero, \CONST_VALUE}
   {add $m1, $m1, 8 // advance to first partial for the next output
    mov $RESULT_LO,$RESULT_HI}
@@ -299,7 +318,7 @@ float_outer_stride_loop\@:
   // in a register.
   {ld64step $a0:1, $BASE, $m6+=, $STRIDE
    or  $CONST, $azero, \CONST_VALUE}
-  {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+  {mov $NUM_OUTER_STRIDES, $NUM_OUTER_STRIDES_CONST
     mov $a4:5, $azeros}
    // Null $a4:5 so the 1st add produces the initial value
   {bri 1f
@@ -463,8 +482,9 @@ DEF_STACK_USAGE 0 .text.REDUCE_HALF(ScaledReduceHalfCommon,STRIDED___REDUCE)
 .section .text.REDUCE_HALF(Reduce,STRIDED___REDUCE), "ax"
 .align 4
 REDUCE_HALF(Reduce,STRIDED___REDUCE):
-REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER):
-  setzi $BASE, TMEM_REGION0_BASE_ADDR
+#ifdef VECTOR_AVAIL_SCALED_PTR32
+  setzi      $BASE, TMEM_REGION0_BASE_ADDR
+#endif
 .ifc "\OP_IMPL","log_add"
   // No scale implemented by adding 0 in log-mul op
   { bri        ScaledReduceHalfCommon\@
@@ -474,6 +494,25 @@ REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER):
     or         $SCALE, $azero, FLOAT_1_0}
 .endif
 .size REDUCE_HALF(Reduce,STRIDED___REDUCE), .-REDUCE_HALF(Reduce,STRIDED___REDUCE)
+
+.section .text.REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER), "ax"
+.align 4
+REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER):
+#ifdef VECTOR_AVAIL_SCALED_PTR32
+  setzi      $BASE, TMEM_REGION0_BASE_ADDR
+#endif
+  ld32       $COUNTS_AND_STRIDES, $mvertex_base, $mzero, COUNTS_AND_STRIDES_OFFSET/4
+  ldz16      $OUTER_STRIDE, $COUNTS_AND_STRIDES, $mzero, OUTER_STRIDE_OFFSET/2
+  ldz16      $NUM_OUTER_STRIDES_CONST, $COUNTS_AND_STRIDES, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+.ifc "\OP_IMPL","log_add"
+  // No scale implemented by adding 0 in log-mul op
+  { bri        ScaledReduceHalfCommonOuter\@
+    or         $SCALE, $azero, $azero}
+.else
+  { bri        ScaledReduceHalfCommonOuter\@
+    or         $SCALE, $azero, FLOAT_1_0}
+.endif
+.size REDUCE_HALF(Reduce,STRIDED___REDUCE), .-REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER)
 
 
 .section .text.REDUCE_HALF(ScaledReduce,STRIDED___REDUCE), "ax"
@@ -495,40 +534,44 @@ REDUCE_HALF(ScaledReduce,STRIDED___REDUCE):
 .align 4
 REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER):
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-  ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET_OUTER/2 // load scale
+  ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/2 // load scale
   setzi      $BASE, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $BASE, $mzero, $SCRATCH
 #else
-  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET_OUTER/4 // load scale
+  ld32       $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/4 // load scale
   ld32       $SCALE, $mzero, $SCRATCH, 0
 #endif
-  ldz16      $OUTER_STRIDE, $mvertex_base, $mzero, OUTER_STRIDE_OFFSET/2
-  bri        ScaledReduceHalfCommon\@
+  ld32       $COUNTS_AND_STRIDES, $mvertex_base, $mzero, COUNTS_AND_STRIDES_OFFSET/4
+  ldz16      $OUTER_STRIDE, $COUNTS_AND_STRIDES, $mzero, OUTER_STRIDE_OFFSET/2
+  ldz16      $NUM_OUTER_STRIDES_CONST, $COUNTS_AND_STRIDES, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+  bri        ScaledReduceHalfCommonOuter\@
 .size REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER), .-REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER)
 
 
 .section .text.REDUCE_HALF(ScaledReduceHalfCommon,STRIDED___REDUCE), "ax"
 .align 8
 ScaledReduceHalfCommon\@:
+  ld32       $COUNTS_AND_STRIDES, $mvertex_base, $mzero, COUNTS_AND_STRIDES_OFFSET/4
+  mov        $NUM_OUTER_STRIDES_CONST, $mzero
+ScaledReduceHalfCommonOuter\@:
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   ldz16 $m0, $mvertex_base, $mzero, OUT_OFFSET/2 // load output pointer
   ldz16 $m1, $mvertex_base, $mzero, IN_OFFSET/2 // load partials pointer
-  ldz16 $OUT_COUNT, $mvertex_base, $mzero, NUM_OUTPUTS_OFFSET/2  // load numOutputs
   // keep $m0 and $m1 as byte offsets, using $BASE to hold memory base for
   // offset addressing below
-  {shl $m0, $m0, 2
-   setzi $ZAACC, ZAACC_BITMASK}
+  shl $m0, $m0, 2
   shl $m1, $m1, 2
 #else
   ld32 $m0, $mvertex_base, $mzero, OUT_OFFSET/4 // load output pointer
   ld32 $m1, $mvertex_base, $mzero, IN_OFFSET/4 // load partials pointer
-  {ldz16 $OUT_COUNT, $mvertex_base, $mzero, NUM_OUTPUTS_OFFSET/2  // load numOutputs
-  setzi $ZAACC, ZAACC_BITMASK}
 #endif
+  {ldz16 $OUT_COUNT, $COUNTS_AND_STRIDES, $mzero, NUM_OUTPUTS_OFFSET/2  
+  setzi $ZAACC, ZAACC_BITMASK}
+
   // Ensure that the inputs being accumulated (that weren't loaded) are legal.
-  {ldz16 $m3, $mvertex_base, $mzero, NUM_PARTIALS_OFFSET/2 // load numPartials
+  {ldz16 $m3, $COUNTS_AND_STRIDES, $mzero, NUM_PARTIALS_OFFSET/2 // load numPartials
   mov $RESULT, $azeros}
-  {ldz16 $STRIDE, $mvertex_base, $mzero, PARTIALS_WIDTH_OFFSET/2
+  {ldz16 $STRIDE, $COUNTS_AND_STRIDES, $mzero, PARTIALS_WIDTH_OFFSET/2
    setzi  $CONST,  \CONST_VALUE}
   {mov $m6, $m1 // Load working pointer
   uput  $FP_CLR, $ZAACC}
@@ -547,7 +590,7 @@ half_loop\@:
 
 .ifc "\OP_IMPL","acc"
   // Reading the second set of accumulators clears them for the next pass
-  {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+  {mov $NUM_OUTER_STRIDES, $NUM_OUTER_STRIDES_CONST
    f32v2gina $RESULT, $azeros, 0}
 half_outer_stride_loop\@:
   // First input is unused, so zero it
@@ -580,7 +623,7 @@ half_outer_stride_loop\@:
 
 .ifc "\OP_IMPL","max_min"
   // Const value used to load the initial result
-  {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+  {mov $NUM_OUTER_STRIDES, $NUM_OUTER_STRIDES_CONST
    sort4x16lo $RESULT_LO, $CONST, $CONST}
   {add $m1, $m1, 8 // advance to first partial for the next output
    sort4x16lo $RESULT_HI, $CONST, $CONST}
@@ -620,7 +663,7 @@ half_outer_stride_loop\@:
 .ifc "\OP_IMPL","log_add"
   // For log-add the constant value is just needed as a constant for calculation
   // in a register.
-  {ldz16 $NUM_OUTER_STRIDES, $mvertex_base, $mzero, NUM_OUTER_STRIDES_OFFSET/2
+  {mov $NUM_OUTER_STRIDES, $NUM_OUTER_STRIDES_CONST
    sort4x16lo $RESULT_LO, $CONST, $CONST}
   // Null $a4:5 so the 1st add produces the initial value
   {ld64step $a0:1, $BASE, $m6+=, $STRIDE

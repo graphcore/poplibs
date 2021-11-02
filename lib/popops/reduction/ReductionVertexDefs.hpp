@@ -15,5 +15,14 @@ enum class ReductionSpecialisation {
   ALL_REGIONS_CONTINUOUS
 };
 
+// For use with STRIDED_REDUCE
+template <typename T> struct CountsAndStrides {
+  T numOutputsM1;
+  T numPartialsM1;
+  T partialsWidth;
+  T numOuterStridesM1;
+  T outerStride;
+};
+
 } // end namespace popops
 #endif // popops_reduction_ReductionVertexDefs_hpp_

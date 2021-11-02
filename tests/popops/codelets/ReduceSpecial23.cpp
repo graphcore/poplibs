@@ -3,6 +3,7 @@
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
 // codelets
+#include "../../lib/popops/reduction/ReductionConnection.hpp"
 #include "../../lib/popops/reduction/ReductionVertex.hpp"
 #include "poplar/Target.hpp"
 #include "poplibs_test/Check.hpp"
@@ -24,16 +25,15 @@ using namespace poplibs_test::reduce;
 using namespace poplibs_support;
 
 const OptionFlags options;
-
-static bool doTest(const DeviceType &deviceType, const Type &partialsType,
-                   const Type &outType, const unsigned outerDim,
-                   const unsigned innerDim,
-                   const boost::optional<unsigned> numPartials,
-                   const boost::optional<unsigned> outerStride,
-                   const boost::optional<unsigned> numOuterStrides,
-                   const unsigned outputDim, const popops::Operation op,
-                   const float scale, bool isUpdate,
-                   ReductionSpecialisation specialisation) {
+template <typename CountsAndStridesType>
+static bool
+doTest(const DeviceType &deviceType, const Type &partialsType,
+       const Type &outType, const unsigned outerDim, const unsigned innerDim,
+       const boost::optional<unsigned> numPartials,
+       const boost::optional<unsigned> outerStride,
+       const boost::optional<unsigned> numOuterStrides,
+       const unsigned outputDim, const popops::Operation op, const float scale,
+       bool isUpdate, ReductionSpecialisation specialisation) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
   Graph graph(target);
@@ -123,16 +123,18 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
     graph.setInitialValue(v1["numPartials"], innerDim * outerDim);
   } else {
-    graph.setInitialValue(v1["numOutputsM1"],
-                          outputDim / partialsGrainSize - 1);
-    graph.setInitialValue(v1["numPartialsM1"], numPartials.get() - 1);
-    graph.setInitialValue(v1["partialsWidth"], innerDim / partialsGrainSize);
-    graph.setInitialValue(v1["numOuterStridesM1"], numOuterStrides.get() - 1);
-    if (numOuterStrides.get() - 1 != 0) {
-      graph.setInitialValue(v1["outerStride"], (outerStride.get() + 1) *
-                                                   innerDim /
-                                                   partialsGrainSize);
-    }
+    CountsAndStrides<CountsAndStridesType> cAndS;
+    cAndS.numOutputsM1 = outputDim / partialsGrainSize - 1;
+    cAndS.numPartialsM1 = numPartials.get() - 1;
+    cAndS.partialsWidth = innerDim / partialsGrainSize;
+    cAndS.numOuterStridesM1 = numOuterStrides.get() - 1;
+    cAndS.outerStride = (outerStride.get() + 1) * innerDim / partialsGrainSize;
+    const auto countsAndStrides = graph.addConstant<CountsAndStridesType>(
+        equivalent_device_type<CountsAndStridesType>().value,
+        {countsAndStridesAsVector(cAndS).size()},
+        countsAndStridesAsVector(cAndS));
+    graph.setTileMapping(countsAndStrides, 0);
+    graph.connect(v1["countsAndStrides"], countsAndStrides);
   }
   auto scaleTensor = graph.addVariable(FLOAT, {});
   graph.setTileMapping(scaleTensor, 0);
@@ -365,9 +367,17 @@ int main(int argc, char **argv) {
   const auto specialisationType =
       specialisation == 2 ? ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT
                           : ReductionSpecialisation::STRIDED_REDUCE;
-  if (!doTest(deviceType, partialsType, outType, outerDim, innerDim,
-              numPartials, outerStride, numOuterStrides, outputDim, op, scale,
-              isUpdate, specialisationType))
-    return 1;
+  if (!(isSimulator(deviceType) || isHw(deviceType))) {
+    if (!doTest<unsigned>(deviceType, partialsType, outType, outerDim, innerDim,
+                          numPartials, outerStride, numOuterStrides, outputDim,
+                          op, scale, isUpdate, specialisationType))
+      return 1;
+  } else {
+    if (!doTest<unsigned short>(deviceType, partialsType, outType, outerDim,
+                                innerDim, numPartials, outerStride,
+                                numOuterStrides, outputDim, op, scale, isUpdate,
+                                specialisationType))
+      return 1;
+  }
   return 0;
 }
