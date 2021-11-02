@@ -1072,13 +1072,14 @@ static void generatePlannedMultiUpdateOp(
           graph.setTileMapping(tileBase, tile);
         } else {
           // Check that this vertex is mapped to the tile where the data lives
-          if (graph.getTileMapping(tileBase)[tile].empty() ||
-              graph.getTileMapping(tileBase)[tile].begin()->size() !=
-                  numBaseIndices * numOffsets) {
-            throw poputil::poplibs_error(
-                __func__ +
-                std::string(": Base tensor mapping wrong for tile ") +
-                std::to_string(tile));
+          if (logging::popops::shouldLog(logging::Level::Warn)) {
+            const auto &m = graph.getTileMapping(tileBase);
+            if (m[tile].empty() ||
+                m[tile].begin()->size() != numBaseIndices * numOffsets) {
+              logging::popops::warn("Unexpected base tensor mapping for tile "
+                                    "{} in planned multiUpdate op",
+                                    tile);
+            }
           }
         }
         generateMultiSliceVerticesOnTile(graph, csU, tile, tileBase, indices,
