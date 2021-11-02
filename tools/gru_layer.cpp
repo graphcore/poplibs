@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
   bool withRealTimeSteps = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   unsigned runs = 1;
-  std::string profileDir = ".";
+  boost::optional<std::string> profileDir;
   double availableMemoryProportion;
   ShapeOption<std::size_t> variableTimeStepsOption;
   ShapeOption<std::string> cellOrder;
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
        deviceTypeHelp)
     ("profile", "Output profiling report")
     ("profile-dir",
-      po::value<std::string>(&profileDir)->default_value(profileDir),
+      po::value<decltype(profileDir)>(&profileDir)->default_value(boost::none),
       "The directory to output profiling report")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
@@ -560,11 +560,11 @@ int main(int argc, char **argv) {
   }
 
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile") || vm.count("profile-dir")) {
+  if (vm.count("profile") || profileDir) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (vm.count("profile-dir")) {
+    if (profileDir) {
       engineOptions.set("autoReport.all", "true");
-      engineOptions.set("autoReport.directory", profileDir);
+      engineOptions.set("autoReport.directory", *profileDir);
     }
   }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
