@@ -15,3 +15,4 @@
 #define HALF_1_0_BROADCAST 0x3c003c00
 
 #define FLOAT_1_0 0x3f800000
+#define FLOAT_NEG_1_0 0xbf800000

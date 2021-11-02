@@ -35,6 +35,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 // Offsets into vertex base
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -50,8 +51,6 @@
     #define NUM_PARTIALS_OFFSET 10
     #define SCALE_OFFSET        12
 #endif
-
-#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 #define PARTIAL_PTR         m0
 #define OUTPUT_PTR          m1
@@ -85,20 +84,6 @@
 #define M_SCALED_VERTEX_HALF_NAME __runCodelet_popops__ScaledContinuousReduce___popops__\REDUCTION_NAME\()_half_\OUT_TYPE\()_\UPDATE
 #define M_SCALED_VERTEX_FLOAT_NAME __runCodelet_popops__ScaledContinuousReduce___popops__\REDUCTION_NAME\()_float_\OUT_TYPE\()_\UPDATE
 
-.macro DEFINE_ENTRY_POINT VERTEX_NAME ALIGNMENT OPTIONAL_NOP
-    DEF_STACK_USAGE  0  \VERTEX_NAME
-    .section .text.\VERTEX_NAME, "ax"
-    .global \VERTEX_NAME
-    .type \VERTEX_NAME, @function
-    .align \ALIGNMENT
-\VERTEX_NAME\()_START:
-\OPTIONAL_NOP
-\VERTEX_NAME:
-.endm
-
-.macro FN_SIZE VERTEX_NAME
-    .size \VERTEX_NAME, . - \VERTEX_NAME\()_START
-.endm
 
 // ===========================================================================
 // ===========================================================================
@@ -173,9 +158,9 @@ __retrieve_outputs_end\@:
 
 .macro SCALED_VERSION_HALF_PARTIALS REDUCTION_NAME OP OUT_TYPE UPDATE
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-    DEFINE_ENTRY_POINT M_SCALED_VERTEX_HALF_NAME 8 nop
+    FN_WORKER_ENTRY_POINT M_SCALED_VERTEX_HALF_NAME 8 nop
 #else
-    DEFINE_ENTRY_POINT M_SCALED_VERTEX_HALF_NAME 8
+    FN_WORKER_ENTRY_POINT M_SCALED_VERTEX_HALF_NAME 8
 #endif
 
     ld32            $MSCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/4
@@ -294,9 +279,9 @@ _output_loop_end\@:
 .macro SCALED_VERSION_FLOAT_PARTIALS REDUCTION_NAME OP OUT_TYPE UPDATE
 
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-    DEFINE_ENTRY_POINT M_SCALED_VERTEX_FLOAT_NAME 8 nop
+    FN_WORKER_ENTRY_POINT M_SCALED_VERTEX_FLOAT_NAME 8 nop
 #else
-    DEFINE_ENTRY_POINT M_SCALED_VERTEX_FLOAT_NAME 8
+    FN_WORKER_ENTRY_POINT M_SCALED_VERTEX_FLOAT_NAME 8
 #endif
 
     ld32            $MSCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/4
@@ -384,7 +369,7 @@ _output_loop_end\@:
 
 // Jumps to the Scaled equivalent after setting scale = 1
 .macro NON_SCALED_VERSION REDUCTION_NAME OP PARTIALS_TYPE OUT_TYPE UPDATE
-    DEFINE_ENTRY_POINT M_VERTEX_NAME 4
+    FN_WORKER_ENTRY_POINT M_VERTEX_NAME 
 
     {bri __non_scaled_entry_\REDUCTION_NAME\()_\PARTIALS_TYPE\()_\OUT_TYPE\()_\UPDATE\()
      f32exp      $SCALE, $azero} // using e^0 = 1.0

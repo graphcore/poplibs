@@ -40,6 +40,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 #include "ScaledAddSupervisor.inc"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS __runCodelet_popops__aXPlusbYSupervisor___half_float_false_false
 #define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXPlusbYSupervisor___half_float_false_true
@@ -240,19 +241,6 @@ scaleA & scaleB values are contained in a 1-value Tensor:
 #endif
 
 
-// All the gubbins required to declare a label as a function
-.macro ENTRY_POINT  FUNC_NAME
-  .globl \FUNC_NAME
-  .type \FUNC_NAME, @function
-  .section .text.\FUNC_NAME
-  \FUNC_NAME:
-.endm
-
-// This macro associates to the symbol 'label' a size = (Current_loc - label)
-.macro FN_SIZE label
-.size \label, . - \label
-.endm
-
 // --------------------------------------------------------------------
 //                        Supervisor code
 // --------------------------------------------------------------------
@@ -291,13 +279,11 @@ scaleA & scaleB values are contained in a 1-value Tensor:
 
 #define mscratch m8
 
-.supervisor
 
 // ---------------------------------------------------------------
 // Supervisor entry point (constant scale values).
 // Load parameters and jumps to the worker partitioning function
-DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
-ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
+FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST 4 "" STACK_SIZE
  #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
   ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_CONST_OFFSET/4
@@ -344,14 +330,12 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 // aXMinusbY Supervisor entry point (tensor scale values) with and without
 // memory constraints. These just negate the scaleB value and then lets the
 // aXPlusbY Supervisor do the rest.
-DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
-ENTRY_POINT  VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+FN_SUPERVISOR_ENTRY_POINT VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR 4 "" STACK_SIZE
   setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
   bri     1f
 FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
 
-DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS
-ENTRY_POINT  VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS
+FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS 4 "" STACK_SIZE
   setzi   $sv_memConstraints, 0
 1:
   AXBY_MIXED_SUPERVISOR_SETUP
@@ -383,14 +367,12 @@ FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS
 // memory constraints.
 // Load parameters and jumps to the worker partitioning function.
 // Instructions are moved around and nops added to avoid pipeline stalls
-DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
-ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR 4 "" STACK_SIZE
   setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
   bri     1f
 FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
 
-DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
-ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
+FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS 4 "" STACK_SIZE
   setzi   $sv_memConstraints, 0
 1:
   AXBY_MIXED_SUPERVISOR_SETUP
@@ -452,7 +434,6 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
 //                           Worker code
 // --------------------------------------------------------------------
 
-.worker
 
 // ****************************************************************************
 // A macro to check if two FLOAT values, when converted to HALF, are both
@@ -515,7 +496,7 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
 // The return values ($m0 and $a2 from the macro) are stored in the vertex
 // state itself.
 // ****************************************************************************
-.section .text.checkAccuracyWhenCastFloatV2ToHalfWorker
+FN_SECTION checkAccuracyWhenCastFloatV2ToHalfWorker
 checkAccuracyWhenCastFloatV2ToHalfWorker:
   ld32   $value1, $mvertex_base, $mzero, CHECK_ACCURACY_SCALE_A_OFFSET/4
   ld32   $value2, $mvertex_base, $mzero, CHECK_ACCURACY_SCALE_B_OFFSET/4
@@ -527,6 +508,7 @@ checkAccuracyWhenCastFloatV2ToHalfWorker:
   st32   $bothAccurate, $mvertex_base, $mzero, CHECK_ACCURACY_RESULT_OFFSET/4
   st32   $value1_2_half, $mvertex_base, $mzero, CHECK_ACCURACY_SCALE_AB_OFFSET/4
   exitz  $mzero
+FN_SIZE checkAccuracyWhenCastFloatV2ToHalfWorker
 
 #undef value1
 #undef value2
@@ -585,6 +567,8 @@ checkAccuracyWhenCastFloatV2ToHalfWorker:
 #define remM1       m6 // workers [0..'remM1'] will process 2 extra halves
 #define final       m7 // workers 'remM1' will 'final' (0 or 1) extra half
 #define mscratch    m8
+
+FN_SECTION aXplusbY_half_float_worker
 aXplusbY_half_float_worker:
   // Get the worker ID (0..5)
   get $workerIdM1, $WSR
@@ -620,7 +604,7 @@ aXplusbY_half_float_worker:
 
   call          $lr, aXplusbY_half_float_kernel
   exitz         $mzero
-
+FN_SIZE aXplusbY_half_float_worker
 
 // ---------------------------------------------------------------
 // Common worker code used by both AXPlusBy2D and AXMinusBy2D. The optional
@@ -671,8 +655,7 @@ aXplusbY_half_float_worker:
 
 // ---------------------------------------------------------------
 // 2D scaled minus (worker) entry point: tensor scale values, WITH memory constraints
-DEF_STACK_USAGE  0  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
-ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
+FN_WORKER_ENTRY_POINT   VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
   setzi         $memConstraints, 1
   bri           1f
 FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
@@ -689,8 +672,7 @@ FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
 
 // ---------------------------------------------------------------
 // 2D scaled minus (worker) entry point: tensor scale values, NO memory constraints
-DEF_STACK_USAGE  0  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
-ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
+FN_WORKER_ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
   setzi   $memConstraints,0
 1:
   VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON INVERT_SCALE_B
@@ -701,16 +683,14 @@ FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
 // 2D (worker) entry point: tensor scale values, WITH memory constraints
 // Note that memory constraints are not relevant to the code in this file
 // but need to be passed on if the code in ScaledAdd2D_half.S is called
-DEF_STACK_USAGE  0  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
-ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
+FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
   setzi         $memConstraints, 1
   bri           1f
 FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
 
 // ---------------------------------------------------------------
 // 2D (worker) entry point: tensor scale values, NO memory constraints
-DEF_STACK_USAGE  0  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
-ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
+FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
   setzi         $memConstraints,0
 1:
   VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON
@@ -719,9 +699,8 @@ FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST
 
 // ---------------------------------------------------------------
 // 2D (worker) entry point (constant scale values).
-DEF_STACK_USAGE  0  VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
-ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
-.align 4
+FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
+
   // The 'a' scale will go in the special $TAS register, for the f32v2axpy instr
   ld32          $a, $mvertex_base, $mzero, VERTEX_2D_SCALE_A_OFFSET/4
   // The 'b' scale.
@@ -765,7 +744,6 @@ ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
 
 FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
 
-.align 8
 // *********************************************************************
 // Main worker computation code for all the vertices. Processes one
 // vector of data, with successive processed elements being either
@@ -785,7 +763,7 @@ FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
 //   32 bit (x2) multiply:   Y' <- b*Y
 //   32 bit (x2) axpy:       a*X  + Y'
 // *********************************************************************
-//nop
+FN_SECTION aXplusbY_half_float_kernel 8
 aXplusbY_half_float_kernel:
   mov           $XptrStore, $Xptr  // A second 'X' pointer for stores
   // $remainder is 1 if there is a lone last value to process ($size is odd)
@@ -928,6 +906,6 @@ aXplusbY_half_float_kernel:
   st32step      $result, $mzero, $XptrStore +=, $stride // store X result
   bri           .Lprocess_zero_one
 
-
+FN_SIZE aXplusbY_half_float_kernel
 
 #endif  // IPU

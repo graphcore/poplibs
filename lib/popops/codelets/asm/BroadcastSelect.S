@@ -2,6 +2,7 @@
 #ifdef __IPU__
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 // This file contains the assembly for 'BroadcastSelect' and
 // 'BroadcastSelectorSelect[InPlace]' codelets (for all input types)
@@ -29,31 +30,6 @@
 #define BCAST_SELECTOR_SELECT_INPLACE_INT __runCodelet_popops__BroadcastSelectorSelectInPlace___int
 #define BCAST_SELECTOR_SELECT_INPLACE_UNSIGNED_INT __runCodelet_popops__BroadcastSelectorSelectInPlace___unsigned_int
 #define BCAST_SELECTOR_SELECT_INPLACE_BOOL __runCodelet_popops__BroadcastSelectorSelectInPlace___bool
-
-
-.macro EXPORT_FN label
-.globl \label
-.type \label, @function
-.endm
-
-EXPORT_FN BCAST_SELECT_INT
-EXPORT_FN BCAST_SELECT_UNSIGNED_INT
-EXPORT_FN BCAST_SELECT_FLOAT
-EXPORT_FN BCAST_SELECT_HALF
-EXPORT_FN BCAST_SELECT_BOOL
-
-EXPORT_FN BCAST_SELECTOR_SELECT_HALF
-EXPORT_FN BCAST_SELECTOR_SELECT_FLOAT
-EXPORT_FN BCAST_SELECTOR_SELECT_INT
-EXPORT_FN BCAST_SELECTOR_SELECT_UNSIGNED_INT
-EXPORT_FN BCAST_SELECTOR_SELECT_BOOL
-
-EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_HALF
-EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_FLOAT
-EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_INT
-EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_UNSIGNED_INT
-EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_BOOL
-
 
 
 // Offset in the vertex data is the same for all types of codelets, except
@@ -88,13 +64,9 @@ EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_BOOL
 #define selector        m9
 #define value           m10
 
-DEF_STACK_USAGE 0 .text.BCAST_SELECT_FLOAT
-.section .text.BCAST_SELECT_FLOAT
-.align 8
-
-BCAST_SELECT_INT:
-BCAST_SELECT_UNSIGNED_INT:
-BCAST_SELECT_FLOAT:
+FN_WORKER_ENTRY_POINT BCAST_SELECT_FLOAT 8
+FN_EXPORT BCAST_SELECT_INT
+FN_EXPORT BCAST_SELECT_UNSIGNED_INT
   // Load the vertex state. Bail out straight away if no rows to do
   ld32 $nRows, $mvertex_base, $mzero, VERTEX_OUT_ROWS_OFFSET
   brz $nRows, word_end
@@ -173,11 +145,7 @@ word_end:
 // Offsets in scratch area for saving values (not enough registers!)
 #define TRAIL_SAVE  0
 
-DEF_STACK_USAGE 0 BCAST_SELECT_HALF
-.section .text.BCAST_SELECT_HALF
-.align 8
-
-BCAST_SELECT_HALF:
+FN_WORKER_ENTRY_POINT BCAST_SELECT_HALF 8
   // load vertex state. Bail out straight away if no rows to do
   ld32 $nRows, $mvertex_base, $mzero, VERTEX_OUT_ROWS_OFFSET
   brz $nRows, half_end
@@ -317,12 +285,7 @@ half_end:
 #define LEFTOVER_SAVE       1
 #define TRAIL_SAVE          2
 
-DEF_STACK_USAGE 0 BCAST_SELECT_BOOL
-.section .text.BCAST_SELECT_BOOL
-.align 8
-nop
-
-BCAST_SELECT_BOOL:
+FN_WORKER_ENTRY_POINT BCAST_SELECT_BOOL 8 nop
   // load vertex state. Bail out straight away if no rows to do
   ld32 $nRows, $mvertex_base, $mzero, VERTEX_OUT_ROWS_OFFSET
   brz $nRows, bool_end
@@ -533,9 +496,6 @@ bool_end:
 // memcpy which might not have the best performance for small sizes but
 // gives very small code size here and has very good performance for aligned
 // vectors/big sizes.
-DEF_STACK_SIZE_OWN 0 .text.BCAST_SELECTOR_SELECT_FLOAT
-.section .text.BCAST_SELECTOR_SELECT_FLOAT
-.align 8
 
 // These three registers are as requested by _Longmemcpy_entry
 #define out_row         m1
@@ -549,15 +509,17 @@ DEF_STACK_SIZE_OWN 0 .text.BCAST_SELECTOR_SELECT_FLOAT
 #define out             m9
 
 // ---- InPlace entry points
-BCAST_SELECTOR_SELECT_INPLACE_FLOAT:
-BCAST_SELECTOR_SELECT_INPLACE_INT:
-BCAST_SELECTOR_SELECT_INPLACE_UNSIGNED_INT:
+DEF_STACK_SIZE_OWN 0 .text.BCAST_SELECTOR_SELECT_INPLACE_FLOAT
+
+FN_WORKER_ENTRY_POINT BCAST_SELECTOR_SELECT_INPLACE_FLOAT 8 "" NONE
+FN_EXPORT BCAST_SELECTOR_SELECT_INPLACE_INT
+FN_EXPORT BCAST_SELECTOR_SELECT_INPLACE_UNSIGNED_INT
   setzi  $BYTES_PER_WORD, 4
   bri    1f
-BCAST_SELECTOR_SELECT_INPLACE_BOOL:
+FN_EXPORT BCAST_SELECTOR_SELECT_INPLACE_BOOL
   setzi  $BYTES_PER_WORD, 1
   bri    1f
-BCAST_SELECTOR_SELECT_INPLACE_HALF:
+FN_EXPORT BCAST_SELECTOR_SELECT_INPLACE_HALF
   setzi  $BYTES_PER_WORD, 2
 1:
   // If the selector is TRUE, nothing to do ('in1Out' stays the same) ...
@@ -571,15 +533,15 @@ BCAST_SELECTOR_SELECT_INPLACE_HALF:
   bri 4f
 
 // --- Non-inplace entry points.
-BCAST_SELECTOR_SELECT_FLOAT:
-BCAST_SELECTOR_SELECT_INT:
-BCAST_SELECTOR_SELECT_UNSIGNED_INT:
+FN_EXPORT BCAST_SELECTOR_SELECT_FLOAT
+FN_EXPORT BCAST_SELECTOR_SELECT_INT
+FN_EXPORT BCAST_SELECTOR_SELECT_UNSIGNED_INT
   setzi  $BYTES_PER_WORD, 4
   bri    2f
-BCAST_SELECTOR_SELECT_BOOL:
+FN_EXPORT BCAST_SELECTOR_SELECT_BOOL
   setzi  $BYTES_PER_WORD, 1
   bri    2f
-BCAST_SELECTOR_SELECT_HALF:
+FN_EXPORT BCAST_SELECTOR_SELECT_HALF
   setzi  $BYTES_PER_WORD, 2
 2:
   // Read the base 'in' pointer from 'in1' or 'in2', based on the selector 'in3'

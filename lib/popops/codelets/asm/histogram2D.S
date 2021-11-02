@@ -21,6 +21,8 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "MathConstants.S"
+#include "CommonPoplibsMacros.h.S"
 #include "histogramCommon.S"
 
 // vertex state, all offsets are 8-bit
@@ -65,16 +67,13 @@
 // Naming / name mangling
 #define MANGLE_STR(SUFFIX) __runCodelet_popops__Histogram2D___##SUFFIX
 
-// Constants
-#define SHORT_SPAN_COUNT_BITS 12
-#define SHORT_SPAN_PTR_MASK 0x000fffff
 //******************************************************************************
 .macro LOAD_VERTEX_STATE
   // Load and unpack 1st level of 2D vector pointer
   ld32 $dataVectPtrConst, $mzero, $mvertex_base, VERTEX_DATA_SPAN_OFFSET/4
-  shr $dataVectCountConst, $dataVectPtrConst, (32-SHORT_SPAN_COUNT_BITS)
+  shr $dataVectCountConst, $dataVectPtrConst, SHORT_SPAN_PTR_SIZE
   sub $dataVectCountConst, $dataVectCountConst, 1
-  ldconst $ptrMask, SHORT_SPAN_PTR_MASK
+  setzi $ptrMask, SHORT_SPAN_PTR_MASK
   // Initialise the previous sum to zero
   {and $dataVectPtrConst, $dataVectPtrConst, $ptrMask
    mov $previous, $azero}
@@ -99,14 +98,7 @@
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM_HALF IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(half_\IS_ABS)
-.section .text.MANGLE_STR(half_\IS_ABS)
-.global MANGLE_STR(half_\IS_ABS)
-.type MANGLE_STR(half_\IS_ABS), @function
-.align 8
-.worker
-
-MANGLE_STR(half_\IS_ABS):
+FN_WORKER_ENTRY_POINT MANGLE_STR(half_\IS_ABS) 8
   LOAD_VERTEX_STATE
   // Setup working pointer, clear accumulators. (In the loop, reading the
   // accumulators clears them for the next pass)
@@ -117,7 +109,7 @@ MANGLE_STR(half_\IS_ABS):
 
   // Setup a broadcast constant == {1.0h, 1.0h, 1.0h, 1.0h}
   {ldz16 $limCount, $mzero, $mvertex_base, VERTEX_HISTOGRAM_COUNT_OFFSET/2
-   setzi $one0, HALF_ONE}
+   setzi $one0, HALF_1_0}
   {add $limCount, $limCount, -2
    sort4x16lo $one0, $one0, $one0}
   // load the first limit, used as an upper limit
@@ -127,7 +119,7 @@ MANGLE_STR(half_\IS_ABS):
 limit_loop\@:
 data_loop\@:
   ld32step $dataPtr, $mzero, $dataVectPtr+=, 1
-  shr $dataCount, $dataPtr, (32-SHORT_SPAN_COUNT_BITS)
+  shr $dataCount, $dataPtr, SHORT_SPAN_PTR_SIZE
   and $dataPtr, $dataPtr, $ptrMask
 
   // Deal with misaligned 0, 1, 2 elements - will be gathered in $a6:7
@@ -222,7 +214,7 @@ data_loop_end\@:
 
   bri MANGLE_STR(top_entry)
 
-.size MANGLE_STR(half_\IS_ABS), . -MANGLE_STR(half_\IS_ABS)
+FN_SIZE MANGLE_STR(half_\IS_ABS)
 .endm
 
 //******************************************************************************
@@ -230,19 +222,13 @@ data_loop_end\@:
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM_FLOAT IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(float_\IS_ABS)
-.section .text.MANGLE_STR(float_\IS_ABS)
-.global MANGLE_STR(float_\IS_ABS)
-.type MANGLE_STR(float_\IS_ABS), @function
-.align 8
-.worker
+FN_WORKER_ENTRY_POINT MANGLE_STR(float_\IS_ABS) 8
 
-MANGLE_STR(float_\IS_ABS):
   LOAD_VERTEX_STATE
 
   // Setup a broadcast constant == {1.0f, 1.0f}
   {ldz16 $limCount, $mzero, $mvertex_base, VERTEX_HISTOGRAM_COUNT_OFFSET/2
-   or $one0, $azero, FLOAT_ONE}
+   or $one0, $azero, FLOAT_1_0}
   {add $limCount, $limCount, -2
    mov $one1, $one0}
 
@@ -257,7 +243,7 @@ limit_loop\@:
 
 data_loop\@:
   ld32step $dataPtr, $mzero, $dataVectPtr+=, 1
-  shr $dataCount, $dataPtr, (32-SHORT_SPAN_COUNT_BITS)
+  shr $dataCount, $dataPtr, SHORT_SPAN_PTR_SIZE
   and $dataPtr, $dataPtr, $ptrMask
 
   // Misaligned 1st element - will be in $a0 if processed
@@ -314,7 +300,7 @@ data_loop_end\@:
 
   bri MANGLE_STR(top_entry)
 
-.size MANGLE_STR(float_\IS_ABS), . -MANGLE_STR(float_\IS_ABS)
+FN_SIZE MANGLE_STR(float_\IS_ABS)
 .endm
 
 //******************************************************************************
@@ -323,26 +309,19 @@ data_loop_end\@:
 
 #define elemCount m6
 
-.section .text.MANGLE_STR(top_entry)
-.global MANGLE_STR(top_entry)
-.type MANGLE_STR(top_entry), @function
-.align 8
-.worker
-  nop // Rpt align
-MANGLE_STR(top_entry):
-
-   // Initialise element count, accumulate all data sizes.  Quicker here
+FN_WORKER_ENTRY_POINT MANGLE_STR(top_entry) 8 nop
+  // Initialise element count, accumulate all data sizes.  Quicker here
   // as although we could hand in onto the main loop it would be calculated
   // repeatedly
   // Count was already predecremented so fetch the first to initialise
   // elemCount, and then it is correct for use with rpt
   ld32step $dataPtr, $mzero, $dataVectPtrConst+=, 1
-  shr $elemCount, $dataPtr, (32-SHORT_SPAN_COUNT_BITS)
+  shr $elemCount, $dataPtr, SHORT_SPAN_PTR_SIZE
   rpt $dataVectCountConst, (2f-1f)/8 -1
 1:
   {ld32step $dataPtr, $mzero, $dataVectPtrConst+=, 1
    fnop}
-  {shr $dataCount, $dataPtr, (32-SHORT_SPAN_COUNT_BITS)
+  {shr $dataCount, $dataPtr, SHORT_SPAN_PTR_SIZE
    fnop}
   // Accumulate up total elements across all data vectors
   {add $elemCount, $elemCount, $dataCount
@@ -363,7 +342,7 @@ MANGLE_STR(top_entry):
   exitz $mzero
 
 
-.size MANGLE_STR(top_entry), . -MANGLE_STR(top_entry)
+FN_SIZE MANGLE_STR(top_entry)
 
 
 //******************************************************************************

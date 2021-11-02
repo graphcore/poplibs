@@ -42,11 +42,9 @@
 // fairly simple to cope with an output that is only aligned to 32 bits, so this
 // is done to provide a little more flexibility.
 //******************************************************************************
-.section .text.cast_float_half_core
-EXPORT_FN cast_float_half_core
-.align 8
-.worker
-cast_float_half_core:
+FN_SECTION cast_float_half_core 8
+FN_EXPORT cast_float_half_core
+
     // If output not 8 byte aligned, process 2 items, input will still be
     // 8 byte aligned (2 floats), output will become 8 byte aligned.
     and         $mSCRATCH, $OUT_PTR, 4
@@ -184,10 +182,9 @@ FN_SIZE cast_float_half_core
 // has an optimal inner loop.  No particular critical use cases have been
 // identified so this constraint has not been seen to have any consequence.
 //******************************************************************************
-.section .text.cast_half_float_core
-EXPORT_FN cast_half_float_core
-.align 8
-cast_half_float_core:
+FN_SECTION cast_half_float_core 8
+FN_EXPORT cast_half_float_core
+
     mov         $TOTAL_COUNT, $N_ELEMS
 
     // Total number of items to process, is it <4 ?

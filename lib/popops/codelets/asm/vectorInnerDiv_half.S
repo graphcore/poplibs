@@ -23,33 +23,13 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
-
-// This macro defines a label as global, function
-.macro EXPORT_FN label
-.globl \label
-.type \label, @function
-.endm
-
-// This macro associates to the symbol 'label' a size defined as (Current_loc - label)
-.macro FN_SIZE label
-.size \label, . - \label
-.endm
+#include "CommonPoplibsMacros.h.S"
 
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
 // TYPE needs to be '', 'InPlace', '2D' or '2DInPlace'.
 // OPERATION will be DIVIDE
 #define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BinaryOpType__ ## OPERATION ## _half
-
-// Another similar macro to name the sections where each function is contained
-#define FUNC_SECTION(TYPE, OPERATION) .section .text.VectorInner_ ## TYPE ## _ ## OPERATION ## _half
-
-
-# In this file we have 4 externally visible functions
-EXPORT_FN   CPP_FUNCNAME(,DIVIDE)
-EXPORT_FN   CPP_FUNCNAME(InPlace,DIVIDE)
-EXPORT_FN   CPP_FUNCNAME(2D,DIVIDE)
-EXPORT_FN   CPP_FUNCNAME(2DInPlace,DIVIDE)
 
 
 // This is the main function that does the actual work.
@@ -68,9 +48,8 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace,DIVIDE)
 #define mscratch         m5
 
 
-.section .text.VectorInnerDiv_core_half
-.align 8
-nop
+FN_SECTION VectorInnerDiv_core_half 8 nop
+
 VectorInnerDiv_core_half:
   // If we have no blocks to do, exit.
   brz $data_block_count, .Lreturn
@@ -427,10 +406,7 @@ FN_SIZE VectorInnerAdd_core_half
 #define mscratch0 m8
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(,DIVIDE)
-FUNC_SECTION(,DIVIDE)
-.align 4
-CPP_FUNCNAME(,DIVIDE):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(,DIVIDE)
   ld32 $data, $mvertex_base, $mzero, VERTEX_DATA_DATA_OFFSET
   ld32 $out, $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
   // Jump to the shared worker code
@@ -438,10 +414,7 @@ CPP_FUNCNAME(,DIVIDE):
 
 FN_SIZE CPP_FUNCNAME(,DIVIDE)
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlace,DIVIDE)
-FUNC_SECTION(InPlace,DIVIDE)
-.align 4
-CPP_FUNCNAME(InPlace,DIVIDE):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(InPlace,DIVIDE)
   ld32 $data, $mvertex_base, $mzero, VERTEX_DATA_DATA_OFFSET
   mov $out, $data
   // Fall through.
@@ -572,23 +545,16 @@ FN_SIZE CPP_FUNCNAME(InPlace,DIVIDE)
 
 #define SCRATCH_OFFSET_B_ITERATOR               0
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,DIVIDE)
-FUNC_SECTION(2D,DIVIDE)
-.align 4
-CPP_FUNCNAME(2D,DIVIDE):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(2D,DIVIDE)
   ld32 $data_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_DATA_OFFSET
   ld32 $out_iterator,   $mvertex_base, $mzero, VERTEX2D_DATA_OUT_OFFSET
   // Jump to the shared worker code + set the scale to 1.0.
   bri .Lworker2d
 
-
 FN_SIZE CPP_FUNCNAME(2D,DIVIDE)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,DIVIDE)
-FUNC_SECTION(2DInPlace,DIVIDE)
-.align 4
-CPP_FUNCNAME(2DInPlace,DIVIDE):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(2DInPlace,DIVIDE)
   ld32 $data_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_DATA_OFFSET
   mov $out_iterator, $data_iterator
   // Fall through.

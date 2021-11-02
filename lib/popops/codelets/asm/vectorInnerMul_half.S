@@ -145,18 +145,7 @@
 #include "poplar/StackSizeDefs.hpp"
 #define DEFINITIONS_ONLY
 #include "elementwiseStubs.S"
-
-// This macro defines a label as global, function
-.macro EXPORT_FN label
-.globl \label
-.type \label, @function
-.endm
-
-// This macro associates to the symbol 'label' a size defined as (Current_loc - label)
-.macro FN_SIZE label
-.size \label, . - \label
-.endm
-
+#include "CommonPoplibsMacros.h.S"
 
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
@@ -164,14 +153,7 @@
 #define CPP_FUNCNAME(TYPE)  __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BinaryOpType__MULTIPLY_half
 
 // Another similar macro to name the sections where each function is contained
-#define FUNC_SECTION(TYPE)  .section .text.VectorInner_ ## TYPE ## _MULTIPLY_half
-
-
-# In this file we have 4 externally visible functions
-EXPORT_FN   CPP_FUNCNAME(Supervisor)
-EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor)
-EXPORT_FN   CPP_FUNCNAME(2D)
-EXPORT_FN   CPP_FUNCNAME(2DInPlace)
+#define FUNCNAME(TYPE)  VectorInner_ ## TYPE ## _MULTIPLY_half
 
 // Scratch area is used to save saome registers
 #define SCRATCH_OFFSET_SCALE_ITERATOR 0
@@ -399,9 +381,7 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace)
 // Entry code that dispatches to the correct code paths, given B length and
 // in-place/not-in-place
 ///////////////////////////////////////////////////////////////////////////////
-.section .text.VectorInnerMul_core_half
-.align 8
-nop
+FN_SECTION VectorInnerMul_core_half 8 nop
 VectorInnerMul_core_half:
   // If we have no blocks to do, exit.
   brz $acts_block_count, .Lreturn
@@ -675,19 +655,12 @@ FN_SIZE VectorInnerMul_core_half
 #define VERTEX_DATA_ACTS_OUT_OFFSET 4              // In 32-bits
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor)
-FUNC_SECTION(InPlaceSupervisor)
-.align 4
-.supervisor
-CPP_FUNCNAME(InPlaceSupervisor):
+FN_SUPERVISOR_ENTRY_POINT CPP_FUNCNAME(InPlaceSupervisor)
   setzi $WORKER_ENTRY, .LvectorInnerMul_inplace_worker
   bri    __popops_SupervisorRunallSyncAndReturn
+FN_SIZE CPP_FUNCNAME(InPlaceSupervisor)
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor)
-FUNC_SECTION(Supervisor)
-.align 4
-.supervisor
-CPP_FUNCNAME(Supervisor):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(Supervisor)
   // Set the entry point for the workers.
   setzi $WORKER_ENTRY, .LvectorInnerMul_worker
   bri    __popops_SupervisorRunallSyncAndReturn
@@ -703,18 +676,15 @@ FN_SIZE CPP_FUNCNAME(Supervisor)
 #define mscratch0 m9
 
 
-FUNC_SECTION(WorkerInPlace)
-.align 4
-.worker
+FN_SECTION FUNCNAME(WorkerInPlace)
+
 .LvectorInnerMul_inplace_worker:
   ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   mov $acts_out, $acts_in
   bri .Lworker
+FN_SIZE FUNCNAME(WorkerInPlace)
 
-
-FUNC_SECTION(Worker):
-.align 4
-.worker
+FN_SECTION FUNCNAME(Worker)
 .LvectorInnerMul_worker:
   ld32 $acts_in,           $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   ld32 $acts_out,          $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
@@ -781,6 +751,7 @@ update_acts_ptrs:
   call $lr, VectorInnerMul_core_half
 
   exitnz $mzero
+FN_SIZE FUNCNAME(Worker)
 
 #undef blocks_per_worker
 #undef worker_id
@@ -809,10 +780,8 @@ update_acts_ptrs:
 
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace)
-FUNC_SECTION(2DInPlace)
-.align 4
-CPP_FUNCNAME(2DInPlace):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(2DInPlace)
+
   ld32 $acts_in_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_IN_OFFSET
   mov $acts_out_iterator, $acts_in_iterator
   bri .Lworker2d
@@ -820,10 +789,8 @@ CPP_FUNCNAME(2DInPlace):
 FN_SIZE CPP_FUNCNAME(2DInPlace)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2D)
-FUNC_SECTION(2D)
-.align 4
-CPP_FUNCNAME(2D):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(2D)
+
   ld32 $acts_in_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_IN_OFFSET
   ld32 $acts_out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OUT_OFFSET
   // Fall through

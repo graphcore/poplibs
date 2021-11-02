@@ -6,20 +6,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
-
-
-// This macro defines a label as global, function
-.macro EXPORT_FN label
-.globl \label
-.type \label, @function
-.endm
-
-// This macro associates to the symbol 'label' a size defined as
-// (Current_loc - label)
-.macro FN_SIZE label
-.size \label, . - \label
-.endm
-
+#include "CommonPoplibsMacros.h.S"
 
 // Registers used as input for the 'cast_<INTYPE>_<INTYPE>_core' functions
 #define IN_PTR                m3

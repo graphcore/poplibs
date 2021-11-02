@@ -41,17 +41,7 @@
 #include "poplar/StackSizeDefs.hpp"
 #define DEFINITIONS_ONLY
 #include "elementwiseStubs.S"
-
-// This macro defines a label as global, function
-.macro EXPORT_FN label
-.globl \label
-.type \label, @function
-.endm
-
-// This macro associates to the symbol 'label' a size defined as (Current_loc - label)
-.macro FN_SIZE label
-.size \label, . - \label
-.endm
+#include "CommonPoplibsMacros.h.S"
 
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
@@ -60,20 +50,7 @@
 #define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BinaryOpType__ ## OPERATION ## _float
 
 // Another similar macro to name the sections where each function is contained
-#define FUNC_SECTION(TYPE, OPERATION) .section .text.VectorInner_ ## TYPE ## _ ## OPERATION ## _float
-
-
-# In this file we have 8 externally visible functions
-EXPORT_FN   CPP_FUNCNAME(Supervisor,ADD)
-EXPORT_FN   CPP_FUNCNAME(Supervisor,SUBTRACT)
-EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,ADD)
-EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
-EXPORT_FN   CPP_FUNCNAME(2D,ADD)
-EXPORT_FN   CPP_FUNCNAME(2D,SUBTRACT)
-EXPORT_FN   CPP_FUNCNAME(2DInPlace,ADD)
-EXPORT_FN   CPP_FUNCNAME(2DInPlace,SUBTRACT)
-
-
+#define FUNCNAME(TYPE, OPERATION) VectorInner_ ## TYPE ## _ ## OPERATION ## _float
 
 // This is the main function that does the actual work. It takes the following
 // register arguments:
@@ -96,8 +73,8 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace,SUBTRACT)
 
 // Main processing. ADD and SUBTRACT are performed by mulipying the elements
 // of 'addend' ('B' vector) by 1 or -1 (the value in $scale)
-.section .text.VectorInnerAdd_core_float
-.align 8
+
+FN_SECTION VectorInnerAdd_core_float 8
 VectorInnerAdd_core_float:
   // If we have no blocks to do, return.
   brz $acts_block_count, .Lreturn
@@ -185,10 +162,7 @@ FN_SIZE VectorInnerAdd_core_float
 #define VERTEX_DATA_OUT_OFFSET  4              // In 32-bits
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,SUBTRACT)
-FUNC_SECTION(Supervisor,SUBTRACT)
-.align 4
-CPP_FUNCNAME(Supervisor,SUBTRACT):
+FN_SUPERVISOR_ENTRY_POINT CPP_FUNCNAME(Supervisor,SUBTRACT) 
   // Set the entry point for the workers.
   setzi        $WORKER_ENTRY, .LvectorInnerSubtract_worker
   // Run the workers.
@@ -197,10 +171,7 @@ CPP_FUNCNAME(Supervisor,SUBTRACT):
 FN_SIZE CPP_FUNCNAME(Supervisor,SUBTRACT)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,ADD)
-FUNC_SECTION(Supervisor,ADD)
-.align 4
-CPP_FUNCNAME(Supervisor,ADD):
+FN_SUPERVISOR_ENTRY_POINT CPP_FUNCNAME(Supervisor,ADD) 
   // Set the entry point for the workers.
   setzi        $WORKER_ENTRY, .LvectorInnerAdd_worker
   // Run the workers.
@@ -209,10 +180,8 @@ CPP_FUNCNAME(Supervisor,ADD):
 FN_SIZE CPP_FUNCNAME(Supervisor,ADD)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
-FUNC_SECTION(InPlaceSupervisor,SUBTRACT)
-.align 4
-CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT):
+FN_SUPERVISOR_ENTRY_POINT CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT) 
+
   // Set the entry point for the workers.
   setzi        $WORKER_ENTRY, .LvectorInnerSubtract_inplace_worker
   // Run the workers.
@@ -221,16 +190,11 @@ CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT):
 FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,ADD)
-FUNC_SECTION(InPlaceSupervisor,ADD)
-.align 4
-.supervisor
-CPP_FUNCNAME(InPlaceSupervisor,ADD):
+FN_SUPERVISOR_ENTRY_POINT CPP_FUNCNAME(InPlaceSupervisor,ADD) 
   // Set the entry point for the workers.
   setzi  $WORKER_ENTRY, .LvectorInnerAdd_inplace_worker
   // Run the workers.
   bri    __popops_SupervisorRunallSyncAndReturn
-
 
 FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,ADD)
 
@@ -243,9 +207,7 @@ FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,ADD)
 #define mscratch0 m8
 
 
-FUNC_SECTION(Worker,SUBTRACT)
-.align 4
-.worker
+FN_SECTION FUNCNAME(Worker,SUBTRACT) 
 .LvectorInnerSubtract_worker:
   ld32 $acts,  $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
 {
@@ -255,20 +217,18 @@ FUNC_SECTION(Worker,SUBTRACT)
 {
   bri .Lworker
   f32sub $scale,$azero, $scale}// set scale to -1.0
+FN_SIZE FUNCNAME(Worker,SUBTRACT)
 
-
-FUNC_SECTION(Worker,ADD)
-.align 4
+FN_SECTION FUNCNAME(Worker,ADD) 
 .LvectorInnerAdd_worker:
   ld32 $acts,  $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
   ld32 $out,   $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
 { // Jump to the shared worker code + set the scale to 1.0.
   bri .Lworker
   f32exp $scale, $azero}
+FN_SIZE FUNCNAME(Worker,ADD)
 
-
-FUNC_SECTION(WorkerInPlace,SUBTRACT)
-.align 4
+FN_SECTION FUNCNAME(WorkerInPlace,SUBTRACT) 
 .LvectorInnerSubtract_inplace_worker:
 {
   ld32 $acts,  $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
@@ -280,10 +240,9 @@ FUNC_SECTION(WorkerInPlace,SUBTRACT)
   f32sub $scale, $azero, $scale}
   // Jump to the shared worker code.
   bri .Lworker
+FN_SIZE FUNCNAME(WorkerInPlace,SUBTRACT)
 
-
-FUNC_SECTION(WorkerInPlace,ADD)
-.align 4
+FN_SECTION FUNCNAME(WorkerInPlace,ADD) 
 .LvectorInnerAdd_inplace_worker:
   ld32 $acts,  $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
 {
@@ -325,6 +284,7 @@ FUNC_SECTION(WorkerInPlace,ADD)
   call $lr, VectorInnerAdd_core_float
 
   exitnz $mzero
+FN_SIZE FUNCNAME(WorkerInPlace,ADD)
 
 #undef blocks_per_worker
 #undef worker_id
@@ -348,10 +308,7 @@ FUNC_SECTION(WorkerInPlace,ADD)
 
 #define SCRATCH_OFFSET_OUT_ITERATOR   0
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,SUBTRACT)
-FUNC_SECTION(2D,SUBTRACT)
-.align 4
-CPP_FUNCNAME(2D,SUBTRACT):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(2D,SUBTRACT) 
   ld32 $acts_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
 { ld32 $out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_OUT_OFFSET
   f32exp $scale, $azero}   // set scale to 1.0
@@ -362,10 +319,7 @@ CPP_FUNCNAME(2D,SUBTRACT):
 FN_SIZE CPP_FUNCNAME(2D,SUBTRACT)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,ADD)
-FUNC_SECTION(2D,ADD)
-.align 4
-CPP_FUNCNAME(2D,ADD):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(2D,ADD) 
   ld32 $acts_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
   ld32 $out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_OUT_OFFSET
 { // Jump to the shared worker code + set the scale to 1.0.
@@ -375,10 +329,7 @@ CPP_FUNCNAME(2D,ADD):
 FN_SIZE CPP_FUNCNAME(2D,ADD)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,SUBTRACT)
-FUNC_SECTION(2DInPlace,SUBTRACT)
-.align 4
-CPP_FUNCNAME(2DInPlace,SUBTRACT):
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(2DInPlace,SUBTRACT) 
   ld32 $acts_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
 { mov $out_iterator, $acts_iterator
   f32exp $scale, $azero}   // set scale to 1.0
@@ -389,10 +340,7 @@ CPP_FUNCNAME(2DInPlace,SUBTRACT):
 FN_SIZE CPP_FUNCNAME(2DInPlace,SUBTRACT)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,ADD)
-FUNC_SECTION(2DInPlace,ADD)
-.align 4
-CPP_FUNCNAME(2DInPlace,ADD):
+FN_WORKER_ENTRY_POINT  CPP_FUNCNAME(2DInPlace,ADD) 
   ld32 $acts_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
 {
   mov $out_iterator, $acts_iterator

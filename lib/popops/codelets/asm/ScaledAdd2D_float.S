@@ -4,6 +4,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "MathConstants.S"
 
 #define VERTEX_ADD_CONST_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_true_true
 #define VERTEX_ADD_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_false_true
@@ -21,7 +22,6 @@
 #define VERTEX_AXPBY_COMMON __aXPlusbY2D___float_common
 
 // constants
-#define FLOAT_MINUS_ONE 0xbf800000
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_A_SIZE_OFFSET 1
 #define VERTEX_DATA_B_OFFSET 2
@@ -141,7 +141,7 @@ VERTEX_SUBTRACT_FAST:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   {ld32  $ascratch, $mzero, $data, 0
-   or    $data1i0, $azero, FLOAT_MINUS_ONE}
+   or    $data1i0, $azero, FLOAT_NEG_1_0}
   {bri  VERTEX_COMMON
    f32mul $ascratch, $ascratch, $data1i0}
 .size VERTEX_SUBTRACT_FAST, .-VERTEX_SUBTRACT_SLOW
@@ -293,7 +293,7 @@ VERTEX_AX_MINUS_BY_TENSOR:
   ld32  $ascratch, $mzero, $data, 0
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   {ld32  $ascaleB, $mzero, $data, 0
-  or $data0i0, $azero, FLOAT_MINUS_ONE}
+  or $data0i0, $azero, FLOAT_NEG_1_0}
   {bri   VERTEX_AXPBY_COMMON
   f32mul $ascaleB, $ascaleB, $data0i0}
 .size VERTEX_AX_MINUS_BY_TENSOR, .-VERTEX_AX_MINUS_BY_TENSOR

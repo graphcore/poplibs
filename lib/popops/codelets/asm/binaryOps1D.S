@@ -7,6 +7,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
+#include "CommonPoplibsMacros.h.S"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -73,13 +74,8 @@
 // And likewise for short/unsigned short with and/or
 //******************************************************************************
 .macro INSTANTIATE_BROADCAST_OP TYPE VERTEX_STATE_STUB VERTEX_NAME OPERATION OP_PROCESSING_TYPE
-DEF_STACK_USAGE 0 MANGLE_STR
-.section .text.MANGLE_STR
-.global MANGLE_STR
-.type MANGLE_STR, @function
-.align 4
 
-MANGLE_STR:
+FN_WORKER_ENTRY_POINT MANGLE_STR
   call  $mlink, broadcast_fn_load_vertex_state_\VERTEX_STATE_STUB
 .ifc "\TYPE", "float"
   call  $mlink, fn_divide_work12
@@ -100,18 +96,13 @@ MANGLE_STR:
   bri broadcast_op_worker_4x16bit_framework
 .endif
 
-.size MANGLE_STR, . -MANGLE_STR
+FN_SIZE MANGLE_STR
 .endm
 
 //******************************************************************************
 .macro INSTANTIATE_BINARY_OP TYPE VERTEX_STATE_STUB VERTEX_NAME OPERATION OP_PROCESSING_TYPE
-DEF_STACK_USAGE 0 MANGLE_STR
-.section .text.MANGLE_STR
-.global MANGLE_STR
-.type MANGLE_STR, @function
-.align 4
 
-MANGLE_STR:
+FN_WORKER_ENTRY_POINT MANGLE_STR
   call  $mlink, fn_load_vertex_state_\VERTEX_STATE_STUB
 .ifc "\TYPE", "float"
   call  $mlink, fn_divide_work12
@@ -130,7 +121,8 @@ MANGLE_STR:
   setzi $mprocess2Fn, binary_op_process_2_\OP_PROCESSING_TYPE\()_\OPERATION
   bri binary_op_worker_4x16bit_framework
 .endif
-.size MANGLE_STR, . -MANGLE_STR
+FN_SIZE MANGLE_STR
+
 .endm
 
 //******************************************************************************
@@ -140,8 +132,8 @@ MANGLE_STR:
 //******************************************************************************
 
 .macro BROADCAST_OP_LOAD_VERTEX_STATE
-.section .text.MANGLE_STR_COMMON(\@)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(\@)
+
 broadcast_fn_load_vertex_state_non_in_place:
   // load vertex state
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_PTR_OFFSET/4
@@ -153,13 +145,12 @@ broadcast_fn_load_vertex_state_non_in_place:
   mov $in2Ptr, $outPtr
 
   br   $mlink
-.size MANGLE_STR_COMMON(\@), . -broadcast_fn_load_vertex_state_non_in_place
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 //******************************************************************************
 
 .macro BROADCAST_OP_LOAD_VERTEX_STATE_IN_PLACE
-.section .text.MANGLE_STR_COMMON(\@)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(\@)
 broadcast_fn_load_vertex_state_in_place:
   // load vertex state
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_PTR_OFFSET/4
@@ -170,13 +161,12 @@ broadcast_fn_load_vertex_state_in_place:
   ld32 $in2PtrTmp, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_IN2_PTR_OFFSET/4
   mov  $in2Ptr, $mzero
   br   $mlink
-.size MANGLE_STR_COMMON(\@), . -broadcast_fn_load_vertex_state_in_place
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 //******************************************************************************
 
 .macro BINARY_OP_LOAD_VERTEX_STATE
-.section .text.MANGLE_STR_COMMON(\@)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(\@)
 fn_load_vertex_state_non_in_place:
   // load vertex state
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_IN1_PTR_OFFSET/4
@@ -184,14 +174,13 @@ fn_load_vertex_state_non_in_place:
   ld32 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET/4
   ld32 $outCount, $mzero, $mvertex_base, VERTEX_OUT_COUNT_OFFSET/4
   br   $mlink
-.size MANGLE_STR_COMMON(\@), . -fn_load_vertex_state_non_in_place
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 
 //******************************************************************************
 
 .macro BINARY_OP_LOAD_VERTEX_STATE_IN_PLACE
-.section .text.MANGLE_STR_COMMON(\@)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(\@)
 fn_load_vertex_state_in_place:
   // load vertex state
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_PTR_OFFSET/4
@@ -199,13 +188,12 @@ fn_load_vertex_state_in_place:
   mov  $outPtr, $in1Ptr
   ld32 $outCount, $mzero, $mvertex_base, VERTEX_INPLACE_OUT_COUNT_OFFSET/4
   br   $mlink
-.size MANGLE_STR_COMMON(\@), . -fn_load_vertex_state_in_place
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 
 //******************************************************************************
 .macro BINARY_OP_DIVIDE_WORK SHIFTS_TO_DIV DIVISOR SHIFTS_FOR_GRAINSIZE
-.section .text.MANGLE_STR_COMMON(\@)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(\@)
 fn_divide_work\DIVISOR\():
   // Extract worker ID
   get $workerIdM1, $WSR
@@ -277,7 +265,7 @@ fn_divide_work\DIVISOR\():
  2:
  // Returning 0 = fast, 1 = normal
   br  $mlink
-.size MANGLE_STR_COMMON(\@), . -fn_divide_work\DIVISOR\()
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 
 
@@ -285,8 +273,7 @@ fn_divide_work\DIVISOR\():
 // General processing structure for float
 //******************************************************************************
 
-.section .text.MANGLE_STR_COMMON(float_processing)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(float_processing)
 broadcast_op_worker_float_framework:
   ld32 $a2, $mzero, $in2Ptr, 0
   // Jump so that the dummy read to increment the pointer below can't cause
@@ -331,12 +318,12 @@ process_1_float_return:
   st32 $a0, $mzero, $outPtr, 0
 3:
   exitz $mzero
-.size MANGLE_STR_COMMON(float_processing), . -broadcast_op_worker_float_framework
+FN_SIZE MANGLE_STR_COMMON(float_processing)
 //******************************************************************************
 // General processing structure for 4x16bit vectors: half, short, unsigned short
 //******************************************************************************
-.section .text.MANGLE_STR_COMMON(4x16bit_processing)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(4x16bit_processing)
+
 broadcast_op_worker_4x16bit_framework:
   ldb16 $a2, $mzero, $in2Ptr, 0
   // Jump so that the dummy read to increment the pointer below can't cause
@@ -394,15 +381,13 @@ process_1_4x16bit_return:
   st32 $a0, $mzero, $outPtr, 0
 3:
   exitz $mzero
-.size MANGLE_STR_COMMON(4x16bit_processing), . -broadcast_op_worker_4x16bit_framework
+FN_SIZE MANGLE_STR_COMMON(4x16bit_processing)
 
 //******************************************************************************
 // Loops and single element processing for float
 //******************************************************************************
 .macro INSTANTIATE_BINARY_OP_float_PROCESSING OPERATION INSTRUCTIONv2 INSTRUCTIONv1
-.section .text.MANGLE_STR_COMMON(float_loop1)
-.align 8
-  nop //Repeat body alignment
+FN_SECTION MANGLE_STR_COMMON(float_loop_\@) 8 nop
 // Loop for binary variant
 binary_op_loop_float_\OPERATION\():
  // Pre load so we can pipeline the loop
@@ -439,11 +424,10 @@ binary_op_loop_float_fast_\OPERATION\():
   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3
   st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
   bri inner_loop_float_return
-.size MANGLE_STR_COMMON(float_loop1), . -binary_op_loop_float_\OPERATION\()
+FN_SIZE MANGLE_STR_COMMON(float_loop_\@)
 
 //******************************************************
-.section .text.MANGLE_STR_COMMON(float_loop2)
-.align 8
+FN_SECTION MANGLE_STR_COMMON(float_loop2_\@) 8
 // Loop for broadcast scalar variant
 broadcast_op_loop_float_\OPERATION\():
   // Pre load so we can pipeline the loop
@@ -489,26 +473,23 @@ broadcast_op_loop_float_fast_\OPERATION\():
   UNPACK_PTRS $in1Ptr $in2Ptr $outPtr
 
   bri inner_loop_float_return
-.size MANGLE_STR_COMMON(float_loop), . -broadcast_op_loop_float_\OPERATION\()
+FN_SIZE MANGLE_STR_COMMON(float_loop2_\@)
 //******************************************************
 
-.section .text.MANGLE_STR_COMMON(float_instr)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(float_instr_\@)
 // Single trailing item instruction
 binary_op_process_1_float_\OPERATION\():
   ld32 $a2, $mzero, $in2Ptr, 0
 broadcast_op_process_1_float_\OPERATION\():
   \INSTRUCTIONv1 $a0, $a0, $a2
   bri process_1_float_return
-.size MANGLE_STR_COMMON(float_instr), . -binary_op_process_1_float_\OPERATION\()
+FN_SIZE MANGLE_STR_COMMON(float_instr_\@)
 .endm
 //******************************************************************************
 // Loops and single element processing for half/short/unsigned short
 //******************************************************************************
 .macro INSTANTIATE_BINARY_OP_4x16bit_PROCESSING TYPE OPERATION INSTRUCTIONv4 INSTRUCTIONv2="void"
-.section .text.MANGLE_STR_COMMON(\@)
-.align 8
-  nop // Repeat body alignment
+FN_SECTION MANGLE_STR_COMMON(\@) 8 nop
 binary_op_loop_\TYPE\()_\OPERATION\():
  // Pre load so we can pipeline the loop
   ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
@@ -545,11 +526,11 @@ binary_op_loop_\TYPE\()_fast_\OPERATION\():
   st64step $a4:5, $mzero, $outPtr+=, CTXT_WORKERS
   bri inner_loop_4x16bit_return
 
-.size MANGLE_STR_COMMON(\@), . -binary_op_loop__\TYPE\()_\OPERATION\()
+FN_SIZE MANGLE_STR_COMMON(\@)
 
 //******************************************************
-.section .text.MANGLE_STR_COMMON(\@)
-.align 8
+FN_SECTION MANGLE_STR_COMMON(_2\@) 8
+
 broadcast_op_loop_\TYPE\()_\OPERATION\():
  // Pre load so we can pipeline the loop
   ld64step $a0:1, $mzero, $in1Ptr+=, CTXT_WORKERS
@@ -592,12 +573,11 @@ broadcast_op_loop_\TYPE\()_fast_\OPERATION\():
   UNPACK_PTRS $in1Ptr $in2Ptr $outPtr
 
   bri inner_loop_4x16bit_return
-.size MANGLE_STR_COMMON(\@), . -broadcast_op_loop_\TYPE\()_\OPERATION\()
+FN_SIZE MANGLE_STR_COMMON(_2\@)
 //******************************************************
-.align 8
 
-.section .text.MANGLE_STR_COMMON(\@)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(_3\@)
+
 binary_op_process_2_\TYPE\()_\OPERATION\():
   ld32step $a2, $mzero, $in2Ptr+=, 1
 broadcast_op_process_2_\TYPE\()_\OPERATION\():
@@ -623,7 +603,7 @@ broadcast_op_process_1_\TYPE\()_\OPERATION\():
    \INSTRUCTIONv2 $a4, $a0, $a2}
 .endif
    bri process_1_4x16bit_return
-.size MANGLE_STR_COMMON(\@), . -binary_op_process_2__\TYPE\()_\OPERATION\()
+FN_SIZE MANGLE_STR_COMMON(_3\@)
 .endm
 
 //******************************************************************************

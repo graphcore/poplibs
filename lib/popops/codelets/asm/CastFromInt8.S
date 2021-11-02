@@ -76,11 +76,9 @@
 //  input  : 2 bytes
 //  output : 8 bytes
 //******************************************************************************
-.section .text.cast_unsigned_char_half_core
-.align 8
-nop
-EXPORT_FN cast_unsigned_char_half_core
-cast_unsigned_char_half_core:
+FN_SECTION cast_unsigned_char_half_core 8 nop
+FN_EXPORT cast_unsigned_char_half_core
+
   and         $REMAINDER, $N_ELEMS, 3
   shr         $N_ELEMS, $N_ELEMS, 2
   brz         $N_ELEMS, .Lremainder_unsigned_char_to_half
@@ -144,10 +142,9 @@ FN_SIZE cast_unsigned_char_half_core
 //  input  : 1 byte
 //  output : 4 bytes
 //******************************************************************************
-.section .text.cast_signed_char_half_core
-.align 8
-EXPORT_FN cast_signed_char_half_core
-cast_signed_char_half_core:
+FN_SECTION cast_signed_char_half_core 8 
+FN_EXPORT cast_signed_char_half_core
+
   and         $REMAINDER, $N_ELEMS, 3
   shr         $N_ELEMS, $N_ELEMS, 2
   brz         $N_ELEMS, .Lremainder_signed_char_to_half
@@ -246,11 +243,8 @@ FN_SIZE cast_signed_char_half_core
 //  input  : 2 bytes
 //  output : 8 bytes
 //******************************************************************************
-.section .text.cast_unsigned_char_float_core
-.align 8
-nop
-EXPORT_FN cast_unsigned_char_float_core
-cast_unsigned_char_float_core:
+FN_SECTION cast_unsigned_char_float_core 8 nop
+FN_EXPORT cast_unsigned_char_float_core
   and         $REMAINDER, $N_ELEMS, 3
   shr         $N_ELEMS, $N_ELEMS, 2
   brz         $N_ELEMS, .Lremainder_unsigned_char_to_float
@@ -317,10 +311,8 @@ FN_SIZE cast_unsigned_char_float_core
 //  input  : 1 byte
 //  output : 8 bytes
 //******************************************************************************
-.section .text.cast_signed_char_float_core
-.align 8
-EXPORT_FN cast_signed_char_float_core
-cast_signed_char_float_core:
+FN_SECTION cast_signed_char_float_core 8
+FN_EXPORT cast_signed_char_float_core
   and         $REMAINDER, $N_ELEMS, 1
   shr         $N_ELEMS, $N_ELEMS, 1
   brz         $N_ELEMS, .Lremainder_signed_char_to_float

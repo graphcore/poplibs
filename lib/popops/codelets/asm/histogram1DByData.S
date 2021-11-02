@@ -38,6 +38,8 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "MathConstants.S"
+#include "CommonPoplibsMacros.h.S"
 #include "histogramCommon.S"
 #include "workDivision.h.S"
 
@@ -97,16 +99,9 @@
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(half_\IS_ABS\()_false)
-.section .text.MANGLE_STR(half_\IS_ABS\()_false)
-.global MANGLE_STR(half_\IS_ABS\()_false)
-.type MANGLE_STR(half_\IS_ABS\()_false), @function
-.worker
-.align 8
-
- MANGLE_STR(half_\IS_ABS\()_false):
+FN_WORKER_ENTRY_POINT MANGLE_STR(half_\IS_ABS\()_false) 8
    {call  $mlink, MANGLE_STR(state_divide_work_half)
-    setzi $one0, HALF_ONE}
+    setzi $one0, HALF_1_0}
 
   // Load limit
   {ldb16step $upper, $base, $limPtr+=, 1
@@ -312,23 +307,16 @@ extract_w0\@:
 
   bri MANGLE_STR(post_process)
 
-.size MANGLE_STR(half_\IS_ABS\()_false), . -MANGLE_STR(half_\IS_ABS\()_false)
+FN_SIZE MANGLE_STR(half_\IS_ABS\()_false)
 .endm
 //******************************************************************************
 // MultiVertex code in one macro for FLOAT
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM_FLOAT IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(float_\IS_ABS\()_false)
-.section .text.MANGLE_STR(float_\IS_ABS\()_false)
-.global MANGLE_STR(float_\IS_ABS\()_false)
-.type MANGLE_STR(float_\IS_ABS\()_false), @function
-.align 8
-.worker
-
-MANGLE_STR(float_\IS_ABS\()_false):
+FN_WORKER_ENTRY_POINT MANGLE_STR(float_\IS_ABS\()_false) 8
    {call  $mlink, MANGLE_STR(state_divide_work_float)
-    or $one0, $azero, FLOAT_ONE}
+    or $one0, $azero, FLOAT_1_0}
 
   {ld32step $upper, $base, $limPtr+=, 1
    mov $one1, $one0}
@@ -487,7 +475,7 @@ extract_w0\@:
 
   bri MANGLE_STR(post_process)
 
-.size MANGLE_STR(float_\IS_ABS\()_false), . -MANGLE_STR(float_\IS_ABS\()_false)
+FN_SIZE MANGLE_STR(float_\IS_ABS\()_false)
 .endm
 
 //******************************************************************************
@@ -495,11 +483,8 @@ extract_w0\@:
 // Plus post process function
 //******************************************************************************
 .macro DIVIDE_WORK TYPE
-.section .text.MANGLE_STR(divide_work_\TYPE\())
-.global MANGLE_STR(divide_work_\TYPE\())
-.type MANGLE_STR(divide_work_\TYPE\()), @function
-.align 4
-.worker
+FN_SECTION MANGLE_STR(divide_work_\TYPE\())
+
 .ifc "\TYPE", "half"
   .equ SHIFTS_FOR_GRAINSIZE, 2
   .equ SHIFTS_FOR_REMAINDER, 1
@@ -571,15 +556,11 @@ MANGLE_STR(state_divide_work_\TYPE\()):
 
   br  $mlink
 
-.size MANGLE_STR(divide_work_\TYPE\()), . -MANGLE_STR(state_divide_work_\TYPE\())
+FN_SIZE MANGLE_STR(divide_work_\TYPE\())
 .endm
 
 
-.section .text.MANGLE_STR(post_process)
-.global MANGLE_STR(post_process)
-.type MANGLE_STR(post_process), @function
-.align 4
-.worker
+FN_SECTION MANGLE_STR(post_process)
 MANGLE_STR(post_process):
   // Find the last histogram entry.  Each worker stored its `previous` result
   // in the last entry.  Previous == number of elements < highest limit.
@@ -609,7 +590,7 @@ MANGLE_STR(post_process):
 
   exitz $mzero
 
-.size MANGLE_STR(post_process), . -MANGLE_STR(post_process)
+FN_SIZE MANGLE_STR(post_process)
 //******************************************************************************
 // Use the macros above to create vertex code
 //******************************************************************************

@@ -61,9 +61,8 @@
 //
 //******************************************************************************
 .macro HALF_TO_CHAR_CORE  FN_NAME  F32TOINT  F32ROUND
-.section .text.\FN_NAME\()
-EXPORT_FN \FN_NAME
-\FN_NAME:
+FN_SECTION \FN_NAME
+FN_EXPORT \FN_NAME
   and         $REMAINDER, $N_ELEMS, 3
 
   // Convert N_ELEMS to the number of 4 elements atoms
@@ -209,9 +208,8 @@ FN_SIZE \FN_NAME
 //******************************************************************************
 .macro FLOAT_TO_CHAR_CORE  FN_NAME  F32TOINT  F32ROUND
 
-.section .text.\FN_NAME\()
-EXPORT_FN \FN_NAME
-\FN_NAME:
+FN_SECTION \FN_NAME
+FN_EXPORT \FN_NAME
   and         $REMAINDER, $N_ELEMS, 3
 
   // Convert N_ELEMS to the number of 4 elements atoms

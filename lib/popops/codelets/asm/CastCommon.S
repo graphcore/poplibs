@@ -106,15 +106,11 @@
 //------------------------------------------------------------------------------
 #define FUNC(TYPES) __runCodelet_popops__Cast___##TYPES
 
-DEF_STACK_USAGE 0 .text.FUNC(\TYPES)
-.section .text.FUNC(\TYPES)
-.align 4
-EXPORT_FN FUNC(\TYPES)
+FN_WORKER_ENTRY_POINT FUNC(\TYPES)
 .ifnc \ALIAS_TYPES, NONE
-  EXPORT_FN FUNC(\ALIAS_TYPES)
-  FUNC(\ALIAS_TYPES):
+  FN_EXPORT FUNC(\ALIAS_TYPES)
 .endif
-FUNC(\TYPES):
+
 // get fields from vertex state
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16   $IN_PTR,        $mzero, $mvertex_base, VOFF_IN / 2
@@ -151,15 +147,10 @@ FN_SIZE FUNC(\TYPES)
 //------------------------------------------------------------------------------
 #define FUNC_WORKER(TYPES) __runCodelet_popops__CastWorker___##TYPES
 
-DEF_STACK_USAGE 0 .text.FUNC_WORKER(\TYPES)
-.section .text.FUNC_WORKER(\TYPES)
-.align 4
-EXPORT_FN FUNC_WORKER(\TYPES)
+FN_WORKER_ENTRY_POINT FUNC_WORKER(\TYPES)
 .ifnc \ALIAS_TYPES, NONE
-  EXPORT_FN FUNC_WORKER(\ALIAS_TYPES)
-  FUNC_WORKER(\ALIAS_TYPES):
+  FN_EXPORT FUNC_WORKER(\ALIAS_TYPES)
 .endif
-FUNC_WORKER(\TYPES):
 
    // get fields from vertex state
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -247,15 +238,10 @@ FN_SIZE FUNC_WORKER(\TYPES)
 
 #define FUNC_2D(TYPES) __runCodelet_popops__Cast2d___##TYPES
 
-DEF_STACK_USAGE 0 .text.FUNC_2D(\TYPES)
-.section .text.FUNC_2D(\TYPES)
-.align 4
-EXPORT_FN FUNC_2D(\TYPES)
+FN_WORKER_ENTRY_POINT FUNC_2D(\TYPES)
 .ifnc \ALIAS_TYPES, NONE
-  EXPORT_FN FUNC_2D(\ALIAS_TYPES)
-  FUNC_2D(\ALIAS_TYPES):
+  FN_EXPORT FUNC_2D(\ALIAS_TYPES)
 .endif
-FUNC_2D(\TYPES):
   ld32       $IN_ITERATOR, $mvertex_base, $mzero, VOFF_SRC_PTR_2D/4
   ld32       $OUT_ITERATOR, $mvertex_base, $mzero, VOFF_DST_PTR_BEGIN_2D/4
   ld32       $NUM_VECTORS, $mvertex_base, $mzero, VOFF_DST_SIZE_2D/4
@@ -321,15 +307,10 @@ INSTANTIATE_CAST float_signed_char   float_char 32  8  1  SETUP_SCHAR_OVERFLOW_C
 
 DEF_STACK_SIZE_OWN 0 .text.FUNC_SV(\TYPES)
 
-EXPORT_FN FUNC_SV(\TYPES)
-.section .text.FUNC_SV(\TYPES)
-.align 4
-.supervisor
+FN_SUPERVISOR_ENTRY_POINT FUNC_SV(\TYPES) 4 "" NONE
 .ifnb \ALIAS_TYPES
-  EXPORT_FN FUNC_SV(\ALIAS_TYPES)
-  FUNC_SV(\ALIAS_TYPES):
+  FN_EXPORT FUNC_SV(\ALIAS_TYPES)
 .endif
-FUNC_SV(\TYPES):
   setzi       $WORKER_ENTRY, __runCodelet_popops__CastWorker___\TYPES
   bri         __popops_SupervisorRunallSyncAndReturn
 FN_SIZE FUNC_SV(\TYPES)

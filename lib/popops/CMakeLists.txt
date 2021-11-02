@@ -250,6 +250,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
   HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BinarySearch.h.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CommonPoplibsMacros.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.inc
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSliceUpdateCommon.h.S

@@ -7,6 +7,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "MathConstants.S"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 // Offsets into vertex base
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -63,30 +64,15 @@
 #define OP_V2 \FTYPE\()v2\OP
 #define OP_V4 \FTYPE\()v4\OP
 
-.macro DEFINE_ENTRY_POINT VERTEX_NAME ALIGNMENT OPTIONAL_NOP
-    DEF_STACK_USAGE  0  \VERTEX_NAME
-    .section .text.\VERTEX_NAME, "ax"
-    .global \VERTEX_NAME
-    .type \VERTEX_NAME, @function
-    .align \ALIGNMENT
-\VERTEX_NAME\()_START:
-\OPTIONAL_NOP
-\VERTEX_NAME:
-.endm
-
-.macro FN_SIZE VERTEX_NAME
-    .size \VERTEX_NAME, . - \VERTEX_NAME\()_START
-.endm
-
 // ===========================================================================
 // ===========================================================================
 // ===========================================================================
 
 .macro SCALED_VERSION_HALF REDUCTION_NAME FTYPE OP UPDATE
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-    DEFINE_ENTRY_POINT M_SCALED_VERTEX_HALF_NAME 8
+    FN_WORKER_ENTRY_POINT M_SCALED_VERTEX_HALF_NAME 8
 #else
-    DEFINE_ENTRY_POINT M_SCALED_VERTEX_HALF_NAME 8 nop
+    FN_WORKER_ENTRY_POINT M_SCALED_VERTEX_HALF_NAME 8 nop
 #endif
 
     ld32            $MSCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/4
@@ -127,9 +113,9 @@ _output_loop_start\@:
     // check if start is misaligned or size 1
     // ---------------------------------------------------------------------
     {and                $MSCRATCH, $PARTIAL_PTR, 0x2
-     setzi              $VALUES0, INITIAL_VALUE & ((1 << 20) - 1)} // Set upper half of const
+     setzi              $VALUES0, MASK_UPPER(INITIAL_VALUE)} // Set upper half of const
     {cmpeq              $MSCRATCH2, $PARTIALS_COUNTER, 1
-     or                 $VALUES0, $VALUES0, INITIAL_VALUE & ~((1 << 20) - 1)} // Set lower half of const
+     or                 $VALUES0, $VALUES0, MASK_LOWER(INITIAL_VALUE)} // Set lower half of const
     {or                 $MSCRATCH , $MSCRATCH, $MSCRATCH2
      mov                $VALUES1, $VALUES0} // Init VALUES1
     {brz                $MSCRATCH, _if_misaligned_one_half_end_\@
@@ -240,9 +226,9 @@ __retrieve_outputs_end\@:
 
 .macro SCALED_VERSION_FLOAT REDUCTION_NAME FTYPE OP UPDATE
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-    DEFINE_ENTRY_POINT M_SCALED_VERTEX_FLOAT_NAME 8
+    FN_WORKER_ENTRY_POINT M_SCALED_VERTEX_FLOAT_NAME 8
 #else
-    DEFINE_ENTRY_POINT M_SCALED_VERTEX_FLOAT_NAME 8 nop
+    FN_WORKER_ENTRY_POINT M_SCALED_VERTEX_FLOAT_NAME 8 nop
 #endif
 
     ld32            $MSCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/4
@@ -342,7 +328,7 @@ _output_loop_end\@:
 
 // Jumps to the Scaled equivalent after setting scale = 1
 .macro NON_SCALED_VERSION REDUCTION_NAME FTYPE OP TYPE UPDATE
-    DEFINE_ENTRY_POINT M_VERTEX_NAME 4
+    FN_WORKER_ENTRY_POINT M_VERTEX_NAME 
 
     {bri __non_scaled_entry_\REDUCTION_NAME\()_\TYPE\()_\UPDATE\()
      f32exp      $SCALE, $azero} // using e^0 = 1.0

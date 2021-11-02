@@ -21,6 +21,8 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "MathConstants.S"
+#include "CommonPoplibsMacros.h.S"
 #include "histogramCommon.S"
 #include "workDivision.h.S"
 
@@ -78,17 +80,9 @@
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(half_\IS_ABS\()_true)
-.section .text.MANGLE_STR(half_\IS_ABS\()_true)
-.global MANGLE_STR(half_\IS_ABS\()_true)
-.type MANGLE_STR(half_\IS_ABS\()_true), @function
-.align 8
-.worker
-
-  nop //rpt alignment
-MANGLE_STR(half_\IS_ABS\()_true):
+FN_WORKER_ENTRY_POINT MANGLE_STR(half_\IS_ABS\()_true) 8 nop
    {call  $mlink, MANGLE_STR(state_divide_work6)
-    setzi $one0, HALF_ONE}
+    setzi $one0, HALF_1_0}
 
   // Vector width/type specific code - not in the shared function
   // Offset pointer for this worker's work
@@ -198,23 +192,16 @@ extract\@:
   brz $workerIdM1, MANGLE_STR(worker_postprocess)
   exitz $mzero
 
-.size MANGLE_STR(half_\IS_ABS\()_true), . -MANGLE_STR(half_\IS_ABS\()_true)
+FN_SIZE MANGLE_STR(half_\IS_ABS\()_true)
 .endm
 //******************************************************************************
 // MultiVertex macro for FLOAT
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM_FLOAT IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(float_\IS_ABS\()_true)
-.section .text.MANGLE_STR(float_\IS_ABS\()_true)
-.global MANGLE_STR(float_\IS_ABS\()_true)
-.type MANGLE_STR(float_\IS_ABS\()_true), @function
-.align 8
-.worker
-
-MANGLE_STR(float_\IS_ABS\()_true):
+FN_WORKER_ENTRY_POINT MANGLE_STR(float_\IS_ABS\()_true) 8
    {call  $mlink, MANGLE_STR(state_divide_work6)
-    or $one0, $azero, FLOAT_ONE}
+    or $one0, $azero, FLOAT_1_0}
 
   // Vector width/type specific code - not in the shared function
   // Offset pointer for this worker's work
@@ -285,18 +272,13 @@ extract\@:
   brz $workerIdM1, MANGLE_STR(worker_postprocess)
   exitz $mzero
 
-.size MANGLE_STR(float_\IS_ABS\()_true), . -MANGLE_STR(float_\IS_ABS\()_true)
+FN_SIZE MANGLE_STR(float_\IS_ABS\()_true)
 .endm
 //******************************************************************************
 // Vertex state load function to call on entry
 // Plus post process function
 //******************************************************************************
-.section .text.MANGLE_STR(post_process)
-.global MANGLE_STR(post_process)
-.type MANGLE_STR(post_process), @function
-.align 4
-.worker
-
+FN_SECTION MANGLE_STR(post_process)
 MANGLE_STR(state_divide_work6):
  // load histogram count from vertex state, divide by num workers
   ldz16 $limCount, $mzero, $mvertex_base, VERTEX_HISTOGRAM_COUNT_OFFSET/2
@@ -383,7 +365,7 @@ MANGLE_STR(worker_postprocess):
   st32step $a2, $base, $histWritePtr+=,-1
   exitz $m0
 
-.size MANGLE_STR(state_divide_work6), . -MANGLE_STR(state_divide_work6)
+FN_SIZE MANGLE_STR(post_process)
 
 //******************************************************************************
 // Use the macros above to create vertex code
