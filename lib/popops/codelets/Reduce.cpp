@@ -162,16 +162,16 @@ public:
   IS_EXTERNAL_CODELET(isExternal());
   StridedReduceOutput<Vector<OutType, PTR_ALIGN32, 4>, isUpdate> out;
   Input<Vector<PartialsType, PTR_ALIGN32, 8>> partials;
-  Input<Vector<ShortType, ONE_PTR>> countsAndStrides;
+  ShortType numOutputsM1;
+  ShortType numPartialsM1;
+  ShortType partialsWidth;
+  ShortType numOuterStridesM1;
+  ShortType outerStride;
 
   bool compute() {
-    const auto cAndS =
-        reinterpret_cast<CountsAndStrides<ShortType> *>(&countsAndStrides[0]);
-
     computeStridedReduce<ReduceOp, PartialsType, OutType, isUpdate, opIsLogAdd>(
-        out, partials, cAndS->numOutputsM1, cAndS->numPartialsM1,
-        cAndS->partialsWidth, cAndS->numOuterStridesM1, cAndS->outerStride,
-        opIsLogAdd ? 0.0f : 1.0f);
+        out, partials, numOutputsM1, numPartialsM1, partialsWidth,
+        numOuterStridesM1, outerStride, opIsLogAdd ? 0.0f : 1.0f);
 
     return true;
   }
@@ -216,15 +216,15 @@ public:
   IS_EXTERNAL_CODELET(isExternal());
   StridedReduceOutput<Vector<OutType, PTR_ALIGN32, 4>, isUpdate> out;
   Input<Vector<PartialsType, PTR_ALIGN32, 8>> partials;
-  Input<Vector<ShortType, ONE_PTR>> countsAndStrides;
+  ShortType numOutputsM1;
+  ShortType numPartialsM1;
+  ShortType partialsWidth;
+  ShortType numOuterStridesM1;
 
   bool compute() {
-    const auto cAndS =
-        reinterpret_cast<CountsAndStrides<ShortType> *>(&countsAndStrides[0]);
-
     computeStridedReduce<ReduceOp, PartialsType, OutType, isUpdate, opIsLogAdd>(
-        out, partials, cAndS->numOutputsM1, cAndS->numPartialsM1,
-        cAndS->partialsWidth, 0u, 0u, opIsLogAdd ? 0.0f : 1.0f);
+        out, partials, numOutputsM1, numPartialsM1, partialsWidth,
+        numOuterStridesM1, 0u, opIsLogAdd ? 0.0f : 1.0f);
     return true;
   }
 };
