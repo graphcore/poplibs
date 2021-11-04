@@ -699,6 +699,15 @@ int main(int argc, char **argv) {
         currentBeamOutputLengths(beamHistory, timestep);
     auto candidatesToUpdate = modelPrunedCandidates;
     if (updateInvalidCandidate) {
+      if (*updateInvalidCandidate >= candidatesToUpdate.size()) {
+        // The input random data has resulted in a pruned
+        // candidate list that is too small to complete the test.
+        std::cerr << "Index of the invalid candidate ("
+                  << *updateInvalidCandidate << ") is greater than or equal to "
+                  << "the number of candidates (" << candidatesToUpdate.size()
+                  << ")\n";
+        return 1;
+      }
       candidatesToUpdate[*updateInvalidCandidate].addend = invalidSymbol;
     }
     auto [ipuBeamHistory, ipuBeamProbs, ipuBeamLength] =

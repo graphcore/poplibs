@@ -175,7 +175,7 @@ foreach (SEED RANGE 1 5)
   endforeach()
 endforeach()
 
-foreach (BEAMWIDTH 3 4 8)
+foreach (BEAMWIDTH 4 5 8)
   foreach (INVALID 1 2 3)
     add_multitarget_test(NAME "CTCInferenceCodeletTest_seed_${BEAMWIDTH}_invalid_${INVALID}_update"
         COMMAND CTCInferenceCodeletTest
