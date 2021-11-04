@@ -3,8 +3,8 @@
 //
 // Tests one or more of the element-wise unary codelets:
 //
-//     UnaryOp1DSupervisor
-//     UnaryOp1DInPlaceSupervisor
+//     UnaryOp1D
+//     UnaryOp1DInPlace
 //     UnaryOp2D
 //     UnaryOp2DInPlace
 //
@@ -38,8 +38,8 @@
 using namespace poputil;
 
 const std::vector<std::string> verticesNames = {
-    "UnaryOp1DSupervisor",
-    "UnaryOp1DInPlaceSupervisor",
+    "UnaryOp1D",
+    "UnaryOp1DInPlace",
     "UnaryOp2D",
     "UnaryOp2DInPlace",
 };
@@ -171,7 +171,7 @@ bool verifyTest(const Target &target, bool isIpuModel,
         std::string posStr =
             vertex.is2D ? to_string(row) + "," + to_string(i) : to_string(i);
         std::cerr << vertex.outName << "[" << posStr
-                  << "] = " << unaryOpToString.at(op) << "("
+                  << "] : " << unaryOpToString.at(op) << "("
                   << convertToString(val)
                   << ") =>  expected:" << convertToString(expected)
                   << ";  actual:" << convertToString(actual) << "\n";
@@ -373,7 +373,7 @@ int main(int argc, char **argv) {
   DeviceType deviceType;
   std::vector<Type> dataTypes;
 
-  //  Sizes of the operand. For a Supervisor vertex,
+  //  Sizes of the operand. For a 1D vertex, only the first value is used
   std::vector<SizeDesc> sizes = {{false, {25, 12, 21}}};
 
   std::vector<std::string> operationStr;
@@ -392,12 +392,12 @@ int main(int argc, char **argv) {
   "on two different devices can be compared."
   "Examples of usages:\n"
   "\n"
-  " A Supervisor vertex, with an operand of 5000 floats:\n"
-  "   UnaryCodeletsTest --vertex UnaryOp1DSupervisor --operation EXPONENT \\\n"
+  " A 1D vertex, with an operand of 5000 floats:\n"
+  "   UnaryCodeletsTest --vertex UnaryOp1D --operation EXPONENT \\\n"
   "                      --data-type float --size 5000\n"
   "\n"
   " As above, but with multiple data types:\n"
-  "   UnaryCodeletsTest --vertex UnaryOp1DSupervisor --operation EXPONENT \\\n"
+  "   UnaryCodeletsTest --vertex UnaryOp1D --operation EXPONENT \\\n"
   "                      --data-type float half int --size 5000\n"
   "\n"
   " A 2D vertex, where the operand is a 2D vector of vectors of: [[300]\n"
@@ -407,7 +407,7 @@ int main(int argc, char **argv) {
   "\n"
   "Compare cycles reported between Sim and IpuModel when running a specific\n"
   "vertex:\n"
-  "   UnaryCodeletsTest --vertex UnaryOp1DSupervisor --operation SQUARE \\\n"
+  "   UnaryCodeletsTest --vertex UnaryOp1D --operation SQUARE \\\n"
   "                      --data-type float --size 5000 --device-type Sim \\\n"
   "                      --compare-cycles IpuModel\n"
   "\n"
@@ -419,8 +419,8 @@ int main(int argc, char **argv) {
   poDesc.add_options()
     ("vertex",
      po::value<std::vector<std::string>>(&vertices)->multitoken(),
-     "Vertices to test, one or more of: UnaryOp1DSupervisor, "
-     "UnaryOp1DInPlaceSupervisor, UnaryOp2D, UnaryOp2DInPlace")
+     "Vertices to test, one or more of: UnaryOp1D, UnaryOp1DInPlace, "
+     "UnaryOp2D, UnaryOp2DInPlace")
     ("vertexRE",
      po::value<std::string>(&vertexRE),
      "Regular expression to specify vertex names (alternative to --vertex)")

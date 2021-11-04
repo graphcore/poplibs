@@ -143,17 +143,12 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
-#define DEFINITIONS_ONLY
-#include "elementwiseStubs.S"
 #include "CommonPoplibsMacros.h.S"
 
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
-// TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
+// TYPE needs to be '1D', '1DInPlace', '2D' or '2DInPlace'.
 #define CPP_FUNCNAME(TYPE)  __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BinaryOpType__MULTIPLY_half
-
-// Another similar macro to name the sections where each function is contained
-#define FUNCNAME(TYPE)  VectorInner_ ## TYPE ## _MULTIPLY_half
 
 // Scratch area is used to save saome registers
 #define SCRATCH_OFFSET_SCALE_ITERATOR 0
@@ -644,7 +639,7 @@ FN_SIZE VectorInnerMul_core_half
 #undef ascratch0
 
 
-/////////////////// VectorInner Supervisor Vertices ///////////////////////
+/////////////////// VectorInner MultiVertex ///////////////////////
 
 // Vertex state layout
 #define VERTEX_DATA_SCALE_OFFSET 0                 // In 32-bits
@@ -655,20 +650,6 @@ FN_SIZE VectorInnerMul_core_half
 #define VERTEX_DATA_ACTS_OUT_OFFSET 4              // In 32-bits
 
 
-FN_SUPERVISOR_ENTRY_POINT CPP_FUNCNAME(InPlaceSupervisor)
-  setzi $WORKER_ENTRY, .LvectorInnerMul_inplace_worker
-  bri    __popops_SupervisorRunallSyncAndReturn
-FN_SIZE CPP_FUNCNAME(InPlaceSupervisor)
-
-FN_WORKER_ENTRY_POINT CPP_FUNCNAME(Supervisor)
-  // Set the entry point for the workers.
-  setzi $WORKER_ENTRY, .LvectorInnerMul_worker
-  bri    __popops_SupervisorRunallSyncAndReturn
-
-FN_SIZE CPP_FUNCNAME(Supervisor)
-
-// Worker code
-
 #define blocks_per_worker m5
 #define worker_id m6
 #define block_begin m7
@@ -676,16 +657,13 @@ FN_SIZE CPP_FUNCNAME(Supervisor)
 #define mscratch0 m9
 
 
-FN_SECTION FUNCNAME(WorkerInPlace)
-
-.LvectorInnerMul_inplace_worker:
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1DInPlace)
   ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   mov $acts_out, $acts_in
   bri .Lworker
-FN_SIZE FUNCNAME(WorkerInPlace)
+FN_SIZE CPP_FUNCNAME(1DInPlace)
 
-FN_SECTION FUNCNAME(Worker)
-.LvectorInnerMul_worker:
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1D)
   ld32 $acts_in,           $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   ld32 $acts_out,          $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
   // Fall through.
@@ -751,7 +729,7 @@ update_acts_ptrs:
   call $lr, VectorInnerMul_core_half
 
   exitnz $mzero
-FN_SIZE FUNCNAME(Worker)
+FN_SIZE CPP_FUNCNAME(1D)
 
 #undef blocks_per_worker
 #undef worker_id

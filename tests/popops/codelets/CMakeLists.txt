@@ -87,10 +87,10 @@ add_multitarget_test(NAME "BinaryOpCodeletsTests_slow_integer"
                      LABELS codelet
                      VARIANTS ${SIM_VARIANTS})
 
-# Main function to test the majority of vertices. Called specifying "Supervisor"
+# Main function to test the majority of vertices. Called specifying "1D"
 # or "2D" and different sizes for the operands
 #   TEST_TAG  Just a tag to distinguish various invocation of this function
-#   TYPE      Will be "Supervisor" or "2D"
+#   TYPE      Will be "1D" or "2D"
 #   SIZE      Specify the operand sizes, passed to the test executables.
 #             Look at their help to understand the details of the specification
 #             of sizes for the various vertices.
@@ -129,17 +129,17 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                        VARIANTS ${SIM_VARIANTS})
 endfunction()
 
-# Run ALL the Supervisor elementwise test with various sizes of the operands
+# Run ALL the 1D elementwise test with various sizes of the operands
 # We call test_elementwise multiple times to avoid taking too long and
 # timing out.
 # Note that the strings with semicolons are part of CMake syntax for function
 # parameters, so that inside the function they are space-separated lists, while
 # the comma-separated, square-bracket arrays are passed directly to the test
 # executables
-test_elementwise(S1  Supervisor   "2;3;4;8")
-test_elementwise(S2  Supervisor   "12;16;24")
-test_elementwise(S3  Supervisor   "25;26;27")
-test_elementwise(S4  Supervisor   "28;44;50")
+test_elementwise(S1  1D   "2;3;4;8")
+test_elementwise(S2  1D   "12;16;24")
+test_elementwise(S3  1D   "25;26;27")
+test_elementwise(S4  1D   "28;44;50")
 # Run ALL the 2D elementwise test once with a 2D vectors containing many
 # different sizes.
 test_elementwise(2D_1 2D "[1,2,3,4,8,9,12,22,24]"  1)
@@ -279,11 +279,11 @@ function(runRptLoopCycleTest TEST_TAG CMD VERTEX OPS DATA_TYPES)
             --cycle-threshold 3
     VARIANTS ${SIM_VARIANTS})
 endfunction()
-runRptLoopCycleTest("unary_float" UnaryCodeletsTest "UnaryOp1DSupervisor"
+runRptLoopCycleTest("unary_float" UnaryCodeletsTest "UnaryOp1D"
                     "inverse;rsqrt;sqrt" float)
-runRptLoopCycleTest("unary_float_half" UnaryCodeletsTest "UnaryOp1DSupervisor"
+runRptLoopCycleTest("unary_float_half" UnaryCodeletsTest "UnaryOp1D"
                     "exponent;logarithm;negate;square" "float;half")
-runRptLoopCycleTest("binary_float_half" BinaryCodeletsTest "BinaryOp1DSupervisor"
+runRptLoopCycleTest("binary_float_half" BinaryCodeletsTest "BinaryOp1D"
                     "maximum;minimum" "float;half")
 
 

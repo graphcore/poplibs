@@ -15,10 +15,10 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 namespace popops {
 
 template <typename T>
-class [[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2d
+class [[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2D
     : public Vertex {
 public:
-  Transpose2d();
+  Transpose2D();
 
   Vector<Input<Vector<T, ONE_PTR, 8>>> src;
   Vector<Output<Vector<T, ONE_PTR, 8>>, ONE_PTR> dst;
@@ -42,11 +42,11 @@ public:
   }
 };
 
-template class Transpose2d<float>;
-template class Transpose2d<unsigned int>;
-template class Transpose2d<int>;
-template class Transpose2d<half>;
-template class Transpose2d<unsigned short>;
-template class Transpose2d<short>;
+template class Transpose2D<float>;
+template class Transpose2D<unsigned int>;
+template class Transpose2D<int>;
+template class Transpose2D<half>;
+template class Transpose2D<unsigned short>;
+template class Transpose2D<short>;
 
 } // end namespace popops

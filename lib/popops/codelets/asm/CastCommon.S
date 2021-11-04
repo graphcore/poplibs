@@ -4,21 +4,19 @@
 // Common code for Cast vertices.
 // Here we define the entry points for cast vertices:
 //
-//    Cast<INTYPE, OUTTYPE>
+//    Cast1DSingleWorker<INTYPE, OUTTYPE>        (1D, single worker)
 //
-//    CastWorker<INTYPE, OUTTYPE>
+//    Cast1D<INTYPE, OUTTYPE>                    (1D, MultiWorker)
 //
-//    Cast2d<INTYPE, OUTTYPE>
+//    Cast2D<INTYPE, OUTTYPE>                    (2D, single worker)
 //
 // This will contain all the 'setup' code before calling the specific
 // processing functions ('cast_<INTYPE>_<OUTTYPE>_core'), which are
 // defined in separate files.
 
 #include "CastCommon.inc"
-#define DEFINITIONS_ONLY
-#include "elementwiseStubs.S"
 
-// Offsets for fields both in the Supervisor and 1D vertex state.
+// Offsets for fields both in the 1D MultiVertex and single worker state.
 // All offsets are in bytes
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
 #define VOFF_IN         0
@@ -87,8 +85,8 @@
 //
 // OUTTYPE_BITS 8, 16, 32 depending on the size of OUTTYPE
 //
-// OUT_SCALED32 1 => use SCALED_PTR32 for the output pointer in the vertex
-//              state (Cast and CastWorker verticews); 0 => use SCALED_PTR64
+// OUT_SCALED32 1 => use SCALED_PTR32 for the output pointer in the vertex state
+//              (Cast1DSingleWorker and Cast1D verticews); 0 => use SCALED_PTR64
 //              (only if scaled ptrs are enabled at all, otherwise, this has no
 //              effect).
 //
@@ -104,7 +102,7 @@
 // poplibs (in the 'cast()' function).
 // Just calls the core function on the 1D vector specified in the vertex state
 //------------------------------------------------------------------------------
-#define FUNC(TYPES) __runCodelet_popops__Cast___##TYPES
+#define FUNC(TYPES) __runCodelet_popops__Cast1DSingleWorker___##TYPES
 
 FN_WORKER_ENTRY_POINT FUNC(\TYPES)
 .ifnc \ALIAS_TYPES, NONE
@@ -139,17 +137,15 @@ FN_WORKER_ENTRY_POINT FUNC(\TYPES)
 FN_SIZE FUNC(\TYPES)
 
 //------------------------------------------------------------------------------
-// Entry point for the 1D worker which is (only) started from the Supervisor
-// vertex.
-// Read the vertex state (which is the one passed to the Supervisor vertex)
-// and finds out which segment of the total 1D vector this has to process,
-// then calls the core function on it.
+// Entry point for the 1D MultiVertex.
+// Read the vertex state and finds out which segment of the total 1D vector
+// this has to process, then calls the core function on it.
 //------------------------------------------------------------------------------
-#define FUNC_WORKER(TYPES) __runCodelet_popops__CastWorker___##TYPES
+#define FUNC_1D(TYPES) __runCodelet_popops__Cast1D___##TYPES
 
-FN_WORKER_ENTRY_POINT FUNC_WORKER(\TYPES)
+FN_WORKER_ENTRY_POINT FUNC_1D(\TYPES)
 .ifnc \ALIAS_TYPES, NONE
-  FN_EXPORT FUNC_WORKER(\ALIAS_TYPES)
+  FN_EXPORT FUNC_1D(\ALIAS_TYPES)
 .endif
 
    // get fields from vertex state
@@ -224,7 +220,7 @@ FN_WORKER_ENTRY_POINT FUNC_WORKER(\TYPES)
     call     $lr, cast_\TYPES\()_core
 .Lexit\@:
     exitz    $mzero
-FN_SIZE FUNC_WORKER(\TYPES)
+FN_SIZE FUNC_1D(\TYPES)
 
 
 
@@ -236,7 +232,7 @@ FN_SIZE FUNC_WORKER(\TYPES)
 #define OUT_ITERATOR               m6
 #define NUM_VECTORS                m7
 
-#define FUNC_2D(TYPES) __runCodelet_popops__Cast2d___##TYPES
+#define FUNC_2D(TYPES) __runCodelet_popops__Cast2D___##TYPES
 
 FN_WORKER_ENTRY_POINT FUNC_2D(\TYPES)
 .ifnc \ALIAS_TYPES, NONE
@@ -284,124 +280,4 @@ INSTANTIATE_CAST half_unsigned_char  NONE       16  8  1  SETUP_UCHAR_OVERFLOW_C
 INSTANTIATE_CAST float_unsigned_char NONE       32  8  1  SETUP_UCHAR_OVERFLOW_CHECK
 INSTANTIATE_CAST half_signed_char    half_char  16  8  1  SETUP_SCHAR_OVERFLOW_CHECK
 INSTANTIATE_CAST float_signed_char   float_char 32  8  1  SETUP_SCHAR_OVERFLOW_CHECK
-
-
-
-//******************************************************************************
-//
-// Macro to create one supervisor vertex, which just runs the corresponding
-// 'CastWorker' threads, passing them the pointer to its own vertex state.
-//
-// TYPES        INTYPE and OUTTYPE separated by underscore (i.e.:
-//              'float_half', half_float', 'float_signed_char', ... etc)
-//
-// ALIAS_TYPES  If not empty, it must be a pair of types like
-//              TYPES, for which another entry point label will be setup (no
-//              duplication of code, just the labels).
-//              For instance, 'char_float' is the same as 'signed_char_float'
-//
-//******************************************************************************
-.macro INSTANTIATE_SUPERVISOR  TYPES  ALIAS_TYPES
-
-#define FUNC_SV(TYPES) __runCodelet_popops__CastSupervisor___##TYPES
-
-DEF_STACK_SIZE_OWN 0 .text.FUNC_SV(\TYPES)
-
-FN_SUPERVISOR_ENTRY_POINT FUNC_SV(\TYPES) 4 "" NONE
-.ifnb \ALIAS_TYPES
-  FN_EXPORT FUNC_SV(\ALIAS_TYPES)
-.endif
-  setzi       $WORKER_ENTRY, __runCodelet_popops__CastWorker___\TYPES
-  bri         __popops_SupervisorRunallSyncAndReturn
-FN_SIZE FUNC_SV(\TYPES)
-.endm
-
-
-// We instantiate here the supervisor vertices for all possible casts.
-// Worker vertices not defined in assembly (above) are defined in C++
-
-// Note that we don't define here the following:
-//  Identity conversions (XXX->XXX) and INT<->UNSIGNED as these will be
-//  replaced with Copy() in popops::cast()
-
-INSTANTIATE_SUPERVISOR char_float            signed_char_float
-INSTANTIATE_SUPERVISOR char_half             signed_char_half
-INSTANTIATE_SUPERVISOR char_short            signed_char_short
-INSTANTIATE_SUPERVISOR char_unsigned_char    signed_char_unsigned_char
-INSTANTIATE_SUPERVISOR char_unsigned_short   signed_char_unsigned_short
-INSTANTIATE_SUPERVISOR char_int              signed_char_int
-INSTANTIATE_SUPERVISOR char_unsigned_int     signed_char_unsigned_int
-INSTANTIATE_SUPERVISOR char_bool             signed_char_bool
-
-INSTANTIATE_SUPERVISOR unsigned_char_float
-INSTANTIATE_SUPERVISOR unsigned_char_half
-INSTANTIATE_SUPERVISOR unsigned_char_char    unsigned_char_signed_char
-INSTANTIATE_SUPERVISOR unsigned_char_short
-INSTANTIATE_SUPERVISOR unsigned_char_unsigned_short
-INSTANTIATE_SUPERVISOR unsigned_char_int
-INSTANTIATE_SUPERVISOR unsigned_char_unsigned_int
-INSTANTIATE_SUPERVISOR unsigned_char_bool
-
-INSTANTIATE_SUPERVISOR float_half
-INSTANTIATE_SUPERVISOR float_unsigned_char
-INSTANTIATE_SUPERVISOR float_char            float_signed_char
-INSTANTIATE_SUPERVISOR float_int
-INSTANTIATE_SUPERVISOR float_unsigned_int
-INSTANTIATE_SUPERVISOR float_bool
-INSTANTIATE_SUPERVISOR float_unsigned_short
-
-INSTANTIATE_SUPERVISOR half_float
-INSTANTIATE_SUPERVISOR half_unsigned_char
-INSTANTIATE_SUPERVISOR half_char             half_signed_char
-INSTANTIATE_SUPERVISOR half_int
-INSTANTIATE_SUPERVISOR half_unsigned_int
-INSTANTIATE_SUPERVISOR half_unsigned_short
-INSTANTIATE_SUPERVISOR half_bool
-
-INSTANTIATE_SUPERVISOR int_float
-INSTANTIATE_SUPERVISOR int_half
-INSTANTIATE_SUPERVISOR int_bool
-INSTANTIATE_SUPERVISOR int_char              int_signed_char
-INSTANTIATE_SUPERVISOR int_unsigned_char
-INSTANTIATE_SUPERVISOR int_unsigned_short
-
-INSTANTIATE_SUPERVISOR unsigned_int_float
-INSTANTIATE_SUPERVISOR unsigned_int_half
-INSTANTIATE_SUPERVISOR unsigned_int_bool
-INSTANTIATE_SUPERVISOR unsigned_int_char     unsigned_int_signed_char
-INSTANTIATE_SUPERVISOR unsigned_int_unsigned_char
-INSTANTIATE_SUPERVISOR unsigned_int_unsigned_short
-
-INSTANTIATE_SUPERVISOR unsigned_short_float
-INSTANTIATE_SUPERVISOR unsigned_short_half
-INSTANTIATE_SUPERVISOR unsigned_short_char   unsigned_short_signed_char
-INSTANTIATE_SUPERVISOR unsigned_short_int
-INSTANTIATE_SUPERVISOR unsigned_short_bool
-INSTANTIATE_SUPERVISOR unsigned_short_unsigned_char
-INSTANTIATE_SUPERVISOR unsigned_short_unsigned_int
-
-INSTANTIATE_SUPERVISOR bool_float
-INSTANTIATE_SUPERVISOR bool_half
-INSTANTIATE_SUPERVISOR bool_int
-INSTANTIATE_SUPERVISOR bool_char             bool_signed_char
-INSTANTIATE_SUPERVISOR bool_unsigned_char
-INSTANTIATE_SUPERVISOR bool_unsigned_int
-INSTANTIATE_SUPERVISOR bool_unsigned_short
-
-INSTANTIATE_SUPERVISOR unsigned_int_unsigned_long_long
-INSTANTIATE_SUPERVISOR unsigned_int_long_long
-INSTANTIATE_SUPERVISOR int_unsigned_long_long
-INSTANTIATE_SUPERVISOR int_long_long
-INSTANTIATE_SUPERVISOR short_unsigned_long_long
-INSTANTIATE_SUPERVISOR short_long_long
-INSTANTIATE_SUPERVISOR unsigned_short_unsigned_long_long
-INSTANTIATE_SUPERVISOR unsigned_short_long_long
-INSTANTIATE_SUPERVISOR char_unsigned_long_long signed_char_unsigned_long_long
-INSTANTIATE_SUPERVISOR char_long_long signed_char_long_long
-INSTANTIATE_SUPERVISOR unsigned_char_unsigned_long_long
-INSTANTIATE_SUPERVISOR unsigned_char_long_long
-INSTANTIATE_SUPERVISOR bool_unsigned_long_long
-INSTANTIATE_SUPERVISOR bool_long_long
-
-
 #endif

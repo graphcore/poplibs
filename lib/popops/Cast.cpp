@@ -83,7 +83,7 @@ Program cast(Graph &graph, Tensor src, Tensor dst,
     logging::popops::trace("Cast is just a copy");
     return Copy(src.reinterpret(dstType), dst, false, {di});
   }
-  auto cs = graph.addComputeSet({di, "Cast"});
+  auto cs = graph.addComputeSet({di, "Cast1DSingleWorker"});
   cast(graph, src, dst, cs);
   return Execute(cs, {di});
 }
@@ -102,12 +102,12 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(dst, mapping[tile]);
-    // We use the supervisor vertex only if we have a single contiguous region
+    // We use the 1D MultiVertex only if we have a single contiguous region
     // on the tile.
     if (tileContiguousRegions.size() == 1) {
       VertexRef v;
-      v = graph.addVertex(
-          cs, templateVertex("popops::CastSupervisor", srcType, dstType));
+      v = graph.addVertex(cs,
+                          templateVertex("popops::Cast1D", srcType, dstType));
       const auto numElems = intervalSequenceNumElements(tileContiguousRegions);
       graph.connect(v["src"], concat(src.slices(tileContiguousRegions)));
       graph.connect(v["dst"], concat(dst.slices(tileContiguousRegions)));
@@ -124,14 +124,14 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
         VertexRef v;
         if (numRegions == 1) {
           const auto numElems = intervalSequenceNumElements(regions);
-          v = graph.addVertex(cs,
-                              templateVertex("popops::Cast", srcType, dstType));
+          v = graph.addVertex(cs, templateVertex("popops::Cast1DSingleWorker",
+                                                 srcType, dstType));
           graph.connect(v["src"], concat(src.slices(regions)));
           graph.connect(v["dst"], concat(dst.slices(regions)));
           graph.setInitialValue(v["numElems"], numElems);
         } else {
           v = graph.addVertex(
-              cs, templateVertex("popops::Cast2d", srcType, dstType));
+              cs, templateVertex("popops::Cast2D", srcType, dstType));
           graph.connect(v["src"], src.slices(regions));
           graph.connect(v["dst"], dst.slices(regions));
         }

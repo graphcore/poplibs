@@ -433,35 +433,35 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   if (unaryOp) {
     // Popops vertices: could be in-place or not-in-place, both the vertex name
     // and the data field name depends on this.
-    std::string name2D, nameSuperv;
+    std::string name2D, name1D;
     if (isInPlaceVertex) {
       dataName = "inOut";
       name2D = "popops::UnaryOp2DInPlace";
-      nameSuperv = "popops::UnaryOp1DInPlaceSupervisor";
+      name1D = "popops::UnaryOp1DInPlace";
     } else {
       dataName = "in";
       name2D = "popops::UnaryOp2D";
-      nameSuperv = "popops::UnaryOp1DSupervisor";
+      name1D = "popops::UnaryOp1D";
     }
     codeletName2D = templateVertex(name2D, *unaryOp, dType);
-    codeletName1D = templateVertex(nameSuperv, *unaryOp, dType);
+    codeletName1D = templateVertex(name1D, *unaryOp, dType);
   }
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
-  const auto rptLimitMaxElementsSupervisor =
+  const auto rptLimitMaxElements1D =
       target.getRptCountMax() * numWorkers * vectorWidth;
   const auto rptLimitMaxElements2D = target.getRptCountMax() * vectorWidth;
-  std::size_t maxSupervisorElements, max2DElements;
+  std::size_t max1DElements, max2DElements;
   if (unaryOp && !isInPlaceVertex) {
     // These vertices don't have limited size fields; the limits are only due
     // to the RPT instruction count.
-    maxSupervisorElements = rptLimitMaxElementsSupervisor;
+    max1DElements = rptLimitMaxElements1D;
     max2DElements = rptLimitMaxElements2D;
   } else {
-    maxSupervisorElements =
+    max1DElements =
         std::min<std::size_t>(graph.getMaxVertexFieldValue(codeletName1D, "n"),
-                              rptLimitMaxElementsSupervisor);
+                              rptLimitMaxElements1D);
     max2DElements =
         std::min<std::size_t>(graph.getMaxFieldDim(codeletName2D, dataName, 1),
                               rptLimitMaxElements2D);
@@ -476,7 +476,7 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     if (tileContiguousRegions.size() == 1) {
       const auto tThisTile = concat(tFlat.slices(tileContiguousRegions));
       const auto numElements = tThisTile.numElements();
-      if (numElements <= maxSupervisorElements) {
+      if (numElements <= max1DElements) {
         auto v = graph.addVertex(cs, codeletName1D, {{dataName, tThisTile}});
         if (!isInPlaceVertex) {
           // The not-in-place vertices have the 'out' field.

@@ -16,10 +16,10 @@ static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 namespace popops {
 
 template <typename T>
-class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose
+class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose1DSingleWorker
     : public Vertex {
 public:
-  Transpose();
+  Transpose1DSingleWorker();
 
   Input<Vector<T, COMPACT_PTR, 8>> src;
   Output<Vector<T, COMPACT_PTR, 8>> dst;
@@ -45,8 +45,8 @@ public:
   }
 };
 
-template class Transpose<half>;
-template class Transpose<unsigned short>;
-template class Transpose<short>;
+template class Transpose1DSingleWorker<half>;
+template class Transpose1DSingleWorker<unsigned short>;
+template class Transpose1DSingleWorker<short>;
 
 } // end namespace popops

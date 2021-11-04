@@ -4,8 +4,6 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
-#define DEFINITIONS_ONLY
-#include "elementwiseStubs.S"
 
 // vertex state (byte increments)
 #define VERTEX_BROADCAST_IN1_PTR_OFFSET 0
@@ -45,8 +43,8 @@
 #define outPair a4:5
 
 // Name mangling for use in macros
-#define VERTEX __runCodelet_popops__BroadcastScalar\EXT\()Supervisor___popops__expr__BinaryOpType__\OP_TYPES
-#define VERTEX_INPLACE __runCodelet_popops__BroadcastScalar\EXT\()InPlaceSupervisor___popops__expr__BinaryOpType__\OP_TYPES
+#define VERTEX __runCodelet_popops__BroadcastScalar\EXT\()___popops__expr__BinaryOpType__\OP_TYPES
+#define VERTEX_INPLACE __runCodelet_popops__BroadcastScalar\EXT\()InPlace___popops__expr__BinaryOpType__\OP_TYPES
 
 //******************************************************************************
 // Compute macro for inverse standard deviation to variance, with half in,
@@ -192,7 +190,7 @@
 
 
 //******************************************************************************
-// Macro to read vertex state, provide supervisor work division, and then call
+// Macro to read vertex state, provide MultiVertex work division, and then call
 // variance to inverse standard deviation or inverse standard deviaiton to variance
 .macro INSTANTIATE_VERTEX EXT OP_TYPES FLOAT_IN FLOAT_OUT TO_VARIANCE
 
@@ -202,10 +200,6 @@ DEF_STACK_USAGE 0 .text.VERTEX
 .section .text.VERTEX
 
 .align 4
-.supervisor
-VERTEX:
-  setzi        $WORKER_ENTRY, worker_entry\@
-  bri          __popops_SupervisorRunallSyncAndReturn
 
 // If float is being output there is no inPlace option
 .ifeq \FLOAT_OUT
@@ -213,12 +207,8 @@ VERTEX:
 .global VERTEX_INPLACE
 .type VERTEX_INPLACE, @function
 
-VERTEX_INPLACE:
-  setzi        $WORKER_ENTRY, worker_entry_inplace\@
-  bri          __popops_SupervisorRunallSyncAndReturn
-
 .worker
-worker_entry_inplace\@:
+VERTEX_INPLACE:
   ld32 $in1, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_COUNT_OFFSET/4
   ld32 $in2, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_IN2_PTR_OFFSET/4
@@ -228,7 +218,7 @@ worker_entry_inplace\@:
 
 .align 8
 .worker
-worker_entry\@:
+VERTEX:
   ld32 $in1, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_COUNT_OFFSET/4
   ld32 $in2, $mzero, $mvertex_base, VERTEX_BROADCAST_IN2_PTR_OFFSET/4

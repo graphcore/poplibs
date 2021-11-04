@@ -35,18 +35,12 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
-#define DEFINITIONS_ONLY
-#include "elementwiseStubs.S"
 #include "CommonPoplibsMacros.h.S"
 
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
-// TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
+// TYPE needs to be '1D', '1DInPlace', '2D' or '2DInPlace'.
 #define CPP_FUNCNAME(TYPE)  __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BinaryOpType__MULTIPLY_float
-
-// Another similar macro to name the sections where each function is contained
-#define FUNCNAME(TYPE)  VectorInner_ ## TYPE ## _MULTIPLY_float
-
 
 // This is the main function that does the actual work. It takes the following
 // register arguments:
@@ -146,9 +140,9 @@ FN_SIZE VectorInnerMul_core_float
 
 
 
-/////////////////// VectorInner Supervisor Vertices ///////////////////////
+/////////////////// VectorInner MultiVertex ///////////////////////
 
-// Vertex state layout for VectorInnerSupervisor
+// Vertex state layout for MultiVertex
 #define VERTEX_DATA_SCALE_OFFSET 0                 // In 32-bits
 #define VERTEX_DATA_SCALE_SIZE_OFFSET 1            // In 32-bits
 #define VERTEX_DATA_ACTS_IN_OFFSET 2               // In 32-bits
@@ -157,31 +151,6 @@ FN_SIZE VectorInnerMul_core_float
 #define VERTEX_DATA_ACTS_OUT_OFFSET 4              // In 32-bits
 
 
-// The following supervisor variables are used. The vertex base is
-// passed in as $m0.
-#define supervisor_vertex_base m0
-#define worker_entry m1
-
-FN_SUPERVISOR_ENTRY_POINT CPP_FUNCNAME(InPlaceSupervisor)
-  // Set the entry point for the workers.
-  setzi $WORKER_ENTRY, .LvectorInnerMul_inplace_worker
-  bri    __popops_SupervisorRunallSyncAndReturn
-
-FN_SIZE CPP_FUNCNAME(InPlaceSupervisor)
-
-
-FN_SUPERVISOR_ENTRY_POINT CPP_FUNCNAME(Supervisor)
-  // Set the entry point for the workers.
-  setzi  $WORKER_ENTRY, .LvectorInnerMul_worker
-  bri    __popops_SupervisorRunallSyncAndReturn
-
-FN_SIZE CPP_FUNCNAME(Supervisor)
-
-
-#undef supervisor_vertex_base
-#undef worker_entry
-
-// Worker code.
 
 #define blocks_per_worker m5
 #define worker_id m6
@@ -190,15 +159,14 @@ FN_SIZE CPP_FUNCNAME(Supervisor)
 #define mscratch0 m9
 
 
-FN_SECTION FUNCNAME(WorkerInPlace)
-.LvectorInnerMul_inplace_worker:
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1DInPlace)
   ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   mov $acts_out, $acts_in
   bri .Lworker
-FN_SIZE FUNCNAME(WorkerInPlace)
+FN_SIZE CPP_FUNCNAME(1DInPlace)
 
-FN_SECTION FUNCNAME(Worker)
-.LvectorInnerMul_worker:
+
+FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1D)
   ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
   ld32 $acts_out, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
   // Fall through.
@@ -237,7 +205,7 @@ FN_SECTION FUNCNAME(Worker)
 
   exitnz $mzero
 
-FN_SIZE FUNCNAME(Worker)
+FN_SIZE CPP_FUNCNAME(1D)
 
 #undef blocks_per_worker
 #undef worker_id

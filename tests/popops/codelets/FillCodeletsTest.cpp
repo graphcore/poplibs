@@ -114,7 +114,7 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
         std::string posStr =
             v.is2D ? to_string(row) + "," + to_string(i) : to_string(i);
         std::cerr << "out[" << posStr
-                  << "] - expected:" << convertToString(fillValue)
+                  << "] : expected:" << convertToString(fillValue)
                   << ";  actual:" << convertToString(actual) << "\n";
         errCount++;
       }

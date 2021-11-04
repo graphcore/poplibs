@@ -665,7 +665,8 @@ void addOneTest(std::vector<std::shared_ptr<TestRecord>> &tests,
     std::vector<std::shared_ptr<TestRecord>> testVect = {newTest};
     uint64_t cycles;
     uint64_t estimatedCycles;
-    errCount += runTests(testVect, 0, 1, device, options, true, cycles,
+    bool verbose = !options.printCycles;
+    errCount += runTests(testVect, 0, 1, device, options, verbose, cycles,
                          estimatedCycles);
     if (options.printCycles) {
       std::cout << newTest->toString() << "  cycles:"

@@ -20,8 +20,8 @@ namespace popops {
 // point without prior notice.
 namespace internal {
 
-/** Supervisor context cycle estimate for BinaryOp and UnaryOp supervisor
- * codelets.
+/** Supervisor context cycle estimate for BinaryOp and UnaryOp Supervisor/
+ * MultiVertex codelets.
  *
  * \param isScaledPtr64Type  Is true if vector vertex field is ScaledPtr64
  *                           and false otherwise.
@@ -87,9 +87,10 @@ std::uint64_t getDynamicSlice1DEstimate(const poplar::Target &target,
  *
  * \returns Estimated number of cycles.
  */
-std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
-    const poplar::Target &target, const poplar::Type &type,
-    const popops::expr::BinaryOpType op, const unsigned numElems);
+std::uint64_t getBinaryOp1DInPlaceEstimate(const poplar::Target &target,
+                                           const poplar::Type &type,
+                                           const popops::expr::BinaryOpType op,
+                                           const unsigned numElems);
 
 /** Cycle estimate for MultiSlice vertex.
  */
@@ -193,8 +194,8 @@ std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
     const ScaledArithmeticOp operation, const poplar::layout::Vector &aLayout,
     const poplar::layout::Vector &bLayout, const unsigned numElems);
 
-// Computes the cycles used by the scalar broadcast supervisor codelet
-poplar::VertexPerfEstimate broadcastArithmeticSupervisorCycleEstimate(
+// Computes the cycles used by the scalar broadcast 1D codelet
+poplar::VertexPerfEstimate broadcastArithmetic1DCycleEstimate(
     const poplar::Target &target, popops::expr::BinaryOpType op,
     const poplar::Type &inType, const poplar::Type &outType, bool inPlace,
     std::size_t dataSize);

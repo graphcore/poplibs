@@ -405,6 +405,116 @@ struct UnaryOpDispatch {
 
 #ifdef __IPU__
 
+/// Performs the bulk of a unary 'op' that has bool as output type:
+///    T op T => BOOL (LOGICAL_NOT, IS_FINITE, etc).
+/// This processes 4 elements of type T in each cycle of the loop, and writes
+/// the 4 aggregated boolean results (1 full word) at a time, avoiding calls
+/// to __st8/__st16.
+/// This is run both by the '2D' and '1D' vertices .
+/// Implemented as as a struct with a static function instead of a templated
+/// function because you cannot partially specialise a templated function
+/// (also, doesn't use operator() because it cannot be static)
+///
+///  \tparam     op        Operation to perform
+///
+///  \tparam     T         Type of the operands
+///
+///  \tparam     stride    Stride (in units of 4 elements) to advance
+///                        in/out at each cycle of the loop.
+///
+///  \param[in]  loopCount How many groups of 4 elements to process.
+///
+///  \param[in]  in        Pointer to an array of T with input operand.
+///
+///  \param[out] out       Pointer to an array of boolean (1 byte each) that
+///                        will be populated with the results
+///
+template <UnaryOpType op, typename T, unsigned stride> struct unaryBoolOpBulk {
+  static void compute(unsigned loopCount, const T *in, int *out) {
+    for (unsigned i = 0; i < loopCount; i++) {
+      unsigned result4 = 0;
+      // Accumulate in 'result4' the 4 bytes for this loop
+      for (unsigned j = 0, shifts = 0; j != 4; ++j, shifts += 8) {
+        bool res = UnaryOpFn<op, T, architecture::active>::fn(in[j]);
+        result4 |= res << shifts;
+      }
+      in += 4 * stride;
+      *out = result4;
+      out += stride;
+    }
+  }
+};
+
+// Optimisations for LOGICAL_NOT processing 4 boolean stored in a single word.
+// This can be done by a 'vectorized' operation on the whole word.
+template <unsigned stride>
+struct unaryBoolOpBulk<UnaryOpType::LOGICAL_NOT, bool, stride> {
+  static void compute(unsigned loopCount, const bool *in, int *out) {
+    const unsigned *b4In = reinterpret_cast<const unsigned *>(in);
+    for (unsigned i = 0; i < loopCount; i++) {
+      unsigned word = *b4In;
+      //  LOGICAL_NOT is NOT of the two words, plus masking with 01010101
+      *out = ~word & 0x01010101;
+      b4In += stride;
+      out += stride;
+    }
+  }
+};
+
+/// Unary 'op' for bool output type ( T op T => BOOL) for the
+/// trailing 0..3 elements of the input data (used in conjunction with
+/// 'unaryBoolOpBulk')
+/// This is run both by the '2D' and '1D' vertices
+///
+///  \tparam     op        Operation to perform. One of the comparison ops
+///                        (EQUAL, LESS_THAN, ...)
+///
+///  \tparam     T         data type (float or half)
+///
+///  \param[in]  size      Total number of data elements
+///
+///  \param[in]  in        Pointer to an array of T with first operand.
+///
+///  \param[out] out       Pointer to an array of boolean (1 byte each) that
+///                        is/will be populated with the results
+///
+template <UnaryOpType op, typename T>
+void unaryBoolOpRemainder(unsigned size, const T *in,
+                          __attribute__((align_value(4))) bool *out) {
+  unsigned remainder = size & 3;
+  if (remainder) {
+    unsigned offs = size - remainder;
+    in = &in[offs]; // make it point to the 'remainder'
+    // Read the word of the output in memory that will contain the 1-3 bytes
+    // of the remainder, so that we can write back the byte(s) we will not be
+    // updating.
+    unsigned *out4 = reinterpret_cast<unsigned *>(&out[offs]);
+    unsigned result4 = *out4;
+    // Accumulate in 'result4' the 1-3 bytes of the remainder
+    unsigned mask = 0xff;
+    for (unsigned j = 0, shifts = 0; j != remainder; ++j, shifts += 8) {
+      bool res = UnaryOpFn<op, T, architecture::active>::fn(in[j]);
+      result4 &= ~(mask << shifts);
+      result4 |= res << shifts;
+    }
+    // Do a single word write back to memory
+    *out4 = result4;
+  }
+}
+
+template <UnaryOpType op, typename T>
+struct UnaryOpDispatch<op, T, bool, architecture::ipu> {
+  static void compute(unsigned size, const T *in,
+                      __attribute__((align_value(4))) bool *out) {
+    if (size >= 4) {
+      const unsigned loopCount = maskForRepeat(size / 4u);
+      unaryBoolOpBulk<op, T, 1>::compute(loopCount, in,
+                                         reinterpret_cast<int *>(out));
+    }
+    unaryBoolOpRemainder<op, T>(size, in, out);
+  }
+};
+
 template <expr::UnaryOpType op>
 struct UnaryOpDispatch<op, half, bool, architecture::ipu> {
 
@@ -645,9 +755,9 @@ static void unaryShort2Short4Remainder(unsigned size,
 }
 
 template <UnaryOpType op, typename T>
-static void unaryShort2_Supervisor(unsigned size, unsigned worker,
-                                   const __attribute__((align_value(4))) T *in,
-                                   __attribute__((align_value(4))) T *out) {
+static void unaryShort2_MultiVertex(unsigned size, unsigned worker,
+                                    const __attribute__((align_value(4))) T *in,
+                                    __attribute__((align_value(4))) T *out) {
   const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
 
   unaryShort2Bulk<op, T, CTXT_WORKERS>(loopCount, in + 2 * worker,
@@ -779,10 +889,10 @@ DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::RELU, DELTANELEMENTS)
 #endif
 
 //******************************************************************************
-// Dispatch for use with Unary Operation supervisor vertices
+// Dispatch for use with Unary Operation MultiVertex
 //******************************************************************************
 template <expr::UnaryOpType op, typename inT, typename outT, typename A>
-struct UnaryOpDispatchSupervisor {
+struct UnaryOpDispatchMultiVertex {
 public:
   static void compute(unsigned size, unsigned worker, inT *in, outT *out) {
     // No vectorisation for int, unsigned int, but still split over workers
@@ -793,8 +903,26 @@ public:
 
 #ifdef __IPU__
 
+/// Processing for operators that return a bool (LOGICAL_NOT) for MultiVertex.
+template <UnaryOpType op, typename T, typename A>
+class UnaryOpDispatchMultiVertex<op, T, bool, A> {
+public:
+  static void compute(unsigned size, unsigned worker, const T *in,
+                      __attribute__((align_value(4))) bool *out) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    unaryBoolOpBulk<op, T, CTXT_WORKERS>::compute(
+        loopCount, in + 4 * worker, reinterpret_cast<int *>(out) + worker);
+
+    // To process the trailing elements (if any) use the last worker as it is
+    // most likely to have less to do than the others.
+    if (worker == (CTXT_WORKERS - 1)) {
+      unaryBoolOpRemainder<op, T>(size, in, out);
+    }
+  }
+};
+
 template <expr::UnaryOpType op>
-struct UnaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
+struct UnaryOpDispatchMultiVertex<op, half, bool, architecture::ipu> {
 
   static_assert(sizeof(int) == sizeof(char4), "");
   static_assert(sizeof(bool) == sizeof(char), "");
@@ -832,7 +960,7 @@ struct UnaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
 };
 
 template <expr::UnaryOpType op>
-struct UnaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
+struct UnaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
 
   static_assert(sizeof(int) == sizeof(char4), "");
   static_assert(sizeof(bool) == sizeof(char), "");
@@ -874,7 +1002,7 @@ struct UnaryOpDispatchSupervisor<op, float, bool, architecture::ipu> {
 };
 
 template <expr::UnaryOpType op>
-struct UnaryOpDispatchSupervisor<op, half, half, architecture::ipu> {
+struct UnaryOpDispatchMultiVertex<op, half, half, architecture::ipu> {
 public:
   static void compute(unsigned size, unsigned worker, half *in,
                       typename UnaryOpOutputType<op, half>::type *out) {
@@ -926,7 +1054,7 @@ public:
 };
 
 template <expr::UnaryOpType op>
-class UnaryOpDispatchSupervisor<op, float, float, architecture::ipu> {
+class UnaryOpDispatchMultiVertex<op, float, float, architecture::ipu> {
 public:
   static void compute(unsigned size, unsigned worker, float *in,
                       typename UnaryOpOutputType<op, float>::type *out) {
@@ -961,36 +1089,30 @@ public:
 };
 
 template <UnaryOpType op>
-class UnaryOpDispatchSupervisor<op, short, short, architecture::ipu> {
+class UnaryOpDispatchMultiVertex<op, short, short, architecture::ipu> {
 public:
   static void compute(unsigned size, unsigned worker,
                       const __attribute__((align_value(4))) short *in,
                       __attribute__((align_value(4))) short *out) {
-    unaryShort2_Supervisor<op, short>(size, worker, in, out);
+    unaryShort2_MultiVertex<op, short>(size, worker, in, out);
   }
 };
 
 template <UnaryOpType op>
-class UnaryOpDispatchSupervisor<op, unsigned short, unsigned short,
-                                architecture::ipu> {
+class UnaryOpDispatchMultiVertex<op, unsigned short, unsigned short,
+                                 architecture::ipu> {
 public:
   static void compute(unsigned size, unsigned worker,
                       const __attribute__((align_value(4))) unsigned short *in,
                       __attribute__((align_value(4))) unsigned short *out) {
-    unaryShort2_Supervisor<op, unsigned short>(size, worker, in, out);
+    unaryShort2_MultiVertex<op, unsigned short>(size, worker, in, out);
   }
 };
 
 #endif
 
-template <typename T> constexpr bool unaryOp1DIsSupervisor() {
-  return !std::is_same<T, bool>::value;
-}
-
 template <expr::UnaryOpType op, typename T>
-class UnaryOp1DSupervisor
-    : public SupervisorVertexIf<unaryOp1DIsSupervisor<T>() &&
-                                ASM_CODELETS_ENABLED> {
+class UnaryOp1D : public MultiVertex {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
 
   static const bool needsAlignWorkers = false;
@@ -999,18 +1121,18 @@ public:
   Input<Vector<T, ONE_PTR, 8>> in;
   Output<Vector<outputType, SPAN, 8>> out;
 
-  IS_EXTERNAL_CODELET(unaryOp1DIsSupervisor<T>());
+  IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
-  bool compute() {
-    computeUnaryInnerLoop<op, T, outputType>(&in[0], &out[0], out.size());
+  bool compute(unsigned wid) {
+    using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
+    popops::UnaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(
+        out.size(), wid, &in[0], &out[0]);
     return true;
   }
 };
 
 template <expr::UnaryOpType op, typename T>
-class UnaryOp1DInPlaceSupervisor
-    : public SupervisorVertexIf<unaryOp1DIsSupervisor<T>() &&
-                                ASM_CODELETS_ENABLED> {
+class UnaryOp1DInPlace : public MultiVertex {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");
@@ -1020,10 +1142,12 @@ class UnaryOp1DInPlaceSupervisor
 public:
   InOut<Vector<T, SPAN, 8>> inOut;
 
-  IS_EXTERNAL_CODELET(unaryOp1DIsSupervisor<T>());
+  IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
-  bool compute() {
-    computeUnaryInnerLoop<op, T, T>(&inOut[0], &inOut[0], inOut.size());
+  bool compute(unsigned wid) {
+    using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
+    popops::UnaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(
+        inOut.size(), wid, &inOut[0], &inOut[0]);
     return true;
   }
 };
@@ -1032,9 +1156,7 @@ public:
 // have their vertex state fields defined differently from the rest of the
 // operators, so require separate templates.
 #define DEFINE_UNARY_OP_NL_SV(op, PTR_TYPE)                                    \
-  template <typename T>                                                        \
-  class UnaryOp1DInPlaceSupervisor<op, T>                                      \
-      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+  template <typename T> class UnaryOp1DInPlace<op, T> : public MultiVertex {   \
     typedef typename UnaryOpOutputType<op, T>::type outputType;                \
     static_assert(std::is_same<T, outputType>::value,                          \
                   "In, Out types must match for in place operations");         \
@@ -1042,14 +1164,15 @@ public:
     static const bool needsAlignWorkers = false;                               \
                                                                                \
   public:                                                                      \
-    UnaryOp1DInPlaceSupervisor();                                              \
+    UnaryOp1DInPlace();                                                        \
     InOut<Vector<T, PTR_TYPE, 4>> inOut;                                       \
     const unsigned short n;                                                    \
     IS_EXTERNAL_CODELET(true);                                                 \
-    bool compute() {                                                           \
-      for (unsigned j = 0; j != n; ++j) {                                      \
-        inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);      \
-      }                                                                        \
+    bool compute(unsigned wid) {                                               \
+      using arch =                                                             \
+          typename popops::UnaryOpFn<op, T, architecture::active>::arch;       \
+      popops::UnaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(    \
+          n, wid, &inOut[0], &inOut[0]);                                       \
       return true;                                                             \
     }                                                                          \
   };
@@ -1063,54 +1186,6 @@ DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::TANH, ONE_PTR)
 DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::SIGMOID, ONE_PTR)
 DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, ONE_PTR)
 #endif
-
-//******************************************************************************
-// Worker vertex to actually do the work of the operation for the
-// UnaryOp1DSupervisor vertex when it is an external codelet
-//******************************************************************************
-template <expr::UnaryOpType op, typename T> class UnaryOp1D : public Vertex {
-  typedef typename UnaryOpOutputType<op, T>::type outputType;
-
-public:
-  Input<Vector<T, ONE_PTR, 8>> in;
-  Output<Vector<outputType, SPAN, 8>> out;
-
-  IS_EXTERNAL_CODELET((isExternal<op, T>()));
-
-  bool compute() {
-#ifdef __IPU__
-    using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
-    popops::UnaryOpDispatchSupervisor<op, T, outputType, arch>::compute(
-        out.size(), getWsr(), &in[0], &out[0]);
-#endif
-    return true;
-  }
-};
-
-//******************************************************************************
-// Worker vertex to actually do the work of the operation for the
-// UnaryOp1DInPlaceSupervisor vertex when it is an external codelet
-//******************************************************************************
-template <expr::UnaryOpType op, typename T>
-class UnaryOp1DInPlace : public Vertex {
-  typedef typename UnaryOpOutputType<op, T>::type outputType;
-  static_assert(std::is_same<T, outputType>::value,
-                "In, Out types must match for in place operations");
-
-public:
-  InOut<Vector<T, SPAN, 8>> inOut;
-
-  IS_EXTERNAL_CODELET((isExternal<op, T>()));
-
-  bool compute() {
-#ifdef __IPU__
-    using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
-    popops::UnaryOpDispatchSupervisor<op, T, outputType, arch>::compute(
-        inOut.size(), getWsr(), &inOut[0], &inOut[0]);
-#endif
-    return true;
-  }
-};
 
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ABSOLUTE, float, half, int,
                long long)
@@ -1146,48 +1221,6 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQUARE, float, half, int, unsigned)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::RSQRT, float, half)
 
-// UnaryOp1DSupervisor - supervisor stubs for all types except bool.  If bool
-// they will generate single worker code. See T4642 - a task to add
-// these.
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ABSOLUTE, float, half,
-               int, long long)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ASIN, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
-               unsigned, short, unsigned short, unsigned long long, long long)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CBRT, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CEIL, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COS, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
-               unsigned)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ERF, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::EXPONENT, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::EXPONENT_MINUS_ONE,
-               float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::FLOOR, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::INVERSE, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::IS_FINITE, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::IS_INF, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::IS_NAN, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGARITHM_ONE_PLUS,
-               float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::LOGICAL_NOT, bool)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::NEGATE, float, half, int,
-               long long)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::POPCOUNT, int, unsigned)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIGNUM, float, half, int)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIN, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::TAN, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::TANH, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::RELU, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ROUND, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQRT, float, half, int)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQUARE, float, half, int,
-               unsigned)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIGMOID, float, half)
-INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::RSQRT, float, half)
-
-// UnaryOp1D - worker vertex for all types except bool.
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ABSOLUTE, float, half, int,
                long long)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ASIN, float, half)
@@ -1207,13 +1240,17 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_INF, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_NAN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::LOGICAL_NOT, bool)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::NEGATE, float, half, int,
                long long)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TAN, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQUARE, float, half, int, unsigned)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::RSQRT, float, half)
@@ -1253,58 +1290,6 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQUARE, float, half, int,
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::RSQRT, float, half)
 
-// UnaryOp1DInPlaceSupervisor - supervisor stubs for all types except bool.
-// If bool they will generate single worker code. See T4642 - a task to add
-// these.
-
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ABSOLUTE, float,
-               half, int, long long)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ASIN, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
-               unsigned, short, unsigned short, long long, unsigned long long)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CBRT, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CEIL, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::COS, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
-               expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
-
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ERF, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::EXPONENT, float,
-               half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
-               expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::FLOOR, float,
-               half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::INVERSE, float,
-               half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::LOGARITHM, float,
-               half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
-               expr::UnaryOpType::LOGARITHM_ONE_PLUS, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::LOGICAL_NOT, bool)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::NEGATE, float,
-               half, int, long long)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::POPCOUNT, int,
-               unsigned)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SIGNUM, float,
-               half, int)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SIN, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::TAN, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::TANH, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::RELU, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ROUND, float,
-               half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SQRT, float, half,
-               int)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SQUARE, float,
-               half, int, unsigned)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SIGMOID, float,
-               half)
-INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::RSQRT, float,
-               half)
-
-// UnaryOp1DInPlace - worker vertex for all types except bool.
-
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int,
                long long)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ASIN, float, half)
@@ -1324,13 +1309,17 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM_ONE_PLUS, float,
                half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGICAL_NOT, bool)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::NEGATE, float, half, int,
                long long)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::TAN, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQUARE, float, half, int,
                unsigned)
