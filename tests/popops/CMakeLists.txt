@@ -772,6 +772,46 @@ foreach(type half float)
   endforeach()
 endforeach()
 
+# Shuffle to produce memory layouts to make many strided reduce vertices
+# with an outer stride
+foreach(type half float)
+  foreach(update true false)
+    foreach(scale 1.0 1.2)
+      foreach(tiles 1 2 3 4 8)
+        add_multitarget_test(
+          NAME reduce_op_shuffle_outer_${partialsType}_${type}_${update}_${scale}_${tiles}
+          COMMAND $<TARGET_FILE:reduce_op>
+            "--shape=4,32,32,16"
+            "--initial-shape=16,32,4,32"
+            "--shuffle=0,1,3,2"
+            "--dims=0,1,2"
+            --type=${type}
+            --scale ${scale}
+            --update ${update}
+            --operation ADD
+            --tiles-per-ipu=${tiles})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+# Create a large tensor per tile
+foreach(tiles 1 2 3 4 8)
+  add_multitarget_test(
+    NAME reduce_op_shuffle_large_size_per_tile_${tiles}
+    COMMAND $<TARGET_FILE:reduce_op>
+      "--shape=4,320,320,16"
+      "--initial-shape=16,320,4,320"
+      "--shuffle=1,0,3,2"
+      "--dims=0,2,3"
+      --type=half
+      --scale 2.0
+      --update true
+      --operation ADD
+      --tiles-per-ipu=${tiles})
+endforeach()
+
+
 # Check that various cases of reduction with shuffled columns are correct.
 # The tests should produce the named sequence of stages
 foreach(withOutput true false)

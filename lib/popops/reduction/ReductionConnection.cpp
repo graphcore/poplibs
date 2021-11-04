@@ -5,6 +5,7 @@
 #include "ReductionVertex.hpp"
 
 #include "poplibs_support/logging.hpp"
+#include <poplar/Type.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <popops/Reduce.hpp>
 #include <poputil/Util.hpp>
@@ -465,10 +466,12 @@ poplar::Tensor flattenAndCheckPartials(const poplar::Graph &graph,
   return extractFlatPartials({reductions.begin(), reductions.begin() + 1});
 }
 
+template <typename CountsAndStridesType>
 static void createStridedReduceVertex(
     poplar::Graph &graph, const RegionReductionRange reductions,
     const bool targetIsCpu, const poplar::VertexRef &vertex,
-    const ReductionSpecialisation specialisation) {
+    const ReductionSpecialisation specialisation, unsigned tile,
+    const poplar::DebugNameAndId &dnai) {
 
   const auto &r0 = reductions[0];
   const auto &target = graph.getTarget();
@@ -549,7 +552,6 @@ static void createStridedReduceVertex(
       !targetIsCpu) {
     throw poputil::poplibs_error("Outer stride larger than short");
   }
-  graph.setInitialValue(vertex["numPartialsM1"], numPartials - 1);
 
   // Process these parameters to reflect what the vertex needs, so it doesn't
   // need to be done at runtime
@@ -577,12 +579,20 @@ static void createStridedReduceVertex(
     throw poputil::poplibs_error(
         "Logic error in selecting STRIDED_REDUCE vertex");
   }
-  graph.setInitialValue(vertex["numOutputsM1"], numOutputs);
-  graph.setInitialValue(vertex["partialsWidth"], partialsWidth);
-  graph.setInitialValue(vertex["numOuterStridesM1"], numOuterStridesM1);
-  if (specialisation == ReductionSpecialisation::STRIDED_REDUCE_OUTER) {
-    graph.setInitialValue(vertex["outerStride"], vertexOuterStride);
-  }
+  CountsAndStrides<CountsAndStridesType> cAndS;
+  cAndS.numOutputsM1 = numOutputs;
+  cAndS.numPartialsM1 = numPartials - 1;
+  cAndS.partialsWidth = partialsWidth;
+  cAndS.numOuterStridesM1 = numOuterStridesM1;
+  cAndS.outerStride = vertexOuterStride;
+
+  const auto cAndSVector = countsAndStridesAsVector(cAndS);
+  auto countsAndStrides = graph.addConstant<CountsAndStridesType>(
+      poplar::equivalent_device_type<CountsAndStridesType>().value,
+      {cAndSVector.size()}, cAndSVector, {dnai, "countsAndStrides"});
+
+  graph.setTileMapping(countsAndStrides, tile);
+  graph.connect(vertex["countsAndStrides"], countsAndStrides);
 }
 
 static void createSingleOutputVertex(
@@ -908,6 +918,8 @@ void createVertex(poplar::Graph &graph,
 
   const bool targetIsCpu =
       graph.getTarget().getTargetType() == poplar::TargetType::CPU;
+  const bool targetIsIpu =
+      graph.getTarget().getTargetType() == poplar::TargetType::IPU;
   // Number of output regions for this vertex.
   auto numOutputRegions = reductions.size();
 
@@ -1006,8 +1018,13 @@ void createVertex(poplar::Graph &graph,
     } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE ||
                specialisation ==
                    ReductionSpecialisation::STRIDED_REDUCE_OUTER) {
-      createStridedReduceVertex(graph, range, targetIsCpu, vertex,
-                                specialisation);
+      if (targetIsIpu) {
+        createStridedReduceVertex<unsigned short>(
+            graph, range, targetIsCpu, vertex, specialisation, tile, {dnai});
+      } else {
+        createStridedReduceVertex<unsigned>(graph, range, targetIsCpu, vertex,
+                                            specialisation, tile, {dnai});
+      }
 
     } else if (specialisation ==
                ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {

@@ -221,7 +221,7 @@ static poplar::VertexPerfEstimate getCyclesEstimateForStridedReduce(
   const auto interleaveFactor = getForceInterleavedEstimates() ? 2 : 1;
 
   // entry/exit
-  std::uint64_t cycles = 2 + 2;
+  std::uint64_t cycles = 3 + 2;
 
   // loop setup
   cycles += 6 + 5;
@@ -463,14 +463,15 @@ poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
         opVectorWidth, outType, operation, cyclesPerVector, isUpdate);
   } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE ||
              specialisation == ReductionSpecialisation::STRIDED_REDUCE_OUTER) {
-    CODELET_SCALAR_VAL(numPartialsM1, unsigned);
-    CODELET_SCALAR_VAL(numOutputsM1, unsigned);
-    CODELET_SCALAR_VAL(numOuterStridesM1, unsigned);
-    auto numPartials = numPartialsM1 + 1;
+    CODELET_VECTOR_VALS(countsAndStrides, unsigned);
+    const auto cAndS = vectorAsCountsAndStrides(countsAndStrides);
+
+    auto numPartials = cAndS.numPartialsM1 + 1;
     const auto partialsGrainSize = partialsType == poplar::HALF ? 4u : 2u;
-    auto numOutputs = (numOutputsM1 + 1) * partialsGrainSize;
-    auto numOuterStrides = numOuterStridesM1 + 1;
+    auto numOutputs = (cAndS.numOutputsM1 + 1) * partialsGrainSize;
+    auto numOuterStrides = cAndS.numOuterStridesM1 + 1;
     auto partialsPerEdge = numPartials * numOutputs;
+
     return getCyclesEstimateForStridedReduce(
         partialsPerEdge, numPartials, numOutputs, *stride, numOuterStrides,
         dataPathWidth, target.getVectorWidth(partialsType), opVectorWidth,

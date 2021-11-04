@@ -290,5 +290,35 @@ bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {
          specialisation == ReductionSpecialisation::STRIDED_REDUCE ||
          specialisation == ReductionSpecialisation::STRIDED_REDUCE_OUTER;
 }
+
+template <typename T>
+std::vector<T> countsAndStridesAsVector(const CountsAndStrides<T> &in) {
+  if (in.numOuterStridesM1 == 0) {
+    return {in.numOutputsM1, in.numPartialsM1, in.partialsWidth};
+  } else {
+    return {in.numOutputsM1, in.numPartialsM1, in.partialsWidth,
+            in.numOuterStridesM1, in.outerStride};
+  }
+}
+
+template <typename T>
+CountsAndStrides<T>
+vectorAsCountsAndStrides(const std::vector<T> &initialiser) {
+  assert(initialiser.size() == 3 || initialiser.size() == 5);
+
+  CountsAndStrides<T> result;
+  result.numOutputsM1 = initialiser[0];
+  result.numPartialsM1 = initialiser[1];
+  result.partialsWidth = initialiser[2];
+  if (initialiser.size() == 5) {
+    result.numOuterStridesM1 = initialiser[3];
+    result.outerStride = initialiser[4];
+  } else {
+    result.numOuterStridesM1 = 0;
+    result.outerStride = 0;
+  }
+  return result;
+}
+
 } // namespace popops
 #endif // ReductionConnection_hpp

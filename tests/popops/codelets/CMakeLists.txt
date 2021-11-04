@@ -693,23 +693,26 @@ foreach(PARTIALS_TYPE half float)
   foreach(OUT_TYPE half float)
     foreach(OPERATION ADD SQUARE_ADD LOG_ADD)
       foreach(UPDATE true false)
-        set(VARIANT_NAME "ReduceSpecial3_${PARTIALS_TYPE}_${OUT_TYPE}_${OPERATION}_${UPDATE}")
-        set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
-        add_multitarget_test(NAME ${VARIANT_NAME}
-                        COMMAND ReduceSpecial23
-                          --partials-type=${PARTIALS_TYPE}
-                          --out-type=${OUT_TYPE}
-                          --outer-dim=13
-                          --inner-dim=16
-                          --output-dim=16
-                          --operation=${OPERATION}
-                          --update=${UPDATE}
-                          --specialisation=3
-                          --num-outer-strides=3
-                          --outer-stride=2
-                          --num-partials=3
-                          LABELS codelet
-                          VARIANTS ${SIM_VARIANTS})
+        foreach(SCALE 1.0 2.0)
+                set(VARIANT_NAME "ReduceSpecial3_${PARTIALS_TYPE}_${OUT_TYPE}_${OPERATION}_${UPDATE}_${SCALE}")
+                set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+                add_multitarget_test(NAME ${VARIANT_NAME}
+                                COMMAND ReduceSpecial23
+                                  --partials-type=${PARTIALS_TYPE}
+                                  --out-type=${OUT_TYPE}
+                                  --outer-dim=13
+                                  --inner-dim=16
+                                  --output-dim=16
+                                  --operation=${OPERATION}
+                                  --update=${UPDATE}
+                                  --specialisation=3
+                                  --num-outer-strides=3
+                                  --outer-stride=2
+                                  --num-partials=3
+                                  --scale=${SCALE}
+                                  LABELS codelet
+                                  VARIANTS ${SIM_VARIANTS})
+        endforeach()
       endforeach()
     endforeach()
   endforeach()
