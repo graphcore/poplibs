@@ -468,7 +468,7 @@ int main(int argc, char **argv) {
   std::string test;
   bool unbiasedVarEstimate = false;
   bool stableAlgo = false;
-  bool groupNormStridedChannelGrouping = true;
+  bool groupNormStridedChannelGrouping = false;
   unsigned numGroups = 1;
   boost::optional<std::string> fwdInFile, bwdInFile;
 

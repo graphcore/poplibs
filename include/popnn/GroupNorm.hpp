@@ -12,7 +12,7 @@
 
 /* **Group normalisation options**
  *
- *    * `groupNormStridedChannelGrouping` (true, false) [=true]
+ *    * `groupNormStridedChannelGrouping` (true, false) [=false]
  *
  *      Select groups of channels for group normalisation with a stride between
  *      channels.  This makes the implementation more efficient but is

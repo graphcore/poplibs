@@ -29,7 +29,7 @@ using namespace popops;
 namespace popnn {
 namespace gn {
 struct GroupNormOptions {
-  bool stridedChannelGrouping = true;
+  bool stridedChannelGrouping = false;
 };
 
 static GroupNormOptions parseOptions(const OptionFlags &options) {
