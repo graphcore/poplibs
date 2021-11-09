@@ -194,8 +194,8 @@ public:
   std::vector<Domain> domains;
   using iterator = std::vector<Domain>::iterator;
   using const_iterator = std::vector<Domain>::const_iterator;
-  Domain &operator[](Variable v) { return domains[v.id]; }
-  const Domain &operator[](Variable v) const { return domains[v.id]; }
+  Domain &operator[](Variable v) { return domains[v]; }
+  const Domain &operator[](Variable v) const { return domains[v]; }
   iterator begin() { return domains.begin(); }
   iterator end() { return domains.end(); }
   const_iterator begin() const { return domains.begin(); }
@@ -216,8 +216,8 @@ class Solution {
 public:
   Solution() = default;
   Solution(std::vector<DataType> values) : values(values) {}
-  DataType &operator[](Variable v) { return values[v.id]; }
-  DataType operator[](Variable v) const { return values[v.id]; }
+  DataType &operator[](Variable v) { return values[v]; }
+  DataType operator[](Variable v) const { return values[v]; }
   bool validSolution() const { return values.size() > 0; }
   ConstraintEvaluationSummary constraintsEvaluated() {
     return constraintEvalSummary;

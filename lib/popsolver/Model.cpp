@@ -104,7 +104,7 @@ std::string Model::makeSumDebugName(const std::vector<Variable> &v) const {
 }
 
 const std::string &Model::getDebugName(Variable v) const {
-  return debugNames[v.id];
+  return debugNames[v];
 }
 
 Variable Model::addVariable(DataType min, DataType max,
@@ -119,7 +119,7 @@ Variable Model::addVariable(DataType min, DataType max,
   initialDomains.push_back({min, max});
   priorityGroup.push_back(getDefaultPriorityGroup());
   if (debugName.empty()) {
-    debugNames.emplace_back("var#" + std::to_string(v.id));
+    debugNames.emplace_back("var#" + std::to_string(v.value));
   } else {
     debugNames.emplace_back(debugName);
   }
@@ -394,11 +394,11 @@ PriorityGroupID Model::addPriorityGroup() {
 }
 
 void Model::setPriorityGroup(Variable v, PriorityGroupID prioGroup) {
-  priorityGroup[v.id] = prioGroup;
+  priorityGroup[v] = prioGroup;
 }
 
 void Model::prioritiseOver(PriorityGroupID a, PriorityGroupID b) {
-  boost::add_edge(a.id, b.id, priorityGraph);
+  boost::add_edge(a.value, b.value, priorityGraph);
 }
 
 static bool foundLowerCostSolution(const Domains domains,
@@ -422,8 +422,8 @@ Model::minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
   const auto &domains = scheduler.getDomains();
 
   const auto lhsIsHigherPriority = [&](Variable i, Variable j) {
-    const auto iPriorityGroup = priorityGroup[i.id];
-    const auto jPriorityGroup = priorityGroup[j.id];
+    const auto iPriorityGroup = priorityGroup[i];
+    const auto jPriorityGroup = priorityGroup[j];
     if (boost::edge(iPriorityGroup, jPriorityGroup, prioGroupReachability)
             .second) {
       return true;

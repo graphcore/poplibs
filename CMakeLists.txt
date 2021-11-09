@@ -13,6 +13,7 @@ enable_testing()
 find_package(pva REQUIRED)
 find_package(libpvti REQUIRED)
 find_package(poplar REQUIRED)
+find_package(GCCS REQUIRED)
 
 if(NOT DEFINED POPLIBS_ENABLED_IPU_ARCH_NAMES)
   # by default build for all architectures that the Poplar we are using supports.

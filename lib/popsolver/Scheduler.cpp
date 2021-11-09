@@ -13,10 +13,10 @@ Scheduler::Scheduler(Domains domains_, std::vector<Constraint *> constraints_)
   queued.resize(numConstraints);
   for (std::size_t c = 0; c != numConstraints; ++c) {
     for (auto v : constraints[c]->getVariables()) {
-      if (variableConstraints.size() <= v.id) {
-        variableConstraints.resize(v.id + 1);
+      if (variableConstraints.size() <= v) {
+        variableConstraints.resize(v + 1);
       }
-      variableConstraints[v.id].push_back(c);
+      variableConstraints[v].push_back(c);
     }
   }
 }

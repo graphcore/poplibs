@@ -3,18 +3,13 @@
 #ifndef popsolver_Variable_hpp
 #define popsolver_Variable_hpp
 
+#include <gccs/generic_id.hpp>
+
 #include <cstdint>
 
 namespace popsolver {
 
-class Variable {
-public:
-  using IndexType = std::uint32_t;
-
-  Variable() = default;
-  explicit Variable(IndexType id) : id(id) {}
-  IndexType id;
-};
+using Variable = gccs::generic_id<class VariableIdTag, std::uint32_t>;
 
 } // namespace popsolver
 

@@ -125,6 +125,7 @@ if (TARGET popsparse)
   target_link_libraries(sparse_fc_layer
                         poplibs_support
                         poplibs_support poplibs_test
+                        popsolver
                         spdlog::spdlog_header_only
                         Boost::program_options)
 

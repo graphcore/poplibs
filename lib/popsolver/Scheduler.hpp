@@ -3,6 +3,7 @@
 #define _popsolver_Scheduler_hpp_
 
 #include <popsolver/Model.hpp>
+#include <popsolver/Variable.hpp>
 
 #include <cassert>
 #include <queue>
@@ -19,12 +20,12 @@ class Scheduler {
   std::vector<Constraint *> constraints;
   /// Map from each variable to the constraint number to propagate when the
   /// domain of the variable changes.
-  std::vector<std::vector<Variable::IndexType>> variableConstraints;
-  std::queue<Variable::IndexType> worklist;
+  std::vector<std::vector<Variable::underlying_type>> variableConstraints;
+  std::queue<Variable::underlying_type> worklist;
   std::vector<bool> queued;
   void queueConstraints(Variable v) {
-    if (v.id < variableConstraints.size()) {
-      for (auto c : variableConstraints[v.id]) {
+    if (v.value < variableConstraints.size()) {
+      for (auto c : variableConstraints[v]) {
         if (!queued[c]) {
           worklist.push(c);
           queued[c] = true;
