@@ -10,6 +10,7 @@
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Expr.hpp"
+#include "popops/Rearrange.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
@@ -542,17 +543,26 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
     return poputil::duplicate(graph, in, prog, {di});
   }
 
-  auto out = graph.clone(in.elementType(), outputClonesRef ? reference : in,
-                         {di, fnPrefix + "/out"});
+  auto intermediateOut =
+      graph.clone(in.elementType(), reference, {di, fnPrefix + "/out"});
+  Tensor out = intermediateOut;
+  if (!outputClonesRef) {
+    out = graph.clone(in.elementType(), in, {di, fnPrefix + "/out"});
+  }
 
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
                                              prog, {di, fnPrefix});
 
+  // Regroup input to match grouping of the reference, the layout of which
+  // is used when performing the droput on tiles.
+  const auto inMaybeRearranged = popops::rearrange::regroupIfBeneficial(
+      graph, in, reference, prog, {di, fnPrefix});
+
   auto cs = graph.addComputeSet({di, fnPrefix});
-  auto outFlat = out.flatten();
+  auto outFlat = intermediateOut.flatten();
   auto refFlat = reference.flatten();
-  auto inFlat = in.flatten();
-  graph.reorderToSimplify(&inFlat, {&outFlat, &refFlat}, false);
+  auto inFlat = inMaybeRearranged.flatten();
+  graph.reorderToSimplify(&refFlat, {&inFlat, &outFlat}, false);
 
   const auto refFlatTileMap = graph.getTileMapping(refFlat);
 
@@ -565,7 +575,7 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
     const auto intervals = flatten(tileContiguousRegions);
     const auto vertexTemplate =
         templateVertex("poprand::Dropout", in.elementType());
-    auto inTile = concat(inFlat.slices(intervals));
+    const auto inTile = concat(inFlat.slices(intervals));
     const auto &target = graph.getTarget();
     if (inTile.numElements() > target.getRptCountMax() *
                                    target.getNumWorkerContexts() *
@@ -573,9 +583,9 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
       throw poputil::poplibs_error("Elements on tile exceed number that can "
                                    "be processed by codelet");
     }
-    auto v = graph.addVertex(
-        cs, vertexTemplate,
-        {{"in", inTile}, {"out", concat(outFlat.slices(intervals))}});
+    const auto outTile = concat(outFlat.slices(intervals));
+    auto v =
+        graph.addVertex(cs, vertexTemplate, {{"in", inTile}, {"out", outTile}});
 
     graph.setInitialValue(v["prob"], probHw);
     graph.setInitialValue(v["numElems"], inTile.numElements());
@@ -583,6 +593,11 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
     graph.setTileMapping(v, tile);
   }
   prog.add(Execute(cs, {di}));
+  if (!outputClonesRef) {
+    intermediateOut = popops::rearrange::regroupIfBeneficial(
+        graph, intermediateOut, out, prog);
+    prog.add(Copy(intermediateOut, out));
+  }
   maybeRestoreHwSeeds(graph, hwSeeds, prog, {di, fnPrefix});
   di.addOutput(out);
   return out;
