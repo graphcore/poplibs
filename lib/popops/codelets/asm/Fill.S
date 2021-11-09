@@ -6,6 +6,8 @@
 /* -------------------------------------------------------------------------- */
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
+
 // Register aliases
 #define mSCRATCH         m0
 #define OUT_PTR          m1
@@ -57,55 +59,6 @@
 #define VOFF_OUT_PTR_64BIT       2
 #define VOFF_OUT_SIZE_64BIT      3
 
-
-.globl FILL2D_BOOL_FUNC
-.globl FILL2D_CHAR_FUNC
-.globl FILL2D_UCHAR_FUNC
-.globl FILL2D_SCHAR_FUNC
-.globl FILL2D_HALF_FUNC
-.globl FILL2D_FLOAT_FUNC
-.globl FILL2D_INT_FUNC
-.globl FILL2D_UINT_FUNC
-.globl FILL2D_LONGLONG_FUNC
-.globl FILL2D_ULONGLONG_FUNC
-
-
-.type FILL2D_BOOL_FUNC, @function
-.type FILL2D_CHAR_FUNC, @function
-.type FILL2D_UCHAR_FUNC, @function
-.type FILL2D_SCHAR_FUNC, @function
-.type FILL2D_HALF_FUNC, @function
-.type FILL2D_FLOAT_FUNC, @function
-.type FILL2D_INT_FUNC, @function
-.type FILL2D_UINT_FUNC, @function
-.type FILL2D_LONGLONG_FUNC, @function
-.type FILL2D_ULONGLONG_FUNC, @function
-
-
-.globl FILL_BOOL_FUNC
-.globl FILL_CHAR_FUNC
-.globl FILL_UCHAR_FUNC
-.globl FILL_SCHAR_FUNC
-.globl FILL_HALF_FUNC
-.globl FILL_FLOAT_FUNC
-.globl FILL_INT_FUNC
-.globl FILL_UINT_FUNC
-.globl FILL_ULONGLONG_FUNC
-.globl FILL_LONGLONG_FUNC
-
-
-.type FILL_BOOL_FUNC, @function
-.type FILL_CHAR_FUNC, @function
-.type FILL_UCHAR_FUNC, @function
-.type FILL_SCHAR_FUNC, @function
-.type FILL_HALF_FUNC, @function
-.type FILL_FLOAT_FUNC, @function
-.type FILL_INT_FUNC, @function
-.type FILL_UINT_FUNC, @function
-.type FILL_ULONGLONG_FUNC, @function
-.type FILL_LONGLONG_FUNC, @function
-
-
 //******************************************************************************
 // Fill 2d vertex entry point for 16 and 32 bit types.
 // Fetches the vertex state which is specific to Fill2d.  Then uses the same
@@ -113,23 +66,20 @@
 // Organised so that the impact on memory and execution time for the fill
 // vertex code relatively unaffected.
 //******************************************************************************
-DEF_STACK_USAGE 0 .text.fill2d
-.section .text.fill2d
-
-  .align 4
-
-__popops__Fill2d:
-FILL2D_FLOAT_FUNC:
-FILL2D_INT_FUNC:
-FILL2D_UINT_FUNC:
+FN_WORKER_ENTRY_POINT FILL2D_FLOAT_FUNC
+FN_EXPORT FILL2D_INT_FUNC
+FN_EXPORT FILL2D_UINT_FUNC
   setzi $LOG2_SIZEOF, 2
   ld32 $aFILL_VALUE, $mzero, $mvertex_base, VOFF_IN
-  bri 1f
-FILL2D_HALF_FUNC:
+  bri .Lfill_common
+FN_SIZE FILL2D_FLOAT_FUNC
+
+
+FN_WORKER_ENTRY_POINT FILL2D_HALF_FUNC
   setzi $LOG2_SIZEOF, 1
   ldb16 $aFILL_VALUE, $mzero, $mvertex_base, VOFF_IN
 
-1:
+.Lfill_common:
   // Fetch vertex state: start and end of a list of pointers to data
   ld32    $OUT_LIST_PTR, $mvertex_base,  VOFF_OUT_PTR
   ld32    $OUT_LIST_COUNT, $mvertex_base,  VOFF_OUT_SIZE
@@ -140,8 +90,7 @@ fill2d_loop:
   ld32step $OUT_PTR, $mzero, $OUT_LIST_PTR+=,1
   ld32step $OUT_SIZE, $mzero, $OUT_LIST_PTR+=,1
   bri      fill_2d_continue
-
-.size __popops__Fill2d, .-__popops__Fill2d
+FN_SIZE FILL2D_HALF_FUNC
 
 //******************************************************************************
 // Fill vertex entry for 16 and 32 bit types.
@@ -149,23 +98,19 @@ fill2d_loop:
 // Most of the code is shared with the fill2d vertex.
 //******************************************************************************
 
-DEF_STACK_USAGE 0 .text.fill
-//Different section, enabling selection of the fill vertex only
-.section .text.fill
- .align 8
-
-__popops__Fill:
-FILL_FLOAT_FUNC:
-FILL_INT_FUNC:
-FILL_UINT_FUNC:
+FN_WORKER_ENTRY_POINT FILL_FLOAT_FUNC
+FN_EXPORT FILL_INT_FUNC
+FN_EXPORT FILL_UINT_FUNC
   setzi $LOG2_SIZEOF, 2
   ld32 $aFILL_VALUE, $mzero, $mvertex_base, VOFF_IN
-  bri 1f
-FILL_HALF_FUNC:
+  bri  .Lfill_fetch_pointers
+FN_SIZE FILL_FLOAT_FUNC
+
+FN_WORKER_ENTRY_POINT FILL_HALF_FUNC 8 nop
   setzi $LOG2_SIZEOF, 1
   ldb16 $aFILL_VALUE, $mzero, $mvertex_base, VOFF_IN
 
-1:
+.Lfill_fetch_pointers:
   // Fetch pointers to the start and end of the one area to fill
   ld32     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR
   ld32     $OUT_SIZE, $mzero, $mvertex_base, VOFF_OUT_SIZE
@@ -233,7 +178,7 @@ fill_2d_continue:
   brnzdec    $OUT_LIST_COUNT, fill2d_loop
   exitz      $mzero
 
-.size __popops__Fill, .-__popops__Fill
+FN_SIZE FILL_HALF_FUNC
 
 //******************************************************************************
 // inner loop used by 64-bit
@@ -252,32 +197,22 @@ rpt $OUT_SIZE, (2f - 1f) / 8 - 1
 // Fill vertex entry for 64-bit types (ULONGLONG and LONGLONG)
 //******************************************************************************
 
-DEF_STACK_USAGE 0 .text.__popops__Fill_64bit
-.section .text.__popops__Fill_64bit
- .align 8
-__popops__Fill_64bit:
-FILL_ULONGLONG_FUNC:
-FILL_LONGLONG_FUNC:
+FN_WORKER_ENTRY_POINT FILL_ULONGLONG_FUNC 8
+FN_EXPORT FILL_LONGLONG_FUNC
 
   ld64     $aFILL_VALUE_64, $mzero, $mvertex_base, VOFF_IN_64BIT
   ld32     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_64BIT
   ld32     $OUT_SIZE, $mzero, $mvertex_base, VOFF_OUT_SIZE_64BIT
   INNER_LOOP_64BIT
   exitz      $mzero
-.size __popops__Fill_64bit, .-__popops__Fill_64bit
+FN_SIZE FILL_ULONGLONG_FUNC
 
 //******************************************************************************
 // Fill 2D vertex entry for 64-bit types (ULONGLONG and LONGLONG)
 //******************************************************************************
 
-
-DEF_STACK_USAGE 0 .text.__popops__Fill2d_64bit
-.section .text.__popops__Fill2d_64bit
-.align 8
-nop
-__popops__Fill2d_64bit:
-FILL2D_ULONGLONG_FUNC:
-FILL2D_LONGLONG_FUNC:
+FN_WORKER_ENTRY_POINT FILL2D_ULONGLONG_FUNC 8 nop
+FN_EXPORT FILL2D_LONGLONG_FUNC
   ld64    $aFILL_VALUE_64, $mzero, $mvertex_base, VOFF_IN_64BIT
   ld32    $OUT_LIST_PTR, $mvertex_base, VOFF_OUT_PTR_64BIT
   ld32    $OUT_LIST_COUNT, $mvertex_base, VOFF_OUT_SIZE_64BIT
@@ -289,8 +224,7 @@ fill2d_64bit_loop:
   INNER_LOOP_64BIT
   brnzdec $OUT_LIST_COUNT, fill2d_64bit_loop
   exitz      $mzero
-.size __popops__Fill2d_64bit, .-__popops__Fill2d_64bit
-
+FN_SIZE FILL2D_ULONGLONG_FUNC
 
 //******************************************************************************
 // Fill vertex entry for 8-bit types types (char and bool)
@@ -314,14 +248,10 @@ fill2d_64bit_loop:
 // One word in scratch area used to move from MFR reg to ARF reg
 #define SCRATCH_AREA_TMP_OFFS   0
 
-DEF_STACK_USAGE 0 .text.popops_fill2d_char
-.section .text.popops_fill2d_char
-
-__popops__Fill2d_8bit:
-FILL2D_BOOL_FUNC:
-FILL2D_CHAR_FUNC:
-FILL2D_UCHAR_FUNC:
-FILL2D_SCHAR_FUNC:
+FN_WORKER_ENTRY_POINT FILL2D_BOOL_FUNC
+FN_EXPORT FILL2D_CHAR_FUNC
+FN_EXPORT FILL2D_UCHAR_FUNC
+FN_EXPORT FILL2D_SCHAR_FUNC
   ld32    $OUT_LIST_PTR, $mvertex_base,  VOFF_OUT_PTR
   ld32    $OUT_LIST_COUNT, $mvertex_base,  VOFF_OUT_SIZE
   ldz8    $FILL_VALUE, $mzero, $mvertex_base, VOFF_IN
@@ -332,17 +262,12 @@ fill2d_8bit_loop:
   ld32step $OUT_PTR, $mzero, $OUT_LIST_PTR+=,1
   ld32step $OUT_SIZE, $mzero, $OUT_LIST_PTR+=,1
   bri      fill_2d_8bit_continue
-.size __popops__Fill2d_8bit, .-__popops__Fill2d_8bit
+FN_SIZE FILL2D_BOOL_FUNC
 
-
-DEF_STACK_USAGE 0 .text.popops_fill_8bit
-.section .text.popops_fill_8bit
- .align 8
-__popops__Fill_8bit:
-FILL_BOOL_FUNC:
-FILL_CHAR_FUNC:
-FILL_UCHAR_FUNC:
-FILL_SCHAR_FUNC:
+FN_WORKER_ENTRY_POINT FILL_BOOL_FUNC 8
+FN_EXPORT FILL_CHAR_FUNC
+FN_EXPORT FILL_UCHAR_FUNC
+FN_EXPORT FILL_SCHAR_FUNC
   ld32      $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR
   ld32      $OUT_SIZE, $mzero, $mvertex_base, VOFF_OUT_SIZE
   ldz8      $FILL_VALUE, $mzero, $mvertex_base, VOFF_IN
@@ -505,7 +430,7 @@ fill_2d_8bit_continue:
 fill_2d_8bit_end:
   brnzdec    $OUT_LIST_COUNT, fill2d_8bit_loop
   exitz      $mzero
-.size __popops__Fill_8bit, .-__popops__Fill_8bit
+FN_SIZE FILL_BOOL_FUNC
 
 
 #endif

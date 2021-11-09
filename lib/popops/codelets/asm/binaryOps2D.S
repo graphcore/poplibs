@@ -10,6 +10,7 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -63,13 +64,8 @@
 
 .macro BINARY_OP_ENTRY TYPE VERTEX_NAME OPERATION LOOP_VARIANT
 
-DEF_STACK_USAGE 0 MANGLE_STR
-.section .text.MANGLE_STR
-.global MANGLE_STR
-.type MANGLE_STR, @function
-.align 4
+FN_WORKER_ENTRY_POINT MANGLE_STR
   // load vertex state
-MANGLE_STR:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_IN1_PTR_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_IN2_PTR_OFFSET/4
   ld32 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET/4
@@ -78,17 +74,13 @@ MANGLE_STR:
   // Decrement as using brnzdec
   brnzdec $outCount,  outerLoop_\LOOP_VARIANT\()_non_inplace_\OPERATION
   exitz $mzero
-.size MANGLE_STR, . -MANGLE_STR
+FN_SIZE MANGLE_STR
 .endm
 
 .macro BINARY_OP_IN_PLACE_ENTRY TYPE VERTEX_NAME OPERATION LOOP_VARIANT
-DEF_STACK_USAGE 0 MANGLE_STR
-.section .text.MANGLE_STR
-.global MANGLE_STR
-.type MANGLE_STR, @function
-.align 4
+
+FN_WORKER_ENTRY_POINT MANGLE_STR
   // load vertex state
-MANGLE_STR:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_PTR_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_IN2_PTR_OFFSET/4
   ld32 $outCount, $mzero, $mvertex_base, VERTEX_INPLACE_OUT_COUNT_OFFSET/4
@@ -96,7 +88,7 @@ MANGLE_STR:
   // Decrement as using brnzdec
   brnzdec $outCount, outerLoop_\LOOP_VARIANT\()_inplace_\OPERATION
   exitz $mzero
-.size MANGLE_STR, . -MANGLE_STR
+FN_SIZE MANGLE_STR
 .endm
 
 //******************************************************************************
@@ -162,11 +154,9 @@ MANGLE_STR:
 // Macro for float/broadcast loop implementation - inplace, non inplace
 //******************************************************************************
 .macro BINARY_OP_float OPERATION INSTRUCTIONv2 INSTRUCTIONv1
-.section .text.MANGLE_STR_COMMON(\@)
-.type MANGLE_STR_COMMON(\@), @function
-MANGLE_STR_COMMON(\@):
-.align 8
- nop
+
+FN_SECTION MANGLE_STR_COMMON(\@) 8 nop
+
   // Per input vector loop
 outerLoop\@:
   br $mloopAddress
@@ -229,19 +219,14 @@ doRemainder\@:
   brnzdec $outCount, outerLoop\@
 
   exitz $mzero
-.size MANGLE_STR_COMMON(\@),\
-   . -MANGLE_STR_COMMON(\@)
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 
 //******************************************************************************
 // Macro for 4x16bit data vector binaryOp loop implementation - inplace, non inplace
 //******************************************************************************
 .macro BINARY_OP_4x16bit OPERATION INSTRUCTIONv4 INSTRUCTIONv2="void"
-.section .text.MANGLE_STR_COMMON(\@)
-.type MANGLE_STR_COMMON(\@), @function
-MANGLE_STR_COMMON(\@):
-.align 8
- nop
+FN_SECTION MANGLE_STR_COMMON(\@) 8 nop
   // Per input vector loop
 outerLoop\@:
   br $mloopAddress
@@ -333,22 +318,16 @@ doRemainder\@:
   brnzdec $outCount, outerLoop\@
 
   exitz $mzero
-.size MANGLE_STR_COMMON(\@),\
-   . -MANGLE_STR_COMMON(\@)
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 //******************************************************************************
 // Macro for broadcastOp entry (All types) - inplace, non inplace
 //******************************************************************************
 
 .macro BROADCAST_OP_ENTRY TYPE VERTEX_NAME OPERATION LOOP_VARIANT
-DEF_STACK_USAGE 0 MANGLE_STR
-.section .text.MANGLE_STR
-.global MANGLE_STR
-.type MANGLE_STR, @function
 
-.align 4
+FN_WORKER_ENTRY_POINT MANGLE_STR
   // load vertex state
-MANGLE_STR:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_COUNT_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN2_PTR_OFFSET/4
@@ -363,19 +342,11 @@ MANGLE_STR:
   // Decrement as using brnzdec
   brnzdec $in1Count, outerLoop_\LOOP_VARIANT\()_non_inplace_broadcast_\OPERATION
   exitz $mzero
-.size MANGLE_STR, . -MANGLE_STR
+FN_SIZE MANGLE_STR
 .endm
 
-
 .macro BROADCAST_OP_IN_PLACE_ENTRY TYPE VERTEX_NAME OPERATION LOOP_VARIANT
-DEF_STACK_USAGE 0 MANGLE_STR
-.section .text.MANGLE_STR
-.global MANGLE_STR
-.type MANGLE_STR, @function
-
-.align 4
-  // load vertex state
-MANGLE_STR:
+FN_WORKER_ENTRY_POINT MANGLE_STR
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_COUNT_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_IN2_PTR_OFFSET/4
@@ -389,7 +360,7 @@ MANGLE_STR:
   // Decrement as using brnzdec
   brnzdec $in1Count, outerLoop_\LOOP_VARIANT\()_inplace_broadcast_\OPERATION
   exitz $mzero
-.size MANGLE_STR, . -MANGLE_STR
+FN_SIZE MANGLE_STR
 .endm
 
 
@@ -397,10 +368,7 @@ MANGLE_STR:
 // Macro for float/broadcast loop implementation - inplace, non inplace
 //******************************************************************************
 .macro BROADCAST_OP_float OPERATION INSTRUCTIONv2 INSTRUCTIONv1
-.section .text.MANGLE_STR_COMMON(\@)
-.type MANGLE_STR_COMMON(\@), @function
-MANGLE_STR_COMMON(\@):
-.align 8
+FN_SECTION MANGLE_STR_COMMON(\@) 8
   // Per input vector loop
 outerLoop\@:
   br $mloopAddress
@@ -468,17 +436,14 @@ doRemainder\@:
   brnzdec $in1Count, outerLoop\@
 
   exitz $mzero
-.size MANGLE_STR_COMMON(\@), . -MANGLE_STR_COMMON(\@)
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 
 //******************************************************************************
 // Macro for half,short, ushort/broadcast loop implementation - inplace, non inplace
 //******************************************************************************
 .macro BROADCAST_OP_4x16bit OPERATION INSTRUCTIONv4 INSTRUCTIONv2="void"
-.section .text.MANGLE_STR_COMMON(\@)
-.type MANGLE_STR_COMMON(\@), @function
-MANGLE_STR_COMMON(\@):
-.align 8
+FN_WORKER_ENTRY_POINT MANGLE_STR_COMMON(\@) 8
   // Per input vector loop
 outerLoop\@:
   br $mloopAddress
@@ -574,7 +539,7 @@ doRemainder\@:
   brnzdec $in1Count, outerLoop\@
 
   exitz $mzero
-.size MANGLE_STR_COMMON(\@), . -MANGLE_STR_COMMON(\@)
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 
 

@@ -4,7 +4,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
-
+#include "CommonPoplibsMacros.h.S"
 // Name mangling
 
 #define VERTEX_NAME __runCodelet_popops__ForLoopCounter___\TYPE
@@ -26,13 +26,9 @@
 // *****************************************************************************
 // Supervisor vertex to increment a tensor by a fixed increment and compare to
 // a limit, providing a comparison result output.
-
 .macro INSTANTIATE TYPE
-.globl VERTEX_NAME
-.type VERTEX_NAME, @function
-.section .text.VERTEX_NAME, "ax"
-.align 4
-VERTEX_NAME:
+
+FN_SUPERVISOR_ENTRY_POINT VERTEX_NAME
     ld32 $mcountPtr, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_COUNT/4
     ld32 $mlimit, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_LIMIT/4
     ld32 $mincrement, $msupervisor_vertex_base, $mzero, VERTEX_STATE_OFFSET_INCREMENT/4
@@ -52,9 +48,7 @@ VERTEX_NAME:
     st32  $mlimit,$mzero, $mresultPtr, 0
 
     br          $lr
-.size VERTEX_NAME, .-VERTEX_NAME
-
-DEF_STACK_USAGE 0 VERTEX_NAME
+FN_SIZE VERTEX_NAME
 
 .endm
 //******************************************************************************

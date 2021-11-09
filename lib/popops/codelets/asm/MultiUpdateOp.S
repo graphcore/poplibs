@@ -3,6 +3,7 @@
 
 #include "MultiSliceUpdateCommon.h.S"
 #include "BinarySearch.h.S"
+#include "CommonPoplibsMacros.h.S"
 
 #define WORKER_FUNCTION(type,op,scaled) MultiUpdateOp_##type##_##op##_##scaled
 #define STACK_SIZE 2
@@ -38,10 +39,8 @@
 #endif
 
 // constants
-#define SCALED_PTR64_SHL_BITS 3
 #define SIZEOF_HALF 2
 #define SIZEOF_FLOAT 4
-#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // integer variables
 #define offsetPtr m0
@@ -114,28 +113,18 @@
 
 // Float versions have scale type of float and hence the macro is not 
 // parametrised by scale type.
-.macro CODELET_FUNCTION_FLOAT OPTYPE, SCALED
-.ifc \SCALED, true
-.type SCALED_CODELET_NAME(float, float), @function
-DEF_STACK_USAGE 0 SCALED_CODELET_NAME(float, float)
-.section .text.SCALED_CODELET_NAME(float, float)
-.globl SCALED_CODELET_NAME(float, float)
-.else 
-.type UNSCALED_CODELET_NAME(float), @function
-DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(float)
-.section .text.UNSCALED_CODELET_NAME(float)
-.globl UNSCALED_CODELET_NAME(float)
-.endif
-
-.align 8
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-  nop // rpt loop aligment
+#define NOP_FOR_RPT  nop
+#else
+#define NOP_FOR_RPT
 #endif
 
+.macro CODELET_FUNCTION_FLOAT OPTYPE, SCALED
+
 .ifc \SCALED, true
-SCALED_CODELET_NAME(float, float):
-.else
-UNSCALED_CODELET_NAME(float):
+FN_WORKER_ENTRY_POINT SCALED_CODELET_NAME(float, float) 8 NOP_FOR_RPT
+.else 
+FN_WORKER_ENTRY_POINT UNSCALED_CODELET_NAME(float) 8 NOP_FOR_RPT
 .endif
 
   UPDATE_OFFSET_AND_SIZES $numBaseElements $maxElementsPerWorker $workerId $wkrStart $wkrEnd $baseOffset VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET VERTEX_STATE_ELEMENTS_PER_WORKER VERTEX_STATE_BASE_OFFSET_OFFSET
@@ -173,7 +162,7 @@ UNSCALED_CODELET_NAME(float):
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   // expand the SCALED_PTR32 pointer
-  shl $baseTPtr, $baseTPtr, SCALED_PTR64_SHL_BITS
+  shl $baseTPtr, $baseTPtr, SCALED_PTR64_SHIFTS
 #endif
 
 
@@ -375,13 +364,20 @@ UNSCALED_CODELET_NAME(float):
 .Lfloat_\OPTYPE\()_\SCALED\()_epilogue:
   exitz $mzero
 .ifc \SCALED, true
-.size SCALED_CODELET_NAME(float, float), . -  SCALED_CODELET_NAME(float, float)
+FN_SIZE SCALED_CODELET_NAME(float, float)
 .else
-.size  UNSCALED_CODELET_NAME(float), . - UNSCALED_CODELET_NAME(float)
+FN_SIZE UNSCALED_CODELET_NAME(float)
 .endif
 .endm
 
 //------------------------------------------------------------------------------
+#undef NOP_FOR_RPT
+#ifndef VECTOR_AVAIL_SCALED_PTR32
+#define NOP_FOR_RPT  nop
+#else
+#define NOP_FOR_RPT
+#endif
+
 
 .macro CODELET_FUNCTION_HALF OPTYPE, SCALED, SCALE_TYPE
 
@@ -392,26 +388,10 @@ UNSCALED_CODELET_NAME(float):
 .error "Only half and float scale type supported for scaled multiupdateOp vertex"
 .endif
 .endif
-
-.type SCALED_CODELET_NAME(half,  \SCALE_TYPE\()), @function
-DEF_STACK_USAGE 0 SCALED_CODELET_NAME(half, \SCALE_TYPE\())
-.section .text.SCALED_CODELET_NAME(half, \SCALE_TYPE\())
-.globl SCALED_CODELET_NAME(half, \SCALE_TYPE\())
+FN_WORKER_ENTRY_POINT SCALED_CODELET_NAME(half,  \SCALE_TYPE\()) 8 NOP_FOR_RPT
 
 .else // .ifc \SCALED, true
-.type UNSCALED_CODELET_NAME(half), @function
-DEF_STACK_USAGE 0 UNSCALED_CODELET_NAME(half)
-.section .text.UNSCALED_CODELET_NAME(half)
-.globl UNSCALED_CODELET_NAME(half)
-.endif
-.align 8
-#ifndef VECTOR_AVAIL_SCALED_PTR32
-  nop // rpt loop aligment
-#endif
-.ifc \SCALED, true
-SCALED_CODELET_NAME(half, \SCALE_TYPE\()):
-.else
-UNSCALED_CODELET_NAME(half):
+FN_WORKER_ENTRY_POINT UNSCALED_CODELET_NAME(half) 8 NOP_FOR_RPT
 .endif
 
   UPDATE_OFFSET_AND_SIZES $numBaseElements $maxElementsPerWorker $workerId $wkrStart $wkrEnd $baseOffset VERTEX_STATE_NUM_BASE_ELEMENTS_OFFSET VERTEX_STATE_ELEMENTS_PER_WORKER VERTEX_STATE_BASE_OFFSET_OFFSET
@@ -483,7 +463,7 @@ UNSCALED_CODELET_NAME(half):
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64)  
   // expand the SCALED_PTR64 pointer
-  shl $baseTPtr, $baseTPtr, SCALED_PTR64_SHL_BITS
+  shl $baseTPtr, $baseTPtr, SCALED_PTR64_SHIFTS
 #endif
 
 .ifc \SCALED, true
@@ -727,9 +707,9 @@ UNSCALED_CODELET_NAME(half):
   exitz $mzero
 
 .ifc \SCALED, true
-.size SCALED_CODELET_NAME(half, \SCALE_TYPE\()), . - SCALED_CODELET_NAME(half, \SCALE_TYPE\())
+FN_SIZE SCALED_CODELET_NAME(half, \SCALE_TYPE\())
 .else // .ifc \SCALED, true
-.size UNSCALED_CODELET_NAME(half), . -  UNSCALED_CODELET_NAME(half)
+FN_SIZE UNSCALED_CODELET_NAME(half)
 .endif
 .endm
 

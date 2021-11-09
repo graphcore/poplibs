@@ -9,6 +9,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
+#include "CommonPoplibsMacros.h.S"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -60,13 +61,9 @@
 //******************************************************************************
 
 .macro VECTOR_OUTER_OP_FLOAT_ENTRY OPERATION NAME TYPE BY_STR
-DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
-.section .text.MANGLE_STR_FLOAT, FUNCTION_IS_WORKER
-.global MANGLE_STR_FLOAT
-.type MANGLE_STR_FLOAT, @function
-.align 4
+
+FN_WORKER_ENTRY_POINT MANGLE_STR_FLOAT
   // load vertex state
-MANGLE_STR_FLOAT:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_DATA_PTR_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_B_PTR_OFFSET/4
   ld32 $in2Length, $mzero, $mvertex_base, VERTEX_B_LENGTH_OFFSET/4
@@ -78,17 +75,13 @@ MANGLE_STR_FLOAT:
   // Work division initial shift
   shr $mloops, $mloops, LOG2_FLOAT_ATOM_SIZE
   bri  divide_work_by_\BY_STR\()
-.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
+FN_SIZE MANGLE_STR_FLOAT
 .endm
 
 .macro VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY OPERATION NAME TYPE BY_STR
-DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
-.section .text.MANGLE_STR_FLOAT, FUNCTION_IS_WORKER
-.global MANGLE_STR_FLOAT
-.type MANGLE_STR_FLOAT, @function
-.align 4
+
+FN_WORKER_ENTRY_POINT MANGLE_STR_FLOAT
   // load vertex state
-MANGLE_STR_FLOAT:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_DATA_PTR_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_B_PTR_OFFSET/4
   ld32 $in2Length, $mzero, $mvertex_base, VERTEX_INPLACE_B_LENGTH_OFFSET/4
@@ -100,7 +93,7 @@ MANGLE_STR_FLOAT:
   // Work division initial shift
   shr $mloops, $mloops, LOG2_FLOAT_ATOM_SIZE
   bri  divide_work_by_\BY_STR\()
-.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
+FN_SIZE MANGLE_STR_FLOAT
 .endm
 
 //******************************************************************************
@@ -108,13 +101,9 @@ MANGLE_STR_FLOAT:
 //******************************************************************************
 
 .macro VECTOR_OUTER_OP_HALF_ENTRY OPERATION NAME TYPE BY_STR
-DEF_STACK_USAGE 0 MANGLE_STR_HALF
-.section .text.MANGLE_STR_HALF, FUNCTION_IS_WORKER
-.global MANGLE_STR_HALF
-.type MANGLE_STR_HALF, @function
-.align 4
+
+FN_WORKER_ENTRY_POINT MANGLE_STR_HALF
   // load vertex state
-MANGLE_STR_HALF:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_DATA_PTR_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_B_PTR_OFFSET/4
   ld32 $in2Length, $mzero, $mvertex_base, VERTEX_B_LENGTH_OFFSET/4
@@ -126,17 +115,13 @@ MANGLE_STR_HALF:
   // Work division initial shift
   shr $mloops, $mloops, LOG2_HALF_ATOM_SIZE
   bri  divide_work_by_\BY_STR\()
-.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
+FN_SIZE MANGLE_STR_HALF
 .endm
 
 .macro VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY OPERATION NAME TYPE BY_STR
-DEF_STACK_USAGE 0 MANGLE_STR_HALF
-.section .text.MANGLE_STR_HALF, FUNCTION_IS_WORKER
-.global MANGLE_STR_HALF
-.type MANGLE_STR_HALF, @function
-.align 4
+
+FN_WORKER_ENTRY_POINT MANGLE_STR_HALF
   // load vertex state
-MANGLE_STR_HALF:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_DATA_PTR_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_B_PTR_OFFSET/4
   ld32 $in2Length, $mzero, $mvertex_base, VERTEX_INPLACE_B_LENGTH_OFFSET/4
@@ -148,15 +133,14 @@ MANGLE_STR_HALF:
   // Work division initial shift
   shr $mloops, $mloops, LOG2_HALF_ATOM_SIZE
   bri  divide_work_by_\BY_STR\()
-.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
+FN_SIZE MANGLE_STR_HALF
 .endm
 //******************************************************************************
 // Macro for half or float/vectorOuter loop implementation - inplace, non inplace
 // Parameterised so it'll work for work divided by column or by row.
 //******************************************************************************
 .macro VECTOR_OUTER_OP INSTRUCTION OPERATION SHIFT
-.section .text.MANGLE_STR_COMMON(\@)
-.align 8
+FN_SECTION MANGLE_STR_COMMON(\@) 8
 
 .if \SHIFT == 1
 
@@ -228,15 +212,14 @@ outer_loop\@:
   brnzdec $rows, outer_loop\@
 
   exitz $mzero
-.size MANGLE_STR_COMMON(\@), . -outerLoop_\OPERATION
+FN_SIZE MANGLE_STR_COMMON(\@)
 .endm
 
 
 //******************************************************************************
 // Common code, mainly to divide work by row
 //******************************************************************************
-.section .text.MANGLE_STR_COMMON(divide_work_by_row)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(divide_work_by_row)
 divide_work_by_row:
   // Extract worker ID
   get $workerIdM1, $WSR
@@ -261,13 +244,12 @@ divide_work_by_row:
   add $stride2, $stride, 1
   shl $stride, $stride, 3
   br $functionPtr
-.size MANGLE_STR_COMMON(divide_work_by_row), . -divide_work_by_row
+FN_SIZE MANGLE_STR_COMMON(divide_work_by_row)
 
 //******************************************************************************
 // Common code, mainly to divide work by column
 //******************************************************************************
-.section .text.MANGLE_STR_COMMON(divide_work_by_column)
-.align 4
+FN_SECTION MANGLE_STR_COMMON(divide_work_by_column)
 divide_work_by_column:
   // Extract worker ID
   get $workerIdM1, $WSR
@@ -305,7 +287,7 @@ divide_work_by_column:
   exitz $mzero
 1:
   br $functionPtr
-.size MANGLE_STR_COMMON(divide_work_by_column), . -divide_work_by_column
+FN_SIZE MANGLE_STR_COMMON(divide_work_by_column)
 
 //******************************************************************************
 // Use the macros to create inplace and non inplace, float and half entry points

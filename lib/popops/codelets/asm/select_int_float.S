@@ -2,23 +2,11 @@
 #ifdef __IPU__
 
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define SELECT_INT __runCodelet_popops__Select___int
 #define SELECT_UNSIGNED_INT __runCodelet_popops__Select___unsigned_int
 #define SELECT_FLOAT __runCodelet_popops__Select___float
-
-.globl SELECT_INT
-.type SELECT_INT, @function
-
-.globl SELECT_UNSIGNED_INT
-.type SELECT_UNSIGNED_INT, @function
-
-.globl SELECT_FLOAT
-.type SELECT_FLOAT, @function
-
-DEF_STACK_USAGE 0 .text.SELECT_INT
-.section .text.SELECT_INT
-.align 8
 
 // Constants
 #define VERTEX_IN1_OFFSET 0
@@ -42,10 +30,9 @@ DEF_STACK_USAGE 0 .text.SELECT_INT
 #define ifVal m11
 #define trueVal m9 // Note: Same register as nColRemain
 
-nop // Required for alignment of rpt
-SELECT_INT:
-SELECT_UNSIGNED_INT:
-SELECT_FLOAT:
+FN_WORKER_ENTRY_POINT SELECT_INT 8 nop
+FN_EXPORT SELECT_UNSIGNED_INT
+FN_EXPORT SELECT_FLOAT
   // Load the vertex state.
   ld32 $in1, $mvertex_base, $mzero, VERTEX_IN1_OFFSET
   ld32 $in2, $mvertex_base, $mzero, VERTEX_IN2_OFFSET
@@ -79,6 +66,6 @@ column_loop_end:
 row_loop_end:
   exitz $mzero
 
-.size SELECT_INT, .-SELECT_INT
+FN_SIZE SELECT_INT
 
 #endif

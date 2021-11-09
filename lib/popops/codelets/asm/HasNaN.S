@@ -4,6 +4,7 @@
 #ifdef __IPU__
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/TileConstants.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 // -----------------------------------------------------------------------------
 
@@ -85,14 +86,8 @@ ld64step        $azeros, $mzero, $w_inPtr+=, $w_wkrId
 
 // Instantiate a 1D worker
 .macro INSTANTIATE_1D_WORKER TYPE, NAME, CHECK_INF
+FN_WORKER_ENTRY_POINT \NAME 8
 
-DEF_STACK_USAGE 0 \NAME\()
-.section .text.\NAME\(), FUNCTION_IS_WORKER
-.type \NAME\(), @function
-.globl \NAME\()
-.align 8
-.worker
-\NAME\():
 CALC_1D_SIZE_AND_SETUP_POINTERS \TYPE \CHECK_INF
 .ifc \TYPE, half
 INNER_LOOP_HALF 1D \CHECK_INF
@@ -103,7 +98,7 @@ PROPAGATE_NAN \TYPE \CHECK_INF
 // restore FPCTL
 uput           $FP_CTL, $fp_ctl_reg
 exitz          $w_retVal
-.size \NAME\(), .-\NAME\()
+FN_SIZE \NAME
 .endm
 
 
@@ -327,14 +322,7 @@ LDecrCountF_\DIM_SUFFIX\()_\CHECK_INF\():
 // The code is structured to move to using ld128 with minor changes even though
 // we could get the same performance using a single cycle innermost loop.
 .macro HAS_NAN_OR_INF_HALF NAME, CHECK_INF
-.globl \NAME\()
-.type \NAME\(), @function
-
-DEF_STACK_USAGE 0 \NAME\()
-.section .text.\NAME\()
-.align 8
-
-\NAME\():
+FN_WORKER_ENTRY_POINT \NAME\() 8
 
 LOAD_VERTEX_STATE_AND_SET_FPCTL H 2D \CHECK_INF
 
@@ -349,7 +337,7 @@ PROPAGATE_NAN half \CHECK_INF
 LExitH_2D_\CHECK_INF\():
 uput            $FP_CTL, $fp_ctl_reg
 exitz           $w_retVal
-.size \NAME\(), .-\NAME\()
+FN_SIZE \NAME
 .endm
 
 // -----------------------------------------------------------------------------
@@ -360,15 +348,7 @@ exitz           $w_retVal
 // performance could be acheived by using a single cycle innermost loop.
 
 .macro HAS_NAN_OR_INF_FLOAT NAME, CHECK_INF
-
-.globl \NAME\()
-.type \NAME\(), @function
-
-DEF_STACK_USAGE 0 \NAME\()
-.section .text.\NAME\()
-.align 8
-
-\NAME\():
+FN_WORKER_ENTRY_POINT \NAME 8
 
 // Load vertex state and set up control
 LOAD_VERTEX_STATE_AND_SET_FPCTL F 2D \CHECK_INF
@@ -384,7 +364,7 @@ PROPAGATE_NAN float \CHECK_INF
 LExitF_2D_\CHECK_INF\():
 uput            $FP_CTL, $fp_ctl_reg
 exitz           $w_retVal
-.size \NAME\(), .-\NAME\()
+FN_SIZE \NAME
 .endm
 
 // -----------------------------------------------------------------------------

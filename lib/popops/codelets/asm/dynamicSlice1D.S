@@ -62,6 +62,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
+#include "CommonPoplibsMacros.h.S"
 
 #define DSS_FLOAT_FUNC __runCodelet_popops__DynamicSlice1D___float
 #define DUSS_FLOAT_FUNC __runCodelet_popops__DynamicUpdateSlice1D___float
@@ -81,47 +82,6 @@
 #define DSS_LONGLONG_FUNC __runCodelet_popops__DynamicSlice1D___long_long
 #define DUSS_LONGLONG_FUNC __runCodelet_popops__DynamicUpdateSlice1D___long_long
 
-
-.global DSS_FLOAT_FUNC
-.type DSS_FLOAT_FUNC, @function
-
-.global DUSS_FLOAT_FUNC
-.type DUSS_FLOAT_FUNC, @function
-
-.global DSS_INT_FUNC
-.type DSS_INT_FUNC, @function
-
-.global DUSS_INT_FUNC
-.type DUSS_INT_FUNC, @function
-
-.global DSS_UNSIGNED_FUNC
-.type DSS_UNSIGNED_FUNC, @function
-
-.global DUSS_UNSIGNED_FUNC
-.type DUSS_UNSIGNED_FUNC, @function
-
-.global DSS_HALF_FUNC
-.type DSS_HALF_FUNC, @function
-
-.global DUSS_HALF_FUNC
-.type DUSS_HALF_FUNC, @function
-
-.global DSS_ULONGLONG_FUNC
-.type DSS_ULONGLONG_FUNC, @function
-
-.global DUSS_ULONGLONG_FUNC
-.type DUSS_ULONGLONG_FUNC, @function
-
-.global DSS_LONGLONG_FUNC
-.type DSS_LONGLONG_FUNC, @function
-
-.global DUSS_LONGLONG_FUNC
-.type DUSS_LONGLONG_FUNC, @function
-
-DEF_STACK_USAGE 0 .text.DynamicSlice1d_ulonglong
-.section .text.DynamicSlice1d_ulonglong
-.align 4
-.worker
 // ************************************************* //
 // Worker thread execution for supervisor vertex (32-bit types)
 // Update version: set a flag for update,
@@ -129,13 +89,13 @@ DEF_STACK_USAGE 0 .text.DynamicSlice1d_ulonglong
 // Src = Sub
 // Dst = Base
 // ************************************************* //
-DUSS_LONGLONG_FUNC:
-DUSS_ULONGLONG_FUNC:
+FN_WORKER_ENTRY_POINT DUSS_LONGLONG_FUNC
+FN_EXPORT DUSS_ULONGLONG_FUNC
   ld32     $DST, $mzero, $mvertex_base, VOFF_BASET
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
   {bri       .Lds_super_common_64
    setzi    $UPDATE,1}
-
+FN_SIZE DUSS_LONGLONG_FUNC
 // ************************************************* //
 // Worker thread execution for supervisor vertex (32-bit types)
 // Non Update version: clear a flag for no update,
@@ -143,8 +103,8 @@ DUSS_ULONGLONG_FUNC:
 // Src = Base
 // Dst = Sub
 // ************************************************* //
-DSS_LONGLONG_FUNC:
-DSS_ULONGLONG_FUNC:
+FN_WORKER_ENTRY_POINT DSS_LONGLONG_FUNC
+FN_EXPORT DSS_ULONGLONG_FUNC
   ld32      $SRC, $mzero, $mvertex_base, VOFF_BASET
   {ld32      $DST, $mzero, $mvertex_base, VOFF_SUBT
   setzi     $UPDATE,0}
@@ -154,13 +114,7 @@ DSS_ULONGLONG_FUNC:
   ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
   shl       $REGION_SIZE, $REGION_SIZE, 2 // need REGION_SIZE in halves
   bri  load_vertex_fields_and_preprocess
-.size DynamicSlice1d_ulonglong, .-DynamicSlice1d_ulonglong
-
-DEF_STACK_USAGE 0 .text.DynamicSlice1d_float
-
-.section .text.DynamicSlice1d_float
-.align 4
-.worker
+FN_SIZE DSS_LONGLONG_FUNC
 
 // ************************************************* //
 // Worker thread execution for supervisor vertex (32-bit types)
@@ -169,14 +123,14 @@ DEF_STACK_USAGE 0 .text.DynamicSlice1d_float
 // Src = Sub
 // Dst = Base
 // ************************************************* //
-DUSS_INT_FUNC:
-DUSS_UNSIGNED_FUNC:
-DUSS_FLOAT_FUNC:
+FN_WORKER_ENTRY_POINT DUSS_INT_FUNC
+FN_EXPORT DUSS_UNSIGNED_FUNC
+FN_EXPORT DUSS_FLOAT_FUNC
   ld32     $DST, $mzero, $mvertex_base, VOFF_BASET
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
   {bri       .Lds_super_common_32
    setzi    $UPDATE,1}
-
+FN_SIZE DUSS_INT_FUNC
 // ************************************************* //
 // Worker thread execution for supervisor vertex (32-bit types)
 // Non Update version: clear a flag for no update,
@@ -184,9 +138,9 @@ DUSS_FLOAT_FUNC:
 // Src = Base
 // Dst = Sub
 // ************************************************* //
-DSS_INT_FUNC:
-DSS_UNSIGNED_FUNC:
-DSS_FLOAT_FUNC:
+FN_WORKER_ENTRY_POINT DSS_INT_FUNC
+FN_EXPORT DSS_UNSIGNED_FUNC
+FN_EXPORT DSS_FLOAT_FUNC
   ld32      $SRC, $mzero, $mvertex_base, VOFF_BASET
   {ld32      $DST, $mzero, $mvertex_base, VOFF_SUBT
   setzi     $UPDATE,0}
@@ -196,14 +150,7 @@ DSS_FLOAT_FUNC:
   ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
   shl       $REGION_SIZE, $REGION_SIZE, 1 // need REGION_SIZE in halves
   bri  load_vertex_fields_and_preprocess
-.size DynamicSlice1d_float, .-DSS_FLOAT_FUNC
-
-
-
-
-DEF_STACK_USAGE 0 .text.DynamicSlice1d_half
-.section .text.DynamicSlice1d_half
-.align 8
+FN_SIZE DSS_INT_FUNC
 
 // ************************************************* //
 // Update version: set a flag for update,
@@ -211,19 +158,19 @@ DEF_STACK_USAGE 0 .text.DynamicSlice1d_half
 // Src = Sub
 // Dst = Base
 // ************************************************* //
-DUSS_HALF_FUNC:
-.worker
+FN_WORKER_ENTRY_POINT DUSS_HALF_FUNC 
   ld32      $DST, $mzero, $mvertex_base, VOFF_BASET
   ld32      $SRC, $mzero, $mvertex_base, VOFF_SUBT
   {bri      .Lds_super_common_16
    setzi    $UPDATE,1}
+FN_SIZE DUSS_HALF_FUNC
 // ************************************************* //
 // Non Update version: clear a flag for update,
 // load base, sub array pointers
 // Src = Base
 // Dst = Sub
 // ************************************************* //
-DSS_HALF_FUNC:
+FN_WORKER_ENTRY_POINT DSS_HALF_FUNC 8
   ld32      $SRC, $mzero, $mvertex_base, VOFF_BASET
   {ld32     $DST, $mzero, $mvertex_base, VOFF_SUBT
    setzi    $UPDATE,0}
@@ -483,7 +430,6 @@ load_vertex_fields_and_preprocess:
 
 .Lexit:
   exitz      $mzero
-.size DynamicSlice1d_half, .-DSS_HALF_FUNC
 
 // Dedicated code for small regions (up to 3 halves) to avoid slowing the main
 // path
@@ -523,6 +469,6 @@ ShortRegionHandler:
   st32 $a2, $DST, $DST_OFFS, 0
 1:
 bri .Lend_inner
-.size ShortRegionHandler, .-ShortRegionHandler
+FN_SIZE DSS_HALF_FUNC
 
 #endif

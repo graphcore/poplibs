@@ -1,15 +1,9 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define SELECT_HALF __runCodelet_popops__Select___half
-
-.globl SELECT_HALF
-.type SELECT_HALF, @function
-
-DEF_STACK_USAGE 0 SELECT_HALF
-.section .text.SELECT_HALF
-.align 8
 
 // Constants
 #define VERTEX_IN1_OFFSET 0
@@ -35,8 +29,7 @@ DEF_STACK_USAGE 0 SELECT_HALF
 #define trueVal m11
 #define ifVal m8 // NOTE: Same register as nByteRemain
 
-nop // Required for alignment of rpt
-SELECT_HALF:
+FN_WORKER_ENTRY_POINT SELECT_HALF 8 nop
   // Load the vertex state.
   ld32 $out, $mvertex_base, $mzero, VERTEX_OUT_START_OFFSET
   ld32 $nRowRemain, $mvertex_base, $mzero, VERTEX_OUT_END_OFFSET
@@ -99,6 +92,6 @@ load_next_row:
 row_loop_end:
   exitz $mzero
 
-.size SELECT_HALF, .-SELECT_HALF
+FN_SIZE SELECT_HALF
 
 #endif

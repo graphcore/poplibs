@@ -23,6 +23,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #ifdef VECTOR_AVAIL_SCALED_PTR64
 #define OUT_OFFSET           0
@@ -34,15 +35,10 @@
 #define NUM_PARTIALS_OFFSET  8
 #endif
 
-#define PTR64_SHL_BITS   3
-
 // Registers
 #define SCRATCH         m8
 
 #define ZAACC           a4
-
-// defines
-#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // Name mangling
 
@@ -54,18 +50,18 @@ popops__\OP\()_float_half_false_popops__ReductionSpecialisation__##specialisatio
 
 // *****************************************************************************
 // Macro describing the float, float and float, half versions of the operation
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+#define NOP_FOR_RPT  nop
+#else
+#define NOP_FOR_RPT
+#endif
 
 .macro INSTANTIATE_REDUCE OP INSTRUCTION
-.type REDUCE_FLOAT_FLOAT(Reduce,2common), @function
-.section .text.REDUCE_FLOAT_FLOAT(Reduce,2common), "ax"
-.align 8
-#ifdef VECTOR_AVAIL_SCALED_PTR64
- nop  // rpt alignment
-#endif
+
 // accumulate values from a single edge
 // This code is only used for acc and sqadd, so it's OK to accumulate extra
 // zeros
-REDUCE_FLOAT_FLOAT(Reduce,2common):
+FN_WORKER_ENTRY_POINT REDUCE_FLOAT_FLOAT(Reduce,2common) 8 NOP_FOR_RPT
   //$m0: dest offset from MEMBASE in f32's
   //$m1: src offset from MEMBASE in bytes
   //$a0:3 accumulators
@@ -76,7 +72,7 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
 #ifdef VECTOR_AVAIL_SCALED_PTR64
   {ldz16 $m1, $mvertex_base, $m15, IN_OFFSET/2
    f32v2add $a0:1, $azeros, $azeros}
-  shl $m1, $m1, PTR64_SHL_BITS
+  shl $m1, $m1, SCALED_PTR64_SHIFTS
 #else
   {ld32 $m1, $mvertex_base, $m15, IN_OFFSET/4
    f32v2add $a0:1, $azeros, $azeros}
@@ -149,27 +145,15 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
   br $m10
   f32add $a0, $a0, $a1
   }
-.size REDUCE_FLOAT_FLOAT(Reduce,2common), .-REDUCE_FLOAT_FLOAT(Reduce,2common)
+FN_SIZE REDUCE_FLOAT_FLOAT(Reduce,2common)
 
-DEF_STACK_USAGE 0 REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
-
-.globl REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
-.type REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), @function
-.section .text.REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), "ax"
-.align 4
-REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT):
+FN_WORKER_ENTRY_POINT REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
   call $m10, REDUCE_FLOAT_FLOAT(Reduce,2common)
   st32 $a0, $m0, $mzero
   exitnz $mzero
-.size REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), .-REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
+FN_SIZE REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
 
-DEF_STACK_USAGE 0 REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
-
-.globl REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
-.type REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), @function
-.section .text.REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), "ax"
-.align 4
-REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT):
+FN_WORKER_ENTRY_POINT REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
   call $m10, REDUCE_FLOAT_FLOAT(Reduce,2common)
   and $m1, $m0, 0x2
   andc $m0, $m0, 0x2
@@ -185,7 +169,7 @@ REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT):
 1:
   st32 $a2, $m0, $mzero
   exitnz $mzero
-.size REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), .-REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
+FN_SIZE REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
 .endm
 //******************************************************************************
 // Use the macro to instantiate the vertices

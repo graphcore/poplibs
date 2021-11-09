@@ -47,7 +47,7 @@
 
 // To create a size directive when paired with one of the 3 macros above
 .macro FN_SIZE LABEL
-    .size \LABEL, . - \LABEL\()
+    .size \LABEL, . - \LABEL\()_START
 .endm
 
 // This macro defines a label as global, function
@@ -78,5 +78,6 @@
 #define SHORT_SPAN_PTR_MASK ((1 << SHORT_SPAN_PTR_SIZE) - 1)
 #define SHORT_SPAN_LENGTH_SIZE 12
 
+#define SCALED_PTR16_SHIFTS 1
 #define SCALED_PTR32_SHIFTS 2
 #define SCALED_PTR64_SHIFTS 3

@@ -5,11 +5,9 @@
 #include "poplar/TileConstants.hpp"
 #include "popops/EncodingConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX __runCodelet_popops__EncodeOneHot___unsigned_int_half
-
-.globl VERTEX
-.type VERTEX, @function
 
 // Field offsets in vertex
 #define VERTEX_INDEX_BEGIN_OFFSET 0
@@ -34,12 +32,7 @@
 #define mscratch2 m5
 
 
-DEF_STACK_USAGE 0 VERTEX
-
-.section .text.VERTEX
-.align 4
-
-VERTEX:
+FN_SUPERVISOR_ENTRY_POINT VERTEX
   // one hot encoding is:
   //
   //  memset(out.begin(), 0, outLength * sizeof(OutType));
@@ -131,6 +124,6 @@ VERTEX:
 .Lepilogue:
   br $lr // 6 cycles
 
-.size VERTEX, . - VERTEX
+FN_SIZE VERTEX
 
 #endif // __IPU__

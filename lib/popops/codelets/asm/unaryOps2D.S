@@ -10,6 +10,7 @@
 /* -------------------------------------------------------------------------- */
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -55,13 +56,8 @@
 // inplace/non-inplace
 //******************************************************************************
 .macro INSTANTIATE_2D TYPE VARIANT VERTEX_NAME OPERATION
-DEF_STACK_USAGE 0 MANGLE_STR
-.section .text.MANGLE_STR
-.global MANGLE_STR
-.type MANGLE_STR, @function
-.align 4
 
-MANGLE_STR:
+FN_WORKER_ENTRY_POINT MANGLE_STR
   // load vertex state
 .ifc "\VERTEX_NAME", "UnaryOp2DInPlace"
   ld32 $outPtrPtr, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_PTR_PTR_OFFSET/4
@@ -83,14 +79,13 @@ MANGLE_STR:
   setzi $m2DVectorLoop, unary_op_worker_2D_4x16bit_framework_\VERTEX_NAME
   brnzdec $outerLoops, unary_op_worker_2D_4x16bit_framework
   exitz $mzero
-.size MANGLE_STR, . -MANGLE_STR
+FN_SIZE MANGLE_STR
 .endm
 
 //******************************************************************************
 // General processing structure for half - 2D worker vertices
 //******************************************************************************
-.section .text.MANGLE_STR_COMMON(4x16bit_processing_2D)
-.align 4
+FN_SECTION unary_op_worker_2D_4x16bit_framework
 unary_op_worker_2D_4x16bit_framework:
   // Load pointers to the inner 2D output (or in-out) vectors and associated
   // counter
@@ -138,7 +133,7 @@ process_1_4x16bit_return_2D:
 3:
   brnzdec $outerLoops, unary_op_worker_2D_4x16bit_framework
   exitz $mzero
-.size MANGLE_STR_COMMON(4x16bit_processing_2D), . -unary_op_worker_2D_4x16bit_framework
+FN_SIZE unary_op_worker_2D_4x16bit_framework
 
 //******************************************************************************
 // Use the macros above to create vertex entry points

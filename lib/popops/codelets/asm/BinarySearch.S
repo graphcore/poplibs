@@ -4,6 +4,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "BinarySearch.h.S"
+#include "CommonPoplibsMacros.h.S"
 
 // These functions are used by multiUpdate and multiUpdateOp. The registers
 // are carefully aliased so that there is minimal register spill. 
@@ -16,12 +17,8 @@
 #define val           m3
 #define midValue      m8
 
-.type lowerBinarySearch, @function
-DEF_STACK_USAGE 0 lowerBinarySearch
-.section .text.lowerBinarySearch
-.globl lowerBinarySearch
+FN_WORKER_ENTRY_POINT lowerBinarySearch
 
-lowerBinarySearch:
 setzi $low, 0                            // low = 0
 sub $high, $mBS_numIndices, 1            // high = numIndices - 1 
 sub $mBS_startIndex, $mzero, 1           // startIndex = -1 
@@ -65,17 +62,13 @@ bri LowerCheckDuplicateEntries
 LowerEnd:
 // return value is in startIndex
 br $mBS_retLr
-.size lowerBinarySearch, . -  lowerBinarySearch
+FN_SIZE lowerBinarySearch
 
 
 //------------------------------------------------------------------------------
 
-.type upperBinarySearch, @function
-DEF_STACK_USAGE 0 upperBinarySearch
-.section .text.upperBinarySearch
-.globl upperBinarySearch
+FN_WORKER_ENTRY_POINT upperBinarySearch
 
-upperBinarySearch:
 setzi $low, 0                        // low = 0
 sub $high, $mBS_numIndices, 1            // high = numIndices - 1 
 sub $mBS_endIndex, $mzero, 1           // endIndex = -1 
@@ -122,5 +115,5 @@ UpperEnd:
 add $mBS_endIndex, $mBS_endIndex, 1
 br $mBS_retLr
 
-.size upperBinarySearch, . -  upperBinarySearch
+FN_SIZE upperBinarySearch
 #endif // __IPU__

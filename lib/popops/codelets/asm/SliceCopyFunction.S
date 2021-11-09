@@ -2,7 +2,9 @@
 #ifdef __IPU__
 
 #include "poplar/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 #include "SliceCopyFunction_8bit.inc"
+#include "CommonPoplibsMacros.h.S"
 
 /* -------------------------------------------------------------------------- */
 // Common copy function used bt next codelets:
@@ -11,19 +13,6 @@
 // - MultiSlice
 // - MultiUpdate
 /* -------------------------------------------------------------------------- */
-
-
-//******************************************************************************
-// Labels names for each variant
-//******************************************************************************
-.globl Slice_copy_function_8bit
-.type Slice_copy_function_8bit, @function
-
-.globl Slice_copy_function_half
-.type Slice_copy_function_half, @function
-
-.globl Slice_copy_function_float_int
-.type Slice_copy_function_float_int @function
 
 //******************************************************************************
 // Copy function for 8 bit values
@@ -39,9 +28,8 @@
 // To save/restore the registers used here, this function uses a few words in
 // the scratch area, at offsets WOFF_SAVE_REG1..n
 //******************************************************************************
-.section .text.Slice_copy_8bit
-.align 8
-Slice_copy_function_8bit:
+FN_SECTION Slice_copy_function_8bit 8
+FN_EXPORT Slice_copy_function_8bit
     brz         $mRegionSize, Slice_copy_8bit_end
 
     // Save previous value of used registers in scratch area
@@ -78,7 +66,7 @@ Slice_copy_function_8bit:
     ld32        $remainder, $mzero, $mworker_base, WOFF_SAVE_REGS4
 Slice_copy_8bit_end:
     br          $mReturnAddress
-.size Slice_copy_function_8bit, .-Slice_copy_function_8bit
+FN_SIZE Slice_copy_function_8bit
 
 
 //******************************************************************************
@@ -96,13 +84,9 @@ Slice_copy_8bit_end:
 // This function is allowed to use/modify m8, m9, m10 (above), m11 (mScratch)
 // and all ARF registers but must preserve all other MRF registers (m0..m7).
 //******************************************************************************
-.section .text.Slice_copy_half
 
-.align 8
-Slice_copy_half:
-    // nop for rpt loop alignment
-    nop
-Slice_copy_function_half:
+FN_SECTION Slice_copy_function_half 8 nop
+FN_EXPORT Slice_copy_function_half
     // 32/16 alignment half copy begins
 
     // Aligned output?
@@ -147,14 +131,12 @@ Slice_copy_function_half:
     and     $mScratch, $mRegionSize,1
     brz     $mScratch, Slice_copy_half_end
     bri     3f
-    // nop for rpt loop alignment
-    nop
 5:
     // Case for aligned input
     shr     $mScratch, $mRegionSize, 1
 
     // Copy pairs of items, both 32 bit aligned
-    rpt $mScratch, ((2f - 1f) / 8) - 1
+    RPT_ALIGNED_TO 2b $mScratch
 1:
     {ld32step    $VAL1, $mzero, $mSrcPtr+=, 1; fnop}
     {st32step    $VAL1, $mzero, $mDstPtr+=, 1; fnop}
@@ -172,7 +154,7 @@ Slice_copy_function_half:
 Slice_copy_half_end:
     br       $mReturnAddress
 
-.size Slice_copy_half, .-Slice_copy_half
+FN_SIZE Slice_copy_function_half
 
 
 //******************************************************************************
@@ -190,13 +172,9 @@ Slice_copy_half_end:
 // This function is allowed to use/modify m8, m9, m10 (above), m11 (mScratch)
 // and all ARF registers but must preserve all other MRF registers (m0..m7).
 //******************************************************************************
-.section .text.Slice_copy_float_int
 
-.align 8
-Slice_copy_float_int:
-    // nop for rpt loop alignment
-    nop
-Slice_copy_function_float_int:
+FN_SECTION Slice_copy_function_float_int 8 nop
+FN_EXPORT Slice_copy_function_float_int
     // Aligned output?
     and      $mScratch, $mDstPtr, 4
     brz      $mScratch, 1f
@@ -222,12 +200,10 @@ Slice_copy_function_float_int:
     and      $mScratch, $mRegionSize,1
     brz      $mScratch, Slice_copy_float_int_end
     bri      3f
-    // nop for rpt loop alignment
-    nop
 5:
     // Copy pairs of items - both input and output are 64 bit aligned
     shr      $mScratch, $mRegionSize, 1
-    rpt     $mScratch, ((2f - 1f) / 8) - 1
+    RPT_ALIGNED_TO 2b $mScratch
 1:
     {ld64step $VAL12, $mzero, $mSrcPtr+=,  1; fnop}
     {st64step $VAL12, $mzero, $mDstPtr+=,  1; fnop}
@@ -243,6 +219,6 @@ Slice_copy_function_float_int:
 Slice_copy_float_int_end:
     br       $mReturnAddress
 
-.size Slice_copy_float_int, .-Slice_copy_float_int
+FN_SIZE Slice_copy_function_float_int
 
 #endif

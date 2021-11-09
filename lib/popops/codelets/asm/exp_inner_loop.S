@@ -4,6 +4,7 @@
 
 #ifdef __IPU__
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define HALF_FUNC exponent_half_1d_inner_loop
 #define FLOAT_FUNC exponent_float_1d_inner_loop
@@ -14,18 +15,11 @@
 #define num_samples m2
 #define stride m3
 
-.globl HALF_FUNC
-.type HALF_FUNC, @function
-
-DEF_STACK_USAGE 0 HALF_FUNC
-.section .text.HALF_FUNC
-.align 8
-
 #define num_x4 m4
 #define num_x2 m4
 #define num_x1 m4
 
-HALF_FUNC:
+FN_WORKER_ENTRY_POINT HALF_FUNC 8
   // exponent can overflow and hence we cannot compute it on anything but data
   // that needs conversion. Otherwise we must guarantee that it is computed on
   // data that cannot overflow.
@@ -77,7 +71,7 @@ HALF_FUNC:
 .Lend_half:  
   br $lr
 
-.size HALF_FUNC, .-HALF_FUNC
+FN_SIZE HALF_FUNC
 
 #undef num_x4
 #undef num_x2
@@ -86,18 +80,10 @@ HALF_FUNC:
 
 //------------------------------------------------------------------------------
 
-
-.globl FLOAT_FUNC
-.type FLOAT_FUNC, @function
-
-DEF_STACK_USAGE 0 FLOAT_FUNC
-.section .text.FLOAT_FUNC
-.align 8
-
 #define num_x2 m4
 #define num_x1 m4
 
-FLOAT_FUNC:
+FN_WORKER_ENTRY_POINT FLOAT_FUNC 8
   // exponent can overflow and hence we cannot compute it on anything but data
   // that needs conversion. Otherwise we must guarantee that it is computed on
   // data that cannot overflow.
@@ -134,6 +120,6 @@ FLOAT_FUNC:
   st32 $a2, $mzero, $dst_ptr, 0 
 .Lend_float:  
   br $lr
-.size FLOAT_FUNC, .-FLOAT_FUNC
+FN_SIZE FLOAT_FUNC
 
 #endif

@@ -17,12 +17,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
-
-// This macro associates to the symbol 'label' a size defined as
-// (Current_loc - label)
-.macro FN_SIZE label
-.size \label, . - \label
-.endm
+#include "CommonPoplibsMacros.h.S"
 
 // Symbols
 #define HALF_SYMBOL(IN_PLACE) \
@@ -71,14 +66,7 @@
 
 //------------------------------------------------------------------------------
 .macro INSTANTIATE_HALF NL_TYPE OP OPTIONAL_OPERAND_C=""
-.worker
-
-// Entry point for the not-in-place vertex
-DEF_STACK_USAGE 0 HALF_SYMBOL()
-.section .text.HALF_SYMBOL()
-.globl HALF_SYMBOL()
-.type HALF_SYMBOL(), @function
-HALF_SYMBOL():
+FN_WORKER_ENTRY_POINT HALF_SYMBOL()
     ld32 $DATA_PTR, $mvertex_base, $mzero, IN_PTR_OFFS/4
     ld32 $OUT_PTR, $mvertex_base, $mzero,  OUT_PTR_OFFS/4
     ld32 $MSCRATCH, $mvertex_base, $mzero, N_OFFS/4
@@ -88,14 +76,7 @@ HALF_SYMBOL():
     bri .Lhalf_do_work\@
 FN_SIZE HALF_SYMBOL()
 
-DEF_STACK_USAGE 0 HALF_SYMBOL(InPlace)
-.section .text.HALF_SYMBOL(InPlace)
-
-.globl HALF_SYMBOL(InPlace)
-.type HALF_SYMBOL(InPlace), @function
-
-.align 8
-HALF_SYMBOL(InPlace):
+FN_WORKER_ENTRY_POINT HALF_SYMBOL(InPlace) 8
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
     // Scaled pointer gives offset in 32-bit units from
@@ -230,14 +211,7 @@ FN_SIZE HALF_SYMBOL(InPlace)
 //------------------------------------------------------------------------------
 .macro INSTANTIATE_FLOAT NL_TYPE OP OPTIONAL_OPERAND_C=""
 
-DEF_STACK_USAGE 0 FLOAT_SYMBOL()
-.section .text.FLOAT_SYMBOL()
-
-.globl FLOAT_SYMBOL()
-.type FLOAT_SYMBOL(), @function
-
-    // For rpt alignment below.
-FLOAT_SYMBOL():
+FN_WORKER_ENTRY_POINT FLOAT_SYMBOL()
     ld32 $DATA_PTR, $mvertex_base, $mzero, IN_PTR_OFFS/4
     ld32 $OUT_PTR, $mvertex_base, $mzero,  OUT_PTR_OFFS/4
     ld32 $MSCRATCH, $mvertex_base, $mzero, N_OFFS/4
@@ -247,15 +221,7 @@ FLOAT_SYMBOL():
     bri .Lfloat_do_work\@
 FN_SIZE FLOAT_SYMBOL()
 
-DEF_STACK_USAGE 0 FLOAT_SYMBOL(InPlace)
-.section .text.FLOAT_SYMBOL(InPlace)
-
-.globl FLOAT_SYMBOL(InPlace)
-.type FLOAT_SYMBOL(InPlace), @function
-
-.align 8
-FLOAT_SYMBOL(InPlace):
-.worker
+FN_WORKER_ENTRY_POINT FLOAT_SYMBOL(InPlace) 8
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
     // Scaled pointer gives offset in 32-bit units from

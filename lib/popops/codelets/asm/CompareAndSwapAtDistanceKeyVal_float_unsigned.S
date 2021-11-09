@@ -5,6 +5,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define CODELET_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_unsigned_int
 
@@ -14,12 +15,7 @@
 #define STATE_OFFSET_worklists_outer_count 12
 #define STATE_OFFSET_distanceToChangeOrder 16
 
-.section .text.CODELET_SYMBOL, "ax"
-DEF_STACK_USAGE 0 CODELET_SYMBOL
-.globl CODELET_SYMBOL, @function
-.align 8
-.worker
-CODELET_SYMBOL:
+FN_WORKER_ENTRY_POINT CODELET_SYMBOL 8
 //=================
 #define w_id m0
 #define w_numWorkers m1
@@ -191,5 +187,5 @@ CODELET_SYMBOL:
     brnzdec $w_numEntriesM1, .LnumEntriesLoopBegin
 .LnumEntriesLoopExit:
   exitz $mzero
-
+FN_SIZE CODELET_SYMBOL
 #endif // __IPU__

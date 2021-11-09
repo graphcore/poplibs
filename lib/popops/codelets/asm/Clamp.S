@@ -5,19 +5,7 @@
 #ifdef __IPU__
 
 #include "poplar/StackSizeDefs.hpp"
-
-.globl __runCodelet_popops__Clamp___float
-.type __runCodelet_popops__Clamp___float, @function
-
-.globl __runCodelet_popops__BroadcastClamp___float
-.type __runCodelet_popops__BroadcastClamp___float, @function
-
-.globl __runCodelet_popops__Clamp___half
-.type __runCodelet_popops__Clamp___half, @function
-
-.globl __runCodelet_popops__BroadcastClamp___half
-.type __runCodelet_popops__BroadcastClamp___half, @function
-
+#include "CommonPoplibsMacros.h.S"
 
 /* Input vertex structure offsets */
 #define VOFF_IN1_PTR                0
@@ -62,13 +50,8 @@
 // Benchmark: 8+ vectors*(12+2) +(total_inputs_in_all_vectors-vectors)*4
 //***************************************************************************************************
 
-DEF_STACK_USAGE  0  __runCodelet_popops__Clamp___float
-.section .text.__runCodelet_popops__Clamp___float
-.align 8
+FN_WORKER_ENTRY_POINT __runCodelet_popops__Clamp___float 8 nop
 
-clamp_prepad:
-  nop // rpt alignment
-__runCodelet_popops__Clamp___float:
     // load vertex state
     ld32     $IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR
     ld32     $IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR
@@ -116,7 +99,7 @@ clamp_loop_inner_end:
 
     exitz    $mzero
 
-.size __runCodelet_popops__Clamp___float, .-__runCodelet_popops__Clamp___float
+FN_SIZE __runCodelet_popops__Clamp___float
 
 //***************************************************************************************************
 // Broadcast float version, using clamp instruction to do all calculation.
@@ -124,14 +107,7 @@ clamp_loop_inner_end:
 // Benchmark: 10 + vectors*(10+2) + (total_inputs_in_all_vectors-vectors)*2
 //***************************************************************************************************
 
-DEF_STACK_USAGE  0  __runCodelet_popops__BroadcastClamp___float
-.section .text.__runCodelet_popops__BroadcastClamp___float
-.align 8
-
-bclamp_prepad:
-
-  nop // rpt alignment
-__runCodelet_popops__BroadcastClamp___float:
+FN_WORKER_ENTRY_POINT __runCodelet_popops__BroadcastClamp___float 8 nop
     // Load vertex state
     ld32     $IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR
     ld32     $IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR
@@ -174,7 +150,7 @@ bclamp_loop_inner_end:
 
     exitz    $mzero
 
-.size __runCodelet_popops__BroadcastClamp___float, .-__runCodelet_popops__BroadcastClamp___float
+FN_SIZE __runCodelet_popops__BroadcastClamp___float
 
 //***************************************************************************************************
 // Half version, using clamp instruction to do all calculation.
@@ -187,13 +163,7 @@ bclamp_loop_inner_end:
 // Benckmark (aligned)= 8 + vectors*(14+2) + total_inputs_in_all_vectors * 7/2
 //***************************************************************************************************
 
-DEF_STACK_USAGE  0  __runCodelet_popops__Clamp___half
-.section .text.__runCodelet_popops__Clamp___half
-.align 8
-
-clamp16_prepad:
-  nop // pad for rpt loop alignment
-__runCodelet_popops__Clamp___half:
+FN_WORKER_ENTRY_POINT __runCodelet_popops__Clamp___half 8 nop
     // load vertex state
     ld32     $IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR
     ld32     $IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR
@@ -290,7 +260,7 @@ clamp16_loop_outer_end:
 
     exitz    $mzero
 
-.size __runCodelet_popops__Clamp___half, .-__runCodelet_popops__Clamp___half
+FN_SIZE __runCodelet_popops__Clamp___half
 
 //***************************************************************************************************
 // Broadcast half version, using clamp instruction to do all calculation.
@@ -298,12 +268,7 @@ clamp16_loop_outer_end:
 // Benckmark (aligned)= 11 + vectors*(15+2) + total_inputs_in_all_vectors * 3
 //***************************************************************************************************
 
-DEF_STACK_USAGE  0  __runCodelet_popops__BroadcastClamp___half
-.section .text.__runCodelet_popops__BroadcastClamp___half
-.align 8
-
-bclamp16_prepad:
-__runCodelet_popops__BroadcastClamp___half:
+FN_WORKER_ENTRY_POINT __runCodelet_popops__BroadcastClamp___half 8
     // load vertex state
     ld32     $IN1_PTR,       $mzero, $mvertex_base, VOFF_IN1_PTR
     ld32     $IN2_PTR,       $mzero, $mvertex_base, VOFF_IN2_PTR
@@ -405,6 +370,6 @@ bclamp16_loop_outer_end:
 
     exitz    $mzero
 
-.size __runCodelet_popops__BroadcastClamp___half, .-__runCodelet_popops__BroadcastClamp___half
+FN_SIZE __runCodelet_popops__BroadcastClamp___half
 
 #endif

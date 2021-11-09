@@ -4,7 +4,7 @@
 #include <poplar/TileConstants.hpp>
 #include <poplar/StackSizeDefs.hpp>
 #include "workDivision.h.S"
-
+#include "CommonPoplibsMacros.h.S"
 
 // Mangled codelet names.
 #define SCALAR_MULTIPLY_1D_HALF_FLOAT         __runCodelet_popops__ScalarMultiply1D___half_float
@@ -55,11 +55,7 @@
 // array to fp32, performs all operations in fp32 and casts the result back to
 // fp16.
 // -----------------------------------------------------------------------------
-DEF_STACK_USAGE 0 scalar_multiply_slow
-.section .text.scalar_multiply_slow
-.type scalar_multiply_slow, @function
-.align 8
-scalar_multiply_slow:
+FN_WORKER_ENTRY_POINT scalar_multiply_slow 8
   // Jump to `.Lafter_scalar_multiply_loop_slow` if there are no loop iterations
   // to be done.
   brz $MRF_NITER, .Lafter_scalar_multiply_loop_slow
@@ -152,18 +148,15 @@ scalar_multiply_slow:
 
 .Lend_slow:
   br $MRF_LINK
-.size scalar_multiply_slow, .-scalar_multiply_slow
+FN_SIZE scalar_multiply_slow
 // -----------------------------------------------------------------------------
 
 
 // Definition of fast scalar multiply. This implementation casts the scalar to
 // fp16, and performs all operations in fp16.
 // -----------------------------------------------------------------------------
-DEF_STACK_USAGE 0 scalar_multiply_fast
-.section .text.scalar_multiply_fast
-.type scalar_multiply_fast, @function
-.align 8
-scalar_multiply_fast:
+FN_WORKER_ENTRY_POINT scalar_multiply_fast 8
+
   // Jump to `.Lafter_scalar_multiply_loop_fast` if there are no loop iterations
   // to be done.
   brz $MRF_NITER, .Lafter_scalar_multiply_loop_fast
@@ -233,48 +226,34 @@ scalar_multiply_fast:
 
 .Lend_fast:
   br $MRF_LINK
-.size scalar_multiply_fast, .-scalar_multiply_fast
+FN_SIZE scalar_multiply_fast
 // -----------------------------------------------------------------------------
 
 
 // Definition of a 1D scalar multiply worker
 // -----------------------------------------------------------------------------
 .macro CREATE_SCALAR_MULTIPLY_1D_WORKER NAME NAME_INPLACE NAME_COMMON
-.global \NAME
-.type \NAME, @function
 DEF_STACK_SIZE_OWN 0 \NAME
 
-.global \NAME_INPLACE
-.type \NAME_INPLACE, @function
 DEF_STACK_SIZE_OWN 0 \NAME_INPLACE
 
-.type \NAME_COMMON, @function
 DEF_STACK_SIZE_OWN 0 \NAME_COMMON
 
-.section .text.\NAME, "ax"
-.align 4
-\NAME:
-  .worker
+FN_WORKER_ENTRY_POINT \NAME 4 "" NONE
   // NOTE: $MRF_OUT should be a calle save register, because of a function call
   // later in the program.
   ld32 $MRF_OUT, $mvertex_base, $mzero, VOFF_OUT_ADDR / 4
   bri \NAME_COMMON
-.size \NAME, .-\NAME
+FN_SIZE \NAME
 
-.section .text.\NAME_INPLACE, "ax"
-.align 4
-\NAME_INPLACE:
-  .worker
+FN_WORKER_ENTRY_POINT \NAME_INPLACE 4 "" NONE
   // NOTE: $MRF_OUT should be a calle save register, because of a function call
   // later in the program.
   ld32 $MRF_OUT, $mvertex_base, $mzero, VOFF_IN1_ADDR / 4
   bri \NAME_COMMON
-.size \NAME_INPLACE, .-\NAME_INPLACE
+FN_SIZE \NAME_INPLACE
 
-.section .text.\NAME_COMMON, "ax"
-.align 4
-\NAME_COMMON:
-  .worker
+FN_WORKER_ENTRY_POINT \NAME_COMMON 4 "" NONE
 
   // Load the value of the scalar and the tolerance.
   ld32 $MRF_IN2, $mvertex_base, $mzero, VOFF_IN2_ADDR / 4
@@ -343,7 +322,7 @@ DEF_STACK_SIZE_OWN 0 \NAME_COMMON
   }
   exitz $mzero
 
-.size \NAME_COMMON, .-\NAME_COMMON
+FN_SIZE \NAME_COMMON
 .endm
 // -----------------------------------------------------------------------------
 
@@ -351,14 +330,10 @@ DEF_STACK_SIZE_OWN 0 \NAME_COMMON
 // Definition of a 2D scalar multiply worker
 // -----------------------------------------------------------------------------
 .macro CREATE_SCALAR_MULTIPLY_2D_WORKER NAME INPLACE
-.global \NAME
-.type \NAME, @function
+
 DEF_STACK_SIZE_OWN 0 \NAME
 
-.section .text.\NAME, "ax"
-.align 4
-\NAME:
-  .worker
+FN_WORKER_ENTRY_POINT \NAME 4 "" NONE
 
   // Load the value of the scalar and the tolerance.
   ld32 $MRF_IN2, $mvertex_base, $mzero, VOFF_IN2_ADDR / 4
@@ -440,7 +415,7 @@ DEF_STACK_SIZE_OWN 0 \NAME
   call $MRF_LINK, scalar_multiply_fast
   brnzdec $MRF_SIZE, .Louter_loop\@
   exitz $mzero
-.size \NAME, .-\NAME
+FN_SIZE \NAME
 .endm
 // -----------------------------------------------------------------------------
 

@@ -4,7 +4,7 @@
 #ifdef __IPU__
 #include "poplar/StackSizeDefs.hpp"
 #include "poplar/TileConstants.hpp"
-
+#include "CommonPoplibsMacros.h.S"
 // -----------------------------------------------------------------------------
 
 #define NORM_IMAGE_UINT8 __runCodelet_popops__NormaliseImage___unsigned_char_half
@@ -33,13 +33,7 @@
 
 
 // -----------------------------------------------------------------------------
-.section .text.NORM_IMAGE_UINT8
-DEF_STACK_USAGE 0 NORM_IMAGE_UINT8
-.align 8
-.worker
-.global NORM_IMAGE_UINT8
-.type NORM_IMAGE_UINT8, @function
-NORM_IMAGE_UINT8:
+FN_WORKER_ENTRY_POINT NORM_IMAGE_UINT8 8
   ld32 $mIn,  $mvertex_base, $mzero, V_IN_OS/4
   ld32 $mOut, $mvertex_base, $mzero, V_OUT_OS/4
   get  $mWid, $WSR
@@ -91,6 +85,6 @@ NORM_IMAGE_UINT8:
 2:
 .Lreturn:
   exitnz $m15
-.size NORM_IMAGE_UINT8, .-NORM_IMAGE_UINT8
+FN_SIZE NORM_IMAGE_UINT8
 
 #endif

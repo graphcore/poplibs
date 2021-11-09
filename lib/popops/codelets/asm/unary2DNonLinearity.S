@@ -17,12 +17,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
-
-// This macro associates to the symbol 'label' a size defined as
-// (Current_loc - label)
-.macro FN_SIZE label
-.size \label, . - \label
-.endm
+#include "CommonPoplibsMacros.h.S"
 
 // Symbols
 #define HALF_SYMBOL(IN_PLACE) \
@@ -39,10 +34,6 @@
 #define IN_ITERATOR_OFFS   0
 #define OUT_ITERATOR_OFFS  4
 #define N_VECT_2D_OFFS    8
-
-
-#define PTR16_SHL_BITS 1
-#define PTR32_SHL_BITS 2
 
 #if defined(VECTORLIST_AVAIL_DELTAN)
 #define DELTAN_BASE_PTR_BITS 20
@@ -153,14 +144,7 @@
 // not-in-place, for half data
 .macro INSTANTIATE_HALF NL_TYPE OP OPTIONAL_OPERAND_C=""
 
-DEF_STACK_USAGE 0 HALF_SYMBOL()
-.section .text.HALF_SYMBOL()
-.globl HALF_SYMBOL()
-.type HALF_SYMBOL(), @function
-
-.align 8
-    nop
-HALF_SYMBOL():
+FN_WORKER_ENTRY_POINT HALF_SYMBOL() 8 nop
     ld32 $IN_ITERATOR, $mvertex_base, $mzero, IN_ITERATOR_OFFS/4
     ld32 $OUT_ITERATOR, $mvertex_base, $mzero, OUT_ITERATOR_OFFS/4
     ld32 $N_VECT_2D, $mvertex_base, $mzero,N_VECT_2D_OFFS/4
@@ -177,13 +161,7 @@ HALF_SYMBOL():
 FN_SIZE HALF_SYMBOL()
 
 
-DEF_STACK_USAGE 0 HALF_SYMBOL(InPlace)
-.section .text.HALF_SYMBOL(InPlace)
-.globl HALF_SYMBOL(InPlace)
-.type HALF_SYMBOL(InPlace), @function
-
-.align 8
-HALF_SYMBOL(InPlace):
+FN_WORKER_ENTRY_POINT HALF_SYMBOL(InPlace) 8
     ld32 $MSCRATCH, $mvertex_base, $mzero, BASE_AND_N0_VOFFSET/4
 
     // Unpack base pointer and n0
@@ -200,7 +178,7 @@ HALF_SYMBOL(InPlace):
     // 32-bit units from TMEM_REGION0_BASE_ADDR
     ldz16 $DELTAN_PTR, $mvertex_base, $mzero, DELTAN_PTR_VOFFSET/2
     setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
-    shl $DELTAN_PTR, $DELTAN_PTR, PTR32_SHL_BITS
+    shl $DELTAN_PTR, $DELTAN_PTR, SCALED_PTR32_SHIFTS
 #else
     // DeltaN table pointer contains a 24 bit absolute address
     // followed by the upper 8 bits of N0. Combine with the
@@ -221,7 +199,7 @@ HALF_SYMBOL(InPlace):
     ld32step $MSCRATCH, $MEMORY_BASE, $DELTAN_PTR+=, 1
     and $DATA_PTR, $MSCRATCH, $MASK
 #if !defined(VECTORLIST_AVAIL_DELTAN)
-    shl $DATA_PTR, $DATA_PTR, PTR16_SHL_BITS
+    shl $DATA_PTR, $DATA_PTR, SCALED_PTR16_SHIFTS
 #endif
     shr $N1, $MSCRATCH, DELTAN_HALF_OFFSET_BITS
     // Actually offset DATA_PTR so that below alignment checks
@@ -340,14 +318,7 @@ FN_SIZE HALF_SYMBOL(InPlace)
 // not-in-place, for float data
 .macro INSTANTIATE_FLOAT NL_TYPE OP OPTIONAL_OPERAND_C=""
 
-DEF_STACK_USAGE 0 FLOAT_SYMBOL()
-.section .text.FLOAT_SYMBOL()
-.globl FLOAT_SYMBOL()
-.type FLOAT_SYMBOL(), @function
-
-.align 8
-    nop
-FLOAT_SYMBOL():
+FN_WORKER_ENTRY_POINT FLOAT_SYMBOL() 8 nop
     ld32 $IN_ITERATOR, $mvertex_base, $mzero, IN_ITERATOR_OFFS/4
     ld32 $OUT_ITERATOR, $mvertex_base, $mzero, OUT_ITERATOR_OFFS/4
     ld32 $N_VECT_2D, $mvertex_base, $mzero,N_VECT_2D_OFFS/4
@@ -363,13 +334,8 @@ FLOAT_SYMBOL():
     exitz $mzero
 FN_SIZE FLOAT_SYMBOL()
 
-DEF_STACK_USAGE 0 FLOAT_SYMBOL(InPlace)
-.section .text.FLOAT_SYMBOL(InPlace)
-.globl FLOAT_SYMBOL(InPlace)
-.type FLOAT_SYMBOL(InPlace), @function
 
-.align 8
-FLOAT_SYMBOL(InPlace):
+FN_WORKER_ENTRY_POINT FLOAT_SYMBOL(InPlace) 8
     ld32 $MSCRATCH, $mvertex_base, $mzero, BASE_AND_N0_VOFFSET/4
 
     // Unpack base pointer and n0
@@ -386,7 +352,7 @@ FLOAT_SYMBOL(InPlace):
     // 32-bit units from TMEM_REGION0_BASE_ADDR
     ldz16 $DELTAN_PTR, $mvertex_base, $mzero, DELTAN_PTR_VOFFSET/2
     setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
-    shl $DELTAN_PTR, $DELTAN_PTR, PTR32_SHL_BITS
+    shl $DELTAN_PTR, $DELTAN_PTR, SCALED_PTR32_SHIFTS
 #else
     // DeltaN table pointer contains a 24 bit absolute address
     // followed by the upper 8 bits of N0. Combine with the
@@ -407,7 +373,7 @@ FLOAT_SYMBOL(InPlace):
     ld32step $MSCRATCH, $MEMORY_BASE, $DELTAN_PTR+=, 1
     and $DATA_PTR, $MSCRATCH, $MASK
 #if !defined(VECTORLIST_AVAIL_DELTAN)
-    shl $DATA_PTR, $DATA_PTR, PTR32_SHL_BITS
+    shl $DATA_PTR, $DATA_PTR, SCALED_PTR32_SHIFTS
 #endif
     shr $N1, $MSCRATCH, DELTAN_FLOAT_OFFSET_BITS
     // Actually offset DATA_PTR so that below alignment checks

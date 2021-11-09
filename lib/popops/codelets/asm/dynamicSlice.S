@@ -5,6 +5,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "dynamicSlice.inc"
+#include "CommonPoplibsMacros.h.S"
 
 /* -------------------------------------------------------------------------- */
 // Dynamic Slice and Dynamic Update Slice vertex code for int, half, float
@@ -113,148 +114,72 @@
 #define DS_ULONGLONG_FUNC __runCodelet_popops__DynamicSlice2D___unsigned_long_long
 #define DUS_ULONGLONG_FUNC __runCodelet_popops__DynamicUpdateSlice2D___unsigned_long_long
 
-
-.globl DS_BOOL_FUNC
-.type DS_BOOL_FUNC, @function
-
-.globl DUS_BOOL_FUNC
-.type DUS_BOOL_FUNC, @function
-
-.globl DS_CHAR_FUNC
-.type DS_CHAR_FUNC, @function
-
-.globl DUS_CHAR_FUNC
-.type DUS_CHAR_FUNC, @function
-
-.globl DS_UCHAR_FUNC
-.type DS_UCHAR_FUNC, @function
-
-.globl DUS_UCHAR_FUNC
-.type DUS_UCHAR_FUNC, @function
-
-.globl DS_SCHAR_FUNC
-.type DS_SCHAR_FUNC, @function
-
-.globl DUS_SCHAR_FUNC
-.type DUS_SCHAR_FUNC, @function
-
-.globl DUS_HALF_FUNC
-.type DUS_HALF_FUNC, @function
-
-.globl DS_HALF_FUNC
-.type DS_HALF_FUNC, @function
-
-.globl DUS_FLOAT_FUNC
-.type DUS_FLOAT_FUNC, @function
-
-.globl DS_FLOAT_FUNC
-.type DS_FLOAT_FUNC, @function
-
-.globl DUS_INT_FUNC
-.type DUS_INT_FUNC, @function
-
-.globl DS_INT_FUNC
-.type DS_INT_FUNC, @function
-
-.globl DUS_UNSIGNED_FUNC
-.type DUS_UNSIGNED_FUNC, @function
-
-.globl DS_UNSIGNED_FUNC
-.type DS_UNSIGNED_FUNC, @function
-
-
-.globl DUS_LONGLONG_FUNC
-.type DUS_LONGLONG_FUNC, @function
-
-.globl DS_LONGLONG_FUNC
-.type DS_LONGLONG_FUNC, @function
-
-.globl DUS_ULONGLONG_FUNC
-.type DUS_ULONGLONG_FUNC, @function
-
-.globl DS_ULONGLONG_FUNC
-.type DS_ULONGLONG_FUNC, @function
-
-
-
 //******************************************************************************
 // Entry points for each function, each setting up a pointer to the copy
 // function and then using common code
 //******************************************************************************
-DEF_STACK_USAGE 0 .text.DynamicSlice2d_8_entry
-.section .text.DynamicSlice2d_8_entry
-.align 4
-DUS_BOOL_FUNC:
-DUS_CHAR_FUNC:
-DUS_UCHAR_FUNC:
-DUS_SCHAR_FUNC:
+FN_WORKER_ENTRY_POINT DUS_BOOL_FUNC
+FN_EXPORT DUS_CHAR_FUNC
+FN_EXPORT DUS_UCHAR_FUNC
+FN_EXPORT DUS_SCHAR_FUNC
    setzi   $COPY_PTR, copy_loop_DUS_8
    bri     DynamicSlice2d_common
+FN_SIZE DUS_BOOL_FUNC
 
-DS_BOOL_FUNC:
-DS_CHAR_FUNC:
-DS_UCHAR_FUNC:
-DS_SCHAR_FUNC:
+
+FN_WORKER_ENTRY_POINT DS_BOOL_FUNC
+FN_EXPORT DS_CHAR_FUNC
+FN_EXPORT DS_UCHAR_FUNC
+FN_EXPORT DS_SCHAR_FUNC
    setzi   $COPY_PTR, copy_loop_DS_8
    bri     DynamicSlice2d_common
+FN_SIZE DS_BOOL_FUNC
 
-.size DynamicSlice2d_8_entry, .-DynamicSlice2d_8_entry
 
-DEF_STACK_USAGE 0 .text.DynamicSlice2d_half_entry
-.section .text.DynamicSlice2d_half_entry
-
-DynamicSlice2d_half_entry:
-.align 4
-DUS_HALF_FUNC:
+FN_WORKER_ENTRY_POINT DUS_HALF_FUNC
    setzi   $COPY_PTR, copy_loop_DUS_16
    bri     DynamicSlice2d_common
+FN_SIZE DUS_HALF_FUNC
 
-DS_HALF_FUNC:
+FN_WORKER_ENTRY_POINT DS_HALF_FUNC
    setzi   $COPY_PTR, copy_loop_DS_16
     bri    DynamicSlice2d_common
+FN_SIZE DS_HALF_FUNC
 
-.size DynamicSlice2d_half_entry, .-DynamicSlice2d_half_entry
 
-DEF_STACK_USAGE 0 .text.DynamicSlice2d_32_entry
-.section .text.DynamicSlice2d_32_entry
-.align 4
-DUS_FLOAT_FUNC:
-DUS_INT_FUNC:
-DUS_UNSIGNED_FUNC:
+FN_WORKER_ENTRY_POINT DUS_FLOAT_FUNC
+FN_EXPORT DUS_INT_FUNC
+FN_EXPORT DUS_UNSIGNED_FUNC
    setzi   $COPY_PTR, copy_loop_DUS_32
    bri     DynamicSlice2d_common
+FN_SIZE DUS_FLOAT_FUNC
 
-DS_FLOAT_FUNC:
-DS_INT_FUNC:
-DS_UNSIGNED_FUNC:
+FN_WORKER_ENTRY_POINT DS_FLOAT_FUNC
+FN_EXPORT DS_INT_FUNC
+FN_EXPORT DS_UNSIGNED_FUNC
    setzi   $COPY_PTR, copy_loop_DS_32
    bri     DynamicSlice2d_common
-
-.size DynamicSlice2d_32_entry, .-DynamicSlice2d_32_entry
-
+FN_SIZE DS_FLOAT_FUNC
 
 
-DEF_STACK_USAGE 0 .text.DynamicSlice2d_64_entry
-.section .text.DynamicSlice2d_64_entry
-.align 4
-DUS_LONGLONG_FUNC:
-DUS_ULONGLONG_FUNC:
+
+FN_WORKER_ENTRY_POINT DUS_LONGLONG_FUNC
+FN_EXPORT DUS_ULONGLONG_FUNC
    setzi   $COPY_PTR, copy_loop_DUS_64
    bri     DynamicSlice2d_common
+FN_SIZE DUS_LONGLONG_FUNC
 
-DS_LONGLONG_FUNC:
-DS_ULONGLONG_FUNC:
+FN_WORKER_ENTRY_POINT DS_LONGLONG_FUNC
+FN_EXPORT DS_ULONGLONG_FUNC
    setzi   $COPY_PTR, copy_loop_DS_64
    bri     DynamicSlice2d_common
-
-.size DynamicSlice2d_64_entry, .-DynamicSlice2d_64_entry
+FN_SIZE DS_LONGLONG_FUNC
 
 
 //******************************************************************************
 // Common code - loop for fetching pointers to regions
 //******************************************************************************
-.section .text.DynamicSlice2d_common
-.align 4
+FN_SECTION DynamicSlice2d_common
 DynamicSlice2d_common:
     // Load most of the vertex state
     ld32     $mSCRATCH,$mzero, $mvertex_base, VOFF_OFFSET
@@ -347,16 +272,15 @@ DynamicSlice_loop_resume:
 
     brnzdec $mSCRATCH, .Louter_loop
     exitz   $mzero
-.size DynamicSlice2d_common, .-DynamicSlice2d_common
+FN_SIZE DynamicSlice2d_common
 
 
 #if defined(VECTORLIST_AVAIL_DELTAN)
 //******************************************************************************
 // Addresses unpacking
 //******************************************************************************
-.section .text.DynamicSlice2d_unpack_addr_and_copy
+FN_SECTION DynamicSlice2d_unpack_addr_and_copy
 DynamicSlice2d_unpack_addr_and_copy:
-.align 4
     // Get a region size = BaseT[baseIdx]
     ld32     $mSCRATCH, $mzero, $BASET_DELTA_PTR, $BASE_IDX
     shr      $REGION_SIZE, $mSCRATCH, DELTAN_OFFSET_BITS // get size
@@ -382,7 +306,7 @@ DynamicSlice2d_unpack_addr_and_copy:
     // ***** Jump to selected function which loads ptrs and copies *******
     br       $COPY_PTR
 
-.size DynamicSlice2d_unpack_addr_and_copy, .-DynamicSlice2d_unpack_addr_and_copy
+FN_SIZE DynamicSlice2d_unpack_addr_and_copy
 
 #else
 //******************************************************************************
@@ -421,8 +345,7 @@ DynamicSlice2d_unpack_addr_and_copy:
 //******************************************************************************
 // copy loop for DynamicSlice2d and DynamicUpdateSlice2d (longlong or ulonglong)
 //******************************************************************************
-.section .text.DynamicSlice2d_64_copy
-.align 4
+FN_SECTION DynamicSlice2d_64_copy
 DynamicSlice2d_64_copy:
 // load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
@@ -455,13 +378,13 @@ copy_loop_DS_64:
     shl      $REGION_SIZE, $REGION_SIZE, 1
     bri      Slice_copy_function_float_int
 
-.size DynamicSlice2d_64_copy, .-DynamicSlice2d_64_copy
+FN_SIZE DynamicSlice2d_64_copy
 
 //******************************************************************************
 // copy loop for DynamicSlice2d and DynamicUpdateSlice2d (float or int)
 //******************************************************************************
-.section .text.DynamicSlice2d_32_copy
-.align 4
+
+FN_SECTION DynamicSlice2d_32_copy
 DynamicSlice2d_32_copy:
 // load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
@@ -490,15 +413,13 @@ copy_loop_DS_32:
     setzi    $mSCRATCH2, DynamicSlice_loop_resume
     bri      Slice_copy_function_float_int
 
-.size DynamicSlice2d_32_copy, .-DynamicSlice2d_32_copy
+FN_SIZE DynamicSlice2d_32_copy
 
 //******************************************************************************
 // copy loop for DynamicSlice2d and DynamicUpdateSlice2d (half)
 //******************************************************************************
-.section .text.DynamicSlice2d_16_copy
-.align 4
+FN_SECTION DynamicSlice2d_16_copy
 DynamicSlice2d_16_copy:
-
 // load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
 copy_loop_DUS_16:
@@ -526,15 +447,13 @@ copy_loop_DS_16:
     setzi    $mSCRATCH2, DynamicSlice_loop_resume
     bri      Slice_copy_function_half
 
-.size DynamicSlice2d_16_copy, .-DynamicSlice2d_16_copy
+FN_SIZE DynamicSlice2d_16_copy
 
 //******************************************************************************
 // copy loop for DynamicSlice2d and DynamicUpdateSlice2d (8 bit)
 //******************************************************************************
-.section .text.DynamicSlice2d_8_copy
-.align 4
+FN_SECTION DynamicSlice2d_8_copy
 DynamicSlice2d_8_copy:
-
 // load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
 copy_loop_DUS_8:
@@ -562,6 +481,6 @@ copy_loop_DS_8:
     setzi    $mSCRATCH2, DynamicSlice_loop_resume
     bri      Slice_copy_function_8bit
 
-.size DynamicSlice2d_8_copy, .-DynamicSlice2d_8_copy
+FN_SIZE DynamicSlice2d_8_copy
 #endif
 /* -------------------------------------------------------------------------- */

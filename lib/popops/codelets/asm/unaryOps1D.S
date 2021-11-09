@@ -11,6 +11,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
+#include "CommonPoplibsMacros.h.S"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -51,13 +52,8 @@
 // inplace/non-inplace
 //******************************************************************************
 .macro INSTANTIATE_UNARY_OP TYPE VARIANT VERTEX_NAME OPERATION
-DEF_STACK_USAGE 0 MANGLE_STR
-.section .text.MANGLE_STR
-.global MANGLE_STR
-.type MANGLE_STR, @function
-.align 4
 
-MANGLE_STR:
+FN_WORKER_ENTRY_POINT MANGLE_STR
   // load vertex state
 .ifc "\VERTEX_NAME", "UnaryOp1DInPlace"
   ld32 $inPtr, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_PTR_OFFSET/4
@@ -77,13 +73,12 @@ MANGLE_STR:
   LOAD_FUNCTION_PTRS \VARIANT \OPERATION
 .endif
   bri unary_op_worker_4x16bit_framework
-.size MANGLE_STR, . -MANGLE_STR
+FN_SIZE MANGLE_STR
 .endm
 
 //******************************************************************************
 .macro UNARY_OP_DIVIDE_WORK DIVISOR SHIFTS_FOR_GRAINSIZE
-.section .text.MANGLE_STR_COMMON(\@)
-.align 4
+FN_SECTION fn_divide_work\DIVISOR\()
 fn_divide_work\DIVISOR\():
   // Extract worker ID
   get $workerIdM1, $WSR
@@ -96,14 +91,13 @@ fn_divide_work\DIVISOR\():
   mov $outPtrConst, $outPtr
 
   br  $mlink
-.size MANGLE_STR_COMMON(\@), . -fn_divide_work\DIVISOR\()
+FN_SIZE fn_divide_work\DIVISOR\()
 .endm
 
 //******************************************************************************
 // General processing structure for vectorised 4x16bit data types
 //******************************************************************************
-.section .text.MANGLE_STR_COMMON(4x16bit_processing)
-.align 4
+FN_SECTION unary_op_worker_4x16bit_framework
 unary_op_worker_4x16bit_framework:
   ld64step $a0:1, $mzero, $inPtr+=, $workerIdM1
   ld64step $a0:1, $mzero, $outPtr+=, $workerIdM1
@@ -151,7 +145,7 @@ process_1_4x16bit_return_1D:
   st32 $a0, $mzero, $outPtr, 0
 3:
   exitz $mzero
-.size MANGLE_STR_COMMON(4x16bit_processing), . -unary_op_worker_4x16bit_framework
+FN_SIZE unary_op_worker_4x16bit_framework
 
 //******************************************************************************
 // Use the macros above to create vertex entry points

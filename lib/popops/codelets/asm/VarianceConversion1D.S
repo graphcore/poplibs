@@ -4,6 +4,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
+#include "CommonPoplibsMacros.h.S"
 
 // vertex state (byte increments)
 #define VERTEX_BROADCAST_IN1_PTR_OFFSET 0
@@ -194,31 +195,20 @@
 // variance to inverse standard deviation or inverse standard deviaiton to variance
 .macro INSTANTIATE_VERTEX EXT OP_TYPES FLOAT_IN FLOAT_OUT TO_VARIANCE
 
-.global VERTEX
-.type VERTEX, @function
-DEF_STACK_USAGE 0 .text.VERTEX
-.section .text.VERTEX
-
-.align 4
+FN_WORKER_ENTRY_POINT VERTEX_INPLACE
 
 // If float is being output there is no inPlace option
 .ifeq \FLOAT_OUT
 
-.global VERTEX_INPLACE
-.type VERTEX_INPLACE, @function
-
-.worker
-VERTEX_INPLACE:
   ld32 $in1, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_COUNT_OFFSET/4
   ld32 $in2, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_IN2_PTR_OFFSET/4
   mov $out, $in1
   bri common\@
 .endif
+FN_SIZE VERTEX_INPLACE
 
-.align 8
-.worker
-VERTEX:
+FN_WORKER_ENTRY_POINT VERTEX 8
   ld32 $in1, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_COUNT_OFFSET/4
   ld32 $in2, $mzero, $mvertex_base, VERTEX_BROADCAST_IN2_PTR_OFFSET/4
@@ -267,7 +257,7 @@ common\@:
 
   exitz $mzero
 
-.size VERTEX, .-VERTEX
+FN_SIZE VERTEX
 
 .endm
 //******************************************************************************

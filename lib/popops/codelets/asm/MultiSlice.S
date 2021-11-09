@@ -6,6 +6,7 @@
 #include "dynamicSlice.inc"
 #include "MultiSliceUpdateCommon.h.S"
 #include "BinarySearch.h.S"
+#include "CommonPoplibsMacros.h.S"
 
 /* -------------------------------------------------------------------------- */
 // Dynamic Slice and Dynamic Update Slice vertex code for int, half and float
@@ -76,122 +77,62 @@
 #define MS_UNSIGNED_FUNC __runCodelet_popops__MultiSlice___unsigned_int
 #define MU_UNSIGNED_FUNC __runCodelet_popops__MultiUpdate___unsigned_int
 
-.globl MU_BOOL_FUNC
-.type MU_BOOL_FUNC, @function
-
-.globl MS_BOOL_FUNC
-.type MS_BOOL_FUNC, @function
-
-.globl MU_CHAR_FUNC
-.type MU_CHAR_FUNC, @function
-
-.globl MS_CHAR_FUNC
-.type MS_CHAR_FUNC, @function
-
-.globl MU_UCHAR_FUNC
-.type MU_UCHAR_FUNC, @function
-
-.globl MS_UCHAR_FUNC
-.type MS_UCHAR_FUNC, @function
-
-.globl MU_SCHAR_FUNC
-.type MU_SCHAR_FUNC, @function
-
-.globl MS_SCHAR_FUNC
-.type MS_SCHAR_FUNC, @function
-
-.globl MU_HALF_FUNC
-.type MU_HALF_FUNC, @function
-
-.globl MS_HALF_FUNC
-.type MS_HALF_FUNC, @function
-
-.globl MU_FLOAT_FUNC
-.type MU_FLOAT_FUNC, @function
-
-.globl MS_FLOAT_FUNC
-.type MS_FLOAT_FUNC, @function
-
-.globl MU_INT_FUNC
-.type MU_INT_FUNC, @function
-
-.globl MS_INT_FUNC
-.type MS_INT_FUNC, @function
-
-.globl MU_UNSIGNED_FUNC
-.type MU_UNSIGNED_FUNC, @function
-
-.globl MS_UNSIGNED_FUNC
-.type MS_UNSIGNED_FUNC, @function
-
 //******************************************************************************
 // Entry points for each function, each setting up a pointer to the copy
 // function and then using common code
 //******************************************************************************
-DEF_STACK_USAGE STACK_SIZE .text.MultiSlice_8_entry
-.section .text.MultiSlice_8_entry
-.align 4
-MultiSlice_8_entry:
-MU_BOOL_FUNC:
-MU_CHAR_FUNC:
-MU_UCHAR_FUNC:
-MU_SCHAR_FUNC:
+FN_WORKER_ENTRY_POINT MU_BOOL_FUNC 4 "" STACK_SIZE
+FN_EXPORT MU_CHAR_FUNC
+FN_EXPORT MU_UCHAR_FUNC
+FN_EXPORT MU_SCHAR_FUNC
    setzi   $mCopyPtr, copy_loop_MU_8
    setzi   $mRegionSize, 0
    bri     MultiSlice_common_u
+FN_SIZE MU_BOOL_FUNC
 
-MS_BOOL_FUNC:
-MS_CHAR_FUNC:
-MS_UCHAR_FUNC:
-MS_SCHAR_FUNC:
+FN_WORKER_ENTRY_POINT MS_BOOL_FUNC
+FN_EXPORT MS_CHAR_FUNC
+FN_EXPORT MS_UCHAR_FUNC
+FN_EXPORT MS_SCHAR_FUNC
    setzi   $mCopyPtr, copy_loop_MS_8
    setzi   $mRegionSize, 0
    bri     MultiSlice_common_s
+FN_SIZE MS_BOOL_FUNC
 
-.size MultiSlice_8_entry, .-MultiSlice_8_entry
-
-DEF_STACK_USAGE STACK_SIZE .text.MultiSlice_16_entry
-.section .text.MultiSlice_16_entry
-MultiSlice_16_entry:
-.align 4
-MU_HALF_FUNC:
+FN_WORKER_ENTRY_POINT MU_HALF_FUNC 4 "" STACK_SIZE
    setzi   $mCopyPtr, copy_loop_MU_16
    setzi   $mRegionSize, 1
    bri     MultiSlice_common_u
+FN_SIZE MU_HALF_FUNC
 
-MS_HALF_FUNC:
+FN_WORKER_ENTRY_POINT MS_HALF_FUNC
    setzi   $mCopyPtr, copy_loop_MS_16
    setzi   $mRegionSize, 1
    bri     MultiSlice_common_s
+FN_SIZE MS_HALF_FUNC
 
-.size MultiSlice_16_entry, .-MultiSlice_16_entry
-
-DEF_STACK_USAGE STACK_SIZE .text.MultiSlice_32_entry
-.section .text.MultiSlice_32_entry
-.align 4
-MultiSlice_32_entry:
-MU_FLOAT_FUNC:
-MU_INT_FUNC:
-MU_UNSIGNED_FUNC:
+FN_WORKER_ENTRY_POINT MU_FLOAT_FUNC 4 "" STACK_SIZE
+FN_EXPORT MU_INT_FUNC
+FN_EXPORT MU_UNSIGNED_FUNC
    setzi   $mCopyPtr, copy_loop_MU_32
    setzi   $mRegionSize, 2
    bri     MultiSlice_common_u
+FN_SIZE MU_FLOAT_FUNC
 
-MS_FLOAT_FUNC:
-MS_INT_FUNC:
-MS_UNSIGNED_FUNC:
+
+FN_WORKER_ENTRY_POINT MS_FLOAT_FUNC 4 "" STACK_SIZE
+FN_EXPORT MS_INT_FUNC
+FN_EXPORT MS_UNSIGNED_FUNC
    setzi   $mCopyPtr, copy_loop_MS_32
    setzi   $mRegionSize, 2
    bri     MultiSlice_common_s
-
-.size MultiSlice_32_entry, .-MultiSlice_32_entry
+FN_SIZE MS_FLOAT_FUNC
 
 
 //******************************************************************************
 // Common code for fetching pointers and managing outer loop
 //******************************************************************************
-.section .text.MultiSlice_common
-.align 4
+FN_SECTION MultiSlice_common
 MultiSlice_common:
 MultiSlice_common_u:
   UPDATE_OFFSET_AND_SIZES $mBaseElem $mMaxElementsPerWorker $mWorkerId $mWkrStart $mWkrEnd $mBaseIdx (4*VOFF_BASE_ELEM) (4*VOFF_ELEMS_PER_WORKER) (4*VOFF_BASE_OFFSET)
@@ -302,14 +243,13 @@ MultiSlice_common_outer_loop_resume:
 MultiSlice_common_exit:
     exitz   $mzero
 
-.size MultiSlice_common, .-MultiSlice_common
+FN_SIZE MultiSlice_common
 
 
 //******************************************************************************
 // Pre copy step for MultiSlice and MultiUpdate (bool, signed/unsigned char)
 //******************************************************************************
-.section .text.MultiSlice_common_copy_8
-.align 4
+FN_SECTION MultiSlice_common_copy_8
 MultiSlice_common_copy_8:
 // Load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
@@ -327,13 +267,12 @@ copy_loop_MS_8:
     call     $mReturnAddress, Slice_copy_function_8bit
     bri      MultiSlice_common_outer_loop_resume
 
-.size MultiSlice_common_copy_8, .-MultiSlice_common_copy_8
+FN_SIZE MultiSlice_common_copy_8
 
 //******************************************************************************
 // Pre copy step for MultiSlice and MultiUpdate (half)
 //******************************************************************************
-.section .text.MultiSlice_common_copy_16
-.align 4
+FN_SECTION MultiSlice_common_copy_16
 MultiSlice_common_copy_16:
 // Load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
@@ -351,14 +290,13 @@ copy_loop_MS_16:
     call     $mReturnAddress, Slice_copy_function_half
     bri      MultiSlice_common_outer_loop_resume
 
-.size MultiSlice_common_copy_16, .-MultiSlice_common_copy_16
+FN_SIZE MultiSlice_common_copy_16
 
 
 //******************************************************************************
 // Pre copy step for MultiSlice and MultiUpdate (float or int)
 //******************************************************************************
-.section .text.MultiSlice_common_copy_32
-.align 4
+FN_SECTION MultiSlice_common_copy_32
 MultiSlice_common_copy_32:
 // Load the next SUBT pointer to use as a source
 // Index to load the next BASET pointer to use as a destination
@@ -376,6 +314,6 @@ copy_loop_MS_32:
     call     $mReturnAddress, Slice_copy_function_float_int
     bri      MultiSlice_common_outer_loop_resume
 
-.size MultiSlice_common_copy_32, .-MultiSlice_common_copy_32
+FN_SIZE MultiSlice_common_copy_32
 
 #endif

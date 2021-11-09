@@ -6,6 +6,7 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "CommonPoplibsMacros.h.S"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 #define OUT_OFF          0
@@ -41,9 +42,6 @@
 
 #define LDCONST_MASK     ((1<<20)-1)
 
-#define PTR32_SHL_BITS   2
-#define PTR64_SHL_BITS   3
-
 // all scratch offsets given in words
 #define REM_SCRATCH      0
 #define IN_PTR_SCRATCH   1
@@ -53,8 +51,6 @@
 #define NP_SCRATCH       5
 #define OUT_j_SIZE_SCRATCH  6
 #define FN_REDUCE_OUTER_LOOP_SCRATCH  7
-
-#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 #define NUM_ELEM        m0
 #define OUT_i_PTR       m0
@@ -91,11 +87,8 @@
 // Macro to create function which gets called at the top of each outer loop.
 //******************************************************************************
 .macro INSTANTIATE_REDUCE_OUTER_LOOP_SETUP FNAME LOG2_BYTE_ALIGNMENT
- .global \FNAME
- .type \FNAME, @function
- .section .text.Reductions_common_\FNAME
- .align 4
-\FNAME:
+
+FN_WORKER_ENTRY_POINT \FNAME
 // ************************************************* //
 // unpack offset and size
 // ************************************************* //
@@ -120,7 +113,7 @@
   setzi      $IN_j_DELTA, 0
 
   br		 $IN_j_SIZE
-.size Reductions_common_\FNAME,.-\FNAME
+FN_SIZE \FNAME
 .endm
 
 //******************************************************************************
@@ -131,23 +124,11 @@
 // shared functions can be assembled only once
 .macro CREATE_COMMON_FUNCTIONS
 
- .global _Reduce_load_state_process_common
- .type _Reduce_load_state_process_common, @function
-
- .global _Reduce_ptr_fetch
- .type _Reduce_ptr_fetch, @function
-
-.global _Reduce_ld128_MIS_2
- .type _Reduce_ld128_MIS_2, @function
-
- .section .text.Reductions_common
- .align 4
 //******************************************************************************
 // Initial function to load and process vertex state
 // before entering any loops.  Called by all vertex variants
 //******************************************************************************
-
-_Reduce_load_state_process_common:
+FN_WORKER_ENTRY_POINT _Reduce_load_state_process_common
 // ************************************************* //
 // Load vertex state - common code
 // ************************************************* //
@@ -217,21 +198,21 @@ _Reduce_load_state_process_common:
 // Function called within each vertex loop to fetch and process pointers
 // Called multiple times by all vertex variants
 //******************************************************************************
-_Reduce_ptr_fetch:
+FN_EXPORT _Reduce_ptr_fetch
   ld32step   $IN_j_PTR, $mzero, $IN_i_PTR+=, 1
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
   shr        $IN_j_SIZE, $IN_j_PTR, DELTAN_OFFSET_BITS
   shl        $IN_j_PTR, $IN_j_PTR, DELTAN_LENGTH_BITS
 #else
-  shr        $IN_j_SIZE, $IN_j_PTR, DELTAN_OFFSET_BITS-PTR64_SHL_BITS
-  shl        $IN_j_PTR, $IN_j_PTR, DELTAN_LENGTH_BITS+PTR64_SHL_BITS
+  shr        $IN_j_SIZE, $IN_j_PTR, DELTAN_OFFSET_BITS-SCALED_PTR64_SHIFTS
+  shl        $IN_j_PTR, $IN_j_PTR, DELTAN_LENGTH_BITS+SCALED_PTR64_SHIFTS
 #endif
   shr        $IN_j_PTR, $IN_j_PTR, DELTAN_LENGTH_BITS
   add        $IN_j_PTR, $IN_BASE, $IN_j_PTR
   mov        $SCRATCH, $IN_j_DELTA
   br		 $SCRATCH2
 
-.size Reductions_common,.-_Reduce_load_state_process_common
+FN_SIZE _Reduce_load_state_process_common
 
 //******************************************************************************
 // Function called at the top of each outer loop.
@@ -240,8 +221,8 @@ _Reduce_ptr_fetch:
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 INSTANTIATE_REDUCE_OUTER_LOOP_SETUP _Reduce_outer_loop_setup 0
 #else
-INSTANTIATE_REDUCE_OUTER_LOOP_SETUP _Reduce_outer_loop_setup_out_align32 PTR32_SHL_BITS
-INSTANTIATE_REDUCE_OUTER_LOOP_SETUP _Reduce_outer_loop_setup_out_align64 PTR64_SHL_BITS
+INSTANTIATE_REDUCE_OUTER_LOOP_SETUP _Reduce_outer_loop_setup_out_align32 SCALED_PTR32_SHIFTS
+INSTANTIATE_REDUCE_OUTER_LOOP_SETUP _Reduce_outer_loop_setup_out_align64 SCALED_PTR64_SHIFTS
 #endif
 
 // ************************************************* //
@@ -251,9 +232,8 @@ INSTANTIATE_REDUCE_OUTER_LOOP_SETUP _Reduce_outer_loop_setup_out_align64 PTR64_S
 // section.
 // ************************************************* //
 
- .section .text.Reductions_common_load
- .align 4
-_Reduce_ld128_MIS_2:
+FN_SECTION _Reduce_ld128_MIS_2
+FN_EXPORT _Reduce_ld128_MIS_2
   and $SCRATCH2, $SCRATCH, 0x7
   brz $SCRATCH2, _aligned_case
   and $SCRATCH2, $SCRATCH, 0x2
@@ -283,16 +263,13 @@ _aligned_case:
   br $OUT_j_SIZE
 
 
-.size Reductions_common_load,.-_Reduce_load_state_process_common
+FN_SIZE _Reduce_ld128_MIS_2
 
-.section .text.Reductions_common_zero_and_load
- .align 4
 // ************************************************* //
 // Small but often referenced zero and load subroutine.
 // ************************************************* //
-.global _Reduce_zero_and_load
- .type _Reduce_zero_and_load, @function
-_Reduce_zero_and_load:
+FN_SECTION _Reduce_zero_and_load
+FN_EXPORT _Reduce_zero_and_load
    {
     ld32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
     zero       $VALUES_0:1
@@ -305,7 +282,7 @@ _Reduce_zero_and_load:
     br         $SCRATCH2
     zero       $VALUES_2:3
   }
- .size Reductions_common_zero_and_load,.-_Reduce_zero_and_load
+ FN_SIZE Reductions_common_zero_and_load
 
 .endm
 

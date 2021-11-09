@@ -27,18 +27,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
-
-// This macro defines a label as global, function
-.macro EXPORT_FN label
-.globl \label
-.type \label, @function
-.endm
-
-// This macro associates to the symbol 'label' a size defined as (Current_loc - label)
-.macro FN_SIZE label
-.size \label, . - \label
-.endm
-
+#include "CommonPoplibsMacros.h.S"
 // Register aliases
 
 #define MATRIX_LOOP_COUNT   m10
@@ -228,21 +217,9 @@
 #define TRANSPOSE_2D_INT \
   __runCodelet_popops__Transpose2D___int
 
-// All functions in this section use 0 bytes of stack
-DEF_STACK_USAGE 0 .text.Transpose2dAT4
-.section .text.Transpose2dAT4
-
-.globl TRANSPOSE_2D_FLOAT
-.type TRANSPOSE_2D_FLOAT, @function
-.globl TRANSPOSE_2D_UNSIGNED_INT
-.type TRANSPOSE_2D_UNSIGNED_INT, @function
-.globl TRANSPOSE_2D_INT
-.type TRANSPOSE_2D_INT, @function
-.align 8
-.worker
-TRANSPOSE_2D_FLOAT:
-TRANSPOSE_2D_UNSIGNED_INT:
-TRANSPOSE_2D_INT:
+FN_WORKER_ENTRY_POINT TRANSPOSE_2D_FLOAT 8
+FN_EXPORT TRANSPOSE_2D_UNSIGNED_INT
+FN_EXPORT TRANSPOSE_2D_INT
 
      GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
 
@@ -370,9 +347,7 @@ TRANSPOSE_2D_INT:
 TransposeAT4SlowPath:
     TRANSPOSE_SLOWER ld32step st64step $VAL12 4 0
 
-.size TRANSPOSE_2D_FLOAT, .- TRANSPOSE_2D_FLOAT
-.size TRANSPOSE_2D_UNSIGNED_INT, .- TRANSPOSE_2D_UNSIGNED_INT
-.size TRANSPOSE_2D_INT, .- TRANSPOSE_2D_INT
+FN_SIZE TRANSPOSE_2D_FLOAT
 
 //*****************************************************************************
 // Half transpose:
@@ -416,10 +391,7 @@ TransposeAT4SlowPath:
 #define IN_REWIND  m10
 
 // Common code for fast half
-.section .text.TransposeAT2FastPathCommon
-.type TransposeAT2FastPathCommon,   @function
-.align 4
-.worker
+FN_SECTION TransposeAT2FastPath4ColumnSetup
 //*******************************
 // Setup for the nx4 matrix cases
 TransposeAT2FastPath4ColumnSetup:
@@ -562,7 +534,7 @@ TransposeAT2FastPathCommon:
    st64pace  $a2:3, $TRI_PTR+=, $STRIDES, 1
    br        $LINK_REG
 
-.size TransposeAT2FastPathCommon, . - TransposeAT2FastPathCommon
+FN_SIZE TransposeAT2FastPath4ColumnSetup
 
 /*----------------------------------------------------------------------------*/
 
@@ -606,17 +578,10 @@ TransposeAT2FastPathCommon:
 #define TRANSPOSE_1D_UNSIGNED_SHORT  __runCodelet_popops__Transpose1D___unsigned_short
 #define TRANSPOSE_1D_SHORT           __runCodelet_popops__Transpose1D___short
 
-EXPORT_FN TRANSPOSE_1D_HALF
-EXPORT_FN TRANSPOSE_1D_UNSIGNED_SHORT
-EXPORT_FN TRANSPOSE_1D_SHORT
 
-DEF_STACK_USAGE 0 .text.TransposeMultiVertex16Bit
-.section .text.TransposeMultiVertex16Bit
-.align 4
-.worker
-TRANSPOSE_1D_HALF:
-TRANSPOSE_1D_UNSIGNED_SHORT:
-TRANSPOSE_1D_SHORT:
+FN_WORKER_ENTRY_POINT TRANSPOSE_1D_HALF
+FN_EXPORT TRANSPOSE_1D_UNSIGNED_SHORT
+FN_EXPORT TRANSPOSE_1D_SHORT
 #define PTR_INCR        m1
 #define NUM_MATRICES    m5
 #define WORKER_ID       m7
@@ -677,8 +642,6 @@ TRANSPOSE_1D_SHORT:
   brnzdec   $NUM_MATRICES, TransposeAT2EnterMultiVertex
 
 FN_SIZE TRANSPOSE_1D_HALF
-FN_SIZE TRANSPOSE_1D_UNSIGNED_SHORT
-FN_SIZE TRANSPOSE_1D_SHORT
 
 
 //----------------------------------------------------------------------------
@@ -692,20 +655,9 @@ FN_SIZE TRANSPOSE_1D_SHORT
 #define TRANSPOSE_SHORT \
   __runCodelet_popops__Transpose1DSingleWorker___short
 
-// All functions in this section use 0 bytes of stack
-DEF_STACK_USAGE 0 .text.TransposeAT2
-.section .text.TransposeAT2
-.global TRANSPOSE_HALF
-.type TRANSPOSE_HALF,   @function
-.global TRANSPOSE_UNSIGNED_SHORT
-.type TRANSPOSE_UNSIGNED_SHORT,   @function
-.global TRANSPOSE_SHORT
-.type TRANSPOSE_SHORT,   @function
-.align 4
-.worker
-TRANSPOSE_HALF:
-TRANSPOSE_UNSIGNED_SHORT:
-TRANSPOSE_SHORT:
+FN_WORKER_ENTRY_POINT TRANSPOSE_HALF
+FN_EXPORT TRANSPOSE_UNSIGNED_SHORT
+FN_EXPORT TRANSPOSE_SHORT
 
 // kept on stack
 #define SOFF_NUM_PTR_INC           0
@@ -795,7 +747,7 @@ TransposeAT2FastPathNx4x4Setup:
 
   exitz      $mzero
 
-.size TRANSPOSE_HALF_CODELET_NAME, . - TRANSPOSE_HALF_CODELET_NAME
+FN_SIZE TRANSPOSE_HALF
 
 /* -------------------------------------------------------------------------- */
 
@@ -806,20 +758,9 @@ TransposeAT2FastPathNx4x4Setup:
 #define TRANSPOSE_2D_SHORT \
   __runCodelet_popops__Transpose2D___short
 
-// All functions in this section use 0 bytes of stack
-DEF_STACK_USAGE 0 .text.Transpose2dAT2
-.section .text.Transpose2dAT2
-.global TRANSPOSE_2D_HALF
-.type TRANSPOSE_2D_HALF, @function
-.global TRANSPOSE_2D_UNSIGNED_SHORT
-.type TRANSPOSE_2D_UNSIGNED_SHORT, @function
-.global TRANSPOSE_2D_SHORT
-.type TRANSPOSE_2D_SHORT, @function
-.align 4
-.worker
-TRANSPOSE_2D_HALF:
-TRANSPOSE_2D_UNSIGNED_SHORT:
-TRANSPOSE_2D_SHORT:
+FN_WORKER_ENTRY_POINT TRANSPOSE_2D_HALF
+FN_EXPORT TRANSPOSE_2D_UNSIGNED_SHORT
+FN_EXPORT TRANSPOSE_2D_SHORT
 
     GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
 
@@ -899,8 +840,6 @@ TransposeAT2SlowPath:
 
   TRANSPOSE_SLOWER ldb16step st32step $VAL1 2 1
 
-.size TRANSPOSE_2D_HALF, . - TRANSPOSE_2D_HALF
-.size TRANSPOSE_2D_UNSIGNED_SHORT, . - TRANSPOSE_2D_UNSIGNED_SHORT
-.size TRANSPOSE_2D_SHORT, . - TRANSPOSE_2D_SHORT
+FN_SIZE TRANSPOSE_2D_HALF
 
 #endif

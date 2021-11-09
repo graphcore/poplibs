@@ -3,6 +3,7 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 // vertex state (byte increments)
 #define VERTEX_BROADCAST_IN1_PTR_OFFSET 0
@@ -47,14 +48,8 @@
 // float or half.  All arithmetic to be done as float
 .macro INSTANTIATE_VERTEX_ISD_TO_VAR EXT OP_TYPES FLOAT_OUT
 
-.global VERTEX
-.type VERTEX, @function
-DEF_STACK_USAGE 0 .text.VERTEX
-.section .text.VERTEX
+FN_WORKER_ENTRY_POINT VERTEX 8 nop
 
-.align 8
- nop //Alignment for the repeat body below
-VERTEX:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_COUNT_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN2_PTR_OFFSET/4
@@ -67,10 +62,7 @@ VERTEX:
 .ifeq \FLOAT_OUT
   bri common\@
 
-.global VERTEX_INPLACE
-.type VERTEX_INPLACE, @function
-
-VERTEX_INPLACE:
+FN_EXPORT VERTEX_INPLACE
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_COUNT_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_IN2_PTR_OFFSET/4
@@ -161,7 +153,7 @@ finalCheck\@:
 
   exitz $mzero
 
-.size VERTEX, .-VERTEX
+FN_SIZE VERTEX
 
 .endm
 
@@ -170,13 +162,8 @@ finalCheck\@:
 // All arithmetic to be done as float.
 .macro INSTANTIATE_VERTEX_VAR_TO_ISD EXT OP_TYPES
 
-.global VERTEX
-.type VERTEX, @function
-DEF_STACK_USAGE 0 VERTEX
-.section .text.VERTEX
+FN_WORKER_ENTRY_POINT VERTEX 8
 
-.align 8
-VERTEX:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_COUNT_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN2_PTR_OFFSET/4
@@ -243,7 +230,7 @@ finalCheck\@:
 
   exitz $mzero
 
-.size VERTEX, .-VERTEX
+FN_SIZE VERTEX
 
 .endm
 //******************************************************************************

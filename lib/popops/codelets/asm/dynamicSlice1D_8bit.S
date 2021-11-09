@@ -1,6 +1,6 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
-
+#include "CommonPoplibsMacros.h.S"
 // -----------------------------------------------------------------------------
 // Dynamic Slice and Dynamic Update Slice 1D MultiVertex code for 8-bit types
 //
@@ -72,56 +72,26 @@
 #define DSS_UCHAR_FUNC __runCodelet_popops__DynamicSlice1D___unsigned_char
 #define DUSS_UCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice1D___unsigned_char
 
-.global DSS_BOOL_FUNC
-.type DSS_BOOL_FUNC, @function
 
-.global DUSS_BOOL_FUNC
-.type DUSS_BOOL_FUNC, @function
-
-.global DSS_CHAR_FUNC
-.type DSS_CHAR_FUNC, @function
-
-.global DUSS_CHAR_FUNC
-.type DUSS_CHAR_FUNC, @function
-
-.global DSS_UCHAR_FUNC
-.type DSS_UCHAR_FUNC, @function
-
-.global DUSS_UCHAR_FUNC
-.type DUSS_UCHAR_FUNC, @function
-
-.global DSS_SCHAR_FUNC
-.type DSS_SCHAR_FUNC, @function
-
-.global DUSS_SCHAR_FUNC
-.type DUSS_SCHAR_FUNC, @function
-
-
-DEF_STACK_USAGE 0 .text.DynamicSlice1d_8bit // No function here use any stack
-
-.section .text.DynamicSlice1d_8bit
-
-.align 8
-.worker
-
-DUSS_BOOL_FUNC:
-DUSS_CHAR_FUNC:
-DUSS_UCHAR_FUNC:
-DUSS_SCHAR_FUNC:
+FN_WORKER_ENTRY_POINT DUSS_BOOL_FUNC 
+FN_EXPORT DUSS_CHAR_FUNC
+FN_EXPORT DUSS_UCHAR_FUNC
+FN_EXPORT DUSS_SCHAR_FUNC
   setzi     $aUpdate,1
   ld32      $aDst, $mzero, $mvertex_base, VOFF_BASET
   ld32      $aSrc, $mzero, $mvertex_base, VOFF_SUBT
   bri       .Lds_super_common
+FN_SIZE DUSS_BOOL_FUNC
 // ************************************************* //
 // Non Update version: clear a flag for no update,
 // load base, sub array pointers
 // Src = Base
 // Dst = Sub
 // ************************************************* //
-DSS_BOOL_FUNC:
-DSS_CHAR_FUNC:
-DSS_UCHAR_FUNC:
-DSS_SCHAR_FUNC:
+FN_WORKER_ENTRY_POINT DSS_BOOL_FUNC 8
+FN_EXPORT DSS_CHAR_FUNC
+FN_EXPORT DSS_UCHAR_FUNC
+FN_EXPORT DSS_SCHAR_FUNC
   setzi     $aUpdate,0
   ld32      $aSrc, $mzero, $mvertex_base, VOFF_BASET
   ld32      $aDst, $mzero, $mvertex_base, VOFF_SUBT
@@ -272,6 +242,6 @@ divide_work_loop:
 
   exitz     $mzero
 
-.size DynamicSlice1d_8bit, .-DSS_BOOL_FUNC
+FN_SIZE DSS_BOOL_FUNC
 
 #endif

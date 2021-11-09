@@ -1,15 +1,9 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define SELECT_BOOL __runCodelet_popops__Select___bool
-
-.globl SELECT_BOOL
-.type SELECT_BOOL, @function
-
-DEF_STACK_USAGE 0 SELECT_BOOL
-.section .text.SELECT_BOOL
-.align 8
 
 // Constants
 #define VERTEX_IN1_OFFSET 0
@@ -36,8 +30,7 @@ DEF_STACK_USAGE 0 SELECT_BOOL
 #define ifVal m8 // NOTE: Same register as nByteRemain
 #define mask m11 // NOTE: Same register as trueVal
 
-  nop
-SELECT_BOOL:
+FN_WORKER_ENTRY_POINT SELECT_BOOL 8 nop
   // Load the vertex state.
   ld32 $out, $mvertex_base, $mzero, VERTEX_OUT_START_OFFSET
   ld32 $nRowRemain, $mvertex_base, $mzero, VERTEX_OUT_END_OFFSET
@@ -107,6 +100,6 @@ load_next_row:
 row_loop_end:
   exitz $mzero
 
-.size SELECT_BOOL, .-SELECT_BOOL
+FN_SIZE SELECT_BOOL
 
 #endif

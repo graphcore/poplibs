@@ -32,6 +32,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "MathConstants.S"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 // Vertex state
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -53,8 +54,6 @@
 // The STRIDED_REDUCE vertex omits the NUM_OUTER_STRIDES and OUTER_STRIDE parameters.
 #define NUM_OUTER_STRIDES_OFFSET 6
 #define OUTER_STRIDE_OFFSET  8
-
-#define PTR32_SHL_BITS   2
 
 // Defines when using the worker's pre-allocated scratch area
 #define SCRATCH_RESULT_UPPER 0
@@ -80,9 +79,6 @@
 #define ZAACC           a4
 #define SCALE           a6
 #define CONST           a7
-
-// Constants
-#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // Name mangling
 #define REDUCE_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___\
@@ -142,25 +138,7 @@ popops__\OP\()_half_\OUT_TYPE\()_\UPDATE\()_popops__ReductionSpecialisation__##s
 .macro INSTANTIATE_REDUCE_FLOAT OUT_TYPE OP INSTRUCTION OP_IMPL CONST_VALUE UPDATE
 .equ LOG2_PARTIAL_SIZE, 2
 
-DEF_STACK_USAGE 0 .text.REDUCE_FLOAT(Reduce,STRIDED___REDUCE)
-DEF_STACK_USAGE 0 .text.REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER)
-DEF_STACK_USAGE 0 .text.REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE)
-DEF_STACK_USAGE 0 .text.REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER)
-DEF_STACK_USAGE 0 .text.REDUCE_FLOAT(ScaledReduceFloatCommon,STRIDED___REDUCE)
-
-.globl REDUCE_FLOAT(Reduce,STRIDED___REDUCE)
-.type REDUCE_FLOAT(Reduce,STRIDED___REDUCE), @function
-.globl REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE)
-.type REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE), @function
-
-.globl REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER)
-.type REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER), @function
-.globl REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER)
-.type REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER), @function
-
-.section .text.REDUCE_FLOAT(Reduce,STRIDED___REDUCE), "ax"
-.align 4
-REDUCE_FLOAT(Reduce,STRIDED___REDUCE):
+FN_WORKER_ENTRY_POINT REDUCE_FLOAT(Reduce,STRIDED___REDUCE)
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   setzi      $BASE, TMEM_REGION0_BASE_ADDR
 #endif
@@ -172,11 +150,9 @@ REDUCE_FLOAT(Reduce,STRIDED___REDUCE):
   {bri         StridedReduceFloatCommon\@
     or         $SCALE, $azero, FLOAT_1_0}
 .endif
-.size REDUCE_FLOAT(Reduce,STRIDED___REDUCE), .-REDUCE_FLOAT(Reduce,STRIDED___REDUCE)
+FN_SIZE REDUCE_FLOAT(Reduce,STRIDED___REDUCE)
 
-.section .text.REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER), "ax"
-.align 4
-REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER):
+FN_WORKER_ENTRY_POINT REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER)
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   setzi      $BASE, TMEM_REGION0_BASE_ADDR
 #endif
@@ -191,11 +167,9 @@ REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER):
   {bri         StridedReduceFloatCommonOuter\@
     or         $SCALE, $azero, FLOAT_1_0}
 .endif
-.size REDUCE_FLOAT(Reduce,STRIDED___REDUCE), .-REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER)
+FN_SIZE REDUCE_FLOAT(Reduce,STRIDED___REDUCE___OUTER)
 
-.section .text.REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE), "ax"
-.align 4
-REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE):
+FN_WORKER_ENTRY_POINT REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE)
   // As scale uses a SCALED_PTR32 there is no downside to having partials also
   // use SCALED_PTR32 as we can load and use the same base address
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -207,12 +181,10 @@ REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE):
   ld32       $SCALE, $mzero, $SCRATCH, 0
 #endif
   bri        StridedReduceFloatCommon\@
-.size REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE), .-REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE)
+FN_SIZE REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE)
 
 
-.section .text.REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER), "ax"
-.align 4
-REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER):
+FN_WORKER_ENTRY_POINT REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER)
   // As scale uses a SCALED_PTR32 there is no downside to having partials also
   // use SCALED_PTR32 as we can load and use the same base address
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -227,11 +199,9 @@ REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER):
   ldz16      $OUTER_STRIDE, $COUNTS_AND_STRIDES, $mzero, OUTER_STRIDE_OFFSET/2
   ldz16      $NUM_OUTER_STRIDES_CONST, $COUNTS_AND_STRIDES, $mzero, NUM_OUTER_STRIDES_OFFSET/2
   bri        StridedReduceFloatCommonOuter\@
-.size REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER), .-REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER)
+FN_SIZE REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE___OUTER)
 
-.section .text.REDUCE_FLOAT(ScaledReduceFloatCommon,STRIDED___REDUCE), "ax"
-  .align 8
-  nop
+FN_SECTION REDUCE_FLOAT(ScaledReduceFloatCommon,STRIDED___REDUCE) 8 nop
 StridedReduceFloatCommon\@:
   ld32 $COUNTS_AND_STRIDES, $mvertex_base, $mzero, COUNTS_AND_STRIDES_OFFSET/4
   mov  $NUM_OUTER_STRIDES_CONST, $mzero
@@ -393,7 +363,7 @@ float_outer_stride_loop\@:
 4:
   brnzdec $OUT_COUNT, float_loop\@
   exitnz $mzero
-.size REDUCE_FLOAT(ScaledReduceFloatCommon,STRIDED___REDUCE), .-REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE)
+FN_SIZE REDUCE_FLOAT(ScaledReduceFloatCommon,STRIDED___REDUCE)
 .endm
 
 //******************************************************************************
@@ -465,25 +435,7 @@ float_outer_stride_loop\@:
 .macro INSTANTIATE_REDUCE_HALF OUT_TYPE OP INSTRUCTION OP_IMPL CONST_VALUE UPDATE
 .equ LOG2_PARTIAL_SIZE, 1
 
-DEF_STACK_USAGE 0 .text.REDUCE_HALF(Reduce,STRIDED___REDUCE)
-DEF_STACK_USAGE 0 .text.REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER)
-DEF_STACK_USAGE 0 .text.REDUCE_HALF(ScaledReduce,STRIDED___REDUCE)
-DEF_STACK_USAGE 0 .text.REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER)
-DEF_STACK_USAGE 0 .text.REDUCE_HALF(ScaledReduceHalfCommon,STRIDED___REDUCE)
-
-.globl REDUCE_HALF(Reduce,STRIDED___REDUCE)
-.type REDUCE_HALF(Reduce,STRIDED___REDUCE), @function
-.globl REDUCE_HALF(ScaledReduce,STRIDED___REDUCE)
-.type REDUCE_HALF(ScaledReduce,STRIDED___REDUCE), @function
-
-.globl REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER)
-.type REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER), @function
-.globl REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER)
-.type REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER), @function
-
-.section .text.REDUCE_HALF(Reduce,STRIDED___REDUCE), "ax"
-.align 4
-REDUCE_HALF(Reduce,STRIDED___REDUCE):
+FN_WORKER_ENTRY_POINT REDUCE_HALF(Reduce,STRIDED___REDUCE)
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   setzi      $BASE, TMEM_REGION0_BASE_ADDR
 #endif
@@ -495,11 +447,9 @@ REDUCE_HALF(Reduce,STRIDED___REDUCE):
   { bri        ScaledReduceHalfCommon\@
     or         $SCALE, $azero, FLOAT_1_0}
 .endif
-.size REDUCE_HALF(Reduce,STRIDED___REDUCE), .-REDUCE_HALF(Reduce,STRIDED___REDUCE)
+FN_SIZE REDUCE_HALF(Reduce,STRIDED___REDUCE)
 
-.section .text.REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER), "ax"
-.align 4
-REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER):
+FN_WORKER_ENTRY_POINT REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER)
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   setzi      $BASE, TMEM_REGION0_BASE_ADDR
 #endif
@@ -514,12 +464,10 @@ REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER):
   { bri        ScaledReduceHalfCommonOuter\@
     or         $SCALE, $azero, FLOAT_1_0}
 .endif
-.size REDUCE_HALF(Reduce,STRIDED___REDUCE), .-REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER)
+FN_SIZE REDUCE_HALF(Reduce,STRIDED___REDUCE___OUTER)
 
 
-.section .text.REDUCE_HALF(ScaledReduce,STRIDED___REDUCE), "ax"
-.align 4
-REDUCE_HALF(ScaledReduce,STRIDED___REDUCE):
+FN_WORKER_ENTRY_POINT REDUCE_HALF(ScaledReduce,STRIDED___REDUCE)
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/2 // load scale
   setzi      $BASE, TMEM_REGION0_BASE_ADDR
@@ -529,12 +477,10 @@ REDUCE_HALF(ScaledReduce,STRIDED___REDUCE):
   ld32       $SCALE, $mzero, $SCRATCH, 0
 #endif
   bri        ScaledReduceHalfCommon\@
-.size REDUCE_HALF(ScaledReduce,STRIDED___REDUCE), .-REDUCE_HALF(ScaledReduce,STRIDED___REDUCE)
+FN_SIZE REDUCE_HALF(ScaledReduce,STRIDED___REDUCE)
 
 
-.section .text.REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER), "ax"
-.align 4
-REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER):
+FN_WORKER_ENTRY_POINT REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER)
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/2 // load scale
   setzi      $BASE, TMEM_REGION0_BASE_ADDR
@@ -547,11 +493,10 @@ REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER):
   ldz16      $OUTER_STRIDE, $COUNTS_AND_STRIDES, $mzero, OUTER_STRIDE_OFFSET/2
   ldz16      $NUM_OUTER_STRIDES_CONST, $COUNTS_AND_STRIDES, $mzero, NUM_OUTER_STRIDES_OFFSET/2
   bri        ScaledReduceHalfCommonOuter\@
-.size REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER), .-REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER)
+FN_SIZE REDUCE_HALF(ScaledReduce,STRIDED___REDUCE___OUTER)
 
 
-.section .text.REDUCE_HALF(ScaledReduceHalfCommon,STRIDED___REDUCE), "ax"
-.align 8
+FN_SECTION ScaledReduceHalfCommon\@ 8
 ScaledReduceHalfCommon\@:
   ld32       $COUNTS_AND_STRIDES, $mvertex_base, $mzero, COUNTS_AND_STRIDES_OFFSET/4
   mov        $NUM_OUTER_STRIDES_CONST, $mzero
@@ -754,7 +699,7 @@ half_outer_stride_loop\@:
   brnzdec $OUT_COUNT, half_loop\@
 
   exitnz $mzero
-.size REDUCE_HALF(ScaledReduceHalfCommon,STRIDED___REDUCE), .-REDUCE_HALF(ScaledReduceHalfCommon,STRIDED___REDUCE)
+FN_SIZE REDUCE_HALF(ScaledReduceHalfCommon,STRIDED___REDUCE)
 .endm
 
 //******************************************************************************
