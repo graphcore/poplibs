@@ -13,6 +13,7 @@
 #include "popops/ElementWiseUtil.hpp"
 #include "popops/NaN.hpp"
 #include "popops/PerformanceEstimation.hpp"
+#include "popops/Rearrange.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/OptionParsing.hpp"
@@ -666,9 +667,27 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
   }
 }
 
-void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
-                     const Tensor &out, Sequence &prog, BinaryOpType op,
-                     bool inPlace, const DebugNameAndId &dnai) {
+void binaryOpGeneral(Graph &graph, Tensor in1, Tensor in2, const Tensor &out,
+                     Sequence &prog, BinaryOpType op, bool inPlace,
+                     const DebugNameAndId &dnai) {
+  // First try to regroup to match the grouping of the output tensor.
+  {
+    std::vector<Copy> copies;
+    const DebugNameAndId transposeDnai{dnai, "TransposeInputs"};
+    const auto cs = graph.addComputeSet(transposeDnai);
+    if (!inPlace) {
+      in1 = rearrange::regroupIfBeneficial(graph, in1, out, copies, cs,
+                                           transposeDnai);
+    }
+    in2 = rearrange::regroupIfBeneficial(graph, in2, out, copies, cs,
+                                         transposeDnai);
+
+    for (auto &copy : copies) {
+      prog.add(std::move(copy));
+    }
+    prog.add(Execute(cs));
+  }
+
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
   auto outFlat = out.flatten();
@@ -1349,7 +1368,8 @@ void validatePatterns(
 // while doing the reverse (first operand broadcasted into the second) has
 // some restrictions.
 void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
-                                Tensor in2, Tensor out, BinaryOpType op,
+                                bool in1HasAliases, Tensor in2,
+                                bool in2HasAliases, Tensor out, BinaryOpType op,
                                 bool inPlace, const DebugNameAndId &dnai) {
   // Tensors in1, in2 and out will be the same broadcast shape.
   assert(in1.shape() == in2.shape() && in2.shape() == out.shape());
@@ -1366,9 +1386,6 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
     const double threshold = 0.1;
     const auto outGrouping = poputil::detectDimGroupings(graph, out);
     if (outGrouping.empty()) {
-      return;
-    }
-    if (!operand.containsAliases()) {
       return;
     }
     const auto outInnerDim = outGrouping[0].first;
@@ -1424,8 +1441,10 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
     }
   };
 
-  regroupOperandIfBeneficial(in2);
-  if (checkReverse) {
+  if (in2HasAliases) {
+    regroupOperandIfBeneficial(in2);
+  }
+  if (checkReverse && in1HasAliases) {
     regroupOperandIfBeneficial(in1);
   }
 
@@ -1498,9 +1517,11 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
     tileContiguousRegions[tile] =
         graph.getSortedContiguousRegions(out, outMapping[tile]);
 
-    tilePatterns[tile] =
-        generatePatterns(tile, in2, tileContiguousRegions[tile]);
-    if (checkReverse) {
+    if (in2HasAliases) {
+      tilePatterns[tile] =
+          generatePatterns(tile, in2, tileContiguousRegions[tile]);
+    }
+    if (checkReverse && in1HasAliases) {
       tilePatternsReverse[tile] =
           generatePatterns(tile, in1, tileContiguousRegions[tile]);
     }
@@ -1509,8 +1530,10 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
   // Vaguely validate that the patterns cover exactly the elements of the
   // output. This should be covered in unit tests in future but for now
   // this will stop anything silly.
-  validatePatterns(out.numElements(), tilePatterns);
-  if (checkReverse) {
+  if (in2HasAliases) {
+    validatePatterns(out.numElements(), tilePatterns);
+  }
+  if (checkReverse && in1HasAliases) {
     validatePatterns(out.numElements(), tilePatternsReverse, true);
   }
 
@@ -1600,9 +1623,10 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
           };
       // First check if we can broadcast the second operand into the first
       // and then (if allowed) the first into the second
-      if (broadcastScalar(tilePatterns[tile], tileContiguousRegions[tile], in1,
-                          in2) ||
-          (checkReverse &&
+      if ((in2HasAliases &&
+           broadcastScalar(tilePatterns[tile], tileContiguousRegions[tile], in1,
+                           in2)) ||
+          (checkReverse && in1HasAliases &&
            broadcastScalar(tilePatternsReverse[tile],
                            tileContiguousRegions[tile], in2, in1))) {
         continue;
@@ -1628,9 +1652,10 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
 
       // First check if we can broadcast the second operand into the first
       // and then (if allowed) the first into the second
-      if (broadcastInnerVector(tilePatterns[tile], tileContiguousRegions[tile],
-                               in1, in2) ||
-          (checkReverse &&
+      if ((in2HasAliases &&
+           broadcastInnerVector(tilePatterns[tile], tileContiguousRegions[tile],
+                                in1, in2)) ||
+          (checkReverse && in1HasAliases &&
            broadcastInnerVector(tilePatternsReverse[tile],
                                 tileContiguousRegions[tile], in2, in1))) {
         continue;
@@ -1660,9 +1685,10 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
           };
       // First check if we can broadcast the second operand into the first
       // and then (if allowed) the first into the second
-      if (broadcastOuterVector(tilePatterns[tile], tileContiguousRegions[tile],
-                               in1, in2) ||
-          (checkReverse &&
+      if ((in2HasAliases &&
+           broadcastOuterVector(tilePatterns[tile], tileContiguousRegions[tile],
+                                in1, in2)) ||
+          (checkReverse && in1HasAliases &&
            broadcastOuterVector(tilePatternsReverse[tile],
                                 tileContiguousRegions[tile], in2, in1))) {
         continue;
@@ -1772,9 +1798,12 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
 
   // Vector broadcast special case. We try and find the most efficient
   // way to perform the binary operation on each tile.
-  if (options.enableVectorBroadcastOptimisations) {
-    constructBroadcastBinaryOp(graph, prog, in1, in2, out, op, inPlace,
-                               {dnai, layer});
+  bool in1HasAliases = in1.containsAliases();
+  bool in2HasAliases = in2.containsAliases();
+  if (options.enableVectorBroadcastOptimisations &&
+      (in1HasAliases || in2HasAliases)) {
+    constructBroadcastBinaryOp(graph, prog, in1, in1HasAliases, in2,
+                               in2HasAliases, out, op, inPlace, {dnai, layer});
     return out;
   }
 
