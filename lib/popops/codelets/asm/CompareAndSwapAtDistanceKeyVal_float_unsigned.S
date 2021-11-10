@@ -7,7 +7,10 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "CommonPoplibsMacros.h.S"
 
-#define CODELET_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_unsigned_int
+#define COMPARE_AND_SWAP_KEY_FLOAT_SECTION .text.CompareAndSwapAtDistanceKeyVal_float
+#define COMPARE_AND_SWAP_VALUE_FLOAT_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_float
+#define COMPARE_AND_SWAP_VALUE_UNSIGNED_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_unsigned_int
+#define COMPARE_AND_SWAP_VALUE_INT_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_int
 
 #define STATE_OFFSET_keys 0
 #define STATE_OFFSET_values 4
@@ -15,7 +18,14 @@
 #define STATE_OFFSET_worklists_outer_count 12
 #define STATE_OFFSET_distanceToChangeOrder 16
 
-FN_WORKER_ENTRY_POINT CODELET_SYMBOL 8
+.globl COMPARE_AND_SWAP_VALUE_FLOAT_SYMBOL, @function
+.globl COMPARE_AND_SWAP_VALUE_UNSIGNED_SYMBOL, @function
+.globl COMPARE_AND_SWAP_VALUE_INT_SYMBOL, @function
+
+FN_WORKER_ENTRY_POINT COMPARE_AND_SWAP_VALUE_FLOAT_SYMBOL 8
+COMPARE_AND_SWAP_VALUE_UNSIGNED_SYMBOL:
+COMPARE_AND_SWAP_VALUE_INT_SYMBOL:
+
 //=================
 #define w_id m0
 #define w_numWorkers m1
@@ -187,5 +197,5 @@ FN_WORKER_ENTRY_POINT CODELET_SYMBOL 8
     brnzdec $w_numEntriesM1, .LnumEntriesLoopBegin
 .LnumEntriesLoopExit:
   exitz $mzero
-FN_SIZE CODELET_SYMBOL
+FN_SIZE COMPARE_AND_SWAP_VALUE_FLOAT_SYMBOL
 #endif // __IPU__

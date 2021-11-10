@@ -351,8 +351,10 @@ int main(int argc, char **argv) try {
     std::cout << "Seeding random engine with seed " << seed << "\n";
     randomEngine.seed(seed);
   }
-  // TODO: Check what happens with NaN values...
-  writeRandomValues(target, dataType, hostIn, -50.0, 50.0, randomEngine);
+  // TODO: Check what happens with NaN values..
+  double rangeMin = (dataType == UNSIGNED_INT) ? 0 : -50.0;
+  double rangeMax = 50.0;
+  writeRandomValues(target, dataType, hostIn, rangeMin, rangeMax, randomEngine);
   copy(target, hostIn, dataType, rawHostIn.get());
 
   device.bind([&](const Device &d) {
