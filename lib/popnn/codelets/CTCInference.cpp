@@ -180,17 +180,17 @@ template class CTCGenerateExtendCandidates<half, half, unsigned>;
 
 template <typename SymbolType>
 // return {symbol, beamIndex}
-inline std::tuple<SymbolType, unsigned> getNextSymbol(SymbolType *beamAddend,
-                                                      unsigned *beamParent,
-                                                      unsigned beamIndex) {
+inline std::tuple<SymbolType, unsigned>
+getNextSymbol(const SymbolType *beamAddend, const unsigned *beamParent,
+              unsigned beamIndex) {
   auto symbol = beamAddend[beamIndex];
   beamIndex = beamParent[beamIndex];
   return {symbol, beamIndex};
 }
 
 template <typename SymbolType>
-inline bool equivalentOutputSequence(SymbolType *beamAddend,
-                                     unsigned *beamParent, unsigned t,
+inline bool equivalentOutputSequence(const SymbolType *beamAddend,
+                                     const unsigned *beamParent, unsigned t,
                                      unsigned beamwidth, unsigned parentLhs,
                                      SymbolType addendLhs, unsigned parentRhs,
                                      SymbolType addendRhs) {

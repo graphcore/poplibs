@@ -103,8 +103,8 @@ public:
   Input<Vector<float, PTR_ALIGN32>> k;
 
   bool compute() {
-    const auto cAndS =
-        reinterpret_cast<CountsAndStrides<ShortType> *>(&countsAndStrides[0]);
+    const auto cAndS = reinterpret_cast<const CountsAndStrides<ShortType> *>(
+        &countsAndStrides[0]);
 
     computeStridedReduce<ReduceOp, PartialsType, OutType, isUpdate, opIsLogAdd>(
         out, partials, cAndS->numOutputsM1, cAndS->numPartialsM1,
@@ -163,8 +163,8 @@ public:
   Input<Vector<float, PTR_ALIGN32>> k;
 
   bool compute() {
-    const auto cAndS =
-        reinterpret_cast<CountsAndStrides<ShortType> *>(&countsAndStrides[0]);
+    const auto cAndS = reinterpret_cast<const CountsAndStrides<ShortType> *>(
+        &countsAndStrides[0]);
 
     computeStridedReduce<ReduceOp, PartialsType, OutType, isUpdate, opIsLogAdd>(
         out, partials, cAndS->numOutputsM1, cAndS->numPartialsM1,

@@ -59,7 +59,7 @@ public:
                     ((wid < remainingBlocks) ? wid : remainingBlocks);
     unsigned numBlocks = dataBlockCount + (wid < remainingBlocks);
 
-    FPType *dataPtr = &data[offs * BSize];
+    const FPType *dataPtr = &data[offs * BSize];
     FPType *outPtr = &out[offs * BSize];
 
     for (unsigned k = 0; k != BSize; ++k) {

@@ -46,7 +46,7 @@ public:
     unsigned offs = wid * n + ((wid < workerCount) ? wid : workerCount);
     n += (wid < workerCount);
 
-    T *srcPtr = &src[offs * matrixSize];
+    const T *srcPtr = &src[offs * matrixSize];
     T *dstPtr = &dst[offs * matrixSize];
 
     for (unsigned t = 0; t != n; ++t) {

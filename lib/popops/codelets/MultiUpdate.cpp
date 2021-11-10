@@ -41,10 +41,11 @@ public:
       unsigned offsetIndexBegin = 0;
       unsigned offsetIndexEnd = offsets.size();
       if (indicesAreSorted) {
-        offsetIndexBegin = lowerBinarySearch(
-            reinterpret_cast<int *>(&offsets[0]), offsets.size(), baseOffset);
+        offsetIndexBegin =
+            lowerBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
+                              offsets.size(), baseOffset);
         offsetIndexEnd =
-            upperBinarySearch(reinterpret_cast<int *>(&offsets[0]),
+            upperBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
                               offsets.size(), baseOffset + numBaseElements);
       }
       for (unsigned o = offsetIndexBegin; o != offsetIndexEnd; ++o) {

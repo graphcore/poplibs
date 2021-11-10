@@ -568,8 +568,8 @@ public:
 template <expr::BinaryOpType op, typename inT, typename outT, typename A>
 struct BinaryOpDispatchMultiVertex {
 public:
-  static void compute(unsigned size, unsigned worker, inT *in1, inT *in2,
-                      outT *out) {
+  static void compute(unsigned size, unsigned worker, const inT *in1,
+                      const inT *in2, outT *out) {
     // No vectorisation for int, unsigned int, but still split over workers
     // However cannot use this when writing bool
     for (unsigned j = worker; j < size; j += CTXT_WORKERS)
@@ -697,7 +697,8 @@ struct BinaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
 template <expr::BinaryOpType op>
 struct BinaryOpDispatchMultiVertex<op, half, half, architecture::ipu> {
 public:
-  static void compute(unsigned size, unsigned worker, half *in1, half *in2,
+  static void compute(unsigned size, unsigned worker, const half *in1,
+                      const half *in2,
                       typename BinaryOpOutputType<op, half>::type *out) {
 
     const half4 *h4In1 = reinterpret_cast<const half4 *>(in1) + worker;
@@ -740,7 +741,8 @@ public:
 template <expr::BinaryOpType op>
 class BinaryOpDispatchMultiVertex<op, float, float, architecture::ipu> {
 public:
-  static void compute(unsigned size, unsigned worker, float *in1, float *in2,
+  static void compute(unsigned size, unsigned worker, const float *in1,
+                      const float *in2,
                       typename BinaryOpOutputType<op, float>::type *out) {
 
     const float2 *f2In1 = reinterpret_cast<const float2 *>(in1) + worker;

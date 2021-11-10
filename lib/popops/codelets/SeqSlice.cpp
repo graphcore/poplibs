@@ -21,7 +21,7 @@ template <typename Type>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] SequenceSliceCopy
     : public Vertex {
   Input<Vector<Type, ONE_PTR>> src;
-  Input<Vector<Type, ONE_PTR>> dst;
+  Output<Vector<Type, ONE_PTR>> dst;
   unsigned short nAtoms; // must be non-zero
 
 public:

@@ -894,7 +894,8 @@ DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::RELU, DELTANELEMENTS)
 template <expr::UnaryOpType op, typename inT, typename outT, typename A>
 struct UnaryOpDispatchMultiVertex {
 public:
-  static void compute(unsigned size, unsigned worker, inT *in, outT *out) {
+  static void compute(unsigned size, unsigned worker, const inT *in,
+                      outT *out) {
     // No vectorisation for int, unsigned int, but still split over workers
     for (unsigned j = worker; j < size; j += CTXT_WORKERS)
       out[j] = UnaryOpFn<op, inT, A>::fn(in[j]);
@@ -1004,7 +1005,7 @@ struct UnaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
 template <expr::UnaryOpType op>
 struct UnaryOpDispatchMultiVertex<op, half, half, architecture::ipu> {
 public:
-  static void compute(unsigned size, unsigned worker, half *in,
+  static void compute(unsigned size, unsigned worker, const half *in,
                       typename UnaryOpOutputType<op, half>::type *out) {
 
     const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
@@ -1056,7 +1057,7 @@ public:
 template <expr::UnaryOpType op>
 class UnaryOpDispatchMultiVertex<op, float, float, architecture::ipu> {
 public:
-  static void compute(unsigned size, unsigned worker, float *in,
+  static void compute(unsigned size, unsigned worker, const float *in,
                       typename UnaryOpOutputType<op, float>::type *out) {
 
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + worker;
