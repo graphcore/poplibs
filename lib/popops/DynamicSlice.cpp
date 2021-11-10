@@ -167,7 +167,7 @@ struct SliceOptions {
 
   // Controls the target for optimisation when planning.
   PlanMinimisationTarget planMinimisationTarget =
-      PlanMinimisationTarget::MEMORY;
+      PlanMinimisationTarget::CYCLES;
 
   // Indices are sorted in increasing order
   bool indicesAreSorted = false;

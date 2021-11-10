@@ -490,7 +490,7 @@ namespace embedding {
  *                     the input size of the embedding.
  *       * `onePoint`  Indices are assumed to all be equal.
  *
- *     * `planMinimisationTarget` (memory, cycles) [=memory]
+ *     * `planMinimisationTarget` (memory, cycles) [=cycles]
  *
  *       Select what should be minimised when planning this operation.
  *
