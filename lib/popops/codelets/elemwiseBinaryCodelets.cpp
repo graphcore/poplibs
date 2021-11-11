@@ -8,6 +8,10 @@
 
 #include "elemwiseBinaryOps.hpp"
 
+#ifdef __IPU__
+#include "inlineAssembler.hpp"
+#endif
+
 using namespace poplar;
 
 namespace popops {
@@ -430,11 +434,8 @@ struct BinaryOpDispatch<op, half, half, architecture::ipu> {
     }
 
     if (size == 1) {
-      half2 res = (half2){
-          BinaryOpFn<op, half, arch>::fn((*h2In1)[0], (*h2In2)[0]),
-          (*h2Out)[1],
-      };
-      *h2Out = res;
+      write16Aligned32(BinaryOpFn<op, half, arch>::fn((*h2In1)[0], (*h2In2)[0]),
+                       h2Out);
     }
   }
 };
@@ -727,12 +728,9 @@ public:
       }
       assert(size != 0);
       if (h2Out == (half2 *)&out[size - 1]) {
-        half2 res = (half2){
-            BinaryOpFn<op, half, architecture::ipu>::fn((*h2In1)[0],
-                                                        (*h2In2)[0]),
-            (*h2Out)[1],
-        };
-        *h2Out = res;
+        write16Aligned32(BinaryOpFn<op, half, architecture::ipu>::fn(
+                             (*h2In1)[0], (*h2In2)[0]),
+                         h2Out);
       }
     }
   }

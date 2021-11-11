@@ -8,10 +8,15 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <tuple>
 
 #include "elementwiseCodelets.hpp"
 #include "popops/ExprOp.hpp"
 #include "util.hpp"
+
+#ifdef __IPU__
+#include "inlineAssembler.hpp"
+#endif
 
 using namespace poplar;
 
@@ -45,21 +50,6 @@ template <> struct UnaryLibCall<expr::UnaryOpType::SQRT> {
 
   int operator()(int x) const { return std::sqrt(x); }
 };
-
-#ifdef __IPU__
-extern "C" {
-void exponent_half_1d_inner_loop(const __attribute__((align_value(8)))
-                                 half *src,
-                                 __attribute__((align_value(8))) half *dst,
-                                 unsigned int numElements, unsigned int stride);
-
-void exponent_float_1d_inner_loop(const
-                                  __attribute__((align_value(8))) float *src,
-                                  __attribute__((align_value(8))) float *dst,
-                                  unsigned int numElements,
-                                  unsigned int stride);
-}
-#endif
 
 template <> struct UnaryLibCall<expr::UnaryOpType::CBRT> {
 #ifdef __IPU__
@@ -243,11 +233,21 @@ template <expr::UnaryOpType op, typename T>
 using UnaryOpOutputType_t = typename UnaryOpOutputType<op, T>::type;
 
 template <expr::UnaryOpType op, typename InT, typename OutT>
-constexpr bool hasFastInnerLoopImpl() {
+constexpr bool hasInlineAssemblerInnerLoopImpl() {
 #ifdef __IPU__
-  return (op == expr::UnaryOpType::EXPONENT) &&
-         std::is_same<InT, OutT>::value &&
-         (std::is_same<InT, float>::value || std::is_same<InT, half>::value);
+  constexpr bool typeMatch =
+      std::is_same<InT, OutT>::value &&
+      (std::is_same<InT, float>::value || std::is_same<InT, half>::value);
+
+  constexpr bool opMatch =
+      (op == expr::UnaryOpType::ABSOLUTE) ||
+      (op == expr::UnaryOpType::EXPONENT) ||
+      (op == expr::UnaryOpType::INVERSE) ||
+      (op == expr::UnaryOpType::LOGARITHM) ||
+      (op == expr::UnaryOpType::NEGATE) || (op == expr::UnaryOpType::SQRT) ||
+      (op == expr::UnaryOpType::SQUARE) || (op == expr::UnaryOpType::RSQRT);
+
+  return typeMatch && opMatch;
 #else
   return false;
 #endif
@@ -257,18 +257,9 @@ template <expr::UnaryOpType op, typename InT, typename OutT>
 static void inline computeUnaryInnerLoop(const InT *src, OutT *dst,
                                          unsigned numSamples,
                                          unsigned stride = 1) {
-  if constexpr (hasFastInnerLoopImpl<op, InT, OutT>()) {
-    if constexpr (op == expr::UnaryOpType::EXPONENT) {
-      if constexpr (std::is_same<InT, float>::value) {
-        exponent_float_1d_inner_loop(src, dst, numSamples, stride);
-      } else if constexpr (std::is_same<InT, half>::value) {
-        exponent_half_1d_inner_loop(src, dst, numSamples, stride);
-      }
-    }
-  } else {
-    for (unsigned i = 0; i != numSamples; i += stride) {
-      dst[i] = UnaryOpFn<op, InT, architecture::generic>::fn(src[i]);
-    }
+
+  for (unsigned i = 0; i != numSamples; i += stride) {
+    dst[i] = UnaryOpFn<op, InT, architecture::generic>::fn(src[i]);
   }
 }
 
@@ -600,12 +591,13 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
                       __attribute__((align_value(8))) half *out) {
     using arch = architecture::ipu;
 
-    if constexpr (hasFastInnerLoopImpl<op, half, half>()) {
-      computeUnaryInnerLoop<op, half, half>(in, out, size);
+    const half4 *h4In = reinterpret_cast<const half4 *>(in);
+    half4 *h4Out = reinterpret_cast<half4 *>(out);
+    if constexpr (hasInlineAssemblerInnerLoopImpl<op, half, half>()) {
+      std::tie(h4In, h4Out) =
+          inlineAssemblerUnaryOp<op, half, 1>::loopBody(size / 4, h4In, h4Out);
     } else {
       if (size >= 4) {
-        const half4 *h4In = reinterpret_cast<const half4 *>(in);
-        half4 *h4Out = reinterpret_cast<half4 *>(out);
 
         // LLVM currently chooses to rotate the loop in a way that is not
         // optimal for our hardware. The inline asm blocks this. The loop is
@@ -623,28 +615,23 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
         }
         asm volatile("# Thwart loop rotation (end)" ::: "memory");
         *h4Out++ = UnaryOpFn<op, half4, arch>::fn(load);
-
-        in = reinterpret_cast<const half *>(h4In);
-        half *tmp = reinterpret_cast<half *>(h4Out);
-        size -= (tmp - out);
-        out = tmp;
       }
+    }
+    in = reinterpret_cast<const half *>(h4In);
+    half *tmp = reinterpret_cast<half *>(h4Out);
+    size -= (tmp - out);
+    out = tmp;
 
-      const half2 *h2In = reinterpret_cast<const half2 *>(in);
-      half2 *h2Out = reinterpret_cast<half2 *>(out);
+    const half2 *h2In = reinterpret_cast<const half2 *>(in);
+    half2 *h2Out = reinterpret_cast<half2 *>(out);
 
-      if (size >= 2) {
-        *h2Out++ = UnaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In, 1));
-        size -= 2;
-      }
+    if (size >= 2) {
+      *h2Out++ = UnaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In, 1));
+      size -= 2;
+    }
 
-      if (size == 1) {
-        half2 res = (half2){
-            UnaryOpFn<op, half, arch>::fn((*h2In)[0]),
-            (*h2Out)[1],
-        };
-        *h2Out = res;
-      }
+    if (size == 1) {
+      write16Aligned32(UnaryOpFn<op, half, arch>::fn((*h2In)[0]), h2Out);
     }
   }
 };
@@ -655,11 +642,11 @@ public:
   static void compute(unsigned size,
                       const __attribute__((align_value(8))) float *in,
                       __attribute__((align_value(8))) float *out) {
-    if constexpr (hasFastInnerLoopImpl<op, float, float>()) {
-      computeUnaryInnerLoop<op, float, float>(in, out, size);
+    const float2 *f2In = reinterpret_cast<const float2 *>(in);
+    float2 *f2Out = reinterpret_cast<float2 *>(out);
+    if constexpr (hasInlineAssemblerInnerLoopImpl<op, float, float>()) {
+      inlineAssemblerUnaryOp<op, float, 1>::loopBody(size / 2, f2In, f2Out);
     } else {
-      const float2 *f2In = reinterpret_cast<const float2 *>(in);
-      float2 *f2Out = reinterpret_cast<float2 *>(out);
       if (size >= 2) {
         const unsigned loopCount = maskForRepeat((size / 2u) - 1);
 
@@ -673,10 +660,9 @@ public:
         asm volatile("# Thwart loop rotation (end)" ::: "memory");
         *f2Out++ = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
       }
-      if (size & 1) {
-        out[size - 1] =
-            UnaryOpFn<op, float, architecture::ipu>::fn(in[size - 1]);
-      }
+    }
+    if (size & 1) {
+      out[size - 1] = UnaryOpFn<op, float, architecture::ipu>::fn(in[size - 1]);
     }
   }
 };
@@ -1012,17 +998,12 @@ public:
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
     const auto remainder = size & 3;
     const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
-    if constexpr (hasFastInnerLoopImpl<op, half, half>()) {
-      const half *inH = reinterpret_cast<const half *>(h4In);
-      half *outH = reinterpret_cast<half *>(h4Out);
-      computeUnaryInnerLoop<op, half, half>(inH, outH, loopCount * 4,
-                                            CTXT_WORKERS);
-      if (remainder && worker == CTXT_WORKERS - 1) {
-        computeUnaryInnerLoop<op, half, half>(
-            &in[size - remainder], &out[size - remainder], remainder, 1);
-      }
-    } else {
 
+    if constexpr (hasInlineAssemblerInnerLoopImpl<op, half, half>()) {
+      std::tie(h4In, h4Out) =
+          inlineAssemblerUnaryOp<op, half, CTXT_WORKERS>::loopBody(loopCount,
+                                                                   h4In, h4Out);
+    } else {
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
         half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
@@ -1031,24 +1012,20 @@ public:
         h4Out += CTXT_WORKERS;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
-
-      if (remainder) {
-        const half2 *h2In = reinterpret_cast<const half2 *>(h4In);
-        half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
-        if (size & 2) {
-          if (h4Out == (half4 *)&out[size & (~3)]) {
-            *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(
-                ipu::load_postinc(&h2In, 1));
-          }
+    }
+    if (remainder) {
+      const half2 *h2In = reinterpret_cast<const half2 *>(h4In);
+      half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
+      if (size & 2) {
+        if (h4Out == (half4 *)&out[size & (~3)]) {
+          *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(
+              ipu::load_postinc(&h2In, 1));
         }
-        assert(size != 0);
-        if (h2Out == (half2 *)&out[size - 1]) {
-          half2 res = (half2){
-              UnaryOpFn<op, half, architecture::ipu>::fn((*h2In)[0]),
-              (*h2Out)[1],
-          };
-          *h2Out = res;
-        }
+      }
+      assert(size != 0);
+      if (h2Out == (half2 *)&out[size - 1]) {
+        write16Aligned32(UnaryOpFn<op, half, architecture::ipu>::fn((*h2In)[0]),
+                         h2Out);
       }
     }
   }
@@ -1065,11 +1042,9 @@ public:
 
     const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
 
-    if constexpr (hasFastInnerLoopImpl<op, float, float>()) {
-      const float *inF = reinterpret_cast<const float *>(f2In);
-      float *outF = reinterpret_cast<float *>(f2Out);
-      computeUnaryInnerLoop<op, float, float>(inF, outF, loopCount * 2,
-                                              CTXT_WORKERS);
+    if constexpr (hasInlineAssemblerInnerLoopImpl<op, float, float>()) {
+      inlineAssemblerUnaryOp<op, float, CTXT_WORKERS>::loopBody(loopCount, f2In,
+                                                                f2Out);
     } else {
       // We could pipeline this, but we want to avoid an overread which could be
       // outside the memory bounds (and throw an exception) due to the striding

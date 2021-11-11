@@ -193,7 +193,6 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterOps1D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByLimit.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByData.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/exp_inner_loop.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram2D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unary2DNonLinearity.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOps1DNonLinearity.S
@@ -259,6 +258,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CheckAccuracyWhenCast.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssembler.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectScalarFromRows.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.hpp

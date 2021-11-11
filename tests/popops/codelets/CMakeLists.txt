@@ -274,15 +274,12 @@ function(runRptLoopCycleTest TEST_TAG CMD VERTEX OPS DATA_TYPES)
             --vertex ${VERTEX}
             --operation ${OPS}
             --data-type ${DATA_TYPES}
-            --size 1800
+            --size 2500
             --compare-cycles
             --cycle-threshold 3
     VARIANTS ${SIM_VARIANTS})
 endfunction()
-runRptLoopCycleTest("unary_float" UnaryCodeletsTest "UnaryOp1D"
-                    "inverse;rsqrt;sqrt" float)
-runRptLoopCycleTest("unary_float_half" UnaryCodeletsTest "UnaryOp1D"
-                    "exponent;logarithm;negate;square" "float;half")
+
 runRptLoopCycleTest("binary_float_half" BinaryCodeletsTest "BinaryOp1D"
                     "maximum;minimum" "float;half")
 

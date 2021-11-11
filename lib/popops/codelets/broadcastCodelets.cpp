@@ -10,6 +10,10 @@
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
+#ifdef __IPU__
+#include "inlineAssembler.hpp"
+#endif
+
 using namespace poplar;
 using namespace popops;
 
@@ -446,11 +450,9 @@ struct BroadcastOpDispatch<op, half, half, allowUnaligned, allowRemainder> {
       }
 
       if (size == 1) {
-        half2 res = (half2){
+        write16Aligned32(
             BinaryOpFn<op, half, architecture::active>::fn((*h2In)[0], K),
-            (*h2Out)[1],
-        };
-        *h2Out = res;
+            h2Out);
       }
     }
   }
@@ -681,11 +683,9 @@ public:
         }
         if (size & 1) {
           h2Out = reinterpret_cast<half2 *>(&out[size - 1]);
-          half2 res = {
+          write16Aligned32(
               BinaryOpFn<op, half, architecture::active>::fn((*h2In)[0], K),
-              (*h2Out)[1],
-          };
-          *h2Out = res;
+              h2Out);
         }
       }
     }
