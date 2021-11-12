@@ -8,7 +8,13 @@ function(add_tool name)
   if(TARGET popsparse)
     target_link_libraries(${name} popsparse)
   endif()
+  install(TARGETS "${name}"
+          DESTINATION internal_tools
+          COMPONENT internal_tools)
 endfunction()
+
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+set(CMAKE_INSTALL_RPATH $ORIGIN)
 
 add_tool(single_conv_layer single_conv_layer.cpp)
 target_link_libraries(single_conv_layer

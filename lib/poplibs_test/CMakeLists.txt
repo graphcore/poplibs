@@ -49,3 +49,7 @@ target_include_directories(poplibs_test
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
+
+install(TARGETS poplibs_test
+        DESTINATION internal_tools
+        COMPONENT internal_tools)
