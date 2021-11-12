@@ -128,23 +128,23 @@ runall                 $s_zeroWkrFunction, $s_vertexBase, 0
 
 shr                    $s_metaInfoList, $s_metaInfoList, (32 - SHORT_SPAN_ADDRESS_BITS)
 
-LmetaInfoListLoop_\INTYPE\()_\PTYPE\():  
+LmetaInfoListLoop_\INTYPE\()_\PTYPE\():
   ld32step               $s_metaInfo, $mzero, $s_metaInfoList+=, 1
   st32                   $s_rBaseList, $sp, W_RBASELIST/4
-  setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()   
+  setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()
   st32                   $s_numBuckets, $sp, W_NUM_BUCKETS/4
   nop
   nop
-LsubgroupLoop_\INTYPE\()_\PTYPE\():  
+LsubgroupLoop_\INTYPE\()_\PTYPE\():
   ldz16                  $s_numGradWWorkers, $s_metaInfo, MetaInfoSubGroupEntry_numGradWWorkers/2
   ldz16                  $s_subgroupId, $s_metaInfo, MetaInfoSubGroupEntry_id/2
   // This is the subgroup ID the PN has to process
   ldz16                  $s_pnSubgroupId, $s_vertexBase, SUP_VBASE_PN_SUBGROUP_ID/2
 
-  // s_metaInfo is at exactly where the numWorkers is so that it can be extracted 
+  // s_metaInfo is at exactly where the numWorkers is so that it can be extracted
   // by the worker (must be last field)
   ldz16                  $s_offsetToNextSubgroup, $s_metaInfo, MetaInfoSubGroupEntry_offsetToNextSubGroupMetaInfo/2
-  
+
   // The pointer to sparse R Is offset
   ldz16                  $s_subgroupSparseElems, $s_metaInfo, MetaInfoSubGroupEntry_offsetToNextSubGroupSparseEntries/2
   nop
@@ -158,7 +158,7 @@ LsubgroupLoop_\INTYPE\()_\PTYPE\():
 
   add                    $s_wTemp, $s_metaInfo, sizeof_MetaInfoSubGroupEntry
   add                    $s_wTemp, $s_wTemp, $s_numGradWWorkers
-  
+
   ldz16step              $s_xOffsetInQ, $mzero, $s_wTemp+=, 1
   ldz16                  $s_numXm1, $mzero, $s_metaInfo, MetaInfoSubGroupEntry_numXm1/2
 
@@ -178,7 +178,7 @@ Ls_XLoop_\INTYPE\()_\PTYPE\():
 
 Ls_YLoop_\INTYPE\()_\PTYPE\():
 .ifc \BLOCKSIZE, 4
-      ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1      
+      ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
 .ifc \INTYPE, float
       // For IPU2 this could be in interleaved memory with 128 bit loads.
       ld64putcs              0x0 // CCCS_CWEI_0_0
@@ -317,7 +317,7 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              31
 .else
 // TODO: For IPU2 this could be in interleaved memory and use ld128
-#if __IPU_ARCH_VERSION__ < 2
+#if __IPU_ARCH_VERSION__ == 1
       ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
       ld64putcs              0
       ld64putcs              1
@@ -428,14 +428,14 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              61
       ld64putcs              62
       ld64putcs              63
-#endif // __IPU_ARCH_VERSION__ < 2
+#endif // __IPU_ARCH_VERSION__ == 1
 .endif // \PTYPE, float
 .endif // \BLOCKSIZE, 16
       runall                 $s_wkrFunction, $sp, 0
 .ifc \GRADA_FN, 1
       setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained
 .else
-      setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained_yOff   
+      setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained_yOff
 .endif
       sync                   TEXCH_SYNCZONE_LOCAL
 .ifc \BLOCKSIZE, 16
@@ -475,7 +475,7 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       runall                 $s_wkrFunction, $sp, 0
       sync                   TEXCH_SYNCZONE_LOCAL
 .else
-#if __IPU_ARCH_VERSION__ < 2
+#if __IPU_ARCH_VERSION__ == 1
       ld64putcs              0
       ld64putcs              1
       ld64putcs              2
@@ -510,7 +510,7 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              31
       runall                 $s_wkrFunction, $sp, 0
       sync                   TEXCH_SYNCZONE_LOCAL
-#endif // __IPU_ARCH_VERSION__ < 2
+#endif // __IPU_ARCH_VERSION__ == 1
 .endif // \PTYPE, float
 .endif // \BLOCKSIZE, 16
       brnzdec                $s_numYm1, Ls_YLoop_\INTYPE\()_\PTYPE\()
@@ -519,7 +519,7 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
 .endif
     ldz16step              $s_xOffsetInQ, $mzero, $s_wTemp+=, 1
     brnzdec                $s_numXm1, Ls_XLoop_\INTYPE\()_\PTYPE\()
-  
+
 LnextSubgroup_\INTYPE\()_\PTYPE\():
   // dummy load to move pointer to next subgroup
 .ifc \INTYPE, float
@@ -529,7 +529,7 @@ LnextSubgroup_\INTYPE\()_\PTYPE\():
 .endif
   ldz16step              $mzero, $mzero, $s_metaInfo+=, $s_offsetToNextSubgroup
   bri                    LsubgroupLoop_\INTYPE\()_\PTYPE\()
-  
+
 LendMetaInfoList_\INTYPE\()_\PTYPE\():
   ld32                   $s_numBuckets, $sp, W_NUM_BUCKETS/4
   ld32                   $s_rBaseList, $sp, W_RBASELIST/4

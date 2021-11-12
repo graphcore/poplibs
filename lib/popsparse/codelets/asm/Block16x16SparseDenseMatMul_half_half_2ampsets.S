@@ -5,7 +5,7 @@
 // with block size of 16x16
 
 #if defined(__IPU__)
-#if __IPU_ARCH_VERSION__ >=2
+#if (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
 #include "BlockSparseDenseMatMul.h.S"
 #include "poplar/AvailableVTypes.h"
 
@@ -114,7 +114,7 @@ blockSparseDenseMultiply_hh16x16:
   add $w_num, $w_num, -1
 
 //====================
-#undef w_id 
+#undef w_id
 #undef w_worklist
 //====================
 #define w_qBaseRetained m0 // Retain
@@ -175,7 +175,7 @@ blockSparseDenseMultiply_hh16x16_retained_yOff:
   // s_ptr += 0, q_ld_ptr += (zStrideInQ - 12)
   { ld2x64pace $azeros, $w_pin, $w_tripack+=, $w_zStrides1, 0b1011
     f16v4hihov4amp $w_pout1, $azeros, $w_pin, TAMP_F16V4_E4_P2 }
-  
+
   // s_ptr += 4, q_ld_ptr += 4
   { ld2x64pace $w_xin, $w_pin, $w_tripack+=, $mzero, 0b0000
     f16v4hihov4amp $w_pout1, $azeros, $w_pin, TAMP_F16V4_E4_P3 }
@@ -294,7 +294,7 @@ blockSparseDenseMultiply_hh16x16_retained_yOff:
   // s_ptr += 0, q_ld_ptr += (zStrideInQ - 12)
   { ld2x64pace $azeros, $w_pin, $w_tripack+=, $w_zStrides1, 0b1011
     f16v4hihov4amp $w_pout1, $azeros, $w_pin, TAMP_F16V4_E4_P2 }
-  
+
   // For num = 1:
   // s_ptr += 4, q_ld_ptr += 0
   // For num = 2:
@@ -347,7 +347,7 @@ blockSparseDenseMultiply_hh16x16_retained_yOff:
   // s_ptr += 4, q_ld_ptr += 0
   { ld2x64pace $w_xin, $azeros, $w_tripack+=, $w_zStrides2, 0b1110
     f16v4hihov4amp $w_pout2, $w_xin, $azeros, TAMP_F16V4_E4_P1 }
-    
+
 
   // Completely zero strides in w_zStrides2 indicates the num = 1 path
   brz $w_zStrides2, .LNumElemsEq1
@@ -358,10 +358,10 @@ blockSparseDenseMultiply_hh16x16_retained_yOff:
 // =============================================================================
 // Supervisor codelet which launches the zeroing of the output Q matrix and
 // then parses the meta information buckets. Each bucket is walked through to
-// match the PNs subgroup id. 
+// match the PNs subgroup id.
 
 // Instantiate supervisor codelet
 BLOCK_SPARSE_MATMUL CODELET_NAME half half hh16x16 16 0
 
-#endif // __IPU_ARCH_VERSION__ >=2
+#endif // (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
 #endif // defined(__IPU__)

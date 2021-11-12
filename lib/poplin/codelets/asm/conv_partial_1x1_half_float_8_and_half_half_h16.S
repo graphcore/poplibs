@@ -330,7 +330,7 @@ ldz16step     $in_off, $wkr_id, $partition_w+=, 1
 setzi         $const_stride_m2, 0xFF800  // -2 * 1024
 
 // We could keep out_off / 16 + 1 in the worklist and save a thread cycle here.
-// Kept as is for consistency between different specialisations. 
+// Kept as is for consistency between different specialisations.
 shl           $out_off_x8, $out_off, 3
 shr           $out_off, $out_off, 1
 add           $out_off, $out_off, 1
@@ -472,7 +472,7 @@ bri             LNumElemsEq2_\COMMAND\()
 // =============================================================================
 // Instantiate codelets
 // Workers
-#if __IPU_ARCH_VERSION__ >=2
+#if (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
   CONV_1x1_WORKER f16v4hihov4amp
 #endif
 CONV_1x1_WORKER f16v4sisoamp
@@ -480,7 +480,7 @@ CONV_1x1_WORKER f16v4sisoamp
 
 // Instantiate codelets
 // Supervisors
-#if __IPU_ARCH_VERSION__ >=2
+#if (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
   CONV_1x1_SUPERVISOR half half false 16 f16v4hihov4amp true
   CONV_1x1_SUPERVISOR half half true  16 f16v4hihov4amp true
 #endif

@@ -70,13 +70,13 @@ convPartialNx1Flattened_\COMMAND\():
 #define tripacked_addr2                m6:7
 #define in_addr_v                      m6
 #define out_addr_v                     m7
-#define tripacked_addr1                m8:9 
+#define tripacked_addr1                m8:9
 #define in_offset_v                    m8
 #define out_offset_v                   m9
 #define inchan_ptr_v                   m10
 #define inoutstrides3_v                m10
-#define second_ptr_offset_v            m10     
-#define par_addr_v                     m10          
+#define second_ptr_offset_v            m10
+#define par_addr_v                     m10
 #define outchan_ptr_v                  m11
 
 get           $wkr_id_v, $WSR
@@ -129,7 +129,7 @@ PartitionLoop_\COMMAND\():
 
   // form input address
   ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
-  
+
   ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
   shl           $in_offset_v, $in_offset_v, 3
   add           $in_addr_v, $inchan_ptr_v, $in_offset_v
@@ -144,8 +144,8 @@ PartitionLoop_\COMMAND\():
 
   // Form packed address
   tapack        $tripacked_addr1, $in_addr_v, $out_addr_v, $out_addr_v
-  
-  // Form the second address pair 
+
+  // Form the second address pair
   // Load second pointer offset and update in-ptr-2
   ld32          $second_ptr_offset_v, $mvertex_base, WKR_SECOND_PTR_OFFSET/4
   ld64step      $azeros, $mzero, $in_addr_v+=, $second_ptr_offset_v
@@ -166,11 +166,11 @@ PartitionLoop_\COMMAND\():
   ld2x64pace    $azeros, $a4:5, $tripacked_addr1+=, $mzero, 0b0011
   {
     // Need to move output-ptr-1 by 1 atom to keep store addresses in order
-    // input-ptr += 0; 
+    // input-ptr += 0;
     // partials-ptr += out-stride-p2;
     // out-ptr += 1;
     ld2xst64pace  $a0:3, $a4:5, $tripacked_addr1+=, $inoutstrides3_v, 0b000111
-    \COMMAND      $a6:7, $azeros, $a4:5, TAMP_F16V4_E4_P0 
+    \COMMAND      $a6:7, $azeros, $a4:5, TAMP_F16V4_E4_P0
   }
   {
     // *input-ptr += 0; *partials-ptr += 1
@@ -179,7 +179,7 @@ PartitionLoop_\COMMAND\():
   }
   {
     // *input-ptr += 0; *partials-ptr += out-stride-p2;
-    ld2x64pace    $azeros, $a2:3, $tripacked_addr2+=, $inoutstrides3_v, 0b0111 
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr2+=, $inoutstrides3_v, 0b0111
     \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
   }
   {
@@ -225,35 +225,35 @@ Loop_start_Amp_\COMMAND\():
     {
       // *input-ptr += in-stride;
       // *partials-ptr += out-stride-p2;
-      // *out-ptr += out-stride-step; 
-      ld2xst64pace  $a0:3, $a4:5, $tripacked_addr2+=, $inoutstrides1_v, 0b110110 
+      // *out-ptr += out-stride-step;
+      ld2xst64pace  $a0:3, $a4:5, $tripacked_addr2+=, $inoutstrides1_v, 0b110110
       \COMMAND      $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P2
     }
     {
       // *input-ptr += in-row-stride;
       // *partials-ptr += 1;
-      // *out-ptr += 1;                       
+      // *out-ptr += 1;
       ld2xst64pace  $a0:3, $a6:7, $tripacked_addr1+=, $inoutstrides2_v, 0b000010
       \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
     }
     {
       // *input-ptr += in-stride;
       // *partials-ptr += out-stride-p2;
-      // *out-ptr += out-stride-p2;          
+      // *out-ptr += out-stride-p2;
       ld2xst64pace  $a0:3, $a4:5, $tripacked_addr1+=, $inoutstrides1_v, 0b010110
       \COMMAND      $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
     }
     {
-      // *input-ptr += in-row-stride; 
+      // *input-ptr += in-row-stride;
       // *partials-ptr += 1;
-      // *out-ptr += out-stride;              
+      // *out-ptr += out-stride;
       ld2xst64pace  $a0:3, $a6:7, $tripacked_addr2+=, $inoutstrides2_v, 0b010010
       \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
     }
 Loop_end_Amp_\COMMAND\():
   {
     // *input-ptr += in-stride;
-    // *partials-ptr += out-stride-p2; 
+    // *partials-ptr += out-stride-p2;
     // *out-ptr += out-stride-step;
     ld2xst64pace  $a0:3, $a4:5, $tripacked_addr2+=, $inoutstrides1_v, 0b110110
     \COMMAND      $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P2
@@ -270,7 +270,7 @@ Loop_end_Amp_\COMMAND\():
   }
   {
     // *input-ptr += in-row-stride;
-    // *out-ptr += out-stride;              
+    // *out-ptr += out-stride;
     ldst64pace    $a0:1, $a6:7, $tripacked_addr2+=, $inoutstrides2_v, 0b0110
     \COMMAND      $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
   }
@@ -321,7 +321,7 @@ L_Conv_end_\COMMAND\():
 exitz         $mzero
 
 // =============================================================================
-// This handles the case of number of field positions equal to 1. 
+// This handles the case of number of field positions equal to 1.
 
 ConvNumFpEq1_\COMMAND\():
 add           $num_fp_v, $num_fp_v, 1
@@ -333,11 +333,11 @@ brneg         $num_fp_v, L_Partition_end_\COMMAND\()
 ld2x64pace    $azeros, $a4:5, $tripacked_addr1+=, $mzero, 0b0011
 {
   // Need to move output-ptr-1 by 1 atom to keep store addresses in order
-  // input-ptr += 0; 
+  // input-ptr += 0;
   // partials-ptr += 0;
   // out-ptr += 1;
   ld2xst64pace  $a0:3, $a4:5, $tripacked_addr1+=, $inoutstrides3_v, 0b001111
-  \COMMAND      $a6:7, $azeros, $a4:5, TAMP_F16V4_E4_P0 
+  \COMMAND      $a6:7, $azeros, $a4:5, TAMP_F16V4_E4_P0
 }
 {
   // *input-ptr += 0; *partials-ptr += 1
@@ -387,11 +387,11 @@ ConvNumFpEq2_\COMMAND\():
 ld2x64pace    $azeros, $a4:5, $tripacked_addr1+=, $mzero, 0b0011
 {
   // Need to move output-ptr-1 by 1 atom to keep store addresses in order
-  // input-ptr += 0; 
+  // input-ptr += 0;
   // partials-ptr += out-stride-p2;
   // out-ptr += 1;
-  ld2xst64pace  $a0:3, $a4:5, $tripacked_addr1+=, $inoutstrides3_v, 0b000111 
-  \COMMAND      $a6:7, $azeros, $a4:5, TAMP_F16V4_E4_P0 
+  ld2xst64pace  $a0:3, $a4:5, $tripacked_addr1+=, $inoutstrides3_v, 0b000111
+  \COMMAND      $a6:7, $azeros, $a4:5, TAMP_F16V4_E4_P0
 }
 {
   // *input-ptr += 0; *partials-ptr += 1
@@ -422,7 +422,7 @@ shl $inoutstrides3_v, $inoutstrides1_v, 10
 #define inoutstrides2_eq2_v   num_fp_v
 andc    $inoutstrides2_eq2_v, $inoutstrides2_v, 0x3ff
 {
-  
+
   // *input-ptr += in-stride; *partials_ptr += 0
   ld2x64pace    $a0:1, $a2:3, $tripacked_addr2+=, $inoutstrides3_v, 0b0111
   \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P2
@@ -451,7 +451,7 @@ bri           StoreFinalAmpOutputs2_\COMMAND\()
 // =============================================================================
 // Instantiate codelets
 
-#if __IPU_ARCH_VERSION__ >=2
+#if (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
 // Worker
 CONV_Nx1_WORKER f16v4hihov4amp
 

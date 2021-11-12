@@ -7,12 +7,12 @@
 // processes an [8x16] * [16x16] matrix. Two calls are needed
 // to process the whole [16x16] matrix.
 //
-// Each worker processes a set of columns and the split is 
+// Each worker processes a set of columns and the split is
 // [3, 3, 3, 3, 3, 1]. The imbalance between the max and minimum
 // is deliberate to allow supervisor processing if possible.
 
 #if defined(__IPU__)
-#if __IPU_ARCH_VERSION__ < 2
+#if (__IPU_ARCH_VERSION__ == 1)
 #include "BlockSparseMatMulAmpGradW.h.S"
 #include "poplar/AvailableVTypes.h"
 
@@ -76,90 +76,90 @@ add               $w_rGrad, $w_rGrad, $w_rWorkerOff
 ld32              $w_zOff, $mvertex_base, W_AMP_OFFSET_Z/4
 add               $w_qGrad, $w_qGradRetained, $w_zOff
 
-{ 
+{
   tapack            $w_tripack, $w_qGrad, $w_rGrad, $w_rGrad
-  setzi             $w_fp_clr_reg, 1 << CSR_W_FP_CLR__ZAACC__SHIFT 
+  setzi             $w_fp_clr_reg, 1 << CSR_W_FP_CLR__ZAACC__SHIFT
 }
-{ 
+{
   ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $mzero, 0b0001
-  uput              $FP_CLR, $w_fp_clr_reg 
+  uput              $FP_CLR, $w_fp_clr_reg
 }
 // Begin feeding partials
 {
   mul               $w_strides8, $w_lt5, 3
   f16v4hihoamp      $w_pout_low, $azeros, $w_pin_low, TAMP_F16V4_E4_P0
 }
-{ 
+{
   ld2x64pace        $azeros, $w_pin, $w_tripack+=, $w_strides8, 0b0110
-  f16v4hihoamp      $w_pout_high, $azeros, $w_pin_high, TAMP_F16V4_E4_P1 
+  f16v4hihoamp      $w_pout_high, $azeros, $w_pin_high, TAMP_F16V4_E4_P1
 }
 
-f16v4hihoamp      $w_pout_low, $azeros, $w_pin_low, TAMP_F16V4_E4_P2 
-{ 
+f16v4hihoamp      $w_pout_low, $azeros, $w_pin_low, TAMP_F16V4_E4_P2
+{
   ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_lt5, 0b0100
-  f16v4hihoamp      $w_pout_high, $azeros, $w_pin_high, TAMP_F16V4_E4_P3 
+  f16v4hihoamp      $w_pout_high, $azeros, $w_pin_high, TAMP_F16V4_E4_P3
 }
 // Begin feeding inputs
-{ 
+{
   ld2x64pace        $w_xin, $azeros, $w_tripack+=, $mzero, 0b0100
-  f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P0 
+  f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P0
 }
-{ 
+{
   ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_strides8, 0b0100
-  f16v4hihoamp      $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P1 
+  f16v4hihoamp      $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P1
 }
-{ 
+{
   ld2x64pace        $w_xin, $azeros, $w_tripack+=, $mzero, 0b1100
-  f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P2 
+  f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P2
 }
-{ 
+{
   ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_lt5, 0b0100
-  f16v4hihoamp $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P3 
+  f16v4hihoamp $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P3
 }
 // Outputs are now available
-{ 
+{
   ld2x64pace        $w_xin, $azeros, $w_tripack+=, $mzero, 0b0100
-  f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P0 
+  f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P0
 }
-{ 
+{
   ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_strides8, 0b0100
-  f16v4hihoamp      $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P1 
+  f16v4hihoamp      $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P1
 }
 brz               $w_lt5, LNumElemsEq1
-{ 
+{
   ldst64pace        $w_xin, $w_pout, $w_tripack+=, $mzero, 0b0000
-  f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P2 
+  f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P2
 }
-{ 
+{
   ld2x64pace        $w_xin, $azeros, $w_tripack+=, $mzero, 0b0100
-  f16v4hihoamp      $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P3 
+  f16v4hihoamp      $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P3
 }
 // Stop loading/feeding partials
-{ 
+{
   ldst64pace        $w_xin, $w_pout, $w_tripack+=, $w_strides8, 0b0100
-  f16v4hihoamp      $w_pout_low, $w_xin, $azero, TAMP_F16V4_E4_P0 
+  f16v4hihoamp      $w_pout_low, $w_xin, $azero, TAMP_F16V4_E4_P0
 }
-{ 
+{
   ld2x64pace        $w_xin, $azeros, $w_tripack+=, $mzero, 0b0100
-  f16v4hihoamp      $w_pout_high, $w_xin, $azero, TAMP_F16V4_E4_P1 
+  f16v4hihoamp      $w_pout_high, $w_xin, $azero, TAMP_F16V4_E4_P1
 }
-{ 
+{
   ldst64pace        $w_xin, $w_pout, $w_tripack+=, $mzero, 0b0001
-  f16v4hihoamp      $w_pout_low, $w_xin, $azero, TAMP_F16V4_E4_P2 
+  f16v4hihoamp      $w_pout_low, $w_xin, $azero, TAMP_F16V4_E4_P2
 }
 // Stop loading inputs
 f16v4hihoamp      $w_pout_high, $w_xin, $azero, TAMP_F16V4_E4_P3
-{ 
+{
   st64pace          $w_pout, $w_tripack+=, $w_strides8, 0b01
-  f16v4hihoamp      $w_pout_low, $azeros, $azero, TAMP_F16V4_E4_P0 
+  f16v4hihoamp      $w_pout_low, $azeros, $azero, TAMP_F16V4_E4_P0
 }
 
 f16v4hihoamp      $w_pout_high, $azeros, $azero, TAMP_F16V4_E4_P1
 
 LNumElemsEq1:
-{ 
+{
   st64pace          $w_pout, $w_tripack+=, $mzero, 0b00
-  f16v4hihoamp      $w_pout_low, $azeros, $azero, TAMP_F16V4_E4_P2 
+  f16v4hihoamp      $w_pout_low, $azeros, $azero, TAMP_F16V4_E4_P2
 }
 
 f16v4hihoamp      $w_pout_high, $azeros, $azero, TAMP_F16V4_E4_P3
@@ -171,5 +171,5 @@ exitz             $mzero
 // Instantiate supervisor codelet
 BLOCK_SPARSE_MATMUL_GRADW_AMP_SUP CODELET_NAME half half 16 blockSparseDenseMultiplyGradWAmp_hh16x16
 
-#endif // __IPU_ARCH_VERSION__ <2
+#endif // (__IPU_ARCH_VERSION__ == 1)
 #endif // defined(__IPU__)

@@ -385,7 +385,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry):
 // Instantiate supervisor entry
   supervisor_fn float 2
 
-#if __IPU_ARCH_VERSION__ >=2
+#if (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
   supervisor_fn half 4
 #endif
 
@@ -936,7 +936,7 @@ ALIGNED_RPT_END
 // Use the worker function and macros above to build the code for the stride = 1
 // case with half partials
 
-#if __IPU_ARCH_VERSION__ >=2
+#if (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
 .section .text.CODELET_SYMBOL(half_worker_fn_stride1), "ax"
   // Instantiate the worker entry point and loop body
   worker_fn stride1 f16v4hihov4slic half
@@ -948,7 +948,7 @@ ALIGNED_RPT_END
 ////////////////////////////////////////////////////////////////////////////////
 // Use the worker function and macros above to build the code for the stride = 2
 // case with half partials
-#if __IPU_ARCH_VERSION__ >=2
+#if (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
 .section .text.CODELET_SYMBOL(half_worker_fn_stride2), "ax"
   // Instantiate the worker entry point and loop body
   worker_fn stride2 f16v4hihov4slic half

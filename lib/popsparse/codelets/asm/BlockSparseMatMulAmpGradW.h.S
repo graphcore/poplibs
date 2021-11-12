@@ -1,9 +1,9 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 //
-// Common function that is the supervisor function that performs sparse matrix 
+// Common function that is the supervisor function that performs sparse matrix
 // multiplication R = Q * S' Where Q and S are dense matrices and R is a
 // sparse matrix. Supported block sizes are 4x4, 8x8 and 16x16 and use AMP.
-// 
+//
 // This serves the purpose of computing the entries of the
 // sparse gradients with respect to weights.
 
@@ -55,7 +55,7 @@
 
 
 // macro to load a block of
-//   - 4x16 half or 2x8 float coefficients 
+//   - 4x16 half or 2x8 float coefficients
 //   - 8x16 half coefficients, or 8x8 float coefficients
 // in CWEI
 .macro LOAD_BLOCK_8x16HALF_OR_8x8FLOAT_IN_CWEI TYPE, FULL
@@ -88,7 +88,7 @@
   // increment pointer to move to next half of rGrad
   INCR_PTR               \PTYPE $s_rGradBase 8
   sync                   TEXCH_SYNCZONE_LOCAL
-  st32                   $s_rGradBase, $sp, W_AMP_RGRAD_BASE_BLOCK/4 
+  st32                   $s_rGradBase, $sp, W_AMP_RGRAD_BASE_BLOCK/4
   DECR_PTR               \PTYPE $s_rGradBase 8
   LOAD_BLOCK_8x16HALF_OR_8x8FLOAT_IN_CWEI half 1
 .endm
@@ -117,7 +117,7 @@ add                    $sp, $sp, -STACK_SIZE_AMP-8
 // This is the subgroup ID the PN has to process
 ld32                   $s_pnSubgroupId, $s_vertexBase, SUP_VBASE_AMP_PN_SUBGROUP_ID/4
 // number of blocks of 16/8 (half/float) batch elements to process
-.ifc \INTYPE, float     
+.ifc \INTYPE, float
 shr                    $s_temp, $s_numZ, 3
 .else
 shr                    $s_temp, $s_numZ, 4
@@ -135,7 +135,7 @@ st32                   $s_pnSubgroupId, $sp, W_AMP_PN_SUBGROUP_ID/4
 put                    $CR, $s_clrCWEI
 ld32                   $s_metaInfo, $s_vertexBase, SUP_VBASE_AMP_META_BASE/4
 
-LsubgroupLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\(): 
+LsubgroupLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
   ldz16                  $s_subgroupId, $s_metaInfo, MetaInfoSubGroupEntry_id/2
   st32                   $s_metaInfo, $sp, W_AMP_METAINFO/4
   st32                   $s_rGradBase, $sp, W_AMP_RGRAD_BASE/4
@@ -163,27 +163,27 @@ LXLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
     LOAD_POSTINC           \INTYPE $mzero $mzero $s_qGradThisX $s_offXInQ
     sync                   TEXCH_SYNCZONE_LOCAL
     st32                   $s_qGradThisX, $sp, W_AMP_QGRAD_BASE/4
-    ldz16step              $s_numY, $mzero, $s_metaInfo+=, 1 
+    ldz16step              $s_numY, $mzero, $s_metaInfo+=, 1
 
 LYLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
       // The number of times to loop in blocks of 16/8 batch elements
       ld32                   $s_offZ, $sp, W_AMP_NUM_X16_BATCHES/4
       mov                    $s_yTempOffset, $mzero
-      ldz16step              $s_offYinS, $mzero, $s_metaInfo+=, 1 
+      ldz16step              $s_offYinS, $mzero, $s_metaInfo+=, 1
       mul                    $s_offYinS, $s_offYinS, $s_numZ
       LOAD_POSTINC           \INTYPE $mzero $mzero $s_sThisY $s_offYinS
       put                    $CCCSLOAD, $s_sThisY
-       
+
 LZLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
         // Need to sync because workers may  active and we touch common vertex state
         sync                   TEXCH_SYNCZONE_LOCAL
-        st32                   $s_rGradBase, $sp, W_AMP_RGRAD_BASE_BLOCK/4 
+        st32                   $s_rGradBase, $sp, W_AMP_RGRAD_BASE_BLOCK/4
         st32                   $s_yTempOffset, $sp, W_AMP_OFFSET_Z/4
         // load S into $CWEI
 .ifc \BLOCKSIZE, 16
 .ifc \INTYPE, half
 .ifc \PTYPE, half
-#if __IPU_ARCH_VERSION__ < 2 
+#if __IPU_ARCH_VERSION__ == 1
         LOAD_BLOCK16x16_HALF_IN_CWEI \PTYPE \GRADW_FN
 #else
         ld128putcs             0
@@ -218,7 +218,7 @@ LZLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
         ld128putcs             58
         ld128putcs             60
         ld128putcs             62
-#endif // __IPU_ARCH_VERSION__ < 2
+#endif // __IPU_ARCH_VERSION__ == 1
 .endif // .ifc \PTYPE, half
 
 .ifc \PTYPE, float
@@ -235,24 +235,24 @@ LZLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
         LOAD_BLOCK_8x16HALF_OR_8x8FLOAT_IN_CWEI \INTYPE 0
 .endif // .ifc \BLOCKSIZE, 4
         runall                 $s_wkrFunction, $sp, 0
-        setzi                  $s_wkrFunction, \GRADW_FN\()_retained_zOff 
+        setzi                  $s_wkrFunction, \GRADW_FN\()_retained_zOff
 .ifc \INTYPE, float
         add                    $s_yTempOffset, $s_yTempOffset, \BLOCKSIZE * BLOCKSIZE_Z_FLOAT * SIZEOF_FLOAT
 .else
         add                    $s_yTempOffset, $s_yTempOffset, \BLOCKSIZE * BLOCKSIZE_Z_HALF * SIZEOF_HALF
 .endif
         brnzdec                $s_offZ, LZLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\()
-        
+
       ld32                   $s_sThisY, $s_vertexBase, SUP_VBASE_AMP_S_BASE/4
-      setzi                  $s_wkrFunction, \GRADW_FN\()_retained 
+      setzi                  $s_wkrFunction, \GRADW_FN\()_retained
       INCR_PTR               \PTYPE $s_rGradBase \BLOCKSIZE*\BLOCKSIZE
       brnzdec                $s_numY, LYLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\()
-    
+
     ld32                   $s_qGradThisX, $s_vertexBase, SUP_VBASE_AMP_QGRAD_BASE/4
     ldz16step              $s_offXInQ, $mzero, $s_metaInfo+=, 1
     mul                    $s_offXInQ, $s_offXInQ, $s_numZ
     brnzdec                $s_numX, LXLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\()
-  
+
 LnextSubgroup_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
   ld32                   $s_rGradBase, $sp, W_AMP_RGRAD_BASE/4
   // load pointers to be updated for the next subgroup
@@ -266,7 +266,7 @@ LnextSubgroup_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
   ldz16step              $mzero, $mzero, $s_metaInfo+=, $s_offsetToNextSubgroup
   LOAD_POSTINC           \PTYPE $mzero $mzero $s_rGradBase $s_subgroupSparseElems
   bri                    LsubgroupLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\()
-  
+
 LendMetaInfoLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
 ld32                   $m9, $sp, STACK_SIZE_AMP/4
 ld32                   $m10, $sp, STACK_SIZE_AMP/4 + 1
