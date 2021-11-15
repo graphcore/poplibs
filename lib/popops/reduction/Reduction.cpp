@@ -8,6 +8,7 @@
 #include "ReductionStages.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Tracepoint.hpp"
+#include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poputil/OptionParsing.hpp"
 #include <poplibs_support/Compiler.hpp>
@@ -479,16 +480,21 @@ static ReductionAnalysis analyzeReduction(std::vector<size_t> const &dims,
     numInputElements *= dim;
   }
 
-  // If we have one, check that the output tensor has the right shape.
-  if (out && out.get().shape() != outputShape) {
-    std::stringstream s;
-    s << "Dimension mismatch in output. Input shape: ";
-    printContainer(in.shape(), s);
-    s << " Output shape: ";
-    printContainer(out.get().shape(), s);
-    s << " Reduced dimensions: ";
-    printContainer(dims, s);
-    throw poputil::poplibs_error(s.str());
+  if (out) {
+    const auto shape_for_validation =
+        removeSingletonDimensions(out.get().shape());
+    const auto reference_shape = removeSingletonDimensions(outputShape);
+
+    if (shape_for_validation != reference_shape) {
+      std::stringstream s;
+      s << "Dimension mismatch in output. Input shape: ";
+      printContainer(in.shape(), s);
+      s << " Output shape: ";
+      printContainer(out.get().shape(), s);
+      s << " Reduced dimensions: ";
+      printContainer(dims, s);
+      throw poputil::poplibs_error(s.str());
+    }
   }
 
   return {canReduceWithMap, reducedDims, outputShape, numOutputElements,

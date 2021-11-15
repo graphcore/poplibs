@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <numeric>
+#include <type_traits>
 #include <vector>
 
 template <class T> inline T product(const std::vector<T> &v) {
@@ -32,6 +33,17 @@ std::vector<To> vectorConvert(const std::vector<From> &in) {
   out.reserve(in.size());
   for (const auto &x : in) {
     out.emplace_back(x);
+  }
+  return out;
+}
+
+template <class T>
+std::vector<T> removeSingletonDimensions(const std::vector<T> &v) {
+  static_assert(std::is_integral<T>::value, "Integral required.");
+  std::vector<T> out;
+  for (auto e : v) {
+    if (e != 1)
+      out.emplace_back(e);
   }
   return out;
 }
