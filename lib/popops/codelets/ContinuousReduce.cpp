@@ -95,19 +95,27 @@ template class ContinuousReduce<popops::ReduceMul, int, int, false>;
 template class ContinuousReduce<popops::ReduceMax, float, float, true>;
 template class ContinuousReduce<popops::ReduceMax, half, half, true>;
 template class ContinuousReduce<popops::ReduceMax, int, int, true>;
+template class ContinuousReduce<popops::ReduceMax, unsigned int, unsigned int,
+                                true>;
 
 template class ContinuousReduce<popops::ReduceMax, float, float, false>;
 template class ContinuousReduce<popops::ReduceMax, half, half, false>;
 template class ContinuousReduce<popops::ReduceMax, int, int, false>;
+template class ContinuousReduce<popops::ReduceMax, unsigned int, unsigned int,
+                                false>;
 
 // Operation: ReduceMin
 template class ContinuousReduce<popops::ReduceMin, float, float, true>;
 template class ContinuousReduce<popops::ReduceMin, half, half, true>;
 template class ContinuousReduce<popops::ReduceMin, int, int, true>;
+template class ContinuousReduce<popops::ReduceMin, unsigned int, unsigned int,
+                                true>;
 
 template class ContinuousReduce<popops::ReduceMin, float, float, false>;
 template class ContinuousReduce<popops::ReduceMin, half, half, false>;
 template class ContinuousReduce<popops::ReduceMin, int, int, false>;
+template class ContinuousReduce<popops::ReduceMin, unsigned int, unsigned int,
+                                false>;
 
 // Operation: ReduceAnd
 template class ContinuousReduce<popops::ReduceAnd, bool, bool, true>;

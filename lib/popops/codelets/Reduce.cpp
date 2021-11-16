@@ -685,6 +685,17 @@ template class Reduce<popops::ReduceMax, int, int, true,
 template class Reduce<popops::ReduceMax, int, int, true,
                       ReductionSpecialisation::STRIDED_REDUCE_OUTER>;
 
+template class Reduce<popops::ReduceMax, unsigned, unsigned, true,
+                      ReductionSpecialisation::DEFAULT>;
+template class Reduce<popops::ReduceMax, unsigned, unsigned, true,
+                      ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class Reduce<popops::ReduceMax, unsigned, unsigned, true,
+                      ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT>;
+template class Reduce<popops::ReduceMax, unsigned, unsigned, true,
+                      ReductionSpecialisation::STRIDED_REDUCE>;
+template class Reduce<popops::ReduceMax, unsigned, unsigned, true,
+                      ReductionSpecialisation::STRIDED_REDUCE_OUTER>;
+
 template class Reduce<popops::ReduceMax, float, float, false,
                       ReductionSpecialisation::DEFAULT>;
 template class Reduce<popops::ReduceMax, float, float, false,
@@ -718,6 +729,16 @@ template class Reduce<popops::ReduceMax, int, int, false,
 template class Reduce<popops::ReduceMax, int, int, false,
                       ReductionSpecialisation::STRIDED_REDUCE_OUTER>;
 
+template class Reduce<popops::ReduceMax, unsigned int, unsigned int, false,
+                      ReductionSpecialisation::DEFAULT>;
+template class Reduce<popops::ReduceMax, unsigned int, unsigned int, false,
+                      ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class Reduce<popops::ReduceMax, unsigned int, unsigned int, false,
+                      ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT>;
+template class Reduce<popops::ReduceMax, unsigned int, unsigned int, false,
+                      ReductionSpecialisation::STRIDED_REDUCE>;
+template class Reduce<popops::ReduceMax, unsigned int, unsigned int, false,
+                      ReductionSpecialisation::STRIDED_REDUCE_OUTER>;
 // Operation: ReduceMin
 template class Reduce<popops::ReduceMin, float, float, true,
                       ReductionSpecialisation::DEFAULT>;
@@ -752,6 +773,17 @@ template class Reduce<popops::ReduceMin, int, int, true,
 template class Reduce<popops::ReduceMin, int, int, true,
                       ReductionSpecialisation::STRIDED_REDUCE_OUTER>;
 
+template class Reduce<popops::ReduceMin, unsigned, unsigned, true,
+                      ReductionSpecialisation::DEFAULT>;
+template class Reduce<popops::ReduceMin, unsigned, unsigned, true,
+                      ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class Reduce<popops::ReduceMin, unsigned, unsigned, true,
+                      ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT>;
+template class Reduce<popops::ReduceMin, unsigned, unsigned, true,
+                      ReductionSpecialisation::STRIDED_REDUCE>;
+template class Reduce<popops::ReduceMin, unsigned, unsigned, true,
+                      ReductionSpecialisation::STRIDED_REDUCE_OUTER>;
+
 template class Reduce<popops::ReduceMin, float, float, false,
                       ReductionSpecialisation::DEFAULT>;
 template class Reduce<popops::ReduceMin, float, float, false,
@@ -783,6 +815,17 @@ template class Reduce<popops::ReduceMin, int, int, false,
 template class Reduce<popops::ReduceMin, int, int, false,
                       ReductionSpecialisation::STRIDED_REDUCE>;
 template class Reduce<popops::ReduceMin, int, int, false,
+                      ReductionSpecialisation::STRIDED_REDUCE_OUTER>;
+
+template class Reduce<popops::ReduceMin, unsigned, unsigned, false,
+                      ReductionSpecialisation::DEFAULT>;
+template class Reduce<popops::ReduceMin, unsigned, unsigned, false,
+                      ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class Reduce<popops::ReduceMin, unsigned, unsigned, false,
+                      ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT>;
+template class Reduce<popops::ReduceMin, unsigned, unsigned, false,
+                      ReductionSpecialisation::STRIDED_REDUCE>;
+template class Reduce<popops::ReduceMin, unsigned, unsigned, false,
                       ReductionSpecialisation::STRIDED_REDUCE_OUTER>;
 
 // Operation: ReduceAnd

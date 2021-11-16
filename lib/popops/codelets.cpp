@@ -12,19 +12,20 @@ void addReduceCodelets(poplar::Graph &graph) {
 
   typedef std::vector<std::pair<poplar::Type, poplar::Type>> type_pairs;
 
-  type_pairs fullTypes = {
+  const type_pairs fullTypes = {
       {poplar::FLOAT, poplar::FLOAT}, {poplar::HALF, poplar::FLOAT},
       {poplar::FLOAT, poplar::HALF},  {poplar::HALF, poplar::HALF},
       {poplar::INT, poplar::INT},
   };
 
-  type_pairs equalTypes = {
+  const type_pairs minMaxTypes = {
       {poplar::FLOAT, poplar::FLOAT},
       {poplar::HALF, poplar::HALF},
       {poplar::INT, poplar::INT},
+      {poplar::UNSIGNED_INT, poplar::UNSIGNED_INT},
   };
 
-  type_pairs fpTypes = {
+  const type_pairs fpTypes = {
       {poplar::FLOAT, poplar::FLOAT},
       {poplar::HALF, poplar::HALF},
       {poplar::FLOAT, poplar::HALF},
@@ -69,6 +70,13 @@ void addReduceCodelets(poplar::Graph &graph) {
               ReductionSpecialisation::STRIDED_REDUCE,
               ReductionSpecialisation::STRIDED_REDUCE_OUTER,
               ReductionSpecialisation::ALL_REGIONS_CONTINUOUS}) {
+          if (p.first == poplar::UNSIGNED_INT &&
+              (operation == popops::Operation::MIN ||
+               operation == popops::Operation::MAX)) {
+            // Scaled Min/Max vertices aren't instantiated as there is no known
+            // use case.
+            continue;
+          }
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(
               opName, p.first, p.second, isUpdate, specialisation, true);
@@ -85,8 +93,8 @@ void addReduceCodelets(poplar::Graph &graph) {
   registerReduceCycleEstimators(fullTypes, popops::Operation::SQUARE_ADD);
   registerReduceCycleEstimators(fpTypes, popops::Operation::LOG_ADD);
   registerReduceCycleEstimators(fullTypes, popops::Operation::MUL);
-  registerReduceCycleEstimators(equalTypes, popops::Operation::MAX);
-  registerReduceCycleEstimators(equalTypes, popops::Operation::MIN);
+  registerReduceCycleEstimators(minMaxTypes, popops::Operation::MAX);
+  registerReduceCycleEstimators(minMaxTypes, popops::Operation::MIN);
   registerReduceCycleEstimators(boolTypes, popops::Operation::LOGICAL_AND);
   registerReduceCycleEstimators(boolTypes, popops::Operation::LOGICAL_OR);
 }
