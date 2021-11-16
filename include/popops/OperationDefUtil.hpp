@@ -8,7 +8,6 @@
 #ifndef popops_OperationDefUtil_hpp
 #define popops_OperationDefUtil_hpp
 
-#include <poplibs_support/Compiler.hpp>
 #include <popops/Operation.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
@@ -58,7 +57,7 @@ template <> struct VertexTemplateToString<popops::Operation> {
     case popops::Operation::LOG_ADD:
       return "popops::Operation::LOG_ADD";
     }
-    POPLIB_UNREACHABLE();
+    throw poputil::poplibs_error("Unsupported operation type");
   }
 };
 

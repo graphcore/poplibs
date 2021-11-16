@@ -9,7 +9,7 @@ endif()
 foreach(compiler ${COMPILERS})
   add_test(
     NAME ApiCppVersionTest-${compiler}
-    COMMAND ${compiler} -std=c++11 -Wpedantic -Werror ${TEST_CXXFLAGS}
+    COMMAND ${compiler} -std=c++11 -Wall -Wextra -pedantic -Werror ${TEST_CXXFLAGS}
             ${CMAKE_CURRENT_SOURCE_DIR}/ApiCppVersionTest.cpp -lpoplar -lpopops
   )
 endforeach()

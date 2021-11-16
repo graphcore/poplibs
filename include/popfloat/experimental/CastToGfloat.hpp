@@ -325,25 +325,25 @@ public:
 
     RoundConfig(GfloatCastOptions castOptions, poplar::Type calculationType);
 
-    const popfloat::experimental::RoundType getRoundMode() const {
+    popfloat::experimental::RoundType getRoundMode() const {
       return roundModeType;
     }
 
-    const unsigned getNumSRBits() const { return numSRBits; }
+    unsigned getNumSRBits() const { return numSRBits; }
 
-    const popfloat::experimental::SRDensityType getSRNoiseDensity() const {
+    popfloat::experimental::SRDensityType getSRNoiseDensity() const {
       return srNoiseDensity;
     }
     std::vector<unsigned> getRoundingParams() const { return roundingParams; }
     std::vector<unsigned> getNoiseParams() const { return noiseParams; }
-    const unsigned getDensityParam() const { return densityParam; }
+    unsigned getDensityParam() const { return densityParam; }
 
     float getBernoulliProbability() const { return bernoulliProb; }
 
-    const float getSRNoiseOffset() const { return srNoiseOffset; }
-    const float getSRNoiseScale() const { return srNoiseScale; }
-    const float getSRNoiseMax() const { return srNoiseMax; }
-    const float getSRNoiseMin() const { return srNoiseMin; }
+    float getSRNoiseOffset() const { return srNoiseOffset; }
+    float getSRNoiseScale() const { return srNoiseScale; }
+    float getSRNoiseMax() const { return srNoiseMax; }
+    float getSRNoiseMin() const { return srNoiseMin; }
 
     std::vector<unsigned> getSRBitMask() const { return srBitMask; }
 
@@ -552,13 +552,13 @@ public:
                          poplar::Type calculationType,
                          poplar::Type storageType);
 
-    const popfloat::experimental::RoundType getRoundMode() const {
+    popfloat::experimental::RoundType getRoundMode() const {
       return roundConfig.getRoundMode();
     }
 
-    const unsigned getNumSRBits() const { return roundConfig.getNumSRBits(); }
+    unsigned getNumSRBits() const { return roundConfig.getNumSRBits(); }
 
-    const popfloat::experimental::SRDensityType getSRNoiseDensity() const {
+    popfloat::experimental::SRDensityType getSRNoiseDensity() const {
       return roundConfig.getSRNoiseDensity();
     }
 
@@ -566,36 +566,30 @@ public:
       return roundConfig.getNoiseParams();
     }
 
-    const unsigned getDensityParam() const {
-      return roundConfig.getDensityParam();
-    }
+    unsigned getDensityParam() const { return roundConfig.getDensityParam(); }
 
     float getBernoulliProbability() const {
       return roundConfig.getBernoulliProbability();
     }
 
-    const float getSRNoiseOffset() const {
-      return roundConfig.getSRNoiseOffset();
-    }
+    float getSRNoiseOffset() const { return roundConfig.getSRNoiseOffset(); }
 
-    const float getSRNoiseScale() const {
-      return roundConfig.getSRNoiseScale();
-    }
+    float getSRNoiseScale() const { return roundConfig.getSRNoiseScale(); }
 
-    const float getSRNoiseMax() const { return roundConfig.getSRNoiseMax(); }
+    float getSRNoiseMax() const { return roundConfig.getSRNoiseMax(); }
 
-    const float getSRNoiseMin() const { return roundConfig.getSRNoiseMin(); }
+    float getSRNoiseMin() const { return roundConfig.getSRNoiseMin(); }
 
     std::vector<unsigned> getSRBitMask() const {
       return roundConfig.getSRBitMask();
     }
 
-    const bool isNanooModeEnabled() const { return enableNanooMode; }
+    bool isNanooModeEnabled() const { return enableNanooMode; }
 
     std::vector<unsigned> getCastParams() const { return castParams; }
 
-    const poplar::Type getCalculationType() const { return calculationType; }
-    const poplar::Type getStorageType() const { return storageType; }
+    poplar::Type getCalculationType() const { return calculationType; }
+    poplar::Type getStorageType() const { return storageType; }
 
     bool inPlaceOp(poplar::Type inType) const {
       return (inType == storageType);
@@ -605,7 +599,7 @@ public:
       return floatFormatType;
     }
 
-    const bool getStoreAsNative() const { return storeAsNative; }
+    bool getStoreAsNative() const { return storeAsNative; }
 
     std::vector<unsigned> getRoundingParams() const {
       return roundConfig.getRoundingParams();
@@ -1016,7 +1010,7 @@ public:
    *
    * \return poplar::Type
    */
-  const poplar::Type getGFStorageType() const {
+  poplar::Type getGFStorageType() const {
     return nativeToGFCastCfg.getStorageType();
   }
 
@@ -1024,7 +1018,7 @@ public:
    *
    * \return poplar::Type
    */
-  const poplar::Type getCalculationType() const {
+  poplar::Type getCalculationType() const {
     return nativeToGFCastCfg.getCalculationType();
   }
 
@@ -1032,7 +1026,7 @@ public:
    *
    * \return poplar::Type
    */
-  const poplar::Type getNativeStorageType() const {
+  poplar::Type getNativeStorageType() const {
     return gfToNativeCastCfg.getStorageType();
   }
 
@@ -1040,27 +1034,25 @@ public:
    *
    * \return FormatConfig
    */
-  const FormatConfig getFormatConfig() const { return formatCfg; }
+  FormatConfig getFormatConfig() const { return formatCfg; }
 
   /** Get nativeToGFCastCfg
    *
    * \return CastConfig
    */
-  const CastConfig getNativeToGFConfig() const { return nativeToGFCastCfg; }
+  CastConfig getNativeToGFConfig() const { return nativeToGFCastCfg; }
 
   /** Get gfToNativeCastCfg
    *
    * \return CastConfig
    */
-  const CastConfig getGFToNativeConfig() const { return gfToNativeCastCfg; }
+  CastConfig getGFToNativeConfig() const { return gfToNativeCastCfg; }
 
   /** Get nativeToGFCastCfg's storeAsNative member
    *
    * \return bool
    */
-  const bool getStoreAsNative() const {
-    return nativeToGFCastCfg.getStoreAsNative();
-  }
+  bool getStoreAsNative() const { return nativeToGFCastCfg.getStoreAsNative(); }
 
   /** Get Cast op params tensor
    *
@@ -1081,7 +1073,7 @@ public:
     gfParams.reset(gfParams_);
   }
 
-  const bool isNanooModeEnabled() const {
+  bool isNanooModeEnabled() const {
     return nativeToGFCastCfg.isNanooModeEnabled();
   }
 
@@ -1089,11 +1081,11 @@ public:
     return nativeToGFCastCfg.getSRBitMask();
   }
 
-  const popfloat::experimental::RoundType getRoundMode() const {
+  popfloat::experimental::RoundType getRoundMode() const {
     return nativeToGFCastCfg.getRoundMode();
   }
 
-  const bool inPlaceOp(poplar::Type outType) const {
+  bool inPlaceOp(poplar::Type outType) const {
     return nativeToGFCastCfg.inPlaceOp(outType);
   }
 

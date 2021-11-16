@@ -45,6 +45,8 @@ struct SparsityParams {
   SparsityParams(SparsityType type_ = SparsityType::Element,
                  SparsityStructure structure_ = SparsityStructure::Unstructured,
                  std::array<std::size_t, 2> blockDimensions_ = {1, 1}) {
+    // This parameter is redundant and should be removed from the constructor.
+    (void)type_;
     type = blockDimensions_[0] * blockDimensions_[1] == 1
                ? SparsityType::Element
                : SparsityType::Block;

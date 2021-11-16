@@ -1169,15 +1169,14 @@ inline poplar::Tensor isFinite(poplar::Graph &graph, const poplar::Tensor &A,
  * @{
  */
 template <typename constType>
-inline void checkTypes(poplar::Type elementType, constType constant) {
+inline void checkTypes(poplar::Type elementType, constType) {
   if (elementType != poplar::equivalent_device_type<constType>().value) {
     throw std::runtime_error("Type mismatch between Binary op Tensor "
                              "and constant");
   }
 }
 
-template <>
-inline void checkTypes<float>(poplar::Type elementType, float constant) {
+template <> inline void checkTypes<float>(poplar::Type elementType, float) {
   if (elementType != poplar::FLOAT && elementType != poplar::HALF) {
     throw std::runtime_error("Type mismatch between Binary op Tensor "
                              "and constant");
@@ -1185,8 +1184,7 @@ inline void checkTypes<float>(poplar::Type elementType, float constant) {
   return;
 }
 
-template <>
-inline void checkTypes<double>(poplar::Type elementType, double constant) {
+template <> inline void checkTypes<double>(poplar::Type elementType, double) {
   if (elementType != poplar::FLOAT && elementType != poplar::HALF) {
     throw std::runtime_error("Type mismatch between Binary op Tensor "
                              "and constant");
