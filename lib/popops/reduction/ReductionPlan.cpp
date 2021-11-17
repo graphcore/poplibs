@@ -200,57 +200,35 @@ bool shouldReduceAtDestination(const Target &target,
 }
 
 boost::icl::split_interval_map<std::size_t, std::size_t>
-calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
-               std::size_t minPieceCols, std::size_t minPieceRows,
-               std::size_t minPieceSize, unsigned numPieces) {
-
-  // Calculate the pieces we should split this into. Basically, first we get
-  // the entire set of output regions from every tile (preserving splits).
-  //
-  // For example if we have the following regions on each tile:
-  //
-  // Tile                Output regions on tile
-  //
-  //  0    |-------|      |-------------------|  |------|
-  //  1    |-------|    |---------------------|  |------------|
-  //  2    |--------------------------------------------------|
-  //  3            |----------------|
-  //
-  // Then allOutputRegionsSplitIcl is
-  //
-  //       |-------|----|-|---------|---------|--|------|-----|
-
-  // Get the entire set of output regions from every tile.
-  boost::icl::split_interval_set<std::size_t> allOutputRegionsSplitIcl;
-  for (auto tile : ir.tiles()) {
-    allOutputRegionsSplitIcl += ir.outputRegions(tile);
-  }
+calculateSplit(const std::vector<OutputPartialsDesc> &partials,
+               std::size_t grainSize, std::size_t minPieceCols,
+               std::size_t minPieceRows, std::size_t minPieceSize,
+               unsigned numPieces) {
 
   // find minimum non-split output region to decide whether to increase
   // minimum number of columns in a piece.
-  typedef decltype(allOutputRegionsSplitIcl)::interval_type IntervalType;
-  auto getIntervalSize = [](const IntervalType &it) {
-    return it.upper() - it.lower();
-  };
-  const auto minInterval = *std::min_element(
-      allOutputRegionsSplitIcl.begin(), allOutputRegionsSplitIcl.end(),
-      [&](const IntervalType &a, const IntervalType &b) {
-        return getIntervalSize(a) < getIntervalSize(b);
-      });
-  auto minIntervalSize = getIntervalSize(minInterval);
+  const auto minIntervalSize =
+      std::min_element(partials.begin(), partials.end(),
+                       [&](const auto &a, const auto &b) {
+                         return a.partials.width < b.partials.width;
+                       })
+          ->partials.width;
 
   // Work out the total amount of data. This is the total number of partials
   // in the reduction.
   std::size_t totalDataSize = 0;
-  for (auto tile : ir.tiles())
-    totalDataSize += ir.data(tile).numElements();
+  std::size_t totalOutputSize =
+      partials.back().outputOffset + partials.back().partials.width;
+  for (const auto &entry : partials) {
+    totalDataSize += entry.partials.numElements();
+  }
 
   // Find the average partials per output in this intermediate reduction stage.
   // As this is the internediate stage, this gives the average number of
   // tiles which have partials to contribute to each output. We use the square
   // root of the average number of tiles as the number of output partials.
   const auto averageSplit =
-      static_cast<std::size_t>(std::sqrt(totalDataSize / ir.outputSize()));
+      static_cast<std::size_t>(std::sqrt(totalDataSize / totalOutputSize));
 
   // Use a different minimum columns only if the minimum interval size allows
   // one to be used. This has the effect of increasing the number of reductions
@@ -266,15 +244,16 @@ calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
         minPieceCols, minPieceColsToUse);
   }
 
-  // We should have an output for every element in the final tensor.
-  assert(allOutputRegionsSplitIcl.size() == ir.outputSize());
-
-  auto allOutputRegions = splitIntervalSetToPoplar(allOutputRegionsSplitIcl);
+  std::vector<poplar::Interval> splitOutputRegions;
+  splitOutputRegions.reserve(partials.size());
+  for (const auto &[outputOffset, p] : partials) {
+    splitOutputRegions.emplace_back(outputOffset, outputOffset + p.width);
+  }
 
   // Add extra splits so that we have at least numPieces pieces.
   // splitRegions is used here rather than splitRegionsBetweenWorkers
   // because the former never merges regions, and the latter might merge them.
-  auto split = poputil::splitRegions(allOutputRegions, grainSize, numPieces,
+  auto split = poputil::splitRegions(splitOutputRegions, grainSize, numPieces,
                                      minPieceColsToUse);
 
   // Finally if that is not enough, work out the total amount of data, divide
@@ -287,17 +266,20 @@ calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
     idealPieceSize = 1;
 
   // Work out the answer.
-  boost::icl::split_interval_map<std::size_t, std::size_t> splitMap;
-
-  const auto &tilesForOutput = ir.getTilesForOutput();
+  boost::icl::split_interval_map<std::size_t, std::size_t> splits;
 
   // splitRegions() decides a partition (split is a vector of vectors) but
   // we ignore than and just loop over every region, ignoring which partition
   // it is in.
   for (const auto &partition : split) {
     for (const auto &re : partition) {
-      auto numPartials = tilesForOutput(re.begin()).size();
-      auto numCols = re.size();
+      auto it = std::prev(
+          std::upper_bound(partials.begin(), partials.end(), re.begin(),
+                           [&](const auto val, const auto &entry) {
+                             return val < entry.outputOffset;
+                           }));
+      const auto numPartials = it->partials.depth;
+      const auto numCols = re.size();
 
       // TODO: T12969 This would be more elegant if we work out how many rows
       // each piece is rather than how many there are.
@@ -317,14 +299,13 @@ calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
       if (N < 1)
         N = 1;
 
-      auto iclRe =
-          boost::icl::interval<std::size_t>::right_open(re.begin(), re.end());
-
-      splitMap.insert(std::make_pair(iclRe, N));
+      splits += std::make_pair(
+          boost::icl::interval<std::size_t>::right_open(re.begin(), re.end()),
+          N);
     }
   }
 
-  return splitMap;
+  return splits;
 }
 
 NextStep calculateNextStep(const Target &target,

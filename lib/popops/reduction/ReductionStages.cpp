@@ -9,6 +9,7 @@
 #include <fstream>
 #include <numeric>
 
+#include <boost/container/flat_map.hpp>
 #include <boost/functional/hash.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/optional.hpp>
@@ -331,6 +332,10 @@ IntermediatePartials inputToIntermediateNoExchange(
 template <typename T> struct DebugRange {
   T min;
   T max;
+  void update(T value) {
+    min = std::min(min, value);
+    max = std::max(max, value);
+  }
 };
 
 // Cases where we exchange a single half to reduce cause a problem can be
@@ -347,6 +352,172 @@ bool reductionBenefitsFromPreExchangeCast(const IntermediatePartials &ipIn) {
         return ipIn.data(tile).numElements() == 1;
       });
   return atLeastOnePartialHasWidthOne;
+}
+
+// We use a slightly different intermediate representation for the partials
+// in this stage from IntermediatePartials to allow us to merge output regions
+// which have partials coming from different sets of tiles. The
+// IntermediatePartials type doesn't allow us to represent this because the
+// number of partials for an output region is tied to the tiles on which
+// those partials are mapped.
+//
+// TODO: Use the same type for all Intermediate representations of partials.
+//
+class IntermediateIntermediatePartials {
+public:
+  class Partials {
+    std::size_t outputOffset_;
+    Tensor t;
+
+  public:
+    Partials(std::size_t outputOffset, Tensor t)
+        : outputOffset_(outputOffset), t(std::move(t)) {
+      assert(this->t.rank() == 2);
+    }
+    std::size_t outputOffset() const { return outputOffset_; }
+    std::size_t depth() const { return t.dim(0); }
+    std::size_t width() const { return t.dim(1); }
+    std::size_t numElements() const { return t.numElements(); }
+    Tensor get(std::size_t depthIdx,
+               boost::icl::interval<std::size_t>::type outputRegion) const {
+      assert(outputRegion.lower() >= outputOffset_ &&
+             outputRegion.upper() - outputOffset_ <= width());
+      return t.slice(outputRegion.lower() - outputOffset_,
+                     outputRegion.upper() - outputOffset_, 1)[depthIdx];
+    }
+    Tensor &&extract() { return std::move(t); }
+    void set(Tensor tt) {
+      assert(tt.rank() == 2);
+      t = std::move(tt);
+    }
+  };
+
+private:
+  std::vector<Partials> p;
+
+public:
+  void reserve(std::size_t n) { p.reserve(n); }
+  // Add a new partial to this map. Partials must be added in order
+  // of ascending output offset and must form a continuous range starting
+  // from zero. Asserts are added to verify this.
+  void push(std::size_t outputOffset, Tensor t) {
+    assert((p.empty() && outputOffset == 0) ||
+           (p.back().outputOffset() + p.back().width() == outputOffset));
+    p.emplace_back(Partials{outputOffset, std::move(t)});
+  }
+  decltype(p)::const_iterator begin() const { return p.begin(); }
+  decltype(p)::const_iterator end() const { return p.end(); }
+  std::size_t size() const { return p.size(); }
+
+  const Partials &getPartialsAtOutputOffset(std::size_t offset) const {
+    assert(!p.empty());
+    return *std::prev(std::upper_bound(p.begin(), p.end(), offset,
+                                       [](const auto val, const auto &entry) {
+                                         return val < entry.outputOffset();
+                                       }));
+  }
+
+  std::vector<Partials> &&extract() { return std::move(p); }
+  void set(std::vector<Partials> v) {
+    // Validate that our conditions hold for the new partials.
+    if (v.empty()) {
+      std::vector<Partials> tmp;
+      std::swap(p, tmp);
+      return;
+    }
+    assert(v[0].outputOffset() == 0);
+    for (std::size_t i = 1; i != v.size(); ++i) {
+      assert(v[i].outputOffset() == v[i - 1].outputOffset() + v[i - 1].width());
+    }
+    p = std::move(v);
+  }
+};
+
+/** This pass takes the given partials and merges splits of the output region
+ *  that split the given grain size (set to be the minimum grain size for
+ *  implementing the reduction on-tile efficiently).
+ *
+ *  e.g. If we have some input partials like:
+ *
+ *                    |--------|
+ *       |------|     |        |--------|
+ *       |      |---|-|        |        |
+ *       |      |   | |        |        |
+ *       |------|---|-|--------|--------|
+ *
+ *  Here the y-axis gives the depth of the partials for each output region
+ *  and the x-axis gives the output region to which those partials correspond.
+ *
+ *  This pass groups together partials when it means the resulting output
+ *  region will be a multiple of the given grain size as these splits are
+ *  respected when dividing up the reductions to be done on each tile. Grouping
+ *  together partials can only be done when their depth matches.
+ *
+ *  The idea is that the on-tile reductions resulting from the split of these
+ *  output regions will be more efficient if each region can always be a
+ *  multiple of the grain size. Because each partial for each output region
+ *  must be gathered via exchange to a single tile, we reason that the cost
+ *  in terms of exchange code of gathering output regions together should
+ *  be no more than it would have been when separate reduction vertices were
+ *  processing each output region separately.
+ *
+ *  There are some exceptions for merging output regions when the size of
+ *  the partial elements divides exchange atom size to potentially avoid
+ *  problems gathering together odd sized regions via the exchange but this is
+ *  largely speculative.
+ *
+ *  For the example above grain size that would be split by the divide between
+ *  the 2nd and 3rd output regions, the resulting partials would be a series of
+ *  partials tensors like:
+ *
+ *                   |--------|
+ *       |------|    |        |--------|
+ *       |      |----|        |        |
+ *       |      |    |        |        |
+ *       |------|----|--------|--------|
+ *
+ */
+static void mergeOutputRegionsThatSplitGrainSize(
+    IntermediateIntermediatePartials &partials_, const Target &target,
+    const Type &partialsType, std::size_t grainSize) {
+  auto partials = partials_.extract();
+  assert(!partials.empty());
+  auto outIt = partials.begin();
+  auto inIt = std::next(outIt);
+  const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
+  const auto partialsTypeSize = target.getTypeSize(partialsType);
+  while (inIt != partials.end()) {
+    const auto splitOffset = inIt->outputOffset();
+    const auto lastNumPartials = outIt->depth();
+    const auto numPartials = inIt->depth();
+    const bool gathersSubwordRegions =
+        splitOffset * partialsTypeSize % exchangeBytesPerCycle != 0;
+    if (splitOffset % grainSize != 0 && !gathersSubwordRegions &&
+        lastNumPartials == numPartials) {
+      // Concat together the partials for the 2 output intervals,
+      // erase the 2 entries in the list and replace them with
+      // one new entry combining the 2.
+      outIt->set(concat(outIt->extract(), inIt->extract(), 1));
+      ++inIt;
+    } else {
+      ++outIt;
+      *outIt = *inIt;
+      ++inIt;
+    }
+  }
+  partials.erase(std::next(outIt), partials.end());
+  partials_.set(std::move(partials));
+}
+
+static std::vector<OutputPartialsDesc>
+getOutputPartialsDescs(const IntermediateIntermediatePartials &partials) {
+  std::vector<OutputPartialsDesc> descs;
+  descs.reserve(partials.size());
+  for (const auto &entry : partials) {
+    descs.emplace_back(entry.outputOffset(), OutputPartialsDesc::PartialsDesc{
+                                                 entry.depth(), entry.width()});
+  }
+  return descs;
 }
 
 IntermediatePartials intermediateToIntermediate(
@@ -383,136 +554,152 @@ IntermediatePartials intermediateToIntermediate(
     throw poputil::poplibs_error("Zero vector width for type " +
                                  inType.toString());
 
-  // If each piece is really small the overhead of having extra reduction
-  // stages, and exchange and everything outweighs the savings.
-  //
-  // Optimisation: reductionFactorThresholdToAddMoreStages was found empirically
-  // and not tested a lot.
-
-  auto splitMapIcl = calculateSplit(ipIn, grainSize, grainSize, 2,
-                                    reductionFactorThresholdToAddMoreStages,
-                                    target.getNumTiles());
-
-  std::vector<boost::icl::interval<std::size_t>::type> allOutputRegionsSplit;
-  allOutputRegionsSplit.reserve(splitMapIcl.iterative_size());
-  for (const auto &it : splitMapIcl)
-    allOutputRegionsSplit.push_back(it.first);
-
-  // 1. Find all the partials for each output region.
-  // 2. Split them up into N pieces.
-  // 3. Assign them to tiles in a round-robin way.
-
-  const auto &tilesForOutput = ipIn.getTilesForOutput();
-
-  // Just do a round-robin assignment for now.
-
-  // If we assign two blocks of the same interval to one tile then they will
-  // be merged.
-
-  struct ReductionBlock {
-    std::vector<unsigned> sourceTiles;
-  };
-
-  // The reductions for each tile.
-  struct TileReductions {
-    // Map from the interval number (index into allOutputRegionsSplit)
-    // to a list of source tiles to reduce on this tile.
-    std::map<unsigned, std::vector<unsigned>> sourceTilesForInterval;
-  };
-
-  std::vector<TileReductions> tileReductions(target.getNumTiles());
-
   // Divide a by b, rounding up.
   auto udiv = [](unsigned a, unsigned b) { return (a + b - 1) / b; };
 
-  unsigned t = startTile;
-  unsigned ival = 0;
-  // Debug variables
-  unsigned debugTiles = 0;
+  const auto &tilesForOutput = ipIn.getTilesForOutput();
+
+  // Calculate the pieces we should split this into. Basically, first we get
+  // the entire set of output regions from every tile (preserving splits).
+  //
+  // For example if we have the following regions on each tile:
+  //
+  // Tile                Output regions on tile
+  //
+  //  0    |-------|      |-------------------|  |------|
+  //  1    |-------|    |---------------------|  |------------|
+  //  2    |--------------------------------------------------|
+  //  3            |----------------|
+  //
+  // Then splitOutputRegions is
+  //
+  //       |-------|----|-|---------|---------|--|------|-----|
+  //
+  boost::icl::split_interval_set<std::size_t> splitOutputRegions;
+  for (const auto tile : ipIn.tiles()) {
+    splitOutputRegions += ipIn.outputRegions(tile);
+  }
+
+  // Create a map that gives the partials for a particular output
+  // region.
+  IntermediateIntermediatePartials partialsMap;
+  partialsMap.reserve(splitOutputRegions.size());
+  for (const auto &interval : splitOutputRegions) {
+    const auto lower = interval.lower();
+    const auto regionSize = boost::icl::length(interval);
+    const auto &sourceTiles = tilesForOutput(lower);
+    std::vector<Tensor> toConcat;
+    for (const auto tile : sourceTiles) {
+      const auto dataIdx = ipIn.dataElement(tile, lower);
+      toConcat.emplace_back(
+          ipIn.data(tile).slice(dataIdx, dataIdx + regionSize).expand({0}));
+    }
+    partialsMap.push(lower, concat(toConcat));
+  }
+
+  // Apply optimisations to the partials map.
+  mergeOutputRegionsThatSplitGrainSize(partialsMap, target, resultType,
+                                       grainSize);
+
+  // If each piece is really small the overhead of having extra reduction
+  // stages, and exchange and everything outweighs the savings.
+  //
+  // Optimisation: reductionFactorThresholdToAddMoreStages was found
+  // empirically and not tested a lot.
+
+  auto splits = calculateSplit(
+      getOutputPartialsDescs(partialsMap), grainSize, grainSize, 2,
+      reductionFactorThresholdToAddMoreStages, target.getNumTiles());
+
+  // A pair of output offset & interval of the partials depth.
+  // The output offset will exactly match an entry in the splits map.
+  struct TileReduction {
+    boost::icl::interval<std::size_t>::type outputInterval;
+    poplar::Interval partialInterval;
+  };
+  using TileReductions = std::vector<TileReduction>;
+
   DebugRange<std::size_t> debugNumPartials = {UINT_MAX, 0};
   DebugRange<unsigned> debugNclip = {UINT_MAX, 0};
   DebugRange<std::size_t> debugPartialsWidths = {UINT_MAX, 0};
 
-  for (const auto &it : splitMapIcl) {
-    const auto &sourceTiles = tilesForOutput(it.first.lower());
+  std::vector<TileReductions> tileReductions(target.getNumTiles());
+  unsigned debugTiles = 0;
+  {
+    unsigned tile = startTile;
+    auto partialIt = partialsMap.begin();
+    for (auto it = splits.begin(); it != splits.end(); ++it) {
+      const auto &[outputInterval, nSplits] = *it;
+      if (outputInterval.lower() >=
+          partialIt->outputOffset() + partialIt->width()) {
+        ++partialIt;
+      }
+      const auto numPartials = partialIt->depth();
 
-    auto numPartials = sourceTiles.size();
+      debugNumPartials.update(numPartials);
+      debugPartialsWidths.update(partialIt->width());
 
-    debugNumPartials = {std::min(debugNumPartials.min, numPartials),
-                        std::max(debugNumPartials.max, numPartials)};
-
-    auto splitCount = it.second;
-    assert(splitCount > 0);
-
-    // N is the number of rows to take for each reduction. This should be at
-    // least 2 so we actually do some reducing.
-    std::size_t N = udiv(numPartials, splitCount);
-    if (N < 2) {
-      N = 2;
+      const auto reductionFactor = std::max(2u, udiv(numPartials, nSplits));
+      // Number of reductions for this output region.
+      const auto numPartialReductions = udiv(numPartials, reductionFactor);
+      for (std::size_t i = 0; i != numPartialReductions; ++i) {
+        const auto begin = i * reductionFactor;
+        const auto end = std::min((i + 1) * reductionFactor, numPartials);
+        debugNclip.update(end - begin);
+        ++debugTiles;
+        tileReductions[tile].emplace_back(
+            TileReduction{outputInterval, poplar::Interval{begin, end}});
+        tile = (tile + 1) % target.getNumTiles();
+      }
     }
-
-    for (unsigned i = 0; i < numPartials; i += N) {
-      auto &st = tileReductions[t].sourceTilesForInterval[ival];
-
-      unsigned Nclip = std::min(N, numPartials - i);
-      debugNclip = {std::min(debugNclip.min, Nclip),
-                    std::max(debugNclip.max, Nclip)};
-
-      debugTiles++;
-      st.reserve(st.size() + Nclip);
-
-      st.insert(st.end(), sourceTiles.nth(i), sourceTiles.nth(i + Nclip));
-
-      t = (t + 1) % target.getNumTiles();
-    }
-
-    ++ival;
   }
+
   logging::popops::debug(debugNumPartials.min == debugNumPartials.max
                              ? "  Remaining reduction of {} partials"
                              : "  Remaining reduction of {} to {} partials",
                          debugNumPartials.min, debugNumPartials.max);
-
   logging::popops::debug(
       debugNclip.min == debugNclip.max
           ? "  This stage uses {} tiles, which all reduce {} partials"
           : "  This stage uses {} tiles reducing between {} and {} partials",
       debugTiles, debugNclip.min, debugNclip.max);
-
-  std::size_t csPos = css.pos();
-  unsigned debugTileCount = 0;
+  logging::popops::debug(debugPartialsWidths.min == debugPartialsWidths.max
+                             ? "  Partial width {}"
+                             : " With widths between {} and {}",
+                         debugPartialsWidths.min, debugPartialsWidths.max);
 
   // If we intend to cast partials before exchange then produce a tensor
-  // per tile, which is already cast to mirror the partials found on that tile.
+  // per tile, which is already cast to mirror the partials found on that
+  // tile.
   std::map<unsigned, Tensor> castIpIn;
   if (castComputeSet) {
-    auto partialsTiles = ipIn.tiles();
-    for (const auto tile : partialsTiles) {
-      auto floatPartials =
-          cast(graph, ipIn.data(tile), poplar::FLOAT, castComputeSet.get());
-      graph.setTileMapping(floatPartials, tile);
-      castIpIn[tile] = floatPartials;
+    auto v = partialsMap.extract();
+    for (auto &entry : v) {
+      entry.set(
+          cast(graph, entry.extract(), poplar::FLOAT, castComputeSet.get()));
     }
+    partialsMap.set(std::move(v));
   }
-  // For each output tile...
+
+  unsigned debugUsedTiles = 0;
+  std::size_t csPos = css.pos();
   for (unsigned tile = 0; tile < tileReductions.size(); ++tile) {
     auto &tr = tileReductions[tile];
-
-    if (tileReductions[tile].sourceTilesForInterval.empty()) {
+    if (tr.empty()) {
       continue;
     }
+    ++debugUsedTiles;
     logging::popops::trace("Tile {} reductions:", tile);
-    debugTileCount++;
 
-    // Work out the set of all output regions for this tile.
     boost::icl::interval_set<std::size_t> outputRegionsMergedIcl;
-    for (auto it : tr.sourceTilesForInterval) {
-      outputRegionsMergedIcl.insert(allOutputRegionsSplit[it.first]);
+    for (const auto &entry : tr) {
+      outputRegionsMergedIcl += entry.outputInterval;
     }
 
     // Add a variable to receive the results.
-    Tensor data = graph.addVariable(resultType, {outputRegionsMergedIcl.size()},
-                                    {dnai, "tile_data2"});
+    Tensor data = graph.addVariable(
+        resultType, {boost::icl::length(outputRegionsMergedIcl)},
+        {dnai, "tile_data2"});
     storeReductionResultTensors(reductionResultTensors, data);
 
     graph.setTileMapping(data, tile);
@@ -522,51 +709,36 @@ IntermediatePartials intermediateToIntermediate(
 
     // Store the tensors that we will connect up.
     std::vector<RegionReduction> reductions;
-    reductions.reserve(tr.sourceTilesForInterval.size());
+    reductions.reserve(tr.size());
 
     // For each of the regions.
-    for (const auto &it : tr.sourceTilesForInterval) {
-      auto re = allOutputRegionsSplit[it.first];
+    for (const auto [outputInterval, partialInterval] : tr) {
+      const auto outputRegionSize = boost::icl::length(outputInterval);
+      const auto &partials =
+          partialsMap.getPartialsAtOutputOffset(outputInterval.lower());
 
       // The corresponding region in the data
       RegionReduction rt;
 
-      size_t outputDataIdx = ir.dataElement(tile, re.lower());
-      size_t len = boost::icl::size(re);
-
-      // Check it is contiguous.
-      assert(ir.dataElement(tile, re.lower() + len - 1) ==
-             outputDataIdx + len - 1);
-
-      // Loop through the source tiles for this region...
+      // Loop through the partials for this region...
       IrregularPartials iPartials;
-      iPartials.data.reserve(it.second.size());
-      for (auto partialTile : it.second) {
-        size_t sourceDataIdx = ipIn.dataElement(partialTile, re.lower());
+      iPartials.data.reserve(partialInterval.size());
 
-        assert(ipIn.dataElement(partialTile, re.upper() - 1) ==
-               sourceDataIdx + boost::icl::size(re) - 1);
-
-        if (castComputeSet) {
-          iPartials.data.emplace_back(
-              castIpIn[partialTile].slice(sourceDataIdx, sourceDataIdx + len));
-        } else {
-          iPartials.data.emplace_back(
-              ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
-        }
-        rt.partials = iPartials;
+      // Calculate the current output interval relative to the start of the
+      // entry in the partials map so we can retrieve the correct partials
+      // tensor.
+      for (auto i = partialInterval.begin(); i != partialInterval.end(); ++i) {
+        iPartials.data.emplace_back(partials.get(i, outputInterval));
       }
-      logging::popops::trace(
-          "  Partials:{} Width:{} Output data index:[{}, {})", it.second.size(),
-          rt.getPartials().back().numElements(), re.lower(), re.upper());
-      debugPartialsWidths = {std::min(debugPartialsWidths.min,
-                                      rt.getPartials().back().numElements()),
-                             std::max(debugPartialsWidths.max,
-                                      rt.getPartials().back().numElements())};
+      rt.partials = iPartials;
+      logging::popops::trace("  Partials:{} Width:{} Output region:{})",
+                             partialInterval.size(), outputRegionSize,
+                             outputInterval);
 
       // Connect the output region.
-      rt.output = ir.data(tile).slice(outputDataIdx, outputDataIdx + len);
-
+      const auto outputDataIdx = ir.dataElement(tile, outputInterval.lower());
+      rt.output =
+          ir.data(tile).slice(outputDataIdx, outputDataIdx + outputRegionSize);
       reductions.push_back(rt);
     }
 
@@ -579,13 +751,7 @@ IntermediatePartials intermediateToIntermediate(
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
   }
-  logging::popops::debug(debugPartialsWidths.min == debugPartialsWidths.max
-                             ? "  Partial width {}"
-                             : " With widths between {} and {}",
-                         debugPartialsWidths.min, debugPartialsWidths.max);
-
   css.setPos(csPos);
-
   return ir;
 }
 
