@@ -172,6 +172,9 @@ struct SliceOptions {
   // Indices are sorted in increasing order
   bool indicesAreSorted = false;
 
+  // Throw an exception if any index is out of range
+  bool validateIndices = false;
+
   bool alwaysIncludeBaseRearrangementCost = true;
 };
 
@@ -236,6 +239,7 @@ std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p) {
   o << "    unslicedGrainSize=" << p.partition.unslicedGrainSize << "\n";
   o << "  useIndicesOrderingInfo="
     << (p.useIndicesOrderingInfo ? " true" : "false");
+  o << "  validateIndices=" << p.validateIndices << "\n";
   return o;
 }
 
@@ -324,7 +328,9 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
        OptionHandler::createWithBool(options.indicesAreSorted)},
       {"internal.alwaysIncludeBaseRearrangementCost",
        OptionHandler::createWithBool(
-           options.alwaysIncludeBaseRearrangementCost)}};
+           options.alwaysIncludeBaseRearrangementCost)},
+      {"validateIndices",
+       OptionHandler::createWithBool(options.validateIndices)}};
 
   for (const auto &entry : optionFlags) {
     spec.parse(entry.first, entry.second);
@@ -384,6 +390,31 @@ static unsigned linearizeSliceIndices(const std::size_t indexPartition,
   tile = tile * unslicedPartition + unslicedIdx;
 
   return tile;
+}
+
+/** Add programs to check that all indices are in-range.
+ *
+ * @param graph     The graph to update
+ * @param prog      To program to which programs are to be appended.
+ * @param indices   The indices to check
+ * @param endIndex  The number of indices which are valid
+ * @param dnai      Debug info
+ */
+static void addIndexValidation(Graph &graph, Sequence &prog, Tensor indices,
+                               unsigned endIndex, const DebugContext &dnai) {
+  auto endIndexT = graph.addConstant(indices.elementType(), {}, endIndex,
+                                     {dnai, "endIndex"});
+  graph.setTileMapping(endIndexT, 0);
+
+  // Reduce the indices to find the max
+  auto maxIndex =
+      reduce(graph, indices.flatten(), {0}, ReduceParams(Operation::MAX), prog,
+             {dnai, "getMaxIndex"});
+
+  auto anyInvalid =
+      popops::gteq(graph, maxIndex, endIndexT, prog, {dnai, "invalid"});
+
+  prog.add(AbortOnCondition(anyInvalid, {dnai, "/InvalidIndex"}));
 }
 
 /** Create vertices with matching elements in t2d and s2d
@@ -2480,11 +2511,11 @@ static void addPreRegroupProgs(Sequence &prog,
 Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                   const std::vector<std::size_t> &dims,
                   const std::vector<std::size_t> &sizes, Sequence &prog,
-                  const SlicePlan &plan, const OptionFlags &options,
+                  const SlicePlan &plan, const OptionFlags &optionFlags,
                   const poplar::DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
-      debugContext, DI_ARGS(t, offset, dims, sizes, plan, options));
+      debugContext, DI_ARGS(t, offset, dims, sizes, plan, optionFlags));
 
   // small number of slices are instantiated individually
   // large number of slices are sliced by a specialisation or in a loop
@@ -2500,7 +2531,7 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
         "multiSlice expects offset.dim(1) == dims.size(); offset.dim(1)==" +
         std::to_string(offset.dim(1)) +
         ", dims.size()== " + std::to_string(dims.size()));
-  validateParams("multiSlice", plan, options, t.shape(), offset[0], dims,
+  validateParams("multiSlice", plan, optionFlags, t.shape(), offset[0], dims,
                  sizes);
 
   // We always map the output in the same way to avoid surprising changes when
@@ -2511,12 +2542,16 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
         createSliceTensor(graph, t, dims, sizes, offset.dim(0), {di, dName});
   } else {
     sMulti = createSliceTensor(graph, t.elementType(), t.shape(), dims, sizes,
-                               offset.dim(0), plan, options, {di, dName});
+                               offset.dim(0), plan, optionFlags, {di, dName});
   }
 
   logging::popops::info("multiSlice {} -> {}, name={}, nullplan?={}", t.shape(),
                         sMulti.shape(), debugContext.getPathName(),
                         plan.getImpl().isNull);
+
+  const auto options = parseSliceOptions(optionFlags);
+  if (options.validateIndices)
+    addIndexValidation(graph, prog, offset, t.dim(0), {di, "validateIndices"});
 
   if (!plan.getImpl().isNull) {
     std::vector<Copy> preCopies;
@@ -2524,13 +2559,13 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
 
     auto [tRegroupedPre, base] =
         regroupBaseTensor(graph, preCopies, transposeCS, t, dims, sizes, plan,
-                          options, {di, dName});
+                          optionFlags, {di, dName});
 
     addPreRegroupProgs(prog, preCopies, transposeCS, tRegroupedPre, base,
                        {di, dName});
 
     multiSlicePlanned(graph, tRegroupedPre ? base : t, offset, sMulti, dims,
-                      sizes, prog, plan.getImpl(), options, {di, dName});
+                      sizes, prog, plan.getImpl(), optionFlags, {di, dName});
     di.addOutput(sMulti);
     return sMulti;
   }
@@ -2554,7 +2589,7 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiSlice", false, boost::none, graph,
                                prog, offset, t, sMulti, boost::none, dims[0],
-                               boost::none, options, {di, dName});
+                               boost::none, optionFlags, {di, dName});
     di.addOutput(sMulti);
     return sMulti;
   }
@@ -2625,7 +2660,7 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
                           const std::vector<std::size_t> &dims,
                           const std::vector<std::size_t> &sizes, Sequence &prog,
                           const SlicePlan &plan, boost::optional<Operation> op,
-                          const OptionFlags &options,
+                          const OptionFlags &optionFlags,
                           const DebugNameAndId &dnai) {
   const std::string opName = op == boost::none ? "" : asString(*op);
   const std::string multiUpdateName = "multiUpdate" + opName;
@@ -2643,7 +2678,7 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
         " expects offset.dim(1) == dims.size(); offset.dim(1)==" +
         std::to_string(offset.dim(1)) +
         ", dims.size()== " + std::to_string(dims.size()));
-  validateParams(multiUpdateName, plan, options, t.shape(), offset[0], dims,
+  validateParams(multiUpdateName, plan, optionFlags, t.shape(), offset[0], dims,
                  sizes);
 
   if (t.rank() != 2 || dims.size() != 1 || offset.rank() != 2 ||
@@ -2666,11 +2701,16 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
     vertexName = scale == boost::none ? "popops::MultiUpdateOp"
                                       : "popops::ScaledMultiUpdateOp";
   }
+  const auto options = parseSliceOptions(optionFlags);
+  if (options.validateIndices)
+    addIndexValidation(graph, prog, offset, t.dim(0),
+                       {dnai, "validateIndices"});
   if (plan.getImpl().isNull) {
     generateMultiSliceVertices(vertexName, true, op, graph, prog, offset, t,
-                               sMulti, scale, dims[0], boost::none, options,
+                               sMulti, scale, dims[0], boost::none, optionFlags,
                                {dnai, multiUpdateName});
   } else {
+
     // The input base tensor may not have a layout that is good for efficient
     // copy/exchange to the tensor layout required by the multi-update
     // operation. We therefore have to do the following steps
@@ -2691,17 +2731,17 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
 
     auto [tRegroupedPre, base] =
         regroupBaseTensor(graph, preTranspose, transposeCS, t, dims, sizes,
-                          plan, options, {dnai, multiUpdateName});
+                          plan, optionFlags, {dnai, multiUpdateName});
     auto sRearranged = regroupSliceTensor(
         graph, preTranspose, transposeCS, t, sMulti, offset.dim(0), dims, sizes,
-        plan, options, {dnai, multiUpdateName});
+        plan, optionFlags, {dnai, multiUpdateName});
 
     addPreRegroupProgs(prog, preTranspose, transposeCS, tRegroupedPre, base,
                        {dnai, multiUpdateName});
 
     generatePlannedMultiUpdateOp(vertexName, plan.getImpl(), graph, prog,
                                  offset, tRegroupedPre ? base : t, sRearranged,
-                                 scale, dims[0], op, options,
+                                 scale, dims[0], op, optionFlags,
                                  {dnai, multiUpdateName});
 
     // we need to keep the input tensor untouched, hence we explicitly copy the

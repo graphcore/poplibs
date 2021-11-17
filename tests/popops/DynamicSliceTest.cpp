@@ -1716,3 +1716,63 @@ void smallAndSimple() {
 BOOST_AUTO_TEST_SUITE(CpuChecks)
 BOOST_AUTO_TEST_CASE(SmallAndSimple) { smallAndSimple(); }
 BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(CheckIndexValidation)
+void indexChecks(bool update) {
+  const int numIPUs = 1;
+  const unsigned tilesPerIPU = 4;
+
+  auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
+  std::cout << "Number of IPUs: " << numIPUs << "\n";
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+  constexpr unsigned nonSliceableSize = 1;
+  constexpr unsigned sliceableSize = 10;
+  constexpr unsigned numIndices = 5;
+  std::vector<std::size_t> tShape = {sliceableSize, nonSliceableSize};
+  std::vector<std::size_t> sShape = {numIndices, nonSliceableSize};
+  OptionFlags optionFlags{{"validateIndices", "true"}};
+
+  popops::SlicePlan plan;
+  auto ids =
+      popops::createIndicesTensor(graph, {0}, numIndices, plan, {}, "ids");
+  graph.createHostWrite("ids", ids);
+  auto embedding = popops::createSliceableTensor(graph, INT, tShape, {0}, {1},
+                                                 plan, {}, "embedding");
+  auto subT = popops::createSliceTensor(graph, INT, sShape, {0}, {1},
+                                        numIndices, plan, {}, "subT");
+  auto scale =
+      graph.addVariable(INT, {}, VariableMappingMethod::LINEAR, "scale");
+
+  Sequence sequence;
+  if (update) {
+    popops::multiUpdateAdd(graph, embedding, subT, ids, scale, {0}, {1},
+                           sequence, plan, optionFlags, "update");
+  } else {
+    subT = popops::multiSlice(graph, embedding, ids, {0}, {1}, sequence, plan,
+                              optionFlags, "slice");
+  }
+
+  Engine engine(graph, sequence);
+  const std::vector<unsigned> checkValues{0, sliceableSize - 1, sliceableSize,
+                                          sliceableSize + 1, unsigned(-1)};
+  device.bind([&](const Device &d) {
+    for (const auto checkValue : checkValues) {
+      bool expectPass = checkValue < sliceableSize;
+      BOOST_TEST_MESSAGE("Expecting indices to be "
+                         << (expectPass ? "valid" : "invalid"));
+      engine.load(d);
+      std::vector<unsigned> hIds{checkValue, 4, 3, 2, 1};
+      engine.writeTensor("ids", &hIds.data()[0], &hIds.data()[hIds.size()]);
+      if (expectPass) {
+        BOOST_CHECK_NO_THROW(engine.run());
+      } else {
+        BOOST_CHECK_THROW(engine.run(), poplar::runtime_error);
+      }
+    }
+  });
+}
+
+BOOST_AUTO_TEST_CASE(SliceIndexChecks) { indexChecks(false); }
+BOOST_AUTO_TEST_CASE(UpdateIndexChecks) { indexChecks(true); }
+BOOST_AUTO_TEST_SUITE_END()

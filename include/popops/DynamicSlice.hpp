@@ -505,6 +505,11 @@ namespace embedding {
  *       increasing order. The same option must then be used along with the plan
  *       when calling MultiUpdate with and without an operation.
  *
+ *     * `validateIndices` (true, false) [=false]
+ *
+ *       Check that all indices are valid at runtime. If any is invalid
+ *       execution is aborted.
+ *
  *     * `partialType` (half, float)
  *       If not provided, defaults to using the same as the data type.
  *       Partials type should always be the same or higher precision than the

@@ -47,6 +47,7 @@ public:
 public:
   bool isNull;
   bool useIndicesOrderingInfo;
+  bool validateIndices;
   sliceInternal::Partition<std::size_t> partition;
 
   // For validation, to identify the restrictions on what this

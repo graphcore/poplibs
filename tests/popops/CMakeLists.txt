@@ -219,7 +219,8 @@ add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(RegroupTest RegroupTest.cpp)
 add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
-              SUITES SingleDim MultiDim LargeBuffer Misc MultiSlice)
+              SUITES SingleDim MultiDim LargeBuffer Misc MultiSlice CheckIndexValidation
+              VARIANTS Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
 add_unit_test(MultiUpdateTest DynamicSliceTest.cpp
               SUITES Update MultiUpdate  MultiUpdateSingles MultiUpdateMultiples)
