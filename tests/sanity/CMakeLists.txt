@@ -62,6 +62,16 @@ add_multitarget_test(
   VARIANTS "Hw"
   LABELS "python_tool")
 
+# Stop stalls_highligther.py from rotting.
+add_multitarget_test(
+  NAME stallsHighligtherTool
+  COMMAND ${PYTHON_EXECUTABLE}
+          ${CMAKE_SOURCE_DIR}/tools/stalls_highlighter.py
+          --ci-test
+          --test-binary $<TARGET_FILE:single_conv_layer>
+  VARIANTS "Sim2"
+  LABELS "python_tool")
+
 # Check that compilation is deterministic.
 add_multitarget_test(
   NAME determinism_single_conv_layer
