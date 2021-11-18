@@ -703,13 +703,19 @@ const T &min(const T &x, const T &y) {
   struct Traits<double> { static double ONE() { return 1.0;} };
 
   template<>
-  struct Traits<float> { static float ONE(){ return 1.0f;} };
-
-  template<>
   struct Traits<double&> { static double ONE() { return 1.0;} };
 
   template<>
+  struct Traits<const double&> { static double ONE() { return 1.0;} };
+
+  template<>
+  struct Traits<float> { static float ONE(){ return 1.0f;} };
+
+  template<>
   struct Traits<float&> { static float ONE() {return 1.0f;} };
+
+  template<>
+  struct Traits<const float&> { static float ONE() {return 1.0f;} };
 
 
   template<>
@@ -723,16 +729,22 @@ const T &min(const T &x, const T &y) {
   struct Traits<float2> { static float2 ONE() { return {1.0f, 1.0f};} };
   template<>
   struct Traits<float2&> { static float2 ONE() { return {1.0f, 1.0f};}  };
+  template<>
+  struct Traits<const float2&> { static float2 ONE() { return {1.0f, 1.0f};}  };
 
   template<>
   struct Traits<half2> { static half2 ONE() { return {1.0, 1.0};} };
   template<>
   struct Traits<half2&> { static half2 ONE() {return {1.0, 1.0};}  };
+  template<>
+  struct Traits<const half2&> { static half2 ONE() {return {1.0, 1.0};}  };
 
   template<>
   struct Traits<half4> { static half4 ONE(){return {1.0, 1.0,1.0, 1.0};}  };
   template<>
   struct Traits<half4&> { static half4 ONE(){return {1.0, 1.0, 1.0, 1.0};}  };
+  template<>
+  struct Traits<const half4&> { static half4 ONE(){return {1.0, 1.0, 1.0, 1.0};}  };
 #endif
 
   template<typename T>
@@ -831,8 +843,9 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
     const std::string id = std::to_string(index);
     // Add: "const {type} * In{id} = reinterpret_cast<{type}*>(in{id});"
     if (inputs[index - 1].numElements() != 1) {
-      stream << "const " << type << " * In" << id << " = reinterpret_cast<"
-             << type << "*>(&in" << id << "[workerOffset]);\n";
+      stream << "const " << type << " * In" << id
+             << " = reinterpret_cast<const " << type << "*>(&in" << id
+             << "[workerOffset]);\n";
     }
   }
 
@@ -949,6 +962,13 @@ void GenerateCodeletFromMapExpr::addSerialSection(
   for (std::size_t index : usedPlaceholders) {
     std::string type = getTypeAlias(inputs[index - 1].elementType().toString());
     const std::string id = std::to_string(index);
+
+    if (!inPlace || index != 1) {
+      // Use const declaration for all inputs with the following exception.
+      // If `inPlace` flag is set, the input with index `1` is an Input/Output
+      // field, so is not const declared.
+      stream << "const ";
+    }
 
     // Add: "{type} & load{id} = in{id}[i];"
     if (inputs[index - 1].numElements() == 1) {
