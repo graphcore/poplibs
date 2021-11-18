@@ -98,7 +98,8 @@ void addTransposeVertices(
     Graph &graph, const ComputeSet &cs, const Type &dType, unsigned rows,
     unsigned cols, const poplar::Graph::TileToTensorMapping &mapping,
     std::function<std::pair<const poplar::Tensor, const poplar::Tensor>(size_t)>
-        getInOut) {
+        getInOut,
+    const DebugContext &debugContext) {
   const auto &validTypes = getValidTransposeDataTypes();
   if (std::find(validTypes.begin(), validTypes.end(), dType) ==
       validTypes.end()) {
@@ -125,6 +126,11 @@ void addTransposeVertices(
 
     // How many transpositions in all for this tile?
     unsigned numTileTranspositions = accumSize(tileTranspositions);
+
+    logging::popops::trace("addTransposeVertices: debugStr {}, tile {}"
+                           "numTranspositions {}, rows {}, cols {}",
+                           debugContext.getPathName(), tile,
+                           numTileTranspositions, rows, cols);
     if (numTileTranspositions > 0) {
 
       // There are 3 types of vertices that we might use. Default is MultiVertex

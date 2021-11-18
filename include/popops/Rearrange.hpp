@@ -58,7 +58,8 @@ void addTransposeVertices(
     const poplar::Type &dType, unsigned rows, unsigned cols,
     const poplar::Graph::TileToTensorMapping &mapping,
     std::function<std::pair<const poplar::Tensor, const poplar::Tensor>(size_t)>
-        getInOut);
+        getInOut,
+    const poplar::DebugContext &debugContext = {});
 
 /// Transpose the innermost pair of dimensions of the specified tensor, writing
 /// the results to a new tensor. This function assumes order of the underlying

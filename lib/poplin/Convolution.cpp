@@ -3473,7 +3473,8 @@ static Tensor fullyConnectedWeightTranspose(
                               splitTransposed[blockIndices[0]][blockIndices[1]]
                                              [blockIndices[3]][blockIndices[2]]
                                                  .flatten());
-      });
+      },
+      {dnai});
   prog.add(Execute(transposeCS, {dnai}));
   auto transposedWeights = splitTransposed.dimShufflePartial({3}, {4}).reshape(
       splitTransposedUngroupedShape);
