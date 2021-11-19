@@ -60,13 +60,14 @@ foreach(IPU_ARCH_TEST_VARIANT ${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS})
   endif()
 endforeach()
 
-set(ALL_POSSIBLE_TEST_VARIANTS "NoTarget;Cpu;IpuModel1;IpuModel2;Sim1;Sim2;Sim1:cpp;Sim2:cpp;Hw")
+set(ALL_POSSIBLE_TEST_VARIANTS "NoTarget;Cpu;IpuModel1;IpuModel2;IpuModel21;Sim1;Sim2;Sim21;Sim1:cpp;Sim2:cpp;Sim21:cpp;Hw")
 
 set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 # If the user has specified ENABLED_TEST_VARIANTS then validate the values.
 if (DEFINED ENABLED_TEST_VARIANTS)
+  string(APPEND ENABLED_TEST_VARIANTS ";IpuModel21;Sim21;Sim21:cpp")
   foreach(variant ${ENABLED_TEST_VARIANTS})
     if (NOT ${variant} IN_LIST ALL_POSSIBLE_TEST_VARIANTS)
       message(FATAL_ERROR "Unknown ENABLED_TEST_VARIANTS element: ${variant}\n"

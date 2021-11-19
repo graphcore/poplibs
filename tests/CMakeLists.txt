@@ -5,7 +5,7 @@ find_package(GCCS REQUIRED)
 set(DEBUG_TEST_GENERATION FALSE)
 
 # Add vars used by add_executable function
-set(COMMON_ADD_EXECUTABLE_INCLUDE_DIRECTORIES 
+set(COMMON_ADD_EXECUTABLE_INCLUDE_DIRECTORIES
         ${CMAKE_SOURCE_DIR}/tests
         ${CMAKE_SOURCE_DIR}/lib
         $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
@@ -13,17 +13,17 @@ set(COMMON_ADD_EXECUTABLE_INCLUDE_DIRECTORIES
 )
 
 set(COMMON_ADD_EXECUTABLE_LIBRARIES
-        popfloat 
-        poprand 
-        popnn 
+        popfloat
+        poprand
+        popnn
         poputil
         pva
-        poplibs_support 
-        poplibs_test 
-        poplar 
+        poplibs_support
+        poplibs_test
+        poplar
         Boost::unit_test_framework
-        Boost::timer 
-        Boost::system 
+        Boost::timer
+        Boost::system
         Boost::program_options
         ${CMAKE_THREAD_LIBS_INIT}
 )
@@ -40,7 +40,7 @@ include(${GCCS_CMAKE_DIR}/AddSystemTest.cmake)
 # Function to add a multi-target test executable
 function(add_multi_target_test_executable name)
   add_executable(${name} ${ARGN})
-  target_include_directories(${name} 
+  target_include_directories(${name}
       PRIVATE ${COMMON_ADD_EXECUTABLE_INCLUDE_DIRECTORIES})
   target_link_libraries(${name} ${COMMON_ADD_EXECUTABLE_LIBRARIES})
 endfunction()
@@ -49,10 +49,10 @@ endfunction()
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
 set(TimesOutOnSim "${DEFAULT_TEST_VARIANTS}")
-list(REMOVE_ITEM TimesOutOnSim "Sim1" "Sim2")
+list(REMOVE_ITEM TimesOutOnSim "Sim1" "Sim2" "Sim21")
 
 set(TimesOutOnSimCpp "${TimesOutOnSim}")
-list(REMOVE_ITEM TimesOutOnSimCpp "Sim1:cpp" "Sim2:cpp")
+list(REMOVE_ITEM TimesOutOnSimCpp "Sim1:cpp" "Sim2:cpp" "Sim21:cpp")
 
 # Tests
 add_subdirectory(popfloat)

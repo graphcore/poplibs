@@ -900,7 +900,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_1
                  --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};IpuModel21")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_2
          COMMAND single_conv_layer
@@ -1764,7 +1764,7 @@ add_multitarget_test(
                  --single-phase=fwd
                  --convolution-options={\"partialsType\":\"half\"}
                  --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
-                 VARIANTS "IpuModel2;Sim2")
+                 VARIANTS "IpuModel2;Sim2;IpuModel21;Sim21")
 endforeach()
 
 foreach(OUT_CHANS 16 32)
