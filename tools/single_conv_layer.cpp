@@ -205,7 +205,7 @@ int main(int argc, char **argv) try {
     ("kernel-padding",
      po::value<ShapeOption<unsigned>>(&kernelPaddingOption)
          ->default_value(0),
-     "Amount of zero kernel padding to add at the start and end of each"
+     "Amount of zero kernel padding to add at the start and end of each "
      "dimension")
     ("kernel-padding-upper",
      po::value<ShapeOption<unsigned>>(&kernelPaddingUpperOption)
