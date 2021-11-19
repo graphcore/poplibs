@@ -127,7 +127,7 @@ void addTransposeVertices(
     // How many transpositions in all for this tile?
     unsigned numTileTranspositions = accumSize(tileTranspositions);
 
-    logging::popops::trace("addTransposeVertices: debugStr {}, tile {}"
+    logging::popops::trace("addTransposeVertices: debugStr {}, tile {} "
                            "numTranspositions {}, rows {}, cols {}",
                            debugContext.getPathName(), tile,
                            numTileTranspositions, rows, cols);
@@ -266,10 +266,12 @@ Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
   // output transposed matrix.
   const auto transpositionMapping = graph.getTileMapping(inFlat.slice(0, 1, 1));
 
-  addTransposeVertices(graph, cs, dType, numSrcRows, numSrcColumns,
-                       transpositionMapping, [&](size_t index) {
-                         return std::make_pair(inFlat[index], outFlat[index]);
-                       });
+  addTransposeVertices(
+      graph, cs, dType, numSrcRows, numSrcColumns, transpositionMapping,
+      [&](size_t index) {
+        return std::make_pair(inFlat[index], outFlat[index]);
+      },
+      debugContext);
   di.addOutput(out);
   return out;
 }

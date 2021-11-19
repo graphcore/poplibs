@@ -3023,12 +3023,27 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &s,
     offset_count[offset]++;
   }
 
+  const auto tGroupings = poputil::detectDimGroupings(graph, t);
+  auto sMaybeRegrouped = s;
+  // Regroup the updates tensor to match the base tensor only if the base tensor
+  // is mapped such that it is not grouped in the sliced dimension. If the base
+  // tensor is grouped in the sliced dimension updates will be inefficient.
+  // One option in that case is to regroup the base tensor but this would mean
+  // regrouping both before the update and after. As the base tensor is often
+  // very large the copy cost could be significant.
+  if (!tGroupings.empty() && tGroupings[0].first != dim) {
+    // attempt a regroup in the innermost dimension if possible.
+    sMaybeRegrouped = popops::rearrange::regroupIfPossible(
+        graph, s, prog, {tGroupings[0].first + 1, tGroupings[0].second}, {di});
+  }
+
   // If all offsets are unique
   if (offsets.size() == offset_count.size()) {
-    multiUpdateAddUnique(graph, t, s, offsets, scale, dim, prog, debugContext);
+    multiUpdateAddUnique(graph, t, sMaybeRegrouped, offsets, scale, dim, prog,
+                         debugContext);
   } else {
-    multiUpdateAddDuplicates(graph, t, s, offsets, offset_count, scale, dim,
-                             prog, debugContext);
+    multiUpdateAddDuplicates(graph, t, sMaybeRegrouped, offsets, offset_count,
+                             scale, dim, prog, debugContext);
   }
 }
 
