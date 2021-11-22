@@ -373,7 +373,6 @@ getCostOfSolution(const popsolver::Solution &s,
       s[e.broadcastInputBeforeLoopExchangeCycles];
 
   cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
-  cost.memsetZeroBeforeAddInPlace = s[e.memsetZeroBeforeAddInPlace];
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
 
   cost.totalTransformCopyCycles = s[e.totalTransformCopyCycles];
@@ -919,9 +918,6 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
             passCost.rearrangeBeforeSliceTempDuringRearrangeBytes,
         passCost.rearrangeBeforeSliceTempBytes,
         passCost.rearrangeBeforeSliceTempDuringRearrangeBytes);
-    logging::poplin::log(
-        l, "{} - memsetZeroBeforeAddInPlace: {} cycles, unknown bytes", prefix,
-        passCost.memsetZeroBeforeAddInPlace);
     logging::poplin::log(l, "{} - dynamic slice: {} cycles, unknown bytes",
                          prefix, passCost.dynamicSliceCycles);
     logging::poplin::log(

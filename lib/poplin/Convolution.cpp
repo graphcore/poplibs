@@ -2524,19 +2524,19 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     const bool outChansAreSeriallySplit = partition.outChanSplit.serial > 1;
 
     if (inChansAreSeriallySplit) {
-      auto zero =
-          graph.addConstant(out.elementType(), out.shape(), 0, {dnai, "zero"});
-      auto serialOut = graph.clone(out, {dnai, "serialOut"});
-      auto mapping = graph.getTileMapping(out);
-      graph.setTileMapping(zero, mapping);
+      auto serialOut = graph.clone(out, {dnai, "/serialOut" + levelSuffix});
 
-      // Zero-Initialise destination tensor
-      cpt.transformPreSerial.postTransposeCtrl.emplace_back(zero, serialOut,
-                                                            false, dnai);
+      // In the first iteration of the loop over serial input channel splits,
+      // just copy the output to a new clone. In future iterations sum the
+      // result with the result of the first iteration.
+      Sequence firstIterationBody, notFirstIterationBody;
+      firstIterationBody.add(Copy(out, serialOut, false,
+                                  {dnai, "/serialInChanAccum" + levelSuffix}));
+      popops::addInPlace(graph, serialOut, out, notFirstIterationBody,
+                         {dnai, "/serialInChanAccum" + levelSuffix});
+      cpt.update.add(If(loopCounter.reshape({}), notFirstIterationBody,
+                        firstIterationBody));
 
-      // Accumulate the results into the destination tensor serialOut
-      popops::addInPlace(graph, serialOut, out, cpt.update,
-                         {dnai, "serialOut" + levelSuffix});
       out = serialOut;
     }
 

@@ -1718,49 +1718,6 @@ addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
   return std::make_pair(cycles, tempBytes);
 }
 
-// estimation function for zero memory setting of output before addInPlace
-// operations for every input channel serial split convolution
-static popsolver::Variable
-memsetZeroEstimate(popsolver::Model &m, const poplar::Target &target,
-                   const popsolver::Variable &outputsPerTile,
-                   const PartitionVariables &tileSplits,
-                   const std::vector<ConvTypes> &types) {
-  // currently the input channels are serially split only in the
-  // intra-IPU level. TODO: T12878 Assert that this is the case.
-  assert(types.size() > 0);
-  const auto numWorkers = target.getNumWorkerContexts();
-  const auto intraTileLevel = types.size() - 1;
-  const auto partialType = types[intraTileLevel].resultType;
-  const auto vectorWidth = target.getVectorWidth(partialType);
-
-  // Input channels serial splits do not cause a corresponding split in the
-  // outputs. Hence the operation must be performed on the whole output
-  const auto &inChanSerialSplit = tileSplits.inChanSplit.serial;
-  const std::vector<popsolver::Variable> vars = {inChanSerialSplit,
-                                                 outputsPerTile};
-  return m.call<unsigned>(
-      vars,
-      [vectorWidth,
-       numWorkers](const std::vector<unsigned> &vars) -> popsolver::DataType {
-        const auto &inChanSerialSplit = vars[0];
-        const auto &outputsPerTile = vars[1];
-
-        assert(inChanSerialSplit != 0);
-        // when not splitting serially we require no inplace addition
-        if (inChanSerialSplit == 1) {
-          return popsolver::DataType{0};
-        }
-
-        // rough cycles estimate of vertex overhead plus inner loop
-        const unsigned cyclesPerVector = 1;
-        const unsigned cyclesLoopOverhead = 0;
-        const auto innerLoopCycles =
-            cyclesPerVector * ceildiv(outputsPerTile, numWorkers * vectorWidth);
-        return popsolver::DataType{(cyclesLoopOverhead + innerLoopCycles) *
-                                   numWorkers};
-      });
-}
-
 // cycles, temp persistent bytes for rearranged version of weights,
 // temp bytes during the rearrange
 static std::tuple<popsolver::Variable, popsolver::Variable, popsolver::Variable>
@@ -1972,8 +1929,6 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
   const auto &outputsPerTile = outputsPerLevel.back();
   e.dynamicUpdateCycles = addDynamicUpdateEstimate(m, target, outputsPerTile,
                                                    intraTileSplits, types);
-  e.memsetZeroBeforeAddInPlace =
-      memsetZeroEstimate(m, target, outputsPerTile, intraTileSplits, types);
   std::tie(e.addInPlaceCycles, e.addInPlaceTempBytes) =
       addInPlaceEstimate(m, target, outputsPerTile, intraTileSplits, types);
 
@@ -2054,14 +2009,17 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
              e.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
              e.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles});
 
+  // NOTE: addInPlaceCycles should actually be broken down into 1 lot of
+  // copy cycles and (inChanSplit.serial - 1) lots of addInPlaceCycles as
+  // this is how we actually implement it. Cycles to Copy and addInPlace
+  // should be similar however.
   e.totalCycles =
       m.sum({e.dynamicSliceCycles, e.totalTransformCopyCycles,
              e.totalTransformExchangeCycles, e.totalExchangeCycles,
              e.tileLevelTransformCycles, e.partialCalcCycles, e.reduceCycles,
              e.dynamicUpdateCycles, e.addInPlaceCycles});
   e.totalCycles = m.product({e.totalCycles, serialSplits});
-  e.totalCycles = m.sum({e.memsetZeroBeforeAddInPlace, e.totalCycles,
-                         e.broadcastInputBeforeLoopCopyCycles,
+  e.totalCycles = m.sum({e.totalCycles, e.broadcastInputBeforeLoopCopyCycles,
                          e.broadcastInputBeforeLoopExchangeCycles,
                          e.rearrangeBeforeSliceCycles, e.castCycles});
 
@@ -2092,7 +2050,6 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
     const auto &c = *referenceCost;
     e.totalPerStepCycleDiff = m.sum(
         {posDiff(e.rearrangeBeforeSliceCycles, c.rearrangeBeforeSliceCycles),
-         posDiff(e.memsetZeroBeforeAddInPlace, c.memsetZeroBeforeAddInPlace),
          posDiff(e.dynamicSliceCycles, c.dynamicSliceCycles),
 
          // TODO: should this be using the itemised exchange/transform

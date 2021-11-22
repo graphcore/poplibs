@@ -117,7 +117,6 @@ template <typename T> struct SinglePassEstimates {
   T broadcastInputBeforeLoopExchangeCycles;
 
   T rearrangeBeforeSliceCycles;
-  T memsetZeroBeforeAddInPlace;
   T dynamicSliceCycles;
 
   T totalTransformCopyCycles;
@@ -199,8 +198,6 @@ inline SinglePassCost maxPerStepCycles(SinglePassCost a,
 
   a.rearrangeBeforeSliceCycles =
       std::max(a.rearrangeBeforeSliceCycles, b.rearrangeBeforeSliceCycles);
-  a.memsetZeroBeforeAddInPlace =
-      std::max(a.memsetZeroBeforeAddInPlace, b.memsetZeroBeforeAddInPlace);
   a.dynamicSliceCycles = std::max(a.dynamicSliceCycles, b.dynamicSliceCycles);
 
   // the MINIMIZE_COST_DIFF method currently using the totalExchangeCycles, if

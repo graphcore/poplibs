@@ -29,7 +29,6 @@ phases_dict = {'fwd':0, 'bwd':1, 'wu':2}
 # 16:52:46.800 55378 PL [D]    - total serial split: 1
 # 16:52:46.800 55378 PL [D]    - broadcast operands before loop: 0 copy cycles, 5012 exchange cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - rearrangement before slice: 0 cycles, 0 bytes (0 overhead, 0 per-loop iteration)
-# 16:52:46.800 55378 PL [D]    - memsetZeroBeforeAddInPlace: 0 cycles, unknown bytes
 # 16:52:46.800 55378 PL [D]    - dynamic slice: 0 cycles, unknown bytes
 # 16:52:46.800 55378 PL [D]    - transform: 33281 copy cycles, 9984 exchange cycles, 54784 bytes
 # 16:52:46.800 55378 PL [D]    - exchange: 8233 cycles, n/a bytes. (Input 4178, Weight 359, Reduce 3696 + 0)
@@ -47,7 +46,6 @@ re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+_?[A-Z]+?): Cost\
                           ".+total serial split:\s(\d+)" + NEW_LINE_CHAR +
                           ".+broadcast operands before loop:\s(\d+)\scopy\scycles,\s(\d+)\sexchange\scycles,\s(\d+).+" + NEW_LINE_CHAR +
                           ".+rearrangement before slice:\s(\d+).+" + NEW_LINE_CHAR +
-                          ".+memsetZeroBeforeAddInPlace:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+dynamic slice:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+transform:\s(\d+)\scopy\scycles,\s(\d+)\sexchange\scycles,\s(\d+)\sbytes\s\(input\s(\d+),\sweights\s(\d+).+" + NEW_LINE_CHAR +  #764 bytes (input 360, weights 22)
                           ".+exchange:\s(\d+).+Input\s(\d+),\sWeight\s(\d+),\sReduce\s(\d+)\s\+\s(\d+).+" + NEW_LINE_CHAR +
@@ -61,11 +59,11 @@ re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+_?[A-Z]+?): Cost\
 
 planner_info_fields_names = ['method', 'cost', 'memory', 'tiles', 'training', 'phase',
                  'parallelSplit', 'serialSplit', 'broadcastInputsCycles', 'broadcastExchangeCycles',
-                 'broadcastBytes', 'rearrangeBeforeSlice', 'memsetZeroBeforeAddInPlace',
-                 'dynamicSlice', 'transformsCopyCycles', 'transformsExchangeCycles', 'transformsBytes',
-                 'transformsCopyInputBytes', 'transformsCopyWeightsBytes', 'exchange', 'inputExchange',
-                 'weightsExchange', 'reduceExchange', 'reduceExchangePlus', 'tileTransforms',
-                 'compute', 'reduce', 'dynamicUpdate', 'addInPlace', 'cast']
+                 'broadcastBytes', 'rearrangeBeforeSlice', 'dynamicSlice', 'transformsCopyCycles',
+                 'transformsExchangeCycles', 'transformsBytes', 'transformsCopyInputBytes',
+                 'transformsCopyWeightsBytes', 'exchange', 'inputExchange', 'weightsExchange',
+                 'reduceExchange', 'reduceExchangePlus', 'tileTransforms', 'compute', 'reduce',
+                 'dynamicUpdate', 'addInPlace', 'cast']
 
 PlannerInfoFields = collections.namedtuple(
     'PlannerInfoFields', planner_info_fields_names
