@@ -119,6 +119,7 @@ template class Fill2d<long long>;
   template class CastVertexName<srcType, float>;                               \
   template class CastVertexName<srcType, half>;                                \
   template class CastVertexName<srcType, int>;                                 \
+  template class CastVertexName<srcType, short>;                               \
   template class CastVertexName<srcType, unsigned>;                            \
   template class CastVertexName<srcType, unsigned short>;                      \
   template class CastVertexName<srcType, bool>;
@@ -129,6 +130,7 @@ template class Fill2d<long long>;
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, float)                          \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, half)                           \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, int)                            \
+  INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, short)                          \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, unsigned)                       \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, unsigned short)                 \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, bool)

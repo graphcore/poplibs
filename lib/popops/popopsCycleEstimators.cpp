@@ -3056,31 +3056,28 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
 // Cast vertices, for all possible combinations of input and output types
 // (float, half, signed/unsinged ints and bool)
 #define CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, SRC_TYPE)                   \
-  CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, FLOAT),                        \
+  CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, CHAR),                         \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, SIGNED_CHAR),              \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, UNSIGNED_CHAR),            \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, FLOAT),                    \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, HALF),                     \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, INT),                      \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, SHORT),                    \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, UNSIGNED_INT),             \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, UNSIGNED_SHORT),           \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, BOOL)
+
 #define CAST_CYCLE_ESTIM_ENTRIES(name)                                         \
-  CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, FLOAT),                           \
+  CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, CHAR),                            \
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, SIGNED_CHAR),                 \
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, UNSIGNED_CHAR),               \
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, FLOAT),                       \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, HALF),                        \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, INT),                         \
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, SHORT),                       \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, UNSIGNED_INT),                \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, UNSIGNED_SHORT),              \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, BOOL),                        \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, FLOAT, UNSIGNED_CHAR),               \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, FLOAT, SIGNED_CHAR),                 \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, FLOAT, CHAR),                        \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, HALF, UNSIGNED_CHAR),                \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, HALF, SIGNED_CHAR),                  \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, HALF, CHAR),                         \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, FLOAT),               \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, HALF),                \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, SIGNED_CHAR, FLOAT),                 \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, SIGNED_CHAR, HALF),                  \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, FLOAT),                        \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, HALF),                         \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SHORT, LONGLONG),                    \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SHORT, UNSIGNED_LONGLONG),           \
       CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_SHORT, LONGLONG),           \
@@ -3091,6 +3088,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
       CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_INT, UNSIGNED_LONGLONG),    \
       CYCLE_ESTIMATOR_ENTRY(popops, name, INT, LONGLONG),                      \
       CYCLE_ESTIMATOR_ENTRY(popops, name, INT, UNSIGNED_LONGLONG),             \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SIGNED_CHAR, LONGLONG),              \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SIGNED_CHAR, UNSIGNED_LONGLONG),     \
       CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, LONGLONG),            \
       CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, UNSIGNED_LONGLONG),   \
       CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, LONGLONG),                     \

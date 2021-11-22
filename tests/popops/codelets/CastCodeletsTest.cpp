@@ -90,9 +90,9 @@ bool isValidTypes(const VertexDesc &vertex) {
 
   // if BOTH src and destination are among these types, the combination is
   // valid, apart from identities (vertices with SRC_TYPE == DST_TYPE).
-  const static std::array types{FLOAT,        HALF,           INT,
-                                UNSIGNED_INT, UNSIGNED_SHORT, BOOL,
-                                CHAR,         SIGNED_CHAR,    UNSIGNED_CHAR};
+  const static std::array types{FLOAT,        HALF,           INT,  SHORT,
+                                UNSIGNED_INT, UNSIGNED_SHORT, BOOL, CHAR,
+                                SIGNED_CHAR,  UNSIGNED_CHAR};
   if (std::find(types.begin(), types.end(), src) != types.end() &&
       std::find(types.begin(), types.end(), dst) != types.end()) {
     return src != dst;
@@ -100,24 +100,10 @@ bool isValidTypes(const VertexDesc &vertex) {
 
   if ((dst == UNSIGNED_LONGLONG) || (dst == LONGLONG)) {
     return src == INT || src == UNSIGNED_INT || src == CHAR ||
-           src == UNSIGNED_CHAR || src == UNSIGNED_SHORT || src == SHORT ||
-           src == BOOL;
+           src == SIGNED_CHAR || src == UNSIGNED_CHAR ||
+           src == UNSIGNED_SHORT || src == SHORT || src == BOOL;
   }
 
-  // conversion from 64-bit to any other type is not yet supported
-  if ((src == UNSIGNED_LONGLONG) || (src == LONGLONG)) {
-    return false;
-  }
-
-  // We can also cast from FLOAT or HALF into all char types, and vice-versa.
-  if ((src == FLOAT || src == HALF) &&
-      (dst == CHAR || dst == SIGNED_CHAR || dst == UNSIGNED_CHAR)) {
-    return true;
-  }
-  if ((src == CHAR || src == SIGNED_CHAR || src == UNSIGNED_CHAR) &&
-      (dst == FLOAT || dst == HALF)) {
-    return true;
-  }
   return false;
 }
 
@@ -413,9 +399,18 @@ int main(int argc, char **argv) {
   }
 
   // All types for which at least one cast to or from is defined.
-  const static std::array allTypes = {
-      HALF, FLOAT,       INT,           UNSIGNED_INT,      UNSIGNED_SHORT, BOOL,
-      CHAR, SIGNED_CHAR, UNSIGNED_CHAR, UNSIGNED_LONGLONG, LONGLONG};
+  const static std::array allTypes = {HALF,
+                                      FLOAT,
+                                      INT,
+                                      UNSIGNED_INT,
+                                      SHORT,
+                                      UNSIGNED_SHORT,
+                                      BOOL,
+                                      CHAR,
+                                      SIGNED_CHAR,
+                                      UNSIGNED_CHAR,
+                                      UNSIGNED_LONGLONG,
+                                      LONGLONG};
 
   // === If no destination type specified, test 'em all
   std::vector<Type> dstTypes;

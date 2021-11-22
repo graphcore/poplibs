@@ -938,6 +938,11 @@ add_multitarget_test(NAME CastCodeletsTest_from_char
               TEST_IPUMODEL
               VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
+add_multitarget_test(NAME CastCodeletsTest_all_exist
+              COMMAND CastCodeletsTest
+              --group
+              LABELS codelet)
+
 add_multi_target_test_executable(ScalarMultiplyCodeletTest
                                  ScalarMultiplyCodeletTest.cpp)
 
