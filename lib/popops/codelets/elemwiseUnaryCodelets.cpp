@@ -120,6 +120,28 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
 #endif
 };
 
+template <> struct UnaryLibCall<expr::UnaryOpType::LOGARITHM_ONE_PLUS> {
+#ifdef __IPU__
+
+  template <typename FPType> static auto MOne() {
+    if constexpr (isVectorType<FPType>::value) {
+      return FPType{} + decltype(std::declval<FPType>()[0])(-1.0f);
+    } else {
+      return FPType{} + decltype(std::declval<FPType>())(-1.0f);
+    }
+  }
+  template <typename FPType> FPType operator()(FPType x) const {
+    const auto mOne = MOne<FPType>();
+#pragma fast-math push
+#pragma fast-math off
+    FPType a = x - mOne;
+    FPType b = a + mOne;
+#pragma fast-math pop
+    return ipu::log(a) + (x - b) / a;
+  }
+#endif
+};
+
 #ifdef __IPU__
 // Compute Tau function based on Legendre polynomial of the 5th order.
 // (https://mae.ufl.edu/~uhk/IEEETrigpaper8.pdf)
@@ -312,6 +334,12 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::CBRT,
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::ERF,
                    return std::erf(PromoteHalfsToFloats(x));
                    , return UnaryLibCall<expr::UnaryOpType::ERF>{}(x);)
+
+DEFINE_UNARY_OP_FN(
+    expr::UnaryOpType::LOGARITHM_ONE_PLUS,
+    return std::log1p(PromoteHalfsToFloats(x));
+    , return UnaryLibCall<expr::UnaryOpType::LOGARITHM_ONE_PLUS>{}(x);)
+
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::CEIL, ceil)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::COS,
                    return std::cos(PromoteHalfsToFloats(x));
@@ -336,7 +364,6 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::IS_NAN,
                    , return __builtin_ipu_isnan(PromoteHalfsToFloats(x));)
 
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM, log)
-DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::LOGARITHM_ONE_PLUS, log1p)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::LOGICAL_NOT, return !x;)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::NEGATE, return -x;)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::POPCOUNT, return __builtin_popcount(x);)
