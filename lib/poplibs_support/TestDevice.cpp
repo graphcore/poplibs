@@ -31,7 +31,7 @@ const char *deviceTypeToIPUName(DeviceType d) {
 
   case DeviceType::Sim21:
   case DeviceType::IpuModel21:
-    return "ipu2";
+    return "ipu21";
 
   case DeviceType::Cpu:
     throw poplar::poplar_error(
