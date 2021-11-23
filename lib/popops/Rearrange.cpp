@@ -4,8 +4,6 @@
 #include "poplibs_support/Tracepoint.hpp"
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
-#include <limits>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
 #include <poputil/DebugInfo.hpp>
@@ -298,7 +296,6 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
   const auto tMapping = graph.getTileMapping(groupedFlat);
   const auto numTiles = tMapping.size();
   const auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
-  const auto numWorkers = graph.getTarget().getNumWorkerContexts();
   const auto numIPUs = numTiles / tilesPerIPU;
   std::vector<std::size_t> elemsPerIpu(numIPUs);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -322,54 +319,51 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
   // breaking the constraints set on group size
   auto additionalFactor = groupedFlat.dim(1) / (minGroupsSize * minGroupsSize);
 
+  auto isPrime = [](unsigned num) {
+    for (unsigned i = 2; i <= num / 2; ++i) {
+      if (num % i == 0) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   // This limits the number of transpositions allowed on the IPU
-  const auto maxTranspositionsAllowedPerIpu = tilesPerIPU * numWorkers;
+  const auto maxTranspositionsAllowedPerIpu = numTiles;
+
+  // actual transpose factor used. Initialise with 1 which means no additional
+  // factor is applied
+  unsigned transposeFactor = 1;
 
   // Estimate the number of transpositions on the IPU which has the maximum
   // number of elements mapped
   auto transpositionsOnIpuEstimate =
       (*maxIt + groupedFlat.dim(1) - 1) / groupedFlat.dim(1);
 
-  // Sorted list of factors of a number
-  auto sortedFactors = [](unsigned number) {
-    std::vector<unsigned> result;
-    for (unsigned x = 1; x * x <= number; ++x) {
-      if (number % x == 0) {
-        result.push_back(x);
-        if (number != x * x) {
-          result.push_back(number / x);
-        }
-      }
-    }
-    std::sort(result.begin(), result.end());
-    return result;
-  };
-
   bool allowIncrease =
       to.second % minGroupsSize == 0 && from.second % minGroupsSize == 0;
-
-  // actual transpose factor used. Initialise with 1 which means no additional
-  // factor is applied
-  unsigned transposeFactor = 1;
-  if (allowIncrease) {
-    std::size_t bestCost = std::numeric_limits<std::size_t>::max();
-    for (const auto x : sortedFactors(additionalFactor)) {
-      if (transpositionsOnIpuEstimate * x > maxTranspositionsAllowedPerIpu) {
+  while (allowIncrease && additionalFactor != 1) {
+    unsigned factor = 1;
+    // TODO: T12892 This assumes that typical transposes are a multiple of very
+    // small primes. Investigate other methods (e.g., dividing into prime
+    // factors). A method that should give good results is to find the maximum
+    // GCD across different values of transpositions (i.e.
+    // maxTranspositionsAllowedPerIpu, maxTranspositionsAllowedPerIpu-1, ...)
+    for (unsigned x = 2; x <= additionalFactor; ++x) {
+      if (additionalFactor % x == 0 && isPrime(x)) {
+        factor = x;
         break;
       }
-      // Ideally we want to use cycles estimates, but we use a simplified,
-      // inaccurate cost. Assume cost for the initial transposition to be
-      // additionalFactor. Increasing transposeFactor decreases the size of the
-      // transposition by that factor. As additionalFactor is an integer
-      // multiple of x, we can divide it with no loss of information.
-      auto cost = (additionalFactor / x) *
-                  ceildiv(ceildiv(transpositionsOnIpuEstimate * x, tilesPerIPU),
-                          numWorkers);
-      if (cost < bestCost) {
-        bestCost = cost;
-        transposeFactor = x;
-      }
     }
+    if (transpositionsOnIpuEstimate * transposeFactor * factor >
+        maxTranspositionsAllowedPerIpu) {
+      break;
+    }
+    if (additionalFactor % factor != 0 || factor == 1) {
+      throw poputil::poplibs_error("Invalid factor in regrouping");
+    }
+    transposeFactor *= factor;
+    additionalFactor /= factor;
   }
 
   auto updatedFrom = from;
