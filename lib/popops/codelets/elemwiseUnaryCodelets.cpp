@@ -132,11 +132,15 @@ template <> struct UnaryLibCall<expr::UnaryOpType::LOGARITHM_ONE_PLUS> {
   }
   template <typename FPType> FPType operator()(FPType x) const {
     const auto mOne = MOne<FPType>();
+    // clang-format off
 #pragma fast-math push
 #pragma fast-math off
+    // clang-format on
     FPType a = x - mOne;
     FPType b = a + mOne;
+    // clang-format off
 #pragma fast-math pop
+    // clang-format on
     return ipu::log(a) + (x - b) / a;
   }
 #endif
