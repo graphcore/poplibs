@@ -2,8 +2,6 @@
 
 #include "CastModelling.hpp"
 
-#include "CastInternal.hpp"
-
 #include <poplar/Target.hpp>
 #include <poplar/Type.hpp>
 
@@ -35,11 +33,8 @@ CastEstimates modelContiguousCast(const poplar::Target &target,
         {mNumElems},
         [targetParams, inType, outType](const std::vector<unsigned> &values) {
           const unsigned numElems = values[0];
-          const auto partition =
-              getCast1DPartition(targetParams.numWorkerContexts, numElems);
-          const auto cycles = getCast1DCycleEstimate(
-              targetParams, inType, outType, partition.workerElems,
-              partition.workerCount, partition.workerLast, partition.deltaLast);
+          const auto cycles =
+              getCast1DCycleEstimate(targetParams, inType, outType, numElems);
           return popsolver::DataType{cycles};
         },
         debugPrefix + ".cycles");

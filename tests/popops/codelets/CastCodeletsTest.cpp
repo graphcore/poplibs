@@ -258,37 +258,7 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
 
   if (!vertex.is2D) {
     unsigned totalElems = sizes[0];
-    if (vertex.isMultiVertex) {
-      // Computing the bitfields for the 'partitionParams' word. See the codelet
-      // C++ definition for the meaning of the fields.
-      unsigned grainSize = 4;
-      unsigned numGrains = (totalElems + grainSize - 1) / grainSize;
-      unsigned numWorkerContexts = target.getNumWorkerContexts();
-      unsigned workerCount = numWorkerContexts;
-      unsigned grainsPerWorker = 1;
-      unsigned workerLast = numWorkerContexts - 1;
-      if (numGrains <= numWorkerContexts) {
-        workerCount = numGrains;
-        workerLast = workerCount - 1;
-      } else {
-        grainsPerWorker = numGrains / workerCount;
-        unsigned rem = numGrains % workerCount;
-        if (rem > 0) {
-          workerCount = rem;
-          grainsPerWorker += 1;
-        }
-      }
-      unsigned workerElems = grainsPerWorker * grainSize;
-      unsigned deltaLast =
-          workerCount * workerElems +
-          (numWorkerContexts - workerCount) * (workerElems - grainSize) -
-          totalElems;
-      unsigned partitionParams = (workerElems << 9) | (workerCount << 6) |
-                                 (workerLast << 3) | deltaLast;
-      graph.setInitialValue(v["partitionParams"], partitionParams);
-    } else {
-      graph.setInitialValue(v["numElems"], totalElems);
-    }
+    graph.setInitialValue(v["numElems"], totalElems);
   }
 }
 

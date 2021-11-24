@@ -16,6 +16,7 @@
 
 #ifdef __IPU__
 #include "inlineAssembler.hpp"
+#include "inlineAssemblerUnaryOps.hpp"
 #endif
 
 using namespace poplar;

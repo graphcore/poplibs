@@ -110,34 +110,7 @@ bool doTest(const DeviceType &deviceType, const Type &dataTypeIn,
     sliceOut = out.reshape({columns + offsetOut});
     sliceOut = sliceOut.slice(offsetOut, columns + offsetOut);
     unsigned totElems = sliceIn.numElements();
-    if (supervisor) {
-      unsigned grainSize = 4;
-      unsigned totGrains = (totElems + grainSize - 1) / grainSize;
-      unsigned numWorkerContexts = target.getNumWorkerContexts();
-      unsigned workerCount = numWorkerContexts, grainsPerWorker = 1;
-      unsigned workerLast = numWorkerContexts - 1;
-      if (totGrains <= numWorkerContexts) {
-        workerCount = totGrains;
-        workerLast = workerCount - 1;
-      } else {
-        grainsPerWorker = totGrains / workerCount;
-        unsigned rem = totGrains % workerCount;
-        if (rem > 0) {
-          workerCount = rem;
-          grainsPerWorker += 1;
-        }
-      }
-      unsigned elemsPerWorker = grainsPerWorker * grainSize;
-      unsigned deltaLast =
-          workerCount * elemsPerWorker +
-          (numWorkerContexts - workerCount) * (elemsPerWorker - grainSize) -
-          totElems;
-      unsigned partitionParams = (elemsPerWorker << 9) | (workerCount << 6) |
-                                 (workerLast << 3) | deltaLast;
-      graph.setInitialValue(castVertex["partitionParams"], partitionParams);
-    } else {
-      graph.setInitialValue(castVertex["numElems"], totElems);
-    }
+    graph.setInitialValue(castVertex["numElems"], totElems);
   }
 
   graph.connect(castVertex["src"], sliceIn);

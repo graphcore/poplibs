@@ -196,17 +196,13 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
   return cycles * targetParams.numWorkerContexts;
 }
 
-// Returns the cycles of one to the 'cast_XXX_XXX_core' functions in assembly,
-// or the equivalent section of code in one of the C++ codelets.
 static uint64_t castWorkerCycles(const unsigned numElems, const Type &fromType,
                                  const Type &toType,
                                  const CastTargetParameters &targetParams) {
   std::uint64_t cycles = 0;
-  const bool isCharFloat = (fromType == UNSIGNED_CHAR ||
-                            fromType == SIGNED_CHAR || fromType == CHAR) &&
-                           (toType == FLOAT || toType == HALF);
+  const bool isCharFloat = (fromType == UNSIGNED_CHAR) && (toType == HALF);
   const bool isFloatChar =
-      (fromType == FLOAT || fromType == HALF) &&
+      (fromType == HALF) &&
       (toType == UNSIGNED_CHAR || toType == SIGNED_CHAR || toType == CHAR);
 
   const bool isDstLongLong = toType == UNSIGNED_LONGLONG || toType == LONGLONG;
@@ -244,22 +240,11 @@ static uint64_t castWorkerCycles(const unsigned numElems, const Type &fromType,
     // setup clamping when casting FROM int8 types
     unsigned clampSetupCycles = (fromType == UNSIGNED_CHAR) ? 3 : 4;
     cycles += 4; // all functions start with a 4 instruction sequence.
-    // CastFromInt8.S
-    if (fromType == UNSIGNED_CHAR && toType == HALF) {
+
+    if (isCharFloat) {
       cycles += workCycles(4, 14, 9, 12, 14, 22);
-    } else if ((fromType == SIGNED_CHAR || fromType == CHAR) &&
-               toType == HALF) {
-      cycles += workCycles(4, 15, 13, 12, 14, 22);
-    } else if (fromType == UNSIGNED_CHAR && toType == FLOAT) {
-      cycles += workCycles(4, 14, 10, 9, 15, 21);
-    } else if ((fromType == SIGNED_CHAR || fromType == CHAR) &&
-               toType == FLOAT) {
-      cycles += workCycles(2, 9, 7, 10, 0, 0);
-      // CastToInt8.S:
-    } else if (fromType == HALF) {
+    } else {
       cycles += clampSetupCycles + workCycles(4, 19, 16, 14, 21, 29);
-    } else if (fromType == FLOAT) {
-      cycles += clampSetupCycles + workCycles(4, 18, 14, 13, 21, 28);
     }
   } else {
     const auto dataPathWidth = targetParams.dataPathWidth / 8;
@@ -349,45 +334,13 @@ getCast1DSingleWorkerCycleEstimate(const CastTargetParameters &targetParams,
 
 std::uint64_t getCast1DCycleEstimate(const CastTargetParameters &targetParams,
                                      const Type &fromType, const Type &toType,
-                                     const unsigned workerElems,
-                                     const unsigned workerCount,
-                                     const unsigned workerLast,
-                                     const unsigned deltaLast) {
-
-  // Work out workers doing unique workloads from the partitionParams and
-  // find the maximum cycles for any of them.
-  unsigned max = workerElems;
-  unsigned maxM4 = workerElems - 4;
-  unsigned numMaxWorkers = workerCount;
-  unsigned numMaxM4Workers = targetParams.numWorkerContexts - workerCount;
-
-  // Worker entry from the supervisor, including exitz and call.
-  std::uint64_t maxCycles = 0;
-  if (workerLast < workerCount) {
-    numMaxWorkers--;
-    maxCycles = std::max(maxCycles, castWorkerCycles(max - deltaLast, fromType,
-                                                     toType, targetParams));
-  } else {
-    numMaxM4Workers--;
-    maxCycles =
-        std::max(maxCycles, castWorkerCycles(maxM4 - deltaLast, fromType,
-                                             toType, targetParams));
-  }
-  if (numMaxWorkers) {
-    maxCycles = std::max(maxCycles,
-                         castWorkerCycles(max, fromType, toType, targetParams));
-  }
-  if (numMaxM4Workers) {
-    maxCycles = std::max(
-        maxCycles, castWorkerCycles(maxM4, fromType, toType, targetParams));
-  }
-  const std::uint64_t fromSupervisorWorkerCycles = 23;
-  maxCycles += fromSupervisorWorkerCycles;
-
-  // setzi, runall, sync, br
-  // Assumes runall takes 6 cycles workers are balanced such that
-  // sync takes 6 cycles and br takes 6 cycles.
-  return 19 + targetParams.numWorkerContexts * maxCycles;
+                                     const unsigned numElems) {
+  auto numElemsPerWorker = (numElems + targetParams.numWorkerContexts - 1) /
+                           targetParams.numWorkerContexts;
+  return 12 + targetParams.numWorkerContexts *
+                  (castWorkerCycles(numElemsPerWorker, fromType, toType,
+                                    targetParams) +
+                   18);
 }
 
 static std::uint64_t

@@ -1052,15 +1052,20 @@ BOOST_AUTO_TEST_CASE(
 
 BOOST_AUTO_TEST_CASE(StdCast) {
   auto device = createTestDevice(TEST_TARGET);
-  Graph graph(device.getTarget());
+  auto target = device.getTarget();
+  Graph graph(target);
   popops::addCodelets(graph);
 
-  float hIn[DIM_SIZE];
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
+  // Specify a size large enough to cause the choice of >1 vertex
+  const unsigned castVertexElemsPerLoop = 4;
+  const unsigned largeDimSize = castVertexElemsPerLoop *
+                                target.getNumWorkerContexts() *
+                                (target.getRptCountMax() + 1);
+  std::vector<float> hIn(largeDimSize);
+  for (auto i = 0U; i < largeDimSize; ++i) {
     hIn[i] = (float)i;
   }
-
-  auto in = graph.addVariable(FLOAT, {DIM_SIZE}, "in");
+  auto in = graph.addVariable(FLOAT, {largeDimSize}, "in");
   mapTensorLinearly(graph, in);
   graph.createHostWrite("in", in);
 
@@ -1069,18 +1074,18 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   poplar::Tensor out = cast(graph, in, INT, prog, "cast");
   graph.createHostRead("out", out);
 
-  int hOut[DIM_SIZE];
+  std::vector<int> hOut(largeDimSize);
 
   Engine eng(graph, prog);
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
+    eng.writeTensor("in", hIn.data(), hIn.data() + largeDimSize);
     eng.run();
-    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+    eng.readTensor("out", hOut.data(), hOut.data() + largeDimSize);
   });
 
   /* Check result */
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
+  for (auto i = 0U; i < largeDimSize; ++i) {
     BOOST_TEST(hOut[i] == i);
   }
 }

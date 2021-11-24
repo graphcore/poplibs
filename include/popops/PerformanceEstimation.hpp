@@ -156,11 +156,10 @@ std::uint64_t getCast1DSingleWorkerCycleEstimate(
     const CastTargetParameters &targetParams, const poplar::Type &fromType,
     const poplar::Type &toType, const unsigned numElems);
 
-std::uint64_t
-getCast1DCycleEstimate(const CastTargetParameters &targetParams,
-                       const poplar::Type &fromType, const poplar::Type &toType,
-                       const unsigned workerElems, const unsigned workerCount,
-                       const unsigned workerLast, const unsigned deltaLast);
+std::uint64_t getCast1DCycleEstimate(const CastTargetParameters &targetParams,
+                                     const poplar::Type &fromType,
+                                     const poplar::Type &toType,
+                                     const unsigned numElems);
 
 struct FillTargetParameters {
   FillTargetParameters(const poplar::Target &target)

@@ -394,7 +394,7 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
                           dstType == UNSIGNED_SHORT || dstType == UNSIGNED_INT);
 
     min = (isSrcUnsigned || isDstUnsigned) ? 0 : -128;
-    max = 127;
+    max = (isSrcUnsigned || isDstUnsigned) ? 255 : 127;
   } else {
     UnaryOpType unaryOp = std::get<UnaryOpType>(op);
     if constexpr (std::is_floating_point<HostDataType>::value) {

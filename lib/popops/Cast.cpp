@@ -1,8 +1,6 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "popops/Cast.hpp"
 
-#include "CastInternal.hpp"
-
 #include "poplibs_support/Tracepoint.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
@@ -19,52 +17,22 @@ using namespace poplibs_support;
 
 namespace popops {
 
-namespace internal {
+constexpr unsigned maxDivisibleValue = (UINT_MAX / 0xAAAB) - 5;
+constexpr unsigned elementsPerLoop = 4;
 
-unsigned Cast1DPartition::pack() const {
-  assert(workerElems < (1u << 23));
-  assert(workerCount < (1u << 3));
-  assert(workerLast < (1u << 3));
-  assert(deltaLast < (1u << 3));
-  return (workerElems << 9) | (workerCount << 6) | (workerLast << 3) |
-         deltaLast;
-}
+bool validateRegionSizeForMultiVertex(
+    const std::vector<std::vector<Interval>> &intervals, unsigned maxRepeatSize,
+    unsigned numWorkers) {
 
-Cast1DPartition getCast1DPartition(unsigned numWorkerContexts,
-                                   unsigned numElems) {
-  Cast1DPartition p;
-  // The 1D MultiVertex will partition work to each worker in multiples
-  // of 4 elements. This ensures alignment of at least 8 bytes. Needed
-  // because the worker vertex requires 8 byte alignment.
-  constexpr unsigned grainSize = 4;
-  // Computing the bitfields for the 'partitionParams' word. See the codelet
-  // C++ definition for the meaning of the fields.
-  unsigned numGrains = (numElems + grainSize - 1) / grainSize;
-  p.workerCount = numWorkerContexts;
-  unsigned grainsPerWorker = 1;
-  p.workerLast = numWorkerContexts - 1;
-  if (numGrains <= numWorkerContexts) {
-    p.workerCount = numGrains;
-    p.workerLast = p.workerCount - 1;
-  } else {
-    grainsPerWorker = numGrains / p.workerCount;
-    unsigned rem = numGrains % p.workerCount;
-    if (rem > 0) {
-      p.workerCount = rem;
-      grainsPerWorker += 1;
-    }
+  const auto numElems = intervalSequenceNumElements(intervals);
+  if (numElems > maxDivisibleValue) {
+    return false;
   }
-  p.workerElems = grainsPerWorker * grainSize;
-  p.deltaLast =
-      p.workerCount * p.workerElems +
-      (numWorkerContexts - p.workerCount) * (p.workerElems - grainSize) -
-      numElems;
-  return p;
+  if (numElems > maxRepeatSize * numWorkers) {
+    return false;
+  }
+  return true;
 }
-
-} // end namespace internal
-
-using namespace internal;
 
 Program cast(Graph &graph, Tensor src, Tensor dst,
              const poplar::DebugContext &debugContext) {
@@ -99,25 +67,30 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   const auto vectorWidth = target.getFloatVectorWidth();
   std::vector<std::vector<Interval>> mapping = graph.getTileMapping(dst);
   const auto numTiles = target.getNumTiles();
+
+  const unsigned maxElemsForRpt = target.getRptCountMax() * elementsPerLoop;
+  const auto numWorkers = target.getNumWorkerContexts();
+
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(dst, mapping[tile]);
     // We use the 1D MultiVertex only if we have a single contiguous region
     // on the tile.
-    if (tileContiguousRegions.size() == 1) {
+    if (tileContiguousRegions.size() == 1 &&
+        validateRegionSizeForMultiVertex(tileContiguousRegions, maxElemsForRpt,
+                                         numWorkers)) {
       VertexRef v;
       v = graph.addVertex(cs,
                           templateVertex("popops::Cast1D", srcType, dstType));
       const auto numElems = intervalSequenceNumElements(tileContiguousRegions);
       graph.connect(v["src"], concat(src.slices(tileContiguousRegions)));
       graph.connect(v["dst"], concat(dst.slices(tileContiguousRegions)));
-      const auto cast1DPartition =
-          internal::getCast1DPartition(target.getNumWorkerContexts(), numElems);
-      graph.setInitialValue(v["partitionParams"], cast1DPartition.pack());
+      graph.setInitialValue(v["numElems"], numElems);
       graph.setTileMapping(v, tile);
     } else {
-      auto vertexRegions = splitRegionsBetweenWorkers(
-          target, tileContiguousRegions, vectorWidth, 2 * vectorWidth);
+      auto vertexRegions =
+          splitRegionsBetweenWorkers(target, tileContiguousRegions, vectorWidth,
+                                     2 * vectorWidth, UINT_MAX, maxElemsForRpt);
       for (const auto &regions : vertexRegions) {
         const auto numRegions = regions.size();
         assert(numRegions != 0);

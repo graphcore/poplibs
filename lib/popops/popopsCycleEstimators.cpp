@@ -1501,17 +1501,11 @@ VertexPerfEstimate
 MAKE_PERF_ESTIMATOR_NAME(Cast1D)(const VertexIntrospector &vertex,
                                  const Target &target, const Type &fromType,
                                  const Type &toType) {
-  CODELET_SCALAR_VAL(partitionParams, unsigned);
-  const unsigned workerElems = partitionParams >> 9;
-  const unsigned workerCount = (partitionParams >> 6) & 0x7;
-  const unsigned workerLast = (partitionParams >> 3) & 0x7;
-  const unsigned deltaLast = (partitionParams & 0x7);
+  CODELET_SCALAR_VAL(numElems, unsigned);
   const CastTargetParameters castTargetParams{target, fromType, toType};
-  const unsigned totalElems = workerElems * workerCount + deltaLast;
-  return {getCast1DCycleEstimate(castTargetParams, fromType, toType,
-                                 workerElems, workerCount, workerLast,
-                                 deltaLast),
-          castFlops(fromType, toType, totalElems)};
+
+  return {getCast1DCycleEstimate(castTargetParams, fromType, toType, numElems),
+          castFlops(fromType, toType, numElems)};
 }
 
 VertexPerfEstimate

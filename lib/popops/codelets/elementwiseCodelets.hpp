@@ -36,6 +36,7 @@ static __attribute__((always_inline)) unsigned getWsr(void) {
 static __attribute__((always_inline)) unsigned maskForRepeat(unsigned input) {
   return input & CSR_W_REPEAT_COUNT__VALUE__MASK;
 }
+#endif
 
 // Called by each of the workers of a MultiVertex Unary or
 // Binary/Broadcast vertex to find out how many elements it must process.
@@ -75,7 +76,6 @@ divideWork(const unsigned size, const unsigned vectorWidthShifts,
   // fixed point (Q14.18)
   return (((size >> vectorWidthShifts) + 5 - worker) * 0xaaab) >> 18;
 }
-#endif
 
 namespace {
 

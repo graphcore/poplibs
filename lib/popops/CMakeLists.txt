@@ -8,7 +8,6 @@ add_library(popops SHARED
   BitonicTopK.cpp
   BitonicTopK.hpp
   Cast.cpp
-  CastInternal.hpp
   CastModelling.cpp
   CastModelling.hpp
   CircBuf.cpp
@@ -139,10 +138,6 @@ target_include_directories(popops
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BroadcastSelect.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BinarySearch.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastFromInt8.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastHalfFloat.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastToInt8.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Clamp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionNoAcc.S
@@ -249,7 +244,6 @@ add_gp_library(
   HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BinarySearch.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CommonPoplibsMacros.h.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.inc
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSliceUpdateCommon.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOpsOps.h.S
@@ -259,6 +253,8 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssembler.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerCast.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerUnaryOps.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectScalarFromRows.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.hpp

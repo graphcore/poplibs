@@ -32,6 +32,11 @@ using namespace poplar;
 
 namespace popops {
 
+#ifdef __IPU__
+#include "inlineAssembler.hpp"
+#include "inlineAssemblerCast.hpp"
+#endif
+
 template <typename FPType>
 class [[poplar::constraint("elem(**A) != elem(**B)")]] HadamardProd
     : public Vertex {
@@ -184,8 +189,8 @@ getCastParams() {
                     std::is_same<DstType, signed char>::value ||
                     std::is_same<DstType, char>::value);
 
-  bool ext =
-      halfFloat || floatHalf || charFloat || charHalf || halfChar || floatChar;
+  bool inlineAsm =
+      floatHalf || halfFloat || floatChar || halfChar || charFloat || charHalf;
 
   unsigned inAlign = alignof(SrcType);
   unsigned outAlign = alignof(DstType);
@@ -204,7 +209,7 @@ getCastParams() {
 
   VectorLayout inLayout = ONE_PTR;
   VectorLayout outLayout = ONE_PTR;
-  if (ext) {
+  if (inlineAsm) {
     inLayout = PTR_ALIGN64;
     outLayout = PTR_ALIGN32;
   }
@@ -212,8 +217,217 @@ getCastParams() {
     outLayout = PTR_ALIGN64;
   }
 
-  return {ext, inAlign, outAlign, inLayout, outLayout};
+  return {inlineAsm, inAlign, outAlign, inLayout, outLayout};
 }
+
+template <typename SrcType, typename DstType, bool inlineAsm>
+struct CastDispatch {
+public:
+  static void compute(unsigned numElems, const SrcType *src, DstType *dst) {
+    constexpr unsigned elemsPerLoop = 4;
+    for (unsigned i = 0; i < numElems / elemsPerLoop; ++i) {
+      *dst++ = static_cast<DstType>(*src++);
+      *dst++ = static_cast<DstType>(*src++);
+      *dst++ = static_cast<DstType>(*src++);
+      *dst++ = static_cast<DstType>(*src++);
+    }
+    for (unsigned i = 0; i < (numElems & 3); i++) {
+      dst[i] = static_cast<DstType>(src[i]);
+    }
+  }
+};
+
+template <typename SrcType, typename DstType, bool inlineAsm>
+struct CastDispatchMultiVertex {
+public:
+  static void compute(unsigned numElems, unsigned wid, const SrcType *src,
+                      DstType *dst) {
+    constexpr unsigned elemsPerLoop = 4;
+    const SrcType *loopSrc = &src[wid * elemsPerLoop];
+    DstType *loopDst = &dst[wid * elemsPerLoop];
+
+    for (unsigned i = 0; i < divideWork(numElems, 2, wid); ++i) {
+      *loopDst++ = static_cast<DstType>(*loopSrc++);
+      *loopDst++ = static_cast<DstType>(*loopSrc++);
+      *loopDst++ = static_cast<DstType>(*loopSrc++);
+      *loopDst++ = static_cast<DstType>(*loopSrc++);
+      loopDst += elemsPerLoop * CTXT_WORKERS - elemsPerLoop;
+      loopSrc += elemsPerLoop * CTXT_WORKERS - elemsPerLoop;
+    }
+    if (wid == CTXT_WORKERS - 1 && numElems & 3) {
+      const unsigned offset = numElems & ~3;
+      for (unsigned i = 0; i < (numElems & 3); i++) {
+        dst[offset + i] = static_cast<DstType>(src[offset + i]);
+      }
+    }
+  }
+};
+
+#ifdef __IPU__
+template <> struct CastDispatch<float, half, true> {
+public:
+  static void compute(unsigned numElems, const float *src, half *dst) {
+    constexpr unsigned elemsPerLoop = 4;
+
+    if (reinterpret_cast<unsigned>(dst) & 4 && numElems >= 2) {
+      auto dst2 = reinterpret_cast<half2 *>(&dst[0]);
+      *dst2 = {static_cast<half>(src[0]), static_cast<half>(src[1])};
+      numElems -= 2;
+      src += 2;
+      dst += 2;
+    }
+    inLineAssemblerCast<const float *, half *, false, 1>::loopBody(
+        numElems / elemsPerLoop, src, dst);
+    if (numElems & 2) {
+      auto idx = numElems & (~3);
+      auto dst2 = reinterpret_cast<half2 *>(&dst[idx]);
+      *dst2 = {static_cast<half>(src[idx]), static_cast<half>(src[idx + 1])};
+    }
+    if (numElems & 1) {
+      auto idx = numElems & (~1);
+      write16Aligned32(static_cast<half>(src[idx]),
+                       reinterpret_cast<half2 *>(&dst[idx]));
+    }
+  }
+};
+
+template <> struct CastDispatch<half, float, true> {
+public:
+  static void compute(unsigned numElems, const half *src, float *dst) {
+    constexpr unsigned elemsPerLoop = 4;
+
+    inLineAssemblerCast<const half *, float *, false, 1>::loopBody(
+        numElems / elemsPerLoop, src, dst);
+    if (numElems & 2) {
+      auto idx = numElems & (~3);
+      auto dst2 = reinterpret_cast<float2 *>(&dst[idx]);
+      *dst2 = {static_cast<float>(src[idx]), static_cast<float>(src[idx + 1])};
+    }
+    if (numElems & 1) {
+      auto idx = numElems & (~1);
+      dst[idx] = static_cast<float>(src[idx]);
+    }
+  }
+};
+
+template <typename SrcType, typename DstType>
+struct CastDispatch<SrcType, DstType, true> {
+public:
+  static constexpr bool toFpType =
+      std::is_same<DstType, float>::value || std::is_same<DstType, half>::value;
+
+  static void compute(unsigned numElems, const SrcType *src, DstType *dst) {
+    constexpr unsigned elemsPerLoop = 4;
+    float2 limits;
+    if constexpr (std::is_same<DstType, unsigned char>::value) {
+      limits = {0.0f, 255.0f};
+    } else {
+      limits = {-128.0f, 127.0f};
+    }
+
+    inLineAssemblerCast<const SrcType *, DstType *, toFpType, 1>::loopBody(
+        numElems / elemsPerLoop, src, dst, limits);
+    dst += numElems & ~3;
+    src += numElems & ~3;
+    for (unsigned i = 0; i < (numElems & 3); i++) {
+      *dst++ = inLineAssemblerCast<const SrcType *, DstType *, toFpType,
+                                   1>::singleCast(*src++, limits);
+    }
+  }
+};
+
+template <> struct CastDispatchMultiVertex<float, half, true> {
+public:
+  static void compute(unsigned numElems, unsigned wid, const float *src,
+                      half *dst) {
+    constexpr unsigned elemsPerLoop = 4;
+
+    if (reinterpret_cast<unsigned>(dst) & 4 && numElems >= 2) {
+      if (wid == CTXT_WORKERS - 1) {
+        auto dst2 = reinterpret_cast<half2 *>(&dst[0]);
+        *dst2 = {static_cast<half>(src[0]), static_cast<half>(src[1])};
+      }
+      numElems -= 2;
+      src += 2;
+      dst += 2;
+    }
+
+    inLineAssemblerCast<const float *, half *, false, CTXT_WORKERS>::loopBody(
+        divideWork(numElems, 2, wid), &src[elemsPerLoop * wid],
+        &dst[elemsPerLoop * wid]);
+
+    if (numElems & 3) {
+      if (wid == CTXT_WORKERS - 2 && numElems & 2) {
+        auto idx = numElems & (~3);
+        auto dst2 = reinterpret_cast<half2 *>(&dst[idx]);
+        *dst2 = {static_cast<half>(src[idx]), static_cast<half>(src[idx + 1])};
+      }
+      if (wid == CTXT_WORKERS - 3 && numElems & 1) {
+        auto idx = numElems & (~1);
+        write16Aligned32(static_cast<half>(src[idx]),
+                         reinterpret_cast<half2 *>(&dst[idx]));
+      }
+    }
+  }
+};
+
+template <> struct CastDispatchMultiVertex<half, float, true> {
+public:
+  static void compute(unsigned numElems, unsigned wid, const half *src,
+                      float *dst) {
+    constexpr unsigned elemsPerLoop = 4;
+    inLineAssemblerCast<const half *, float *, false, CTXT_WORKERS>::loopBody(
+        divideWork(numElems, 2, wid), &src[elemsPerLoop * wid],
+        &dst[elemsPerLoop * wid]);
+
+    if (numElems & 3) {
+      if (wid == CTXT_WORKERS - 1 && numElems & 2) {
+        auto idx = numElems & (~3);
+        auto dst2 = reinterpret_cast<float2 *>(&dst[idx]);
+        *dst2 = {static_cast<float>(src[idx]),
+                 static_cast<float>(src[idx + 1])};
+      }
+      if (wid == CTXT_WORKERS - 2 && numElems & 1) {
+        auto idx = numElems & (~1);
+        dst[idx] = static_cast<float>(src[idx]);
+      }
+    }
+  }
+};
+
+template <typename SrcType, typename DstType>
+struct CastDispatchMultiVertex<SrcType, DstType, true> {
+public:
+  static constexpr bool toFpType =
+      std::is_same<DstType, float>::value || std::is_same<DstType, half>::value;
+
+  static void compute(unsigned numElems, unsigned wid, const SrcType *src,
+                      DstType *dst) {
+    constexpr unsigned elemsPerLoop = 4;
+    float2 limits;
+    if constexpr (std::is_same<DstType, unsigned char>::value) {
+      limits = {0.0f, 255.0f};
+    } else {
+      limits = {-128.0f, 127.0f};
+    }
+
+    inLineAssemblerCast<const SrcType *, DstType *, toFpType,
+                        CTXT_WORKERS>::loopBody(divideWork(numElems, 2, wid),
+                                                &src[elemsPerLoop * wid],
+                                                &dst[elemsPerLoop * wid],
+                                                limits);
+    if (wid == CTXT_WORKERS - 1) {
+      dst += numElems & ~3;
+      src += numElems & ~3;
+      for (unsigned i = 0; i < (numElems & 3); i++) {
+        *dst++ = inLineAssemblerCast<const SrcType *, DstType *, toFpType,
+                                     1>::singleCast(*src++, limits);
+      }
+    }
+  }
+};
+
+#endif
 
 template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast1DSingleWorker
@@ -223,7 +437,7 @@ public:
 
   // Structured binding would be nicer, but it doesn't work here
   constexpr static auto t = getCastParams<SrcType, DstType>();
-  constexpr static bool ext = std::get<0>(t);
+  constexpr static bool inlineAsm = std::get<0>(t);
   constexpr static unsigned inAlign = std::get<1>(t);
   constexpr static unsigned outAlign = std::get<2>(t);
   constexpr static VectorLayout inLayout = std::get<3>(t);
@@ -233,12 +447,9 @@ public:
   Output<Vector<DstType, outLayout, outAlign>> dst;
   const unsigned numElems;
 
-  IS_EXTERNAL_CODELET(ext);
-
   bool compute() {
-    for (unsigned i = 0; i < numElems; ++i) {
-      dst[i] = static_cast<DstType>(src[i]);
-    }
+    CastDispatch<SrcType, DstType, inlineAsm>::compute(numElems, &src[0],
+                                                       &dst[0]);
     return true;
   }
 };
@@ -253,7 +464,7 @@ public:
   Cast1D();
 
   constexpr static auto t = getCastParams<SrcType, DstType>();
-  constexpr static bool ext = std::get<0>(t);
+  constexpr static bool inlineAsm = std::get<0>(t);
   constexpr static unsigned inAlign = std::get<1>(t);
   constexpr static unsigned outAlign = std::get<2>(t);
   constexpr static VectorLayout inLayout = std::get<3>(t);
@@ -261,60 +472,12 @@ public:
 
   Input<Vector<SrcType, inLayout, inAlign>> src;
   Output<Vector<DstType, outLayout, outAlign>> dst;
-  const unsigned partitionParams;
-
-  IS_EXTERNAL_CODELET(ext);
+  const unsigned numElems;
 
   bool compute(unsigned wid) {
-    // 'partitionParams' contains 4 bit fields defining how the work is
-    // partitioned among workers:
-    //
-    //                           23 bits                    3     3     3
-    //  +------------------------------------------------+-----+-----+-----+
-    //  |                       Welems                   | Wcnt| Wlst| Dlst|
-    //  +------------------------------------------------+-----+-----+-----+
-    // MSB                                                               LSB
-    //
-    // The first 'Wcnt' (Worker Count) workers will process 'Welems' (Worker
-    // Elements) elements each ('Welems' always a multiple of 4).
-    // The other (6-'Wcnt') workers will process 'Welems-4' elems (could be
-    // none). Need to correct the above for the last worker, (index 'Wlst
-    // =Worker Last), that will process 'Dlst' (Delta Last, 0..3) fewer elements
-    // than specified by 'Welems' or 'Welems-4'. For instance:
-    //
-    // Total elements : 15  =>   WCnt=4, Welems=4, Wlst=3, Dlst=1
-    //
-    //  WkId 0     WkId 1     WkId 2     WkId 3     WkId 4     WkId 5
-    // 4 elems    4 elems    4 elems    3 elems    0 elems    0 elems
-    //   +---------------+------------------+ |
-    //                   |                    |
-    //                Wcnt=4                  Last one does 'Dlst' fewer elems.
-    //
-    //
-    // Total elements : 30  =>   WCnt=2, Welems=8, Wlst=5, Dlst=2
-    //
-    //  WkId 0     WkId 1     WkId 2     WkId 3     WkId 4     WkId 5
-    // 8 elems    8 elems    4 elems    4 elems    4 elems    2 elems
-    // +--------+-------+                                        |
-    //          |                                                |
-    //        Wcnt=2                       Last one does 'Dlst' fewer elems.
-    //
-    // This ensures that all workers start on a 4-element boundary.
-    const unsigned deltaLast = partitionParams & 0x7;
-    const unsigned workerLast = (partitionParams >> 3) & 0x7;
-    const unsigned workerCount = (partitionParams >> 6) & 0x7;
-    unsigned workerElems = partitionParams >> 9;
-    unsigned offs = wid * workerElems;
-    if (wid >= workerCount) {
-      workerElems -= 4;
-      offs -= (wid - workerCount) * 4;
-    }
-    if (wid == workerLast) {
-      workerElems -= deltaLast;
-    }
-    for (unsigned i = 0; i < workerElems; ++i) {
-      dst[offs + i] = static_cast<DstType>(src[offs + i]);
-    }
+
+    CastDispatchMultiVertex<SrcType, DstType, inlineAsm>::compute(
+        numElems, wid, &src[0], &dst[0]);
     return true;
   }
 };
@@ -327,24 +490,18 @@ class [[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2D
     : public Vertex {
 public:
   constexpr static auto t = getCastParams<SrcType, DstType>();
-  constexpr static bool ext = std::get<0>(t);
+  constexpr static bool inlineAsm = std::get<0>(t);
   constexpr static unsigned inAlign = std::get<1>(t);
   constexpr static unsigned outAlign = std::get<2>(t);
 
   Vector<Input<Vector<SrcType, ONE_PTR, inAlign>>, ONE_PTR> src;
   Vector<Output<Vector<DstType, SPAN, outAlign>>> dst;
 
-  IS_EXTERNAL_CODELET(ext);
-
   bool compute() {
     const unsigned limI = dst.size();
     for (unsigned i = 0; i != limI; ++i) {
-      const unsigned limJ = dst[i].size();
-      auto const &refSrc = src[i];
-      auto &refDst = dst[i];
-      for (unsigned j = 0; j != limJ; ++j) {
-        refDst[j] = static_cast<DstType>(refSrc[j]);
-      }
+      CastDispatch<SrcType, DstType, inlineAsm>::compute(
+          dst[i].size(), &src[i][0], &dst[i][0]);
     }
     return true;
   }
