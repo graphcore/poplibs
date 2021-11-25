@@ -186,6 +186,7 @@ using DistributedNormReduceCallback = std::function<std::vector<poplar::Tensor>(
 /// \param debugContext   Optional debug information.
 ///
 /// \returns             A vector pair with mean and inverse standard deviation.
+///
 std::pair<poplar::Tensor, poplar::Tensor> distributedNormStatistics(
     poplar::Graph &replicatedGraph, const poplar::Tensor &actsUngrouped,
     float eps, poplar::program::Sequence &prog, bool unbiasedVarEstimate,
@@ -206,7 +207,8 @@ std::pair<poplar::Tensor, poplar::Tensor> distributedNormStatistics(
 ///                       perform the normalisation will be appended to.
 /// \param debugContext   Optional debug information.
 ///
-/// \returns              Whitened activations.
+/// \returns              A new tensor with the whitened activations.
+///
 poplar::Tensor normWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
                           const poplar::Tensor &mean,
                           const poplar::Tensor &iStdDev,
@@ -214,13 +216,16 @@ poplar::Tensor normWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
                           const poplar::DebugContext &debugContext = {});
 
 /// Computes the normalised output from whitened activations.
-/// \param graph         The graph to which the normalisaton operation is added.
+/// \param graph        The graph to which the normalisation operation is added.
 /// \param actsWhitened  Whitened activations.
 /// \param gamma         Per-channel multiplicative normalisation parameter.
 /// \param beta          Per-channel additive normalisation parameter.
 /// \param prog          A program sequence that the code to
 ///                      perform the normalisation will be appended to.
 /// \param debugContext   Optional debug information.
+///
+/// \returns             A tensor containing the normalised activations.
+///
 poplar::Tensor normalise(poplar::Graph &graph,
                          const poplar::Tensor &actsWhitened,
                          const poplar::Tensor &gamma,
@@ -229,13 +234,18 @@ poplar::Tensor normalise(poplar::Graph &graph,
                          const poplar::DebugContext &debugContext = {});
 
 /// Compute gradients with respect to parameters required for parameter update.
-/// \param graph         The graph to which the normalisaton operation is added.
+///
+/// \param graph        The graph to which the normalisation operation is added.
 /// \param actsWhitened  Whitened activations.
-/// \param gradsIn       Input gradients to the normalisation layer.
+/// \param gradsIn       The gradient with respect to the output of this layer.
 /// \param prog          A program sequence that the code to
 ///                      perform the normalisation will be appended to.
 /// \param partialsType  The intermediate type kept in the computation.
 /// \param debugContext   Optional debug information.
+///
+/// \returns            A pair of tensors, \c gammaDelta and \c betaDelta which
+///                     are the gradients with respect to \c gamma and \c beta.
+///
 std::pair<poplar::Tensor, poplar::Tensor>
 normParamGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                    const poplar::Tensor &gradsIn,
@@ -244,12 +254,15 @@ normParamGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                    const poplar::DebugContext &debugContext = {});
 
 /// Propagate the gradients through the normalisation layer.
-/// \param graph         The graph to which the normalisaton operation is added.
-/// \param gradsIn       Input gradients to the normalisation layer.
+/// \param graph        The graph to which the normalisation operation is added.
+/// \param gradsIn       The gradient with respect to the output of this layer.
 /// \param gamma         Multiplicative parameter used in the normalisation.
 /// \param prog          A program sequence that the code to
 ///                      perform the normalisation will be appended to.
 /// \param debugContext   Optional debug information.
+///
+/// \returns            The gradient with respect to the input of this layer.
+///
 poplar::Tensor normGradients(poplar::Graph &graph,
                              const poplar::Tensor &gradsIn,
                              const poplar::Tensor &gamma,
@@ -261,13 +274,17 @@ poplar::Tensor normGradients(poplar::Graph &graph,
 /// activations and the input gradients must have undergone a prior
 /// rearrangement such that the channel dimension has the same elements as
 /// \p invStdDev.
-/// \param graph        The graph to which the normalisaton operation is added.
+///
+/// \param graph        The graph to which the normalisation operation is added.
 /// \param actsWhitened Forward whitened activations.
-/// \param gradsIn      Input gradients to the normalisation layer.
+/// \param gradsIn      The gradient with respect to the output of this layer.
 /// \param invStdDev    Inverse standard deviation from norm statistics.
 /// \param prog         A program sequence that the code to
 ///                     perform the normalisation will be appended to.
 /// \param debugContext   Optional debug information.
+///
+/// \returns            The gradient with respect to the input of this layer.
+///
 poplar::Tensor normStatisticsGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, const poplar::Tensor &invStdDev,
@@ -287,10 +304,10 @@ poplar::Tensor normStatisticsGradients(
 /// rearrangement such that the channel dimension has the same elements as
 /// \p invStdDev.
 /// \param replicatedGraph
-///                     The replicated graph to which the normalisaton operation
+///                    The replicated graph to which the normalisation operation
 ///                     is added.
 /// \param actsWhitened Forward whitened activations.
-/// \param gradsIn      Input gradients to the normalisation layer.
+/// \param gradsIn      The gradient with respect to the output of this layer.
 /// \param invStdDev    Inverse standard deviation from norm statistics.
 /// \param prog         A program sequence that the code to
 ///                     perform the normalisation will be appended to.
@@ -299,6 +316,9 @@ poplar::Tensor normStatisticsGradients(
 ///                     gradients across the replicas.
 /// \param normSize     The batch size over which the norm is done.
 /// \param debugContext Optional debug information.
+///
+/// \returns            The gradient with respect to the input of this layer.
+///
 poplar::Tensor distributedNormStatisticsGradients(
     poplar::Graph &replocatedGraph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, const poplar::Tensor &invStdDev,
