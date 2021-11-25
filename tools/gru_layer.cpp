@@ -773,7 +773,8 @@ int main(int argc, char **argv) {
     }
 
     boost::multi_array<double, 3> matImpl(
-        boost::extents[sequenceSize][batchSize][outputSize]);
+        boost::extents[params.outputFullSequence ? sequenceSize : 1][batchSize]
+                      [outputSize]);
     copy(target, dataType, rawHostNextAct.get(), matImpl);
     if (params.outputFullSequence) {
       for (auto s = 0U; s != sequenceSize; ++s) {
