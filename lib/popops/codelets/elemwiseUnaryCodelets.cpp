@@ -530,7 +530,7 @@ struct UnaryOpDispatch<op, T, bool, architecture::ipu> {
   static void compute(unsigned size, const T *in,
                       __attribute__((align_value(4))) bool *out) {
     if (size >= 4) {
-      const unsigned loopCount = maskForRepeat(size / 4u);
+      const rptsize_t loopCount = size / 4u;
       unaryBoolOpBulk<op, T, 1>::compute(loopCount, in,
                                          reinterpret_cast<int *>(out));
     }
@@ -553,7 +553,7 @@ struct UnaryOpDispatch<op, half, bool, architecture::ipu> {
     if (size >= 4) {
       const half4 *h4In = reinterpret_cast<const half4 *>(in);
       int *iOut = reinterpret_cast<int *>(out);
-      const unsigned loopCount = maskForRepeat(size / 4u);
+      const rptsize_t loopCount = size / 4u;
       for (unsigned i = 0; i < loopCount; ++i) {
         half4 load = ipu::load_postinc(&h4In, 1);
         short4 calc = static_cast<short4>(FuncTy<half4>::fn(load));
@@ -589,7 +589,7 @@ struct UnaryOpDispatch<op, float, bool, architecture::ipu> {
       const float2 *f2In = reinterpret_cast<const float2 *>(in);
       int *iOut = reinterpret_cast<int *>(out);
 
-      const unsigned loopCount = maskForRepeat(size / 4u);
+      const rptsize_t loopCount = size / 4u;
       for (unsigned i = 0; i < loopCount; ++i) {
         float2 load = ipu::load_postinc(&f2In, 1);
         int2 calc_lo = static_cast<int2>(FuncTy<float2>::fn(load));
@@ -638,7 +638,7 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
         // unrolling far enough to overlap the store with calculation.
 
         half4 load = ipu::load_postinc(&h4In, 1);
-        const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
+        const rptsize_t loopCount = (size / 4u) - 1u;
         asm volatile("# Thwart loop rotation (start)" ::: "memory");
         for (unsigned i = 0; i < loopCount; ++i) {
           half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
@@ -680,7 +680,7 @@ public:
       inlineAssemblerUnaryOp<op, float, 1>::loopBody(size / 2, f2In, f2Out);
     } else {
       if (size >= 2) {
-        const unsigned loopCount = maskForRepeat((size / 2u) - 1);
+        const rptsize_t loopCount = (size / 2u) - 1;
 
         float2 load = ipu::load_postinc(&f2In, 1);
         asm volatile("# Thwart loop rotation (start)" ::: "memory");
@@ -776,7 +776,7 @@ template <UnaryOpType op, typename T>
 static void unaryShort2_MultiVertex(unsigned size, unsigned worker,
                                     const __attribute__((align_value(4))) T *in,
                                     __attribute__((align_value(4))) T *out) {
-  const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+  const rptsize_t loopCount = divideWork(size, 1, worker);
 
   unaryShort2Bulk<op, T, CTXT_WORKERS>(loopCount, in + 2 * worker,
                                        out + 2 * worker);
@@ -792,7 +792,7 @@ template <UnaryOpType op, typename T>
 static void unaryShort2_2D(unsigned size,
                            const __attribute__((align_value(4))) T *in,
                            __attribute__((align_value(4))) T *out) {
-  const unsigned loopCount = maskForRepeat(size / 2u);
+  const rptsize_t loopCount = size / 2u;
   unaryShort2Bulk<op, T, 1>(loopCount, in, out);
   unaryShort2Short4Remainder<op, T, 1>(size, in, out);
 }
@@ -928,7 +928,7 @@ class UnaryOpDispatchMultiVertex<op, T, bool, A> {
 public:
   static void compute(unsigned size, unsigned worker, const T *in,
                       __attribute__((align_value(4))) bool *out) {
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
     unaryBoolOpBulk<op, T, CTXT_WORKERS>::compute(
         loopCount, in + 4 * worker, reinterpret_cast<int *>(out) + worker);
 
@@ -954,7 +954,7 @@ struct UnaryOpDispatchMultiVertex<op, half, bool, architecture::ipu> {
 
     const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
 
     for (unsigned j = 0; j < loopCount; j++) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
@@ -993,7 +993,7 @@ struct UnaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + 2 * worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned j = 0; j < loopCount; j++) {
       float2 load = ipu::load_postinc(&f2In, 1);
       int2 calc_lo = static_cast<int2>(FuncTy<float2>::fn(load));
@@ -1029,7 +1029,7 @@ public:
     const half4 *h4In = reinterpret_cast<const half4 *>(in) + worker;
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
     const auto remainder = size & 3;
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
 
     if constexpr (hasInlineAssemblerInnerLoopImpl<op, half, half>()) {
       std::tie(h4In, h4Out) =
@@ -1072,7 +1072,7 @@ public:
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
 
-    const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+    const rptsize_t loopCount = divideWork(size, 1, worker);
 
     if constexpr (hasInlineAssemblerInnerLoopImpl<op, float, float>()) {
       inlineAssemblerUnaryOp<op, float, CTXT_WORKERS>::loopBody(loopCount, f2In,

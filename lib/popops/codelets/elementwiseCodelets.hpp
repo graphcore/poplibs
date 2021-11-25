@@ -29,13 +29,6 @@ static __attribute__((always_inline)) unsigned getWsr(void) {
   return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;
 }
 
-// Use attributes to ensure that the maskForRepeat is inline just prior to the
-// repeat instruction and therefore picked up by the compiler pass which
-// optimises for repeat instructions.
-// See T9902.
-static __attribute__((always_inline)) unsigned maskForRepeat(unsigned input) {
-  return input & CSR_W_REPEAT_COUNT__VALUE__MASK;
-}
 #endif
 
 // Called by each of the workers of a MultiVertex Unary or

@@ -337,7 +337,7 @@ static void
 broadcastShort2_MultiVertex(unsigned size, unsigned worker,
                             const __attribute__((align_value(4))) T *in,
                             __attribute__((align_value(4))) T *out, const T K) {
-  const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+  const rptsize_t loopCount = divideWork(size, 1, worker);
 
   broadcastShort2Bulk<op, T, CTXT_WORKERS>(loopCount, in + 2 * worker,
                                            out + 2 * worker, K);
@@ -353,7 +353,7 @@ template <BinaryOpType op, typename T>
 static void
 broadcastShort2_2D(unsigned size, const __attribute__((align_value(4))) T *in,
                    __attribute__((align_value(4))) T *out, const T K) {
-  const unsigned loopCount = maskForRepeat(size / 2u);
+  const rptsize_t loopCount = size / 2u;
   broadcastShort2Bulk<op, T, 1>(loopCount, in, out, K);
   broadcastShort2Short4Remainder<op, T, 1>(size, in, out, K);
 }
@@ -367,7 +367,7 @@ struct BroadcastOpDispatch<op, T, bool, false, allowRemainder> {
                       const __attribute__((align_value(8))) T *in,
                       __attribute__((align_value(8))) bool *out, const T K) {
     if (size >= 4) {
-      const unsigned loopCount = maskForRepeat(size / 4u);
+      const rptsize_t loopCount = size / 4u;
       broadcastBoolOpBulk<op, T, 1>::compute(loopCount, in,
                                              reinterpret_cast<int *>(out), K);
     }
@@ -422,7 +422,7 @@ struct BroadcastOpDispatch<op, half, half, allowUnaligned, allowRemainder> {
       half4 *h4Out = reinterpret_cast<half4 *>(out);
 
       half4 load = ipu::load_postinc(&h4In, 1);
-      const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
+      const rptsize_t loopCount = (size / 4u) - 1u;
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
         half4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
@@ -482,7 +482,7 @@ struct BroadcastOpDispatch<op, float, float, allowUnaligned, allowRemainder> {
       const float2 *f2In = reinterpret_cast<const float2 *>(in);
       float2 *f2Out = reinterpret_cast<float2 *>(out);
       float2 load = ipu::load_postinc(&f2In, 1);
-      const unsigned loopCount = maskForRepeat((size / 2u) - 1);
+      const rptsize_t loopCount = (size / 2u) - 1;
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
         float2 calc =
@@ -537,7 +537,7 @@ public:
   static void compute(unsigned size, unsigned worker,
                       const __attribute__((align_value(8))) T *in,
                       __attribute__((align_value(8))) bool *out, const T K) {
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
     broadcastBoolOpBulk<op, T, CTXT_WORKERS>::compute(
         loopCount, in + 4 * worker, reinterpret_cast<int *>(out) + worker, K);
 
@@ -583,7 +583,7 @@ public:
     const float2 *f2In = reinterpret_cast<const float2 *>(in) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
     float2 K2 = {K, K};
-    const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+    const rptsize_t loopCount = divideWork(size, 1, worker);
     for (unsigned j = 0; j < loopCount; j++) {
       float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
       float2 calc = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
@@ -660,7 +660,7 @@ public:
     half4 K4 = {K, K, K, K};
 
     asm volatile("# Thwart loop rotation (start)" ::: "memory");
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned j = 0; j < loopCount; j++) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       half4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
@@ -726,7 +726,7 @@ public:
                       half *outInv, const inT K) {
     half2 *h2Out1 = reinterpret_cast<half2 *>(out) + worker;
     half2 *h2Out2 = reinterpret_cast<half2 *>(outInv) + worker;
-    const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+    const rptsize_t loopCount = divideWork(size, 1, worker);
     auto load = in + worker * 2;
     for (unsigned j = 0; j < loopCount; j++) {
       half2 calc1, calc2;

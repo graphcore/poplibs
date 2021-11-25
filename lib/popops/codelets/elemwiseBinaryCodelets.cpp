@@ -254,7 +254,7 @@ binaryShort2_MultiVertex(unsigned size, unsigned worker,
                          const __attribute__((align_value(4))) T *in1,
                          const __attribute__((align_value(4))) T *in2,
                          __attribute__((align_value(4))) T *out) {
-  const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+  const rptsize_t loopCount = divideWork(size, 1, worker);
 
   binaryShort2Bulk<op, T, CTXT_WORKERS>(loopCount, in1 + 2 * worker,
                                         in2 + 2 * worker, out + 2 * worker);
@@ -271,7 +271,7 @@ static void binaryShort2_2D(unsigned size,
                             const __attribute__((align_value(4))) T *in1,
                             const __attribute__((align_value(4))) T *in2,
                             __attribute__((align_value(4))) T *out) {
-  const unsigned loopCount = maskForRepeat(size / 2u);
+  const rptsize_t loopCount = size / 2u;
   binaryShort2Bulk<op, T, 1>(loopCount, in1, in2, out);
   binaryShort2Short4Remainder<op, T, 1>(size, in1, in2, out);
 }
@@ -286,7 +286,7 @@ struct BinaryOpDispatch<op, T, bool, architecture::ipu> {
                       const __attribute__((align_value(8))) T *in2,
                       __attribute__((align_value(8))) bool *out) {
     if (size >= 4) {
-      const unsigned loopCount = maskForRepeat(size / 4u);
+      const rptsize_t loopCount = size / 4u;
       binaryBoolOpBulk<op, T, 1>::compute(loopCount, in1, in2,
                                           reinterpret_cast<int *>(out));
     }
@@ -311,7 +311,7 @@ struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
       const float2 *f2In1 = reinterpret_cast<const float2 *>(in1);
       const float2 *f2In2 = reinterpret_cast<const float2 *>(in2);
       int *iOut = reinterpret_cast<int *>(out);
-      const unsigned loopCount = maskForRepeat(size / 4u);
+      const rptsize_t loopCount = size / 4u;
       for (unsigned i = 0; i < loopCount; ++i) {
         float2 load1 = ipu::load_postinc(&f2In1, 1);
         float2 load2 = ipu::load_postinc(&f2In2, 1);
@@ -357,7 +357,7 @@ struct BinaryOpDispatch<op, half, bool, architecture::ipu> {
       const half4 *h4In2 = reinterpret_cast<const half4 *>(in2);
       int *iOut = reinterpret_cast<int *>(out);
 
-      const unsigned loopCount = maskForRepeat(size / 4u);
+      const rptsize_t loopCount = size / 4u;
       for (unsigned i = 0; i < loopCount; ++i) {
         half4 load1 = ipu::load_postinc(&h4In1, 1);
         half4 load2 = ipu::load_postinc(&h4In2, 1);
@@ -405,7 +405,7 @@ struct BinaryOpDispatch<op, half, half, architecture::ipu> {
 
       half4 load1 = ipu::load_postinc(&h4In1, 1);
       half4 load2 = ipu::load_postinc(&h4In2, 1);
-      const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
+      const rptsize_t loopCount = (size / 4u) - 1u;
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; ++i) {
         half4 calc = BinaryOpFn<op, half4, arch>::fn(load1, load2);
@@ -460,7 +460,7 @@ struct BinaryOpDispatch<op, float, float, architecture::ipu> {
 
       float2 load1 = ipu::load_postinc(&f2In1, 1);
       float2 load2 = ipu::load_postinc(&f2In2, 1);
-      unsigned loopCount = maskForRepeat((size / 2u) - 1u);
+      const rptsize_t loopCount = (size / 2u) - 1u;
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; ++i) {
         float2 calc = BinaryOpFn<op, float2, arch>::fn(load1, load2);
@@ -589,7 +589,7 @@ public:
                       const __attribute__((align_value(8))) T *in1,
                       const __attribute__((align_value(8))) T *in2,
                       __attribute__((align_value(8))) bool *out) {
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
     binaryBoolOpBulk<op, T, CTXT_WORKERS>::compute(
         loopCount, in1 + 4 * worker, in2 + 4 * worker,
         reinterpret_cast<int *>(out) + worker);
@@ -619,7 +619,7 @@ struct BinaryOpDispatchMultiVertex<op, half, bool, architecture::ipu> {
     const half4 *h4In2 = reinterpret_cast<const half4 *>(in2) + worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned j = 0; j < loopCount; j++) {
       half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
       half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
@@ -663,7 +663,7 @@ struct BinaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
     const float2 *f2In2 = reinterpret_cast<const float2 *>(in2) + 2 * worker;
     int *iOut = reinterpret_cast<int *>(out) + worker;
 
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned j = 0; j < loopCount; j++) {
       float2 load1 = ipu::load_postinc(&f2In1, 1);
       float2 load2 = ipu::load_postinc(&f2In2, 1);
@@ -707,7 +707,7 @@ public:
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
 
     asm volatile("# Thwart loop rotation (start)" ::: "memory");
-    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned i = 0; i < loopCount; i++) {
       half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
       half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
@@ -747,7 +747,7 @@ public:
     const float2 *f2In2 = reinterpret_cast<const float2 *>(in2) + worker;
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
 
-    const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+    const rptsize_t loopCount = divideWork(size, 1, worker);
     for (unsigned j = 0; j < loopCount; j++) {
       float2 load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
       float2 load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
