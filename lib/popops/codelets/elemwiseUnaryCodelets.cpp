@@ -74,8 +74,10 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
 #ifdef __IPU__
   float poly(float x) const {
     constexpr unsigned numCoeffs = 5;
-    constexpr float coeffs[numCoeffs] = {1.061405429, -1.453152027, 1.421413741,
-                                         -0.284496736, 0.254829592};
+    constexpr float coeffs[numCoeffs] = {281.3331008565532, -126.1777197589195,
+                                         40.43190708316039, -2.651020581784260,
+                                         0.7778892405807116};
+
     float y = coeffs[0];
     for (unsigned i = 1; i != numCoeffs; ++i) {
       y = y * x + coeffs[i];
@@ -89,23 +91,13 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
   // Do all computations in fp32 as error introduced due to the polynomial
   // computation is expected to be significant.
   float compute(float xAbs) const {
-    const float p = 0.3275911;
-    const float eta = 1.0f / (1.0f + p * xAbs);
+    const float eta = 1.0f / (3.052585982952528f + xAbs);
     const auto y = (1.0f - poly(eta) * ipu::exp(-xAbs * xAbs));
     return y;
   }
 
-  template <typename FPType> static auto ClampVal() {
-    if constexpr (isVectorType<FPType>::value) {
-      return FPType{} + decltype(std::declval<FPType>()[0])(10.0f);
-    } else {
-      return FPType{} + decltype(std::declval<FPType>())(10.0f);
-    }
-  }
-
   template <typename FPType> FPType operator()(FPType x) const {
-    const auto clampVal = ClampVal<FPType>();
-    const auto xAbs = ipu::fmin(clampVal, ipu::fabs(x));
+    const auto xAbs = ipu::fabs(x);
     FPType y;
     if constexpr (isVectorType<FPType>::value) {
       unsigned n = sizeof(x) / sizeof(x[0]);
@@ -113,7 +105,6 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
         y[i] = compute(static_cast<float>(xAbs[i]));
       }
     } else {
-
       y = compute(static_cast<float>(xAbs));
     }
     return ipu::copysign(y, x);
