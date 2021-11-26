@@ -1559,7 +1559,7 @@ void multiUpdatePoorlyMappedSlices() {
   // (i.e. that the optimisation is still in place).
   const OptionFlags &sliceOptions = {
       {"planConstraints",
-       "{\"unslicedDimSplit\": 4, \"slicedDimSplit\": 4, \"lookupSplit\": 1}"}};
+       "{\"unslicedDimSplit\": 6, \"slicedDimSplit\": 2, \"lookupSplit\": 1}"}};
 
   const SlicePlan &plan = embedding::plan(graph, HALF, V, E, {I}, sliceOptions);
 

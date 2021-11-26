@@ -3730,7 +3730,8 @@ static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
                                    const std::size_t numEntries,
                                    const std::size_t outputSize,
                                    const std::vector<std::size_t> &numLookups,
-                                   const SliceOptions &options) {
+                                   const SliceOptions &options,
+                                   bool limitTempMemory) {
   std::uint64_t bestPlanCyclesCost = std::numeric_limits<std::size_t>::max();
   std::vector<bool> sortedIndicesCandidates;
 
@@ -3754,7 +3755,7 @@ static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
     auto [partition, estimates] =
         constructModel(m, target, dataType, numEntries, outputSize, numLookups,
                        useOrderingInfo, options);
-    applyConstraints(m, target, partition, estimates, options, true);
+    applyConstraints(m, target, partition, estimates, options, limitTempMemory);
     auto s = minimize(m, target, estimates, options.planMinimisationTarget);
     if (s.validSolution()) {
       auto totalCycles = *s[estimates.totalCycles];
@@ -3830,8 +3831,8 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       dataType, numEntries, outputSize, numLookups, options);
   const auto &target = graph.getTarget();
 
-  auto best =
-      choosePlan(target, dataType, numEntries, outputSize, numLookups, options);
+  auto best = choosePlan(target, dataType, numEntries, outputSize, numLookups,
+                         options, true);
 
   if (best.plan.isNull && options.availableMemoryProportion) {
     // Warn and try again without the available memory proportion if
@@ -3841,14 +3842,14 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
                           "with unlimited temporary memory",
                           *options.availableMemoryProportion);
     best = choosePlan(target, dataType, numEntries, outputSize, numLookups,
-                      options);
+                      options, false);
   }
 
-  // If we don't have a valid plan, warn and return a null plan.
+  // If we don't have a valid plan, error - we should always be able to
+  // find one and not finding one is a bug.
   if (best.plan.isNull) {
-    logging::popops::warn(
-        "Slice planner could not find a valid solution, opting for no plan");
-    return std::make_unique<SlicePlanInternal>();
+    throw poputil::poplibs_error(
+        "Slice planner could not find a valid solution");
   }
 
   logging::popops::debug("Embedding plan {}", best.plan);

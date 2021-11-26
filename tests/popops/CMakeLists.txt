@@ -1190,7 +1190,7 @@ foreach(MINIMISATION_TARGET memory cycles)
   add_multitarget_test(
            NAME embedding_layer_T24704_${MINIMISATION_TARGET}
            COMMAND embedding_layer
-                   --shape {61,3}
+                   --shape {61,6}
                    --num-indices 2010
                    --data-type float
                    --plan-minimisation-target=${MINIMISATION_TARGET}
@@ -1200,7 +1200,7 @@ foreach(MINIMISATION_TARGET memory cycles)
   add_multitarget_test(
            NAME embedding_layer_T25957_${MINIMISATION_TARGET}
            COMMAND embedding_layer
-                   --shape {12,6}
+                   --shape {12,12}
                    --num-indices 1361
                    --data-type float
                    --plan-minimisation-target=${MINIMISATION_TARGET}
