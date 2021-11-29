@@ -1933,24 +1933,6 @@ add_multitarget_test(
                 --flip-input=1
                 VARIANTS "IpuModel2;Sim2")
 
-foreach(OUTPUT_STRIDE 1 2)
-  add_multitarget_test(
-          NAME "conv_dual_slic_half_1x4_stride_${OUTPUT_STRIDE}"
-          COMMAND single_conv_layer
-                  --input-channels=4
-                  --output-channels=4
-                  --conv-groups=4
-                  --field={8,128}
-                  --kernel-size={1,4}
-                  --stride={1,${OUTPUT_STRIDE}}
-                  --tiles-per-ipu=4
-                  --single-phase=fwd
-                   --data-type=half
-                   --batch-size=4
-                  --convolution-options={\"partialsType\":\"half\"}
-                  --fwd-plan-constraints={\"method\":\"SLIC\"})
-endforeach()
-
 # conv_batch_float test split into the three component phases
 add_multitarget_test(
          NAME conv_batch_float_fwd
@@ -2765,70 +2747,113 @@ add_multitarget_test(
                  --tiles-per-ipu=20
                  VARIANTS ${TimesOutOnSim})
 
-foreach(GROUPING "411" "222" "144")
-  set(SLIC_CONV_PLAN ${CMAKE_CURRENT_SOURCE_DIR}/json/slic${GROUPING}.json)
-  add_multitarget_test(
-            NAME conv_slic_${GROUPING}_8groups_no_padding
-            COMMAND single_conv_layer
-                    --field={2,12}
-                    --kernel-size={2,8}
-                    --batch-size=3
-                    --conv-groups=8
-                    --input-channels=1
-                    --output-channels=1
-                    --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
-                    --tiles-per-ipu=1)
+foreach(GROUPING "1611" "811" "411" "222" "144")
+  foreach(PARTIALS_TYPE float half)
+    if ((GROUPING STREQUAL "1611") OR (GROUPING STREQUAL "811"))
+      set(TARGETS "Hw;IpuModel2")
+      if (${PARTIALS_TYPE} STREQUAL float)
+        # Skip 8 and 16 codelets as they don't exist for float partials
+        continue()
+      endif()
+    else()
+      set(TARGETS "Hw;${IPUMODEL_VARIANTS}")
+    endif()
 
-  add_multitarget_test(
-            NAME conv_slic_${GROUPING}_8groups_pad_kernel_implicit
-            COMMAND single_conv_layer
-                    --field={2,12}
-                    --kernel-size={2,7}
-                    --batch-size=3
-                    --conv-groups=8
-                    --input-channels=1
-                    --output-channels=1
-                    --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
-                    --tiles-per-ipu=1)
+    set(SLIC_CONV_PLAN ${CMAKE_CURRENT_SOURCE_DIR}/json/slic${GROUPING}.json)
+    add_multitarget_test(
+              NAME conv_slic_${GROUPING}_${PARTIALS_TYPE}_partials_16groups_no_padding
+              COMMAND single_conv_layer
+                      --field={2,12}
+                      --kernel-size={2,8}
+                      --batch-size=3
+                      --conv-groups=16
+                      --input-channels=1
+                      --output-channels=1
+                      --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
+                      --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                      --tiles-per-ipu=1
+                      VARIANTS ${TARGETS})
 
-  add_multitarget_test(
-            NAME conv_slic_${GROUPING}_8groups_pad_input
-            COMMAND single_conv_layer
-                    --field={1,10}
-                    --padding-lower={1,2}
-                    --kernel-size={2,8}
-                    --batch-size=3
-                    --conv-groups=8
-                    --input-channels=1
-                    --output-channels=1
-                    --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
-                    --tiles-per-ipu=1)
+    add_multitarget_test(
+              NAME conv_slic_${GROUPING}_${PARTIALS_TYPE}_partials_16groups_pad_kernel_implicit
+              COMMAND single_conv_layer
+                      --field={2,12}
+                      --kernel-size={2,7}
+                      --batch-size=3
+                      --conv-groups=16
+                      --input-channels=1
+                      --output-channels=1
+                      --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
+                      --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                      --tiles-per-ipu=1
+                      VARIANTS ${TARGETS})
 
-  add_multitarget_test(
-            NAME conv_slic_${GROUPING}_8groups_dilate_input
-            COMMAND single_conv_layer
-                    --field={2,6}
-                    --in-dilation={1,2}
-                    --kernel-size={2,8}
-                    --batch-size=3
-                    --conv-groups=8
-                    --input-channels=1
-                    --output-channels=1
-                    --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
-                    --tiles-per-ipu=1)
+    add_multitarget_test(
+              NAME conv_slic_${GROUPING}_${PARTIALS_TYPE}_partials_16groups_pad_input
+              COMMAND single_conv_layer
+                      --field={1,10}
+                      --padding-lower={1,2}
+                      --kernel-size={2,8}
+                      --batch-size=3
+                      --conv-groups=16
+                      --input-channels=1
+                      --output-channels=1
+                      --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
+                      --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                      --tiles-per-ipu=1
+                      VARIANTS ${TARGETS})
 
-  add_multitarget_test(
-            NAME conv_slic_${GROUPING}_8groups_truncate_input
+    add_multitarget_test(
+              NAME conv_slic_${GROUPING}_${PARTIALS_TYPE}_partials_16groups_dilate_input
+              COMMAND single_conv_layer
+                      --field={2,6}
+                      --in-dilation={1,2}
+                      --kernel-size={2,8}
+                      --batch-size=3
+                      --conv-groups=16
+                      --input-channels=1
+                      --output-channels=1
+                      --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
+                      --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                      --tiles-per-ipu=1
+                      VARIANTS ${TARGETS})
+
+    add_multitarget_test(
+              NAME conv_slic_${GROUPING}_${PARTIALS_TYPE}_partials_16groups_truncate_input
+              COMMAND single_conv_layer
+                      --field={3,13}
+                      --truncation-upper={1,2}
+                      --kernel-size={2,8}
+                      --batch-size=3
+                      --conv-groups=16
+                      --input-channels=1
+                      --output-channels=1
+                      --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
+                      --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                      --tiles-per-ipu=1
+                      VARIANTS ${TARGETS})
+  endforeach()
+endforeach()
+
+foreach(GROUPING 4 8 16)
+  foreach(OUTPUT_STRIDE 1 2)
+    add_multitarget_test(
+            NAME "conv_slic_${GROUPING}_half_1x4_stride_${OUTPUT_STRIDE}"
             COMMAND single_conv_layer
-                    --field={3,13}
-                    --truncation-upper={1,2}
-                    --kernel-size={2,8}
-                    --batch-size=3
-                    --conv-groups=8
                     --input-channels=1
                     --output-channels=1
-                    --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
-                    --tiles-per-ipu=1)
+                    --conv-groups=16
+                    --field={8,32}
+                    --kernel-size={1,4}
+                    --stride={1,${OUTPUT_STRIDE}}
+                    --tiles-per-ipu=4
+                    --single-phase=fwd
+                    --data-type=half
+                    --batch-size=2
+                    --convolution-options={\"partialsType\":\"half\"}
+                    --fwd-plan-constraints={"method":"SLIC","convGroupsPerGroup":${GROUPING}}
+                    VARIANTS "IpuModel2;Hw")
+  endforeach()
 endforeach()
 
 # depthwise convolution with the combineConvGroups transformation applied tests.

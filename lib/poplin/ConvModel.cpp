@@ -330,7 +330,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
           // current vertex requirements
           assert(inChansPerGroup == outChansPerGroup);
-          assert(convGroupsPerGroup * inChansPerGroup == 4);
+          assert(!((convGroupsPerGroup * inChansPerGroup) % 4));
 
           if (ceildiv(convSize.inChanSize, inChansPerGroup) != 1 ||
               ceildiv(convSize.outChanSize, outChansPerGroup) != 1) {
@@ -359,25 +359,28 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   params.outputTransform.stride.back(),
                   /* implicitZeroing */ true, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
-                  numConvChainsRequired, slicWindowWidth, floatActivations,
-                  floatPartials);
+                  numConvChainsRequired, slicWindowWidth, convGroupsPerGroup,
+                  floatActivations, floatPartials);
           const auto innerLoopCycles =
               cache->mGetConvPartialSlicInnerLoopCycles(
                   params.outputTransform.stride.back(),
                   /* implicitZeroing */ false, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
-                  numConvChainsRequired, slicWindowWidth, floatActivations,
-                  floatPartials);
+                  numConvChainsRequired, slicWindowWidth, convGroupsPerGroup,
+                  floatActivations, floatPartials);
           const auto weightLoadCycles =
               getConvPartialSlicSupervisorWeightLoadCycleEstimate(
                   convGroupsPerGroup, inChansPerGroup,
                   target.getNumWorkerContexts(), slicWindowWidth);
-          return popsolver::DataType{
+
+          auto cycles =
               cache->mGetConvPartialSlicSupervisorOuterLoopCycleEstimate(
                   implicitZeroInnerLoopCycles, innerLoopCycles,
                   weightLoadCycles, tileNumConvGroups, numWeightBlocks,
-                  numConvChainsRequired, slicWindowWidth, floatActivations,
-                  floatPartials)};
+                  numConvChainsRequired, slicWindowWidth, convGroupsPerGroup,
+                  floatActivations, floatPartials);
+
+          return popsolver::DataType{cycles};
         });
   }
   case Plan::Method::HMAC: {
@@ -481,15 +484,6 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
                   innerLoopCycles, zeroCycles, reductionCycles,
                   tileNumConvGroups, tileNumInGroups, floatPartials);
-
-          // Planner doesn't know the memory layouts so need to bias
-          // estimates towards 16 channels codelets because that's most
-          // likely groupings we might get from a previous layer
-          if (convGroupsPerGroup == 4) {
-            cycles += (cycles / 5); // +20%
-          } else if (convGroupsPerGroup == 8) {
-            cycles += (cycles / 10); // +10%
-          }
 
           return popsolver::DataType{cycles};
         },

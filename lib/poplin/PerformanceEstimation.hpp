@@ -735,16 +735,28 @@ inline std::uint64_t getConvPartialSlicSupervisorWeightLoadCycleEstimate(
     unsigned convGroupsPerGroup, unsigned chansPerGroup,
     unsigned numWorkerContexts, unsigned slicWindowWidth) {
   assert(slicWindowWidth == 4u);
-  assert(chansPerGroup == 4u / convGroupsPerGroup);
+
   std::uint64_t cycles = 0;
-  if (convGroupsPerGroup == 1) {
+  if (chansPerGroup == 4) {
+    assert(convGroupsPerGroup == 1u);
     cycles += (6 + // brnzdec
                6 + // put CCCSLOAD
                6); // bri
   } else {
-    assert(convGroupsPerGroup == 4 || convGroupsPerGroup == 2);
-    const std::uint64_t workerLoadWeightsCycles =
-        (convGroupsPerGroup == 4) ? 10 : 12;
+    if (chansPerGroup == 2) {
+      assert(convGroupsPerGroup == 2);
+    }
+    if (chansPerGroup == 1) {
+      assert((convGroupsPerGroup % 4) == 0);
+    }
+
+    std::uint64_t workerLoadWeightsCycles = (convGroupsPerGroup == 2) ? 12 : 10;
+
+    if (convGroupsPerGroup > 4) {
+      // 8 and 16 requires one more cycle to calculate input offset
+      workerLoadWeightsCycles++;
+    }
+
     cycles += (9 + // brnzdec, put CCCSLOAD pointer (stall), store weights
                    // pointer for rearrangement.
                6 + // runall
@@ -759,7 +771,7 @@ inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
     std::uint64_t implicitZeroingInnerLoopCycles, std::uint64_t innerLoopCycles,
     std::uint64_t weightLoadCycles, unsigned numConvGroupGroups,
     unsigned numSubKernels, unsigned numConvChains, unsigned slicWindowWidth,
-    bool floatActivations, bool floatPartials) {
+    unsigned convGroupsPerGroup, bool floatActivations, bool floatPartials) {
 
   // TODO: we currently only target a kernel width of 4.
   assert(!floatActivations);
@@ -767,28 +779,64 @@ inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
   assert(numConvGroupGroups >= 1);
   assert(numSubKernels >= 1);
 
+  const auto brnzdec_cycles = [](const unsigned n) {
+    // 6 cycles brnzdec stall for all but the last one
+    return 6 * (n - 1) + 1;
+  };
+
   // Similar, but different function for the 2 chains of conv units,
   // half partials case.
   const bool half8Conv = (numConvChains == 2 && floatPartials == false);
 
   const std::uint64_t supervisorPreambleCycles = half8Conv ? 25 : 28;
-  const std::uint64_t supervisorConvGroupGroupsBodyCycles = half8Conv ? 12 : 15;
-  const std::uint64_t supervisorConvGroupGroupsLoopCycles =
-      supervisorConvGroupGroupsBodyCycles * numConvGroupGroups +
-      6 * (numConvGroupGroups - 1) +
-      1; // 6 cycles brnzdec stall for all but last conv group group
-  const std::uint64_t supervisorSubKernelBodyCycles =
-      weightLoadCycles +
-      (half8Conv ? 0 : 3) + // deal with whether to swap output pointers or not
-      2 +                   // store new worklist pointer and increment
-      (half8Conv ? 0 : 1) + // or, store implicit zero/stride
-      6 +                   // runall
-      6 +                   // sync
-      1;                    // load new weights pointer
+  std::uint64_t supervisorConvGroupGroupsBodyCycles = half8Conv ? 12 : 15;
+  std::uint64_t supervisorSubKernelBodyCycles = 0;
+
+  if (convGroupsPerGroup <= 4) {
+    supervisorSubKernelBodyCycles =
+        weightLoadCycles +
+        (half8Conv ? 0
+                   : 3) + // deal with whether to swap output pointers or not
+        2 +               // store new worklist pointer and increment
+        (half8Conv ? 0 : 1) + // or, store implicit zero/stride
+        6 +                   // runall
+        1 +
+        6 + // sync
+        1;  // load new weights pointer
+
+  } else {
+    const unsigned numConvGroupStrides = convGroupsPerGroup / 4;
+    const std::uint64_t convGroupStrideBodyCycles =
+        weightLoadCycles + 6 + // runall
+        1 + 6 +                // sync
+        2 + 6; // update weights pointer (ld + add + register stall)
+    const std::uint64_t convGroupStrideLoopCycles =
+        convGroupStrideBodyCycles * numConvGroupStrides +
+        brnzdec_cycles(numConvGroupStrides);
+
+    supervisorSubKernelBodyCycles =
+        convGroupStrideLoopCycles +
+        2 +     // deal with whether to swap output pointers or not
+        2 + 6 + // store implicit zero/stride + stall
+        3 +     // deal with the weights pointer
+        2;      // store new worklist pointer and increment
+
+    // For 8 and 16 groups codelets store numGroupCounter on the stack
+    // so that brings extra 2 commands (st + ld) and a penalty for
+    // accessing loaded value straignt away
+    supervisorConvGroupGroupsBodyCycles += 2 + 6;
+
+    // Update worker cycles by number of group stides
+    innerLoopCycles *= numConvGroupStrides;
+  }
 
   const std::uint64_t supervisorSubKernelLoopCycles =
-      supervisorSubKernelBodyCycles * numSubKernels + 6 * (numSubKernels - 1) +
-      1; // brnzdec is 6 cycles in all but the last iteration.
+      supervisorSubKernelBodyCycles * numSubKernels +
+      brnzdec_cycles(numSubKernels);
+
+  const std::uint64_t supervisorConvGroupGroupsLoopCycles =
+      supervisorConvGroupGroupsBodyCycles * numConvGroupGroups +
+      brnzdec_cycles(numConvGroupGroups);
 
   const std::uint64_t cycles =
       supervisorPreambleCycles + supervisorConvGroupGroupsLoopCycles +
@@ -808,8 +856,9 @@ inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
 inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numWorkerContexts, unsigned numConvChains,
-    unsigned slicWindowWidth, bool floatActivations, bool floatPartials,
-    unsigned outputStride, bool implicitZeroing) {
+    unsigned slicWindowWidth, unsigned convGroupsPerGroup,
+    bool floatActivations, bool floatPartials, unsigned outputStride,
+    bool implicitZeroing) {
   // TODO: we currently only target kernel width of 4.
   assert(!floatActivations);
   assert(slicWindowWidth == 4);
@@ -821,7 +870,7 @@ inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimate(
 
   std::uint64_t maxWorkerCycles = 0;
 
-  const std::uint64_t workerProcessGroupPreambleCycles =
+  std::uint64_t workerProcessGroupPreambleCycles =
       2 +                   // Get worker ID
       (half8Conv ? 2 : 3) + // Load and maybe switch output pointers
       1 +                   // Load input pointer
@@ -831,6 +880,13 @@ inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimate(
       2 + // Divide number of work items in the list by 3
       1 + // Load implicit zero flag + strides from stack
       (half8Conv ? 1 : 0); // Implicit zero loop decision
+
+  if (convGroupsPerGroup > 4) {
+    // 8 and 16 groupings workers uses extra 4 cycles
+    // 1 - load group index
+    // 3 - update 3 pointer by the group index
+    workerProcessGroupPreambleCycles += 4;
+  }
   // worker partitions is indexed by [worker][partitions].
   std::uint64_t cumulativeFieldElems = 0;
   for (const auto &worker : workerPartitions) {
@@ -1229,8 +1285,8 @@ inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
 inline std::uint64_t getConvPartialSlicInnerLoopCycles(
     unsigned outStride, bool implicitZeroing, unsigned batchElements,
     const std::vector<unsigned> &outShape, unsigned numWorkerContexts,
-    unsigned numConvChains, unsigned slicWindowWidth, bool floatActivations,
-    bool floatPartials) {
+    unsigned numConvChains, unsigned slicWindowWidth,
+    unsigned convGroupsPerGroup, bool floatActivations, bool floatPartials) {
   // SLIC doesn't support input dilation
   std::vector<unsigned> inputDilation(outShape.size(), 1);
   // SLIC only supports output striding (of 1 or 2) in the innermost dimension.
@@ -1252,7 +1308,8 @@ inline std::uint64_t getConvPartialSlicInnerLoopCycles(
   }
   return getConvPartialSlicSupervisorInnerLoopCycleEstimate(
       worklist, numWorkerContexts, numConvChains, slicWindowWidth,
-      floatActivations, floatPartials, outputStride.back(), implicitZeroing);
+      convGroupsPerGroup, floatActivations, floatPartials, outputStride.back(),
+      implicitZeroing);
 }
 
 inline std::uint64_t estimateCastCycles(unsigned outputSize,

@@ -654,7 +654,7 @@ int main(int argc, char **argv) try {
     poplin::preplan(convs, {}, cache);
   }
 
-  if (reportPlan) {
+  if (reportPlan || planOnly) {
     std::cout << "Convolution parameters:\n"
                  " Batch size: "
               << params.batchSize

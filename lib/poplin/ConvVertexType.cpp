@@ -471,8 +471,15 @@ static void getConvVertexSLICCandidates(
     unsigned groups;
     unsigned channels;
   };
-  std::array<Candidate, 3> groupings{Candidate{1u, 4u}, Candidate{2u, 2u},
-                                     Candidate{4u, 1u}};
+
+  std::vector<Candidate> groupings{Candidate{1u, 4u}, Candidate{2u, 2u},
+                                   Candidate{4u, 1u}};
+
+  if (!floatPartials && numConvUnits == 16) {
+    groupings.emplace_back(Candidate{8u, 1u});
+    groupings.emplace_back(Candidate{16u, 1u});
+  }
+
   for (const auto convChains : convChainsCandidates) {
     for (const auto &grouping : groupings) {
       if (constrainedConvGroupsPerGroup &&

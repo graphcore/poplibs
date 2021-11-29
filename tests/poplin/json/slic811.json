@@ -1,0 +1,6 @@
+{
+  "method": "SLIC",
+  "convGroupsPerGroup":8,
+  "inChansPerGroup": 1,
+  "partialChansPerGroup": 1
+}

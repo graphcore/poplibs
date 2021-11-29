@@ -356,8 +356,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialVerticalMac)(
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, unsigned outStride, bool, /* useShortTypes */
-    unsigned windowWidth, unsigned numConvChains) {
-  CODELET_SCALAR_VAL(mode, unsigned char);
+    unsigned windowWidth, unsigned numConvChains,
+    unsigned convGroupsPerGroupVertexType) {
+  CODELET_SCALAR_VAL(chansPerGroupLog2, unsigned char);
   CODELET_SCALAR_VAL(numSubKernelsM1, unsigned);
   CODELET_SCALAR_VAL(numConvGroupGroupsM1, unsigned);
   CODELET_FIELD(in);
@@ -374,8 +375,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
   assert(weights.size() == numConvGroupGroups * numSubKernels);
   assert(out.size() == numConvGroupGroups);
 
-  const auto chansPerGroup = 1u << mode;
-  const auto convGroupsPerGroup = 4u / chansPerGroup;
+  const unsigned chansPerGroup = 1u << chansPerGroupLog2;
+  const unsigned convGroupsPerGroup =
+      convGroupsPerGroupVertexType >> chansPerGroupLog2;
 
   std::vector<std::vector<unsigned>> workerPartitions(numWorkerContexts);
   unsigned totalFieldElems = 0;
@@ -407,18 +409,19 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
   const auto implicitZeroingInnerCycles =
       getConvPartialSlicSupervisorInnerLoopCycleEstimate(
           workerPartitions, numWorkerContexts, numConvChains, windowWidth,
-          floatActivations, floatPartials, outStride,
+          convGroupsPerGroup, floatActivations, floatPartials, outStride,
           /* implicitZeroing */ true);
   const auto innerCycles = getConvPartialSlicSupervisorInnerLoopCycleEstimate(
       workerPartitions, numWorkerContexts, numConvChains, windowWidth,
-      floatActivations, floatPartials, outStride, /* implicitZeroing */ false);
+      convGroupsPerGroup, floatActivations, floatPartials, outStride,
+      /* implicitZeroing */ false);
   const auto weightLoadCycles =
       getConvPartialSlicSupervisorWeightLoadCycleEstimate(
           convGroupsPerGroup, chansPerGroup, numWorkerContexts, windowWidth);
   const auto cycles = getConvPartialSlicSupervisorOuterLoopCycleEstimate(
       implicitZeroingInnerCycles, innerCycles, weightLoadCycles,
       numConvGroupGroups, numSubKernels, numConvChains, windowWidth,
-      floatActivations, floatPartials);
+      convGroupsPerGroup, floatActivations, floatPartials);
 
   // total field elements are for a single sub-kernel element
   std::uint64_t flops = static_cast<std::uint64_t>(numConvGroupGroups) *
@@ -835,31 +838,49 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             16),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, FLOAT, 1, true, 4,
-                            2),
+                            2, 4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, FLOAT, 1, false,
-                            4, 2),
+                            4, 2, 4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, FLOAT, 2, true, 4,
-                            2),
+                            2, 4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, FLOAT, 2, false,
-                            4, 2),
+                            4, 2, 4),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, true, 4,
-                            2),
+                            2, 4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, false, 4,
-                            2),
+                            2, 4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, true, 4,
-                            2),
+                            2, 4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, false, 4,
-                            2),
+                            2, 4),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, true, 4,
-                            4),
+                            4, 4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, false, 4,
-                            4),
+                            4, 4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, true, 4,
-                            4),
+                            4, 4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, false, 4,
-                            4),
+                            4, 4),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, true, 4,
+                            4, 8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, false, 4,
+                            4, 8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, true, 4,
+                            4, 8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, false, 4,
+                            4, 8),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, true, 4,
+                            4, 16),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, false, 4,
+                            4, 16),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, true, 4,
+                            4, 16),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, false, 4,
+                            4, 16),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT, true, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT, true, false),

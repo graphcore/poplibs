@@ -9,8 +9,8 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define CODELET_SYMBOL_ENTRY(partials_type, stride, conv_chains) \
-        __runCodelet_poplin__ConvPartial1xNSLIC___half_ ## partials_type ##_## stride ## _true_4_ ## conv_chains
+#define CODELET_SYMBOL_ENTRY(partials_type, stride, conv_chains, cgpg) \
+        __runCodelet_poplin__ConvPartial1xNSLIC___half_ ## partials_type ##_## stride ## _true_4_ ## conv_chains ##_## cgpg
 
 #define CODELET_SYMBOL(suffix) __runCodelet_poplin__ConvPartial1x4SLIC___half_ ## suffix
 
@@ -26,6 +26,7 @@
 #define BYTES_PER_DELTAN 4
 #define WORKLIST_ALIGN_LOG2 1
 #define WORKLIST_DELTAN_OFFSET_BITS (21 - WORKLIST_ALIGN_LOG2)
+
 //=============
 
 //=============
@@ -122,23 +123,23 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // Supervisor function, entry point macro definition
-.macro supervisor_fn PARTIALS_TYPE CONV_CHAINS
+.macro supervisor_fn PARTIALS_TYPE CONV_CHAINS CONV_GROUPS_PER_GROUP
 
 // Supervisor uses MAX_STACK_SIZE, workers  don't use any stack
-DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS)
-DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS)
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP)
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP)
 
-.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS)
-.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS), @function
+.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP)
+.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP), @function
 
-.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS)
-.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS), @function
+.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP)
+.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP), @function
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_entry_stride2_\CONV_CHAINS), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_\CONV_GROUPS_PER_GROUP\()_entry_stride2), "ax"
 .align 4
 .supervisor
 
-CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS):
+CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP):
   // The only differences in codelet execution come in the worker function body,
   // much much later on.  So put a pointer to the required function onto the stack
   // to pick up later.  This will mean that we will link just the functions(s)
@@ -146,22 +147,22 @@ CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS):
 //=============
 #define s_worker_fn_ptr m3
 //=============
-   setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride2_\CONV_CHAINS)
-   bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry)
+   setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride2_\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP)
+   bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_common_entry)
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_entry_stride1_\CONV_CHAINS), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_entry_stride1_\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP), "ax"
 .align 4
 .supervisor
 
-CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS):
+CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP):
 
-  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride1_\CONV_CHAINS)
-  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry)
+  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride1_\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP)
+  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_common_entry)
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP), "ax"
 .align 4
 .supervisor
-CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry):
+CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_common_entry):
   // Calculation of $s_worklists_base_ptr is essentially the critical path as
   // it requires 4 instructions to load, mask and store it for a total of 19 cycles minimum
   // (6 cycles * 3 instructions for load, shl, shr + 1 cycle to issue the store)
@@ -326,7 +327,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry):
 .endm
 ////////////////////////////////////////////////////////////////////////////////
 // Instantiate supervisor entry
-supervisor_fn half 2
+supervisor_fn half 2 4
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -383,16 +384,16 @@ supervisor_fn half 2
 ////////////////////////////////////////////////////////////////////////////////
 // Worker routine to process a single group entry point in macro definition
 
-.macro worker_fn WORK_MACRO_POSTFIX PARTIALS_TYPE
+.macro worker_fn WORK_MACRO_POSTFIX PARTIALS_TYPE CONV_GROUPS_PER_GROUP
 .worker
 ALIGNED_RPT_BASE
   .equ PARTIAL_ELEM_SIZE, HALF_PARTIAL_ELEM_SIZE
 
 
-.global CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX)
-.type CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX), @function
+.global CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX\()_\CONV_GROUPS_PER_GROUP)
+.type CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX\()_\CONV_GROUPS_PER_GROUP), @function
 
-CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
+CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX\()_\CONV_GROUPS_PER_GROUP):
   { get $w_id, $WSR
     setzi $a0, (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT) }
   { and $w_id, $w_id, CSR_W_WSR__CTXTID_M1__MASK
@@ -447,7 +448,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     // must multiply this by:
     // (convGroupsPerGroup * outChansPerGroup * sizeof(type))
     // to get a byte offset.
-    mul $w_in_offset, $w_in_offset, 4 * INPUT_ELEM_SIZE
+    mul $w_in_offset, $w_in_offset, \CONV_GROUPS_PER_GROUP * INPUT_ELEM_SIZE
 //=============
 #define w_in_ptr m7
 //=============
@@ -458,7 +459,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 #define w_out_offset m8
 //=============
     ldz16step $w_out_offset, $mzero, $w_worklist_ptr+=, 1
-    mul $w_out_offset, $w_out_offset, 4 * PARTIAL_ELEM_SIZE
+    mul $w_out_offset, $w_out_offset, \CONV_GROUPS_PER_GROUP * PARTIAL_ELEM_SIZE
 //=============
 #define w_curr_out_ptr m8
 #define w_buffer_out_ptr m9
@@ -495,7 +496,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 //=============
     // Offset the "write" ptr to write into the 2nd half of each 64 bits of the
     // actual output
-    add  $w_curr_out_ptr, $w_curr_out_ptr, 4
+    add  $w_curr_out_ptr, $w_curr_out_ptr, 2 * PARTIAL_ELEM_SIZE
 
 ALIGNED_RPT_START $w_num_field_elems_const
     {ld32step $w_output_0, $mzero, $w_buffer_out_ptr+=,2
@@ -525,7 +526,7 @@ ALIGNED_RPT_END
     // must multiply this by:
     // (convGroupsPerGroup * outChansPerGroup * sizeof(type))
     // to get a byte offset.
-    mul $w_in_offset, $w_in_offset, 4 * INPUT_ELEM_SIZE
+    mul $w_in_offset, $w_in_offset, \CONV_GROUPS_PER_GROUP * INPUT_ELEM_SIZE
 //=============
 #define w_in_ptr m7
 //=============
@@ -536,7 +537,7 @@ ALIGNED_RPT_END
 #define w_out_offset m8
 //=============
     ldz16step $w_out_offset, $mzero, $w_worklist_ptr+=, 1
-    mul $w_out_offset, $w_out_offset, 4 * PARTIAL_ELEM_SIZE
+    mul $w_out_offset, $w_out_offset, \CONV_GROUPS_PER_GROUP * PARTIAL_ELEM_SIZE
 //=============
 #define w_curr_out_ptr m8
 #define w_buffer_out_ptr m9
@@ -574,7 +575,7 @@ ALIGNED_RPT_END
 //=============
     // Offset the "write" ptr to write into the 2nd half of each 64 bits of the
     // actual output
-    add  $w_curr_out_ptr, $w_curr_out_ptr, 4
+    add  $w_curr_out_ptr, $w_curr_out_ptr, 2 * PARTIAL_ELEM_SIZE
 
 ALIGNED_RPT_START $w_num_field_elems_const
     {ld32step $w_output_0, $mzero, $w_buffer_out_ptr+=,2
@@ -948,7 +949,7 @@ ALIGNED_RPT_END
 // case
 .section .text.CODELET_SYMBOL(half_worker_fn_stride1_2), "ax"
   // Instantiate the worker entry point and loop body
-  worker_fn stride1_2  half
+  worker_fn stride1_2  half 4
   // Instantiate routines used in the loop body
   worker_process_group_field_row_implicit_zero_stride1_lt5_elems W0_C8 TSLIC_F16V4_1x4_W0
   worker_process_group_field_row_implicit_zero_stride1_lt5_elems W1_C8 TSLIC_F16V4_1x4_W1
@@ -961,7 +962,7 @@ ALIGNED_RPT_END
 // case with half partials
  .section .text.CODELET_SYMBOL(half_worker_fn_stride2_2), "ax"
   // Instantiate the worker entry point and loop body
-  worker_fn stride2_2  half
+  worker_fn stride2_2  half 4
   // Instantiate routines used in the loop body for stride = 2
   worker_process_group_field_row_implicit_zero_stride2_lt3_elems W0_C8 TSLIC_F16V4_1x4_W0
   worker_process_group_field_row_implicit_zero_stride2_lt3_elems W1_C8 TSLIC_F16V4_1x4_W1

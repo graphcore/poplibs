@@ -28,7 +28,8 @@ constexpr bool hasAssemblyVersion() {
 }
 
 template <typename FPType, typename AccumType, unsigned outStride,
-          bool useShortTypes, unsigned windowWidth, unsigned numConvChains>
+          bool useShortTypes, unsigned windowWidth, unsigned numConvChains,
+          unsigned convGroupsPerGroupVertexType>
 class [[poplar::constraint(
     "elem(**in) != elem(**out)",
     "elem(**in) != elem(*outFieldBuffer)")]] ConvPartial1xNSLIC
@@ -64,16 +65,18 @@ public:
   // [numSubKernels * numWorkerContexts][numFieldRows * 3]
   Input<VectorList<WorkListType, DELTAN>> worklists;
 
-  // Indicates which of 3 modes we operate in:
+  // Indicates which of 5 modes we operate in:
   //
-  //  =0 -> 4 conv groups, 1 input channel, 1 output channel
-  //  =1 -> 2 conv groups, 2 input channels, 2 output channels
-  //  =2 -> 1 conv group, 4 input channels, 4 output channels
+  //  =0 ->  4 conv groups, 1 input channel,  1 output channel
+  //     ->  8 conv groups, 1 input channel,  1 output channel
+  //     -> 16 conv groups, 1 input channel,  1 output channel
+  //  =1 ->  2 conv groups, 2 input channels, 2 output channels
+  //  =2 ->  1 conv group,  4 input channels, 4 output channels
   //
   // This encodes conv groups per group, input channels per group
   // and output channels per group as these are tightly coupled (tripled?)
   // in this vertex.
-  const unsigned char mode;
+  const unsigned char chansPerGroupLog2;
   // This essentially encodes whether numSubKernels is odd or not in a
   // way that avoids manipulating state on load in the assembly.
   const unsigned char outPtrLoadOffset;
@@ -90,13 +93,9 @@ public:
                                         : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
     constexpr unsigned outFieldBufferOffset = 200u / sizeof(AccumType);
 
-    // this vertex requires that the product of the conv groups and the channels
-    // per group is a product of 4.
-    constexpr unsigned chansInConvGroups = 4u;
-
-    const unsigned convGroupsPerGroup = chansInConvGroups >> mode;
-    const unsigned outChansPerGroup = chansInConvGroups / convGroupsPerGroup;
-    const unsigned inChansPerGroup = chansInConvGroups / convGroupsPerGroup;
+    const unsigned chansPerGroup = 1 << chansPerGroupLog2;
+    const unsigned convGroupsPerGroup =
+        convGroupsPerGroupVertexType / chansPerGroup;
 
     const unsigned numSubKernels = numSubKernelsM1 + 1;
     const unsigned numConvGroupGroups = numConvGroupGroupsM1 + 1;
@@ -122,16 +121,14 @@ public:
             for (unsigned i = 0; i < numFieldElems * outStride;
                  i += outStride) {
               // From here we are replicating the core SLIC loop
-              for (unsigned outChan = 0; outChan < outChansPerGroup;
-                   ++outChan) {
+              for (unsigned outChan = 0; outChan < chansPerGroup; ++outChan) {
                 for (unsigned convGroup = 0; convGroup < convGroupsPerGroup;
                      ++convGroup) {
 
                   // Apply outStride to stride the output
                   const auto outIndex = (outOffset + i / outStride) *
-                                            convGroupsPerGroup *
-                                            outChansPerGroup +
-                                        convGroup * outChansPerGroup + outChan;
+                                            convGroupsPerGroup * chansPerGroup +
+                                        convGroup * chansPerGroup + outChan;
 
                   // Implicitly zero partials on the first pass.
                   AccumType sum = 0;
@@ -139,17 +136,19 @@ public:
                     sum = AccumType(lastOutBuffer[outIndex]);
                   }
                   for (unsigned k = 0; k < windowWidth; ++k) {
-                    for (unsigned inChan = 0; inChan < inChansPerGroup;
+                    for (unsigned inChan = 0; inChan < chansPerGroup;
                          ++inChan) {
                       const auto inIndex = (inOffset + i + k) *
                                                convGroupsPerGroup *
-                                               inChansPerGroup +
-                                           convGroup * inChansPerGroup + inChan;
+                                               chansPerGroup +
+                                           convGroup * chansPerGroup + inChan;
                       const auto weightIndex =
-                          k * convGroupsPerGroup * outChansPerGroup *
-                              inChansPerGroup +
-                          convGroup * outChansPerGroup * inChansPerGroup +
-                          outChan * inChansPerGroup + inChan;
+                          k * convGroupsPerGroup *
+                              // outChansPerGroup * inChansPerGroup
+                              chansPerGroup * chansPerGroup +
+                          // convGroup * outChansPerGroup * inChansPerGroup
+                          convGroup * chansPerGroup * chansPerGroup +
+                          outChan * chansPerGroup + inChan;
                       sum += AccumType(in[cg][inIndex]) *
                              AccumType(w[weightIndex]);
                     }
@@ -168,19 +167,29 @@ public:
   }
 };
 
-template class ConvPartial1xNSLIC<half, float, 1, false, 4, 2>;
-template class ConvPartial1xNSLIC<half, float, 1, true, 4, 2>;
-template class ConvPartial1xNSLIC<half, float, 2, false, 4, 2>;
-template class ConvPartial1xNSLIC<half, float, 2, true, 4, 2>;
+template class ConvPartial1xNSLIC<half, float, 1, false, 4, 2, 4>;
+template class ConvPartial1xNSLIC<half, float, 1, true, 4, 2, 4>;
+template class ConvPartial1xNSLIC<half, float, 2, false, 4, 2, 4>;
+template class ConvPartial1xNSLIC<half, float, 2, true, 4, 2, 4>;
 
-template class ConvPartial1xNSLIC<half, half, 1, false, 4, 2>;
-template class ConvPartial1xNSLIC<half, half, 1, true, 4, 2>;
-template class ConvPartial1xNSLIC<half, half, 2, false, 4, 2>;
-template class ConvPartial1xNSLIC<half, half, 2, true, 4, 2>;
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 2, 4>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 2, 4>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 2, 4>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 2, 4>;
 
-template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4>;
-template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4>;
-template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4>;
-template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4>;
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 4>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 4>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 4>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 4>;
+
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 8>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 8>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 8>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 8>;
+
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 16>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 16>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 16>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 16>;
 
 } // end namespace poplin

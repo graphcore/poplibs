@@ -106,6 +106,7 @@ set(IPU1_SOURCES
 set(IPU1_AND_IPU2_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_float_8_and_half_half_h16.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ConvPartial1x4SLIC_half_float_8_and_half_half_16.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ConvPartial1x4SLIC_half_float_8_and_half_half_16_cgpg_gt4.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_float_8_and_half_half_16.S
 )
 set(IPU2_SOURCES

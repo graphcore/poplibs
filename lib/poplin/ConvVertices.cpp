@@ -11,6 +11,7 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+#include <poplibs_support/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -936,30 +937,22 @@ void createConvPartialSlicVertex(
 
   const auto inType = in.elementType();
   const auto partialsType = out.elementType();
-  assert(convGroupsPerGroup == 4u / chansPerGroup);
+  const unsigned chansPerGroupLog2 = ceilLog2(chansPerGroup);
+  const unsigned convGroupsPerGroupVertexType =
+      convGroupsPerGroup * chansPerGroup;
 
-  // Indicates which of 3 modes we operate in:
-  //
-  //  =0 -> 4 conv groups, 1 input channel, 1 output channel
-  //  =1 -> 2 conv groups, 2 input channels, 2 output channels
-  //  =2 -> 1 conv group, 4 input channels, 4 output channels
-  const unsigned char mode = convGroupsPerGroup == 4u  ? 0
-                             : convGroupsPerGroup == 2 ? 1
-                                                       : 2;
+  const auto isPowerOf2 = [](const unsigned n) { return (n & (n - 1)) == 0; };
+  assert(isPowerOf2(chansPerGroup) && chansPerGroup <= 4);
+  assert(isPowerOf2(convGroupsPerGroup) && convGroupsPerGroup <= 16);
+  // Cast to void to avoid compiler warning as it's only used on a debug build.
+  (void)isPowerOf2;
+  // Vertex handling more than 4 convGroupsPerGroup only supports fully
+  // independent channels.
+  assert(chansPerGroup == 1 || convGroupsPerGroup <= 4);
 
   auto kernelGroups = params.kernelShape;
   assert(kernelGroups.back() % slicWindowWidth == 0);
   kernelGroups.back() /= slicWindowWidth;
-
-  const auto outputSpatialShape = [&] {
-    std::vector<unsigned> r;
-    r.reserve(1 + numFieldDims);
-    r.push_back(params.batchSize);
-    for (unsigned d = 0; d < numFieldDims; ++d) {
-      r.push_back(params.getUntransformedOutputSize(d));
-    }
-    return r;
-  }();
 
   const auto paddedOutputSpatialShape = [&] {
     std::vector<unsigned> r;
@@ -970,19 +963,14 @@ void createConvPartialSlicVertex(
     return r;
   }();
 
-  const auto inputSpatialShape = [&] {
-    auto r = vectorConvert<unsigned>(params.inputFieldShape);
-    r.insert(r.begin(), params.batchSize);
-    return r;
-  }();
-
   const auto numSubKernels = product(kernelGroups);
   const auto numConvGroupGroups = out.dim(0);
 
   bool useShortTypes = true;
   const auto shortTypesVertexClass = templateVertex(
       "poplin::ConvPartial1xNSLIC", inType, partialsType, outputStride,
-      /* useShortTypes */ true, slicWindowWidth, convChainsRequired);
+      /* useShortTypes */ true, slicWindowWidth, convChainsRequired,
+      convGroupsPerGroupVertexType);
   std::vector<std::vector<unsigned short>> worklists(numWorkerContexts *
                                                      numSubKernels);
   const auto slicWindowHeight = 1u;
@@ -1113,9 +1101,10 @@ void createConvPartialSlicVertex(
       {dnai, "outFieldBuffer"});
   graph.setTileMapping(outFieldBuffer, tile);
 
-  const auto vertexClass = templateVertex(
-      "poplin::ConvPartial1xNSLIC", inType, partialsType, outputStride,
-      useShortTypes, slicWindowWidth, convChainsRequired);
+  const auto vertexClass =
+      templateVertex("poplin::ConvPartial1xNSLIC", inType, partialsType,
+                     outputStride, useShortTypes, slicWindowWidth,
+                     convChainsRequired, convGroupsPerGroupVertexType);
   auto v = graph.addVertex(fwdCS, vertexClass);
   graph.setTileMapping(v, tile);
 
@@ -1131,7 +1120,7 @@ void createConvPartialSlicVertex(
     graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
-  graph.setInitialValue(v["mode"], mode);
+  graph.setInitialValue(v["chansPerGroupLog2"], chansPerGroupLog2);
   graph.setInitialValue(v["outPtrLoadOffset"], (numSubKernels % 2) ? 0 : 4);
   graph.setInitialValue(v["numSubKernelsM1"], numSubKernels - 1);
   graph.setInitialValue(v["numConvGroupGroupsM1"], numConvGroupGroups - 1);
