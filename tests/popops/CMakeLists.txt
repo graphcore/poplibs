@@ -182,10 +182,30 @@ add_multitarget_test(NAME BroadcastOptimiseTest_subtract
   --dim-shuffle={2,1,0}
   --tiles 16)
 
+# Test float32 alias for float
+add_multitarget_test(NAME BroadcastOptimiseTest_subtract_1
+  COMMAND BroadcastOptimiseTest
+  --data-type float32
+  --dims={2,16,16}
+  --operation SUBTRACT
+  --dim=2
+  --in-place 0
+  --dim-shuffle={2,1,0}
+  --tiles 16)
 
 add_multitarget_test(NAME BroadcastOptimiseTest_subtract_2
   COMMAND BroadcastOptimiseTest
   --data-type half
+  --dims={2,16,20}
+  --operation SUBTRACT
+  --dim=1
+  --dim-shuffle={0,1,2}
+  --tiles 1)
+
+# Test float16 alias for half
+add_multitarget_test(NAME BroadcastOptimiseTest_subtract_3
+  COMMAND BroadcastOptimiseTest
+  --data-type float16
   --dims={2,16,20}
   --operation SUBTRACT
   --dim=1
