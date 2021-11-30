@@ -249,6 +249,9 @@ int main(int argc, char **argv) {
     fwdOptions.set("planConstraints", planConstraintsString);
   }
 
+  // Validate all options
+  poplin::matmulValidateOptions(fwdOptions);
+
   matmul::PlanningCache cache;
   Tensor prevAct;
   if (useCreateInput) {

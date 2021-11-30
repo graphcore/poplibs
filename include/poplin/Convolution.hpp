@@ -583,6 +583,14 @@ poplar::Tensor fullyConnectedWeightTranspose(
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
+/** Provides an interface to validate the convolution options. Presence of
+ *  invalid key or a value will throw an exception.
+ *
+ * \param options       Options controlling the implementation.
+ *                      See createWeights().
+ */
+void convolutionValidateOptions(const poplar::OptionFlags &options);
+
 struct Plan;
 
 class PlanningCacheImpl;

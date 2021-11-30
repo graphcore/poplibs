@@ -573,6 +573,14 @@ matMulGetConvPlanParams(const std::set<MatMulPlanParams> &matmuls,
 void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
                     matmul::PlanningCache &cache);
 
+/** Provides an interface to validate the matmul options. Presence of
+ *  invalid key or a value will throw an exception.
+ *
+ *  \param options        Flags describing options for how the multiplication
+ *                        should be implemented. See matMul().
+ */
+void matmulValidateOptions(const poplar::OptionFlags &options);
+
 namespace matmul {
 
 /** \deprecated Use poplin::PlanningCache instead. */

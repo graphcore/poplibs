@@ -9,6 +9,7 @@
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/Convolution.hpp>
+#include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
 #include <random>
 
@@ -677,4 +678,28 @@ BOOST_AUTO_TEST_CASE(ReadConvParamsFromJSON) {
   expected.inputTransform.flip = {true, false};
   expected.outputTransform.stride = {5, 6};
   BOOST_TEST(uut == expected);
+}
+
+void validateOptions(void (*optionsValidationFn)(const poplar::OptionFlags &)) {
+  OptionFlags optionsValid;
+  optionsValid.set({{"partialsType", "half"}});
+  BOOST_CHECK_NO_THROW(optionsValidationFn(optionsValid));
+
+  OptionFlags optionsInvalidValue;
+  optionsInvalidValue.set({{"partialsType", "invalid_value"}});
+  BOOST_CHECK_THROW(optionsValidationFn(optionsInvalidValue),
+                    poplar::invalid_option);
+
+  OptionFlags optionsInvalidKey;
+  optionsInvalidKey.set({{"invalid_key", "half"}});
+  BOOST_CHECK_THROW(optionsValidationFn(optionsInvalidKey),
+                    poplar::invalid_option);
+}
+
+BOOST_AUTO_TEST_CASE(ValidateConvOptions) {
+  validateOptions(convolutionValidateOptions);
+}
+
+BOOST_AUTO_TEST_CASE(ValidateMatMulOptions) {
+  validateOptions(matmulValidateOptions);
 }

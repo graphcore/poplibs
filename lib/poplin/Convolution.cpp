@@ -3548,4 +3548,9 @@ void reportWeightUpdatePlanInfo(std::ostream &out, const Graph &graph,
   reportPlanInfo(out, graph, params, options, cache);
 }
 
+void convolutionValidateOptions(const poplar::OptionFlags &options) {
+  ConvOptions validateOptions;
+  validateOptions.parseConvOptions(options);
+}
+
 } // namespace poplin

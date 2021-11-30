@@ -881,4 +881,8 @@ poplar::Tensor preArrangeMatMulGroupedInputRHS(
                                       cache, outputType);
 }
 
+void matmulValidateOptions(const poplar::OptionFlags &options) {
+  (void)parseMatMulOptions(options);
+}
+
 } // namespace poplin

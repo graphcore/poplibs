@@ -633,6 +633,11 @@ int main(int argc, char **argv) try {
   overloadConstraintsFromFile(wuPlanConstraintsFile, wuPlanConstraints);
   wuOptions.set("planConstraints", wuPlanConstraints);
 
+  // Validate all passes options
+  poplin::convolutionValidateOptions(fwdOptions);
+  poplin::convolutionValidateOptions(bwdOptions);
+  poplin::convolutionValidateOptions(wuOptions);
+
   if (preplan) {
     const auto &replicatedTarget = graph.getTarget();
     std::set<poplin::ConvPlanParams> convs;
