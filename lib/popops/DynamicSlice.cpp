@@ -83,34 +83,6 @@ namespace {
 
 constexpr std::size_t minIndicesPerTile = 32;
 
-enum class PlanMinimisationTarget {
-  /// Minimise a weighted combination of estimated operand & temporary memory
-  /// usage.
-  MEMORY,
-  /// Minimise total estimated cycles.
-  CYCLES
-};
-
-static std::map<std::string, PlanMinimisationTarget> planMinimisationTargetMap{
-    {"memory", PlanMinimisationTarget::MEMORY},
-    {"cycles", PlanMinimisationTarget::CYCLES},
-};
-
-inline std::ostream &operator<<(std::ostream &os,
-                                const PlanMinimisationTarget &t) {
-  switch (t) {
-  case PlanMinimisationTarget::MEMORY:
-    os << "memory";
-    break;
-  case PlanMinimisationTarget::CYCLES:
-    os << "cycles";
-    break;
-  default:
-    throw poplibs_error("Unknown PlanMinimisationTarget");
-  }
-  return os;
-}
-
 enum class IndicesDistribution {
   // Indices equally likely to take on any possible index in
   // the valid range.
@@ -165,10 +137,6 @@ struct SliceOptions {
   // estimating cycles.
   IndicesDistribution indicesDistribution = IndicesDistribution::UNIFORM;
 
-  // Controls the target for optimisation when planning.
-  PlanMinimisationTarget planMinimisationTarget =
-      PlanMinimisationTarget::CYCLES;
-
   // Indices are sorted in increasing order
   bool indicesAreSorted = false;
 
@@ -198,7 +166,6 @@ std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
     os << "none";
   }
   os << ", indicesDistribution=" << o.indicesDistribution
-     << ", planMinimisationTarget=" << o.planMinimisationTarget
      << ", indicesAreSorted=" << (o.indicesAreSorted ? "true" : "false")
      << ", internal.alwaysIncludeBaseRearrangementCost="
      << (o.alwaysIncludeBaseRearrangementCost ? "true" : "false") << "}";
@@ -290,13 +257,6 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
   const auto makeSlicePlanConstraintsOptionHandler =
       &makePlanConstraintsOptionHandler<ValidateSlicePlanConstraintsOption>;
 
-  // TODO: T45888 - Remove this environment variable and the option it
-  // forces.
-  if (const char *forcedPlanningTarget =
-          std::getenv(forceUsePlanningTargetVar)) {
-    optionFlags.set("planMinimisationTarget", forcedPlanningTarget);
-  }
-
   /*
    * Any changes to spec must be reflected in the documentation comment in
    * the header.
@@ -318,12 +278,6 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
       {"indicesDistribution",
        OptionHandler::createWithEnum(options.indicesDistribution,
                                      indicesDistributionMap)},
-      // TODO: T45888 - Remove this option
-      {"planMinimisationTarget",
-       OptionHandler::createWithEnum(
-           options.planMinimisationTarget,
-           {{"memory", PlanMinimisationTarget::MEMORY},
-            {"cycles", PlanMinimisationTarget::CYCLES}})},
       {"indicesAreSorted",
        OptionHandler::createWithBool(options.indicesAreSorted)},
       {"internal.alwaysIncludeBaseRearrangementCost",
@@ -3697,27 +3651,8 @@ applyConstraints(popsolver::Model &m, const Target &target,
 
 static popsolver::Solution
 minimize(popsolver::Model &m, const Target &target,
-         const EmbeddingEstimates<popsolver::Variable> &estimates,
-         const PlanMinimisationTarget &minimisationTarget) {
-  popsolver::Variable goal;
-  switch (minimisationTarget) {
-  case PlanMinimisationTarget::MEMORY: {
-    // Minimise total memory footprint, prioritising persistent memory
-    // indices are persistent if they are required for the update pass
-    goal = m.sum(
-        {estimates.baseStorageBytesPerTile, estimates.outputStorageBytesPerTile,
-         estimates.indicesStorageBytesPerTile, estimates.exchangeCodeBytes});
-    goal = m.product({goal, m.addConstant(10)});
-    goal = m.sum({goal, estimates.peakTempBytes});
-    break;
-  }
-  case PlanMinimisationTarget::CYCLES: {
-    goal = estimates.totalCycles;
-    break;
-  }
-  }
-
-  return m.minimize({goal});
+         const EmbeddingEstimates<popsolver::Variable> &estimates) {
+  return m.minimize({estimates.totalCycles});
 }
 
 // Estimates for a solution and plan
@@ -3756,7 +3691,7 @@ static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
         constructModel(m, target, dataType, numEntries, outputSize, numLookups,
                        useOrderingInfo, options);
     applyConstraints(m, target, partition, estimates, options, limitTempMemory);
-    auto s = minimize(m, target, estimates, options.planMinimisationTarget);
+    auto s = minimize(m, target, estimates);
     if (s.validSolution()) {
       auto totalCycles = *s[estimates.totalCycles];
       SlicePlanInternal p;

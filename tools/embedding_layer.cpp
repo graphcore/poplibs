@@ -114,7 +114,6 @@ int main(int argc, char **argv) {
     bool useEmbeddingPlan = true;
     boost::optional<double> availableMemoryProportion;
     boost::optional<Type> partialType;
-    std::string planMinimisationTarget;
     std::string planConstraints;
     std::string planConstraintsFile;
 
@@ -194,9 +193,6 @@ int main(int argc, char **argv) {
      ),
      "Create and use plan for embedding layer rather than default slice "
      "implementation.")
-    ("plan-minimisation-target",
-     po::value<std::string>(&opts.planMinimisationTarget),
-     "Specify the target for minimisation when using a plan")
     ("available-memory-proportion",
      po::value<boost::optional<double>>(&opts.availableMemoryProportion),
      "Proportion of memory available for temporary memory usage in the "
@@ -268,9 +264,6 @@ int main(int argc, char **argv) {
   if (opts.availableMemoryProportion) {
     sliceOptions.set("availableMemoryProportion",
                      std::to_string(*opts.availableMemoryProportion));
-  }
-  if (!opts.planMinimisationTarget.empty()) {
-    sliceOptions.set("planMinimisationTarget", opts.planMinimisationTarget);
   }
   if (!opts.planConstraints.empty()) {
     sliceOptions.set("planConstraints", opts.planConstraints);

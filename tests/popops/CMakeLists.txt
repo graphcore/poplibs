@@ -1058,7 +1058,6 @@ add_multitarget_test(
      --use-embedding-plan=1
      --data-type half
      --indices-are-sorted=1
-     --plan-minimisation-target cycles
      --tiles-per-ipu 4)
 
 add_multitarget_test(
@@ -1070,7 +1069,6 @@ add_multitarget_test(
      --data-type half
      --partial-type float
      --indices-are-sorted=1
-     --plan-minimisation-target cycles
      --tiles-per-ipu 4)
 
 add_multitarget_test(
@@ -1082,7 +1080,6 @@ add_multitarget_test(
      --data-type half
      --partial-type float
      --indices-are-sorted=0
-     --plan-minimisation-target cycles
      --tiles-per-ipu 4)
 
 add_multitarget_test(
@@ -1093,149 +1090,132 @@ add_multitarget_test(
      --use-embedding-plan=1
      --data-type float
      --indices-are-sorted=1
-     --plan-minimisation-target cycles
      --tiles-per-ipu 4)
 
+add_multitarget_test(
+         NAME embedding_layer_float_10x20
+         COMMAND embedding_layer
+                 --data-type=float
+                 --shape={10,20}
+                 --num-indices=50
+                 --tiles-per-ipu=16)
 
-foreach(MINIMISATION_TARGET memory cycles)
-  add_multitarget_test(
-           NAME embedding_layer_float_10x20_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=float
-                   --shape={10,20}
-                   --num-indices=50
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --tiles-per-ipu=16)
+add_multitarget_test(
+         NAME embedding_layer_half_10x20
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={10,20}
+                 --num-indices=50
+                 --tiles-per-ipu=16)
 
-  add_multitarget_test(
-           NAME embedding_layer_half_10x20_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=half
-                   --shape={10,20}
-                   --num-indices=50
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --tiles-per-ipu=16)
+add_multitarget_test(
+         NAME embedding_layer_float_10x20_2_index_sets
+         COMMAND embedding_layer
+                 --data-type=float
+                 --shape={10,20}
+                 --num-indices={100,10}
+                 --tiles-per-ipu=16)
 
-  add_multitarget_test(
-           NAME embedding_layer_float_10x20_2_index_sets_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=float
-                   --shape={10,20}
-                   --num-indices={100,10}
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --tiles-per-ipu=16)
+add_multitarget_test(
+         NAME embedding_layer_half_10x20_2_index_sets
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={10,20}
+                 --num-indices={5,20}
+                 --tiles-per-ipu=16)
 
-  add_multitarget_test(
-           NAME embedding_layer_half_10x20_2_index_sets_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=half
-                   --shape={10,20}
-                   --num-indices={5,20}
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --tiles-per-ipu=16)
+# These tests are quite slow to execute on the simulator
+add_multitarget_test(
+         NAME embedding_layer_big_embedding
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={100000,200}
+                 --num-indices=1440
+                 --use-embedding-plan=1
+                 --ignore-data
+         VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
-  # These tests are quite slow to execute on the simulator
-  add_multitarget_test(
-           NAME embedding_layer_big_embedding_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=half
-                   --shape={100000,200}
-                   --num-indices=1440
-                   --use-embedding-plan=1
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --ignore-data
-           VARIANTS ${IPUMODEL_VARIANTS};Hw)
+add_multitarget_test(
+         NAME embedding_layer_many_lookups
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={1000,200}
+                 --num-indices=18000
+                 --use-embedding-plan=1
+                 --ignore-data
+         VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
-  add_multitarget_test(
-           NAME embedding_layer_many_lookups_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=half
-                   --shape={1000,200}
-                   --num-indices=18000
-                   --use-embedding-plan=1
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --ignore-data
-           VARIANTS ${IPUMODEL_VARIANTS};Hw)
+# This test is too slow and fails on MACS
+add_multitarget_test(
+         NAME embedding_layer_vmany_lookups
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={1000,200}
+                 --num-indices=40001
+                 --use-embedding-plan=1
+                 --ignore-data
+         VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
-  # This test is too slow and fails on MACS
-  add_multitarget_test(
-           NAME embedding_layer_vmany_lookups_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=half
-                   --shape={1000,200}
-                   --num-indices=40001
-                   --use-embedding-plan=1
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --ignore-data
-           VARIANTS ${IPUMODEL_VARIANTS};Hw)
+# This will also split the unsliced dim
+add_multitarget_test(
+         NAME embedding_layer_quick_split_sliced_dim
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={5000,100}
+                 --num-indices=1440
+                 --use-embedding-plan=1
+                 --ignore-data
+                 --tiles-per-ipu=30
+                 --plan-constraints={\"slicedDimSplit\":\"6\"})
 
-  # This will also split the unsliced dim
-  add_multitarget_test(
-           NAME embedding_layer_quick_split_sliced_dim_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=half
-                   --shape={5000,100}
-                   --num-indices=1440
-                   --use-embedding-plan=1
-                   --ignore-data
-                   --tiles-per-ipu=30
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --plan-constraints={\"slicedDimSplit\":\"6\"})
+# This will also split the unsliced dim
+add_multitarget_test(
+         NAME embedding_layer_quick_split_lookup
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={100,200}
+                 --num-indices=450
+                 --use-embedding-plan=1
+                 --ignore-data
+                 --tiles-per-ipu=30
+                 --plan-constraints={\"lookupSplit\":\"3\"})
 
-  # This will also split the unsliced dim
-  add_multitarget_test(
-           NAME embedding_layer_quick_split_lookup_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=half
-                   --shape={100,200}
-                   --num-indices=450
-                   --use-embedding-plan=1
-                   --ignore-data
-                   --tiles-per-ipu=30
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --plan-constraints={\"lookupSplit\":\"3\"})
+add_multitarget_test(
+         NAME embedding_layer_quick_unsliced_split_lookup
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={100,200}
+                 --num-indices=450
+                 --use-embedding-plan=1
+                 --ignore-data
+                 --tiles-per-ipu=30
+                 --plan-constraints={\"unslicedDimSplit\":\"10\"})
 
-  add_multitarget_test(
-           NAME embedding_layer_quick_unsliced_split_lookup_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --data-type=half
-                   --shape={100,200}
-                   --num-indices=450
-                   --use-embedding-plan=1
-                   --ignore-data
-                   --tiles-per-ipu=30
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --plan-constraints={\"unslicedDimSplit\":\"10\"})
+add_multitarget_test(
+         NAME embedding_layer_T24704
+         COMMAND embedding_layer
+                 --shape {61,6}
+                 --num-indices 2010
+                 --data-type float
+                 --plan-constraints={\"unslicedDimSplit\":\"3\",\"slicedDimSplit\":\"8\",\"lookupSplit\":\"21\"}
+         VARIANTS ${TimesOutOnSim})
 
-  add_multitarget_test(
-           NAME embedding_layer_T24704_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --shape {61,6}
-                   --num-indices 2010
-                   --data-type float
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --plan-constraints={\"unslicedDimSplit\":\"3\",\"slicedDimSplit\":\"8\",\"lookupSplit\":\"21\"}
-           VARIANTS ${TimesOutOnSim})
+add_multitarget_test(
+         NAME embedding_layer_T25957
+         COMMAND embedding_layer
+                 --shape {12,12}
+                 --num-indices 1361
+                 --data-type float
+                 --plan-constraints={\"unslicedDimSplit\":\"6\",\"slicedDimSplit\":\"6\",\"lookupSplit\":\"19\"}
+         VARIANTS ${TimesOutOnSim})
 
-  add_multitarget_test(
-           NAME embedding_layer_T25957_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --shape {12,12}
-                   --num-indices 1361
-                   --data-type float
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --plan-constraints={\"unslicedDimSplit\":\"6\",\"slicedDimSplit\":\"6\",\"lookupSplit\":\"19\"}
-           VARIANTS ${TimesOutOnSim})
-
-  add_multitarget_test(
-           NAME embedding_layer_T30781_${MINIMISATION_TARGET}
-           COMMAND embedding_layer
-                   --num-indices {36}
-                   --shape {180,1}
-                   --data-type=half
-                   --plan-minimisation-target=${MINIMISATION_TARGET}
-                   --tiles-per-ipu 30)
-endforeach()
+add_multitarget_test(
+         NAME embedding_layer_T30781
+         COMMAND embedding_layer
+                 --num-indices {36}
+                 --shape {180,1}
+                 --data-type=half
+                 --tiles-per-ipu 30)
 
 # Histogram
 add_multi_target_test_executable(HistogramTest HistogramTest.cpp)

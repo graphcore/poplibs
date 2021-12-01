@@ -490,15 +490,6 @@ namespace embedding {
  *                     the input size of the embedding.
  *       * `onePoint`  Indices are assumed to all be equal.
  *
- *     * `planMinimisationTarget` (memory, cycles) [=cycles]
- *
- *       Select what should be minimised when planning this operation.
- *
- *       * `memory`    Minimise a weighted combination of estimated maximum
- *                     tile memory needed for code, for input/indices/output
- *                     operands, and temporary variables for the operation.
- *       * `cycles`    Minimise estimated total cycles for the operation.
- *
  *     * `indicesAreSorted` (true, false) [=false]
  *
  *       Plan assuming indices used in MultiUpdate/MultiUpdateOp are sorted in
