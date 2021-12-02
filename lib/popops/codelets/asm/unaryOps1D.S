@@ -12,6 +12,7 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "workDivision.h.S"
 #include "CommonPoplibsMacros.h.S"
+#include "MathConstants.S"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit

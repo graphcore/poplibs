@@ -9,7 +9,7 @@
 .ifnc "\STACK", "NONE"
     DEF_STACK_USAGE  \STACK \VERTEX_NAME
 .endif
-    .section .text.\VERTEX_NAME, "ax"
+    .section .text.\VERTEX_NAME, FUNCTION_IS_WORKER
     .global \VERTEX_NAME
     .type \VERTEX_NAME, @function
     .align \ALIGNMENT
@@ -37,10 +37,25 @@
 .endm
 
 // To create a worker section to begin linking into
-.macro FN_SECTION VERTEX_NAME ALIGNMENT=4 OPTIONAL_NOP
-    .section .text.\VERTEX_NAME, "ax"
+.macro FN_SECTION VERTEX_NAME ALIGNMENT=4 OPTIONAL_NOP="" STACK=0
+.ifnc "\STACK", "NONE"
+    DEF_STACK_USAGE  \STACK .text.\VERTEX_NAME 
+.endif
+    .section .text.\VERTEX_NAME, FUNCTION_IS_WORKER
     .align \ALIGNMENT
     .worker
+\VERTEX_NAME\()_START:
+\OPTIONAL_NOP
+.endm
+
+// To create a supervisor section to begin linking into
+.macro FN_SUPERVISOR_SECTION VERTEX_NAME ALIGNMENT=4 OPTIONAL_NOP="" STACK=0
+.ifnc "\STACK", "NONE"
+    DEF_STACK_USAGE  \STACK .text.\VERTEX_NAME 
+.endif
+    .section .text.\VERTEX_NAME
+    .align \ALIGNMENT
+    .supervisor
 \VERTEX_NAME\()_START:
 \OPTIONAL_NOP
 .endm

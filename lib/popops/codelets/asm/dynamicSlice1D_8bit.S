@@ -1,6 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
-#include "CommonPoplibsMacros.h.S"
 // -----------------------------------------------------------------------------
 // Dynamic Slice and Dynamic Update Slice 1D MultiVertex code for 8-bit types
 //
@@ -59,6 +58,7 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "SliceCopyFunction_8bit.inc"
 #include "workDivision.h.S"
+#include "CommonPoplibsMacros.h.S"
 
 #define DSS_BOOL_FUNC __runCodelet_popops__DynamicSlice1D___bool
 #define DUSS_BOOL_FUNC __runCodelet_popops__DynamicUpdateSlice1D___bool

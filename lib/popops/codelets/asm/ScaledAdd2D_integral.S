@@ -2,28 +2,11 @@
 #ifdef __IPU__
 
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAdd2D___ ## ty
 #define VERTEX_SUBTRACT(ty) __runCodelet_popops__ScaledSubtract2D___ ## ty
 #define VERTEX_COMMON __ScaledAdd2D___
-.globl VERTEX(int_int_int_true_false)
-.type VERTEX(int_int_int_true_false), @function
-
-.globl VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false)
-.type VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false), @function
-
-
-.globl VERTEX(int_int_int_false_false)
-.type VERTEX(int_int_int_false_false), @function
-
-.globl VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false)
-.type VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false), @function
-
-.globl VERTEX_SUBTRACT(int_int_false)
-.type VERTEX_SUBTRACT(int_int_false), @function
-
-.globl VERTEX_SUBTRACT(unsigned_int_unsigned_int_false)
-.type VERTEX_SUBTRACT(unsigned_int_unsigned_int_false), @function
 
 // constants
 #define VERTEX_DATA_A_OFFSET 0
@@ -44,34 +27,26 @@
 #define dataB m8
 
 
-DEF_STACK_USAGE 0 .text.VERTEX(int_true)
-.section .text.VERTEX(int_true)
-.align 4
-
-VERTEX(int_int_int_true_false):
-VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false):
+FN_WORKER_ENTRY_POINT VERTEX(int_int_int_true_false)
+FN_EXPORT VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false)
   // load vertex state specific to the case where we multiply by a constant, k
   ld32 $k, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   bri  VERTEX_COMMON
-.size VERTEX(int_true), .-VERTEX(int_int_int_true_false)
+FN_SIZE VERTEX(int_int_int_true_false)
 
-.align 4
 
-VERTEX_SUBTRACT(int_int_false):
-VERTEX_SUBTRACT(unsigned_int_unsigned_int_false):
+FN_WORKER_ENTRY_POINT VERTEX_SUBTRACT(int_int_false)
+FN_EXPORT VERTEX_SUBTRACT(unsigned_int_unsigned_int_false)
   // load vertex state specific to the case where we multiply by a tensor, factor
   ld32 $k, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0
   mul  $k, $k, -1
   bri  VERTEX_COMMON
-.size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int_int_false)
+FN_SIZE VERTEX_SUBTRACT(int_int_false)
 
 
-DEF_STACK_USAGE 0 .text.VERTEX_COMMON
-.section .text.VERTEX_COMMON
-.align 8
-VERTEX(int_int_int_false_false):
-VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false):
+FN_WORKER_ENTRY_POINT VERTEX(int_int_int_false_false) 8
+FN_EXPORT VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false)
   // load vertex state specific to the case where we multiply by a tensor, factor
   ld32 $k, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0
@@ -116,6 +91,6 @@ VERTEX_COMMON:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-.size VERTEX_COMMON, .-VERTEX(int_int_int_false_false)
+FN_SIZE VERTEX(int_int_int_false_false)
 
 #endif // __IPU__

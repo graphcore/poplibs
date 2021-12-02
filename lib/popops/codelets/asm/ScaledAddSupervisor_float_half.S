@@ -5,6 +5,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 #include "ScaledAddSupervisor.inc"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
@@ -63,14 +64,9 @@
 //******************************************************************************
 
 .macro SUPERVISOR_ENTRY LABEL FLOAT_SCALE TENSOR WORKER_FUNCTION
-.globl VERTEX(\LABEL)
-.type VERTEX(\LABEL), @function
 
 DEF_STACK_SIZE_OWN STACK_SIZE VERTEX(\LABEL)
-.section .text.VERTEX(\LABEL)
-.align 4
-.supervisor
-VERTEX(\LABEL):
+FN_SUPERVISOR_ENTRY_POINT VERTEX(\LABEL) 4 "" NONE
 .if \TENSOR
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
@@ -107,7 +103,7 @@ VERTEX(\LABEL):
   // Branch, divide work, store vertex state for the worker and then call the workers
   // workers - entering the code below
   bri   VERTEX(supervisor)
-.size VERTEX(\LABEL), .-VERTEX(\LABEL)
+FN_SIZE VERTEX(\LABEL)
 .endm
 
 // Create the entry points
@@ -150,14 +146,8 @@ SUPERVISOR_ENTRY float_half_float_true_false 1 0 float_scale
 #define mscratch m10
 #define ascratch a7
 
-.type VERTEX(float_half).kernel, @function
-
-DEF_STACK_USAGE 0 VERTEX(float_half).kernel
-.section .text.VERTEX(float_half).kernel, FUNCTION_IS_WORKER
-.align 8
+FN_SECTION VERTEX(float_half).kernel 8 nop
 VERTEX(float_half).kernel:
-.worker
-  nop   //rpt alignment
 VERTEX(half_scale).kernel:
   ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
   {bri 1f
@@ -243,6 +233,6 @@ VERTEX(float_scale).kernel:
 .Lepilogue:
   exitz $mzero
 
-.size VERTEX(float_half).kernel, .-VERTEX(float_half).kernel
+FN_SIZE VERTEX(float_half).kernel
 
 #endif // __IPU__

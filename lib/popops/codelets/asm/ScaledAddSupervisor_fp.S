@@ -5,6 +5,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 #include "ScaledAddSupervisor.inc"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define SUBTRACT_VERTEX(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
@@ -76,20 +77,13 @@
 //******************************************************************************
 // Float variant entry points
 //******************************************************************************
-.globl VERTEX(float_float_float_false_false)
-.type VERTEX(float_float_float_false_false), @function
-.globl VERTEX(float_float_float_false_true)
-.type VERTEX(float_float_float_false_true), @function
 
-DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(float_float_float_false)
-.section .text.VERTEX(float_float_float_false)
-.align 4
-.supervisor
-VERTEX(float_float_float_false_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(float_float_float_false_false)
+FN_SUPERVISOR_ENTRY_POINT VERTEX(float_float_float_false_false)  4 "" NONE
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, 0
   bri   1f
-VERTEX(float_float_float_false_true):
+FN_EXPORT VERTEX(float_float_float_false_true)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
@@ -105,22 +99,15 @@ VERTEX(float_float_float_false_true):
   // load factor using its pointer - here to avoid pipeline hit
   ld32  $sv_scale, $mzero, $mscratch, 0
   bri   VERTEX(supervisor)
-.size VERTEX(float_float_float_false_false), .-VERTEX(float_float_float_false_false)
+FN_SIZE VERTEX(float_float_float_false_false)
 
 
-.globl VERTEX(float_float_float_true_false)
-.type VERTEX(float_float_float_true_false), @function
-.globl VERTEX(float_float_float_true_true)
-.type VERTEX(float_float_float_true_true), @function
 
-DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(float_float_float_true)
-.section .text.VERTEX(float_float_float_true)
-.align 4
-.supervisor
-VERTEX(float_float_float_true_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(float_float_float_true_false)
+FN_SUPERVISOR_ENTRY_POINT VERTEX(float_float_float_true_false) 4 "" NONE
   setzi $sv_memConstraints, 0
   bri   1f
-VERTEX(float_float_float_true_true):
+FN_EXPORT VERTEX(float_float_float_true_true)
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ld32  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
@@ -133,23 +120,15 @@ VERTEX(float_float_float_true_true):
   setzi $sv_workerFunction, VERTEX(float).kernel
   ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_CONST_OFFSET/2
   bri   VERTEX(supervisor)
-.size VERTEX(float_float_float_true), .-VERTEX(float_float_float_true_false)
+FN_SIZE VERTEX(float_float_float_true_false)
 
 
-.globl SUBTRACT_VERTEX(float_float_float_false)
-.type SUBTRACT_VERTEX(float_float_float_false), @function
-.globl SUBTRACT_VERTEX(float_float_float_true)
-.type SUBTRACT_VERTEX(float_float_float_true), @function
-
-DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(float_float)
-.section .text.SUBTRACT_VERTEX(float_float)
-.align 4
-.supervisor
-SUBTRACT_VERTEX(float_float_float_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(float_float_float_false)
+FN_SUPERVISOR_ENTRY_POINT SUBTRACT_VERTEX(float_float_float_false) 4 "" NONE
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, 0
   bri   1f
-SUBTRACT_VERTEX(float_float_float_true):
+FN_EXPORT SUBTRACT_VERTEX(float_float_float_true)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
@@ -169,17 +148,11 @@ SUBTRACT_VERTEX(float_float_float_true):
   xor   $sv_scale, $sv_scale, $mscratch2 // 6 cycles
 
   bri   VERTEX(supervisor)
-.size SUBTRACT_VERTEX(float_float_float_false), .-SUBTRACT_VERTEX(float_float_float_false)
+FN_SIZE SUBTRACT_VERTEX(float_float_float_false)
 
 
-.globl AXPLUSBY_VERTEX(float_float_false_false)
-.type AXPLUSBY_VERTEX(float_float_false_false), @function
-
-DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(float_float_false)
-.section .text.AXPLUSBY_VERTEX(float_float_false)
-.align 4
-.supervisor
-AXPLUSBY_VERTEX(float_float_false_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(float_float_false_false)
+FN_SUPERVISOR_ENTRY_POINT AXPLUSBY_VERTEX(float_float_false_false) 4 "" NONE
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
 
@@ -198,17 +171,11 @@ AXPLUSBY_VERTEX(float_float_false_false):
   ld32  $mscratch2, $mzero, $mscratch2, 0
   st32  $mscratch2, $sp, $mzero, SV_STATE_SCALEB_OFFSET/4
   bri   VERTEX(supervisor)
-.size AXPLUSBY_VERTEX(float_float_false_false), .-AXPLUSBY_VERTEX(float_float_false_false)
+FN_SIZE AXPLUSBY_VERTEX(float_float_false_false)
 
 
-.globl AXPLUSBY_VERTEX(float_float_true_false)
-.type AXPLUSBY_VERTEX(float_float_true_false), @function
-
-DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(float_float_true)
-.section .text.AXPLUSBY_VERTEX(float_float_true)
-.align 4
-.supervisor
-AXPLUSBY_VERTEX(float_float_true_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(float_float_true_false)
+FN_SUPERVISOR_ENTRY_POINT AXPLUSBY_VERTEX(float_float_true_false) 4 "" NONE
   ld32  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
   ld32  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_CONST_OFFSET/4
   // keeping this before the branch means it doesn't cause a stall later
@@ -221,16 +188,11 @@ AXPLUSBY_VERTEX(float_float_true_false):
   ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_CONST_OFFSET/2
   st32  $mscratch2, $sp, $mzero, SV_STATE_SCALEB_OFFSET/4
   bri   VERTEX(supervisor)
-.size AXPLUSBY_VERTEX(float_float_true_false), .-AXPLUSBY_VERTEX(float_float_true_false)
+FN_SIZE AXPLUSBY_VERTEX(float_float_true_false)
 
-.globl AX_MINUS_BY_VERTEX(float_float_false_false)
-.type AX_MINUS_BY_VERTEX(float_float_false_false), @function
 
-DEF_STACK_SIZE_OWN STACK_SIZE .text.AX_MINUS_BY_VERTEX(float_float_false)
-.section .text.AX_MINUS_BY_VERTEX(float_float_false)
-.align 4
-.supervisor
-AX_MINUS_BY_VERTEX(float_float_false_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.AX_MINUS_BY_VERTEX(float_float_false_false)
+FN_SUPERVISOR_ENTRY_POINT AX_MINUS_BY_VERTEX(float_float_false_false) 4 "" NONE
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_OFFSET/2
 
@@ -251,27 +213,19 @@ AX_MINUS_BY_VERTEX(float_float_false_false):
   xor   $mscratch2, $mscratch2, $sv_memConstraints
   st32  $mscratch2, $sp, $mzero, SV_STATE_SCALEB_OFFSET/4
   bri   VERTEX(supervisor)
-.size AX_MINUS_BY_VERTEX(float_float_false_false), .-AX_MINUS_BY_VERTEX(float_float_false_false)
+FN_SIZE AX_MINUS_BY_VERTEX(float_float_false_false)
 
 //******************************************************************************
 // Half variant entry points
 //******************************************************************************
 
-.globl VERTEX(half_half_half_false_false)
-.type VERTEX(half_half_half_false_false), @function
-.globl VERTEX(half_half_half_false_true)
-.type VERTEX(half_half_half_false_true), @function
-
-DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_half_half_false)
-.section .text.VERTEX(half_half_half_false)
-.align 4
-.supervisor
-VERTEX(half_half_half_false_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_half_half_false_false)
+FN_SUPERVISOR_ENTRY_POINT VERTEX(half_half_half_false_false) 4 "" NONE
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, 0
   bri   1f
 
-VERTEX(half_half_half_false_true):
+FN_EXPORT VERTEX(half_half_half_false_true)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
@@ -287,21 +241,14 @@ VERTEX(half_half_half_false_true):
   // load factor using its pointer - here to avoid pipeline hit
   ldz16 $sv_scale, $mzero, $mscratch, 0
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX(half_half_half_false), .-VERTEX(half_half_half_false_false)
+FN_SIZE VERTEX(half_half_half_false_false)
 
-.globl VERTEX(half_half_half_true_false)
-.type VERTEX(half_half_half_true_false), @function
-.globl VERTEX(half_half_half_true_true)
-.type VERTEX(half_half_half_true_true), @function
 
-DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_half_half_true)
-.section .text.VERTEX(half_half_half_true)
-.align 4
-.supervisor
-VERTEX(half_half_half_true_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_half_half_true_false)
+FN_SUPERVISOR_ENTRY_POINT VERTEX(half_half_half_true_false) 4 "" NONE
   setzi $sv_memConstraints, 0
   bri 1f
-VERTEX(half_half_half_true_true):
+FN_EXPORT VERTEX(half_half_half_true_true)
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -314,23 +261,16 @@ VERTEX(half_half_half_true_true):
   setzi $sv_workerFunction, VERTEX(half).kernel
   ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX(half_half_half_true_false), .-VERTEX(half_half_half_true_false)
+FN_SIZE VERTEX(half_half_half_true_false)
 
 
-.globl SUBTRACT_VERTEX(half_half_half_false)
-.type SUBTRACT_VERTEX(half_half_half_false), @function
-.globl SUBTRACT_VERTEX(half_half_half_true)
-.type SUBTRACT_VERTEX(half_half_half_true), @function
 
-DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_half)
-.section .text.SUBTRACT_VERTEX(half_half)
-.align 4
-.supervisor
-SUBTRACT_VERTEX(half_half_half_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_half_half_false)
+FN_SUPERVISOR_ENTRY_POINT SUBTRACT_VERTEX(half_half_half_false) 4 "" NONE
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, 0
   bri   1f
-SUBTRACT_VERTEX(half_half_half_true):
+FN_EXPORT SUBTRACT_VERTEX(half_half_half_true)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
@@ -348,22 +288,15 @@ SUBTRACT_VERTEX(half_half_half_true):
   ldz16 $sv_scale, $mzero, $mscratch, 0
   xor   $sv_scale, $mscratch, $mscratch2 // 6 cycles
   bri   VERTEX(supervisor) // 6 cycles
-.size SUBTRACT_VERTEX(half_half_half_false), .-SUBTRACT_VERTEX(half_half_half_false)
+FN_SIZE SUBTRACT_VERTEX(half_half_half_false)
 
 // ----- Entry points for constant scale values -----
-.globl AXPLUSBY_VERTEX(half_half_true_false)
-.type AXPLUSBY_VERTEX(half_half_true_false), @function
-.globl AXPLUSBY_VERTEX(half_half_true_true)
-.type AXPLUSBY_VERTEX(half_half_true_true), @function
 
-DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_true)
-.section .text.AXPLUSBY_VERTEX(half_true)
-.align 4
-.supervisor
-AXPLUSBY_VERTEX(half_half_true_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_half_true_false)
+FN_SUPERVISOR_ENTRY_POINT AXPLUSBY_VERTEX(half_half_true_false) 4 "" NONE
   setzi $sv_memConstraints, 0
   bri   1f
-AXPLUSBY_VERTEX(half_half_true_true):
+FN_EXPORT AXPLUSBY_VERTEX(half_half_true_true)
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   // 2x16 bit factors
@@ -381,23 +314,16 @@ AXPLUSBY_VERTEX(half_half_true_true):
   nop
   sort4x16lo $sv_scale, $sv_scale, $mscratch2
   bri   VERTEX(supervisor) // 6 cycles
-.size AXPLUSBY_VERTEX(half_half_true_false), .-AXPLUSBY_VERTEX(half_half_true_false)
+FN_SIZE AXPLUSBY_VERTEX(half_half_true_false)
 
 
 // ----- Entry points for tensor scale values -----
-.globl AXPLUSBY_VERTEX(half_half_false_false)
-.type AXPLUSBY_VERTEX(half_half_false_false), @function
-.globl AXPLUSBY_VERTEX(half_half_false_true)
-.type AXPLUSBY_VERTEX(half_half_false_true), @function
 
-DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_false)
-.section .text.AXPLUSBY_VERTEX(half_false)
-.align 4
-.supervisor
-AXPLUSBY_VERTEX(half_half_false_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_half_false_false)
+FN_SUPERVISOR_ENTRY_POINT AXPLUSBY_VERTEX(half_half_false_false) 4 "" NONE
   setzi $sv_memConstraints, 0
   bri   1f
-AXPLUSBY_VERTEX(half_half_false_true):
+FN_EXPORT AXPLUSBY_VERTEX(half_half_false_true)
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -412,26 +338,19 @@ AXPLUSBY_VERTEX(half_half_false_true):
   // pointer to the worker code to run
   setzi $sv_workerFunction, VERTEX(axplusby_half).kernel
   bri   VERTEX(supervisor) // 6 cycles
-.size AXPLUSBY_VERTEX(half_half_false_false), .-AXPLUSBY_VERTEX(half_half_false_false)
+FN_SIZE AXPLUSBY_VERTEX(half_half_false_false)
 
 
-.globl XMINUSAXPLUSBY_VERTEX(half_true_false)
-.type XMINUSAXPLUSBY_VERTEX(half_true_false), @function
-.globl XMINUSAXPLUSBY_VERTEX(half_true_true)
-.type XMINUSAXPLUSBY_VERTEX(half_true_true), @function
-
-DEF_STACK_SIZE_OWN STACK_SIZE .text.XMINUSAXPLUSBY_VERTEX(half_true)
-.section .text.XMINUSAXPLUSBY_VERTEX(half_true)
-.align 4
+DEF_STACK_SIZE_OWN STACK_SIZE .text.XMINUSAXPLUSBY_VERTEX(half_true_false)
   // Implement (1 - a) X + b * Y as follows:
   //     -aX + bY + X
   //
   // The implementation is to be performed in 32-bit precision in the
   // accumulators.
-XMINUSAXPLUSBY_VERTEX(half_true_false):
+FN_SUPERVISOR_ENTRY_POINT XMINUSAXPLUSBY_VERTEX(half_true_false) 4 "" NONE
   setzi $sv_memConstraints, 0
   bri   1f
-XMINUSAXPLUSBY_VERTEX(half_true_true):
+FN_EXPORT XMINUSAXPLUSBY_VERTEX(half_true_true)
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   // 2x16 bit factors
@@ -457,26 +376,19 @@ XMINUSAXPLUSBY_VERTEX(half_true_true):
   nop
   sort4x16lo $sv_scale, $mscratch, $mscratch2
   bri   VERTEX(supervisor) // 6 cycles
-.size XMINUSAXPLUSBY_VERTEX(half_true_false), .-XMINUSAXPLUSBY_VERTEX(half_true_false)
+FN_SIZE XMINUSAXPLUSBY_VERTEX(half_true_false)
 
 
-.globl XMINUSAXPLUSBY_VERTEX(half_false_false)
-.type XMINUSAXPLUSBY_VERTEX(half_false_false), @function
-.globl XMINUSAXPLUSBY_VERTEX(half_false_true)
-.type XMINUSAXPLUSBY_VERTEX(half_false_true), @function
-
-DEF_STACK_SIZE_OWN STACK_SIZE .text.XMINUSAXPLUSBY_VERTEX(half_false)
-.section .text.XMINUSAXPLUSBY_VERTEX(half_false)
-.align 4
+DEF_STACK_SIZE_OWN STACK_SIZE .text.XMINUSAXPLUSBY_VERTEX(half_false_false)
   // Implement (1 - a) X + b * Y as follows:
   //     -aX + bY + X
   //
   // The implementation is to be performed in 32-bit precision in the
   // accumulators.
-XMINUSAXPLUSBY_VERTEX(half_false_false):
+FN_SUPERVISOR_ENTRY_POINT XMINUSAXPLUSBY_VERTEX(half_false_false) 4 "" NONE
   setzi $sv_memConstraints, 0
   bri   1f
-XMINUSAXPLUSBY_VERTEX(half_false_true):
+FN_EXPORT XMINUSAXPLUSBY_VERTEX(half_false_true)
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -494,22 +406,15 @@ XMINUSAXPLUSBY_VERTEX(half_false_true):
   // pointer to the worker code to run
   setzi $sv_workerFunction, VERTEX(xminusaxplusby_half).kernel
   bri   VERTEX(supervisor) // 6 cycles
-.size XMINUSAXPLUSBY_VERTEX(half_false_false), .-XMINUSAXPLUSBY_VERTEX(half_false_false)
+FN_SIZE XMINUSAXPLUSBY_VERTEX(half_false_false)
 
 
-.globl AX_MINUS_BY_VERTEX(half_half_false_false)
-.type AX_MINUS_BY_VERTEX(half_half_false_false), @function
-.globl AX_MINUS_BY_VERTEX(half_half_false_true)
-.type AX_MINUS_BY_VERTEX(half_half_false_true), @function
 
-DEF_STACK_SIZE_OWN STACK_SIZE .text.AX_MINUS_BY_VERTEX(half_false)
-.section .text.AX_MINUS_BY_VERTEX(half_false)
-.align 4
-.supervisor
-AX_MINUS_BY_VERTEX(half_half_false_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.AX_MINUS_BY_VERTEX(half_half_false_false)
+FN_SUPERVISOR_ENTRY_POINT AX_MINUS_BY_VERTEX(half_half_false_false) 4 "" NONE
   setzi $sv_memConstraints, 0
   bri   1f
-AX_MINUS_BY_VERTEX(half_half_false_true):
+FN_EXPORT AX_MINUS_BY_VERTEX(half_half_false_true)
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -528,11 +433,9 @@ AX_MINUS_BY_VERTEX(half_half_false_true):
   // pointer to the worker code to run
   setzi $sv_workerFunction, VERTEX(axplusby_half).kernel
   bri   VERTEX(supervisor) // 6 cycles
-.size AX_MINUS_BY_VERTEX(half_half_false_false), .-AX_MINUS_BY_VERTEX(half_half_false_false)
+FN_SIZE AX_MINUS_BY_VERTEX(half_half_false_false)
 
-DEF_STACK_USAGE  STACK_SIZE  AX_MINUS_PLUS_BY_COMMON
-.supervisor
-.section .text.AX_MINUS_PLUS_BY_COMMON
+FN_SUPERVISOR_SECTION AX_MINUS_PLUS_BY_COMMON 4 "" STACK_SIZE
 AX_MINUS_PLUS_BY_COMMON:
   shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
   shl    $mscratch2, $mscratch2, SCALED_PTR128_SHL_BITS
@@ -546,21 +449,16 @@ AX_MINUS_PLUS_BY_COMMON:
   ldz16  $mscratch, $mzero, $mscratch, 0
   ldz16  $mscratch2, $mzero, $mscratch2, 0
   br $remM1
-.size AX_MINUS_PLUS_BY_COMMON, .-AX_MINUS_PLUS_BY_COMMON
+FN_SIZE AX_MINUS_PLUS_BY_COMMON
 
 //******************************************************************************
 // Mixed precision, i.e. dataA (X) = half, dataB (Y) = float, scaleB = half
 // (tensor) entry point
 // The leaf code has no constraints.
 //******************************************************************************
-.globl VERTEX(half_float_half_false_false)
-.type VERTEX(half_float_half_false_false), @function
 
-DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_float_half_false)
-.section .text.VERTEX(half_float_half_false)
-.align 4
-.supervisor
-VERTEX(half_float_half_false_false):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_float_half_false_false)
+FN_SUPERVISOR_ENTRY_POINT VERTEX(half_float_half_false_false) 4 "" NONE
   // vertex has no memory constraints
   // pointer to the worker code to run
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -577,20 +475,15 @@ VERTEX(half_float_half_false_false):
   ldz16 $sv_scale, $mzero, $mscratch, 0
   bri   VERTEX(supervisor) // 6 cycles
 
-.size VERTEX(half_float_half_false_false), .-VERTEX(half_float_half_false_false)
+FN_SIZE VERTEX(half_float_half_false_false)
 
 //******************************************************************************
 // Mixed precision, i.e. dataA (X) = half, dataB (Y) = float, scaleB = float
 // (constant) entry point
 // The leaf code has no constraints.
 //******************************************************************************
-.globl VERTEX(half_float_float_true_false)
-.type VERTEX(half_float_float_true_false), @function
 DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_float_float_true_false)
-.section .text.VERTEX(half_float_float_true_false)
-.align 4
-.supervisor
-VERTEX(half_float_float_true_false):
+FN_SUPERVISOR_ENTRY_POINT VERTEX(half_float_float_true_false) 4 "" NONE
   // vertex has no memory constraints
   // pointer to the worker code to run
 
@@ -603,20 +496,15 @@ VERTEX(half_float_float_true_false):
 
   ldz16 $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_CONST_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX(half_float_float_true_false), .-VERTEX(half_float_float_true_false)
+FN_SIZE VERTEX(half_float_float_true_false)
 
 //******************************************************************************
 // Mixed precision, i.e. dataA (X) = half, dataB (Y) = float, scaleB = half
 // (constant) entry point
 // The leaf code has no constraints.
 //******************************************************************************
-.globl VERTEX(half_float_half_true_false)
-.type VERTEX(half_float_half_true_false), @function
 DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_float_half_true_false)
-.section .text.VERTEX(half_float_half_true_false)
-.align 4
-.supervisor
-VERTEX(half_float_half_true_false):
+FN_SUPERVISOR_ENTRY_POINT VERTEX(half_float_half_true_false) 4 "" NONE
   // vertex has no memory constraints
   // pointer to the worker code to run
 
@@ -629,19 +517,14 @@ VERTEX(half_float_half_true_false):
 
   ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX(half_float_half_true_false), .-VERTEX(half_float_half_true_false)
+FN_SIZE VERTEX(half_float_half_true_false)
 //******************************************************************************
 // Mixed precision, i.e. dataA (X) = half, dataB (Y) = float, scaleB = float
 // (tensor) entry point
 // The leaf code has no constraints.
 //******************************************************************************
-.globl VERTEX(half_float_float_false_false)
-.type VERTEX(half_float_float_false_false), @function
 DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_float_float_false_false)
-.section .text.VERTEX(half_float_float_false_false)
-.align 4
-.supervisor
-VERTEX(half_float_float_false_false):
+FN_SUPERVISOR_ENTRY_POINT VERTEX(half_float_float_false_false) 4 "" NONE
   // vertex has no memory constraints
   // pointer to the worker code to run
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -657,21 +540,13 @@ VERTEX(half_float_float_false_false):
   // load factor using its pointer - here to avoid pipeline hit
   ld32 $sv_scale, $mzero, $mscratch, 0
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX(half_float_float_false_false), .-VERTEX(half_float_float_false_false)
+FN_SIZE VERTEX(half_float_float_false_false)
 
 //*****************************************************************************
 
-.globl SUBTRACT_VERTEX(half_float_half_false)
-.type SUBTRACT_VERTEX(half_float_half_false), @function
-.globl SUBTRACT_VERTEX(half_float_half_true)
-.type SUBTRACT_VERTEX(half_float_half_true), @function
-
-DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_float)
-.section .text.SUBTRACT_VERTEX(half_float)
-.align 4
-.supervisor
-SUBTRACT_VERTEX(half_float_half_false):
-SUBTRACT_VERTEX(half_float_half_true):
+DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_float_half_false)
+FN_SUPERVISOR_ENTRY_POINT SUBTRACT_VERTEX(half_float_half_false) 4 "" NONE
+FN_EXPORT SUBTRACT_VERTEX(half_float_half_true)
 // vertex has no memory constraints
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
@@ -689,7 +564,7 @@ SUBTRACT_VERTEX(half_float_half_true):
   xor   $sv_scale, $sv_scale, $mscratch2 //6 cycles
   bri   VERTEX(supervisor) // 6 cycles
 
-.size SUBTRACT_VERTEX(half_float_half_false), .-SUBTRACT_VERTEX(half_float_half_false)
+FN_SIZE SUBTRACT_VERTEX(half_float_half_false)
 
 //*****************************************************************************
 // Common code for half, float and mixed precision, supervisor vertices
@@ -736,14 +611,9 @@ SUBTRACT_VERTEX(half_float_half_true):
 // A and B data, using the macros VERTEX_DATA_A_OFFSET/VERTEX_DATA_B_OFFSET
 //
 //*****************************************************************************
-.globl VERTEX(supervisor)
-.type VERTEX(supervisor), @function
 
 DEF_STACK_SIZE_OWN  0  VERTEX(supervisor)
-.section .text.VERTEX(supervisor)
-.align 4
-.supervisor
-VERTEX(supervisor):
+FN_SUPERVISOR_ENTRY_POINT VERTEX(supervisor) 4 "" NONE
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_A_OFFSET/2
   ldz16  $remM1, $vertexPtr, $mzero, VERTEX_DATA_B_OFFSET/2
@@ -823,7 +693,7 @@ VERTEX(supervisor):
 
   br $lr // 6 cycles
 
-.size VERTEX(supervisor), .-VERTEX(supervisor)
+FN_SIZE VERTEX(supervisor)
 
 // clear supervisor variables
 #undef vertexPtr
@@ -878,15 +748,7 @@ VERTEX(supervisor):
 1:
 .endm
 
-.type VERTEX(float).kernel, @function
-
-DEF_STACK_USAGE  0  VERTEX(float).kernel
-.section .text.VERTEX(float).kernel, FUNCTION_IS_WORKER
-.align 8
-.worker
-  nop // rpt alignment
-
-VERTEX(float).kernel:
+FN_WORKER_ENTRY_POINT VERTEX(float).kernel 8 nop
   // load vertex state
   ld32 $countD2, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET/4
   ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET/4
@@ -1018,18 +880,12 @@ VERTEX(float).kernel:
   brnz $final, .Lfloat_epilogue_common
   exitz $mzero
 
-.size VERTEX(float).kernel, .-VERTEX(float).kernel
+FN_SIZE VERTEX(float).kernel
 
 
 //******************************************************************************
-.type AXPLUSBY_VERTEX(float).kernel, @function
 
-DEF_STACK_USAGE  0  AXPLUSBY_VERTEX(float).kernel
-.section .text.AXPLUSBY_VERTEX(float).kernel, FUNCTION_IS_WORKER
-.align 8
-.worker
-
-AXPLUSBY_VERTEX(float).kernel:
+FN_WORKER_ENTRY_POINT AXPLUSBY_VERTEX(float).kernel 8
   // load vertex state
   ld32 $countD2, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET/4
   ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET/4
@@ -1091,18 +947,10 @@ AXPLUSBY_VERTEX(float).kernel:
 .Lfloat_epilogue_axpby:
   exitz $mzero
 
-
-.size AXPLUSBY_VERTEX(float).kernel, .-AXPLUSBY_VERTEX(float).kernel
+FN_SIZE AXPLUSBY_VERTEX(float).kernel
 //******************************************************************************
-.type VERTEX(half).kernel, @function
 
-DEF_STACK_USAGE  0  .text.VERTEX(half).kernel
-.section .text.VERTEX(half).kernel, FUNCTION_IS_WORKER
-
-.globl VERTEX(half_half_float_continue)
-
-.align 8
-VERTEX(half_half_float_continue):
+FN_WORKER_ENTRY_POINT VERTEX(half_half_float_continue) 4
   // load k with a float scale, cast it and continue as normal
   {ld32  $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
    f16v2exp $ascratch, $azero}
@@ -1112,7 +960,9 @@ VERTEX(half_half_float_continue):
     // $k should have the form of {1, k}
     sort4x16lo $k, $ascratch, $k
   }
-.size VERTEX(half_half_float_continue), .-VERTEX(half_half_float_continue)
+FN_SIZE VERTEX(half_half_float_continue)
+
+FN_SECTION VERTEX(half).kernel
 VERTEX(half).kernel:
   {
     ldb16 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/2
@@ -1124,9 +974,9 @@ VERTEX(half).kernel:
     // $k should have the form of {1, k}
     sort4x16lo $k, $ascratch, $k
   }
+FN_SIZE VERTEX(half).kernel
 
-.globl VERTEX(axplusby_half).kernel
-VERTEX(axplusby_half).kernel:
+FN_WORKER_ENTRY_POINT VERTEX(axplusby_half).kernel 8 nop
   ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
 not_axplusby_continue:
   ld32 $memConstraints, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
@@ -1287,17 +1137,10 @@ not_axplusby_continue:
   brnz $final, .Lhalf_epilogue_common
   exitz $mzero
 
-.size VERTEX(half).kernel, .-VERTEX(half).kernel
+FN_SIZE VERTEX(axplusby_half).kernel
 
 //******************************************************************************
-DEF_STACK_USAGE 0 VERTEX(xminusaxplusby_half).kernel
-.type VERTEX(xminusaxplusby_half).kernel, @function
-
-.section .text.VERTEX(xminusaxplusby_half).kernel
-
-// Alignment to ensure repeat body is 8 byte aligned
-.align 8
-VERTEX(xminusaxplusby_half).kernel:
+FN_WORKER_ENTRY_POINT VERTEX(xminusaxplusby_half).kernel 8
   ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
 not_xminusaxplusby_continue:
   ld32 $memConstraints, $mvertex_base, $mzero, SV_STATE_MEM_CONSTRAINTS/4
@@ -1498,7 +1341,7 @@ not_xminusaxplusby_continue:
   brnz $final, .Lhalf_xminusaxplusby_epilogue_common
   exitz $mzero
 
-.size VERTEX(xminusaxplusby_half).kernel, .-VERTEX(xminusaxplusby_half).kernel
+FN_SIZE VERTEX(xminusaxplusby_half).kernel
 
 //******************************************************************************
 // variant that accepts half data and float dataB.
@@ -1518,30 +1361,21 @@ not_xminusaxplusby_continue:
 #define aB01h   a4
 
 
-.type VERTEX(half_float_float).kernel, @function
-.type VERTEX(half_float_half).kernel, @function
 
-DEF_STACK_SIZE_OWN 0 .text.VERTEX(half_float).kernel
-.section .text.VERTEX(half_float).kernel, FUNCTION_IS_WORKER
-// Alignment to ensure repeat body is 8 byte aligned
-.align 8
-.worker
-VERTEX(half_float_half).kernel:
+DEF_STACK_SIZE_OWN 0 .text.VERTEX(half_float_half).kernel
+FN_WORKER_ENTRY_POINT VERTEX(half_float_half).kernel 8 nop NONE
   ldb16 $aBScale, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/2
   {bri 1f
    f16tof32 $aBScale, $aBScale
   }
-.size VERTEX(half_float_half).kernel, .-VERTEX(half_float_half).kernel
 
-.align 8
-.worker
 // This core handles a = a+b*bScale, where a is half and b and bScale are float.
 // The multiplies are done in fp32 precision to retain accuracy, the add is
 // done in fp16 precision. So a slightly more accurate version is possible which
 // uses fp16 for the addition - but that hasn't been deemed necessary so far.
 // This is a 4 cycle inner loop, so in this case there is no benefit from
 // adding any constraints to the Tensors.
-VERTEX(half_float_float).kernel:
+FN_EXPORT VERTEX(half_float_float).kernel
   // load vertex state
   ld32 $aBScale, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
 1:
@@ -1639,6 +1473,6 @@ VERTEX(half_float_float).kernel:
 .Lhalf_float_float_exit:
   exitz $mzero
 
-.size VERTEX(half_float_float).kernel, .-VERTEX(half_float_float).kernel
+FN_SIZE VERTEX(half_float_half).kernel
 
 #endif // __IPU__

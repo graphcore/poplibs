@@ -4,6 +4,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX_AXPBY_CONST_FAST __runCodelet_popops__aXPlusbY2D___half_half_true_true
 #define VERTEX_AXPBY_TENSOR_FAST __runCodelet_popops__aXPlusbY2D___half_half_false_true
@@ -22,7 +23,7 @@
 // This is used as an entry point from the half, half, float version, when it
 // is decided that the float scale is OK when cast to half
 #define VERTEX_COMMON __ScaledAdd2D___half_common
-.globl VERTEX_COMMON
+
 // constants
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_A_SIZE_OFFSET 1
@@ -75,43 +76,6 @@
 #define SCALED_PTR64_SHIFTS 3
 #endif
 
-.globl VERTEX_AXPBY_CONST_FAST
-.type VERTEX_AXPBY_CONST_FAST, @function
-
-.globl VERTEX_AXPBY_TENSOR_FAST
-.type VERTEX_AXPBY_TENSOR_FAST, @function
-
-.globl VERTEX_AX_MINUS_BY_TENSOR_FAST
-.type VERTEX_AX_MINUS_BY_TENSOR_FAST, @function
-
-.globl VERTEX_ADD_CONST_FAST
-.type VERTEX_ADD_CONST_FAST, @function
-
-.globl VERTEX_ADD_TENSOR_FAST
-.type VERTEX_ADD_TENSOR_FAST, @function
-
-.globl VERTEX_SUBTRACT_FAST
-.type VERTEX_SUBTRACT_FAST, @function
-
-.globl VERTEX_AXPBY_CONST_SLOW
-.type VERTEX_AXPBY_CONST_SLOW, @function
-
-.globl VERTEX_AXPBY_TENSOR_SLOW
-.type VERTEX_AXPBY_TENSOR_SLOW, @function
-
-.globl VERTEX_AX_MINUS_BY_TENSOR_SLOW
-.type VERTEX_AX_MINUS_BY_TENSOR_SLOW, @function
-
-.globl VERTEX_ADD_CONST_SLOW
-.type VERTEX_ADD_CONST_SLOW, @function
-
-.globl VERTEX_ADD_TENSOR_SLOW
-.type VERTEX_ADD_TENSOR_SLOW, @function
-
-.globl VERTEX_SUBTRACT_SLOW
-.type VERTEX_SUBTRACT_SLOW, @function
-
-
 .macro CHOOSE_FAST_OR_SLOW_PATH FAST_PATH_LABEL
   // The fast path is always OK if constraints were applied
   brnz $memConstraints, \FAST_PATH_LABEL
@@ -126,13 +90,11 @@
 .endm
 
 
-DEF_STACK_USAGE 0 .text.VERTEX_ADD_TENSOR_SLOW
-.section .text.VERTEX_ADD_TENSOR_SLOW
-.align 4
-VERTEX_ADD_TENSOR_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_SLOW
   setzi $memConstraints, 0
   bri 1f
-VERTEX_ADD_TENSOR_FAST:
+
+FN_EXPORT VERTEX_ADD_TENSOR_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
@@ -140,15 +102,12 @@ VERTEX_ADD_TENSOR_FAST:
 
   ldb16 $ascratch2, $mzero, $data, 0
   bri   VERTEX_COMMON
-.size VERTEX_FALSE, .-VERTEX_ADD_TENSOR_SLOW
+FN_SIZE VERTEX_ADD_TENSOR_SLOW
 
-DEF_STACK_USAGE 0 .text.VERTEX_SUBTRACT_SLOW
-.section .text.VERTEX_SUBTRACT_SLOW
-.align 4
-VERTEX_SUBTRACT_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_SUBTRACT_SLOW
   setzi $memConstraints, 0
   bri 1f
-VERTEX_SUBTRACT_FAST:
+FN_EXPORT VERTEX_SUBTRACT_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
@@ -159,15 +118,12 @@ VERTEX_SUBTRACT_FAST:
     bri   VERTEX_COMMON
     f16v2mul $ascratch2, $ascratch:BL, $ascratch2
   }
-.size VERTEX_SUBTRACT, .-VERTEX_SUBTRACT_SLOW
+FN_SIZE VERTEX_SUBTRACT_SLOW
 
-DEF_STACK_USAGE 0 VERTEX_AXPBY_CONST_SLOW
-.section .text.VERTEX_AXPBY_CONST_SLOW
-.align 4
-VERTEX_AXPBY_CONST_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_AXPBY_CONST_SLOW
   setzi $memConstraints, 0
   bri 1f
-VERTEX_AXPBY_CONST_FAST:
+FN_EXPORT VERTEX_AXPBY_CONST_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex :
@@ -176,16 +132,13 @@ VERTEX_AXPBY_CONST_FAST:
   ld32  $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
   ld32  $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_A_SIZE_OFFSET
   bri   axplusby_true_continue
-.size VERTEX_AXPBY_TRUE, .-VERTEX_AXPBY_CONST_SLOW
+FN_SIZE VERTEX_AXPBY_CONST_SLOW
 
 
-DEF_STACK_USAGE 0 .text.VERTEX_AX_MINUS_BY_TENSOR_SLOW
-.section .text.VERTEX_AX_MINUS_BY_TENSOR_SLOW
-.align 4
-VERTEX_AX_MINUS_BY_TENSOR_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_AX_MINUS_BY_TENSOR_SLOW
   setzi $memConstraints, 0
   bri 1f
-VERTEX_AX_MINUS_BY_TENSOR_FAST:
+FN_EXPORT VERTEX_AX_MINUS_BY_TENSOR_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensors B
@@ -196,15 +149,13 @@ VERTEX_AX_MINUS_BY_TENSOR_FAST:
 
   {bri ax_plus_minus_by_common
   f16v2mul $ascratch2, $ascratch, $ascratch2}
+FN_SIZE VERTEX_AX_MINUS_BY_TENSOR_SLOW
 
 
-DEF_STACK_USAGE 0 .text.VERTEX_AXPBY_TENSOR_SLOW
-.section .text.VERTEX_AXPBY_TENSOR_SLOW
-.align 4
-VERTEX_AXPBY_TENSOR_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_AXPBY_TENSOR_SLOW
   setzi $memConstraints, 0
   bri 1f
-VERTEX_AXPBY_TENSOR_FAST:
+FN_EXPORT VERTEX_AXPBY_TENSOR_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensors A,B
@@ -215,25 +166,23 @@ ax_plus_minus_by_common:
   ldb16 $ascratch, $mzero, $data, 0
   ld32  $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
   bri   axplusby_false_continue
-.size VERTEX_AXPBY_FALSE, .-VERTEX_AXPBY_TENSOR_SLOW
+FN_SIZE VERTEX_AXPBY_TENSOR_SLOW
 
-DEF_STACK_USAGE 0 .text.VERTEX_COMMON
-.section .text.VERTEX_COMMON
-.align 8
+FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_SLOW 8
+  setzi $memConstraints, 0
+  bri 1f
 #ifndef VECTOR_AVAIL_SCALED_PTR64
   nop //rpt align
 #endif
-VERTEX_ADD_CONST_SLOW:
-  setzi $memConstraints, 0
-  bri 1f
-VERTEX_ADD_CONST_FAST:
+
+FN_EXPORT VERTEX_ADD_CONST_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : k, constant
   // set ascratch2 to {k, k}
   ldb16 $ascratch2, $mvertex_base, $mzero, VERTEX_SCALE_CONST_OFFSET
 
-VERTEX_COMMON:
+FN_EXPORT VERTEX_COMMON
   // load common vertex state
   {
     ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
@@ -253,8 +202,8 @@ axplusby_true_continue:
     // setup $TAS for the f16v4mix instructions below.
     uput $TAS, $ascratch
   }
-.globl axplusby_half_half_common
-axplusby_half_half_common:  // This is called from ScaledAddaXPlusbY_mixed.S
+
+FN_EXPORT axplusby_half_half_common  // This is called from ScaledAddaXPlusbY_mixed.S
   // minus 1 for the brnzdec
   add $outDataSize, $outDataSize, -1
 .Louter_loop:
@@ -393,6 +342,6 @@ axplusby_half_half_common:  // This is called from ScaledAddaXPlusbY_mixed.S
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-.size VERTEX_COMMON, .-VERTEX_ADD_CONST_SLOW
+FN_SIZE VERTEX_ADD_CONST_SLOW
 
 #endif // __IPU__

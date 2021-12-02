@@ -3,27 +3,10 @@
 
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define VERTEX_SUBTRACT(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
-
-.globl VERTEX(int_int_int_true_false)
-.type VERTEX(int_int_int_true_false), @function
-
-.globl VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false)
-.type VERTEX(unsigned_int_unsigned_int_unsigned_int_true_flase), @function
-
-.globl VERTEX(int_int_int_false_false)
-.type VERTEX(int_int_int_false_false), @function
-
-.globl VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false)
-.type VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false), @function
-
-.globl VERTEX_SUBTRACT(int_int_int_false)
-.type VERTEX_SUBTRACT(int_int_int_false), @function
-
-.globl VERTEX_SUBTRACT(unsigned_int_unsigned_int_unsigned_int_false)
-.type VERTEX_SUBTRACT(unsigned_int_unsigned_int_unsigned_int_false), @function
 
 // constants
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -74,12 +57,8 @@
 
 #define STACK_SIZE  8
 
-DEF_STACK_USAGE STACK_SIZE .text.VERTEX(int_int_int_false)
-.section .text.VERTEX(int_int_int_false)
-.align 4
-.supervisor
-VERTEX(int_int_int_false_false):
-VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false):
+FN_SUPERVISOR_ENTRY_POINT VERTEX(int_int_int_false_false) 4 "" STACK_SIZE
+FN_EXPORT VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false)
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -STACK_SIZE
   ldz16 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET/2
@@ -88,27 +67,22 @@ VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false):
   ldz16 $dataSize, $m0, $mzero, VERTEX_DATA_A_SIZE_OFFSET/2
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX(int_common)// 6 cycles
-.size VERTEX(int_false), .-VERTEX(int_int_int_false_false)
+FN_SIZE VERTEX(int_int_int_false_false)
 
-DEF_STACK_USAGE STACK_SIZE .text.VERTEX(int_true)
-.section .text.VERTEX(int_true)
-.align 4
 
-VERTEX(int_int_int_true_false):
-VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false):
+FN_SUPERVISOR_ENTRY_POINT VERTEX(int_int_int_true_false) 4 "" STACK_SIZE
+FN_EXPORT VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false)
  // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -STACK_SIZE
 
   ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET/4
   ldz16 $dataSize, $m0, $mzero, VERTEX_DATA_A_SIZE_CONST_OFFSET/2
   bri  VERTEX(int_common) //6 cycles
-.size VERTEX(int_true), .-VERTEX(int_int_int_true_false)
+FN_SIZE VERTEX(int_int_int_true_false)
 
-DEF_STACK_USAGE STACK_SIZE .text.VERTEX_SUBTRACT(int_int_int_false_false)
-.section .text.VERTEX_SUBTRACT(int_int_int_false_false)
-.align 4
-VERTEX_SUBTRACT(int_int_int_false):
-VERTEX_SUBTRACT(unsigned_int_unsigned_int_unsigned_int_false):
+
+FN_SUPERVISOR_ENTRY_POINT VERTEX_SUBTRACT(int_int_int_false) 4 "" STACK_SIZE
+FN_EXPORT VERTEX_SUBTRACT(unsigned_int_unsigned_int_unsigned_int_false)
   // keeping this before the branch means it doesn't cause a stall later
   add $sp, $sp, -STACK_SIZE
   ldz16 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET/2
@@ -117,10 +91,10 @@ VERTEX_SUBTRACT(unsigned_int_unsigned_int_unsigned_int_false):
   ldz16 $dataSize, $m0, $mzero, VERTEX_DATA_A_SIZE_OFFSET/2
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX_SUBTRACT(int_common)// 6 cycles
-.size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int_int_int_false)
+FN_SIZE VERTEX_SUBTRACT(int_int_int_false)
 
-.section .text.VERTEX(int_common)
-.align 4
+FN_SECTION VERTEX(int_common)
+  .supervisor
 VERTEX_SUBTRACT(int_common):
   mul  $k, $k, -1
 VERTEX(int_common):
@@ -224,6 +198,6 @@ VERTEX(int_common):
 
   br $lr // 6 cycles
 
-.size VERTEX(int_common), .-VERTEX(int_common)
+FN_SIZE VERTEX(int_common)
 
 #endif // __IPU__

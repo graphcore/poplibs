@@ -13,12 +13,6 @@
 // being macros and not subroutines shared between Supervisor and 2DWorker
 /* -------------------------------------------------------------------------- */
 
-// Naming / name mangling
-#define MANGLE_STR_MACRO(SUFFIX) __runCodelet_popops__UnaryOpCommon_\VARIANT\()_\OP\()_##SUFFIX
-
-// Constants
-#define HALF_MINUS_ONE 0xbc00
-
 //******************************************************************************
 // Macros for half SIGNUM
 //******************************************************************************
@@ -27,7 +21,7 @@
 // processing
 .macro   LOAD_FUNCTION_PTRS_AND_CONSTANTS_SIGNUM VARIANT OPERATION
   {setzi $mloopFn, unary_op_loop_4x16bit_\VARIANT\()_\OPERATION
-   setzi $a6, HALF_MINUS_ONE}
+   setzi $a6, HALF_NEG_1_0}
 
   {setzi $mprocess1Fn, unary_op_process_1_4x16bit_\VARIANT\()_\OPERATION
    sort4x16lo $a6,$a6,$a6}
@@ -48,9 +42,8 @@
   // if(x==0)| 0x0000 0x0000 | 0x0000 = 0  0x0000 = 0   | 0      - 0   = 0
   // if(x>0) | 0x0000 0xffff | 0x0000 = 0  0xbc00 = -1  | 0      -(-1) = +1
 
-.section .text.MANGLE_STR_MACRO(half_loop)
-.align 8
-unary_op_loop_4x16bit_\VARIANT\()_\OP:
+FN_SECTION unary_op_loop_4x16bit_\VARIANT\()_\OP 8
+unary_op_loop_4x16bit_\VARIANT\()_\OP: 
    // Pre load and process so we can pipeline the loop
   ld64step $a0:1, $mzero, $inPtr+=, \STRIDE
   f16v4cmplt $a2:3, $a0:1, $azeros
@@ -74,11 +67,10 @@ unary_op_loop_4x16bit_\VARIANT\()_\OP:
   // Complete processing the last one, stored after return
   {bri inner_loop_4x16bit_return_\VARIANT
    f16v4sub $a2:3,$a2:3,$a4:5}
-.size MANGLE_STR_MACRO(half_loop), . -unary_op_loop_4x16bit_\VARIANT\()_\OP
+FN_SIZE unary_op_loop_4x16bit_\VARIANT\()_\OP
 
 //******************************************************
-.section .text.MANGLE_STR_MACRO(half_instr)
-.align 4
+FN_SECTION unary_op_process_2_4x16bit_\VARIANT\()_\OP
 unary_op_process_2_4x16bit_\VARIANT\()_\OP:
   f16v2cmplt $a2,$a0,$azero
   f16v2cmplt $a4, $azero, $a0
@@ -103,7 +95,7 @@ unary_op_process_1_4x16bit_\VARIANT\()_\OP:
   and64 $a4:5, $a4:5, $a6:7
   {bri process_1_4x16bit_return_\VARIANT
    f16v2sub $a0, $a2, $a4}
-.size MANGLE_STR_MACRO(half_instr), . -unary_op_process_2_4x16bit_\VARIANT\()_\OP
+FN_SIZE unary_op_process_2_4x16bit_\VARIANT\()_\OP
 .endm
 
 //******************************************************************************
@@ -120,9 +112,7 @@ unary_op_process_1_4x16bit_\VARIANT\()_\OP:
 
 // Actual loop, 1-of and 2-of processing functions
 .macro INSTANTIATE_UNARY_OP_4x16bit_PROCESSING OP INSTR VARIANT STRIDE
-.section .text.MANGLE_STR_MACRO(4x16bit_loop)
-.align 8
-  nop   // rpt alignment
+FN_SECTION unary_op_loop_4x16bit_\VARIANT\()_\OP 8 nop
 unary_op_loop_4x16bit_\VARIANT\()_\OP:
   // Pre load and process so we can pipeline the loop
   ld64step $a0:1, $mzero, $inPtr+=, \STRIDE
@@ -136,11 +126,10 @@ unary_op_loop_4x16bit_\VARIANT\()_\OP:
 2:
   // Last result is stored on return
   bri inner_loop_4x16bit_return_\VARIANT
-.size MANGLE_STR_MACRO(4x16bit_loop), . -unary_op_loop_4x16bit_\VARIANT\()_\OP
+FN_SIZE unary_op_loop_4x16bit_\VARIANT\()_\OP
 
 //******************************************************
-.section .text.MANGLE_STR_MACRO(4x16bit_instr)
-.align 4
+FN_SECTION unary_op_process_2_4x16bit_\VARIANT\()_\OP
 unary_op_process_2_4x16bit_\VARIANT\()_\OP:
   // This is coded in a general way but may only be OK for NOT as, being a
   // logical operation it is OK to process the garbage that may be in the
@@ -155,7 +144,7 @@ unary_op_process_1_4x16bit_\VARIANT\()_\OP:
   ldb16 $a1, $mzero, $outPtr, 1
   bri process_1_4x16bit_return_\VARIANT
 
-.size MANGLE_STR_MACRO(4x16bit_instr), . -unary_op_process_2_4x16bit_\VARIANT\()_\OP
+FN_SIZE unary_op_process_2_4x16bit_\VARIANT\()_\OP
 .endm
 
 #endif

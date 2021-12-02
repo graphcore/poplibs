@@ -5,6 +5,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 #include "MathConstants.S"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX_ADD_CONST_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_true_true
 #define VERTEX_ADD_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_false_true
@@ -72,34 +73,6 @@
 #define SCALED_PTR64_SHIFTS 3
 #endif
 
-.globl VERTEX_ADD_CONST_FAST
-.type VERTEX_ADD_CONST_FAST, @function
-
-.globl VERTEX_ADD_TENSOR_FAST
-.type VERTEX_ADD_TENSOR_FAST, @function
-
-.globl VERTEX_SUBTRACT_FAST
-.type VERTEX_SUBTRACT_FAST, @function
-
-.globl VERTEX_ADD_CONST_SLOW
-.type VERTEX_ADD_CONST_SLOW, @function
-
-.globl VERTEX_ADD_TENSOR_SLOW
-.type VERTEX_ADD_TENSOR_SLOW, @function
-
-.globl VERTEX_SUBTRACT_SLOW
-.type VERTEX_SUBTRACT_SLOW, @function
-
-.globl VERTEX_AXPBY_CONST
-.type VERTEX_AXPBY_CONST, @function
-
-.globl VERTEX_AXPBY_TENSOR
-.type VERTEX_AXPBY_TENSOR, @function
-
-.globl VERTEX_AX_MINUS_BY_TENSOR
-.type VERTEX_AX_MINUS_BY_TENSOR, @function
-
-
 .macro CHOOSE_FAST_OR_SLOW_PATH FAST_PATH_LABEL
   // The fast path is always OK if constraints were applied
   brnz $memConstraints, \FAST_PATH_LABEL
@@ -114,28 +87,22 @@
 .endm
 
 
-DEF_STACK_USAGE 0 .text.VERTEX_ADD_TENSOR_FAST
-.section .text.VERTEX_ADD_TENSOR_FAST
-.align 4
-VERTEX_ADD_TENSOR_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_SLOW
   setzi $memConstraints, 0
   bri 1f
-VERTEX_ADD_TENSOR_FAST:
+FN_EXPORT VERTEX_ADD_TENSOR_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ld32  $ascratch, $mzero, $data, 0
   bri   VERTEX_COMMON
-.size VERTEX_ADD_TENSOR_FAST, .-VERTEX_ADD_TENSOR_FAST
+FN_SIZE VERTEX_ADD_TENSOR_SLOW
 
-DEF_STACK_USAGE 0 .text.VERTEX_SUBTRACT_SLOW
-.section .text.VERTEX_SUBTRACT_SLOW
-.align 4
-VERTEX_SUBTRACT_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_SUBTRACT_SLOW
   setzi $memConstraints, 0
   bri   1f
-VERTEX_SUBTRACT_FAST:
+FN_EXPORT VERTEX_SUBTRACT_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
@@ -144,18 +111,16 @@ VERTEX_SUBTRACT_FAST:
    or    $data1i0, $azero, FLOAT_NEG_1_0}
   {bri  VERTEX_COMMON
    f32mul $ascratch, $ascratch, $data1i0}
-.size VERTEX_SUBTRACT_FAST, .-VERTEX_SUBTRACT_SLOW
+FN_SIZE VERTEX_SUBTRACT_SLOW
 
-DEF_STACK_USAGE 0 .text.VERTEX_COMMON
-.section .text.VERTEX_COMMON
-.align 8
+FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_SLOW 8
+  setzi $memConstraints, 0
+  bri 1f
 #ifndef VECTOR_AVAIL_SCALED_PTR64
   nop //rpt align
 #endif
-VERTEX_ADD_CONST_SLOW:
-  setzi $memConstraints, 0
-  bri 1f
-VERTEX_ADD_CONST_FAST:
+
+FN_EXPORT VERTEX_ADD_CONST_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : k, constant
@@ -281,13 +246,10 @@ VERTEX_COMMON:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-.size VERTEX_COMMON, .-VERTEX_ADD_CONST_SLOW
+FN_SIZE VERTEX_ADD_CONST_SLOW
 
 //------------------------------------------------------------------------------
-DEF_STACK_USAGE 0 .text.VERTEX_AX_MINUS_BY_TENSOR
-.section .text.VERTEX_AX_MINUS_BY_TENSOR
-.align 4
-VERTEX_AX_MINUS_BY_TENSOR:
+FN_WORKER_ENTRY_POINT VERTEX_AX_MINUS_BY_TENSOR
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ld32  $ascratch, $mzero, $data, 0
@@ -296,29 +258,23 @@ VERTEX_AX_MINUS_BY_TENSOR:
   or $data0i0, $azero, FLOAT_NEG_1_0}
   {bri   VERTEX_AXPBY_COMMON
   f32mul $ascaleB, $ascaleB, $data0i0}
-.size VERTEX_AX_MINUS_BY_TENSOR, .-VERTEX_AX_MINUS_BY_TENSOR
+FN_SIZE VERTEX_AX_MINUS_BY_TENSOR
 
 
-DEF_STACK_USAGE 0 .text.VERTEX_AXPBY_TENSOR
-.section .text.VERTEX_AXPBY_TENSOR
-.align 4
-VERTEX_AXPBY_TENSOR:
+FN_WORKER_ENTRY_POINT VERTEX_AXPBY_TENSOR
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ld32  $ascratch, $mzero, $data, 0
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   ld32  $ascaleB, $mzero, $data, 0
   bri   VERTEX_AXPBY_COMMON
-.size VERTEX_AXPBY_TENSOR, .-VERTEX_AXPBY_TENSOR
+FN_SIZE VERTEX_AXPBY_TENSOR
 
 
-DEF_STACK_USAGE 0 .text.VERTEX_AXPBY_COMMON
-.section .text.VERTEX_AXPBY_COMMON
-.align 8
+FN_WORKER_ENTRY_POINT VERTEX_AXPBY_CONST 8
 #ifndef VECTOR_AVAIL_SCALED_PTR64
   nop //rpt align
 #endif
-VERTEX_AXPBY_CONST:
   // load vertex state specific to this version of the vertex : k, constant
   ld32  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ld32  $ascaleB, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
@@ -389,6 +345,6 @@ VERTEX_AXPBY_COMMON:
 
   exitz $mzero
 
-.size VERTEX_AXPBY_COMMON, .-VERTEX_AXPBY_CONST
+FN_SIZE VERTEX_AXPBY_CONST
 
 #endif // __IPU__

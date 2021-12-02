@@ -4,6 +4,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX_XMINUSAXPLUSBY_CONST_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_true_true
 #define VERTEX_XMINUSAXPLUSBY_TENSOR_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_false_true
@@ -65,18 +66,6 @@
 #define SCALED_PTR64_SHIFTS 3
 #endif
 
-.globl VERTEX_XMINUSAXPLUSBY_CONST_FAST
-.type VERTEX_XMINUSAXPLUSBY_CONST_FAST, @function
-
-.globl VERTEX_XMINUSAXPLUSBY_TENSOR_FAST
-.type VERTEX_XMINUSAXPLUSBY_TENSOR_FAST, @function
-
-.globl VERTEX_XMINUSAXPLUSBY_CONST_SLOW
-.type VERTEX_XMINUSAXPLUSBY_CONST_SLOW, @function
-
-.globl VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW
-.type VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW, @function
-
 .macro CHOOSE_FAST_OR_SLOW_PATH FAST_PATH_LABEL
   // The fast path is always OK if constraints were applied
   brnz $memConstraints, \FAST_PATH_LABEL
@@ -89,13 +78,10 @@
   brz $mscratch, \FAST_PATH_LABEL
 .endm
 
-DEF_STACK_USAGE 0 .text.VERTEX_XMINUSAXPLUSBY_CONST_SLOW
-.section .text.VERTEX_XMINUSAXPLUSBY_CONST_SLOW
-.align 4
-VERTEX_XMINUSAXPLUSBY_CONST_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_XMINUSAXPLUSBY_CONST_SLOW 
   setzi $memConstraints, 0
   bri 1f
-VERTEX_XMINUSAXPLUSBY_CONST_FAST:
+FN_EXPORT VERTEX_XMINUSAXPLUSBY_CONST_FAST 
   setzi $memConstraints, 1
 1:
   // Implement (1 - a) X + b * Y as follows:
@@ -124,21 +110,18 @@ VERTEX_XMINUSAXPLUSBY_CONST_FAST:
     bri   xminusaxplusby_continue
     f16v2mul $ascratch, $ascratch, $ascratch3
   }
-.size VERTEX_XMINUSAXPLUSBY_TRUE, .-VERTEX_XMINUSAXPLUSBY_CONST_SLOW
+FN_SIZE VERTEX_XMINUSAXPLUSBY_CONST_SLOW
 
 
-DEF_STACK_USAGE 0 .text.VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW
-.section .text.VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW
-.align 4
   // Implement (1 - a) X + b * Y as follows:
   //     -aX + bY + X
   //
   // The implementation is to be performed in 32-bit precision in the
   // accumulators.
-VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW
   setzi $memConstraints, 0
   bri 1f
-VERTEX_XMINUSAXPLUSBY_TENSOR_FAST:
+FN_EXPORT VERTEX_XMINUSAXPLUSBY_TENSOR_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensors A,B
@@ -161,11 +144,10 @@ VERTEX_XMINUSAXPLUSBY_TENSOR_FAST:
     sort4x16lo $ascratch, $ascratch, $ascratch2
   }
   bri   xminusaxplusby_continue
-.size VERTEX_XMINUSAXPLUSBY_FALSE, .-VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW
+FN_SIZE VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW
 
 
-.section .text.VERTEX_COMMON
-.align 8
+FN_SECTION xminusaxplusby_continue 8
 xminusaxplusby_continue:
   {
     ld32 $outDataB, $mvertex_base, $mzero, VERTEX_DATA_B_OFFSET
@@ -354,6 +336,6 @@ xminusaxplusby_continue:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-.size VERTEX_COMMON, .-xminusaxplusby_continue
+FN_SIZE xminusaxplusby_continue
 
 #endif // __IPU__

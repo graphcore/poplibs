@@ -5,6 +5,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 #include "ScaledAddSupervisor.inc"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_true_true
 #define VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
@@ -95,11 +96,8 @@
 //  NOTE: The final store instruction should be executed by the calling program
 //        immediately after the function has returned.
 //
-DEF_STACK_USAGE  0  scaled_add_data_half_factor_float
-.section .text.scaled_add_data_half_factor_float, FUNCTION_IS_WORKER
-.type scaled_add_data_half_factor_float, @function
 
-.align 8
+FN_SECTION scaled_add_data_half_factor_float 8
 scaled_add_data_half_factor_float:
   ld32 $data0i0, $mzero, $dataPtr, 0
 
@@ -172,6 +170,7 @@ scaled_add_data_half_factor_float:
     br $lr
     f32v2tof16 $data0i0, $data0
   }
+FN_SIZE scaled_add_data_half_factor_float
 
 // Subroutine: Process ScaledAdd(data_half, dataB_half, factor_float) for a
 //             single half
@@ -191,11 +190,8 @@ scaled_add_data_half_factor_float:
 //  2. $dataPtr points to the first input array pointer
 //  3. $dataBPtr points to the second input array pointer
 //
-DEF_STACK_USAGE 0 scaled_add_data_half_factor_float_scalar
-.section .text.scaled_add_data_half_factor_float_scalar
-.type scaled_add_data_half_factor_float_scalar, @function
 
-.align 4
+FN_SECTION scaled_add_data_half_factor_float_scalar
 scaled_add_data_half_factor_float_scalar:
   ldb16 $data1i0, $mzero, $dataPtr, 0
 
@@ -230,7 +226,7 @@ scaled_add_data_half_factor_float_scalar:
     br $lr
     roll16 $data1i0, $data1i0, $ascratch
   }
-
+FN_SIZE scaled_add_data_half_factor_float_scalar
 //******************************************************************************
 // 2D case
 //******************************************************************************
@@ -262,11 +258,6 @@ scaled_add_data_half_factor_float_scalar:
 #define C_CALL_SCALE a0
 #define C_CALL_RETURN m0
 
-.globl VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
-.type VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW, @function
-.globl VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST
-.type VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST, @function
-
 .macro CALL_CHECK_ACCURACY_WHEN_CAST_2D
   mov $sp, $m12
   // Call the C function to check if we can use scale as a half
@@ -297,15 +288,13 @@ scaled_add_data_half_factor_float_scalar:
 .endm
 
 DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
-.section .text.VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
-.align 4
-VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW 4 "" NONE
   // Do this first as we don't need to worry as much about the calling convention
   CALL_CHECK_ACCURACY_WHEN_CAST_2D
   // For use when we enter the half, half, half version
   setzi $memConstraints, 0
   bri   1f
-VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST:
+FN_EXPORT VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST
   // Do this first as we don't need to worry as much about the calling convention
   CALL_CHECK_ACCURACY_WHEN_CAST_2D
 
@@ -313,23 +302,18 @@ VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST:
 1:
   PERFORM_VERTEX_2D_SCALE_FLOAT_TENSOR
 
-.size VERTEX_2D_SCALE_FLOAT, .-VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
+FN_SIZE VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
 
-.globl VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
-.type VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW, @function
-.globl VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST
-.type VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST, @function
 
 DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
-.section .text.VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
-.align 4
-VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW:
+FN_WORKER_ENTRY_POINT VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW 4 "" NONE
   // Do this first as we don't need to worry as much about the calling convention
   CALL_CHECK_ACCURACY_WHEN_CAST_2D
   // For use when we enter the half, half, half version
   setzi $memConstraints, 0
   bri   1f
-VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST:
+
+FN_EXPORT VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST
   // Do this first as we don't need to worry as much about the calling convention
   CALL_CHECK_ACCURACY_WHEN_CAST_2D
 
@@ -337,23 +321,15 @@ VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST:
 1:
   PERFORM_VERTEX_2D_SCALE_FLOAT_TENSOR f32sub $factor, $azero, $factor
   
-.size VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW, .-VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+FN_SIZE VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
 
-.globl VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
-.type VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW, @function
-.globl VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST
-.type VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST, @function
-
-DEF_STACK_USAGE 0 .text.VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
-.section .text.VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
-.align 4
 // The fastest implementation happens to use more Aux instructions than Main
 // instructions. Since memory access instructions use the Main path, the
 // efficiency of these instructions in a memory-constrained scenario do not lead
 // to a speed up of the loop kernel. Hence, this variant of ScaledAdd has only
 // a single implementation regardless of the placement of the inputs in memory.
-VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW:
-VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST:
+FN_WORKER_ENTRY_POINT VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
+FN_EXPORT VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST
   // load vertex state specific to this version of the vertex : k, constant
   ld32 $factor, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
 
@@ -424,7 +400,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
   brnzdec $outDataSize, .Lscale_float_outer_loop
   exitz $mzero
 
-.size VERTEX_2D_SCALE_FLOAT_COMMON, .-VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
+FN_SIZE VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
 
 // Undefine 2D register definitions
 #undef VERTEX_SCALE_OFFSET
@@ -496,14 +472,12 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 // ScaledSubtract Supervisor entry point. Just negates the scale value
 // and lets the ScaledAdd Supervisor do the rest.
 DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
-.section .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
-.align 4
-.supervisor
-VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW:
+FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW 4 "" NONE
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, 0
   bri   1f
-VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST:
+
+FN_EXPORT VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
@@ -513,24 +487,17 @@ VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST:
   xor  $sv_scale, $sv_scale, $tmp_countD2
  
   bri VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW_RUN_WORKERS
-.size VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW, .-VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+FN_SIZE VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
 
 
-.globl VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
-.type VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW, @function
-.globl VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST
-.type VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST, @function
 
 DEF_STACK_SIZE_OWN  STACK_SIZE  .text.VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
-.section .text.VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
-.align 4
-.supervisor
-VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW:
+FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW 4 "" NONE
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, 0
   bri   1f
 
-VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
+FN_EXPORT VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
@@ -586,19 +553,11 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW_RUN_WORKERS:
   // pointer to the worker code to run
   setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX_SV_SCALE_TENSOR, .-VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
-
-.globl VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
-.type VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW, @function
-.globl VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST
-.type VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST, @function
+FN_SIZE VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 
 DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
-.section .text.VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
-.align 4
-.worker
-VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW:
-VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST:
+FN_WORKER_ENTRY_POINT VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW 4 "" NONE
+FN_EXPORT VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST
   ld32  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
 
   add   $sp, $sp, -STACK_SIZE
@@ -609,18 +568,15 @@ VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST:
   setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON_CONST
   ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_CONST_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
-.size VERTEX_SV_SCALE_CONST, .-VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
+FN_SIZE VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
 
 //******************************************************************************
 
-.type VERTEX_SV_SCALE_FLOAT_COMMON, @function
 
 DEF_STACK_SIZE_OWN  0  VERTEX_SV_SCALE_FLOAT_COMMON
-.section .text.VERTEX_SV_SCALE_FLOAT_COMMON, FUNCTION_IS_WORKER
-.align 4
 // Worker entry point used first by the supervisor to check the accuracy of
 // the float scale when cast to a half.
-VERTEX_SV_SCALE_FLOAT_CHECK:
+FN_WORKER_ENTRY_POINT VERTEX_SV_SCALE_FLOAT_CHECK 4 "" NONE
   // Just call the C function which will check if scale is accurate
   // enough as a half precision value
   mov $sp, $m12
@@ -706,7 +662,7 @@ VERTEX_SV_SCALE_FLOAT_COMMON_CONST:
 .Lhalf_half_float_epilogue:
   exitz $mzero
 
-.size VERTEX_SV_SCALE_FLOAT_COMMON, .-VERTEX_SV_SCALE_FLOAT_COMMON
+FN_SIZE VERTEX_SV_SCALE_FLOAT_CHECK
 
 // Undefine Supervisor register definitions
 #undef vertexPtr

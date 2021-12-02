@@ -4,6 +4,7 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "CommonPoplibsMacros.h.S"
 
 #define VERTEX_ADD_CONST_HALF_SCALE __runCodelet_popops__ScaledAdd2D___float_half_half_true_false
 #define VERTEX_ADD_CONST_FLOAT_SCALE __runCodelet_popops__ScaledAdd2D___float_half_float_true_false
@@ -56,48 +57,31 @@
 #define SCALED_PTR64_SHIFTS 3
 #endif
 
-.globl VERTEX_ADD_CONST_HALF_SCALE
-.type VERTEX_ADD_CONST_HALF_SCALE, @function
-
-.globl VERTEX_ADD_CONST_FLOAT_SCALE
-.type VERTEX_ADD_CONST_FLOAT_SCALE, @function
-
-.globl VERTEX_ADD_TENSOR_HALF_SCALE
-.type VERTEX_ADD_TENSOR_HALF_SCALE, @function
-
-.globl VERTEX_ADD_TENSOR_FLOAT_SCALE
-.type VERTEX_ADD_TENSOR_FLOAT_SCALE, @function
-
-
-DEF_STACK_USAGE 0 .text.VERTEX_ADD_TENSOR_HALF_SCALE
-.section .text.VERTEX_ADD_TENSOR_HALF_SCALE
-.align 4
-VERTEX_ADD_TENSOR_FLOAT_SCALE:
+FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_FLOAT_SCALE
   // load vertex state specific to this version of the vertex : Tensor(float): via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
   ld32  $ascratch, $mzero, $data, 0
   bri   VERTEX_COMMON
+FN_SIZE VERTEX_ADD_TENSOR_FLOAT_SCALE
 
-VERTEX_ADD_TENSOR_HALF_SCALE:
+FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_HALF_SCALE
   // load vertex state specific to this version of the vertex : Tensor(half): via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
   ldb16  $ascratch, $mzero, $data, 0
   {bri   VERTEX_COMMON
    f16tof32 $ascratch, $ascratch}
-.size VERTEX_ADD_TENSOR_FAST, .-VERTEX_ADD_TENSOR_FLOAT_SCALE/4
+FN_SIZE VERTEX_ADD_TENSOR_HALF_SCALE
 
-DEF_STACK_USAGE 0 .text.VERTEX_COMMON
-.section .text.VERTEX_COMMON
-.align 8
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  nop //rpt align
-#endif
-VERTEX_ADD_CONST_HALF_SCALE:
+FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_HALF_SCALE 8
   // load vertex state specific to this version of the vertex : k, constant(half)
   ldb16  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
   {bri VERTEX_COMMON
    f16tof32 $ascratch, $ascratch}
-VERTEX_ADD_CONST_FLOAT_SCALE:
+#ifdef VECTOR_AVAIL_SCALED_PTR64
+  nop //rpt align
+#endif
+
+FN_EXPORT VERTEX_ADD_CONST_FLOAT_SCALE
   // load vertex state specific to this version of the vertex : k, constant(float)
   ld32  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
 
@@ -181,6 +165,6 @@ VERTEX_COMMON:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-.size VERTEX_COMMON, .-VERTEX_ADD_CONST_HALF_SCALE
+FN_SIZE VERTEX_ADD_CONST_HALF_SCALE
 
 #endif // __IPU__
