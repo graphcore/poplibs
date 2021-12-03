@@ -43,7 +43,12 @@ add_unit_test(WrongSyncZone
 
 add_unit_test(ConsistentExecutableTest
               ConsistentExecutableTest.cpp
-              VARIANTS ${SIM_VARIANTS})
+              VARIANTS NoTarget)
+if(TARGET ConsistentExecutableTest)
+  target_compile_definitions(
+    ConsistentExecutableTest PRIVATE
+    -DEXECUTABLE="${CMAKE_BINARY_DIR}/tools/consistent_executable_tool")
+endif()
 
 if (NOT "asan" IN_LIST SANITIZERS)
   # This test causes an internal error in address sanitizer.

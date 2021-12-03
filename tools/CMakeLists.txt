@@ -126,6 +126,9 @@ target_link_libraries(matrix_solver
                       poplibs_support poplibs_test
                       Boost::program_options)
 
+add_tool(consistent_executable_tool consistent_executable_tool.cpp)
+target_link_libraries(consistent_executable_tool poplibs_support)
+
 if (TARGET popsparse)
   add_tool(sparse_fc_layer sparse_fc_layer.cpp)
   target_link_libraries(sparse_fc_layer
