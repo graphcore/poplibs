@@ -43,7 +43,7 @@ enum class DeviceType {
 };
 
 const auto deviceTypeHelp = "Device type: Cpu | IpuModel1 | IpuModel2 | "
-                            "IpuModel21 | Sim1 | Sim2 | Sim21 | Hw";
+                            "Sim1 | Sim2 | Hw";
 
 constexpr bool isSimulator(DeviceType d) {
   return d == DeviceType::Sim1 || d == DeviceType::Sim2 ||
