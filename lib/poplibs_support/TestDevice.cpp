@@ -131,7 +131,7 @@ createTestDevice(const DeviceType deviceType, const unsigned numIPUs,
   }
   default:
     throw std::logic_error(
-        R"XX(deviceType must be "Cpu", "IpuModel1", "IpuModel2", "IpuModel21", "Sim1", "Sim2", "Sim21" or "Hw")XX");
+        R"XX(deviceType must be "Cpu", "IpuModel1", "IpuModel2", "Sim1", "Sim2" or "Hw")XX");
   }
 }
 
@@ -158,7 +158,7 @@ std::istream &operator>>(std::istream &is, DeviceType &type) {
     throw std::logic_error(
         "Unsupported device type <" + token +
         ">; must be one of "
-        R"XX("Cpu", "IpuModel1", "IpuModel2", "IpuModel21", "Sim1", "Sim2", "Sim21" or "Hw")XX");
+        R"XX("Cpu", "IpuModel1", "IpuModel2", "Sim1", "Sim2" or "Hw")XX");
   return is;
 }
 
