@@ -76,11 +76,23 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
 
   auto tFlat = t.flatten();
   graph.reorderToSimplify(&tFlat, {}, false);
-  // Use copy to fill, only possible for the Program api
-  auto valueTensor = graph.addConstant<FillValueType>(t.elementType(), {1},
-                                                      fillValue, "fillValue");
-  graph.setTileMapping(valueTensor, 0);
-  prog.add(Copy(valueTensor.broadcast(tFlat.numElements(), 0), tFlat));
+  const auto numBytes =
+      t.numElements() * graph.getTarget().getTypeSize(t.elementType());
+
+  if (numBytes <= 4) {
+    // There is a simple optimised copy/memset vertex for small inputs,
+    // other cases may be better implemented using fill vertices, although
+    // copy would work
+    auto valueTensor = graph.addConstant<FillValueType>(t.elementType(), {1},
+                                                        fillValue, "fillValue");
+    graph.setTileMapping(valueTensor, 0);
+    prog.add(Copy(valueTensor.broadcast(tFlat.numElements(), 0), tFlat));
+  } else {
+    auto cs = graph.addComputeSet({di, "Fill"});
+    fill<FillValueType>(graph, tFlat, graph.getTileMapping(tFlat), cs,
+                        fillValue);
+    prog.add(Execute(cs, {di}));
+  }
 }
 
 #define FILL_EXPLICIT_INSTANTIATIONS(Type)                                     \
