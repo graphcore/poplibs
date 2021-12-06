@@ -59,6 +59,14 @@ static std::vector<Type> getValidTransposeDataTypes() {
   return {HALF, FLOAT, UNSIGNED_SHORT, UNSIGNED_INT, SHORT, INT};
 }
 
+// Negative stride used in transpose vertex
+static unsigned negativeStride(unsigned dim) { return dim / 4u * 3u - 1u; }
+
+// maximum stride the target allows
+static unsigned maxStride(const poplar::Target &target) {
+  return 1u << (target.getNumStrideBits() - 1u);
+}
+
 bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
                          unsigned numRows, unsigned numColumns,
                          unsigned numTranspositions) {
@@ -69,6 +77,7 @@ bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
       numRows % 4 || numColumns % 4) {
     return false;
   }
+  const auto upperLimit = maxStride(target);
   // Check machine limits
   if (numColumns == 4 && numRows == 4) {
     if ((numTranspositions >= 2) &&
@@ -76,14 +85,13 @@ bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
       return false;
   } else if (numColumns == 4) {
     if (((numRows >= 8) && (numRows / 4 - 2 > target.getRptCountMax())) ||
-        (numRows / 4u * 3u - 1u > (1u << (target.getNumStrideBits() - 1u)))) {
+        (negativeStride(numRows) > upperLimit)) {
       return false;
     }
   } else {
     if (((numColumns >= 8) && (numColumns / 4 - 2 > target.getRptCountMax())) ||
-        (numColumns / 4u * 3u - 1u >
-         (1u << (target.getNumStrideBits() - 1u))) ||
-        (numRows / 4u >= (1u << (target.getNumStrideBits() - 1)))) {
+        (negativeStride(numColumns) > upperLimit) ||
+        (numRows / 4u >= upperLimit)) {
       return false;
     }
   }
@@ -322,8 +330,18 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
   // breaking the constraints set on group size
   auto additionalFactor = groupedFlat.dim(1) / (minGroupsSize * minGroupsSize);
 
+  // Try to create additional transposes such that stride limits may be
+  // met and faster vertices selected. Bound this by number of workers as
+  // splitting groups may increase exchange code and we only want to allow that
+  // to choose faster vertices.
+  const auto maxTranspositionsAllowedFactor =
+      std::min(ceildiv(negativeStride(std::max(to.second, from.second)),
+                       maxStride(graph.getTarget())),
+               numWorkers);
+
   // This limits the number of transpositions allowed on the IPU
-  const auto maxTranspositionsAllowedPerIpu = tilesPerIPU;
+  const auto maxTranspositionsAllowedPerIpu =
+      tilesPerIPU * maxTranspositionsAllowedFactor;
 
   // Estimate the number of transpositions on the IPU which has the maximum
   // number of elements mapped
