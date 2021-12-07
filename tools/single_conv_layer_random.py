@@ -6,10 +6,12 @@ Script to generate random convolutions and run them with single_conv_layer
 """
 
 import argparse
+import collections
 import json
 import os
 import platform
 import random
+import re
 import subprocess
 import sys
 from bisect import bisect_left
@@ -49,6 +51,8 @@ max_flops_per_tile = 50000
 
 min_num_convs = 2
 max_num_convs = 6
+
+CI_TEST_LOG = "single_conv_layer_random.log"
 
 def geometric_sequence(a, r):
     """
@@ -197,7 +201,7 @@ class Params:
         return (output_elements * kernel_elements * in_chans_per_group *
                 out_chans_per_group)
 
-def make_params():
+def make_params(partials_type):
     """Return a random set of convolution parameters"""
     params = Params()
 
@@ -222,6 +226,8 @@ def make_params():
     if not symmetrical:
         types.append(('half', 'float'))
     params.data_type, params.conv_options['partialsType'] = random.choice(types)
+    if partials_type is not 'any':
+        params.conv_options['partialsType'] = partials_type
     params.use_create_input = random.choice([True, False])
     params.preplan = random.choice([True, False])
     params.conv_options['remapOutputTensor'] = random.choice([True, False])
@@ -330,7 +336,7 @@ def make_params():
 
     return params
 
-def make_constrained_params(tiles_per_ipu, max_flops_per_conv, max_flops_per_tile_per_conv):
+def make_constrained_params(tiles_per_ipu, max_flops_per_conv, max_flops_per_tile_per_conv, partials_type):
     """
     Return a random set of convolution parameters subject to constraints
 
@@ -338,7 +344,7 @@ def make_constrained_params(tiles_per_ipu, max_flops_per_conv, max_flops_per_til
     by single_conv_layer and not exceed the maximum number of FLOPs.
     """
     while True:
-        p = make_params()
+        p = make_params(partials_type)
         if any(f < k for f, k in zip(p.get_dilated_and_padded_input_size(),
                                      p.get_dilated_and_padded_kernel_size())):
             continue
@@ -372,7 +378,7 @@ class TestFailureException(Exception):
         self.returncode = returncode
 
 
-def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False, as_json=False):
+def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False, as_json=False, ci_test=False):
     """Run single_conv_layer with the specified convolution parameters"""
     cmd = [binary]
     ps = [p.get_args_as_json() if as_json else p.get_args() for p in params]
@@ -389,13 +395,84 @@ def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False, as
         # here.
         my_env['DYLD_LIBRARY_PATH'] = my_env['LIBRARY_PATH']
 
-    if not dummy_run:
+    if not dummy_run and not ci_test:
         process = subprocess.Popen(cmd, env=my_env, stdout=sys.stdout,
                                    stderr=sys.stderr)
         process.communicate()
         if process.returncode != 0:
             message = 'Failed to run ' + cmd_str + ''
             raise TestFailureException(message, process.returncode)
+
+    if ci_test:
+        # Prevent colour codes as they cause problems with the regex matches
+        my_env["CLICOLOR_FORCE"] = "0"
+        my_env["CLICOLOR"] = "0"
+        my_env["POPLIBS_LOG_LEVEL"] = "DEBUG"
+        with open(CI_TEST_LOG, mode="w") as log_file:
+            process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, env=my_env)
+
+            process.communicate()
+            if process.returncode != 0:
+                message = 'Failed to run ' + cmd_str + ''
+                raise TestFailureException(message, process.returncode)
+
+
+def self_test(constraints_file, partials_type):
+# Options:
+#         availableMemoryProportion       0.6
+#         pass                            TRAINING_WU
+#         partialsType                    half
+#         interTilePartialsType           float
+#         interIpuPartialsType            float
+#         use128BitConvUnitLoad           0
+#         planConstraints                 {}
+  NEW_LINE_CHAR = r'(?:\n|\r\n?)'
+  re_options = re.compile(r"^Options:" + NEW_LINE_CHAR +
+                            ".+" + NEW_LINE_CHAR +
+                            "\s+pass\s+(.+)" + NEW_LINE_CHAR +
+                            "\s+partialsType\s+([a-z]+)" + NEW_LINE_CHAR +
+                            ".+" + NEW_LINE_CHAR +
+                            ".+" + NEW_LINE_CHAR +
+                            ".+" + NEW_LINE_CHAR +
+                            "\s+planConstraints\s+(.+)$", re.MULTILINE)
+  options_fields = ['conv_pass', 'partialsType', 'planConstraints']
+  options_collections = collections.namedtuple('options_collections', options_fields)
+
+  if constraints_file is None or \
+     partials_type is None:
+      message = 'Failed to run a self test. No options provided that can be tested'
+      raise TestFailureException(message, 1)
+
+  with open(CI_TEST_LOG, mode='r') as f:
+      all_of_it = f.read()
+      match_options = re_options.findall(all_of_it)
+      for p in match_options:
+        conv_pass = options_collections._make(x for x in p)
+
+        # Check only FWD pass as constraint will applied only to fwd pass
+        if conv_pass.conv_pass.find('FWD') != -1:
+            if partials_type:
+                if partials_type != conv_pass.partialsType:
+                    message = "Failed self test for partialsType option. " + \
+                                  "Poplibs output: " + conv_pass.partialsType + \
+                                  ". User seetings: " + partials_type
+                    raise TestFailureException(message, 1)
+
+            if constraints_file:
+                with open(constraints_file) as c_file:
+                    c_file_content = c_file.read().replace(' ','').replace("\"",'')
+                    file_constraints="".join(c_file_content.splitlines())
+                    poplibs_constraints = conv_pass.planConstraints.replace(' ','').replace("\"",'')
+                    if poplibs_constraints != file_constraints:
+                        message = "Failed self test for planConstraints option. " + \
+                                  "Poplibs output: " + poplibs_constraints + \
+                                  ". Constraints file: " + file_constraints
+                        raise TestFailureException(message, 1)
+
+  # remove log file
+  if os.path.exists(CI_TEST_LOG):
+    os.remove(CI_TEST_LOG)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -426,6 +503,13 @@ def main():
     parser.add_argument('--num-determinism-checks', type=int, default=0,
                         help='Amount of additional identical executions to '
                              'check determinism (Hw only)')
+    parser.add_argument('--constraints-file',
+                        help='Allows to contraint test to the specific plan settings')
+    parser.add_argument('--partials-type', default="any", choices=("half", "float"),
+                        help='If not default, restricts test to use chosen partials type')
+    parser.add_argument('--ci-test', default=False, action='store_true', help='Runs self checks')
+
+
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -444,22 +528,30 @@ def main():
     max_flops_per_conv = max_flops / num_convs
     max_flops_per_tile_per_conv = max_flops_per_tile / num_convs
     def make_conv_params():
-        return make_constrained_params(tiles_per_ipu, max_flops_per_conv, max_flops_per_tile_per_conv)
+        return make_constrained_params(tiles_per_ipu, max_flops_per_conv, \
+                                       max_flops_per_tile_per_conv, args.partials_type)
     params = [make_conv_params() for _ in range(num_convs)]
     try:
         extra_args=device_args + ['--device-type=' +
-            str(args.device_type)];
+            str(args.device_type)]
         if args.device_type == 'Hw' and args.num_determinism_checks != 0:
               extra_args.append('--num-determinism-checks=' + str(args.num_determinism_checks))
         if args.profile:
-            extra_args.append('--profile');
+            extra_args.append('--profile')
+        if args.constraints_file:
+            extra_args.append('--fwd-plan-constraints-file=' + str(args.constraints_file))
         run(params, binary=args.binary,
             extra_args=extra_args,
             dummy_run=args.dummy,
-            as_json=args.json)
+            as_json=args.json,
+            ci_test=args.ci_test)
+
+        if args.ci_test:
+          self_test(args.constraints_file, args.partials_type)
+
     except TestFailureException as inst:
         print('TestFailure: ' + str(inst.args))
-        sys.exit(inst.returncode);
+        sys.exit(inst.returncode)
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -77,6 +77,18 @@ add_multitarget_test(
   VARIANTS "Sim2"
   LABELS "python_tool")
 
+# Test single_conv_layer_random options.
+add_multitarget_test(
+  NAME singleConvLayerRandomTest
+  COMMAND ${PYTHON_EXECUTABLE}
+          ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
+          --ci-test
+          --binary $<TARGET_FILE:single_conv_layer>
+          --partials-type half
+          --constraints-file ${CMAKE_SOURCE_DIR}/tests/poplin/json/slic411.json
+  VARIANTS ${IPUMODEL_VARIANTS}
+  LABELS "python_tool")
+
 # Check that compilation is deterministic.
 add_multitarget_test(
   NAME determinism_single_conv_layer
