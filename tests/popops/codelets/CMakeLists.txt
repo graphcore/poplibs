@@ -907,6 +907,47 @@ foreach(IN_TYPE half float)
   endforeach()
 endforeach()
 
+# Cast half to quarter (then to half for test)
+foreach(COLUMNS 1 2 3 4 8 24 48 141)
+  foreach(IN_TYPE half quarter char)
+    add_multitarget_test(NAME CastTest_quarter_1_${IN_TYPE}_${COLUMNS}_Supervisor
+      COMMAND CastTest
+        --in-type ${IN_TYPE}
+        --out-type quarter
+        --rows=1
+        --columns=${COLUMNS}
+        --supervisor=1
+        --out-offset=0
+        --fp8-format=quart152
+        --fp8-scale=1
+        --fp8-format-out=quart152
+        --fp8-scale-out=1
+        LABELS codelet
+        VARIANTS Sim21)
+  endforeach()
+endforeach()
+
+foreach(ROWS 1 2)
+  foreach(COLUMNS 1 2 3 4 8 15)
+    foreach(IN_TYPE half quarter char uchar)
+      add_multitarget_test(NAME CastTest_quarter_${IN_TYPE}_${ROWS}_${COLUMNS}_Worker
+        COMMAND CastTest
+          --in-type ${IN_TYPE}
+          --out-type quarter
+          --rows=${ROWS}
+          --columns=${COLUMNS}
+          --supervisor=0
+          --out-offset=0
+          --fp8-format=quart143
+          --fp8-scale=2
+          --fp8-format-out=quart143
+          --fp8-scale-out=2
+          LABELS codelet
+          VARIANTS Sim21)
+    endforeach()
+  endforeach()
+endforeach()
+
 add_multi_target_test_executable(CastCodeletsTest CastCodeletsTest.cpp)
 add_multitarget_test(NAME CastCodeletsTest_to_char
               COMMAND CastCodeletsTest

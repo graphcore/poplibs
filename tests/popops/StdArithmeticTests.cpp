@@ -19,6 +19,7 @@
 #include <popops/ScaledAdd.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 #include <pva/pva.hpp>
@@ -1051,6 +1052,10 @@ BOOST_AUTO_TEST_CASE(
 }
 
 BOOST_AUTO_TEST_CASE(StdCast) {
+  if (TEST_TARGET == poplibs_support::DeviceType::Sim21) {
+    std::cerr << "Test `StdCast` not executed on this device type\n";
+    return;
+  }
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -1090,6 +1095,152 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   }
 }
 
+BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf) {
+
+  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
+    std::cerr
+        << "Test `CastHalfQuarterHalf` not executed on this device type\n";
+    return;
+  }
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  // Choose a small numeric range which is supported by the FP8 type
+  const unsigned modulo = 10;
+  std::vector<float> hIn(DIM_SIZE);
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    hIn[i] = (float)(i % modulo);
+  }
+  auto in = graph.addVariable(HALF, {DIM_SIZE}, "in");
+  mapTensorLinearly(graph, in);
+  graph.createHostWrite("in", in);
+
+  auto prog = Sequence();
+
+  poplar::Tensor metaData =
+      createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, 0);
+  poplar::Tensor inter = cast(graph, in, QUARTER, metaData, prog, "castToFP8");
+  poplar::Tensor out = cast(graph, inter, HALF, metaData, prog, "castToHalf");
+  graph.createHostRead("out", out);
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
+  std::vector<char> rawIn(rawBufSize);
+  std::vector<char> rawOut(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hIn[0], rawIn.data(), DIM_SIZE);
+
+  Engine eng(graph, Sequence{prog});
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
+    eng.run();
+    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
+  });
+  std::vector<float> hOut(DIM_SIZE);
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0], DIM_SIZE);
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    BOOST_TEST(hOut[i] == i % modulo);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(CastCharQuarterChar) {
+
+  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
+    std::cerr
+        << "Test `CastCharQuarterChar` not executed on this device type\n";
+    return;
+  }
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  // Choose a small numeric range which is supported by the FP8 type
+  const unsigned modulo = 10;
+  std::vector<char> hIn(DIM_SIZE);
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    hIn[i] = (float)(i % modulo);
+  }
+  auto in = graph.addVariable(CHAR, {DIM_SIZE}, "in");
+  mapTensorLinearly(graph, in);
+  graph.createHostWrite("in", in);
+
+  auto prog = Sequence();
+
+  poplar::Tensor metaData =
+      createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, -1);
+  poplar::Tensor inter = cast(graph, in, QUARTER, metaData, prog, "castToFP8");
+  poplar::Tensor out = cast(graph, inter, CHAR, metaData, prog, "castToChar");
+  graph.createHostRead("out", out);
+
+  std::vector<char> hOut(DIM_SIZE);
+  Engine eng(graph, Sequence{prog});
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn.data(), hIn.data() + hIn.size());
+    eng.run();
+    eng.readTensor("out", hOut.data(), hOut.data() + hOut.size());
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    BOOST_TEST(hOut[i] == i % modulo);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(CastQuarterQuarter) {
+  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
+    std::cerr << "Test `CastQuarterQuarter` not executed on this device type\n";
+    return;
+  }
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  // Choose a small numeric range which is supported by the FP8 type
+  const unsigned modulo = 8;
+  std::vector<char> hIn(DIM_SIZE);
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    hIn[i] = (float)(i % modulo);
+  }
+  // Manipulate the input to result in 2D vertex being called
+  auto toSlice = graph.addVariable(QUARTER, {DIM_SIZE + 16}, "toSlice");
+  mapTensorLinearly(graph, toSlice);
+  auto in = concat(toSlice.slice(0, DIM_SIZE / 2),
+                   toSlice.slice(16, 16 + DIM_SIZE - (DIM_SIZE / 2)), 0);
+  graph.createHostWrite("in", in);
+
+  auto prog = Sequence();
+
+  auto metaData0 =
+      createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, 2);
+
+  auto metaData1 =
+      createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART152, -1);
+  auto inter = cast(graph, in, QUARTER, concat(metaData0, metaData1, 0), prog,
+                    "castToQUART143");
+  auto out = cast(graph, inter, QUARTER, concat(metaData1, metaData0, 0), prog,
+                  "castToQUART152");
+  graph.createHostRead("out", out);
+
+  std::vector<char> hOut(DIM_SIZE);
+  Engine eng(graph, Sequence{prog});
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn.data(), hIn.data() + hIn.size());
+    eng.run();
+    eng.readTensor("out", hOut.data(), hOut.data() + hOut.size());
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    BOOST_TEST(hOut[i] == i % modulo);
+  }
+}
 BOOST_AUTO_TEST_CASE(
     StdaXMinusbY_float_tensor_and_const,
     *utf::tolerance<float>(fpc::percent_tolerance<float>(1)) *

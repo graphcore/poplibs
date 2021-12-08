@@ -30,6 +30,7 @@
 #define FILL2D_CHAR_FUNC __runCodelet_popops__Fill2d___char
 #define FILL2D_UCHAR_FUNC __runCodelet_popops__Fill2d___unsigned_char
 #define FILL2D_SCHAR_FUNC __runCodelet_popops__Fill2d___signed_char
+#define FILL2D_QUARTER_FUNC __runCodelet_popops__Fill2d___quarter
 #define FILL2D_HALF_FUNC __runCodelet_popops__Fill2d___half
 #define FILL2D_FLOAT_FUNC __runCodelet_popops__Fill2d___float
 #define FILL2D_INT_FUNC __runCodelet_popops__Fill2d___int
@@ -43,6 +44,7 @@
 #define FILL_UCHAR_FUNC __runCodelet_popops__Fill___unsigned_char
 #define FILL_SCHAR_FUNC __runCodelet_popops__Fill___signed_char
 #define FILL_HALF_FUNC __runCodelet_popops__Fill___half
+#define FILL_QUARTER_FUNC __runCodelet_popops__Fill___quarter
 #define FILL_FLOAT_FUNC __runCodelet_popops__Fill___float
 #define FILL_INT_FUNC __runCodelet_popops__Fill___int
 #define FILL_UINT_FUNC __runCodelet_popops__Fill___unsigned_int
@@ -249,6 +251,7 @@ FN_SIZE FILL2D_ULONGLONG_FUNC
 #define SCRATCH_AREA_TMP_OFFS   0
 
 FN_WORKER_ENTRY_POINT FILL2D_BOOL_FUNC
+FN_EXPORT FILL2D_QUARTER_FUNC
 FN_EXPORT FILL2D_CHAR_FUNC
 FN_EXPORT FILL2D_UCHAR_FUNC
 FN_EXPORT FILL2D_SCHAR_FUNC
@@ -265,6 +268,7 @@ fill2d_8bit_loop:
 FN_SIZE FILL2D_BOOL_FUNC
 
 FN_WORKER_ENTRY_POINT FILL_BOOL_FUNC 8
+FN_EXPORT FILL_QUARTER_FUNC
 FN_EXPORT FILL_CHAR_FUNC
 FN_EXPORT FILL_UCHAR_FUNC
 FN_EXPORT FILL_SCHAR_FUNC
