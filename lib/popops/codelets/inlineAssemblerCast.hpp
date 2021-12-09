@@ -5,6 +5,9 @@
 #define STR_(x) #x
 #define STR(x) STR_(x)
 
+// Flag value for rounding mode
+#define TFPU_ROUND_ZERO 3
+
 // Optimized pipelined processing for multiple of 4 elements
 // UNSIGNED_CHAR => HALF
 #define CAST_UCHAR_HALF_LOOP(STRIDE)                                           \
@@ -71,8 +74,8 @@
                " f16v2tof32  $a0:1, $a4\n"                                     \
                " f32clamp    $a0, $a0, %[limits]\n"                            \
                " f32clamp    $a1, $a1, %[limits]\n"                            \
-               " f32int     $a0, $a0, 3\n"                                     \
-               " f32int     $a1, $a1, 3\n"                                     \
+               " f32int     $a0, $a0, %[ROUNDING_MODE]\n"                      \
+               " f32int     $a1, $a1, %[ROUNDING_MODE]\n"                      \
                " f32toi32   $a0, $a0\n"                                        \
                " {add        %[loopCount], %[loopCount], -1\n"                 \
                " f32toi32   $a1, $a1}\n"                                       \
@@ -85,8 +88,8 @@
                " f16v2tof32  $a2:3, $a5}\n"                                    \
                " f32clamp    $a2, $a2, %[limits]\n"                            \
                " f32clamp    $a3, $a3, %[limits]\n"                            \
-               " f32int $a2, $a2, 3\n"                                         \
-               " f32int $a3, $a3, 3\n"                                         \
+               " f32int $a2, $a2, %[ROUNDING_MODE]\n"                          \
+               " f32int $a3, $a3, %[ROUNDING_MODE]\n"                          \
                " f32toi32   $a2, $a2\n"                                        \
                " f32toi32   $a3, $a3\n"                                        \
                " {ld64step    $a4:5, $mzero, %[inPtr]+=," STRIDE "\n"          \
@@ -98,8 +101,8 @@
                " f32clamp    $a0, $a0, %[limits]}\n"                           \
                " {st32step    $m0, $mzero, %[outPtr]+=," STRIDE "\n"           \
                "  f32clamp    $a1, $a1, %[limits]}\n"                          \
-               "  f32int $a0, $a0, 3\n"                                        \
-               " f32int $a1, $a1, 3\n"                                         \
+               "  f32int $a0, $a0, %[ROUNDING_MODE]\n"                         \
+               " f32int $a1, $a1, %[ROUNDING_MODE]\n"                          \
                " f32toi32  $a0, $a0\n"                                         \
                " f32toi32   $a1, $a1\n"                                        \
                " {brnzdec     %[loopCount], 6b\n"                              \
@@ -110,8 +113,8 @@
                " f16v2tof32  $a2:3, $a5}\n"                                    \
                " f32clamp    $a2, $a2, %[limits]\n"                            \
                " f32clamp    $a3, $a3, %[limits]\n"                            \
-               " f32int $a2, $a2, 3\n"                                         \
-               " f32int $a3, $a3, 3\n"                                         \
+               " f32int $a2, $a2, %[ROUNDING_MODE]\n"                          \
+               " f32int $a3, $a3, %[ROUNDING_MODE]\n"                          \
                " f32toi32   $a2, $a2\n"                                        \
                " f32toi32   $a3, $a3\n"                                        \
                " sort4x16lo  $a2, $a2, $a3\n"                                  \
@@ -121,7 +124,7 @@
                "4:\n"                                                          \
                : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr),             \
                  [outPtr] "+r"(outPtr)                                         \
-               : [limits] "r"(limits)                                          \
+               : [limits] "r"(limits), [ROUNDING_MODE] "i"(TFPU_ROUND_ZERO)    \
                : "$m0", "$m1", "$a0:1", "$a2:3", "$a4:5", "memory");
 
 // Optimized pipelined processing for multiple of 4 elements
@@ -239,13 +242,16 @@ public:
   singleCast(const float in, const float2 limits) {
     unsigned result;
     auto inFloat = static_cast<float>(in);
-    asm volatile("   f32clamp $a0, %[inFloat], %[limits]\n"
-                 "   f32int $a0, $a0, 3\n"
-                 "   f32toi32 $a0, $a0\n"
-                 "   atom %[result], $a0\n"
-                 : [result] "=r"(result)
-                 : [inFloat] "r"(inFloat), [limits] "r"(limits)
-                 : "$a0");
+    asm volatile(
+        R"l(  f32clamp $a0, %[inFloat], %[limits]
+              f32int $a0, $a0, %[ROUNDING_MODE]
+              f32toi32 $a0, $a0
+              atom %[result], $a0
+        )l"
+        : [result] "=r"(result)
+        : [inFloat] "r"(inFloat), [limits] "r"(limits),
+          [ROUNDING_MODE] "i"(TFPU_ROUND_ZERO)
+        : "$a0");
     return result;
   }
 
@@ -275,13 +281,16 @@ public:
   singleCast(const half in, const float2 limits) {
     unsigned result;
     auto inFloat = static_cast<float>(in);
-    asm volatile("   f32clamp $a0, %[inFloat], %[limits]\n"
-                 "   f32int $a0, $a0, 3\n"
-                 "   f32toi32 $a0, $a0\n"
-                 "   atom %[result], $a0\n"
-                 : [result] "=r"(result)
-                 : [inFloat] "r"(inFloat), [limits] "r"(limits)
-                 : "$a0");
+    asm volatile(
+        R"l(  f32clamp $a0, %[inFloat], %[limits]
+              f32int $a0, $a0, %[ROUNDING_MODE]
+              f32toi32 $a0, $a0
+              atom %[result], $a0
+        )l"
+        : [result] "=r"(result)
+        : [inFloat] "r"(inFloat), [limits] "r"(limits),
+          [ROUNDING_MODE] "i"(TFPU_ROUND_ZERO)
+        : "$a0");
     return result;
   }
 
