@@ -384,6 +384,41 @@ inline void cbrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
   mapInPlace(graph, expr::UnaryOpType::CBRT, A, prog, {di}, options);
 }
 
+/** Compute (1 + erf(A/sqrt(2))) * A / 2 where all the
+ *  operations are element-wise, and erf is the error function. This is a very
+ *   accurate implementation with low relative and absolute error.
+ *  \param graph   The graph to update.
+ *  \param A       A tensor of elements.
+ *  \param prog    The sequence to extend with the execution of the expression
+ *                 evaluation.
+ *  \param debugContext Optional debug information
+ *  \param options Element-wise options. See map().
+ *
+ *  \returns A tensor where each element is equivalent to the result of
+ *           `geluErf(a)`, where \c a is an element of \p A.
+ */
+inline poplar::Tensor geluErf(poplar::Graph &graph, const poplar::Tensor &A,
+                              poplar::program::Sequence &prog,
+                              const poplar::DebugContext &debugContext = {},
+                              const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::GELU_ERF, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
+}
+
+/** Update the input tensor with the result of geluErf().
+ */
+inline void geluErfInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext = {},
+                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::GELU_ERF, A, prog, {di}, options);
+}
+
 /** Compute the ceiling of each element in \p A.
  *
  *  \param graph   The graph to update.

@@ -399,7 +399,7 @@ int main(int argc, char **argv) {
      "Allowed operations:\n"
      "  Unary: CBRT COS ERF EXPONENT IS_FINITE IS_INF IS_NAN INVERSE LOGARITHM\n"
      "         LOGARITHM_ONE_PLUS NEGATE SIGNUM SIN SQRT SQUARE TAN TANH SIGMOID\n"
-     "         RSQRT ASIN\n"
+     "         RSQRT ASIN GELU_ERF\n"
      "  Binary:ADD ATAN2 DIVIDE EQUAL GREATER_THAN\n"
      "         MULTIPLY MAXIMUM POWER REMAINDER SUBTRACT")
     ;
@@ -459,6 +459,12 @@ int main(int argc, char **argv) {
     unaryOp = 1;
     unaryOperation = expr::UnaryOpType::EXPONENT;
     unaryHostFn = [](double x) -> double { return std::exp(x); };
+  } else if (operation == "GELU_ERF") {
+    unaryOp = 1;
+    unaryOperation = expr::UnaryOpType::GELU_ERF;
+    unaryHostFn = [](double x) -> double { return 1 + 
+        std::erf(a * 7.071067811865475e-01)) * 0.5 * a
+    };
   } else if (operation == "INVERSE") {
     unaryOp = 1;
     outputBool = false;

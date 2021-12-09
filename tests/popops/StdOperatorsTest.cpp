@@ -1906,6 +1906,12 @@ int main(int argc, char **argv) {
       double res = std::erf(xd);
       return res;
     });
+  } else if (test == "GeluErf") {
+    unaryOpTest<float, double>(popops::geluErf, [](float x) -> double {
+      double xd = static_cast<double>(x);
+      double res = (std::erf(xd * 7.071067811865475e-01) + 1.0) * 0.5 * x;
+      return res;
+    });
   } else if (test == "Exponent") {
     unaryOpTest<float, float>(popops::exp, [](float x) -> float {
       double res = std::exp(static_cast<double>(x));

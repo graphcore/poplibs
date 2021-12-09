@@ -402,6 +402,8 @@ int main(int argc, char **argv) {
     CHECK((mapTest<10, float>(pe::Cos(pe::_1))));
   } else if (test == "Erf") {
     CHECK((mapTest<10, float>(pe::Erf(pe::_1))));
+  } else if (test == "GeluErf") {
+    CHECK((mapTest<10, float>(pe::GeluErf(pe::_1))));
   } else if (test == "Exp") {
     CHECK((mapTest<10, float>(pe::Exp(pe::_1))));
   } else if (test == "Expm1") {

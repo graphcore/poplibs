@@ -54,17 +54,9 @@ template <> struct UnaryLibCall<expr::UnaryOpType::SQRT> {
 
 template <> struct UnaryLibCall<expr::UnaryOpType::CBRT> {
 #ifdef __IPU__
-  template <typename FPType> static auto GetThird() {
-    if constexpr (isVectorType<FPType>::value) {
-      return FPType{} + decltype(std::declval<FPType>()[0])(1.f / 3.f);
-    } else {
-      return FPType{} + decltype(std::declval<FPType>())(1.f / 3.f);
-    }
-  }
-
   template <typename FPType> FPType operator()(FPType x) const {
     const auto xFloat = PromoteHalfsToFloats(x);
-    const auto third = PromoteHalfsToFloats(GetThird<FPType>());
+    const auto third = PromoteHalfsToFloats(Const<FPType>(1.f / 3.f));
     return ipu::copysign(ipu::exp(ipu::log(ipu::fabs(xFloat)) * third), xFloat);
   }
 #endif
@@ -97,33 +89,83 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
   }
 
   template <typename FPType> FPType operator()(FPType x) const {
-    const auto xAbs = ipu::fabs(x);
-    FPType y;
-    if constexpr (isVectorType<FPType>::value) {
-      unsigned n = sizeof(x) / sizeof(x[0]);
-      for (unsigned i = 0; i != n; ++i) {
-        y[i] = compute(static_cast<float>(xAbs[i]));
-      }
+    // Use approximation only for half types as we guarantee the polynomial
+    // expansion gives the same error as the one using ipu::erf
+    if constexpr (isFloatType<FPType>::value) {
+      return ipu::erf(x);
     } else {
-      y = compute(static_cast<float>(xAbs));
+      const auto xAbs = ipu::fabs(x);
+      FPType y;
+      if constexpr (isVectorType<FPType>::value) {
+        unsigned n = sizeof(x) / sizeof(x[0]);
+        for (unsigned i = 0; i != n; ++i) {
+          y[i] = compute(static_cast<float>(xAbs[i]));
+        }
+      } else {
+        y = compute(static_cast<float>(xAbs));
+      }
+      return ipu::copysign(y, x);
     }
-    return ipu::copysign(y, x);
+  }
+#endif
+};
+
+template <> struct UnaryLibCall<expr::UnaryOpType::GELU_ERF> {
+#ifdef __IPU__
+  float poly(float x) const {
+    constexpr unsigned numCoeffs = 5;
+    constexpr float coeffs[numCoeffs] = {
+        1.591460347103262e+03, -5.047108790356781e+02, 1.143587026992285e+02,
+        -5.302041163568521, 1.100101514053350};
+
+    float y = coeffs[0];
+    for (unsigned i = 1; i != numCoeffs; ++i) {
+      y = y * x + coeffs[i];
+    }
+    return y * x;
+  }
+
+  // Approximation of error function based on with erf computed on
+  // input / sqrt(2).
+  // Cecil Hastings Jr : Approximations for Digital Computers Pg 169.
+  // On double precision, error is <1.5e-7 but reduces to < 5e-7 for fp32
+  // Do all computations in fp32 as error introduced due to the polynomial
+  // computation is expected to be significant.
+  float compute(float xAbs) const {
+    const float eta = 1.0f / (4.31701009f + xAbs);
+    const auto y = (1.0f - poly(eta) * ipu::exp(-xAbs * xAbs / 2.0f));
+    return y;
+  }
+
+  template <typename FPType> FPType operator()(FPType x) const {
+    // Use approximation only for half types as we guarantee the polynomial
+    // expansion gives the same error as the one using ipu::erf
+    if constexpr (isFloatType<FPType>::value) {
+      return (Const<FPType>(1.0f) +
+              ipu::erf(Const<FPType>(0.7071067811865475f) * x)) *
+             Const<FPType>(0.5f) * x;
+    } else {
+      const auto xAbs = ipu::fabs(x);
+      FPType y;
+      if constexpr (isVectorType<FPType>::value) {
+        unsigned n = sizeof(x) / sizeof(x[0]);
+        for (unsigned i = 0; i != n; ++i) {
+          y[i] = compute(static_cast<float>(xAbs[i]));
+        }
+      } else {
+        y = compute(static_cast<float>(xAbs));
+      }
+      return (ipu::copysign(y, x) + Const<FPType>(1.0f)) * x *
+             Const<FPType>(0.5f);
+    }
   }
 #endif
 };
 
 template <> struct UnaryLibCall<expr::UnaryOpType::LOGARITHM_ONE_PLUS> {
 #ifdef __IPU__
-
-  template <typename FPType> static auto MOne() {
-    if constexpr (isVectorType<FPType>::value) {
-      return FPType{} + decltype(std::declval<FPType>()[0])(-1.0f);
-    } else {
-      return FPType{} + decltype(std::declval<FPType>())(-1.0f);
-    }
-  }
   template <typename FPType> FPType operator()(FPType x) const {
-    const auto mOne = MOne<FPType>();
+    const auto mOne = Const<FPType>(-1.0f);
     // clang-format off
 #pragma fast-math push
 #pragma fast-math off
@@ -330,7 +372,11 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::CBRT,
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::ERF,
                    return std::erf(PromoteHalfsToFloats(x));
                    , return UnaryLibCall<expr::UnaryOpType::ERF>{}(x);)
-
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::GELU_ERF,
+                   return (1.0f + std::erf(7.071067811865475e-01f *
+                                           PromoteHalfsToFloats(x))) *
+                          0.5f * PromoteHalfsToFloats(x);
+                   , return UnaryLibCall<expr::UnaryOpType::GELU_ERF>{}(x);)
 DEFINE_UNARY_OP_FN(
     expr::UnaryOpType::LOGARITHM_ONE_PLUS,
     return std::log1p(PromoteHalfsToFloats(x));
@@ -1196,6 +1242,7 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ERF, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::GELU_ERF, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::FLOOR, float, half)
@@ -1230,6 +1277,7 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ERF, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::GELU_ERF, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::FLOOR, float, half)
@@ -1265,6 +1313,7 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
                unsigned)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ERF, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::GELU_ERF, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT_MINUS_ONE, float,
                half)
@@ -1300,6 +1349,7 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
                unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ERF, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::GELU_ERF, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT_MINUS_ONE, float,
                half)

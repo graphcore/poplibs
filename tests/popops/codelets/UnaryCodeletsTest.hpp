@@ -36,6 +36,7 @@ const std::map<UnaryOpType, const std::string> unaryOpToString = {
     ONE_OP(EXPONENT),
     ONE_OP(EXPONENT_MINUS_ONE),
     ONE_OP(FLOOR),
+    ONE_OP(GELU_ERF),
     ONE_OP(INVERSE),
     ONE_OP(IS_FINITE),
     ONE_OP(IS_INF),
@@ -200,6 +201,7 @@ void performOp(UnaryOpType op, float a, float &result) {
   ONE_OP(EXPONENT, std::exp(a));
   ONE_OP(EXPONENT_MINUS_ONE, std::expm1(a));
   ONE_OP(FLOOR, std::floor(a));
+  ONE_OP(GELU_ERF, (1 + std::erf(a * 7.071067811865475e-01)) * 0.5 * a);
   ONE_OP(INVERSE, 1.0 / a);
   ONE_OP(LOGARITHM, std::log(a));
   ONE_OP(LOGARITHM_ONE_PLUS, std::log1p(a));
@@ -322,9 +324,14 @@ bool equalValues(const bool isIpuModel, const Operation op,
     UnaryOpType unaryOp = std::get<UnaryOpType>(op);
     // For floating types there are some operators where we expect the result
     // from the device to be bit exact with the one from the host
-    if ((dataType == FLOAT || dataType == HALF) &&
-        (unaryOp == UnaryOpType::ABSOLUTE || unaryOp == UnaryOpType::CEIL ||
-         unaryOp == UnaryOpType::FLOOR || unaryOp == UnaryOpType::RELU)) {
+    if (unaryOp == UnaryOpType::GELU_ERF) {
+      if (dataType == HALF) {
+        tolerance = 0.0012;
+      }
+    } else if ((dataType == FLOAT || dataType == HALF) &&
+               (unaryOp == UnaryOpType::ABSOLUTE ||
+                unaryOp == UnaryOpType::CEIL || unaryOp == UnaryOpType::FLOOR ||
+                unaryOp == UnaryOpType::RELU)) {
       return expected == actual;
     } else {
 
@@ -437,6 +444,9 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
       } else if (unaryOp == UnaryOpType::SQUARE) {
         if (dataType == HALF)
           min = 0.01;
+      } else if (unaryOp == UnaryOpType::GELU_ERF) {
+        min = -1.0;
+        max = 10.0;
       }
     } else {
       // Non floating point case (INT, UNSIGNED, BOOL).

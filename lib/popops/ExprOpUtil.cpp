@@ -21,6 +21,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "COUNT_LEADING_ZEROS";
   case UnaryOpType::ERF:
     return "ERF";
+  case UnaryOpType::GELU_ERF:
+    return "GELU_ERF";
   case UnaryOpType::EXPONENT:
     return "EXPONENT";
   case UnaryOpType::EXPONENT_MINUS_ONE:
@@ -154,6 +156,8 @@ std::string debugName(expr::UnaryOpType op) {
     return "CountLeadingZeros";
   case UnaryOpType::ERF:
     return "Erf";
+  case UnaryOpType::GELU_ERF:
+    return "GeluErf";
   case UnaryOpType::EXPONENT:
     return "Exponent";
   case UnaryOpType::EXPONENT_MINUS_ONE:
@@ -451,7 +455,7 @@ poplar::Type getReturnType(UnaryOpType op, poplar::Type inType) {
 bool isSpecialCase(UnaryOpType op) {
   return op == UnaryOpType::SQUARE || op == UnaryOpType::SIGNUM ||
          op == UnaryOpType::INVERSE || op == UnaryOpType::COUNT_LEADING_ZEROS ||
-         op == UnaryOpType::IS_FINITE;
+         op == UnaryOpType::IS_FINITE || op == UnaryOpType::GELU_ERF;
 }
 
 std::string handleSpecialCase(UnaryOpType op, const std::string &param) {
@@ -468,6 +472,9 @@ std::string handleSpecialCase(UnaryOpType op, const std::string &param) {
            ")>::type>::ONE() /" + param;
   case UnaryOpType::IS_FINITE:
     return "std::isfinite(static_cast<float>(" + param + "))";
+  case UnaryOpType::GELU_ERF:
+    return "((1.0f + std::erf(7.071067811865475e-01f * " + param +
+           ")) * 0.5f * " + param + ")";
   default:
     throw poputil::poplibs_error("Unary operation is not a special case.");
   }
@@ -497,6 +504,7 @@ bool supportsVectorization(UnaryOpType op) {
     return true;
   case UnaryOpType::CBRT:
   case UnaryOpType::ERF:
+  case UnaryOpType::GELU_ERF:
   case UnaryOpType::IS_FINITE:
   case UnaryOpType::LOGICAL_NOT:
   case UnaryOpType::COUNT_LEADING_ZEROS:

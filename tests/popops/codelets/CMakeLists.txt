@@ -103,8 +103,8 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                                --vertexRE ${TYPE}
                                --operation ABSOLUTE BITWISE_NOT CEIL CBRT
                                            COUNT_LEADING_ZEROS ERF EXPONENT
-                                           EXPONENT_MINUS_ONE FLOOR INVERSE
-                                           LOGARITHM LOGARITHM_ONE_PLUS
+                                           EXPONENT_MINUS_ONE FLOOR GELU_ERF 
+                                           INVERSE LOGARITHM LOGARITHM_ONE_PLUS
                                            LOGICAL_NOT NEGATE POPCOUNT RELU
                                            SIGNUM TANH ROUND RSQRT SQRT SIGMOID
                                --size ${SIZE}

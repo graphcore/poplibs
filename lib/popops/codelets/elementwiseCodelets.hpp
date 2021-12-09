@@ -29,6 +29,15 @@ static __attribute__((always_inline)) unsigned getWsr(void) {
   return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;
 }
 
+// helper to create constants in codelets
+template <typename T> static inline auto Const(const float val) {
+  if constexpr (isVectorType<T>::value) {
+    return T{} + decltype(std::declval<T>()[0])(val);
+  } else {
+    return T{} + decltype(std::declval<T>())(val);
+  }
+}
+
 #endif
 
 // Called by each of the workers of a MultiVertex Unary or
