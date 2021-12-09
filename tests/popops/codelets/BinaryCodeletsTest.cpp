@@ -559,7 +559,7 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
   }
   if (options.printBuffers) {
     printBuffer(vertex.outName, outHost, vertex.outputType, sizes.rowSizes,
-                test.outInv.offsets);
+                test.out.offsets);
     if (vertex.isDualOutput) {
       printBuffer(vertex.outInvName, outInvHost, vertex.outputType,
                   sizes.rowSizes, test.outInv.offsets);
