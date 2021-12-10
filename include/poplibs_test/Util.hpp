@@ -11,6 +11,8 @@
 #include <poplar/Type.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/MultiArray.hpp>
+#include <poputil/Util.hpp>
+#include <poputil/exceptions.hpp>
 
 #include <boost/lexical_cast.hpp>
 #include <boost/multi_array.hpp>
@@ -523,6 +525,31 @@ poplar::Tensor createGenericFullyConnectedInput(
 
 namespace std {
 std::istream &operator>>(std::istream &in, poplar::Type &type);
+
+inline std::istream &operator>>(std::istream &in, poputil::Fp8Format &format) {
+  std::string token;
+  in >> token;
+  if (token == "quart152") {
+    format = poputil::Fp8Format::QUART152;
+  } else if (token == "quart143") {
+    format = poputil::Fp8Format::QUART143;
+  } else {
+    throw poputil::poplibs_error("Invalid fp8 format <" + token +
+                                 " Must be quart143 or quart 152");
+  }
+  return in;
 }
+
+inline std::ostream &operator<<(std::ostream &os,
+                                const poputil::Fp8Format &format) {
+  if (format == poputil::Fp8Format::QUART152) {
+    os << "quart152";
+  } else if (format == poputil::Fp8Format::QUART143) {
+    os << "quart143";
+  }
+  return os;
+}
+
+} // namespace std
 
 #endif // poplibs_test_Util_hpp

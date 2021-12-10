@@ -430,4 +430,28 @@ poplar::Tensor unfactorDims(const poplar::Tensor &t_, unsigned numDims,
   return t.reshapePartial(startDim, startDim + numDims * 2, unfactoredShape);
 }
 
+unsigned packFp8MetaData(Fp8Format fp8Format, int fp8Scale) {
+
+  return (fp8Format == Fp8Format::QUART143 ? (1 << 7) : 0) | (fp8Scale & 0x7f);
+}
+
+poplar::Tensor createFp8MetaDataTensor(poplar::Graph &graph,
+                                       Fp8Format fp8Format, int fp8Scale) {
+  auto metaDataTensor = graph.addConstant(poplar::UNSIGNED_CHAR, {1},
+                                          packFp8MetaData(fp8Format, fp8Scale));
+  graph.setTileMapping(metaDataTensor, 0);
+  return metaDataTensor;
+}
+
+poplar::Tensor createFp8MetaDataTensor(poplar::Graph &graph,
+                                       Fp8Format fp8Format, int fp8Scale,
+                                       poplar::program::Sequence &prog) {
+
+  auto metaDataTensor = graph.addVariable(poplar::UNSIGNED_CHAR, {1});
+  graph.setTileMapping(metaDataTensor, 0);
+  graph.setInitialValue(metaDataTensor, packFp8MetaData(fp8Format, fp8Scale));
+
+  return metaDataTensor;
+}
+
 } // namespace poputil
