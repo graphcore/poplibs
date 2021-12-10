@@ -2,6 +2,7 @@
 // Test for the transpose2d vertex
 
 #define BOOST_TEST_MODULE TransposeTest
+#include "../../../lib/popops/RearrangeUtil.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
@@ -25,24 +26,33 @@ struct TestParams {
   unsigned cols;
   unsigned matrices;
   bool force2d;
+  bool splitTranspose; // only supported with matrices = 1 and force2d = false
 };
 
 std::vector<TestParams> SmallTestList = {
-    {1, 10, 1, false},  {7, 1, 2, false},   {8, 4, 1, false},
-    {24, 4, 2, false},  {4, 4, 3, false},   {4, 4, 1, false},
-    {5, 7, 2, false},   {16, 16, 3, true},  {16, 16, 3, false},
-    {12, 16, 2, true},  {12, 16, 2, false}, {8, 8, 1, false},
-    {8, 9, 1, false},   {9, 4, 1, false},   {4, 4, 1, true},
-    {8, 4, 1, true},    {16, 4, 2, true},   {16, 4, 5, false},
-    {16, 4, 6, false},  {16, 4, 15, false}, {16, 4, 18, false},
-    {16, 4, 31, false},
+    {1, 10, 1, false, false},  {7, 1, 2, false, false},
+    {8, 4, 1, false, false},   {24, 4, 2, false, false},
+    {4, 4, 3, false, false},   {4, 4, 1, false, false},
+    {5, 7, 2, false, false},   {16, 16, 3, true, false},
+    {16, 16, 3, false, false}, {12, 16, 2, true, false},
+    {12, 16, 2, false, false}, {8, 8, 1, false, false},
+    {8, 9, 1, false, false},   {9, 4, 1, false, false},
+    {4, 4, 1, true, false},    {8, 4, 1, true, false},
+    {16, 4, 2, true, false},   {16, 4, 5, false, false},
+    {16, 4, 6, false, false},  {16, 4, 15, false, false},
+    {16, 4, 18, false, false}, {16, 4, 31, false, false},
 };
 
 std::vector<TestParams> T19548TestList = {
-    {512, 4, 1, true},
+    {512, 4, 1, true, false},
 };
 
-std::vector<TestParams> T33035TestList = {{2052, 16, 1, false}};
+std::vector<TestParams> T33035TestList = {{2052, 16, 1, false, false}};
+
+std::vector<TestParams> splitTranspose1DTest = {
+    {4, 16, 1, false, true}, {4, 52, 1, false, true},  {16, 4, 1, false, true},
+    {52, 4, 1, false, true}, {52, 12, 1, false, true}, {52, 12, 2, false, true},
+    {52, 12, 3, false, true}};
 
 //*************************************************
 // Main Test function for Transpose 2d
@@ -135,6 +145,7 @@ void TransposeTest(const Type &dataType, bool useMultiVertex,
     auto matrices = testList[test].matrices;
     auto rows = testList[test].rows;
     auto cols = testList[test].cols;
+    auto splitTranspose = testList[test].splitTranspose;
 
     // Zero output
     const auto zero =
@@ -148,8 +159,14 @@ void TransposeTest(const Type &dataType, bool useMultiVertex,
 
     std::string vertexName = "popops::Transpose2D";
     if (fastVariant) {
-      vertexName = useMultiVertex ? "popops::Transpose1D"
-                                  : "popops::Transpose1DSingleWorker";
+      vertexName = "popops::Transpose1DSingleWorker";
+      if (useMultiVertex) {
+        if (splitTranspose && matrices <= 3) {
+          vertexName = "popops::SplitTranspose1D";
+        } else {
+          vertexName = "popops::Transpose1D";
+        }
+      }
     }
 
     const auto vertexClass = templateVertex(vertexName, dataType);
@@ -169,27 +186,38 @@ void TransposeTest(const Type &dataType, bool useMultiVertex,
       if (!useMultiVertex) {
         graph.setInitialValue(transVertex["numTranspositionsM1"], matrices - 1);
       } else {
-        // We will run one supervisor vertex, starting the 6 workers.
-        // The first 'workerCount' workers (1<=workerCount<=6) will
-        // transpose 'numTranspositions' matrices and (6-workerCount)
-        // workers transposing (numTranspositions-1) matrices.
-        // Note that (6-workerCount) and/or (numTranspositions-1) might
-        // be zero.
         unsigned numWorkerContexts = target.getNumWorkerContexts();
-        unsigned workerCount = numWorkerContexts, numTranspositions = 1;
-        if (matrices <= numWorkerContexts) {
-          workerCount = matrices;
+
+        if (splitTranspose) {
+          auto workList = popops::internal::createSplitTranspose1DWorkList(
+              rows, cols, matrices, numWorkerContexts);
+          auto t = graph.addConstant(UNSIGNED_SHORT, {workList.size()},
+                                     workList.data());
+          graph.setTileMapping(t, test);
+          graph.connect(transVertex["workList"], t);
         } else {
-          numTranspositions = matrices / workerCount;
-          unsigned rem = matrices % workerCount;
-          if (rem > 0) {
-            workerCount = rem;
-            numTranspositions += 1;
+
+          // We will run one supervisor vertex, starting the 6 workers.
+          // The first 'workerCount' workers (1<=workerCount<=6) will
+          // transpose 'numTranspositions' matrices and (6-workerCount)
+          // workers transposing (numTranspositions-1) matrices.
+          // Note that (6-workerCount) and/or (numTranspositions-1) might
+          // be zero.
+          unsigned workerCount = numWorkerContexts, numTranspositions = 1;
+          if (matrices <= numWorkerContexts) {
+            workerCount = matrices;
+          } else {
+            numTranspositions = matrices / workerCount;
+            unsigned rem = matrices % workerCount;
+            if (rem > 0) {
+              workerCount = rem;
+              numTranspositions += 1;
+            }
           }
+          graph.setInitialValue(transVertex["numTranspositions"],
+                                numTranspositions);
+          graph.setInitialValue(transVertex["workerCount"], workerCount);
         }
-        graph.setInitialValue(transVertex["numTranspositions"],
-                              numTranspositions);
-        graph.setInitialValue(transVertex["workerCount"], workerCount);
       }
     } else {
       graph.connect(transVertex["src"], sliceIn);
@@ -323,6 +351,14 @@ BOOST_AUTO_TEST_CASE(TransposeTest_half_false_T33035) {
 }
 BOOST_AUTO_TEST_CASE(TransposeTest_half_true_T33035) {
   TransposeTest(HALF, true, T33035TestList);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(SplitTranspose1D)
+
+BOOST_AUTO_TEST_CASE(TransposeTest_half_true_SplitTranspose) {
+  TransposeTest(HALF, true, splitTranspose1DTest);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

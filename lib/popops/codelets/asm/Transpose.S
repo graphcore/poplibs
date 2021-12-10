@@ -60,6 +60,9 @@
 #define VAL56 a4:5
 
 
+#define SHORT_SPAN_WORKLIST_SIZE_BITS 12
+#define SHORT_SPAN_ADDR_SIZE_BITS     (32 - 12)
+
 //****************************************************************************
 // The input structure is always the same so a macro can be used to fetch the
 // parameters:
@@ -401,7 +404,7 @@ TransposeAT2FastPath4ColumnSetup:
   mul       $IN_REWIND, $OUT_GROUPS, -3
   add       $IN_REWIND, $IN_REWIND, 1
   // start to build the stride fields, this field differs between the 2 methods
-  setzi     $STRIDES, (1<<10)
+  shl       $STRIDES, $IN_GROUPS, 10
   // Out groups is repurposed for more choice in strides (st_ptr is unused here)
   shl       $ST_PTR, $IN_REWIND, 20
   bri       .LTransposeAT2FastPathSetupCommon
@@ -571,7 +574,8 @@ FN_SIZE TransposeAT2FastPath4ColumnSetup
 
 
 //----------------------------------------------------------------------------
-// Entry point for MultiVertex code.
+// Entry point for MultiVertex code where multiple transpositions are 
+// processed and work split is done at runtime.
 // This computes the offsets from IN and OUT data ptrs for this worker and
 // (if needed) decrements NUM_MATRICES.
 #define TRANSPOSE_1D_HALF            __runCodelet_popops__Transpose1D___half
@@ -734,7 +738,7 @@ TransposeAT2FastPathNx4x4Setup:
   call       $LINK_REG, TransposeAT2FastPath4ColumnSetup
 .Lat2_nx4x4_common:
   // Input will step in a simple linear way throughout
-  setzi      $IN_REWIND, 1
+  mov      $IN_REWIND, $IN_GROUPS
   // No outer loop passes
   setzi      $COUNTER, 0
 .Lat2_nx4x4_loop:
@@ -841,5 +845,124 @@ TransposeAT2SlowPath:
   TRANSPOSE_SLOWER ldb16step st32step $VAL1 2 1
 
 FN_SIZE TRANSPOSE_2D_HALF
+
+
+//----------------------------------------------------------------------------
+// Entry point for MultiVertex code where multiple transpositions are 
+// processed and work split is done at runtime.
+// This computes the offsets from IN and OUT data ptrs for this worker and
+// (if needed) decrements NUM_MATRICES.
+#define SPLIT_TRANSPOSE_1D_HALF            __runCodelet_popops__SplitTranspose1D___half
+#define SPLIT_TRANSPOSE_1D_UNSIGNED_SHORT  __runCodelet_popops__SplitTranspose1D___unsigned_short
+#define SPLIT_TRANSPOSE_1D_SHORT           __runCodelet_popops__SplitTranspose1D___short
+
+//------------------------------------------------------------------------------
+
+// MultiVertex state for the HALF, fast, version with split transposes
+// All offsets in bytes.
+//
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+#define VOFF_IN_PTR_1D_SPLIT             0     // Scaled 64 source pointer
+#define VOFF_OUT_PTR_1D_SPLIT            2     // Scaled 64 dst pointer
+#define VOFF_SRC_ROWS_1D_SPLIT           4     // Number of rows divided by 4
+#define VOFF_SRC_COLUMNS_1D_SPLIT        6     // Number of columns divided by 4
+#define VOFF_WORKLIST_1D_SPLIT           8     // Worklist pointer (points to 4 * NUM_WORKERS ushorts)
+#else
+#define VOFF_IN_PTR_1D_SPLIT             0     // one_ptr source pointer
+#define VOFF_OUT_PTR_1D_SPLIT            4     // one_ptr dst pointer
+#define VOFF_SRC_ROWS_1D_SPLIT           8     // Number of rows divided by 4
+#define VOFF_SRC_COLUMNS_1D_SPLIT       10     // Number of columns divided by 4
+#define VOFF_WORKLIST_1D_SPLIT          12     // Compact worklist pointer (points to ushorts of size 4 * workers used)
+#endif
+
+
+// WORKIST ENTRY: offsets in ushorts
+#define WORKLIST_ENTRY_IN_OFFSET      0   // multiple of 4 elements to cover larger range
+#define WORKLIST_ENTRY_OUT_OFFSET     1   // multiple of 4 elements to cover larger range
+#define WORKLIST_ENTRY_NUM_ALLOC_ROWS 2   // multiples of 4
+#define WORKLIST_ENTRY_NUM_ALLOC_COLS 3   // multiples of 4
+
+FN_WORKER_ENTRY_POINT SPLIT_TRANSPOSE_1D_HALF
+FN_EXPORT SPLIT_TRANSPOSE_1D_UNSIGNED_SHORT
+FN_EXPORT SPLIT_TRANSPOSE_1D_SHORT
+#define WORKLIST_PTR   m5
+#define WORKLIST_ENTRY m6
+#define WORKERS_USED   m6
+#define NUM_ALLOC_COLS m4
+#define NUM_ALLOC_ROWS m5
+#define SCRATCH_SPLIT  m6
+
+#if defined(VECTOR_AVAIL_SCALED_PTR64)
+  ldz16     $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D_SPLIT / 2
+  ldz16     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D_SPLIT / 2
+  shl       $IN_START_PTR, $IN_START_PTR, 3
+  shl       $OUT_PTR, $OUT_PTR, 3
+#else
+  ld32      $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D_SPLIT / 4
+  ld32      $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D_SPLIT / 4
+#endif
+  ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D_SPLIT / 2
+  ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D_SPLIT / 2
+  ld32      $WORKLIST_PTR, $mvertex_base, VOFF_WORKLIST_1D_SPLIT / 4
+  
+  // extract number of workers used from worklist: divide by 4
+  shr       $WORKERS_USED, $WORKLIST_PTR, (SHORT_SPAN_ADDR_SIZE_BITS + 2)
+
+  // Get worker ID
+  get       $WORKER_ID, $WSR
+  and       $WORKER_ID, $WORKER_ID, CSR_W_WSR__CTXTID_M1__MASK
+
+  // check if any work is assigned worker
+  cmpult    $SCRATCH_SPLIT, $WORKER_ID, $WORKERS_USED
+  brz       $SCRATCH_SPLIT, .LSplitTranspose1DHalfExit
+
+  // extract pointer
+  shl       $WORKLIST_PTR, $WORKLIST_PTR, SHORT_SPAN_WORKLIST_SIZE_BITS
+  shr       $WORKLIST_PTR, $WORKLIST_PTR, SHORT_SPAN_WORKLIST_SIZE_BITS
+
+  mul       $OFFS, $WORKER_ID, 8  // each worklist entry is 4 ushorts
+
+  // dummy load to increment pointer to correct offset
+  ldz16     $WORKLIST_ENTRY, $OFFS, $WORKLIST_PTR, WORKLIST_ENTRY_IN_OFFSET
+  ld64step  $azeros, $mzero, $IN_START_PTR+=, $WORKLIST_ENTRY
+
+  // dummy load to increment pointer to correct offset
+  ldz16     $WORKLIST_ENTRY, $OFFS, $WORKLIST_PTR, WORKLIST_ENTRY_OUT_OFFSET
+  ld64step  $azeros, $mzero, $OUT_PTR+=, $WORKLIST_ENTRY
+
+  ldz16     $NUM_ALLOC_COLS, $OFFS, $WORKLIST_PTR, WORKLIST_ENTRY_NUM_ALLOC_COLS
+  ldz16     $NUM_ALLOC_ROWS, $OFFS, $WORKLIST_PTR, WORKLIST_ENTRY_NUM_ALLOC_ROWS
+  
+  cmpeq     $SCRATCH_SPLIT, $NUM_ALLOC_COLS, 1
+  brz       $SCRATCH_SPLIT, .LSplitTranpose1DHalfMxN
+
+  // Do setup for 4 columns if number of allocated columns are 4.
+  call      $LINK_REG, TransposeAT2FastPath4ColumnSetup
+  // The setup uses the transposition rows to set up loop count. Over-write with
+  // allocated rows
+  add       $LOOP_COUNT, $NUM_ALLOC_ROWS, -2
+  // Input will step in a simple linear way throughout
+  mov        $IN_REWIND, $IN_GROUPS
+  // No outer loop passes
+  setzi      $COUNTER, 0
+  bri        .LSplitDoTranspose
+
+.LSplitTranpose1DHalfMxN:
+  // Do setup of columns > 4
+  call       $LINK_REG, TransposeAT2FastPathSetup
+  // The setup uses the transposition columns to set up loop count. Over-write 
+  ///with allocated columns
+  add        $LOOP_COUNT, $NUM_ALLOC_COLS, -2
+  // calculate outer loop passes
+  add        $COUNTER, $NUM_ALLOC_ROWS, -1  
+
+.LSplitDoTranspose:
+  tapack     $INOUT_PTR, $IN_START_PTR, $OUT_PTR, $mzero
+  call       $LINK_REG, TransposeAT2FastPathCommon
+
+.LSplitTranspose1DHalfExit:
+  exitz $mzero
+
+FN_SIZE SPLIT_TRANSPOSE_1D_HALF
 
 #endif

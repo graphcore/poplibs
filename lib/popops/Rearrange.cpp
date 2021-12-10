@@ -1,6 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "popops/Rearrange.hpp"
-
+#include "RearrangeUtil.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
@@ -100,8 +100,12 @@ bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
 
 static bool switchToWorkerTranspose(const unsigned numTileTranspositions,
                                     const unsigned rows, const unsigned cols) {
-  return (numTileTranspositions == 1) ||
-         ((rows == 4) && (cols == 4) && (numTileTranspositions <= 4));
+  return ((rows == 4) && (cols == 4) && (numTileTranspositions <= 4));
+}
+
+static bool switchToSplitTranspose(const unsigned numTileTranspositions,
+                                   const unsigned numWorkers) {
+  return internal::canSplitTranspose(numTileTranspositions, numWorkers);
 }
 
 void addTransposeVertices(
@@ -141,26 +145,38 @@ void addTransposeVertices(
                            "numTranspositions {}, rows {}, cols {}",
                            debugContext.getPathName(), tile,
                            numTileTranspositions, rows, cols);
+    const unsigned numWorkerContexts = target.getNumWorkerContexts();
+
     if (numTileTranspositions > 0) {
 
       // There are 3 types of vertices that we might use. Default is MultiVertex
-      enum VertexType { Transpose1D, Transpose1DSingleWorker, Transpose2D };
+      enum VertexType {
+        Transpose1D,
+        Transpose1DSingleWorker,
+        Transpose2D,
+        SplitTranspose1D
+      };
       std::map<VertexType, std::string> vertexNames = {
           {Transpose1D, "popops::Transpose1D"},
           {Transpose1DSingleWorker, "popops::Transpose1DSingleWorker"},
           {Transpose2D, "popops::Transpose2D"},
-      };
+          {SplitTranspose1D, "popops::SplitTranspose1D"}};
       VertexType vertexType = Transpose1D;
       // Will we end up splitting among workers (if not 1D MultiVertex)?
       bool splitToWorkers = false;
+
       // Can we really use the 1D MultiVertex to do them all?
       if (canUseFastTranspose(target, dType, rows, cols,
                               numTileTranspositions)) {
-        // If we have to do a single matrix (of any size), it's faster to run
-        // the 'plain' Transpose instead of Transpose1D.
-        // Same is true if we have up to four 4x4 matrix
+        // Use a single worker transpose if upto 4 4x4 transpositions are to
+        // be done
         if (switchToWorkerTranspose(numTileTranspositions, rows, cols)) {
           vertexType = Transpose1DSingleWorker;
+        } else if (switchToSplitTranspose(numTileTranspositions,
+                                          numWorkerContexts)) {
+          // Switch to split transpose if at most 3 transpositions are to be
+          // done
+          vertexType = SplitTranspose1D;
         }
       } else {
         // Will need to partition to workers. vertexType will be chosen later
@@ -189,13 +205,22 @@ void addTransposeVertices(
         const auto v = graph.addVertex(cs, templateVertex(vertexName, dType));
 
         graph.setTileMapping(v, tile);
-        if ((vType == Transpose1DSingleWorker) || (vType == Transpose1D)) {
+        if (vType == Transpose1DSingleWorker || vType == Transpose1D ||
+            vType == SplitTranspose1D) {
           graph.connect(v["src"], concat(inVec));
           graph.connect(v["dst"], concat(outVec));
           graph.setInitialValue(v["numSrcColumnsD4"], cols / 4);
           graph.setInitialValue(v["numSrcRowsD4"], rows / 4);
           if (vType == Transpose1DSingleWorker) {
             graph.setInitialValue(v["numTranspositionsM1"], inVec.size() - 1);
+          } else if (vType == SplitTranspose1D) {
+            auto workList = internal::createSplitTranspose1DWorkList(
+                rows, cols, numTileTranspositions, numWorkerContexts);
+            auto tWList = graph.addConstant(
+                UNSIGNED_SHORT, {workList.size()}, workList.data(),
+                {debugContext, "Transpose/workList"});
+            graph.setTileMapping(tWList, tile);
+            graph.connect(v["workList"], tWList);
           } else {
             // We will run one 1D MultiVertex vertex, starting the 6 workers.
             // The first 'workerCount' workers (1<=workerCount<=6) will
@@ -205,7 +230,6 @@ void addTransposeVertices(
             // be zero.
             // Note that this is NOT the same split as
             // splitRegionsBetweenWorkers() would do.
-            unsigned numWorkerContexts = target.getNumWorkerContexts();
             unsigned workerCount = numWorkerContexts, numTranspositions = 1;
             if (numTileTranspositions <= numWorkerContexts) {
               workerCount = numTileTranspositions;

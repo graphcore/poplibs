@@ -45,6 +45,8 @@ add_library(popops SHARED
   PerformanceEstimation.cpp
   popopsCycleEstimators.cpp
   Rearrange.cpp
+  RearrangeUtil.cpp
+  RearrangeUtil.hpp
   ScalarMultiply.cpp
   ScalarMultiply.hpp
   ScaledAdd.cpp
@@ -233,6 +235,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2D.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose1D.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SplitTranspose1D.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateColumnsDEC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalDEC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalsDEC.cpp

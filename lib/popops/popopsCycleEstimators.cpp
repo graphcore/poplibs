@@ -2588,7 +2588,8 @@ MAKE_PERF_ESTIMATOR_NAME(Transpose2D)(const VertexIntrospector &vertex,
 static std::uint64_t TransposeWorkerCycles(const unsigned short numSrcRowsD4,
                                            const unsigned short numSrcColumnsD4,
                                            const unsigned short numMatrices,
-                                           const layout::Vector srcLayout) {
+                                           const layout::Vector srcLayout,
+                                           bool splitTranspose) {
   std::uint64_t cycles;
   if (numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
     if (numMatrices == 1)
@@ -2596,15 +2597,24 @@ static std::uint64_t TransposeWorkerCycles(const unsigned short numSrcRowsD4,
     else
       cycles = 17 + 20 + (numMatrices - 2) * 4;
   } else if (numSrcColumnsD4 == 1) {
-    cycles = 27 + numMatrices * (15 + (20 + 4 * (numSrcRowsD4 - 2)));
+    if (splitTranspose) {
+      cycles = 25 + (20 + 4 * (numSrcRowsD4 - 2));
+    } else {
+      cycles = 27 + numMatrices * (15 + (20 + 4 * (numSrcRowsD4 - 2)));
+    }
   } else {
-    cycles = 29 + numMatrices *
-                      (18 + numSrcRowsD4 * (12 + 4 * (numSrcColumnsD4 - 2)));
+    if (splitTranspose) {
+      cycles = 27 + numSrcRowsD4 * (12 + 4 * (numSrcColumnsD4 - 2));
+    } else {
+      cycles = 29 + numMatrices *
+                        (18 + numSrcRowsD4 * (12 + 4 * (numSrcColumnsD4 - 2)));
+    }
   }
 
-  // extra might be needed in the prologue to unpack the pointers
-  cycles += poputil::internal::getUnpackCost(srcLayout);
-
+  if (!splitTranspose) {
+    // extra might be needed in the prologue to unpack the pointers
+    cycles += poputil::internal::getUnpackCost(srcLayout);
+  }
   return cycles;
 }
 
@@ -2625,7 +2635,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(Transpose1DSingleWorker)(
   assert(type == HALF || type == UNSIGNED_SHORT || type == SHORT);
 
   return TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, matrices,
-                               srcLayout);
+                               srcLayout, false);
 }
 
 VertexPerfEstimate
@@ -2654,7 +2664,33 @@ MAKE_PERF_ESTIMATOR_NAME(Transpose1D)(const VertexIntrospector &vertex,
   const std::uint64_t overhead = poputil::internal::getUnpackCost(srcLayout);
   std::uint64_t maxCycles =
       TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, numTranspositions,
-                            srcLayout) +
+                            srcLayout, false) +
+      overhead - 7;
+
+  // Add 7 for the supervisor code
+  return 7 + 6 * maxCycles;
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SplitTranspose1D)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  CODELET_FIELD(src);
+  CODELET_FIELD(dst);
+  CODELET_VECTOR_VALS(workList, unsigned);
+
+  const auto srcLayout = src.getProfilerVectorLayout(0);
+  assert(srcLayout == dst.getProfilerVectorLayout(0));
+
+  // only 2-byte types supported
+  assert(type == HALF || type == UNSIGNED_SHORT || type == SHORT);
+
+  const std::uint64_t overhead = poputil::internal::getUnpackCost(srcLayout);
+
+  // The max size is always the first
+  unsigned short numSrcRowsD4 = workList[2];
+  unsigned short numSrcColumnsD4 = workList[3];
+
+  std::uint64_t maxCycles =
+      TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, 1, srcLayout, true) +
       overhead - 7;
 
   // Add 7 for the supervisor code
@@ -3550,6 +3586,10 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose1D, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose1D, UNSIGNED_SHORT),
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose1D, SHORT),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, SplitTranspose1D, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, SplitTranspose1D, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, SplitTranspose1D, SHORT),
 
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, UNSIGNED_INT),
