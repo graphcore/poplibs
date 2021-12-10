@@ -428,13 +428,10 @@ Tensor createGenericFullyConnectedInput(Graph &graph, const Type &type,
 } // end namespace poplibs_test
 
 namespace std {
-
 std::istream &operator>>(std::istream &in, poplar::Type &type) {
   std::string token;
   in >> token;
-  if (token == "quarter")
-    type = poplar::QUARTER;
-  else if (token == "half" || token == "float16")
+  if (token == "half" || token == "float16")
     type = poplar::HALF;
   else if (token == "float" || token == "float32")
     type = poplar::FLOAT;
@@ -461,9 +458,8 @@ std::istream &operator>>(std::istream &in, poplar::Type &type) {
   else
     throw poputil::poplibs_error(
         "Invalid data-type <" + token +
-        ">; must be quarter, half (float16), float (float32), uint (unsigned),"
-        " int, ushort, short, char, schar, uchar, ulonglong, longlong or bool");
+        ">; must be half (float16), float (float32), uint (unsigned), int,"
+        "ushort, short, char, schar, uchar, ulonglong, longlong or bool");
   return in;
 }
-
 } // namespace std

@@ -32,11 +32,6 @@ poplar::Tensor cast(poplar::Graph &graph, const poplar::Tensor &src,
                     poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {});
 
-poplar::Tensor cast(poplar::Graph &graph, const poplar::Tensor &src,
-                    const poplar::Type &dstType, const poplar::Tensor metaData,
-                    poplar::program::Sequence &prog,
-                    const poplar::DebugContext &debugContext = {});
-
 /** Create a program to copy tensor casting between types (for example,
  * half->float).
  *
@@ -55,10 +50,6 @@ poplar::program::Program cast(poplar::Graph &graph, poplar::Tensor src,
                               poplar::Tensor dst,
                               const poplar::DebugContext &debugContext = {});
 
-poplar::program::Program cast(poplar::Graph &graph, poplar::Tensor src,
-                              poplar::Tensor dst, poplar::Tensor metaData,
-                              const poplar::DebugContext &debugContext = {});
-
 /** Create vertices to copy element wise from the \p src tensor to the \p dst
  * tensor casting between types (for example, half->float).
  * The vertices are added to the specified compute set.
@@ -73,9 +64,6 @@ poplar::program::Program cast(poplar::Graph &graph, poplar::Tensor src,
 void cast(poplar::Graph &graph, poplar::Tensor src, poplar::Tensor dst,
           poplar::ComputeSet cs);
 
-void cast(poplar::Graph &graph, poplar::Tensor src, poplar::Tensor dst,
-          poplar::Tensor metaData, poplar::ComputeSet cs);
-
 /** Create vertices to cast elements of the specified \p src tensor to
  * \p dstType, returning the result as a new tensor. The vertices are added to
  * the specified compute set.
@@ -89,11 +77,6 @@ void cast(poplar::Graph &graph, poplar::Tensor src, poplar::Tensor dst,
  */
 poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
                     const poplar::Type &dstType, poplar::ComputeSet cs,
-                    const poplar::DebugContext &debugContext = {});
-
-poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
-                    const poplar::Type &dstType, poplar::Tensor metaData,
-                    poplar::ComputeSet cs,
                     const poplar::DebugContext &debugContext = {});
 
 /** Helper function which checks the relative error in the tensor \p input

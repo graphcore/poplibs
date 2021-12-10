@@ -903,8 +903,7 @@ add_unit_test(ScatterTest ScatterTest.cpp)
 add_unit_test(ScatterUpdateTest ScatterUpdateTest.cpp)
 add_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
 add_unit_test(SortTest SortTest.cpp)
-add_unit_test(StdArithmeticTests StdArithmeticTests.cpp
-              VARIANTS  "${IPUMODEL_VARIANTS};Sim21")
+add_unit_test(StdArithmeticTests StdArithmeticTests.cpp)
 
 # StdOperatorsTests
 macro(add_std_operators_test test)

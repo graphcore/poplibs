@@ -10,8 +10,6 @@
 #include <poplar/Graph.hpp>
 #include <poplibs_support/logging.hpp>
 
-#include <boost/optional.hpp>
-
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
@@ -22,7 +20,7 @@ namespace popops {
 constexpr unsigned maxDivisibleValue = (UINT_MAX / 0xAAAB) - 5;
 constexpr unsigned elementsPerLoop = 4;
 
-static bool validateRegionSizeForMultiVertex(
+bool validateRegionSizeForMultiVertex(
     const std::vector<std::vector<Interval>> &intervals, unsigned maxRepeatSize,
     unsigned numWorkers) {
 
@@ -36,23 +34,35 @@ static bool validateRegionSizeForMultiVertex(
   return true;
 }
 
-static void cast(Graph &graph, Tensor src, Tensor dst,
-                 boost::optional<Tensor> metaData, ComputeSet cs) {
+Program cast(Graph &graph, Tensor src, Tensor dst,
+             const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dst));
+
+  // Casting one type into itself, or int<->unsigned, is just a copy.
+  // We use the '.reinterpret(dstType)' to bypass type checking in Copy for the
+  // int<->unsigned case
+  auto srcType = src.elementType();
+  auto dstType = dst.elementType();
+  if ((srcType == dstType) || ((srcType == INT) && (dstType == UNSIGNED_INT)) ||
+      ((srcType == UNSIGNED_INT) && (dstType == INT)) ||
+      ((srcType == UNSIGNED_LONGLONG) && (dstType == LONGLONG)) ||
+      ((srcType == LONGLONG) && (dstType == UNSIGNED_LONGLONG))) {
+    logging::popops::trace("Cast is just a copy");
+    return Copy(src.reinterpret(dstType), dst, false, {di});
+  }
+  auto cs = graph.addComputeSet({di, "Cast1DSingleWorker"});
+  cast(graph, src, dst, cs);
+  return Execute(cs, {di});
+}
+
+void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   assert(src.shape() == dst.shape());
   src = src.flatten();
   dst = dst.flatten();
   graph.reorderToSimplify(&dst, {&src}, false);
   const auto srcType = src.elementType();
   const auto dstType = dst.elementType();
-
-  // TODO - revise when a type is properly available
-  std::string nameExtension = "";
-  if (srcType == QUARTER || dstType == QUARTER) {
-    nameExtension = "Fp8";
-    assert(metaData);
-  }
-  // TODO end
-
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getFloatVectorWidth();
   std::vector<std::vector<Interval>> mapping = graph.getTileMapping(dst);
@@ -70,14 +80,11 @@ static void cast(Graph &graph, Tensor src, Tensor dst,
         validateRegionSizeForMultiVertex(tileContiguousRegions, maxElemsForRpt,
                                          numWorkers)) {
       VertexRef v;
-      v = graph.addVertex(cs, templateVertex("popops::Cast1D" + nameExtension,
-                                             srcType, dstType));
+      v = graph.addVertex(cs,
+                          templateVertex("popops::Cast1D", srcType, dstType));
       const auto numElems = intervalSequenceNumElements(tileContiguousRegions);
       graph.connect(v["src"], concat(src.slices(tileContiguousRegions)));
       graph.connect(v["dst"], concat(dst.slices(tileContiguousRegions)));
-      if (metaData) {
-        graph.connect(v["metaData"], metaData.get());
-      }
       graph.setInitialValue(v["numElems"], numElems);
       graph.setTileMapping(v, tile);
     } else {
@@ -90,24 +97,16 @@ static void cast(Graph &graph, Tensor src, Tensor dst,
         VertexRef v;
         if (numRegions == 1) {
           const auto numElems = intervalSequenceNumElements(regions);
-          v = graph.addVertex(
-              cs, templateVertex("popops::Cast1DSingleWorker" + nameExtension,
-                                 srcType, dstType));
+          v = graph.addVertex(cs, templateVertex("popops::Cast1DSingleWorker",
+                                                 srcType, dstType));
           graph.connect(v["src"], concat(src.slices(regions)));
           graph.connect(v["dst"], concat(dst.slices(regions)));
-          if (metaData) {
-            graph.connect(v["metaData"], metaData.get());
-          }
           graph.setInitialValue(v["numElems"], numElems);
         } else {
-          v = graph.addVertex(cs,
-                              templateVertex("popops::Cast2D" + nameExtension,
-                                             srcType, dstType));
+          v = graph.addVertex(
+              cs, templateVertex("popops::Cast2D", srcType, dstType));
           graph.connect(v["src"], src.slices(regions));
           graph.connect(v["dst"], dst.slices(regions));
-          if (metaData) {
-            graph.connect(v["metaData"], metaData.get());
-          }
         }
         graph.setTileMapping(v, tile);
       }
@@ -115,94 +114,22 @@ static void cast(Graph &graph, Tensor src, Tensor dst,
   }
 }
 
-Program cast(Graph &graph, Tensor src, Tensor dst,
-             const boost::optional<Tensor> metaData,
-             const PoplibsOpDebugInfo &di) {
-  // Casting one type into itself, or int<->unsigned, is just a copy.
-  // We use the '.reinterpret(dstType)' to bypass type checking in Copy for the
-  // int<->unsigned case
-  // Casting between fp8 types is never just a copy as the meta data is not
-  // known until runtime
-  auto srcType = src.elementType();
-  auto dstType = dst.elementType();
-  if ((srcType == dstType && srcType != QUARTER) ||
-      ((srcType == INT) && (dstType == UNSIGNED_INT)) ||
-      ((srcType == UNSIGNED_INT) && (dstType == INT)) ||
-      ((srcType == UNSIGNED_LONGLONG) && (dstType == LONGLONG)) ||
-      ((srcType == LONGLONG) && (dstType == UNSIGNED_LONGLONG))) {
-    logging::popops::trace("Cast is just a copy");
-    return Copy(src.reinterpret(dstType), dst, false, {di});
-  }
-  auto cs = graph.addComputeSet({di, "Cast1DSingleWorker"});
-  cast(graph, src, dst, metaData, cs);
-  return Execute(cs, {di});
-}
-
-Program cast(Graph &graph, Tensor src, Tensor dst,
-             const poplar::DebugContext &debugContext) {
-  POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dst));
-  return cast(graph, src, dst, boost::none, di);
-}
-
-Program cast(Graph &graph, Tensor src, Tensor dst, Tensor metaData_,
-             const poplar::DebugContext &debugContext) {
-  POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dst, metaData_));
-  boost::optional<Tensor> metaData = metaData_;
-  return cast(graph, src, dst, metaData, di);
-}
-
 Tensor cast(Graph &graph, Tensor src, const Type &dstType, ComputeSet cs,
             const poplar::DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType, cs));
   auto dst = graph.clone(dstType, src, {di, "cast"});
-  cast(graph, src, dst, boost::none, cs);
+  cast(graph, src, dst, cs);
   di.addOutput(dst);
   return dst;
 }
 
-Tensor cast(Graph &graph, Tensor src, const Type &dstType, Tensor metaData,
-            ComputeSet cs, const poplar::DebugContext &debugContext) {
-  POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext,
-                                 DI_ARGS(src, dstType, metaData, cs));
-  auto dst = graph.clone(dstType, src, {di, "cast"});
-  cast(graph, src, dst, metaData, cs);
-  di.addOutput(dst);
-  return dst;
-}
-
-void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
-  cast(graph, src, dst, boost::none, cs);
-}
-
-void cast(Graph &graph, Tensor src, Tensor dst, Tensor metaData_,
-          ComputeSet cs) {
-  boost::optional<Tensor> metaData = metaData_;
-  cast(graph, src, dst, metaData, cs);
-}
-
-Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
-            Sequence &prog, const poplar::DebugContext &debugContext) {
+poplar::Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
+                    Sequence &prog, const poplar::DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType));
   auto dst = graph.clone(dstType, src, {di, "cast"});
-  prog.add(cast(graph, src, dst, boost::none, {di}));
-  di.addOutput(dst);
-  return dst;
-}
-
-Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
-            const Tensor metaData_, Sequence &prog,
-            const poplar::DebugContext &debugContext) {
-  POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext,
-                                 DI_ARGS(src, dstType, metaData_));
-  auto dst = graph.clone(dstType, src, {di, "cast"});
-  boost::optional<Tensor> metaData = metaData_;
-  prog.add(cast(graph, src, dst, metaData, {di}));
+  prog.add(cast(graph, src, dst, {di}));
   di.addOutput(dst);
   return dst;
 }

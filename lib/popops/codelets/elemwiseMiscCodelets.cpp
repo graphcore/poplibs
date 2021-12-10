@@ -1,11 +1,4 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-
-struct quarter {
-  unsigned char data;
-
-  quarter(unsigned x) { data = x; };
-};
-
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
@@ -84,7 +77,6 @@ public:
 
 template class Fill<float>;
 template class Fill<half>;
-template class Fill<quarter>;
 template class Fill<int>;
 template class Fill<unsigned>;
 template class Fill<bool>;
@@ -113,7 +105,6 @@ public:
 
 template class Fill2d<float>;
 template class Fill2d<half>;
-template class Fill2d<quarter>;
 template class Fill2d<unsigned int>;
 template class Fill2d<int>;
 template class Fill2d<bool>;
@@ -247,20 +238,6 @@ public:
 };
 
 template <typename SrcType, typename DstType, bool inlineAsm>
-struct CastDispatchFp8 {
-public:
-  static void compute(unsigned numElems, const SrcType *src, DstType *dst,
-                      const unsigned char *metaData) {}
-};
-
-template <typename SrcType, typename DstType, bool inlineAsm>
-struct CastDispatchMultiVertexFp8 {
-public:
-  static void compute(unsigned numElems, unsigned wid, const SrcType *src,
-                      DstType *dst, const unsigned char *metaData) {}
-};
-
-template <typename SrcType, typename DstType, bool inlineAsm>
 struct CastDispatchMultiVertex {
 public:
   static void compute(unsigned numElems, unsigned wid, const SrcType *src,
@@ -287,84 +264,6 @@ public:
 };
 
 #ifdef __IPU__
-
-#if __IPU_ARCH_VERSION__ == 21
-
-template <typename SrcType, typename DstType>
-struct CastDispatchFp8<SrcType, DstType, true> {
-public:
-  static constexpr auto fp8ToFp8 = std::is_same<SrcType, quarter>::value &&
-                                   std::is_same<DstType, quarter>::value;
-  static void compute(unsigned numElems, const SrcType *src, DstType *dst,
-                      const unsigned char *metaData) {
-    float2 metaData0, metaData1;
-    if constexpr (!fp8ToFp8) {
-      // Setup the Fp8 config once for the codelet
-      if constexpr (std::is_same<SrcType, quarter>::value) {
-        setFp8Config(metaData);
-      } else {
-        setFp8ConfigNegScale(metaData);
-      }
-    } else {
-      // We need to keep changing these so extract the bitfield
-      metaData0 = extractMetaData(&metaData[0]);
-      metaData1 = extractMetaDataNegScale(&metaData[1]);
-    }
-    inLineAssemblerCastFp8<const SrcType *, DstType *, true, 1>::loopBody(
-        numElems / 8, src, dst, metaData0, metaData1);
-    src += numElems & (~7);
-    dst += numElems & (~7);
-    for (unsigned i = 0; i < (numElems & 7); i++) {
-      *dst++ = inLineAssemblerCastFp8<const SrcType *, DstType *, true,
-                                      1>::singleCast(src, metaData0, metaData1);
-      src++;
-    }
-  }
-};
-
-template <typename SrcType, typename DstType>
-struct CastDispatchMultiVertexFp8<SrcType, DstType, true> {
-public:
-  static constexpr auto fp8ToFp8 = std::is_same<SrcType, quarter>::value &&
-                                   std::is_same<DstType, quarter>::value;
-  static void compute(unsigned numElems, unsigned wid, const SrcType *src,
-                      DstType *dst, const unsigned char *metaData) {
-
-    constexpr unsigned elemsPerLoop = 8;
-    float2 metaData0, metaData1;
-    if constexpr (!fp8ToFp8) {
-      // Setup the Fp8 config once for the codelet
-      if constexpr (std::is_same<SrcType, quarter>::value) {
-        setFp8Config(metaData);
-      } else {
-        setFp8ConfigNegScale(metaData);
-      }
-    } else {
-      // We need to keep changing these so extract the bitfield
-      metaData0 = extractMetaData(&metaData[0]);
-      metaData1 = extractMetaDataNegScale(&metaData[1]);
-    }
-    inLineAssemblerCastFp8<const SrcType *, DstType *, true,
-                           CTXT_WORKERS>::loopBody(divideWork(numElems, 3, wid),
-                                                   &src[wid * elemsPerLoop],
-                                                   &dst[wid * elemsPerLoop],
-                                                   metaData0, metaData1);
-    if (wid == CTXT_WORKERS - 1) {
-      src += numElems & (~7);
-      dst += numElems & (~7);
-      for (unsigned i = 0; i < (numElems & 7); i++) {
-        *dst++ =
-            inLineAssemblerCastFp8<const SrcType *, DstType *, true,
-                                   CTXT_WORKERS>::singleCast(src, metaData0,
-                                                             metaData1);
-        src++;
-      }
-    }
-  }
-};
-
-#endif
-
 template <> struct CastDispatch<float, half, true> {
 public:
   static void compute(unsigned numElems, const float *src, half *dst) {
@@ -555,41 +454,8 @@ public:
   }
 };
 
-template <typename SrcType, typename DstType>
-class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast1DSingleWorkerFp8
-    : public Vertex {
-public:
-  Cast1DSingleWorkerFp8();
-
-  // Structured binding would be nicer, but it doesn't work here
-  constexpr static auto t = getCastParams<SrcType, DstType>();
-  constexpr static bool inlineAsm = true;
-  constexpr static unsigned inAlign = 8;
-  constexpr static unsigned outAlign = 8;
-  constexpr static VectorLayout inLayout = std::get<3>(t);
-  constexpr static VectorLayout outLayout = std::get<4>(t);
-
-  Input<Vector<SrcType, inLayout, inAlign>> src;
-  Input<Vector<unsigned char, ONE_PTR>> metaData;
-  Output<Vector<DstType, outLayout, outAlign>> dst;
-  const unsigned numElems;
-
-  bool compute() {
-    CastDispatchFp8<SrcType, DstType, inlineAsm>::compute(
-        numElems, &src[0], &dst[0], &metaData[0]);
-    return true;
-  }
-};
-
 INSTANTIATE_CAST(Cast1DSingleWorker)
 INSTANTIATE_CAST_LONGLONG(Cast1DSingleWorker)
-template class Cast1DSingleWorkerFp8<half, quarter>;
-template class Cast1DSingleWorkerFp8<quarter, half>;
-template class Cast1DSingleWorkerFp8<char, quarter>;
-template class Cast1DSingleWorkerFp8<quarter, char>;
-template class Cast1DSingleWorkerFp8<unsigned char, quarter>;
-template class Cast1DSingleWorkerFp8<quarter, unsigned char>;
-template class Cast1DSingleWorkerFp8<quarter, quarter>;
 
 template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast1D
@@ -616,41 +482,8 @@ public:
   }
 };
 
-template <typename SrcType, typename DstType>
-class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast1DFp8
-    : public MultiVertex {
-public:
-  Cast1DFp8();
-
-  constexpr static auto t = getCastParams<SrcType, DstType>();
-  constexpr static bool inlineAsm = true;
-  constexpr static unsigned inAlign = 8;
-  constexpr static unsigned outAlign = 8;
-  constexpr static VectorLayout inLayout = std::get<3>(t);
-  constexpr static VectorLayout outLayout = std::get<4>(t);
-
-  Input<Vector<SrcType, inLayout, inAlign>> src;
-  Input<Vector<unsigned char, ONE_PTR>> metaData;
-  Output<Vector<DstType, outLayout, outAlign>> dst;
-  const unsigned numElems;
-
-  bool compute(unsigned wid) {
-
-    CastDispatchMultiVertexFp8<SrcType, DstType, inlineAsm>::compute(
-        numElems, wid, &src[0], &dst[0], &metaData[0]);
-    return true;
-  }
-};
-
 INSTANTIATE_CAST(Cast1D)
 INSTANTIATE_CAST_LONGLONG(Cast1D)
-template class Cast1DFp8<half, quarter>;
-template class Cast1DFp8<quarter, half>;
-template class Cast1DFp8<char, quarter>;
-template class Cast1DFp8<quarter, char>;
-template class Cast1DFp8<unsigned char, quarter>;
-template class Cast1DFp8<quarter, unsigned char>;
-template class Cast1DFp8<quarter, quarter>;
 
 template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2D
@@ -674,38 +507,8 @@ public:
   }
 };
 
-template <typename SrcType, typename DstType>
-class [[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2DFp8
-    : public Vertex {
-public:
-  constexpr static auto t = getCastParams<SrcType, DstType>();
-  constexpr static bool inlineAsm = true;
-  constexpr static unsigned inAlign = 8;
-  constexpr static unsigned outAlign = 8;
-
-  Vector<Input<Vector<SrcType, ONE_PTR, inAlign>>, ONE_PTR> src;
-  Input<Vector<unsigned char, ONE_PTR>> metaData;
-  Vector<Output<Vector<DstType, SPAN, outAlign>>> dst;
-
-  bool compute() {
-    const unsigned limI = dst.size();
-    for (unsigned i = 0; i != limI; ++i) {
-      CastDispatchFp8<SrcType, DstType, inlineAsm>::compute(
-          dst[i].size(), &src[i][0], &dst[i][0], &metaData[0]);
-    }
-    return true;
-  }
-};
-
 INSTANTIATE_CAST(Cast2D)
 INSTANTIATE_CAST_LONGLONG(Cast2D)
-template class Cast2DFp8<half, quarter>;
-template class Cast2DFp8<quarter, half>;
-template class Cast2DFp8<quarter, char>;
-template class Cast2DFp8<char, quarter>;
-template class Cast2DFp8<quarter, unsigned char>;
-template class Cast2DFp8<unsigned char, quarter>;
-template class Cast2DFp8<quarter, quarter>;
 
 template <typename InType> class Clamp : public Vertex {
 public:
