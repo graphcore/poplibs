@@ -30,14 +30,14 @@ static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
 
 using namespace poplar;
 
-namespace popops {
-
 #if __IPU_ARCH_VERSION__ == 21
 struct quarter {
   unsigned char data;
   quarter(unsigned x) { data = x; };
 };
 #endif
+
+namespace popops {
 
 #ifdef __IPU__
 #include "inlineAssembler.hpp"
