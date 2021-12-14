@@ -77,10 +77,11 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
   auto tFlat = t.flatten();
   graph.reorderToSimplify(&tFlat, {}, false);
   // Use copy to fill, only possible for the Program api
-  auto valueTensor = graph.addConstant<FillValueType>(t.elementType(), {1},
-                                                      fillValue, "fillValue");
+  auto valueTensor = graph.addConstant<FillValueType>(
+      t.elementType(), {1}, fillValue, {di, "fillValue"});
   graph.setTileMapping(valueTensor, 0);
-  prog.add(Copy(valueTensor.broadcast(tFlat.numElements(), 0), tFlat));
+  prog.add(
+      Copy(valueTensor.broadcast(tFlat.numElements(), 0), tFlat, false, {di}));
 }
 
 #define FILL_EXPLICIT_INSTANTIATIONS(Type)                                     \
