@@ -213,8 +213,8 @@ maybeSaveHwSeedsAndSetSeeds(Graph &graph, const Tensor *masterSeed,
                             uint32_t seedModifier, Sequence &prog,
                             const DebugNameAndId &dnai) {
   if (masterSeed) {
-    auto hwSeeds = getHwSeeds(graph, prog, dnai.getPathName());
-    setSeed(graph, *masterSeed, seedModifier, prog, dnai.getPathName());
+    auto hwSeeds = getHwSeeds(graph, prog, {dnai});
+    setSeed(graph, *masterSeed, seedModifier, prog, {dnai});
     return hwSeeds;
   }
   return boost::none;
@@ -225,7 +225,7 @@ static void maybeRestoreHwSeeds(Graph &graph,
                                 const boost::optional<Tensor> &hwSeeds,
                                 Sequence &prog, const DebugNameAndId &dnai) {
   if (hwSeeds != boost::none) {
-    setHwSeeds(graph, *hwSeeds, prog, dnai.getPathName());
+    setHwSeeds(graph, *hwSeeds, prog, {dnai});
   }
 }
 
