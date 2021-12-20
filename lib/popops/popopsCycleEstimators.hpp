@@ -134,7 +134,7 @@ inline const UnaryOpPerfTable unaryOpPerfInfo = {
     {{UnaryOpType::COUNT_LEADING_ZEROS, UNSIGNED_INT}, {1, false}},
     {{UnaryOpType::ERF, FLOAT}, {41, false, 1}},
     // Float + cast in and out
-    {{UnaryOpType::ERF, HALF}, {15, false, 1}},
+    {{UnaryOpType::ERF, HALF}, {13, false, 1}},
 
     {{UnaryOpType::GELU_ERF, FLOAT}, {22, false, 1}},
     {{UnaryOpType::GELU_ERF, HALF}, {18, false, 1}},
@@ -235,10 +235,10 @@ inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
     {{UnaryOpType::INVERSE, FLOAT}, {6, false, 2}},
     {{UnaryOpType::ERF, FLOAT}, {41, false, 1}},
     // Float + cast in and out
+    {{UnaryOpType::ERF, HALF}, {13, false, 1}},
+    // Float + cast in and out
     {{UnaryOpType::GELU_ERF, HALF}, {18, false, 1}},
     {{UnaryOpType::GELU_ERF, FLOAT}, {22, false, 1}},
-    // Float + cast in and out
-    {{UnaryOpType::ERF, HALF}, {15, false, 1}},
 
     {{UnaryOpType::EXPONENT, FLOAT}, {6, false, 2}},
     // Use f16v2exp

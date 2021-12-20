@@ -65,10 +65,10 @@ template <> struct UnaryLibCall<expr::UnaryOpType::CBRT> {
 template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
 #ifdef __IPU__
   float poly(float x) const {
-    constexpr unsigned numCoeffs = 5;
-    constexpr float coeffs[numCoeffs] = {281.3331008565532, -126.1777197589195,
-                                         40.43190708316039, -2.651020581784260,
-                                         0.7778892405807116};
+    constexpr unsigned numCoeffs = 3;
+    constexpr float coeffs[numCoeffs] = {7.181612491607666015625f,
+                                         -0.4331750571727752685546875f,
+                                         0.7397372722625732421875f};
 
     float y = coeffs[0];
     for (unsigned i = 1; i != numCoeffs; ++i) {
@@ -79,18 +79,19 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
 
   // Approximation of error function
   // Cecil Hastings Jr : Approximations for Digital Computers Pg 169.
-  // On double precision, error is <1.5e-7 but reduces to < 5e-7 for fp32
+  // The max absolute error in fp32 is <2.5e-5 with max error at 0.067. As the
+  // approximation is only used for half type, the max absolute error of the
+  // final half result is 2.65e-4 with max relative error exceeding 1e-3
+  // occuring at ranges < 1e-5.
   // Do all computations in fp32 as error introduced due to the polynomial
   // computation is expected to be significant.
   float compute(float xAbs) const {
-    const float eta = 1.0f / (3.052585982952528f + xAbs);
+    const float eta = 1.0f / (2.1255340576171875f + xAbs);
     const auto y = (1.0f - poly(eta) * ipu::exp(-xAbs * xAbs));
     return y;
   }
 
   template <typename FPType> FPType operator()(FPType x) const {
-    // Use approximation only for half types as we guarantee the polynomial
-    // expansion gives the same error as the one using ipu::erf
     if constexpr (isFloatType<FPType>::value) {
       return ipu::erf(x);
     } else {
