@@ -33,11 +33,9 @@ set(POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS "${POPLIBS_ENABLED_IPU_ARCH_NAMES}" C
     "The architectures to run tests for, defaults to all enabled architectures")
 message("Enabled test architectures: ${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS}")
 
-# allow users easily to opt out from testing :cpp variants, this is off by
-# default because this code is not packaged.
-set(POPLIBS_ENABLE_CPP_TEST_VARIANTS OFF CACHE STRING
-    "Whether to include cpp tests for codelets that otherwise have an assembly implentation")
-message("cpp tests enabled: ${POPLIBS_ENABLE_CPP_TEST_VARIANTS}")
+# By default we build only ipu2 target with cpp codelets
+set(POPLIBS_ENABLE_CPP_CODELETS_FOR_TARGETS "ipu2" CACHE STRING
+    "Allows to build CPP codelets for selected targets")
 
 set(CPU_VARIANTS "")
 set(IPUMODEL_VARIANTS "")
@@ -52,7 +50,7 @@ foreach(IPU_ARCH_TEST_VARIANT ${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS})
 
     string(REPLACE "ipu" "Sim" SIM_VARIANT "${IPU_ARCH_TEST_VARIANT}")
     list(APPEND SIM_VARIANTS "${SIM_VARIANT}")
-    if (POPLIBS_ENABLE_CPP_TEST_VARIANTS)
+    if (${SIM_VARIANT} IN_LIST POPLIBS_ENABLE_CPP_CODELETS_FOR_TARGETS)
       list(APPEND SIMCPP_VARIANTS "${SIM_VARIANT}:cpp")
     endif()
   else()
@@ -67,7 +65,10 @@ set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STR
 
 # If the user has specified ENABLED_TEST_VARIANTS then validate the values.
 if (DEFINED ENABLED_TEST_VARIANTS)
-  string(APPEND ENABLED_TEST_VARIANTS ";IpuModel21;Sim21;Sim21:cpp")
+  string(APPEND ENABLED_TEST_VARIANTS ";IpuModel21;Sim21")
+  if ("Sim21" IN_LIST POPLIBS_ENABLE_CPP_CODELETS_FOR_TARGETS)
+    string(APPEND ENABLED_TEST_VARIANTS ";Sim21:cpp")
+  endif()
   foreach(variant ${ENABLED_TEST_VARIANTS})
     if (NOT ${variant} IN_LIST ALL_POSSIBLE_TEST_VARIANTS)
       message(FATAL_ERROR "Unknown ENABLED_TEST_VARIANTS element: ${variant}\n"

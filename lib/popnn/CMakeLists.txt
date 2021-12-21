@@ -132,8 +132,8 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/NonLinearity.hpp
     ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearitySwishCommon.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityLoop_gelu.S    
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradLoop_gelu.S        
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityLoop_gelu.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradLoop_gelu.S
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/CTCInferenceDefs.hpp
 )
 

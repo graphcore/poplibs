@@ -6,26 +6,37 @@
 # this function requires the following global variables to exist (all of which
 # are defined in the top level CMakeLists.txt):
 #   - POPLIBS_ENABLED_IPU_ARCH_NAMES
-#   - DEFAULT_TEST_VARIANTS
+#   - POPLIBS_ENABLE_CPP_CODELETS_FOR_TARGETS
 #   - POPC_EXECUTABLE
 #   - POPC_FLAGS
 
 function(add_gp_library)
   cmake_parse_arguments(CODELET "" "NAME" "ASM_SOURCES;CPP_SOURCES;HEADERS" ${ARGN})
-  set(TARGETS ${POPLIBS_ENABLED_IPU_ARCH_NAMES})
-  string(REPLACE ";" "," TARGETS_COMMA_SEPARATED "${TARGETS}")
 
-  # we don't build the _c.gp files if we are not planning to run any of the
-  # {Sim,Hw,*}:cpp tests. for the time being poplibs does not have any tests that
-  # expliticly force this variant and therefore we can do this. in the future if
-  # that changes we will have to build the _c libraries that are used by any of
-  # those tests unconditionally. the reason we do this is to improve the
-  # compile time for debug builds.
-  foreach(TEST_VARIANT IN LISTS DEFAULT_TEST_VARIANTS)
-    if (TEST_VARIANT MATCHES ".*:cpp")
-      set(BUILD_CPP_CODELETS TRUE)
+  set(LIST_OF_TARGETS_JSON_TMP "")
+  foreach(variant ${POPLIBS_ENABLED_IPU_ARCH_NAMES})
+    list(APPEND LIST_OF_TARGETS_JSON_TMP "\"${variant}\"")
+    if (${variant} IN_LIST POPLIBS_ENABLE_CPP_CODELETS_FOR_TARGETS)
+      list(APPEND LIST_OF_TARGETS_JSON_TMP "{\"name\":\"${variant}:cpp\",\"arch\":\"${variant}\",\"compile-flags\":[\"-DPOPLIBS_DISABLE_ASM_CODELETS\",\"-DENABLE_POPLAR_RUNTIME_CHECKS\"]}")
     endif()
   endforeach()
+
+  # Break all targets into separate JSON lists to allow build
+  # them separately
+  set(LIST_ALL_TARGETS_JSON "")
+  foreach(TARGET IN LISTS LIST_OF_TARGETS_JSON_TMP)
+    list(APPEND LIST_ALL_TARGETS_JSON "'[${TARGET}]'")
+  endforeach()
+
+  # To build all ASM sources combine POPLIBS_ENABLED_IPU_ARCH_NAMES list into
+  # a string of targets. Could use JSON string here as well but for simplicity
+  # use just a comma separaed string
+  string(REPLACE ";" "," ASM_TARGETS "${POPLIBS_ENABLED_IPU_ARCH_NAMES}")
+
+  # For the final step to combine all gp files it requries to JSON formated
+  # string of all targets
+  string(REPLACE ";" "," STRING_ALL_TARGETS_JSON_TMP "${LIST_OF_TARGETS_JSON_TMP}")
+  set(STRING_ALL_TARGETS_JSON "'[${STRING_ALL_TARGETS_JSON_TMP}]'")
 
   set(COMMAND
     ${CMAKE_COMMAND} -E env ${POPC_ENVIRONMENT}
@@ -37,7 +48,6 @@ function(add_gp_library)
   )
 
   set(PARTIAL_OUTPUTS)
-  set(CPP_PARTIAL_OUTPUTS)
 
   # compile each C++ file in it's own gp file so that we don't have to rebuild
   # the entire library whenever one of those files has changed. for now we
@@ -47,10 +57,11 @@ function(add_gp_library)
   # TODO: T10282 Fix dependencies with poplar's headers.
   foreach(CPP_SOURCE ${CODELET_CPP_SOURCES})
     get_filename_component(FILE ${CPP_SOURCE} NAME_WE)
-
-    # build each target in parallel and link together at the end.
-    foreach(TARGET ${TARGETS})
-      set(PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}_${TARGET}.gp")
+    foreach(TARGET IN LISTS LIST_ALL_TARGETS_JSON)
+      # Ideally we want to extract target name and add it into a filename
+      # but for now use SHA1 for the file names
+      string(SHA1 MAGIC_NUMBER ${TARGET})
+      set(PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}_${MAGIC_NUMBER}.gp")
       add_custom_command(
         OUTPUT
           ${PARTIAL_GP_NAME}
@@ -65,25 +76,6 @@ function(add_gp_library)
           popc_bin
       )
       list(APPEND PARTIAL_OUTPUTS ${PARTIAL_GP_NAME})
-
-      if(BUILD_CPP_CODELETS)
-        set(CPP_PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}_${TARGET}_c.gp")
-        add_custom_command(
-          OUTPUT ${CPP_PARTIAL_GP_NAME}
-          COMMAND
-            ${COMMAND}
-            -o ${CPP_PARTIAL_GP_NAME}
-            --target ${TARGET}
-            ${CPP_SOURCE}
-            -DPOPLIBS_DISABLE_ASM_CODELETS
-            -DENABLE_POPLAR_RUNTIME_CHECKS
-          DEPENDS
-            ${CPP_SOURCE}
-            ${CODELET_HEADERS}
-            popc_bin
-        )
-        list(APPEND CPP_PARTIAL_OUTPUTS ${CPP_PARTIAL_GP_NAME})
-      endif()
     endforeach()
   endforeach()
 
@@ -95,7 +87,7 @@ function(add_gp_library)
     COMMAND
       ${COMMAND}
       -o ${ASM_GP_NAME}
-      --target ${TARGETS_COMMA_SEPARATED}
+      --target ${ASM_TARGETS}
       ${CODELET_ASM_SOURCES}
     DEPENDS
       ${CODELET_ASM_SOURCES}
@@ -106,15 +98,13 @@ function(add_gp_library)
 
   # compile all of the partial gp files into the actual final library objects
   set(NAME "${CODELET_NAME}.gp")
-  set(CPP_NAME "${CODELET_NAME}_c.gp")
-
   add_custom_command(
     OUTPUT
       ${NAME}
     COMMAND
       ${COMMAND}
       -o ${NAME}
-      --target ${TARGETS_COMMA_SEPARATED}
+      --target ${STRING_ALL_TARGETS_JSON}
       ${PARTIAL_OUTPUTS}
     DEPENDS
       ${PARTIAL_OUTPUTS}
@@ -122,21 +112,6 @@ function(add_gp_library)
   )
   set(OUTPUTS ${NAME})
 
-  if(BUILD_CPP_CODELETS)
-    add_custom_command(
-      OUTPUT
-        ${CPP_NAME}
-      COMMAND
-        ${COMMAND}
-        -o ${CPP_NAME}
-        --target ${TARGETS_COMMA_SEPARATED}
-        ${CPP_PARTIAL_OUTPUTS}
-      DEPENDS
-        ${CPP_PARTIAL_OUTPUTS}
-        popc_bin
-    )
-    list(APPEND OUTPUTS ${CPP_NAME})
-  endif()
 
   add_custom_target(${NAME}_codelets ALL DEPENDS ${OUTPUTS}
     SOURCES
@@ -149,9 +124,4 @@ function(add_gp_library)
           DESTINATION ${CMAKE_INSTALL_LIBDIR}
           COMPONENT ${CODELET_NAME})
 
-  if(BUILD_CPP_CODELETS)
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${CPP_NAME}
-            DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            COMPONENT ${CODELET_NAME})
-  endif()
 endfunction()
