@@ -49,10 +49,10 @@ endfunction()
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
 set(TimesOutOnSim "${DEFAULT_TEST_VARIANTS}")
-list(REMOVE_ITEM TimesOutOnSim "Sim1" "Sim2" "Sim21")
+list(REMOVE_ITEM TimesOutOnSim "Sim2" "Sim21")
 
 set(TimesOutOnSimCpp "${TimesOutOnSim}")
-list(REMOVE_ITEM TimesOutOnSimCpp "Sim1:cpp" "Sim2:cpp" "Sim21:cpp")
+list(REMOVE_ITEM TimesOutOnSimCpp "Sim2:cpp" "Sim21:cpp")
 
 # Tests
 add_subdirectory(popfloat)

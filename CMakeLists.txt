@@ -28,9 +28,12 @@ if(NOT DEFINED POPLIBS_ENABLED_IPU_ARCH_NAMES)
 endif()
 message("Enabled architectures: ${POPLIBS_ENABLED_IPU_ARCH_NAMES}")
 
+set(DEFAULT_ENABLED_IPU_ARCH_TEST_VARIANTS "${POPLIBS_ENABLED_IPU_ARCH_NAMES}")
+list(REMOVE_ITEM DEFAULT_ENABLED_IPU_ARCH_TEST_VARIANTS "ipu1" "ipu21")
+
 # allow users to specify a subset of test variants to test on.
-set(POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS "${POPLIBS_ENABLED_IPU_ARCH_NAMES}" CACHE STRING
-    "The architectures to run tests for, defaults to all enabled architectures")
+set(POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS "${DEFAULT_ENABLED_IPU_ARCH_TEST_VARIANTS}" CACHE STRING
+    "The architectures to run tests for, defaults to all enabled architectures except ipu1 and ipu21")
 message("Enabled test architectures: ${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS}")
 
 # By default we build only ipu2 target with cpp codelets
@@ -58,7 +61,7 @@ foreach(IPU_ARCH_TEST_VARIANT ${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS})
   endif()
 endforeach()
 
-set(ALL_POSSIBLE_TEST_VARIANTS "NoTarget;Cpu;IpuModel1;IpuModel2;IpuModel21;Sim1;Sim2;Sim21;Sim1:cpp;Sim2:cpp;Sim21:cpp;Hw")
+set(ALL_POSSIBLE_TEST_VARIANTS "NoTarget;Cpu;IpuModel2;IpuModel21;Sim2;Sim21;Sim2:cpp;Sim21:cpp;Hw")
 
 set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")

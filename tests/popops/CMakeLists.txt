@@ -60,7 +60,6 @@ endforeach()
 
 
 # Would overflow unless the correct divide by 6 method is used to divide work
-# but won't fit on Sim1
 foreach(DATA_TYPE half float)
   add_multitarget_test(NAME BinaryOpLargeArith_${DATA_TYPE}
     COMMAND BinaryOpTest

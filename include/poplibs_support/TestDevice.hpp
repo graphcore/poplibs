@@ -31,27 +31,15 @@ namespace poplibs_support {
 
 // In CMakeLists.txt there is a regex on "Hw*" so be
 // careful when adding new enums that begin with Hw:
-enum class DeviceType {
-  Cpu,
-  Sim1,
-  Sim2,
-  Sim21,
-  Hw,
-  IpuModel1,
-  IpuModel2,
-  IpuModel21
-};
+enum class DeviceType { Cpu, Sim2, Sim21, Hw, IpuModel2, IpuModel21 };
 
-const auto deviceTypeHelp = "Device type: Cpu | IpuModel1 | IpuModel2 | "
-                            "Sim1 | Sim2 | Hw";
+const auto deviceTypeHelp = "Device type: Cpu | IpuModel2 | Sim2 | Hw";
 
 constexpr bool isSimulator(DeviceType d) {
-  return d == DeviceType::Sim1 || d == DeviceType::Sim2 ||
-         d == DeviceType::Sim21;
+  return d == DeviceType::Sim2 || d == DeviceType::Sim21;
 }
 constexpr bool isIpuModel(DeviceType d) {
-  return d == DeviceType::IpuModel1 || d == DeviceType::IpuModel2 ||
-         d == DeviceType::IpuModel21;
+  return d == DeviceType::IpuModel2 || d == DeviceType::IpuModel21;
 }
 constexpr bool isHw(DeviceType d) { return d == DeviceType::Hw; }
 

@@ -134,7 +134,7 @@ def main():
     parser.add_argument('--ci-test', default=False, action='store_true', help='Predefined CI test to ensure regex continues matching sim output')
     parser.add_argument('--codelet-name', default='', help='Specify codelet name to filter for. For example: ConvPartial')
     parser.add_argument('--tile-id', default='0.0', help='Specify tile.worker pair. For example: Tile 1, SUP code -> 1.0; Tile 5, WORKER 5 code -> 5.6')
-    parser.add_argument("--device-type", choices=("Sim1", "Sim2"), default="Sim2", help="Only Sim1 or Sim2 is supported")
+    parser.add_argument("--device-type", choices=("Sim2",), default="Sim2", help="Only Sim2 is supported")
     args = parser.parse_args()
 
     # Make sure workspace folder  exists
