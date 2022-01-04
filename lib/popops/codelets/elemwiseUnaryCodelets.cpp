@@ -114,11 +114,9 @@ template <> struct UnaryLibCall<expr::UnaryOpType::ERF> {
 template <> struct UnaryLibCall<expr::UnaryOpType::GELU_ERF> {
 #ifdef __IPU__
   float poly(float x) const {
-    constexpr unsigned numCoeffs = 5;
-    constexpr float coeffs[numCoeffs] = {
-        1.591460347103262e+03, -5.047108790356781e+02, 1.143587026992285e+02,
-        -5.302041163568521, 1.100101514053350};
-
+    constexpr unsigned numCoeffs = 3;
+    constexpr float coeffs[numCoeffs] = {20.31266740574137, -0.8663501338893118,
+                                         1.046146442804559};
     float y = coeffs[0];
     for (unsigned i = 1; i != numCoeffs; ++i) {
       y = y * x + coeffs[i];
@@ -129,11 +127,14 @@ template <> struct UnaryLibCall<expr::UnaryOpType::GELU_ERF> {
   // Approximation of error function based on with erf computed on
   // input / sqrt(2).
   // Cecil Hastings Jr : Approximations for Digital Computers Pg 169.
-  // On double precision, error is <1.5e-7 but reduces to < 5e-7 for fp32
-  // Do all computations in fp32 as error introduced due to the polynomial
-  // computation is expected to be significant.
+  // In double precision, error is <1.5e-5. The error is similar to a 5th
+  // order polynomial where the erf differs for small values of x. As the
+  // approximation is used only for fp16, the max relative error is around 1e03.
+  // The (1 + erf(x/sqrt(2)))  done in fp16 has similar results because for 
+  // small x, 1 + erf(x/sqrt(2)) ~= 1 with the product with x pushing the result
+  // toward 0.
   float compute(float xAbs) const {
-    const float eta = 1.0f / (4.31701009f + xAbs);
+    const float eta = 1.0f / (3.005959067258476f + xAbs);
     const auto y = (1.0f - poly(eta) * ipu::exp(-xAbs * xAbs / 2.0f));
     return y;
   }
@@ -156,8 +157,8 @@ template <> struct UnaryLibCall<expr::UnaryOpType::GELU_ERF> {
       } else {
         y = compute(static_cast<float>(xAbs));
       }
-      return (ipu::copysign(y, x) + Const<FPType>(1.0f)) * x *
-             Const<FPType>(0.5f);
+      return (ipu::copysign(y, x) + Const<FPType>(1.0f)) * Const<FPType>(0.5f) *
+             x;
     }
   }
 #endif
