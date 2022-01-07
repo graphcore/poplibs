@@ -720,6 +720,14 @@ FN_SIZE VERTEX(supervisor)
 #define stride m9
 
 #define data a0:1
+
+#define datab a0:1
+#define dataa a2:3
+#define databa a0:3
+#define datab1 a4:5
+#define dataa1 a6:7
+#define datab1a1 a4:7
+
 #define datai0 a0
 #define datai1 a1
 #define dataBHiLo a4:7
@@ -974,6 +982,7 @@ VERTEX(half).kernel:
     // $k should have the form of {1, k}
     sort4x16lo $k, $ascratch, $k
   }
+.align 8
 FN_SIZE VERTEX(half).kernel
 
 FN_WORKER_ENTRY_POINT VERTEX(axplusby_half).kernel 8 nop
@@ -1001,52 +1010,114 @@ not_axplusby_continue:
     // setup $TAS for the f32v2axpy instructions below.
     uput $TAS, $k
   }
- // pack out points (in is never used).
-  tapack $triPtr, $dataPtr, $dataBPtr, $mzero
-
+  // pack pointers
+  // $dataBPtr is in EA[0] as it cannot be in EA[1] due to:
+  // if (TMem_AddressIsExecutable(EA[1])) { 
+  // EXCEPT(TEXCPT_INVALID_ADDR) }
+  tapack $triPtr, $dataBPtr, $dataPtr, $dataPtr
+  
   // process 4 at a time first as this is the optimal scenario
   shr $countD4, $countD4, 2
 
-  // if worker id is less than the remainder this worker can process an extra 4.
+  CHOOSE_FAST_OR_SLOW_PATH .Lhalf_slow_path
+
+
+  // set strides
+  // CTXT_WORKERS + 5 = 11 - used in fast loop (ld2xst64pace)
+  // CTXT_WORKERS = 6 - used to process the tail
+  setzi $stride, (CTXT_WORKERS + 5) * 1024 + CTXT_WORKERS
+
+  // workers positioning - 64 bit apart (sufficient for tail processing
+  ld2x64pace $datab, $dataa, $triPtr+=, $workerIdM1, 0b0101
+  tapack $triPtr, $triPtri0, $triPtri1, $triPtri1
+
+  cmpult $mscratch, $countD4, 16
+  brnz $mscratch, .Lcount_less_than_16
+
+  // workers positining - 128 bits apart (extend from 64bits)
+  ld2x64pace $datab, $dataa, $triPtr+=, $workerIdM1, 0b0101
+  tapack $triPtr, $triPtri0, $triPtri1, $triPtri1
+
+
+  add  $countD4, $countD4, -4
+  shr $mscratch, $countD4, 1
+  and $countD4, $countD4, 1 
+ 
+  // the pipeline is 3 loads deep
+  ld2x64pace $datab, $dataa, $triPtr+=, $stride, 0
+  {
+    ld2x64pace $datab1, $dataa1, $triPtr+=, $stride, 0b1010
+    f16v4mix $azeros, $dataa, $datab
+  }
+  {
+    ld2x64pace $datab, $dataa, $triPtr+=, $stride, 0b0
+    f16v4mix $dataa1, $dataa1, $datab1
+  }
+
+  rpt $mscratch, (2f - 1f)/8 - 1
+1:
+  {
+    ld2xst64pace $datab1a1, $dataa1, $triPtr+=, $stride, 0b001010
+    f16v4mix $dataa, $dataa, $datab
+  }
+  {
+    ld2xst64pace $databa, $dataa, $triPtr+=, $stride, 0b100000
+    f16v4mix $dataa1, $dataa1, $datab1
+  }
+
+2:
+  {
+    ld2xst64pace $datab1a1, $dataa1, $triPtr+=, $stride, 0b001010
+    f16v4mix $dataa, $dataa, $datab
+  }
+  {
+    st64pace $dataa, $triPtr+=, $stride, 0b10
+    f16v4mix $dataa1, $dataa1, $datab1
+  }
+  {
+    st64pace $dataa1, $triPtr+=, $stride, 0b0
+    f16v4mix $dataa, $azeros, $azeros
+  }
+  st64pace $dataa, $triPtr+=, $stride, 0b10
+
+  // workers are 128 bits apart,
+  // we need to bring them back (64bit apart)
+  mul $mscratch, $workerIdM1, -1
+  ld2x64pace $datab, $dataa, $triPtr+=, $mscratch, 0b0101
+  tapack $triPtr, $triPtri0, $triPtri1, $triPtri1
+ 
+.Lcount_less_than_16:
+  // less than 64 if fast loop above has not been executed
+  // less than 8 if fast loop executed
   cmpslt $mscratch, $workerIdM1, $remM1
   add $countD4, $countD4, $mscratch
 
-  CHOOSE_FAST_OR_SLOW_PATH .Lhalf_slow_path
-  // offset each worker's pointer into the data to interleave them.
-  ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
-
-  // offset each worker's pointer into the data to interleave them.
-  // use $data as a temporary scratch register as we can't write to $azeros
-  // twice in the same instruction.
-  ld2x64pace $azeros, $data, $triPtr+=, $workerIdM1, 0b0101
-
   brz $countD4, .Lhalf_loop_epilogue
 
-  // each worker's data is interleaved so set a stride of how many workers
-  // we have.
-  setzi $stride, CTXT_WORKERS
-
   // preload 4 values and fill the accumulators.
-  ld2x64pace $data, $dataB, $triPtr+=, $stride, 0b0101
+  ld2x64pace $datab, $dataa, $triPtr+=, $stride, 0b0101
   {
     // minus 1 because we pipeline the first value.
     add $mscratch, $countD4, -1
-    f16v4mix $azeros, $data, $dataB
+    f16v4mix $azeros, $dataa, $datab
   }
-  rpt $mscratch, (2f - 1f) / 8 - 1
+  {
+    rpt $mscratch, (2f - 1f) / 8 - 1
+    fnop
+  }
 1:
   {
-    ld2x64pace $data, $dataB, $triPtr+=, $stride, 0b0101
-    f16v4mix $result, $azeros, $azeros
+    ld2x64pace $datab, $dataa, $triPtr+=, $stride, 0b0101
+    f16v4mix $dataa1, $azeros, $azeros
   }
   {
-    st64step $result, $mzero, $dataPtr+=, $stride
-    f16v4mix $azeros, $data, $dataB
+    st64pace $dataa1, $triPtr+=, $stride, 0b01
+    f16v4mix $azeros, $dataa, $datab
   }
 2:
   // store the final 4 processed values.
   f16v4mix $result, $azeros, $azeros
-  st64step $result, $mzero, $dataPtr+=, $stride
+  st64pace $result, $triPtr+=, $stride, 0b01
 
 .Lhalf_loop_epilogue:
   // at most one of our workers will have to do the remaining elements. this
@@ -1058,8 +1129,8 @@ not_axplusby_continue:
 
   // unpack the data and dataB pointers from our triPtr.
   ldconst $mscratch, TMEM_FULL_ADDRESS_MASK
-  and $dataPtr, $triPtri0, $mscratch
-  and $dataBPtr, $triPtri1, $mscratch
+  and $dataBPtr, $triPtri0, $mscratch
+  and $dataPtr, $triPtri1, $mscratch
 .Lhalf_epilogue_common:
   {
     // is there at least 2 left?
@@ -1107,7 +1178,11 @@ not_axplusby_continue:
   nop // rpt align
 // No assumptions made about operands being in different memory segments
 .Lhalf_slow_path:
-  // offset each worker's pointer into the data to interleave them.
+  // if worker id is less than the remainder this worker will process an extra 4.
+  cmpslt $mscratch, $workerIdM1, $remM1
+  add $countD4, $countD4, $mscratch
+
+ // offset each worker's pointer into the data to interleave them.
   ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
   ld64step $azeros, $mzero, $dataBPtr+=, $workerIdM1
   brz $countD2, .Lhalf_loop_epilogue_slow

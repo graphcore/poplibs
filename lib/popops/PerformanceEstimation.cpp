@@ -564,8 +564,8 @@ std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
     // (half,half), (float, half) and (float, float) versions
     // half/float case handled above
     assert(dataType != HALF || dataBType != FLOAT);
-    unsigned innerLoopCycles =
-        memConstrained ? 2 : (dataType == dataBType ? 3 : 4);
+    unsigned innerLoopCycles = memConstrained ? (vectorsPerWorker >= 16 ? 1 : 2)
+                                              : (dataType == dataBType ? 3 : 4);
 
     if (getForceInterleavedEstimates() && (dataType == dataBType)) {
       // Reduce inner loop cycles by one for (half,half), (float, float) when

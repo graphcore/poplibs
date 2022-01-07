@@ -81,7 +81,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  InOut<Vector<AType, PTR_ALIGN64, 8>> A;
+  InOut<Vector<AType, PTR_ALIGN64, 8, memConstraints>> A;
   Input<Vector<BType, PTR_ALIGN64, 8>> B;
   const ScaleType scaleB;
   unsigned short size;
@@ -110,7 +110,7 @@ public:
                                                                                \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<AType, PTR_ALIGN64, 8>> A;                                    \
+    InOut<Vector<AType, PTR_ALIGN64, 8, IS_CONSTRAINED>> A;                    \
     Input<Vector<BType, PTR_ALIGN64, 8>> B;                                    \
     SCALE_TYPE scaleB;                                                         \
     unsigned short size;                                                       \
