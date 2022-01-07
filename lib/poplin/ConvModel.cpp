@@ -187,6 +187,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
   assert(params.inputType == poplar::HALF || params.inputType == poplar::FLOAT);
+  unsigned actsVectorWidth = target.getVectorWidth(params.inputType);
   bool floatActivations = params.inputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
 
@@ -389,7 +390,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         convSizeVarsVector,
         [&target, fieldGrainSize, inChansPerGroup, convGroupsPerGroup,
          outChansPerGroup, transformedInputDilation, cache, outputStrideX,
-         floatActivations, floatPartials](
+         actsVectorWidth, floatActivations, floatPartials](
             const std::vector<unsigned> &values) -> popsolver::DataType {
           const auto convSize =
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
@@ -425,9 +426,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               cache->mEstimateConvPartialHorizontalMacInnerLoopCycles(
                   numActiveOutRows, tileOutWidth, outputStrideX,
                   tileKernelElements / tileKernelWidth, tileKernelWidth,
-                  target.getNumWorkerContexts(), floatActivations,
-                  floatPartials, inChansPerGroup, outChansPerGroup,
-                  target.getDataPathWidth());
+                  target.getNumWorkerContexts(), actsVectorWidth,
+                  floatActivations, floatPartials, inChansPerGroup,
+                  outChansPerGroup, target.getDataPathWidth());
           auto cycles = popsolver::DataType{
               getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
                   innerLoopCycles, tileNumConvGroups, tileNumInGroups,
