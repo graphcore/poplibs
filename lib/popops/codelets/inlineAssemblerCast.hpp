@@ -376,7 +376,7 @@ class inLineAssemblerCastFp8<const half *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) quarter
   singleCast(const half *in, float2 metaData0, float2 metaData1) {
-    unsigned result;
+    quarter result;
     half2 in2 = {*in, *in};
     asm volatile(
         R"l(  f16v2tof8 $a0, %[in2]
@@ -386,7 +386,7 @@ public:
         : [in2] "r"(in2)
         : "$a0");
 
-    return quarter(result);
+    return result;
   }
 
   static __attribute__((always_inline)) void
@@ -532,7 +532,7 @@ public:
 
   static __attribute__((always_inline)) quarter
   singleCast(const quarter *in, float2 metaData0, float2 metaData1) {
-    unsigned result;
+    quarter result;
     setFp8Config(metaData0);
     asm volatile(
         R"l(  ldb8 $a0, $mzero, %[in], 0
@@ -546,7 +546,7 @@ public:
         : [in] "r"(in), [scale] "r"(metaData1[1]), [format] "r"(metaData1[0])
         : "$a0");
 
-    return quarter(result);
+    return result;
   }
 
   static __attribute__((always_inline)) float2 vectorCast8(const float2 in,
@@ -586,7 +586,7 @@ class inLineAssemblerCastFp8<const char *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) quarter
   singleCast(const char *in, float2 metaData0, float2 metaData1) {
-    unsigned result;
+    quarter result;
     unsigned scratch;
     asm volatile(
         R"l(  lds8        $m0, $mzero, %[in], 0
@@ -601,7 +601,7 @@ public:
         : [in] "r"(in), [scratchPtr] "r"(&scratch)
         : "$a0", "$m0");
 
-    return quarter(result);
+    return result;
   }
 
   static __attribute__((always_inline)) float vectorCast4(const char *in) {
@@ -655,7 +655,7 @@ class inLineAssemblerCastFp8<const unsigned char *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) quarter
   singleCast(const unsigned char *in, float2 metaData0, float2 metaData1) {
-    unsigned result;
+    quarter result;
     asm volatile(
         R"l(  ldb8        $a0, $mzero, %[in], 0
               and         $a0, $a0, 0xff
@@ -668,7 +668,7 @@ public:
         : [in] "r"(in)
         : "$a0");
 
-    return quarter(result);
+    return result;
   }
 
   static __attribute__((always_inline)) float vectorCast4(float in) {
