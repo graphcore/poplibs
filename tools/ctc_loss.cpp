@@ -300,6 +300,7 @@ int main(int argc, char **argv) {
   unsigned numClasses = 4;
   unsigned batchSize = 1;
   boost::optional<unsigned> tiles = boost::none;
+  boost::optional<double> availableMemProportion = boost::none;
   Type inType = FLOAT;
   Type partialsType = FLOAT;
   Type outType = FLOAT;
@@ -313,8 +314,11 @@ int main(int argc, char **argv) {
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      deviceTypeHelp)
-    ("tiles-per-ipu",po::value<boost::optional<unsigned>>(&tiles),
-      "Number of tiles per IPU")
+    ("tiles-per-ipu", po::value<boost::optional<unsigned>>(&tiles),
+     "Number of tiles per IPU")
+    ("available-mem-proportion", 
+      po::value<boost::optional<double>>(&availableMemProportion),
+     "Available memory proportion given to the planner")
     ("profile", "Show profile report")
     ("profile-dir",
      po::value<decltype(profileDir)>(&profileDir)
@@ -410,6 +414,11 @@ int main(int argc, char **argv) {
     planOpts.set("planConstraints", *planConstraints);
   }
   planOpts.set("partialsType", partialsType.toString());
+
+  if (availableMemProportion != boost::none) {
+    planOpts.set("availableMemoryProportion",
+                 std::to_string(*availableMemProportion));
+  }
 
   poplar::OptionFlags debugOpts;
   if (testReducedCodeletGradient) {

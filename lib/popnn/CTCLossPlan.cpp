@@ -361,6 +361,7 @@ std::ostream &operator<<(std::ostream &o, const MemoryEstimate &e) {
   o << "    data                       " << e.data << "\n";
   o << "    labels                     " << e.labels << "\n";
   o << "    gradient                   " << e.gradient << "\n";
+  o << "    temp reduced gradients     " << e.tempReducedGradient << "\n";
   o << "    alpha/beta temp            " << e.alphaBetaTemp << "\n";
   o << "    temp dependencies          " << e.tempDependancies << "\n";
   o << "  Total:\n";
@@ -413,11 +414,19 @@ MemoryEstimate estimateMaxTileTempMemory(const LossPlan &plan,
   const uint64_t labelsPerTileBytes =
       batchPerPartition * maxLabelLengthPerPartition * labelTypeBytes;
 
-  const uint64_t gradientPerTileBytes = [&]() {
+  const auto gradientBytesPerTile = [&]() {
     if (plan.parallel.sliceIntoOutput) {
       // We need a working copy of gradient per tile
-      return (batchPerPartition * timePerPartition * alphabetPerPartition) *
-             partialsTypeBytes;
+      const auto numPartitionTiles =
+          plan.parallel.label + (plan.parallel.lastBlankOnSeparateTile ? 1 : 0);
+      const auto gradientBytes =
+          (batchPerPartition * timePerPartition * alphabetPerPartition) *
+          partialsTypeBytes;
+      // we need a copy of the gradients because we can't reduce on-tile in
+      // the first stage
+      const auto reducedGradientsBytes =
+          numPartitionTiles > 1 ? gradientBytes : 0;
+      return std::make_pair(gradientBytes, reducedGradientsBytes);
     } else {
       throw poputil::poplibs_error(
           "Plan::parallel::sliceIntoOutput = false is currently unsupported");
@@ -438,8 +447,12 @@ MemoryEstimate estimateMaxTileTempMemory(const LossPlan &plan,
       batchPerPartition * ((1 + 2) * maxExtendedLabelLengthPerPartition) *
       partialsTypeBytes;
 
-  return {dataPerTileBytes, labelsPerTileBytes, gradientPerTileBytes,
-          alphaBetaTempPerTileBytes, tempDependanciesPerTileBytes};
+  return {dataPerTileBytes,
+          labelsPerTileBytes,
+          std::get<0>(gradientBytesPerTile),
+          std::get<1>(gradientBytesPerTile),
+          alphaBetaTempPerTileBytes,
+          tempDependanciesPerTileBytes};
 }
 
 // Explicitly check that no partitions are empty.  If they are there will

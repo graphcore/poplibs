@@ -1365,6 +1365,19 @@ foreach(last_blank_separate 0 1)
   endforeach()
 endforeach()
 
+
+# test for non-default available memory proportion
+add_multitarget_test(
+    NAME CTC_Loss_1_Time_32_Labels_2_1_amp_0_15
+        COMMAND ctc_loss
+                --batch=1
+                --max-time=32
+                --max-label-length=12
+                --time=32
+                --label-length=12
+                --available-mem-proportion=0.15
+        VARIANTS ${IPUMODEL_VARIANTS})
+
 foreach(last_blank_separate 0 1)
   foreach(time 12 15 16)
     foreach(labels 3 5)

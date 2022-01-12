@@ -354,13 +354,19 @@ struct MemoryEstimate {
   // partition for the given tile. e.g. [sizeOfElOnTile, maxT, B, A]
   uint64_t gradient;
 
+  // When gradients have to be reduced across tiles, there is no on-tile
+  // reductions in the first stage of the reduction. This means a copy must be
+  // introduced via exchange to a new layout.
+  uint64_t tempReducedGradient;
+
   // Temporary storage of alpha and beta required to calculate gradient
   uint64_t alphaBetaTemp;
   // Used to pass previous state across the partition boundary
   uint64_t tempDependancies;
 
   uint64_t total() const {
-    return data + labels + gradient + alphaBetaTemp + tempDependancies;
+    return data + labels + gradient + tempReducedGradient + alphaBetaTemp +
+           tempDependancies;
   }
 };
 
