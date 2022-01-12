@@ -248,13 +248,16 @@ static bool computeStridedReduce(
     AccType acc = ReduceOp::template init<AccType>();
     // Reduce numPartialsM1 + 1 partials, then take an outer stride, repeat
     for (unsigned os = 0; os < numOuterStridesM1 + 1; os++) {
-      for (unsigned p = 0; p < numPartialsM1 + 1; ++p) {
+      for (unsigned p = 0; p < numPartialsM1; ++p) {
         ReduceOp::update(acc, static_cast<AccType>(*pPtr));
         pPtr += partialsWidth * partialsGrainSize;
       }
+      // Last one in the inner group. Avoid computing a pointer that is out of
+      // the expected range even if it is never used
+      ReduceOp::update(acc, static_cast<AccType>(*pPtr));
       if (outerStride != 0) {
         // Take the outer stride
-        pPtr += (outerStride - partialsWidth) * partialsGrainSize;
+        pPtr += outerStride * partialsGrainSize;
       }
     }
 
