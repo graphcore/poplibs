@@ -75,15 +75,16 @@ For more information, see: https://www.boost.org/doc/libs/1_70_0/more/getting_st
 
 The sparsity support in PopLibs (popsparse) comes in two flavours: static and dynamic. Zoltan (https://cs.sandia.gov/Zoltan/) is a third party computational graph partitioning tool that is used to generate efficient parallel graphs for static sparsity problems. Even if you are only using the dynamic sparsity support in popsparse, you will still need to acquire and build Zoltan to build popsparse.
 
-Acquire Zoltan from https://cs.sandia.gov/Zoltan/ under the LGPL license then build and install it as follows:
+Acquire Zoltan from https://github.com/sandialabs/Zoltan/releases/tag/v3.83 then build and install it as follows:
 
 On Ubuntu 18.04:
 
-    $ cd zoltan
+    $ tar xvf v3.83.tar.gz
+    $ cd Zoltan-3.83
     $ mkdir build
     $ cd build
-    $ ../configure --prefix install --disable-mpi --disable-zoltan-cppdriver --with-cflags='-fPIC' --with-cxxflags='-fPIC' --disable-tests  --disable-zoltan-tests
-    $ make
+    $ ../configure --disable-mpi --disable-zoltan-cppdriver --with-cflags='-fPIC' --with-cxxflags='-fPIC' --disable-tests  --disable-zoltan-tests
+    $ make -j$(nproc)
     $ make install
 
 You will use the install path later when configuring the PopLibs build.
