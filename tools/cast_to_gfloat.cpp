@@ -505,7 +505,7 @@ int main(int argc, char **argv) {
                   {"debug.outputAllSymbols", "true"},
                   {"debug.instrumentCompute", "true"},
                   {"debug.floatPointOpException", "false"},
-                  {"debug.nanOverflowException", "false"},
+                  {"debug.nanOverflowMode", "false"},
                   {"prng.enableStochasticRounding", prng ? "true" : "false"},
                   {"prng.seed", std::to_string(seed)}});
 

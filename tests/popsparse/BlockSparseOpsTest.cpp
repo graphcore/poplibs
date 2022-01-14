@@ -311,7 +311,7 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   mainSequence.add(downloadProg);
 
   const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"},
-                                  {"debug.nanOverflowException", "true"}};
+                                  {"debug.nanOverflowMode", "true"}};
 
   Engine engine(graph, mainSequence, engineOptions);
   poplibs_test::util::attachStreams(engine, streamMaps);

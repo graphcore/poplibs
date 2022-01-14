@@ -278,7 +278,7 @@ int main(int argc, char **argv) {
                             {"debug.outputAllSymbols", "true"},
                             {"debug.instrumentCompute", "true"},
                             {"debug.floatPointOpException", "false"},
-                            {"debug.nanOverflowException", "false"},
+                            {"debug.nanOverflowMode", "false"},
                             {"prng.enableStochasticRounding", "true"},
                             {"prng.seed", std::to_string(seed)}});
 
