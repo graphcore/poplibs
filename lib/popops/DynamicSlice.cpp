@@ -2604,9 +2604,10 @@ poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
     slice = slice.expand({0});
   }
 
-  // Return a duplicate to avoid any aliasing.
-  return poputil::duplicate(graph, poplar::concat(slices, 0), prog,
-                            debugContext);
+  // Return a duplicate to avoid any aliasing of the input tensor.
+  return poputil::duplicate(
+      graph, poplar::concat(slices, 0), prog, debugContext,
+      poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 }
 
 static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
