@@ -220,7 +220,7 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *      weights before the convolution.
  *
  *   * `gatherConvOutput` (true, false) [=false]
- *     Gather output of the matrix multipy into a single variable
+ *     Gather output of the matrix multiply into a single variable
  */
 /**
  * \param graph   The graph that the tensor will be added to.

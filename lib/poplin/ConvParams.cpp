@@ -171,7 +171,7 @@ ConvParams::ConvParams(poplar::Type inputType_, poplar::Type outputType_,
 void ConvParams::validate() const {
   const auto numFieldDims = inputFieldShape.size();
   if (kernelShape.size() != numFieldDims) {
-    throw poputil::poplibs_error("Number of kernel field dimensions does not"
+    throw poputil::poplibs_error("Number of kernel field dimensions does not "
                                  "match the number of input field dimensions");
   }
   for (const auto stride : outputTransform.stride) {
