@@ -227,8 +227,8 @@ poplar::Tensor logUniform(poplar::Graph &graph, const poplar::Tensor *seed,
  *  \param prog             The program to add this operation to.
  *  \param debugContext     Optional debug information.
  *
- *  \returns A tensor with elements randomly set to either zero or the scaled
- *           input value.
+ * \returns A tensor with elements set to either 0 or 1. The value 1 occurs with
+ * probablility \p prob.
  */
 poplar::Tensor bernoulli(poplar::Graph &graph, const poplar::Tensor *seed,
                          uint32_t seedModifier, const poplar::Tensor &reference,
@@ -256,8 +256,8 @@ poplar::Tensor bernoulli(poplar::Graph &graph, const poplar::Tensor *seed,
  *  \param prog             The program to add this operation to.
  *  \param debugContext     Optional debug information.
  *
- *  \returns A tensor with elements randomly set to either zero or the scaled
- *           input value.
+ * \returns A tensor with elements having a normal (Gaussian)
+ * distribution of random values.
  */
 poplar::Tensor normal(poplar::Graph &graph, const poplar::Tensor *seed,
                       uint32_t seedModifier, const poplar::Tensor &reference,
@@ -267,10 +267,10 @@ poplar::Tensor normal(poplar::Graph &graph, const poplar::Tensor *seed,
 
 /** Truncated normal distribution.
  *
- *  Generates a distribution derived from a normal distribution with mean
- *  \p mean and standard deviation \p stdDev. This normal distribution is
- *  truncated symmetrically about the mean at
- *  (\p mean - \p alpha * \p stdDev) and (\p mean + \p alpha * \p stdDev)
+ * Generates random data with a distribution derived from a normal distribution
+ * with mean \p mean and standard deviation \p stdDev. This normal distribution
+ * is truncated symmetrically about the mean at (\p mean - \p alpha * \p stdDev)
+ * and (\p mean + \p alpha * \p stdDev)
  *
  *  \param graph            The graph to add this operation to.
  *  \param seed             If not null, this is a pair of 32-bit integers used
@@ -289,8 +289,8 @@ poplar::Tensor normal(poplar::Graph &graph, const poplar::Tensor *seed,
  *  \param prog             The program to add this operation to.
  *  \param debugContext     Optional debug information.
  *
- *  \returns A tensor with elements randomly set to either zero or the scaled
- *           input value.
+ * \returns A tensor with elements having a truncated normal (Gaussian)
+ * distribution of random values.
  */
 poplar::Tensor truncatedNormal(poplar::Graph &graph, const poplar::Tensor *seed,
                                uint32_t seedModifier,
