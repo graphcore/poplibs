@@ -1590,13 +1590,13 @@ foreach(seed RANGE 1 5)
       VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
-# Some coverage in simulation and hardware
+# Some coverage in hardware
 # Batch > 1 and a range of min to max time tests early completion
 foreach(seed RANGE 10 20)
   foreach(num_classes 3 5 10)
     foreach(beamwidth 4 5 50)
       add_multitarget_test(
-        NAME ctc_beam_search_sim_${beamwidth}_${seed}_${num_classes}
+        NAME ctc_beam_search_hw_${beamwidth}_${seed}_${num_classes}
           COMMAND ctc_beam_search
             --batch=2
             --seed=${seed}
@@ -1607,7 +1607,7 @@ foreach(seed RANGE 10 20)
             --max-label-length=2
             --top-paths=4
             --tiles-per-ipu=16
-          VARIANTS "Hw;Sim2")
+          VARIANTS "Hw")
     endforeach()
   endforeach()
 endforeach()
