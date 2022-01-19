@@ -24,6 +24,14 @@ namespace bn {
  * \param prog           The program sequence to add the operation to.
  * \param unbiasedVarEstimate If true, an unbiased variance estimate will be
  *                            computed.
+ *  \param stableAlgo     If true, computes the mean first then subtracts
+ *                        the activations from it before computing the variance.
+ *                        The implementation with this flag set to true is
+ *                        slower than when set to false.
+ *  \param partialsType   Poplar type used for partials.
+ *                        If the type specified is smaller than the input/output
+ *                        type then \p partialsType is ignored and the
+ *                        input/output type is used instead.
  * \param debugContext       Optional debug information.
  * \param options            Batch normalisation options. See batchNormalise().
  *
@@ -67,6 +75,9 @@ batchNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
  *                        The implementation with this flag set to true is
  *                        slower than when set to false.
  *  \param partialsType   Poplar type used for partials.
+ *                        If the type specified is smaller than the input/output
+ *                        type then \p partialsType is ignored and the
+ *                        input/output type is used instead.
  *  \param allReduceCallback
  *                        Callback to perform all-reduce over \p normBatchSize
  *                        batch elements.
@@ -173,10 +184,13 @@ poplar::Tensor batchNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
  *                      using batchNormStatistics().
  * \param iStdDev       The inverse standard deviation of the \p acts tensor,
  *                      typically calculated using batchNormStatistics().
- * \param prog               The program sequence to add the operation to.
- * \param partialsType       The Poplar type to be used for intermediate values.
- * \param debugContext       Optional debug information.
- * \param options            Batch normalisation options. See batchNormalise().
+ * \param prog          The program sequence to add the operation to.
+ * \param partialsType  Poplar type used for partials.
+ *                      If the type specified is smaller than the input/output
+ *                      type then \p partialsType is ignored and the
+ *                      input/output type is used instead.
+ * \param debugContext  Optional debug information.
+ * \param options       Batch normalisation options. See batchNormalise().
  *
  * \returns A pair of tensors, \c gammaDelta and \c betaDelta which are the
  * gradients with respect to \c gamma and \c beta.
@@ -196,7 +210,10 @@ std::pair<poplar::Tensor, poplar::Tensor> batchNormParamGradients(
  *                      layer.
  * \param gradsIn       The gradient with respect to the output of this layer.
  * \param prog          The program sequence to add the operation to.
- * \param partialsType  The Poplar type to be used for intermediate values.
+ * \param partialsType  Poplar type used for partials.
+ *                      If the type specified is smaller than the input/output
+ *                      type then \p partialsType is ignored and the
+ *                      input/output type is used instead.
  * \param debugContext  Optional debug information.
  * \param options       Batch normalisation options. See batchNormalise().
  *
@@ -223,10 +240,13 @@ std::pair<poplar::Tensor, poplar::Tensor> batchNormParamGradients(
  *                      typically calculated using batchNormStatistics().
  * \param gamma         The gamma weights to multiply by when normalising the
  *                      whitened activations.
- * \param prog               The program sequence to add the operation to.
- * \param partialsType       The Poplar type to be used for intermediate values.
- * \param debugContext       Optional debug information.
- * \param options            Batch normalisation options. See batchNormalise().
+ * \param prog          The program sequence to add the operation to.
+ * \param partialsType  Poplar type used for partials.
+ *                      If the type specified is smaller than the input/output
+ *                      type then \p partialsType is ignored and the
+ *                      input/output type is used instead.
+ * \param debugContext  Optional debug information.
+ * \param options       Batch normalisation options. See batchNormalise().
  *
  * \returns     A tensor containing the gradients with respect to the input
  *              activations for this layer.
@@ -252,10 +272,13 @@ batchNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
  *                      whitening the activations.
  * \param gamma         The gamma weights to multiply by when normalising the
  *                      whitened activations.
- * \param prog               The program sequence to add the operation to.
- * \param partialsType       The Poplar type to be used for intermediate values.
- * \param debugContext       Optional debug information.
- * \param options            Batch normalisation options. See batchNormalise().
+ * \param prog          The program sequence to add the operation to.
+ * \param partialsType  Poplar type used for partials.
+ *                      If the type specified is smaller than the input/output
+ *                      type then \p partialsType is ignored and the
+ *                      input/output type is used instead.
+ * \param debugContext  Optional debug information.
+ * \param options       Batch normalisation options. See batchNormalise().
  *
  * \returns     A tensor containing the gradients with respect to the input
  *              activations for this layer.
@@ -300,6 +323,10 @@ batchNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
 ///                     gradients.
 /// \param normBatchSize
 ///                     The batch size over which the norm is done.
+/// \param partialsType Poplar type used for partials.
+///                     If the type specified is smaller than the input/output
+///                     type then \p partialsType is ignored and the
+///                     input/output type is used instead.
 /// \param debugContext Optional debug information.
 ///
 /// \returns A tensor containing the gradients with respect to the input
@@ -347,6 +374,10 @@ poplar::Tensor distributedBatchNormGradients(
 ///                     gradients.
 /// \param normBatchSize
 ///                     The batch size over which the norm is done.
+/// \param partialsType Poplar type used for partials.
+///                     If the type specified is smaller than the input/output
+///                     type then \p partialsType is ignored and the
+///                     input/output type is used instead.
 /// \param debugContext Optional debug information.
 ///
 /// \returns A tensor containing the gradients with respect to the input

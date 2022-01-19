@@ -39,6 +39,12 @@ namespace popnn {
 //    ..F.. are the field dims. ..F.. is absent for fully connected layers
 void checkTensorShape(poplar::Tensor in);
 
+// Check the partials type specified in the normalisation.  The partials type
+// may be updated as a side effect
+void checkNormTensorTypes(const poplar::Type &inputType,
+                          const poplar::Target &target,
+                          poplar::Type &partialsType);
+
 // The shapes the input tensor to have shape required by the normalisation
 // functions. Can be removed once T6054 is fixed.
 poplar::Tensor preProcessNormActs(const poplar::Tensor &acts);

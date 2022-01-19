@@ -31,7 +31,10 @@ namespace gn {
  *                            the activations from it before computing the
  *                            variance. The implementation with this flag set to
  *                            true is slower than when set to false.
- * \param partialsType        Poplar type used for partial results.
+ *  \param partialsType       Poplar type used for intermediate values.
+ *                            If the type specified is smaller than the input/
+ *                            output type then \p partialsType is ignored and
+ *                            the input/output type is used instead.
  * \param debugContext        Optional debug information.
  * \param options             Group normalisation options. See groupNormalise().
  *
@@ -131,10 +134,13 @@ groupNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
  *                      using groupNormStatistics().
  * \param iStdDev       The inverse standard deviation of the \p acts tensor,
  *                      typically calculated using groupNormStatistics().
- * \param prog               The program sequence to add the operation to.
- * \param partialsType       The Poplar type to be used for intermediate values.
- * \param debugContext       Optional debug information.
- * \param options            Group normalisation options. See groupNormalise().
+ * \param prog          The program sequence to add the operation to.
+ * \param partialsType  Poplar type used for intermediate values.
+ *                      If the type specified is smaller than the input/output
+ *                      type then \p partialsType is ignored and the
+ *                      input/output type is used instead.
+ * \param debugContext  Optional debug information.
+ * \param options       Group normalisation options. See groupNormalise().
  *
  * \returns A pair of tensors, \c gammaDelta and \c betaDelta which are the
  * gradients with respect to \c gamma and \c beta.
@@ -153,10 +159,13 @@ std::pair<poplar::Tensor, poplar::Tensor> groupNormParamGradients(
  * \param actsWhitened  The forward-pass whitened activation inputs to this
  *                      layer.
  * \param gradsIn       The gradient with respect to the output of this layer.
- * \param prog               The program sequence to add the operation to.
- * \param partialsType       The Poplar type to be used for intermediate values.
- * \param debugContext       Optional debug information.
- * \param options            Group normalisation options. See groupNormalise().
+ * \param prog          The program sequence to add the operation to.
+ * \param partialsType  Poplar type used for intermediate values.
+ *                      If the type specified is smaller than the input/output
+ *                      type then \p partialsType is ignored and the
+ *                      input/output type is used instead.
+ * \param debugContext  Optional debug information.
+ * \param options       Group normalisation options. See groupNormalise().
  *
  * \returns A pair of tensors, \c gammaDelta and \c betaDelta which are the
  * gradients with respect to \c gamma and \c beta.
@@ -181,10 +190,13 @@ std::pair<poplar::Tensor, poplar::Tensor> groupNormParamGradients(
  *                      typically calculated using groupNormStatistics().
  * \param gamma         The gamma weights to multiply by when normalising the
  *                      whitened activations.
- * \param prog               The program sequence to add the operation to.
- * \param partialsType       The Poplar type to be used for intermediate values.
- * \param debugContext       Optional debug information.
- * \param options            Group normalisation options. See groupNormalise().
+ * \param prog          The program sequence to add the operation to.
+ * \param partialsType  Poplar type used for intermediate values.
+ *                      If the type specified is smaller than the input/output
+ *                      type then \p partialsType is ignored and the
+ *                      input/output type is used instead.
+ * \param debugContext  Optional debug information.
+ * \param options       Group normalisation options. See groupNormalise().
  *
  * \returns A tensor containing the gradients with respect to the input
  *          activations for this layer.
@@ -209,10 +221,13 @@ groupNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
  *                      typically calculated using groupNormStatistics().
  * \param gamma         The gamma weights to multiply by when normalising the
  *                      whitened activations.
- * \param prog               The program sequence to add the operation to.
- * \param partialsType       The Poplar type to be used for intermediate values.
- * \param debugContext       Optional debug information.
- * \param options            Group normalisation options. See groupNormalise().
+ * \param prog          The program sequence to add the operation to.
+ * \param partialsType  Poplar type used for intermediate values.
+ *                      If the type specified is smaller than the input/output
+ *                      type then \p partialsType is ignored and the
+ *                      input/output type is used instead.
+ * \param debugContext  Optional debug information.
+ * \param options       Group normalisation options. See groupNormalise().
  *
  * \returns A tensor containing the gradients with respect to the input
  *          activations for this layer.

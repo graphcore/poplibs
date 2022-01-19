@@ -84,15 +84,17 @@ static Tensor ungroupActs(const Tensor &acts_, unsigned numChannels,
 std::pair<Tensor, Tensor>
 groupNormStatistics(Graph &graph, const Tensor acts_, float eps, Sequence &prog,
                     unsigned numGroups, bool unbiasedVarEstimate,
-                    bool stableAlgo, const Type &partialsType,
+                    bool stableAlgo, const Type &partialsType_,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(acts_, eps, numGroups, unbiasedVarEstimate,
-                            stableAlgo, partialsType, options));
+                            stableAlgo, partialsType_, options));
 
   checkTensorShape(acts_);
+  auto partialsType = partialsType_;
+  checkNormTensorTypes(acts_.elementType(), graph.getTarget(), partialsType);
   const auto optionFlags = parseOptions(options);
 
   // Ensure grouping is suitable for group norm at this point.
@@ -172,15 +174,18 @@ groupNormalise(Graph &graph, const Tensor &acts, const Tensor &gamma,
 std::pair<Tensor, Tensor>
 groupNormParamGradients(Graph &graph, const Tensor &actsWhitened,
                         const Tensor &gradsIn, Sequence &prog,
-                        const Type &partialsType,
+                        const Type &partialsType_,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
-      debugContext, DI_ARGS(actsWhitened, gradsIn, partialsType, options));
+      debugContext, DI_ARGS(actsWhitened, gradsIn, partialsType_, options));
 
   checkTensorShape(gradsIn);
   checkTensorShape(actsWhitened);
+  auto partialsType = partialsType_;
+  checkNormTensorTypes(actsWhitened.elementType(), graph.getTarget(),
+                       partialsType);
   auto outputs = poplin::normParamGradients(graph, actsWhitened, gradsIn, prog,
                                             partialsType, {di});
   di.addOutputs({{"normlisedActs", toProfileValue(outputs.first)},
@@ -191,15 +196,17 @@ groupNormParamGradients(Graph &graph, const Tensor &actsWhitened,
 std::pair<Tensor, Tensor>
 groupNormParamGradients(Graph &graph, const Tensor &acts, const Tensor &gradsIn,
                         const Tensor &mean, const Tensor &iStdDev,
-                        Sequence &prog, const Type &partialsType,
+                        Sequence &prog, const Type &partialsType_,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(acts, gradsIn, mean, iStdDev, partialsType, options));
+      DI_ARGS(acts, gradsIn, mean, iStdDev, partialsType_, options));
 
   checkTensorShape(acts);
+  auto partialsType = partialsType_;
+  checkNormTensorTypes(acts.elementType(), graph.getTarget(), partialsType);
   auto actsWhitened =
       groupNormWhiten(graph, acts, mean, iStdDev, prog, {di}, options);
   auto outputs = groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
@@ -212,19 +219,23 @@ groupNormParamGradients(Graph &graph, const Tensor &acts, const Tensor &gradsIn,
 Tensor groupNormGradients(Graph &graph, const Tensor &actsWhitened_,
                           const Tensor &gradsIn_, const Tensor &iStdDev,
                           const Tensor &gamma, Sequence &prog,
-                          const Type &partialsType,
+                          const Type &partialsType_,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(actsWhitened_, gradsIn_, gamma, iStdDev, partialsType, options));
+      DI_ARGS(actsWhitened_, gradsIn_, gamma, iStdDev, partialsType_, options));
 
   const auto optionFlags = parseOptions(options);
   const auto rank = actsWhitened_.rank();
   const auto numChans = actsWhitened_.dim(1);
   checkTensorShape(actsWhitened_);
   checkTensorShape(gradsIn_);
+  auto partialsType = partialsType_;
+  checkNormTensorTypes(actsWhitened_.elementType(), graph.getTarget(),
+                       partialsType);
+
   const auto batchSize = actsWhitened_.dim(0);
   assert(iStdDev.dim(0) % batchSize == 0);
   const auto numGroups = iStdDev.dim(0) / batchSize;
@@ -248,15 +259,17 @@ Tensor groupNormGradients(Graph &graph, const Tensor &actsWhitened_,
 Tensor groupNormGradients(Graph &graph, const Tensor &acts_,
                           const Tensor &gradsIn_, const Tensor &mean,
                           const Tensor &iStdDev, const Tensor &gamma,
-                          Sequence &prog, const Type &partialsType,
+                          Sequence &prog, const Type &partialsType_,
                           const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(acts_, gradsIn_, mean, gamma, iStdDev, partialsType, options));
+      DI_ARGS(acts_, gradsIn_, mean, gamma, iStdDev, partialsType_, options));
 
   checkTensorShape(acts_);
+  auto partialsType = partialsType_;
+  checkNormTensorTypes(acts_.elementType(), graph.getTarget(), partialsType);
   auto actsWhitened =
       groupNormWhiten(graph, acts_, mean, iStdDev, prog, {di}, options);
   auto output = groupNormGradients(graph, actsWhitened, gradsIn_, iStdDev,
