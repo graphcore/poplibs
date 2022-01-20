@@ -15,7 +15,8 @@ bool canSplitTranspose(unsigned numTranspositions, unsigned numWorkers);
 std::vector<unsigned> createSplitTranspose1DWorkList(unsigned rows,
                                                      unsigned cols,
                                                      unsigned numTranspositions,
-                                                     unsigned numWorkers);
+                                                     unsigned numWorkers,
+                                                     unsigned blockSize);
 
 } // namespace internal
 } // namespace popops

@@ -15,35 +15,51 @@ static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 namespace popops {
 
+#include "inlineAssemblerTranspose.hpp"
+
 template <typename T>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose1DSingleWorker
     : public Vertex {
+
+#if __IPU_ARCH_VERSION__ == 21
+  static const bool ext = !std::is_same<T, quarter>::value;
+  static constexpr unsigned subTransposeSize =
+      std::is_same<T, quarter>::value ? 8 : 4;
+#else
+  static const bool ext = true;
+  static constexpr unsigned subTransposeSize = 4;
+#endif //__IPU_ARCH_VERSION__
+
 public:
   Transpose1DSingleWorker();
 
   Input<Vector<T, COMPACT_PTR, 8>> src;
   Output<Vector<T, COMPACT_PTR, 8>> dst;
-  const unsigned short numSrcRowsD4;
-  const unsigned short numSrcColumnsD4;
+  const unsigned short numSrcRowsD4Or8;
+  const unsigned short numSrcColumnsD4Or8;
   const unsigned short numTranspositionsM1;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(ext);
 
   bool compute() {
+    const unsigned matrixSize = numSrcRowsD4Or8 * numSrcColumnsD4Or8 *
+                                subTransposeSize * subTransposeSize;
     const unsigned numTranspositions = numTranspositionsM1 + 1;
-    const unsigned numSrcColumns = numSrcColumnsD4 * 4;
-    const unsigned numSrcRows = numSrcRowsD4 * 4;
     for (unsigned t = 0; t != numTranspositions; ++t) {
-      for (unsigned x = 0; x != numSrcColumns; ++x) {
-        for (unsigned y = 0; y != numSrcRows; ++y) {
-          dst[t * numSrcRows * numSrcColumns + x * numSrcRows + y] =
-              src[t * numSrcRows * numSrcColumns + y * numSrcColumns + x];
-        }
-      }
+      transposeRowsColumnsFast(&src[t * matrixSize], &dst[t * matrixSize],
+                               numSrcRowsD4Or8, numSrcColumnsD4Or8);
     }
     return true;
   }
 };
+
+#ifdef __IPU__
+#if __IPU_ARCH_VERSION__ == 21
+
+template class Transpose1DSingleWorker<quarter>;
+
+#endif // __IPU_ARCH_VERSION__
+#endif // __IPU__
 
 template class Transpose1DSingleWorker<half>;
 template class Transpose1DSingleWorker<unsigned short>;

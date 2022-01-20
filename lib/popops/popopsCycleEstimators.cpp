@@ -2622,8 +2622,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(Transpose1DSingleWorker)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
-  CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
-  CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
+  CODELET_SCALAR_VAL(numSrcRowsD4Or8, unsigned short);
+  CODELET_SCALAR_VAL(numSrcColumnsD4Or8, unsigned short);
   CODELET_SCALAR_VAL(numTranspositionsM1, unsigned short);
 
   const auto srcLayout = src.getProfilerVectorLayout(0);
@@ -2634,7 +2634,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(Transpose1DSingleWorker)(
   // only 2-byte types supported
   assert(type == HALF || type == UNSIGNED_SHORT || type == SHORT);
 
-  return TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, matrices,
+  return TransposeWorkerCycles(numSrcRowsD4Or8, numSrcColumnsD4Or8, matrices,
                                srcLayout, false);
 }
 
@@ -2643,8 +2643,8 @@ MAKE_PERF_ESTIMATOR_NAME(Transpose1D)(const VertexIntrospector &vertex,
                                       const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
-  CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
-  CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
+  CODELET_SCALAR_VAL(numSrcRowsD4Or8, unsigned short);
+  CODELET_SCALAR_VAL(numSrcColumnsD4Or8, unsigned short);
   CODELET_SCALAR_VAL(numTranspositions, unsigned short);
 
   const auto srcLayout = src.getProfilerVectorLayout(0);
@@ -2663,8 +2663,8 @@ MAKE_PERF_ESTIMATOR_NAME(Transpose1D)(const VertexIntrospector &vertex,
   // the first 7 in the worker codelet.
   const std::uint64_t overhead = poputil::internal::getUnpackCost(srcLayout);
   std::uint64_t maxCycles =
-      TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, numTranspositions,
-                            srcLayout, false) +
+      TransposeWorkerCycles(numSrcRowsD4Or8, numSrcColumnsD4Or8,
+                            numTranspositions, srcLayout, false) +
       overhead - 7;
 
   // Add 7 for the supervisor code

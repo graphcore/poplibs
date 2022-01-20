@@ -56,7 +56,7 @@ namespace popops {
 namespace rearrange {
 
 static std::vector<Type> getValidTransposeDataTypes() {
-  return {HALF, FLOAT, UNSIGNED_SHORT, UNSIGNED_INT, SHORT, INT};
+  return {QUARTER, HALF, FLOAT, UNSIGNED_SHORT, UNSIGNED_INT, SHORT, INT};
 }
 
 // Negative stride used in transpose vertex
@@ -70,7 +70,16 @@ static unsigned maxStride(const poplar::Target &target) {
 bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
                          unsigned numRows, unsigned numColumns,
                          unsigned numTranspositions) {
-
+  bool is1ByteType = (type == QUARTER);
+  if (is1ByteType) {
+    const auto typeLimit = std::numeric_limits<unsigned short>::max();
+    if (numTranspositions > typeLimit || (numRows / 8) > typeLimit ||
+        (numColumns / 8) > typeLimit ||
+        (numRows / 8) > target.getRptCountMax()) {
+      return false;
+    }
+    return ((numRows % 8) == 0 && (numColumns % 8) == 0);
+  }
   bool is2ByteType = (type == HALF || type == UNSIGNED_SHORT || type == SHORT);
   if (!is2ByteType ||
       numTranspositions > std::numeric_limits<unsigned short>::max() ||
@@ -149,7 +158,7 @@ void addTransposeVertices(
 
     if (numTileTranspositions > 0) {
 
-      // There are 3 types of vertices that we might use. Default is MultiVertex
+      // There are 4 types of vertices that we might use. Default is MultiVertex
       enum VertexType {
         Transpose1D,
         Transpose1DSingleWorker,
@@ -209,13 +218,17 @@ void addTransposeVertices(
             vType == SplitTranspose1D) {
           graph.connect(v["src"], concat(inVec));
           graph.connect(v["dst"], concat(outVec));
-          graph.setInitialValue(v["numSrcColumnsD4"], cols / 4);
-          graph.setInitialValue(v["numSrcRowsD4"], rows / 4);
+
+          const unsigned subTransposeSize = dType == QUARTER ? 8 : 4;
+          graph.setInitialValue(v["numSrcColumnsD4Or8"],
+                                cols / subTransposeSize);
+          graph.setInitialValue(v["numSrcRowsD4Or8"], rows / subTransposeSize);
           if (vType == Transpose1DSingleWorker) {
             graph.setInitialValue(v["numTranspositionsM1"], inVec.size() - 1);
           } else if (vType == SplitTranspose1D) {
             auto workList = internal::createSplitTranspose1DWorkList(
-                rows, cols, numTileTranspositions, numWorkerContexts);
+                rows, cols, numTileTranspositions, numWorkerContexts,
+                subTransposeSize);
             auto tWList = graph.addConstant(
                 UNSIGNED_SHORT, {workList.size()}, workList.data(),
                 {debugContext, "Transpose/workList"});
@@ -311,9 +324,12 @@ Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
 }
 
 unsigned getMinimumRegroupGrainSize(const Type &type) {
+  bool is1ByteType = (type == QUARTER);
   bool is2ByteType = (type == HALF || type == UNSIGNED_SHORT || type == SHORT);
   bool is4ByteType = (type == FLOAT || type == UNSIGNED_INT || type == INT);
-  if (is2ByteType) {
+  if (is1ByteType) {
+    return 8;
+  } else if (is2ByteType) {
     return 4;
   } else if (is4ByteType) {
     return 2;

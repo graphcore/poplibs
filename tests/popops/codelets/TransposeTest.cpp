@@ -54,6 +54,12 @@ std::vector<TestParams> splitTranspose1DTest = {
     {52, 4, 1, false, true}, {52, 12, 1, false, true}, {52, 12, 2, false, true},
     {52, 12, 3, false, true}};
 
+std::vector<TestParams> quarterTypeTestList = {
+    {8, 8, 1, false, false},
+    {16, 24, 13, false, false},
+    {8, 32, 1, false, false},
+    {32, 4, 3, false, false},
+};
 //*************************************************
 // Main Test function for Transpose 2d
 //
@@ -103,11 +109,15 @@ void TransposeTest(const Type &dataType, bool useMultiVertex,
                      dataType == SHORT);
 
   // Initialise input pattern.
-  std::generate_n(inTest.data(), inTest.size(), [i = 0, signedType]() mutable {
-    // We don't want numbers that are outside the 'half'
-    // precision (for integers):  -2048 <= HALF <= +2048
-    return (int(i++) % 4096) - (signedType ? 2048 : 0);
-  });
+  // We don't want numbers that are outside the 'half'
+  // precision (for integers):  -2048 <= HALF <= +2048
+  // Or similarly for `quarter` where the minimum range is 16.  As we're
+  // treating quarters as unsigned chars for test then use only positive values
+  const int range = dataType == QUARTER ? 16 : 2048;
+  std::generate_n(inTest.data(), inTest.size(),
+                  [i = 0, signedType, range]() mutable {
+                    return (int(i++) % (2 * range)) - (signedType ? range : 0);
+                  });
 
   auto device = createTestDevice(TEST_TARGET, 1, test_count);
   Target target = device.getTarget();
@@ -179,10 +189,13 @@ void TransposeTest(const Type &dataType, bool useMultiVertex,
     auto sliceOut = out[test].slice({0, 0}, {matrices, rows * cols});
 
     if (fastVariant) {
+      const unsigned subTransposeSize = dataType == QUARTER ? 8 : 4;
       graph.connect(transVertex["src"], sliceIn.flatten());
       graph.connect(transVertex["dst"], sliceOut.flatten());
-      graph.setInitialValue(transVertex["numSrcColumnsD4"], cols / 4);
-      graph.setInitialValue(transVertex["numSrcRowsD4"], rows / 4);
+      graph.setInitialValue(transVertex["numSrcColumnsD4Or8"],
+                            cols / subTransposeSize);
+      graph.setInitialValue(transVertex["numSrcRowsD4Or8"],
+                            rows / subTransposeSize);
       if (!useMultiVertex) {
         graph.setInitialValue(transVertex["numTranspositionsM1"], matrices - 1);
       } else {
@@ -190,7 +203,7 @@ void TransposeTest(const Type &dataType, bool useMultiVertex,
 
         if (splitTranspose) {
           auto workList = popops::internal::createSplitTranspose1DWorkList(
-              rows, cols, matrices, numWorkerContexts);
+              rows, cols, matrices, numWorkerContexts, subTransposeSize);
           auto t = graph.addConstant(UNSIGNED_SHORT, {workList.size()},
                                      workList.data());
           graph.setTileMapping(t, test);
@@ -359,6 +372,37 @@ BOOST_AUTO_TEST_SUITE(SplitTranspose1D)
 
 BOOST_AUTO_TEST_CASE(TransposeTest_half_true_SplitTranspose) {
   TransposeTest(HALF, true, splitTranspose1DTest);
+}
+
+BOOST_AUTO_TEST_CASE(TransposeTest_quarter_true_SplitTranspose) {
+  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
+    std::cerr << "Test `TransposeTest_quarter_true_SplitTranspose` not"
+                 " executed on this device type\n";
+    return;
+  }
+  TransposeTest(QUARTER, true, splitTranspose1DTest);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(Transpose_quarter)
+
+BOOST_AUTO_TEST_CASE(TransposeTest_quarter_true) {
+  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
+    std::cerr << "Test `TransposeTest_quarter_true` not executed on this "
+                 "device type\n";
+    return;
+  }
+  TransposeTest(QUARTER, true, quarterTypeTestList);
+}
+
+BOOST_AUTO_TEST_CASE(TransposeTest_quarter_false) {
+  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
+    std::cerr << "Test `TransposeTest_quarter_false` not executed on this "
+                 "device type\n";
+    return;
+  }
+  TransposeTest(QUARTER, false, SmallTestList);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

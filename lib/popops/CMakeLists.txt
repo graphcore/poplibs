@@ -257,6 +257,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssembler.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerCast.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerTranspose.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerUnaryOps.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectScalarFromRows.hpp

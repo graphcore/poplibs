@@ -16,13 +16,12 @@ bool canSplitTranspose(unsigned numMatrices, unsigned numWorkers) {
   return numWorkers % numMatrices == 0 && numMatrices < numWorkers;
 }
 
-std::vector<unsigned> createSplitTranspose1DWorkList(unsigned rows,
-                                                     unsigned cols,
-                                                     unsigned matrices,
-                                                     unsigned numWorkers) {
+std::vector<unsigned>
+createSplitTranspose1DWorkList(unsigned rows, unsigned cols, unsigned matrices,
+                               unsigned numWorkers, unsigned blockSize) {
   unsigned workersPerMatrix = numWorkers / matrices;
-  unsigned rowsD4 = rows / 4;
-  unsigned colsD4 = cols / 4;
+  unsigned rowsDbs = rows / blockSize;
+  unsigned colsDbs = cols / blockSize;
 
   // Only allow a number of matrices that are a sub-multiple of the number of
   // workers.
@@ -38,26 +37,26 @@ std::vector<unsigned> createSplitTranspose1DWorkList(unsigned rows,
   // split rows first as the vertices are faster if split along that dimension.
   // split along column dimension once rows are split. We could use costs based
   // on actual transpose estimates to do the splitting.
-  auto rowsPerWorker = ceildiv(rowsD4, workersPerMatrix);
-  auto workersUsed = ceildiv(rowsD4, rowsPerWorker);
+  auto rowsPerWorker = ceildiv(rowsDbs, workersPerMatrix);
+  auto workersUsed = ceildiv(rowsDbs, rowsPerWorker);
 
   auto workersPerCols = workersPerMatrix / workersUsed;
-  auto colsPerWorker = ceildiv(colsD4, workersPerCols);
+  auto colsPerWorker = ceildiv(colsDbs, workersPerCols);
   std::vector<unsigned> workList;
   workList.reserve(4 * numWorkers);
 
   // build worklist
   for (unsigned t = 0; t != matrices; ++t) {
-    for (unsigned r = 0; r < rowsD4; r += rowsPerWorker) {
-      for (unsigned c = 0; c < colsD4; c += colsPerWorker) {
-        unsigned allocRows = std::min(rowsD4 - r, rowsPerWorker);
-        unsigned allocCols = std::min(colsD4 - c, colsPerWorker);
-        unsigned inIndex =
-            t * rowsD4 * 4 * colsD4 * 4 + r * 4 * colsD4 * 4 + c * 4;
-        unsigned outIndex =
-            t * rowsD4 * 4 * colsD4 * 4 + c * 4 * rowsD4 * 4 + r * 4;
-        workList.push_back(inIndex / 4);
-        workList.push_back(outIndex / 4);
+    for (unsigned r = 0; r < rowsDbs; r += rowsPerWorker) {
+      for (unsigned c = 0; c < colsDbs; c += colsPerWorker) {
+        unsigned allocRows = std::min(rowsDbs - r, rowsPerWorker);
+        unsigned allocCols = std::min(colsDbs - c, colsPerWorker);
+        unsigned inIndex = t * rowsDbs * blockSize * colsDbs * blockSize +
+                           r * blockSize * colsDbs * blockSize + c * blockSize;
+        unsigned outIndex = t * rowsDbs * blockSize * colsDbs * blockSize +
+                            c * blockSize * rowsDbs * blockSize + r * blockSize;
+        workList.push_back(inIndex / blockSize);
+        workList.push_back(outIndex / blockSize);
         workList.push_back(allocRows);
         workList.push_back(allocCols);
       }

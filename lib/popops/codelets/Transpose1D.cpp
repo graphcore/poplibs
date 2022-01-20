@@ -15,16 +15,28 @@ static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 namespace popops {
 
+#include "inlineAssemblerTranspose.hpp"
+
 template <typename T>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose1D
     : public MultiVertex {
+
+#if __IPU_ARCH_VERSION__ == 21
+  static constexpr bool ext = !std::is_same<T, quarter>::value;
+  static constexpr unsigned subTransposeSize =
+      std::is_same<T, quarter>::value ? 8 : 4;
+#else
+  static constexpr bool ext = true;
+  static constexpr unsigned subTransposeSize = 4;
+#endif //__IPU_ARCH_VERSION__
+
 public:
   Transpose1D();
 
   Input<Vector<T, COMPACT_PTR, 8>> src;
   Output<Vector<T, COMPACT_PTR, 8>> dst;
-  const unsigned short numSrcRowsD4;
-  const unsigned short numSrcColumnsD4;
+  const unsigned short numSrcRowsD4Or8;
+  const unsigned short numSrcColumnsD4Or8;
   // Each worker will process a contiguous span of matrices (each one comprises
   // 'matrixSize' contiguous elements) from 'data[offs]'.
   // The first 'workerCount' workers (from wid=0 to wid=workerCount-1) will
@@ -35,12 +47,11 @@ public:
   const unsigned short numTranspositions;
   const unsigned short workerCount;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(ext);
 
   bool compute(unsigned wid) {
-    const unsigned numSrcColumns = numSrcColumnsD4 * 4;
-    const unsigned numSrcRows = numSrcRowsD4 * 4;
-    const unsigned matrixSize = numSrcRows * numSrcColumns;
+    const unsigned matrixSize = numSrcRowsD4Or8 * numSrcColumnsD4Or8 *
+                                subTransposeSize * subTransposeSize;
 
     unsigned n = numTranspositions - 1;
     unsigned offs = wid * n + ((wid < workerCount) ? wid : workerCount);
@@ -50,16 +61,20 @@ public:
     T *dstPtr = &dst[offs * matrixSize];
 
     for (unsigned t = 0; t != n; ++t) {
-      for (unsigned x = 0; x != numSrcColumns; ++x) {
-        for (unsigned y = 0; y != numSrcRows; ++y) {
-          dstPtr[t * matrixSize + x * numSrcRows + y] =
-              srcPtr[t * matrixSize + y * numSrcColumns + x];
-        }
-      }
+      transposeRowsColumnsFast(srcPtr + t * matrixSize, dstPtr + t * matrixSize,
+                               numSrcRowsD4Or8, numSrcColumnsD4Or8);
     }
     return true;
   }
 };
+
+#ifdef __IPU__
+#if __IPU_ARCH_VERSION__ == 21
+
+template class Transpose1D<quarter>;
+
+#endif // __IPU_ARCH_VERSION__
+#endif // __IPU__
 
 template class Transpose1D<half>;
 template class Transpose1D<unsigned short>;

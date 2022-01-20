@@ -14,9 +14,18 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 namespace popops {
 
+#include "inlineAssemblerTranspose.hpp"
+
 template <typename T>
 class [[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2D
     : public Vertex {
+
+#if __IPU_ARCH_VERSION__ == 21
+  static const bool ext = !std::is_same<T, quarter>::value;
+#else
+  static const bool ext = true;
+#endif //__IPU_ARCH_VERSION__
+
 public:
   Transpose2D();
 
@@ -27,20 +36,24 @@ public:
   const unsigned short numSrcRows;
   const unsigned short numSrcColumns;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(ext);
 
   bool compute() {
     const auto numTranspositions = src.size();
     for (unsigned i = 0; i != numTranspositions; ++i) {
-      for (unsigned x = 0; x != numSrcColumns; ++x) {
-        for (unsigned y = 0; y != numSrcRows; ++y) {
-          dst[i][x * numSrcRows + y] = src[i][y * numSrcColumns + x];
-        }
-      }
+      transposeRowsColumns(&src[i][0], &dst[i][0], numSrcRows, numSrcColumns);
     }
     return true;
   }
 };
+
+#ifdef __IPU__
+#if __IPU_ARCH_VERSION__ == 21
+
+template class Transpose2D<quarter>;
+
+#endif // __IPU_ARCH_VERSION__
+#endif // __IPU__
 
 template class Transpose2D<float>;
 template class Transpose2D<unsigned int>;
