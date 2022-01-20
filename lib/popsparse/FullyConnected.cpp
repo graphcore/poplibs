@@ -2502,7 +2502,8 @@ fullyConnectedDenseGradWSerialSplits(const Graph &graph, const Type &inputType,
                                      const FullyConnectedParams &fcParams,
                                      const poplar::OptionFlags &options_,
                                      PlanningCache *cache) {
-  auto options = fullyconnected::parseOptionFlags(options_);
+  auto options = validateOptions(inputType, graph.getTarget(), fcParams,
+                                 fullyconnected::parseOptionFlags(options_));
   OptionFlags matMulOptions;
   matMulOptions.set("fullyConnectedPass", "NONE");
   matMulOptions.set("availableMemoryProportion",
@@ -2574,7 +2575,9 @@ SparseTensor createFullyConnectedWeights(
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(inputType, params, optionFlags, cache));
 
-  const auto &options = parseOptionFlags(optionFlags);
+  const auto &target = graph.getTarget();
+  const auto &options =
+      validateOptions(inputType, target, params, parseOptionFlags(optionFlags));
   logging::popsparse::debug(
       "popsparse::createFullyConnectedWeights: '{}' params={}, options={}",
       debugContext.getPathName(), params, options);
@@ -2584,7 +2587,6 @@ SparseTensor createFullyConnectedWeights(
   std::tie(plan, cost) =
       getPlan(graph.getTarget(), inputType, params, optionFlags, cache);
 
-  const auto &target = graph.getTarget();
   const auto hierarchy = poplibs::getTileHierarchy(target);
 
   const auto fwdPlan = getFwdPlan(plan);
@@ -2649,7 +2651,8 @@ Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
   POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(inputType, params, optionFlags, cache));
-  const auto &options = parseOptionFlags(optionFlags);
+  const auto &options = validateOptions(inputType, graph.getTarget(), params,
+                                        parseOptionFlags(optionFlags));
   logging::popsparse::debug(
       "popsparse::createFullyConnectedInput: '{}' params={}, options={}",
       debugContext.getPathName(), params, options);
@@ -2738,7 +2741,8 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
   // TODO: Parameter validation - shapes/sizes match given params etc.
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
-  const auto &options = parseOptionFlags(optionFlags);
+  const auto &options =
+      validateOptions(inputType, target, params, parseOptionFlags(optionFlags));
   logging::popsparse::debug(
       "popsparse::fullyConnectedFwd: '{}' params={}, options={}",
       debugContext.getPathName(), params, options);
@@ -2819,7 +2823,8 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
       debugContext, DI_ARGS(weights, activations, params, optionFlags, cache));
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
-  const auto &options = parseOptionFlags(optionFlags);
+  const auto &options =
+      validateOptions(inputType, target, params, parseOptionFlags(optionFlags));
   logging::popsparse::debug(
       "popsparse::fullyConnectedGradA: '{}' params={}, options={}",
       debugContext.getPathName(), params, options);
@@ -2899,7 +2904,8 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
                                          params, optionFlags, cache));
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
-  const auto &options = parseOptionFlags(optionFlags);
+  const auto &options =
+      validateOptions(inputType, target, params, parseOptionFlags(optionFlags));
   logging::popsparse::debug(
       "popsparse::fullyConnectedSparseGradW: '{}' params={}, options={}",
       debugContext.getPathName(), params, options);

@@ -4,6 +4,7 @@
 #define popsparse_MatMulUtils_hpp
 
 #include <poplar/OptionFlags.hpp>
+#include <poplar/Target.hpp>
 #include <poplar/Tensor.hpp>
 
 #include "MatMulOptions.hpp"
@@ -40,6 +41,12 @@ static inline poplar::Tensor matrixToFCActs(const poplar::Tensor &t,
 }
 
 SparseTensor sparseMatrixToFCWeights(const SparseTensor &t);
+
+// Validate the matmul options
+MatMulOptions validateOptions(const poplar::Type &inOutType,
+                              const poplar::Target &target,
+                              const MatMulParams &params,
+                              MatMulOptions options);
 
 } // end namespace dynamic
 } // end namespace popsparse

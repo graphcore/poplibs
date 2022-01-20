@@ -337,5 +337,30 @@ Tensor getBucketsByPartition(const Tensor &buckets,
   shape.insert(shape.end(), bucketsPerPartition);
   return buckets.reshapePartial(0, 1, shape);
 }
+
+// Validate the options
+Options validateOptions(const poplar::Type &inOutType,
+                        const poplar::Target &target,
+                        const FullyConnectedParams &params, Options options) {
+  if (target.getTypeSize(options.partialsType) <
+      target.getTypeSize(inOutType)) {
+    poplibs_support::logging::popsparse::warn(
+        "Ignoring sparse partialsType option ({}) "
+        "which is smaller than the input/output type ({})",
+        options.partialsType, inOutType);
+    options.partialsType = inOutType;
+  }
+  if (options.partialsType != FLOAT &&
+      (params.getSparsityParams().blockDimensions[0] *
+       params.getSparsityParams().blockDimensions[1]) == 1) {
+    poplibs_support::logging::popsparse::warn(
+        "Ignoring sparse partialsType option ({}) "
+        "which must be FLOAT for element wise sparse operations",
+        options.partialsType, inOutType);
+    options.partialsType = FLOAT;
+  }
+  return options;
+}
+
 } // end namespace fullyconnected
 } // end namespace popsparse

@@ -44,6 +44,8 @@ namespace dynamic {
  *    * `partialsType` poplar::Type [=poplar::FLOAT]
  *
  *      The type to use for partial results.
+ *      If the type specified is smaller than the output type then
+ *      the option is ignored and the output type is used instead.
  *
  *    * `sharedBuckets` (true, false) [=true]
  *

@@ -2,10 +2,13 @@
 #ifndef popsparse_FullyConnectedUtils_hpp
 #define popsparse_FullyConnectedUtils_hpp
 
+#include <poplar/Target.hpp>
 #include <poplar/Tensor.hpp>
 
+#include "FullyConnectedOptions.hpp"
 #include "FullyConnectedVector.hpp"
 #include "SparseStorageInternal.hpp"
+#include "popsparse/FullyConnectedParams.hpp"
 #include "popsparse/SparseTensor.hpp"
 #include <ostream>
 
@@ -100,6 +103,13 @@ getBlockDimensionsToUse(const std::array<std::size_t, 2> &oldBlockDimensions,
 // Shape the buckets tensor to represent the partitions provided
 poplar::Tensor getBucketsByPartition(const poplar::Tensor &buckets,
                                      const Vector<unsigned> &partition);
+
+// Validate the  options
+popsparse::fullyconnected::Options
+validateOptions(const poplar::Type &inOutType, const poplar::Target &target,
+                const popsparse::dynamic::FullyConnectedParams &params,
+                popsparse::fullyconnected::Options options);
+
 } // end namespace fullyconnected
 } // end namespace popsparse
 

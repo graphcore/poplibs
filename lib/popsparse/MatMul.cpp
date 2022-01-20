@@ -31,7 +31,8 @@ SparseTensor createSparseDenseMatMulLHS(
   POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(inputType, params, optionFlags, cache));
-  const auto options = parseMatMulOptionFlags(optionFlags);
+  const auto options = validateOptions(inputType, graph.getTarget(), params,
+                                       parseMatMulOptionFlags(optionFlags));
   logging::popsparse::debug(
       "popsparse::createSparseDenseMatMulLHS: '{}' params={}, options={}",
       debugContext.getPathName(), params, options);
@@ -63,7 +64,8 @@ Tensor createSparseDenseMatMulRHS(Graph &graph, const Type &inputType,
   POPSPARSE_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(inputType, params, optionFlags, cache));
-  const auto options = parseMatMulOptionFlags(optionFlags);
+  const auto options = validateOptions(inputType, graph.getTarget(), params,
+                                       parseMatMulOptionFlags(optionFlags));
   logging::popsparse::debug(
       "popsparse::createSparseDenseMatMulRHS: '{}' params={}, options={}",
       debugContext.getPathName(), params, options);
@@ -130,11 +132,13 @@ poplar::Tensor sparseDenseMatMul(poplar::Graph &graph, const SparseTensor &lhs_,
       DI_ARGS(lhs_, rhs_, transposeLHS, transposeRHS, optionFlags, cache));
   auto lhs = lhs_;
   auto rhs = rhs_;
-  const auto options = parseMatMulOptionFlags(optionFlags);
-  validateParameters(lhs, rhs, transposeLHS, transposeRHS, options);
-
   const auto &opMetaData =
       *static_cast<const MatMulTensorMetaData *>(lhs.getOpMetaData().getData());
+
+  const auto options =
+      validateOptions(rhs.elementType(), graph.getTarget(), opMetaData.mmParams,
+                      parseMatMulOptionFlags(optionFlags));
+  validateParameters(lhs, rhs, transposeLHS, transposeRHS, options);
 
   logging::popsparse::debug("popsparse::sparseDenseMatMul: '{}' params={}, "
                             "transposeLHS={}, transposeRHS={}, options={}",

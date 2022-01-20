@@ -53,9 +53,11 @@ Partitioner<T>::Partitioner(const MatMulParams &params,
                             const poplar::Target &target,
                             const poplar::OptionFlags &optionFlags,
                             PlanningCache *cache, std::string name)
-    : Partitioner(getFullyConnectedParams(params), dataType, target,
-                  getFullyConnectedOptions(parseMatMulOptionFlags(optionFlags)),
-                  cache, name) {}
+    : Partitioner(
+          getFullyConnectedParams(params), dataType, target,
+          getFullyConnectedOptions(validateOptions(
+              dataType, target, params, parseMatMulOptionFlags(optionFlags))),
+          cache, name) {}
 
 template <typename T> Partitioner<T>::~Partitioner() {}
 
