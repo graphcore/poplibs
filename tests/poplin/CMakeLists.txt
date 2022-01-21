@@ -847,6 +847,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                   ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
                   --seed ${n}
                   --binary $<TARGET_FILE:single_conv_layer>
+          LABELS single_conv_layer
           ALLOW_SKIP)
   endforeach()
 
@@ -861,6 +862,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                     --ipus 2
                     --binary $<TARGET_FILE:single_conv_layer>
             VARIANTS "Hw;${IPUMODEL_VARIANTS}"
+            LABELS single_conv_layer
             ALLOW_SKIP)
   endforeach()
 
