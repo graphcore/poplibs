@@ -510,10 +510,10 @@ static void generateVertices(std::string vertexName, Graph &graph,
   prog.add(Execute(cs, {dnai}));
 }
 
-static inline unsigned
-getMultiUpdateOpMaxElemsPerWorker(unsigned numWorkerContexts,
-                                  unsigned numElems) {
-  return ceildiv(numElems, numWorkerContexts);
+static inline unsigned getMultiSliceUpdateOpMaxElemsPerWorker(
+    unsigned numWorkerContexts, unsigned numElems, unsigned grainSize = 1) {
+  const auto numGrains = ceildiv(numElems, grainSize);
+  return ceildiv(numGrains, numWorkerContexts) * grainSize;
 }
 
 // Generate vertices on a specified tile to perform a multi-slice
@@ -536,53 +536,59 @@ static void generateMultiSliceVerticesOnTile(
 
   const auto dType = base.elementType();
   const auto &target = graph.getTarget();
-  const auto atomsPerWord =
-      target.getAtomicStoreGranularity() / target.getTypeSize(dType);
-  const unsigned vectorWidth = target.getVectorWidth(dType);
-  const auto numParallelWorkers = isUpdate ? 1 : target.getNumWorkerContexts();
+  const auto atomsPerWord = std::max(
+      target.getAtomicStoreGranularity() / target.getTypeSize(dType), 1UL);
   const auto regionSize = base.dim(baseSlicedDim ^ 1);
-  auto copiesPerOffset =
-      (base.dim(baseSlicedDim) + vectorWidth - 1) / vectorWidth;
 
-  // min 4 copies per thread to avoid excessive vertex state
-  auto offsetsPerThread = std::max(
-      (offset.numElements() + numParallelWorkers - 1) / numParallelWorkers,
-      4ul / copiesPerOffset);
+  // What dimension to split amongst workers and vertices depends on whether it
+  // is an update or slice
+  const auto maxElemsToSplitOnTile =
+      isUpdate ? base.dim(baseSlicedDim) : offset.numElements();
 
-  // ensure that words are not split between workers
-  // (the Cpu target may have zero atomsPerWord)
-  if (atomsPerWord) {
-    if (auto numSubwordElements = offsetsPerThread % atomsPerWord) {
-      offsetsPerThread += atomsPerWord - numSubwordElements;
+  // Set a grain size to avoid subword writes. Ideally, we should ideally also
+  // include the unsliced dimension.
+  auto grainSize = atomsPerWord;
+
+  // The number of elements to process depends on dimension to split
+  auto elemsPerVertex = std::min(
+      maxElemsToSplitOnTile,
+      isUpdate ? graph.getMaxFieldDim(vertexName, "baseT", 0) / regionSize
+               : graph.getMaxFieldDim(vertexName, "offsets", 0));
+  for (unsigned lastElem = 0; lastElem != maxElemsToSplitOnTile;) {
+    auto firstElem = lastElem;
+    lastElem = std::min(lastElem + elemsPerVertex, maxElemsToSplitOnTile);
+    Tensor vertexOffsets, vertexSlices, baseSlices;
+    if (isUpdate) {
+      // split base
+      vertexOffsets = offset;
+      vertexSlices = slices;
+      baseSlices = base.slice(firstElem, lastElem, baseSlicedDim);
+    } else {
+      // split offsets
+      vertexOffsets = offset.slice({firstElem, lastElem});
+      vertexSlices = slices.slice({firstElem, lastElem});
+      baseSlices = base;
     }
-  }
-
-  offsetsPerThread = std::min(offsetsPerThread,
-                              graph.getMaxFieldDim(vertexName, "offsets", 0));
-  for (unsigned o = 0; o != offset.numElements();) {
-    auto firstOffset = o;
-    o = std::min(o + offsetsPerThread, offset.numElements());
-    Tensor workerOffsets = offset.slice({firstOffset, o});
-    Tensor workerSlices = slices.slice({firstOffset, o});
     auto v = graph.addVertex(cs, vertexName,
-                             {{"offsets", workerOffsets},
-                              {"baseT", base.flatten()},
-                              {"subT", workerSlices.flatten()}});
+                             {{"offsets", vertexOffsets},
+                              {"baseT", baseSlices.flatten()},
+                              {"subT", vertexSlices.flatten()}});
     if (scale) {
       graph.connect(v["scale"], scale.get());
     }
-    if (isUpdate) {
-      // Divide work for multi-update with an operation
-      assert(numParallelWorkers == 1);
-      const auto tileElements = base.dim(baseSlicedDim);
-      const auto maxElementsPerWorker = getMultiUpdateOpMaxElemsPerWorker(
-          target.getNumWorkerContexts(), tileElements);
-      graph.setInitialValue(v["maxElementsPerWorker"], maxElementsPerWorker);
-    }
 
+    // Divide work amongst workers. For Mult-Update, divide the slice dimension
+    // and for slice, divide the number of output slices.
+    const auto maxElementsPerWorker = getMultiSliceUpdateOpMaxElemsPerWorker(
+        target.getNumWorkerContexts(), lastElem - firstElem, grainSize);
+
+    graph.setInitialValue(v["maxElementsPerWorker"], maxElementsPerWorker);
     graph.setInitialValue(v["indicesAreSorted"], indicesAreSorted && isUpdate);
-    graph.setInitialValue(v["baseOffset"], baseOffset ? *baseOffset : 0u);
-    graph.setInitialValue(v["numBaseElements"], base.dim(baseSlicedDim));
+    graph.setInitialValue(v["baseOffset"], (baseOffset ? *baseOffset : 0u) +
+                                               (isUpdate ? firstElem : 0));
+    graph.setInitialValue(
+        v["numBaseElements"],
+        (isUpdate ? (lastElem - firstElem) : base.dim(baseSlicedDim)));
     graph.setInitialValue(v["regionSize"], regionSize);
     graph.setTileMapping(v, tile);
   }
@@ -3492,7 +3498,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                 target, needsCast ? FLOAT : dataType};
 
             const auto maxDictEntriesPerWorker =
-                getMultiUpdateOpMaxElemsPerWorker(
+                getMultiSliceUpdateOpMaxElemsPerWorker(
                     targetMultiUpdateOpParams.numWorkerContexts,
                     maxDictEntriesPerTile);
             const unsigned maxOffsetsPerDictEntry =

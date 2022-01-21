@@ -27,7 +27,7 @@
 #define mWkrEnd            m6
 #define mWorkerId          m2
 #define mIndicesAreSorted  m6
-
+#define mMaxOffsetsPerWorker m6
 #define STACK_SIZE         24
 
 //****************************************************************************
@@ -183,11 +183,6 @@ MultiSlice_common_u:
 
   ld32 $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
   bri MultiSlice_common_check_no_elem
-MultiSlice_common_s:
-    // Load states
-    ld32  $mBaseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
-    ld32  $mBaseIdx, $mzero, $mvertex_base, VOFF_BASE_OFFSET
-    setzi $mWkrStart, 0
 
 MultiSlice_common_ld_offsets_span:
     st32  $mzero, $mworker_base, 5
@@ -242,6 +237,48 @@ MultiSlice_common_outer_loop_resume:
 
 MultiSlice_common_exit:
     exitz   $mzero
+
+MultiSlice_common_s:
+  // divide the offsets dimension
+  get $mWorkerId, $WSR
+  and $mWorkerId, $mWorkerId, CSR_W_WSR__CTXTID_M1__MASK
+  // load the number of offsets
+  ld32 $mOffsetSize, $mzero, $mvertex_base, VOFF_OFFSET_SIZE
+  // the max to be allocated per worker is already computed and passed as
+  // a vertex field
+  ld32 $mMaxOffsetsPerWorker, $mzero, $mvertex_base, VOFF_ELEMS_PER_WORKER
+  
+  // Find the start entry for this worker
+  mul $mWkrStart, $mWorkerId, $mMaxOffsetsPerWorker
+  min $mWkrStart, $mWkrStart, $mOffsetSize
+
+  // FInd the end entry for this worker
+  add $mWkrEnd, $mWkrStart, $mMaxOffsetsPerWorker
+  min $mWkrEnd, $mWkrEnd, $mOffsetSize
+
+  // Point to the entry in the offset vector this worker will start processing
+  // from
+  ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
+  ld32step $mzero, $mzero, $mOffsetPtr+=, $mWkrStart
+  
+  // Number of offset entries this worker will process
+  sub $mOffsetSize, $mWkrEnd, $mWkrStart
+
+  // this is stored in stack where we jump
+  ld32  $mBaseIdx, $mzero, $mvertex_base, VOFF_BASE_OFFSET
+
+  // This is require to offset the subT pointer
+  st32 $mWkrStart, $mworker_base, 5
+
+  // This is required to offset the baseT pointer and we are not splitting the
+  // slice dimension. Therefore must be 0
+  setzi $mWkrStart, 0
+
+  ld32  $mBaseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
+  bri MultiSlice_common_check_no_elem
+
+
+  
 
 FN_SIZE MultiSlice_common
 

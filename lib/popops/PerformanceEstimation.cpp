@@ -76,7 +76,7 @@ getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
     assert(false && "getMultiSliceCycleEstimate for unhandled element size");
     break;
   }
-  const std::uint64_t proAndEpilogueCycles = isUpdate ? 29 : 19;
+  const std::uint64_t proAndEpilogueCycles = isUpdate ? 29 : 28;
 
   std::uint64_t binarySearchCycles = 0;
   if (indicesAreSorted) {
@@ -112,7 +112,7 @@ getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
       offsetsInRangeCycles + offsetsOutOfRangeCycles;
 
   return (proAndEpilogueCycles + coreCycles + binarySearchCycles) *
-         (isUpdate ? targetParams.numWorkerContexts : 1);
+         targetParams.numWorkerContexts;
 }
 
 std::uint64_t getMultiUpdateOpCycleEstimate(

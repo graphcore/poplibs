@@ -60,7 +60,7 @@ std::vector<TestParams> TestList = {
 };
 
 // nust have the same size to stream to device
-std::vector<unsigned> offsetsTestUnsorted = {2, 2, 6, 5, 80, 0, 60, 55, 40, 30};
+std::vector<unsigned> offsetsTestUnsorted = {2, 2, 6, 5, 79, 0, 60, 55, 40, 30};
 std::vector<unsigned> offsetsTestSorted = {2, 2, 2, 5, 5, 30, 40, 40, 40, 50};
 
 //*************************************************
@@ -263,20 +263,23 @@ void MultiSliceCodeletTest(const Type &dataType) {
     graph.setInitialValue(dsVertex["numBaseElements"], numBaseElements);
     graph.setInitialValue(dsVertex["regionSize"], regionSize);
     graph.setInitialValue(dsVertex["indicesAreSorted"], indicesAreSorted);
-    if (update) {
-      unsigned grainSize =
-          std::max(static_cast<unsigned>(target.getAtomicStoreGranularity() /
-                                         target.getTypeSize(dataType)),
-                   1U);
-      unsigned numGrains = ceildiv(numBaseElements, grainSize);
-      unsigned grainsPerWorker =
-          ceildiv(numGrains, target.getNumWorkerContexts());
-      auto maxElems = std::min(numBaseElements, grainsPerWorker * grainSize);
-      graph.setInitialValue(dsVertex["maxElementsPerWorker"], maxElems);
-      if (isMultiUpdateAdd) {
-        graph.connect(dsVertex["scale"],
-                      scaleIsFloat ? scaleTensorF : scaleTensorH);
-      }
+    // the dimension that is split depends on whether this is an update or slice
+    unsigned grainSize =
+        std::max(static_cast<unsigned>(target.getAtomicStoreGranularity() /
+                                       target.getTypeSize(dataType)),
+                 1U);
+    unsigned elemsToSplit = update ? numBaseElements : offsets.numElements();
+    unsigned numGrains = ceildiv(elemsToSplit, grainSize);
+    unsigned grainsPerWorker =
+        ceildiv(numGrains, target.getNumWorkerContexts());
+
+    // This is not exactly how elements are split in graph construction but
+    // we just want to get some work division that doesn't cause write hazards.
+    auto maxElems = std::min(elemsToSplit, grainsPerWorker * grainSize);
+    graph.setInitialValue(dsVertex["maxElementsPerWorker"], maxElems);
+    if (update && isMultiUpdateAdd) {
+      graph.connect(dsVertex["scale"],
+                    scaleIsFloat ? scaleTensorF : scaleTensorH);
     }
     graph.setTileMapping(dsVertex, 0);
 
@@ -368,9 +371,11 @@ BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_int) { MultiSliceCodeletTest(INT); }
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_unsigned) {
   MultiSliceCodeletTest(UNSIGNED_INT);
 }
+
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_uchar) {
   MultiSliceCodeletTest(UNSIGNED_CHAR);
 }
+
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_schar) {
   MultiSliceCodeletTest(SIGNED_CHAR);
 }
