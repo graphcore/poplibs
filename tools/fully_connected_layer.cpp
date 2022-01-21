@@ -20,6 +20,7 @@
 #include <poplibs_test/FullyConnected.hpp>
 #include <poplibs_test/NonLinearity.hpp>
 #include <poplibs_test/Pass.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/Convolution.hpp>
 #include <poplin/MatMul.hpp>
@@ -396,12 +397,15 @@ int main(int argc, char **argv) {
   programs.push_back(std::move(uploadProg));
   const auto downloadProgIndex = programs.size();
   programs.push_back(std::move(downloadProg));
-  auto engineOptions = defaultEngineOptions;
+  std::optional<TempDir> tempDir;
+  OptionFlags engineOptions = defaultEngineOptions;
   if (vm.count("profile") || profileDir) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
   Engine engine(graph, std::move(programs), engineOptions);

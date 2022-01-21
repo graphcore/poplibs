@@ -5,6 +5,7 @@
 #include <poplar/OptionFlags.hpp>
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/ElementWise.hpp>
@@ -106,9 +107,12 @@ executeExpr(const DeviceType &deviceType, const Expr &expression,
   }
   Sequence controlProg({uploadProg, prog, downloadProg});
 
-  OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
   Engine e(g, controlProg, engineOptions);
   attachStreams(e, tmap);

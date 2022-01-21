@@ -14,6 +14,7 @@
 #include <poplar/IPUModel.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ScalarMultiply.hpp>
 #include <popops/ScaledAdd.hpp>
@@ -1640,8 +1641,11 @@ struct HalfTensorAXBYTestFixture {
     graph_.createHostRead("out", inOut_);
   }
 
-  pva::Report runProgram(const poplar::program::Program &program) {
-    Engine engine(graph_, program);
+  pva::Report runProgram(const poplar::program::Program &program,
+                         const std::string &dir) {
+    Engine engine(graph_, program,
+                  {{"autoReport.outputGraphProfile", "true"},
+                   {"autoReport.directory", dir}});
     engine.enableExecutionProfiling();
 
     device_.bind([&](const Device &d) {
@@ -1715,7 +1719,8 @@ BOOST_DATA_TEST_CASE_F(HalfTensorAXBYTestFixture,
   auto prog = Sequence();
   popops::scaledSubtractFrom(graph_, inOut_, A, in_, B, prog, "debug string",
                              optionFlag);
-  const auto profile = runProgram(prog);
+  const auto dir = TempDir::create();
+  const auto profile = runProgram(prog, dir.getPath());
 
   CHECK_OUTPUT_IS_AXMINUSBY(a, b);
   CHECK_WAS_MIXED_PRECISION(profile);
@@ -1729,7 +1734,8 @@ BOOST_DATA_TEST_CASE_F(HalfTensorAXBYTestFixture,
   auto prog = Sequence();
   popops::scaledSubtractFrom(graph_, inOut_, a, in_, b, prog, "debug string",
                              optionFlag);
-  runProgram(prog);
+  const auto dir = TempDir::create();
+  runProgram(prog, dir.getPath());
 
   // We dont check for casts when scaling by a constant because type handling
   // happens in C++ in scaledSubtractFrom
@@ -1748,7 +1754,8 @@ BOOST_DATA_TEST_CASE_F(HalfTensorAXBYTestFixture,
   auto prog = Sequence();
   popops::scaledSubtractFrom(graph_, inOut_, in_, B, prog, "debug string",
                              optionFlag);
-  const auto profile = runProgram(prog);
+  const auto dir = TempDir::create();
+  const auto profile = runProgram(prog, dir.getPath());
 
   CHECK_OUTPUT_IS_XMINUSBY(b);
   CHECK_WAS_MIXED_PRECISION(profile);
@@ -1762,7 +1769,8 @@ BOOST_DATA_TEST_CASE_F(HalfTensorAXBYTestFixture,
   auto prog = Sequence();
   popops::scaledSubtractFrom(graph_, inOut_, in_, b, prog, "debug string",
                              optionFlag);
-  runProgram(prog);
+  const auto dir = TempDir::create();
+  runProgram(prog, dir.getPath());
 
   // We dont check for casts when scaling by a constant because type handling
   // happens in C++ in scaledSubtractFrom

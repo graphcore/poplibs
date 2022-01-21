@@ -1,4 +1,5 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+#include "poplibs_test/TempDir.hpp"
 #include "poputil/exceptions.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
@@ -512,12 +513,15 @@ int main(int argc, char **argv) try {
   }
 
   std::cerr << "Creating engine...\n";
+  std::optional<TempDir> tempDir;
   OptionFlags engineOptions;
-  if (profilingEnabled) {
-    engineOptions.set("debug.instrument", "true");
+  if (vm.count("profile") || profileDir) {
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
   Engine engine(graph, std::move(controlProg), engineOptions);

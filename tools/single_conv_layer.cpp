@@ -3,6 +3,7 @@
 #include "poplibs_support/print.hpp"
 #include <poplibs_support/TestDevice.hpp>
 
+#include "poplibs_test/TempDir.hpp"
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplibs_support/Compiler.hpp>
@@ -901,12 +902,15 @@ int main(int argc, char **argv) try {
   const auto downloadProgIndex = programs.size(); // 3
   programs.push_back(std::move(downloadProg));
 
-  auto engineOptions = defaultEngineOptions;
+  std::optional<TempDir> tempDir;
+  OptionFlags engineOptions = defaultEngineOptions;
   if (vm.count("profile") || profileDir) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
 

@@ -9,6 +9,7 @@
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCInference.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 
@@ -119,9 +120,12 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
 
   // TODO Need to initialise outputs?
 
-  OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
   Sequence prog;
   prog.add(Execute(cs));

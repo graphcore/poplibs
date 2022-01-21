@@ -5,6 +5,7 @@
 #include <iostream>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -63,13 +64,16 @@ int testDim(unsigned sliceDim, const Type &type) {
 
   // flat input as host-writable to ensure it is always live
   graph.createHostWrite("in", input, true);
+  auto tempDir = TempDir::create();
+  poplar::OptionFlags engineOptions;
+  engineOptions.set("autoReport.outputExecutionProfile", "true");
+  engineOptions.set("autoReport.directory", tempDir.getPath());
 
-  OptionFlags options{{"showVarStorage", "true"}};
   // Actually create the engine just to check that memory has not exploded
-  Engine eng(graph, seq);
+  Engine eng(graph, seq, engineOptions);
   bool verbose = false;
   if (verbose)
-    eng.printProfileSummary(std::cerr, options);
+    eng.printProfileSummary(std::cerr, {{"showVarStorage", "true"}});
   const auto tile0Memory =
       eng.getReport().compilation().tiles()[0].memory().total().excludingGaps();
   BOOST_TEST_FRAMEWORK_MESSAGE("blah");

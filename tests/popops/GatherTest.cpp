@@ -5,6 +5,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <poplar/Engine.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <popops/Gather.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -83,6 +84,7 @@ deviceGather(const std::vector<T> &in, const std::vector<std::size_t> &in_shape,
   graph.createHostWrite("indices", tIndices, true);
   graph.createHostRead("out", tOut, true);
 
+  const auto dir = TempDir::create();
   Engine eng(graph, seq);
   std::vector<T> out(tOut.numElements());
   device.bind([&](const Device &d) {
@@ -92,7 +94,6 @@ deviceGather(const std::vector<T> &in, const std::vector<std::size_t> &in_shape,
     eng.run();
 
     eng.readTensor("out", out.data(), out.data() + out.size());
-    eng.printProfileSummary(std::cout);
   });
 
   return out;

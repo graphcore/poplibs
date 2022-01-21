@@ -263,26 +263,16 @@ runFastSlowPathBinaryTests(short "BITWISE_AND;BITWISE_OR" "short;ushort")
 # taken when run by Sim are the same as the cycle estimators. For details of
 # the test, see the --compare-cycles option of UnaryCodeletsTest/
 # BinaryCodeletsTest
-# Note how ${CMD} is run wrapped by a python script instead of being called
-# directly. Read the description in the script for details.
-find_package(Python3 3.6 REQUIRED COMPONENTS Interpreter)
-function(runRptLoopCycleTest TEST_TAG CMD VERTEX OPS DATA_TYPES)
-  add_multitarget_test(
-    NAME "RptLoopCycleTest_${TEST_TAG}"
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/runRptLoopTest.py
-            ./${CMD}
-            --vertex ${VERTEX}
-            --operation ${OPS}
-            --data-type ${DATA_TYPES}
-            --size 2500
-            --compare-cycles
-            --cycle-threshold 3
-    VARIANTS ${SIM_VARIANTS})
-endfunction()
-
-runRptLoopCycleTest("binary_float_half" BinaryCodeletsTest "BinaryOp1D"
-                    "maximum;minimum" "float;half")
-
+add_multitarget_test(
+  NAME "RptLoopCycleTest_binary_float_half"
+  COMMAND BinaryCodeletsTest
+          --vertex "BinaryOp1D"
+          --operation "maximum;minimum"
+          --data-type "float;half"
+          --size 2500
+          --compare-cycles
+          --cycle-threshold 3
+  VARIANTS ${SIM_VARIANTS})
 
 # This run tests on all the vertices of the 'ScaledAdd' family, checking for
 # overruns at the end of the data

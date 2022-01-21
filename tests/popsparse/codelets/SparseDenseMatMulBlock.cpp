@@ -38,6 +38,7 @@
 #include "SparseDensePartitionBlock.hpp"
 #include "SparseDenseUtils.hpp"
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <utility>
 

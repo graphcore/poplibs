@@ -20,6 +20,7 @@
 
 #include "../lib/popops/ExprOpUtil.hpp"
 #include "popops/ElementWise.hpp"
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -33,8 +34,6 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 using namespace poplibs_support;
-
-const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 
 //*************************************************
 bool doBroadcastOpTest(const DeviceType &deviceType, const Type &dataType,
@@ -211,8 +210,16 @@ bool doBroadcastOpTest(const DeviceType &deviceType, const Type &dataType,
   // If in-place, 'in' will contain the result
   graph.createHostRead("outStream", inPlace ? in : out);
 
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (doReport) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
   // Run sequence and compare host and IPU result
-  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg), options);
+  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg),
+                engineOptions);
   attachStreams(engine, tmap);
 
   // Put test inputs into an array of the correct type ready to use
@@ -363,8 +370,16 @@ bool doBroadcastOpTestCastOutput(
 
   graph.createHostRead("outStream", out);
 
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (doReport) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
   // Run sequence and compare host and IPU result
-  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg), options);
+  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg),
+                engineOptions);
   attachStreams(engine, tmap);
 
   // Put test inputs into an array of the correct type ready to use

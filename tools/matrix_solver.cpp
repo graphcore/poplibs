@@ -14,6 +14,7 @@
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
@@ -169,15 +170,6 @@ int main(int argc, char **argv) try {
     return 1;
   }
 
-  poplar::OptionFlags engineOptions;
-  if (vm.count("profile") || profileDir) {
-    engineOptions.set("debug.instrumentCompute", "true");
-    if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
-      engineOptions.set("autoReport.directory", *profileDir);
-    }
-  }
-
   const bool runCholesky = vm.count("cholesky");
 
   const bool ignoreData = vm.count("ignore-data");
@@ -283,6 +275,17 @@ int main(int argc, char **argv) try {
         downloadProg, tmap);
   }
 
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (vm.count("profile") || profileDir) {
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    if (profileDir) {
+      engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
+    }
+  }
   poplar::Engine engine(graph, {uploadProg, prog, downloadProg}, engineOptions);
 
   if (vm.count("compile-only"))

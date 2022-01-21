@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/print.hpp"
+#include "poplibs_test/TempDir.hpp"
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
 #include <boost/optional/optional_io.hpp>
@@ -1303,12 +1304,15 @@ int main(int argc, char **argv) try {
   const auto downloadProgIndex = programs.size(); // 3
   programs.push_back(std::move(downloadProg));
 
+  std::optional<TempDir> tempDir;
   OptionFlags engineOptions;
   if (vm.count("profile") || profileDir) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
 

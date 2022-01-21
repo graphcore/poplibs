@@ -12,6 +12,7 @@
 #include <poplibs_support/print.hpp>
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/Norms.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplibs_test/exceptions.hpp>
 #include <poplin/codelets.hpp>
@@ -40,8 +41,6 @@ using namespace poplibs_test::util;
 using namespace popnn;
 using namespace popops;
 using namespace poplibs_support;
-
-const OptionFlags engineOptions;
 
 static std::pair<poplibs_test::norm::NormType, unsigned>
 parseTestType(const std::string &testTypeString,
@@ -383,6 +382,13 @@ static bool normTest(const DeviceType &deviceType,
   copy(target, hostBeta, dataType, rawHostBeta.get());
   copy(target, hostGradsIn, dataType, rawHostGradsIn.get());
 
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (dumpProfile) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
 
   if (compile_only)

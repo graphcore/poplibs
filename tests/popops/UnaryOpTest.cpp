@@ -10,6 +10,7 @@
 
 #include "../lib/popops/ExprOpUtil.hpp"
 #include <boost/format.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn/codelets.hpp>
@@ -269,11 +270,14 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
   }
 
   // Run sequences
-  OptionFlags engOpts;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (doReport) {
-    engOpts.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
-  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engOpts);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
 
   device.bind([&](const Device &d) {

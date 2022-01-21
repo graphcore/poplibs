@@ -36,8 +36,6 @@ using namespace poplibs_test::util;
 using namespace popops;
 using namespace poplibs_support;
 
-poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
-
 //*************************************************
 bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
                    const Type &dataTypeOut,
@@ -125,13 +123,21 @@ bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
   else
     graph.createHostRead("outStream", out);
 
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (doReport) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
   // Some inbuild functions will trigger an float point exception hence need
   // to disable FP exception for specific tests
   if (disableFpException) {
-    options.set("debug.floatPointOpException", "false");
+    engineOptions.set("debug.floatPointOpException", "false");
   }
   // Run each sequence and compare host and IPU result
-  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg), options);
+  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg),
+                engineOptions);
   attachStreams(engine, tmap);
 
   // Put test inputs into an array of the correct type ready to use
@@ -295,8 +301,16 @@ bool doBinaryOpTest(const DeviceType &deviceType, const Type &dataType,
   else
     graph.createHostRead("outStream", out);
 
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (doReport) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
   // Run each sequence and compare host and IPU result
-  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg), options);
+  Engine engine(graph, Sequence(uploadProg, sequence, downloadProg),
+                engineOptions);
   attachStreams(engine, tmap);
 
   // Put test inputs into an array of the correct type ready to use

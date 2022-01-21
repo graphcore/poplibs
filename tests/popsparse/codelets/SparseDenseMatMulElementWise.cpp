@@ -38,6 +38,8 @@
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/Util.hpp>
 
+#include <poplibs_test/TempDir.hpp>
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
@@ -322,7 +324,14 @@ int main(int argc, char **argv) try {
                                            downloadProg, tmap);
   }
 
-  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (profile) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
 
   std::vector<boost::multi_array<double, 1>> hostABuckets;

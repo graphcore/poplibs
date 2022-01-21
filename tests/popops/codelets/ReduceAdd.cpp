@@ -9,6 +9,7 @@
 #include "poplin/Convolution.hpp"
 #include "poplin/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
+#include <poplibs_test/TempDir.hpp>
 #include <stdexcept>
 #include <string.h>
 
@@ -83,9 +84,12 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
 
   prog.add(Execute(cs));
 
-  OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
   Engine e(graph, prog, engineOptions);
   auto outSize = out.numElements() * target.getTypeSize(outType);

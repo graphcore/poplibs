@@ -27,6 +27,7 @@
 #include <poputil/exceptions.hpp>
 
 #include "poplibs_test/Pass.hpp"
+#include "poplibs_test/TempDir.hpp"
 #include "poplibs_test/Util.hpp"
 
 using namespace poplar;
@@ -1417,19 +1418,19 @@ int main(int argc, char **argv) {
     }
   }
 
+  std::optional<TempDir> tempDir;
   auto engineOptions = defaultEngineOptions;
   if (doProfiling) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (doProfilingExecution) {
       engineOptions.set("debug.instrumentExternalExchange", "true");
     }
-    if (doProfilingVars) {
-      engineOptions.set("debug.loweredVarDumpFile", profileDir + "/vars.capnp");
+    if (vm.count("profile-dir")) {
+      engineOptions.set("autoReport.directory", profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
-  }
-  if (vm.count("profile-dir")) {
-    engineOptions.set("autoReport.all", "true");
-    engineOptions.set("autoReport.directory", profileDir);
   }
   engineOptions.set("exchange.multicastPolicy", "balanced");
 

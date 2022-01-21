@@ -18,6 +18,7 @@
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
+#include "poplibs_test/TempDir.hpp"
 #include <poplibs_test/Reduce.hpp>
 #include <poplibs_test/Util.hpp>
 
@@ -714,12 +715,15 @@ int main(int argc, char **argv) {
          outputData.get());
   }
 
-  auto engineOptions = defaultEngineOptions;
+  std::optional<TempDir> tempDir;
+  OptionFlags engineOptions = defaultEngineOptions;
   if (vm.count("profile") || profileDir) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);

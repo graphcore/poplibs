@@ -8,6 +8,7 @@
 #include "popops/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include <boost/program_options.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <stdexcept>
 #include <string.h>
 #include <utility>
@@ -128,9 +129,12 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
     readHandles[offset] = "histogram_" + std::to_string(offset);
     graph.createHostRead(readHandles[offset], vertexHistogram);
   }
-  OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
   Sequence prog;
   prog.add(Execute(cs));

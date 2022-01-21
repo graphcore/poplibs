@@ -12,6 +12,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 
+#include "poplibs_test/TempDir.hpp"
 #include "poputil/exceptions.hpp"
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
@@ -197,12 +198,15 @@ int main(int argc, char **argv) {
   Partitioner<EType> partitioner(params, dataType, target, matmulOptions,
                                  &cache);
 
+  std::optional<TempDir> tempDir;
   OptionFlags engineOptions;
   if (profilingEnabled) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
   Engine engine(mainGraph, std::move(controlProg), engineOptions);

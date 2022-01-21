@@ -15,6 +15,8 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 
+#include <poplibs_test/TempDir.hpp>
+
 #include <boost/program_options.hpp>
 
 #include <exception>
@@ -26,7 +28,7 @@ using namespace poplibs_test::util;
 using namespace popops;
 using namespace poplibs_support;
 
-const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
+poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 
 //******************************************************************************
 //
@@ -342,6 +344,12 @@ bool doBroadcastVectorOptimiseTest(
   }
 
   // Run sequences and compare host and IPU result
+  std::optional<TempDir> tempDir;
+  if (doReport) {
+    tempDir.emplace(TempDir::create());
+    options.set("autoReport.outputExecutionProfile", "true");
+    options.set("autoReport.directory", tempDir->getPath());
+  }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, options);
   attachStreams(engine, tmap);
 

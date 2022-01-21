@@ -12,6 +12,7 @@
 #include <poplar/Program.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/print.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/Operation.hpp>
@@ -32,6 +33,7 @@ using poplibs_support::toString;
 
 constexpr bool useDSMapper = true;
 
+const auto dir = TempDir::create();
 const OptionFlags options;
 
 #define NUM_DIMS 3
@@ -240,7 +242,10 @@ void sliceTestND(unsigned tilesPerIPU, const std::vector<size_t> &testShape,
   graph.createHostRead("out", tOut);
 
   BOOST_TEST_MESSAGE("Creating engine");
-  Engine eng(graph, prog, options);
+  const auto dir = TempDir::create();
+  Engine eng(graph, prog,
+             {{"autoReport.outputGraphProfile", "true"},
+              {"autoReport.directory", dir.getPath()}});
   device.bind([&](const Device &d) {
     eng.load(d);
 
@@ -1144,7 +1149,11 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   // Engine creation will fail for non-cpu targets if many edge pointers or
   // significant exchange is required; this should not happen if
   // createSliceableTensor() has given a good layout
-  Engine eng(graph, prog, options);
+  auto tempDir = TempDir::create();
+  poplar::OptionFlags engineOptions;
+  engineOptions.set("autoReport.outputExecutionProfile", "true");
+  engineOptions.set("autoReport.directory", tempDir.getPath());
+  Engine eng(graph, prog, engineOptions);
   device.bind([&](const Device &d) {
     eng.load(d);
     if (updateOp && opUsesScale) {
@@ -1482,7 +1491,11 @@ static void multiUpdatePoorlyMapped(bool accumulate) {
   const float updateScaling = 0.5f;
   std::vector<float> hScale(1, updateScaling);
 
-  Engine e(graph, prog, options);
+  auto tempDir = TempDir::create();
+  poplar::OptionFlags engineOptions;
+  engineOptions.set("autoReport.outputExecutionProfile", "true");
+  engineOptions.set("autoReport.directory", tempDir.getPath());
+  Engine e(graph, prog, engineOptions);
   device.bind([&](const Device &d) {
     e.load(d);
     if (accumulate) {
@@ -1610,7 +1623,10 @@ void multiUpdatePoorlyMappedSlices() {
   poplar::copyFloatToDeviceHalf(target, hOut.data(), rawOut.data(),
                                 hOut.size());
 
-  Engine e(graph, prog, options);
+  const auto dir = TempDir::create();
+  Engine e(graph, prog,
+           {{"autoReport.outputGraphProfile", "true"},
+            {"autoReport.directory", dir.getPath()}});
   device.bind([&](const Device &d) {
     e.load(d);
     e.writeTensor("scale", rawScaleIn.data(),

@@ -22,8 +22,9 @@ set(COMMON_ADD_EXECUTABLE_LIBRARIES
         poplibs_test
         poplar
         Boost::unit_test_framework
-        Boost::timer
+        Boost::timer 
         Boost::system
+        Boost::filesystem 
         Boost::program_options
         ${CMAKE_THREAD_LIBS_INIT}
 )

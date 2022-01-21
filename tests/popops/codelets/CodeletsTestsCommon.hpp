@@ -8,6 +8,7 @@
 
 #include <poplar/Type.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/codelets.hpp>
@@ -517,8 +518,11 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
   // === Run the program
   OptionFlags engOpts;
   bool reportCycles = options.printCycles || options.cycleCompareDevice;
+  std::optional<TempDir> tempDir;
   if (options.report || reportCycles) {
-    engOpts.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engOpts.set("autoReport.outputExecutionProfile", "true");
+    engOpts.set("autoReport.directory", tempDir->getPath());
   }
   if (options.cycleCompareDevice == estimatedStr) {
     engOpts.set("profiler.includeCycleEstimates", "true");

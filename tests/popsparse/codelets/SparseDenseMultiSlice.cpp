@@ -21,6 +21,7 @@
 
 #include <poplar/Graph.hpp>
 
+#include "poplibs_test/TempDir.hpp"
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_support/print.hpp>
 
@@ -364,7 +365,14 @@ int main(int argc, char **argv) try {
   rawHostSubT = allocateHostMemoryForTensor(subT, "subT", graph, uploadProg,
                                             downloadProg, tmap);
 
-  Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (profile) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
 
   std::vector<boost::multi_array<double, 1>> hostNZBuckets;

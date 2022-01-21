@@ -11,6 +11,7 @@
 #include <poplar/Program.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/print.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/SequenceSlice.hpp>
@@ -121,7 +122,8 @@ void variableslice(const std::vector<uint32_t> &nElem,
   copy(target, hOut.data(), s.numElements(), elemType, sByteBuf.data());
   copy(target, hIn.data(), t.numElements(), elemType, tByteBuf.data());
 
-  Engine eng(graph, prog, options);
+  const auto dir = TempDir::create();
+  Engine eng(graph, prog, {});
   device.bind([&](const Device &d) {
     eng.load(d);
     eng.writeTensor("out", sByteBuf.data(), sByteBuf.data() + sByteBuf.size());
@@ -154,11 +156,6 @@ void variableslice(const std::vector<uint32_t> &nElem,
     BOOST_CHECK_EQUAL(numExpectedWrites, numNonZero);
   if (!slicerZeros)
     BOOST_CHECK_EQUAL(numExpectedWrites, hOut.size() - numInitValues);
-  std::stringstream ss;
-  if (TEST_TARGET != DeviceType::Cpu) {
-    eng.printProfileSummary(ss, engineOptions);
-    BOOST_TEST_MESSAGE(ss.str());
-  }
 }
 
 BOOST_AUTO_TEST_CASE(RegionSizeVariation) {

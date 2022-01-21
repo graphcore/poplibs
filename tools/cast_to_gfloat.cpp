@@ -21,6 +21,8 @@
 #include <poplibs_test/Pass.hpp>
 #include <poplibs_test/Util.hpp>
 
+#include <poplibs_test/TempDir.hpp>
+
 #include <poplar/CSRFunctions.hpp>
 
 using namespace poplar;
@@ -499,15 +501,21 @@ int main(int argc, char **argv) {
     graph.createHostRead("unpackOut", unpackOutput);
   }
 
-  Engine engine(
-      graph, gfCastProg,
-      OptionFlags{{"debug.allowOutOfMemory", "true"},
-                  {"debug.outputAllSymbols", "true"},
-                  {"debug.instrumentCompute", "true"},
-                  {"debug.floatPointOpException", "false"},
-                  {"debug.nanOverflowMode", "false"},
-                  {"prng.enableStochasticRounding", prng ? "true" : "false"},
-                  {"prng.seed", std::to_string(seed)}});
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions{
+      {"debug.allowOutOfMemory", "true"},
+      {"debug.outputAllSymbols", "true"},
+      {"debug.instrumentCompute", "true"},
+      {"debug.floatPointOpException", "false"},
+      {"debug.nanOverflowMode", "false"},
+      {"prng.enableStochasticRounding", prng ? "true" : "false"},
+      {"prng.seed", std::to_string(seed)}};
+  if (vm.count("profile")) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
+  Engine engine(graph, gfCastProg, engineOptions);
 
   if (vm.count("compile-only"))
     return 0;

@@ -11,6 +11,8 @@
 #include <poplibs_test/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 
+#include <poplibs_test/TempDir.hpp>
+
 #include <boost/multi_array.hpp>
 
 #include <limits>
@@ -153,9 +155,12 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   copy(target, beamAddendIn, UNSIGNED_INT, rawBeamAddend.get());
   copy(target, beamParentIn, UNSIGNED_INT, rawBeamParent.get());
 
-  OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
   Sequence prog;
   prog.add(Execute(cs));

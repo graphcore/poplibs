@@ -19,6 +19,7 @@
 #include <poplibs_support/MultiArray.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Pooling.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn/Pooling.hpp>
@@ -88,6 +89,7 @@ int main(int argc, char **argv) {
 
   OptionFlags engineOptions;
   OptionFlags poolingOptions;
+  const auto dir = TempDir::create();
 
   po::options_description desc("Options");
   // clang-format off
@@ -240,6 +242,12 @@ int main(int argc, char **argv) {
   auto rawHostNextAct = allocateHostMemoryForTensor(
       nextAct, "nextAct", graph, uploadProg, downloadProg, tmap);
 
+  std::optional<TempDir> tempDir;
+  if (vm.count("profile")) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
 

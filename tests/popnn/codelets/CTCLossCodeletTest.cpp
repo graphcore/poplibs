@@ -17,6 +17,8 @@
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
+#include <poplibs_test/TempDir.hpp>
+
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
@@ -410,9 +412,12 @@ gradIPU(const InputSequence<double> &input, unsigned timeStep,
   copy(target, prevLabelInit, outType, rawPrevLabel.get());
 
   prog.add(Execute(cs));
-  OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);

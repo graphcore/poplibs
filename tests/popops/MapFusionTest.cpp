@@ -5,6 +5,7 @@
 #include "poplibs_test/Util.hpp"
 #include "poputil/exceptions.hpp"
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <pva/pva.hpp>
 
 // codelets
@@ -97,7 +98,10 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
       graph.createHostRead("testRead", testRead);
     }
 
-    Engine engine(graph, prog);
+    const auto dir = TempDir::create();
+    Engine engine(graph, prog,
+                  {{"autoReport.outputGraphProfile", "true"},
+                   {"autoReport.directory", dir.getPath()}});
 
     // We expect the following to be in the graph:
     /*

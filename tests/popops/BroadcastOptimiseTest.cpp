@@ -19,6 +19,8 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 
+#include <poplibs_test/TempDir.hpp>
+
 #include <boost/program_options.hpp>
 
 #include <exception>
@@ -29,8 +31,6 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 using namespace poplibs_support;
-
-const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 
 //*************************************************
 // Do a broadcast operation, where the first operand ('in') is a tensor with
@@ -199,8 +199,15 @@ bool doBroadcastVectorOptimiseTest(
       prog.add(PrintTensor("out", out));
   }
 
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (doReport) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
   // Run sequences and compare host and IPU result
-  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, options);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
 
   if (!ignoreData) {

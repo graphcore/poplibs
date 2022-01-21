@@ -7,6 +7,7 @@
 #include <boost/program_options.hpp>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poputil/TileMapping.hpp>
 #include <stdexcept>
 #include <string.h>
@@ -100,9 +101,12 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
   graph.createHostWrite("data", ipuData);
   graph.createHostWrite("limits", ipuLimits);
 
-  OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
   Engine e(graph, prog, engineOptions);
   std::vector<HistType> resultHistogram(limits.size() + 1);

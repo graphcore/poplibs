@@ -8,6 +8,7 @@
 #include <poplar/exceptions.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/print.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/Loss.hpp>
 #include <popnn/codelets.hpp>
@@ -326,9 +327,12 @@ int main(int argc, char **argv) try {
         outValues, "outValues", graph, uploadProg, downloadProg, tmap);
   }
 
+  std::optional<TempDir> tempDir;
   OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrument", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
 
   Tensor cycleCounter;

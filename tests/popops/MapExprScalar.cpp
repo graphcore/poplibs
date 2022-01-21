@@ -33,7 +33,7 @@ static unsigned numMapVerticesCreated(const Expr &expression,
   g.setTileMapping(b, 0);
 
   popops::map(g, expression, {a, b}, prog, "ScalarOp");
-  Engine engine(g, prog);
+  Engine engine(g, prog, {{"autoReport.outputGraphProfile", "true"}});
   const auto report = engine.getReport(false);
 
   unsigned numMapVertices = 0;

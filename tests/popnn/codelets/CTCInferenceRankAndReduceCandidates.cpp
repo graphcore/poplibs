@@ -12,6 +12,8 @@
 #include <popops/codelets.hpp>
 #include <poputil/VertexTemplates.hpp>
 
+#include <poplibs_test/TempDir.hpp>
+
 #include <boost/multi_array.hpp>
 
 using namespace poplar;
@@ -97,9 +99,12 @@ runCodeletCommon(poplar::Graph &graph, poplibs_support::TestDevice &device,
         graph, vertex, "rankedCandidate", partialsType, {beamwidth}, uploadProg,
         downloadProg, tmap);
   }
-  OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
   Sequence prog;
   prog.add(Execute(cs));

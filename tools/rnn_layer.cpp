@@ -19,6 +19,7 @@
 #include <poplibs_test/NonLinearity.hpp>
 #include <poplibs_test/Pass.hpp>
 #include <poplibs_test/Rnn.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
@@ -375,12 +376,15 @@ int main(int argc, char **argv) {
                                     uploadProg, downloadProg, tmap);
   }
 
-  auto engineOptions = defaultEngineOptions;
+  std::optional<TempDir> tempDir;
+  OptionFlags engineOptions = defaultEngineOptions;
   if (vm.count("profile") || profileDir) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);

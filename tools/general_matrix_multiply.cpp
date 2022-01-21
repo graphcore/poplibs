@@ -1,4 +1,5 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+#include "poplibs_test/TempDir.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
@@ -335,12 +336,15 @@ int main(int argc, char **argv) {
   auto rawHostMatC = allocateHostMemoryForTensor(
       matC, "matC", graph, uploadProg, downloadProg, tmap);
 
-  auto engineOptions = defaultEngineOptions;
+  std::optional<TempDir> tempDir;
+  OptionFlags engineOptions = defaultEngineOptions;
   if (profile || profileDir) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
 

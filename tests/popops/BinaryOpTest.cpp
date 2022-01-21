@@ -16,6 +16,8 @@
 
 #include "codelets/BinaryCodeletsTest.hpp"
 
+#include <poplibs_test/TempDir.hpp>
+
 #include <algorithm>
 #include <cstdlib>
 #include <exception>
@@ -279,11 +281,14 @@ static bool doBinaryOpTest(
   }
 
   // Run sequences
-  OptionFlags engOpts;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (doReport) {
-    engOpts.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
-  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engOpts);
+  Engine engine(graph, Sequence{uploadProg, prog, downloadProg}, engineOptions);
   attachStreams(engine, tmap);
 
   device.bind([&](const Device &d) {

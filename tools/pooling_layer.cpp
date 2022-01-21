@@ -1,4 +1,5 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+#include "poplibs_test/TempDir.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
@@ -97,6 +98,7 @@ int main(int argc, char **argv) {
   PoolingType poolingType = PoolingType::MAX;
   Pass pass = Pass::ALL;
 
+  std::optional<TempDir> tempDir;
   OptionFlags engineOptions;
   OptionFlags poolingOptions;
   bool useIntrospectiveMapping;
@@ -199,10 +201,12 @@ int main(int argc, char **argv) {
     }
 
     if (vm.count("profile") || profileDir) {
-      engineOptions.set("debug.instrumentCompute", "true");
+      engineOptions.set("autoReport.outputExecutionProfile", "true");
       if (profileDir) {
-        engineOptions.set("autoReport.all", "true");
         engineOptions.set("autoReport.directory", *profileDir);
+      } else {
+        tempDir.emplace(TempDir::create());
+        engineOptions.set("autoReport.directory", tempDir->getPath());
       }
     }
 

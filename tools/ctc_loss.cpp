@@ -21,6 +21,8 @@
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 
+#include "poplibs_test/TempDir.hpp"
+
 #include <fstream>
 #include <iomanip>
 #include <random>
@@ -241,12 +243,15 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   }
 
   // Run input, gradient, output
+  std::optional<TempDir> tempDir;
   OptionFlags engineOptions;
   if (profile || profileDir) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     if (profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
 

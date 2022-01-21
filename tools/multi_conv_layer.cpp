@@ -9,6 +9,7 @@
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_test/Check.hpp>
 #include <poplibs_test/Convolution.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/ConvUtil.hpp>
 #include <poplin/codelets.hpp>
@@ -229,7 +230,13 @@ int main(int argc, char **argv) try {
     }
   }
 
-  const poplar::OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
+  if (profile) {
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
+  }
   poplar::Engine engine(graph, {uploadProg, prog, downloadProg}, engineOptions);
 
   if (vm.count("compile-only"))

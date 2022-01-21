@@ -12,6 +12,8 @@
 #include <poplibs_test/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 
+#include <poplibs_test/TempDir.hpp>
+
 #include <boost/multi_array.hpp>
 
 #include <limits>
@@ -157,9 +159,12 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   copy(target, beamLengthIn, UNSIGNED_INT, rawBeamLength.get());
   copy(target, completeIn, UNSIGNED_INT, rawComplete.get());
 
-  OptionFlags engineOptions;
+  std::optional<TempDir> tempDir;
+  poplar::OptionFlags engineOptions;
   if (profile) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    tempDir.emplace(TempDir::create());
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+    engineOptions.set("autoReport.directory", tempDir->getPath());
   }
   Sequence prog;
   prog.add(Execute(cs));

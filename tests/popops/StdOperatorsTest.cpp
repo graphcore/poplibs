@@ -7,6 +7,7 @@
 #include <limits>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/AllTrue.hpp>
 #include <popops/ElementWise.hpp>
@@ -30,6 +31,7 @@ namespace pe = popops::expr;
 
 static DeviceType deviceType;
 
+const auto dir = TempDir::create();
 poplar::OptionFlags options;
 
 #define DIM_SIZE 3
@@ -315,10 +317,6 @@ void binaryOpTest(const BinaryOpFn &op,
     eng.run();
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
-
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cout, {{"showExecutionSteps", "true"}});
-  }
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1213,9 +1211,6 @@ void mapTestCast(bool inPlace, poplar::Type in1Type, poplar::Type in2Type) {
     poplar::copyDeviceHalfToFloat(target, rawOut2.data(), &hOut2[0][0],
                                   DIM_SIZE * DIM_SIZE);
   }
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1286,9 +1281,6 @@ void mapTestCastIntToFloat() {
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
     eng.readTensor("out2", hOut2, &hOut2[DIM_SIZE]);
   });
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1325,10 +1317,6 @@ void mapTest() {
     eng.run();
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
-
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1380,10 +1368,6 @@ void mapTestMultiTensor() {
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
-
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     auto expected = (aIn[i] >= bIn[i]) ? cIn[i] + bIn[i] : aIn[i] + bIn[i];
@@ -1416,10 +1400,6 @@ void mapInPlaceTest() {
     eng.run();
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
-
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1527,10 +1507,6 @@ void mapInferTypeTest() {
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
 
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
-
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     auto expected = (aIn[i] == bIn[i]) && cIn[i];
@@ -1569,10 +1545,6 @@ void addInPlaceTest() {
     eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
-
-    if (isIpuModel(deviceType)) {
-      eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-    }
   });
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1609,10 +1581,6 @@ void multiplyFloatInPlaceConstScalarTest() {
     eng.run();
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
   });
-
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
@@ -1655,9 +1623,6 @@ void addHalfConstScalarTest() {
     eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
   });
 
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
   poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
                                 DIM_SIZE * DIM_SIZE);
   /* Check result */
@@ -1712,10 +1677,6 @@ void binaryConcatTest() {
     eng.writeTensor("in4", hIn4, &hIn4[DIM_SIZE]);
     eng.run();
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
-
-    if (isIpuModel(deviceType)) {
-      eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-    }
   });
 
   /* Check result */
@@ -1760,10 +1721,6 @@ void unaryConcatTest() {
     eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
     eng.run();
     eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
-
-    if (isIpuModel(deviceType)) {
-      eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-    }
   });
 
   /* Check result */

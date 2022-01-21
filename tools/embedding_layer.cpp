@@ -10,6 +10,7 @@
 
 #include <poplibs_support/logging.hpp>
 
+#include "poplibs_test/TempDir.hpp"
 #include <poplibs_test/Embedding.hpp>
 #include <poplibs_test/Util.hpp>
 
@@ -391,13 +392,16 @@ int main(int argc, char **argv) {
     ctrlProg.add(downloadProg);
   }
 
+  std::optional<TempDir> tempDir;
   OptionFlags engineOptions;
   if (opts.profile || opts.profileDir) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
     engineOptions.set("debug.computeInstrumentationLevel", "device");
     if (opts.profileDir) {
-      engineOptions.set("autoReport.all", "true");
       engineOptions.set("autoReport.directory", *opts.profileDir);
+    } else {
+      tempDir.emplace(TempDir::create());
+      engineOptions.set("autoReport.directory", tempDir->getPath());
     }
   }
 
