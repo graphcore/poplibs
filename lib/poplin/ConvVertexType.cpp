@@ -49,15 +49,8 @@ bool canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
   if (!canUseConvolutionInstruction(floatActivations, floatPartials, target)) {
     return false;
   }
-  unsigned usedWeightsPerConvUnit =
+  const unsigned usedWeightsPerConvUnit =
       target.getWeightsPerConvUnit(floatActivations);
-  // Any other configuration than 4 uses full set of weights hence no need for
-  // extra constraint
-  if (numConvUnitsRequired == 4) {
-    usedWeightsPerConvUnit =
-        (usedWeightsPerConvUnit * numConvUnitsRequired) /
-        getConvUnitsPerTile(target, floatActivations, floatPartials);
-  }
   if (usedWeightsPerConvUnit % inChansPerGroup != 0) {
     return false;
   }
@@ -261,18 +254,11 @@ static void getConvVertexAMPCandidates(
     std::vector<unsigned> partialChansCandidates = {numConvUnitsOnIpu,
                                                     weightsPerConvUnit};
     std::vector<unsigned> numConvUnitsCandidates = {numConvUnitsOnIpu};
-    // On IPU1 we support half of conv units configuration for HALF types
-    const bool canUseAmp4 = options.enableAmpHalfEnginesPlan &&
-                            target.getFp16InFp16OutConvUnitsPerTile() == 8 &&
-                            !floatActivations;
 
     // On IPU2 we need to enable 8 engines config as well
-    const bool canUseAmp8 = numConvUnitsOnIpu == 16;
-
-    if (canUseAmp4 || canUseAmp8) {
-      const auto convUnits8Engines = numConvUnitsOnIpu / 2;
-      numConvUnitsCandidates.push_back(convUnits8Engines);
-      partialChansCandidates.push_back(convUnits8Engines);
+    if (numConvUnitsOnIpu > 8) {
+      numConvUnitsCandidates.push_back(8);
+      partialChansCandidates.push_back(8);
     }
 
     for (const auto convUnits : numConvUnitsCandidates) {

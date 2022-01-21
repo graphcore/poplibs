@@ -358,10 +358,6 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
     bool floatActivations, bool floatPartials) {
   // Core loop cycles for 16x8 AMP vertex
   auto coreCycles = floatActivations ? 8 : 4;
-  // Core loop cycles for 8x4 AMP vertex
-  if (numConvUnits == 4) {
-    coreCycles /= 2;
-  }
 
   auto retentionSavings = conv1x1WorkerRetentionSavings(
       floatActivations, floatPartials, numConvUnits);
@@ -564,10 +560,6 @@ static std::uint64_t inline getConvPartialnx1WorkerCycles(
 
   // Core loop cycles for vertex will all engines in use
   auto coreCycles = floatActivations ? 8 : 4;
-  // when using half of AMP engines need to reduce core cycles as well
-  if (numConvUnits == 4) {
-    coreCycles /= 2;
-  }
 
   unsigned extraStrideCycles = 0;
   bool hh16 = !floatActivations && !floatPartials && (numConvUnits == 16);

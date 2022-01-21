@@ -44,9 +44,6 @@ public:
   // this convolution.
   poplibs_support::PlanConstraints planConstraints;
   std::string planConstraintsOutputFilename; // Not including file extension
-  // Allows convolution planner to use AMP vertices with only 4 engines
-  // enabled to reduce paddings on small data sets
-  bool enableAmpHalfEnginesPlan = false;
   // Do the reduction following the convolution in multiple stages if it
   // significantly reduce code size. This comes at the cost of increasing the
   // number of cycles.
@@ -76,7 +73,6 @@ private:
       &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,
       &ConvOptions::planConstraints,
       &ConvOptions::planConstraintsOutputFilename,
-      &ConvOptions::enableAmpHalfEnginesPlan,
       &ConvOptions::enableMultiStageReduce, &ConvOptions::enableFastReduce,
       &ConvOptions::remapOutputTensor, &ConvOptions::enableConvDithering,
       &ConvOptions::disableTransformations,

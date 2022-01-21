@@ -75,8 +75,6 @@ std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << opts.planConstraints; // No newline needed
   os << "        planConstraintsOutputFilename   ";
   os << opts.planConstraintsOutputFilename << "\n";
-  os << "        enableAmpHalfEnginesPlan        ";
-  os << opts.enableAmpHalfEnginesPlan << "\n";
   os << "        enableMultiStageReduce          ";
   os << opts.enableMultiStageReduce << "\n";
   os << "        enableFastReduce                ";
@@ -122,8 +120,6 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
        makeConvPlanConstraintsOptionHandler(planConstraints)},
       {"planConstraintsOutputFilename",
        OptionHandler::createWithString(planConstraintsOutputFilename)},
-      {"enableAmpHalfEnginesPlan",
-       OptionHandler::createWithBool(enableAmpHalfEnginesPlan)},
       {"enableMultiStageReduce",
        OptionHandler::createWithBool(enableMultiStageReduce)},
       {"enableFastReduce", OptionHandler::createWithBool(enableFastReduce)},

@@ -230,16 +230,6 @@ template class ConvPartialnx1<float, float, false, true, 8>;
 template class ConvPartialnx1<half, half, false, true, 8>;
 template class ConvPartialnx1<half, float, false, true, 8>;
 
-template class ConvPartialnx1<half, half, true, false, 4>;
-template class ConvPartialnx1<half, float, true, false, 4>;
-template class ConvPartialnx1<half, half, false, false, 4>;
-template class ConvPartialnx1<half, float, false, false, 4>;
-
-template class ConvPartialnx1<half, half, true, true, 4>;
-template class ConvPartialnx1<half, float, true, true, 4>;
-template class ConvPartialnx1<half, half, false, true, 4>;
-template class ConvPartialnx1<half, float, false, true, 4>;
-
 template class ConvPartialnx1<float, float, true, false, 16>;
 template class ConvPartialnx1<half, half, true, false, 16>;
 template class ConvPartialnx1<float, float, false, false, 16>;

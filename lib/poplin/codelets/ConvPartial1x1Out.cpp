@@ -157,16 +157,6 @@ template class ConvPartial1x1Out<half, float, false, true, 8>;
 template class ConvPartial1x1Out<float, half, false, true, 8>;
 template class ConvPartial1x1Out<float, float, false, true, 8>;
 
-template class ConvPartial1x1Out<half, half, true, false, 4>;
-template class ConvPartial1x1Out<half, float, true, false, 4>;
-template class ConvPartial1x1Out<half, half, false, false, 4>;
-template class ConvPartial1x1Out<half, float, false, false, 4>;
-
-template class ConvPartial1x1Out<half, half, true, true, 4>;
-template class ConvPartial1x1Out<half, float, true, true, 4>;
-template class ConvPartial1x1Out<half, half, false, true, 4>;
-template class ConvPartial1x1Out<half, float, false, true, 4>;
-
 template class ConvPartial1x1Out<half, half, true, false, 16>;
 template class ConvPartial1x1Out<float, float, true, false, 16>;
 template class ConvPartial1x1Out<half, half, false, false, 16>;

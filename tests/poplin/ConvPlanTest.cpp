@@ -547,31 +547,3 @@ BOOST_AUTO_TEST_CASE(GetSLICPlan) {
   BOOST_TEST_MESSAGE(plan << "\n");
 }
 
-// Check the mk1-only enableAmpHalfEnginesPlan option works
-// (the option is ignored for IpuModel2)
-BOOST_AUTO_TEST_CASE(GetAMP4Plan,
-                     *boost::unit_test::precondition(enableIfIpuModel())) {
-  auto device = createTestDevice(TEST_TARGET, 1, 1);
-  auto &target = device.getTarget();
-  poplar::Graph graph(target);
-  poplin::PlanningCache cache;
-
-  poplin::ConvOptions options{};
-  options.enableAmpHalfEnginesPlan = true;
-
-  poplin::Plan plan;
-  BOOST_CHECK_NO_THROW(plan = poplin::getPlan(target,
-                                              poplin::ConvParams{
-                                                  poplar::HALF, // Data type
-                                                  1,            // batch size
-                                                  {4, 4}, // input field shape
-                                                  {1, 1}, // kernel shape
-                                                  8,      // input channels
-                                                  4,      // output channels
-                                                  1       // conv groups
-                                              },
-                                              options, &cache));
-
-  BOOST_CHECK(plan.method == poplin::Plan::Method::AMP);
-  BOOST_TEST_MESSAGE(plan << "\n");
-}
