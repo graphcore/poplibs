@@ -74,14 +74,17 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, fillValue));
 
+  // Use copy to fill, only possible for the Program api
   auto tFlat = t.flatten();
   graph.reorderToSimplify(&tFlat, {}, false);
-  // Use copy to fill, only possible for the Program api
+
+  // Note that the method of broadcasting a scalar here would increase compile
+  // time for large tensors where the broadcast factor is large.  Instead we
+  // copy a large constant which becomes optimised to efficient memset vertices.
   auto valueTensor = graph.addConstant<FillValueType>(
-      t.elementType(), {1}, fillValue, {di, "fillValue"});
-  graph.setTileMapping(valueTensor, 0);
-  prog.add(
-      Copy(valueTensor.broadcast(tFlat.numElements(), 0), tFlat, false, {di}));
+      t.elementType(), tFlat.shape(), fillValue, "fillValue");
+  graph.setTileMapping(valueTensor, graph.getTileMapping(tFlat));
+  prog.add(Copy(valueTensor, tFlat));
 }
 
 #define FILL_EXPLICIT_INSTANTIATIONS(Type)                                     \
