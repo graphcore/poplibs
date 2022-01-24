@@ -267,6 +267,7 @@ int main(int argc, char **argv) {
   std::string shapeString;
   std::string dimsString;
   std::string file;
+  std::string optionsString;
   std::vector<std::size_t> initialShape;
   std::vector<unsigned> shuffle;
   std::vector<std::size_t> shape;
@@ -324,6 +325,9 @@ int main(int argc, char **argv) {
     ("shuffle", po::value(&shuffleString),
       "Dim shuffle to apply to the input tensor with shape initial-shape."
       " e.g. 1,0,2,3")
+    ("options", po::value<std::string>(&optionsString),
+      "Options to use for the reduction, specified as a JSON string, "
+      "e.g. {\"key\":\"value\"}")
     ("tiles-per-ipu", po::value(&tilesPerIPU),
      "Number of tiles per IPU")
     ("ipus", po::value(&numIPUs),
@@ -541,6 +545,11 @@ int main(int argc, char **argv) {
     withOutput = true;
   }
 
+  poplar::OptionFlags options;
+  if (!optionsString.empty()) {
+    poplar::readJSON(optionsString, options);
+  }
+
   // Output the settings.
   std::cerr << "Shape: { ";
   for (auto s : shape)
@@ -595,25 +604,25 @@ int main(int argc, char **argv) {
     if (computeSetApi) {
       std::vector<ComputeSet> css;
       popops::reduceWithOutput(graph, input, output, dims, reductionParams, css,
-                               "testReduceWithOutputCss");
+                               "testReduceWithOutputCss", options);
       for (const auto &cs : css) {
         prog.add(Execute(cs));
       }
     } else {
       popops::reduceWithOutput(graph, input, output, dims, reductionParams,
-                               prog, "testReduceWithOutputProg");
+                               prog, "testReduceWithOutputProg", options);
     }
   } else {
     if (computeSetApi) {
       std::vector<ComputeSet> css;
       output = popops::reduce(graph, input, dims, reductionParams, css,
-                              "testReduceCss");
+                              "testReduceCss", options);
       for (const auto &cs : css) {
         prog.add(Execute(cs));
       }
     } else {
       output = popops::reduce(graph, input, dims, reductionParams, prog,
-                              "testReduceProg");
+                              "testReduceProg", options);
     }
   }
 

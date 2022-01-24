@@ -68,10 +68,14 @@ struct ReduceParams {
 ///  * **accumType.interTile** (float, half)
 ///
 ///    The type to use for intermediate values between tiles.
+///    If the type specified is smaller than the output type then
+///    the option is ignored and the output type is used instead.
 ///
 ///  * **accumType.inVertex** (float, half)
 ///
 ///    The type to use for intermediate values within a vertex.
+///    If the type specified is smaller than the output type then
+///    the option is ignored and the output type is used instead.
 ///
 /// If either of the above options are not set then the intermediate type will
 /// default to either the input tensor element type or float if the input

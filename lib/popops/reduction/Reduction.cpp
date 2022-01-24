@@ -410,7 +410,39 @@ static float reductionInitialValue(const popops::Operation &op) {
   }
 }
 
-static void validateReductionParams(ReduceParams const &params) {
+std::map<std::string, poplar::Type> accumTypeMap{{"half", poplar::HALF},
+                                                 {"float", poplar::FLOAT}};
+
+ReductionTypes parseOptions(const Type &outputType, const ReduceParams &params,
+                            const OptionFlags &options) {
+  // Decide the reduction types for each stage.
+  ReductionTypes reductionTypes;
+  auto useFloatAccum = (outputType == poplar::HALF &&
+                        opBenefitsFromHigherIntermediatePrecision(params.op));
+  auto accumType = useFloatAccum ? poplar::FLOAT : outputType;
+  reductionTypes.interTile = accumType;
+  reductionTypes.inVertex = accumType;
+
+  using poplibs::OptionHandler;
+  using poplibs::OptionSpec;
+  const OptionSpec reductionSpec{
+      {"accumType.interTile",
+       OptionHandler::createWithEnum(reductionTypes.interTile, accumTypeMap)},
+      {"accumType.inVertex",
+       OptionHandler::createWithEnum(reductionTypes.inVertex, accumTypeMap)}};
+
+  for (const auto &entry : options) {
+    reductionSpec.parse(entry.first, entry.second);
+  }
+  return reductionTypes;
+}
+
+// Check the parameters and reductionTypes.  The reductionTypes may be updated
+// as a side effect
+static void validateReductionParams(ReduceParams const &params,
+                                    const Target &target,
+                                    const Type &outputType,
+                                    ReductionTypes &reductionTypes) {
   if (params.useScale && !(params.op == popops::Operation::ADD ||
                            params.op == popops::Operation::SQUARE_ADD ||
                            params.op == popops::Operation::LOG_ADD)) {
@@ -427,6 +459,23 @@ static void validateReductionParams(ReduceParams const &params) {
                          params.op == popops::Operation::LOG_ADD)) {
     throw poputil::poplibs_error("Update can only be used with ADD, LOG_ADD or "
                                  "SQUARE_ADD");
+  }
+
+  if (target.getTypeSize(reductionTypes.inVertex) <
+      target.getTypeSize(outputType)) {
+    logging::popops::warn("Ignoring accumType.inVertex ({})"
+                          " which is smaller than the output type ({})",
+                          reductionTypes.inVertex.toString(),
+                          outputType.toString());
+    reductionTypes.inVertex = outputType;
+  }
+  if (target.getTypeSize(reductionTypes.interTile) <
+      target.getTypeSize(outputType)) {
+    logging::popops::warn("Ignoring accumType.interTile ({})"
+                          " which is smaller than the output type ({})",
+                          reductionTypes.interTile.toString(),
+                          outputType.toString());
+    reductionTypes.interTile = outputType;
   }
 }
 
@@ -546,7 +595,9 @@ static void reduceWithMap(Graph &graph, const Tensor &in,
   // returned (using cast) rather than just returning the original because
   // then the user can be sure that the returned tensor refers to a distinct
   // variable and changing the tile mapping won't affect anything else.
-  validateReductionParams(params);
+  auto reductionTypes = parseOptions(outputType, params, options);
+  validateReductionParams(params, graph.getTarget(), outputType,
+                          reductionTypes);
   if (params.op == Operation::LOG_ADD) {
     throw poputil::poplibs_error(
         "Reduction operation LOG_ADD doesn't"
@@ -630,9 +681,6 @@ static void reduceWithMap(Graph &graph, const Tensor &in,
   }
 }
 
-std::map<std::string, poplar::Type> accumTypeMap{{"half", poplar::HALF},
-                                                 {"float", poplar::FLOAT}};
-
 // This wangles the tensors into a 2D matrix so that the reduction only
 // has to be done on the first dimension. Then it calls reduceFirstDim2D
 // to do the reduction.
@@ -667,26 +715,10 @@ static void reduceWithOutputCss(
   }
 
   // Decide the reduction types for each stage.
-  ReductionTypes reductionTypes;
-  auto useFloatAccum = (outputType == poplar::HALF &&
-                        opBenefitsFromHigherIntermediatePrecision(params.op));
-  auto accumType = useFloatAccum ? poplar::FLOAT : outputType;
-  reductionTypes.interTile = accumType;
-  reductionTypes.inVertex = accumType;
+  auto reductionTypes = parseOptions(outputType, params, options);
 
-  using poplibs::OptionHandler;
-  using poplibs::OptionSpec;
-  const OptionSpec reductionSpec{
-      {"accumType.interTile",
-       OptionHandler::createWithEnum(reductionTypes.interTile, accumTypeMap)},
-      {"accumType.inVertex",
-       OptionHandler::createWithEnum(reductionTypes.inVertex, accumTypeMap)}};
-
-  for (const auto &entry : options) {
-    reductionSpec.parse(entry.first, entry.second);
-  }
-
-  validateReductionParams(params);
+  validateReductionParams(params, graph.getTarget(), outputType,
+                          reductionTypes);
 
   auto [canReduceWithMap_, reducedDims, outputShape, numOutputElements,
         numInputElements] = analyzeReduction(dims, in, out);
