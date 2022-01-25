@@ -29,6 +29,9 @@ public:
   const unsigned numBaseElements;  // in the slice dimension
   const unsigned short regionSize; // stride between slices
   const bool indicesAreSorted;     // indices are sorted in increasing order
+  const bool splitSingleRegion;    // Use in the case of a single offset and
+                                   // alignment constraints are met. Used only
+                                   // in assembler
   // (ceil numOffsets / numWorkers). Required only
   // by assembler
   const unsigned maxElementsPerWorker;

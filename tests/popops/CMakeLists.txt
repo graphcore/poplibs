@@ -1095,6 +1095,16 @@ add_multitarget_test(
      --tiles-per-ipu 4)
 
 add_multitarget_test(
+   NAME embedding_layer_half_single_index
+   COMMAND embedding_layer
+     --shape {32,32}
+     --num-indices 1
+     --use-embedding-plan=1
+     --data-type half
+     --tiles-per-ipu 4)
+
+
+add_multitarget_test(
          NAME embedding_layer_float_10x20
          COMMAND embedding_layer
                  --data-type=float

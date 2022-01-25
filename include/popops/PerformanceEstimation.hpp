@@ -97,9 +97,11 @@ std::uint64_t getBinaryOp1DInPlaceEstimate(const poplar::Target &target,
 struct MultiSliceTargetParameters {
   MultiSliceTargetParameters(const poplar::Target &target,
                              const poplar::Type &type)
-      : dataPathWidth(target.getDataPathWidth()),
+      : atomicWriteSize(target.getAtomicStoreGranularity()),
+        dataPathWidth(target.getDataPathWidth()),
         bytesPerElem(target.getTypeSize(type)),
         numWorkerContexts(target.getNumWorkerContexts()) {}
+  unsigned atomicWriteSize;
   unsigned dataPathWidth;
   unsigned bytesPerElem;
   unsigned numWorkerContexts;

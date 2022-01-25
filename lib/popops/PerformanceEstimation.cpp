@@ -88,14 +88,23 @@ getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
 
   // Almost exactly the same for each copy function assuming fastest
   // (aligned) path.
-  constexpr std::uint64_t cyclesOverheadPerOffsetInRange = 19;
+  constexpr std::uint64_t cyclesOverheadPerOffsetInRange = 21;
   constexpr std::uint64_t cyclesOverheadPerOffsetOutOfRange = 8;
   // Note the assumption that every offset in the vertex requires copying.
   // This could be pessimistic for a multi-stage multiSlice operation
   // where vertices in the first stage may try to slice indices which
   // are not part of partition of the sliced tensor on that tile and so
   // skip the copying cycles in a data-dependent way.
-  const auto vectorsPerOffset = ceildiv(elemsPerSlice, vectorWidth);
+  auto vectorsPerOffset = ceildiv(elemsPerSlice, vectorWidth);
+
+  // There is a single offset and thus just spread the work over available
+  // workers.
+  if (numOffsets == 1 && (elemsPerSlice * targetParams.bytesPerElem) %
+                                 targetParams.atomicWriteSize ==
+                             0) {
+    vectorsPerOffset =
+        ceildiv(vectorsPerOffset, targetParams.numWorkerContexts);
+  }
 
   unsigned numOffsetsInRange = numOffsetsInRangePerWorker;
 

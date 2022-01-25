@@ -15,6 +15,7 @@
 // Register aliases
 #define mCopyPtr           m0
 #define mOffsetSize        m1
+#define mElemSize          m1
 #define mOffsetPtr         m2
 #define mBaseTPtr          m3
 #define mSubTPtr           m4
@@ -23,8 +24,10 @@
 #define mBaseIdx           m8 // Alias to mSrcPtr. Re-use m8
 #define mSubIdx            m9 // Alias to mDstPtr. Re-use m9
 #define mWkrStart          m4
+#define mWkrStartScaled    m2
 #define mMaxElementsPerWorker m3
 #define mWkrEnd            m6
+#define mWkrElems          m3
 #define mWorkerId          m2
 #define mIndicesAreSorted  m6
 #define mMaxOffsetsPerWorker m6
@@ -48,6 +51,7 @@
 #define VOFF_BASE_ELEM       5
 #define VOFF_REGION_SIZE    (6*2) // 16 bit - offsets for use with 16 bit loads
 #define VOFF_INDICES_ARE_SORTED (6*4 + 2)
+#define VOFF_SPLIT_SINGLE_REGION (6*4 + 3)
 #define VOFF_ELEMS_PER_WORKER 7
 
 //******************************************************************************
@@ -76,6 +80,29 @@
 
 #define MS_UNSIGNED_FUNC __runCodelet_popops__MultiSlice___unsigned_int
 #define MU_UNSIGNED_FUNC __runCodelet_popops__MultiUpdate___unsigned_int
+
+// Split work between workers
+.macro DIVIDE_WORK ELEM_SIZE, MAX_ELEMS, WORKER_ELEM_SIZE 
+  // divide the offsets dimension
+  get $mWorkerId, $WSR
+  and $mWorkerId, $mWorkerId, CSR_W_WSR__CTXTID_M1__MASK
+
+  // the max to be allocated per worker is already computed and passed as
+  // a vertex field
+  ld32 \MAX_ELEMS, $mzero, $mvertex_base, VOFF_ELEMS_PER_WORKER
+  
+  // Find the start entry for this worker
+  mul $mWkrStart, $mWorkerId, \MAX_ELEMS
+  min $mWkrStart, $mWkrStart, \ELEM_SIZE
+
+  // FInd the end entry for this worker
+  add $mWkrEnd, $mWkrStart, \MAX_ELEMS
+  min $mWkrEnd, $mWkrEnd, \ELEM_SIZE
+
+  // Number of offset entries this worker will process
+  sub \WORKER_ELEM_SIZE, $mWkrEnd, $mWkrStart
+.endm
+
 
 //******************************************************************************
 // Entry points for each function, each setting up a pointer to the copy
@@ -135,6 +162,9 @@ FN_SIZE MS_FLOAT_FUNC
 FN_SECTION MultiSlice_common
 MultiSlice_common:
 MultiSlice_common_u:
+  ldz8 $mScratch, $mvertex_base, VOFF_SPLIT_SINGLE_REGION
+  brnz $mScratch, MultiSlice_region_split
+
   UPDATE_OFFSET_AND_SIZES $mBaseElem $mMaxElementsPerWorker $mWorkerId $mWkrStart $mWkrEnd $mBaseIdx (4*VOFF_BASE_ELEM) (4*VOFF_ELEMS_PER_WORKER) (4*VOFF_BASE_OFFSET)
   
   // save registers used by binary search
@@ -212,12 +242,15 @@ MultiSlice_common_start:
 
 MultiSlice_common_outer_loop_begin:
 
-    // Load next offset
-    ld32step $mScratch,    $mzero, $mOffsetPtr+=, 1
+    ldz16  $mRegionSize, $mzero, $mvertex_base, VOFF_REGION_SIZE
 
     // Reload states
     ld32   $mBaseIdx, $mzero, $mworker_base, 0
-    ldz16  $mRegionSize, $mzero, $mvertex_base, VOFF_REGION_SIZE
+
+MultiSlice_common_region_copy_entry:
+    // Load next offset
+    ld32step $mScratch,    $mzero, $mOffsetPtr+=, 1
+
 
     // Check if offset is a part of BaseT;
     sub    $mBaseIdx, $mScratch, $mBaseIdx
@@ -239,31 +272,18 @@ MultiSlice_common_exit:
     exitz   $mzero
 
 MultiSlice_common_s:
-  // divide the offsets dimension
-  get $mWorkerId, $WSR
-  and $mWorkerId, $mWorkerId, CSR_W_WSR__CTXTID_M1__MASK
-  // load the number of offsets
-  ld32 $mOffsetSize, $mzero, $mvertex_base, VOFF_OFFSET_SIZE
-  // the max to be allocated per worker is already computed and passed as
-  // a vertex field
-  ld32 $mMaxOffsetsPerWorker, $mzero, $mvertex_base, VOFF_ELEMS_PER_WORKER
-  
-  // Find the start entry for this worker
-  mul $mWkrStart, $mWorkerId, $mMaxOffsetsPerWorker
-  min $mWkrStart, $mWkrStart, $mOffsetSize
+  ldz8 $mScratch, $mvertex_base, VOFF_SPLIT_SINGLE_REGION
+  brnz $mScratch, MultiSlice_region_split
 
-  // FInd the end entry for this worker
-  add $mWkrEnd, $mWkrStart, $mMaxOffsetsPerWorker
-  min $mWkrEnd, $mWkrEnd, $mOffsetSize
+  // divide the offsets dimension
+  ld32 $mOffsetSize, $mzero, $mvertex_base, VOFF_OFFSET_SIZE
+  DIVIDE_WORK $mOffsetSize $mMaxOffsetsPerWorker $mOffsetSize
 
   // Point to the entry in the offset vector this worker will start processing
   // from
   ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
   ld32step $mzero, $mzero, $mOffsetPtr+=, $mWkrStart
   
-  // Number of offset entries this worker will process
-  sub $mOffsetSize, $mWkrEnd, $mWkrStart
-
   // this is stored in stack where we jump
   ld32  $mBaseIdx, $mzero, $mvertex_base, VOFF_BASE_OFFSET
 
@@ -277,8 +297,38 @@ MultiSlice_common_s:
   ld32  $mBaseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
   bri MultiSlice_common_check_no_elem
 
+// Split region when there is only one offset
+MultiSlice_region_split:
 
+  // divide the region dimension
+  ldz16 $mElemSize, $mzero, $mvertex_base, VOFF_REGION_SIZE
+  DIVIDE_WORK $mElemSize $mMaxElementsPerWorker $mWkrElems
+
+  // worker start offset in bytes
+  shl $mWkrStartScaled, $mWkrStart, $mRegionSize
+  shl $mRegionSizeInBytes, $mElemSize, $mRegionSize
+
+  // copy only part of the region in elements
+  mov $mRegionSize, $mWkrElems
+
+  ld32 $mBaseIdx, $mzero, $mvertex_base, VOFF_BASE_OFFSET
+  ld32 $mBaseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
+
+  // Load vectors pointers and offset to where workers process
+  ld32 $mBaseTPtr, $mzero, $mvertex_base, VOFF_BASET_PTR
+  add  $mBaseTPtr, $mBaseTPtr, $mWkrStartScaled
+  ld32 $mSubTPtr, $mzero, $mvertex_base, VOFF_SUBT_PTR
+  add  $mSubTPtr, $mSubTPtr, $mWkrStartScaled
+
+  // Point to the entry in the offset vector this worker will start processing
+  // from
+  ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
   
+  // only one pass through the loop
+  setzi $mOffsetSize, 0
+
+  bri MultiSlice_common_region_copy_entry
+
 
 FN_SIZE MultiSlice_common
 

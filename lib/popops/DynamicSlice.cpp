@@ -541,24 +541,46 @@ static void generateMultiSliceVerticesOnTile(
   const auto regionSize = base.dim(baseSlicedDim ^ 1);
 
   // What dimension to split amongst workers and vertices depends on whether it
-  // is an update or slice
-  const auto maxElemsToSplitOnTile =
-      isUpdate ? base.dim(baseSlicedDim) : offset.numElements();
+  // is an update or slice, or if there is only 1 element in the offset. For
+  // a single offset element, attempt to split region amongst workers.
+  const auto vertexHasSplitRegionField = !isUpdate || op == boost::none;
+  const bool splitRegion = offset.numElements() == 1 &&
+                           ((regionSize * target.getTypeSize(dType)) %
+                                target.getAtomicStoreGranularity() ==
+                            0) &&
+                           vertexHasSplitRegionField;
+
+  unsigned maxElemsToSplitOnTile, elemsPerVertex;
+  if (splitRegion) {
+    maxElemsToSplitOnTile = regionSize;
+    elemsPerVertex = regionSize;
+  } else {
+    maxElemsToSplitOnTile =
+        isUpdate ? base.dim(baseSlicedDim) : offset.numElements();
+    elemsPerVertex =
+        isUpdate ? graph.getMaxFieldDim(vertexName, "baseT", 0) / regionSize
+                 : graph.getMaxFieldDim(vertexName, "offsets", 0);
+  }
 
   // Set a grain size to avoid subword writes. Ideally, we should ideally also
   // include the unsliced dimension.
   auto grainSize = atomsPerWord;
 
   // The number of elements to process depends on dimension to split
-  auto elemsPerVertex = std::min(
-      maxElemsToSplitOnTile,
-      isUpdate ? graph.getMaxFieldDim(vertexName, "baseT", 0) / regionSize
-               : graph.getMaxFieldDim(vertexName, "offsets", 0));
+  elemsPerVertex = std::min(elemsPerVertex, maxElemsToSplitOnTile);
+
+  const bool splitBase = isUpdate && !splitRegion;
+
   for (unsigned lastElem = 0; lastElem != maxElemsToSplitOnTile;) {
     auto firstElem = lastElem;
     lastElem = std::min(lastElem + elemsPerVertex, maxElemsToSplitOnTile);
+
     Tensor vertexOffsets, vertexSlices, baseSlices;
-    if (isUpdate) {
+    if (splitRegion) {
+      vertexOffsets = offset;
+      vertexSlices = slices;
+      baseSlices = base;
+    } else if (splitBase) {
       // split base
       vertexOffsets = offset;
       vertexSlices = slices;
@@ -585,10 +607,13 @@ static void generateMultiSliceVerticesOnTile(
     graph.setInitialValue(v["maxElementsPerWorker"], maxElementsPerWorker);
     graph.setInitialValue(v["indicesAreSorted"], indicesAreSorted && isUpdate);
     graph.setInitialValue(v["baseOffset"], (baseOffset ? *baseOffset : 0u) +
-                                               (isUpdate ? firstElem : 0));
+                                               (splitBase ? firstElem : 0));
     graph.setInitialValue(
         v["numBaseElements"],
-        (isUpdate ? (lastElem - firstElem) : base.dim(baseSlicedDim)));
+        (splitBase ? (lastElem - firstElem) : base.dim(baseSlicedDim)));
+    if (vertexHasSplitRegionField) {
+      graph.setInitialValue(v["splitSingleRegion"], splitRegion);
+    }
     graph.setInitialValue(v["regionSize"], regionSize);
     graph.setTileMapping(v, tile);
   }

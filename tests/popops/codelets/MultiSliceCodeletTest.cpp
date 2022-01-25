@@ -31,7 +31,8 @@ struct TestParams {
   bool update;
   bool indicesAreSorted;
   std::optional<Operation> op;
-  bool floatScale; // only applicable for scaled update vertices
+  bool floatScale;        // only applicable for scaled update vertices
+  bool splitSingleRegion; // split region - use first index
 };
 
 // Scale used for MultiUpdateAdd. Use a fixed scale and always use float
@@ -57,6 +58,16 @@ std::vector<TestParams> TestList = {
 
     {80, 7, 1, 80, 7, true, true, Operation::MAX, false},
     {80, 7, 1, 80, 7, true, false, Operation::MAX, false},
+
+    // single region Multi-slice within offset range
+    {80, 64, 1, 80, 64, false, false, std::nullopt, false, true},
+    // single region Multi-slice outside offset range
+    {80, 64, 4, 80, 64, false, false, std::nullopt, false, true},
+
+    // single region Multi-update within offset range
+    {80, 64, 1, 80, 64, true, false, std::nullopt, false, true},
+    {80, 64, 4, 80, 64, true, false, std::nullopt, false, true},
+
 };
 
 // nust have the same size to stream to device
@@ -68,8 +79,12 @@ std::vector<unsigned> offsetsTestSorted = {2, 2, 2, 5, 5, 30, 40, 40, 40, 50};
 //*************************************************
 void MultiSliceHost(std::vector<unsigned> &offsets, std::vector<double> &baseT,
                     std::vector<double> &subT, unsigned baseOffset,
-                    unsigned numBaseElements, unsigned short regionSize) {
-  for (unsigned o = 0; o != offsets.size(); ++o) {
+                    unsigned numBaseElements, unsigned short regionSize,
+                    unsigned singleRegionSplit) {
+  unsigned numOffsets =
+      singleRegionSplit ? std::min(offsets.size(), 1UL) : offsets.size();
+
+  for (unsigned o = 0; o != numOffsets; ++o) {
     auto baseIdx = offsets[o];
     if (baseIdx < baseOffset || baseIdx >= baseOffset + numBaseElements) {
       // this slice is not a part of baseT so we can skip it.
@@ -89,9 +104,12 @@ void MultiSliceHost(std::vector<unsigned> &offsets, std::vector<double> &baseT,
 void MultiUpdateHost(std::vector<unsigned> &offsets, std::vector<double> &baseT,
                      std::vector<double> &subT, unsigned baseOffset,
                      unsigned numBaseElements, unsigned short regionSize,
-                     std::optional<Operation> op) {
+                     std::optional<Operation> op, bool singleRegionSplit) {
 
-  for (unsigned o = 0; o != offsets.size(); ++o) {
+  unsigned numOffsets =
+      singleRegionSplit ? std::min(offsets.size(), 1UL) : offsets.size();
+
+  for (unsigned o = 0; o != numOffsets; ++o) {
     auto baseIdx = offsets[o];
     if (baseIdx < baseOffset || baseIdx >= baseOffset + numBaseElements) {
       // this slice is not a part of baseT so we can skip it.
@@ -214,6 +232,10 @@ void MultiSliceCodeletTest(const Type &dataType) {
   // allowed multi-update op
   const auto allowMultiUpdateAdd = dataType == HALF || dataType == FLOAT;
 
+  // The decision on whether a test does a single region split is decided based
+  // on the test configuration.
+  std::vector<bool> singleRegionSplitUsed(test_count);
+
   for (unsigned tests = 0; tests < test_count; tests++) {
     auto rows = TestList[tests].rows;
     auto columns = TestList[tests].columns;
@@ -222,6 +244,7 @@ void MultiSliceCodeletTest(const Type &dataType) {
     auto regionSize = TestList[tests].regionSize;
     auto update = TestList[tests].update;
     auto indicesAreSorted = TestList[tests].indicesAreSorted;
+    auto splitSingleRegion = TestList[tests].splitSingleRegion;
     auto op = TestList[tests].op;
     auto scaleIsFloat = TestList[tests].floatScale || dataType == FLOAT;
 
@@ -263,12 +286,25 @@ void MultiSliceCodeletTest(const Type &dataType) {
     graph.setInitialValue(dsVertex["numBaseElements"], numBaseElements);
     graph.setInitialValue(dsVertex["regionSize"], regionSize);
     graph.setInitialValue(dsVertex["indicesAreSorted"], indicesAreSorted);
+
     // the dimension that is split depends on whether this is an update or slice
     unsigned grainSize =
         std::max(static_cast<unsigned>(target.getAtomicStoreGranularity() /
                                        target.getTypeSize(dataType)),
                  1U);
     unsigned elemsToSplit = update ? numBaseElements : offsets.numElements();
+    // We can split region only if the region size is a sub-multiple of the
+    // atomic size granularity
+    const bool vertexHasSplitRegionField = !update || op == std::nullopt;
+
+    if (splitSingleRegion && vertexHasSplitRegionField &&
+        (regionSize % target.getAtomicStoreGranularity() == 0)) {
+      elemsToSplit = regionSize;
+    } else {
+      splitSingleRegion = false;
+    }
+    singleRegionSplitUsed.at(tests) = splitSingleRegion;
+
     unsigned numGrains = ceildiv(elemsToSplit, grainSize);
     unsigned grainsPerWorker =
         ceildiv(numGrains, target.getNumWorkerContexts());
@@ -276,6 +312,10 @@ void MultiSliceCodeletTest(const Type &dataType) {
     // This is not exactly how elements are split in graph construction but
     // we just want to get some work division that doesn't cause write hazards.
     auto maxElems = std::min(elemsToSplit, grainsPerWorker * grainSize);
+
+    if (vertexHasSplitRegionField) {
+      graph.setInitialValue(dsVertex["splitSingleRegion"], splitSingleRegion);
+    }
     graph.setInitialValue(dsVertex["maxElementsPerWorker"], maxElems);
     if (update && isMultiUpdateAdd) {
       graph.connect(dsVertex["scale"],
@@ -308,6 +348,7 @@ void MultiSliceCodeletTest(const Type &dataType) {
     auto indicesAreSorted = TestList[tests].indicesAreSorted;
     auto op = TestList[tests].op;
     auto scaleIsFloat = TestList[tests].floatScale || dataType == FLOAT;
+    auto singleRegionSplit = singleRegionSplitUsed.at(tests);
 
     const auto isMultiUpdateAdd = op != std::nullopt && *op == Operation::ADD;
     if ((isMultiUpdateAdd && !allowMultiUpdateAdd) ||
@@ -343,10 +384,10 @@ void MultiSliceCodeletTest(const Type &dataType) {
 
     if (update) {
       MultiUpdateHost(offsetsTest, outTest, inTest, baseOffset, numBaseElements,
-                      regionSize, op);
+                      regionSize, op, singleRegionSplit);
     } else {
       MultiSliceHost(offsetsTest, inTest, outTest, baseOffset, numBaseElements,
-                     regionSize);
+                     regionSize, singleRegionSplit);
     }
 
     // Check the result, in the outTest array
