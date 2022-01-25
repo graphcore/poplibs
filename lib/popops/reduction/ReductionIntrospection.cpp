@@ -681,10 +681,10 @@ allTileGroupedPartials(const Graph &graph, const Tensor &t,
   // Loop through the tiles. We can process each tile independently.
   const unsigned numTiles = mapping.size();
   tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
-    const auto contiguousRegionsThisTile =
-        graph.getSortedContiguousRegions(t, mapping[tile]);
     // Ignore empty tiles.
-    if (!contiguousRegionsThisTile.empty()) {
+    if (!mapping[tile].empty()) {
+      const auto contiguousRegionsThisTile =
+          graph.getSortedContiguousRegions(t, mapping[tile]);
       // Make a pattern for each column that is detected in the regions on tile
       auto [partialsDescription, stridedRegions] =
           gatherReductionPatterns(contiguousRegionsThisTile, columns);
