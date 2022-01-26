@@ -62,6 +62,8 @@ static void cast(Graph &graph, Tensor src, Tensor dst,
   const auto numWorkers = target.getNumWorkerContexts();
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (mapping[tile].empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(dst, mapping[tile]);
     // We use the 1D MultiVertex only if we have a single contiguous region

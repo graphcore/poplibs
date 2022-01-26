@@ -263,6 +263,8 @@ static void generateSequenceSliceVertices(
   // instantiate vertices following the mapping of the base's first slice
   std::size_t nActiveTiles{0}, maxTcrs{0};
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (mappingSlice0[tile].empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(baseSlice0, mappingSlice0[tile]);
     if (tileContiguousRegions.size() == 0) {

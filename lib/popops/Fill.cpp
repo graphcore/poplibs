@@ -63,6 +63,8 @@ void fill(Graph &graph, const Tensor &t,
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (mapping[tile].empty())
+      continue;
     fill<FillValueType>(graph, t, mapping[tile], tile, fillCS, fillValue);
   }
 }

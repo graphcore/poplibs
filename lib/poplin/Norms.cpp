@@ -78,6 +78,8 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
   const auto grainSize = target.getVectorWidth(invStdDevType);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
+    if (mapping[tile].empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(iStdDevFlat, mapping[tile]);
     auto vertexRegions = splitRegionsBetweenWorkers(

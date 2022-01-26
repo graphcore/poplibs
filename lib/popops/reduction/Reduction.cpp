@@ -881,6 +881,8 @@ void reduceMany(poplar::Graph &graph,
   std::vector<ComputeSet> css;
   css.reserve(reductions.size());
 
+  logging::popops::debug("reduceMany({} reductions)", reductions.size());
+
   for (size_t i = 0; i < reductions.size(); ++i) {
     const SingleReduceOp &op = reductions[i];
 

@@ -438,6 +438,8 @@ poplar::Tensor generateAndExecuteMappedOperations(
   const auto mapping = graph.getTileMapping(outFlat);
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
+    if (thisTileMap.empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     executeCodelet(graph, codeletName, codeletNameMultiVertex, flattenedIns,

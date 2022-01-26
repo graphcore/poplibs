@@ -296,6 +296,8 @@ Tensor nonLinearityInputGradient(Graph &graph,
                             target.getRptCountMax() * vectorWidth);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto thisTileMap = outMapping[tile];
+    if (thisTileMap.empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     // If mapping of outGrad tensor on this tile is only region(s) from a
@@ -468,6 +470,8 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   }
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
+    if (thisTileMap.empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(t, thisTileMap);
     // If mapping of outGrad tensor on this tile is only region(s) from a

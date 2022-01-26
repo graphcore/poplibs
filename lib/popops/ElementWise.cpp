@@ -539,6 +539,8 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
+    if (thisTileMap.empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     if (tileContiguousRegions.size() == 1 &&
@@ -699,6 +701,8 @@ void binaryOpGeneral(Graph &graph, Tensor in1, Tensor in2, const Tensor &out,
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
+    if (mapping[tile].empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     binaryOpGeneral(graph, in1Flat, in2Flat, outFlat, tileContiguousRegions,
@@ -732,6 +736,8 @@ void binaryOpBroadcastScalar(Graph &graph, const Tensor &in1, const Tensor &in2,
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
+    if (thisTileMap.empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, thisTileMap);
     binaryOpBroadcastScalar(graph, in1Flat, in2, outFlat, tileContiguousRegions,
@@ -1514,6 +1520,8 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
   };
 
   tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
+    if (outMapping[tile].empty())
+      return;
     tileContiguousRegions[tile] =
         graph.getSortedContiguousRegions(out, outMapping[tile]);
 

@@ -89,6 +89,8 @@ Tensor onTileTransform(Graph &graph, const Tensor &modelOutputs,
   auto mapping = graph.getTileMapping(modelOutputs);
   for (std::size_t tile = 0; tile < mapping.size(); ++tile) {
     const auto &tileMapping = mapping[tile];
+    if (tileMapping.empty())
+      continue;
     const auto grainSize = target.getVectorWidth(dType);
     auto contiguousRegions =
         graph.getSortedContiguousRegions(modelOutputs, tileMapping);

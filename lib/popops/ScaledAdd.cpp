@@ -183,6 +183,8 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
+    if (mapping[tile].empty())
+      continue;
     const auto grainSize = target.getVectorWidth(dataType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(aFlat, mapping[tile]);
@@ -375,6 +377,8 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A,
     // up when allocating work to vertices.
     // The minimum amount of work per vertex is set to 2 * vectorwidth to
     // balance memory and loop overhead against parallel performance.
+    if (mapping[tile].empty())
+      continue;
     const auto grainSize = target.getVectorWidth(dataType);
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(aFlat, mapping[tile]);

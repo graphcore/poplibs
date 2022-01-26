@@ -435,6 +435,8 @@ static void generateVertices(std::string vertexName, Graph &graph,
 
   // instantiate vertices following the mapping of t's first slice
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (mapping[tile].empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(t2d[0], mapping[tile]);
     if (tileContiguousRegions.size() == 0)
@@ -724,6 +726,8 @@ static void generateMultiSliceVertices(
   // instantiate vertices following the mapping of t's first slice
   std::vector<unsigned> multiUpdateSubwordTiles;
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (mappingSlice0[tile].empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(baseSlice0, mappingSlice0[tile]);
     if (tileContiguousRegions.size() == 0) {
@@ -2438,6 +2442,8 @@ regroupBaseTensor(Graph &graph, std::vector<Copy> &preCopies, ComputeSet &cs,
   const auto baseMap = graph.getTileMapping(baseFlat);
   auto hasSameMapping = [&]() {
     for (unsigned tile = 0; tile != tMap.size(); ++tile) {
+      if (tMap[tile].empty())
+        continue;
       const auto tContiguousRegions =
           graph.getSortedContiguousRegions(tFlat, tMap[tile]);
       const auto baseContiguousRegions =

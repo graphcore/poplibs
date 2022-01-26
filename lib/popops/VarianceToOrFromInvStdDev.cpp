@@ -45,6 +45,8 @@ Program convertVariance(Graph &graph, Tensor src, Tensor dst,
   const auto numTiles = target.getNumTiles();
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
+    if (mapping[tile].empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(src, mapping[tile]);
     bool uniformScalar = epsilon.rank() == 0;

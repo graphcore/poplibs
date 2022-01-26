@@ -109,6 +109,8 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
   graph.reorderToSimplify(&flattenedInput, {}, false);
   const auto mapping = graph.getTileMapping(flattenedInput);
   for (unsigned tile = 0; tile < numTiles; tile++) {
+    if (mapping[tile].empty())
+      continue;
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(flattenedInput, mapping[tile]);
 
