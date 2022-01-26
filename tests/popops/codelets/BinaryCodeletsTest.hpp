@@ -132,6 +132,18 @@ bool isIntOp(BinaryOpType op) {
   }
 }
 
+template <typename T> T powInt(T a, T b) {
+  static_assert(std::is_integral<T>::value,
+                "Intended for integral types only.");
+  if (b < 0)
+    return 0;
+  if (b == 0)
+    return 1;
+  if (b == 1)
+    return a;
+  return a * powInt<T>(a, b - 1);
+}
+
 // Definitions for an overloaded 'performOp' function to execute the operation
 // on the host (for verification). Note that the result value is a function
 // parameter (passed by reference) and not the return value of the function, to
@@ -164,10 +176,16 @@ bool isIntOp(BinaryOpType op) {
   ONE_OP(BITWISE_XNOR, ~(a ^ b));                                              \
   ONE_OP(LOGICAL_AND, a &&b);                                                  \
   ONE_OP(LOGICAL_OR, a || b);                                                  \
+  ONE_OP(POWER, powInt(a, b));                                                 \
   ONE_OP(REMAINDER, a - (a / b) * b);                                          \
   ONE_OP(SHIFT_LEFT, a << b);                                                  \
   ONE_OP(SHIFT_RIGHT, (unsigned)a >> b;);                                      \
   ONE_OP(SHIFT_RIGHT_SIGN_EXTEND, a >> b;);
+
+const std::string binaryOpMsgPrefix(BinaryOpType op) {
+  return "Binary op: " + binaryOpToString.at(op) + " (" +
+         std::to_string(unsigned(op)) + ")";
+}
 
 // Do the operation specified by 'op' on 'a' and 'b', where the operands are
 // floating point types ('float' on the host, HALF or FLOAT on the device)
@@ -178,7 +196,7 @@ void performOp(BinaryOpType op, float a, float b, float &result) {
   ONE_OP(POWER, pow(a, b));
   ONE_OP(REMAINDER, std::fmod(a, b));
   ONE_OP(VARIANCE_TO_INV_STD_DEV, 1 / (std::sqrt(a + b)));
-  throw std::logic_error(std::to_string(unsigned(op)) +
+  throw std::logic_error(binaryOpMsgPrefix(op) +
                          " is not a valid operator for floating point types");
 }
 
@@ -187,39 +205,39 @@ void performOp(BinaryOpType op, float a, float b, float &result) {
 
 void performOp(BinaryOpType op, int a, int b, int &result) {
   INTEGER_OPS();
-  throw std::logic_error(std::to_string(unsigned(op)) +
+  throw std::logic_error(binaryOpMsgPrefix(op) +
                          " is not a valid operator for signed integer");
 }
 
 void performOp(BinaryOpType op, unsigned a, unsigned b, unsigned &result) {
   INTEGER_OPS();
-  throw std::logic_error(std::to_string(unsigned(op)) +
+  throw std::logic_error(binaryOpMsgPrefix(op) +
                          " is not a valid operator for signed integer");
 }
 
 void performOp(BinaryOpType op, long long a, long long b, long long &result) {
   INTEGER_OPS();
-  throw std::logic_error(std::to_string(unsigned(op)) +
+  throw std::logic_error(binaryOpMsgPrefix(op) +
                          " is not a valid operator for signed integer");
 }
 
 void performOp(BinaryOpType op, unsigned long long a, unsigned long long b,
                unsigned long long &result) {
   INTEGER_OPS();
-  throw std::logic_error(std::to_string(unsigned(op)) +
+  throw std::logic_error(binaryOpMsgPrefix(op) +
                          " is not a valid operator for unsigned integer");
 }
 
 void performOp(BinaryOpType op, short a, short b, short &result) {
   INTEGER_OPS();
-  throw std::logic_error(std::to_string(unsigned(op)) +
+  throw std::logic_error(binaryOpMsgPrefix(op) +
                          " is not a valid operator for signed short");
 }
 
 void performOp(BinaryOpType op, unsigned short a, unsigned short b,
                unsigned short &result) {
   INTEGER_OPS();
-  throw std::logic_error(std::to_string(unsigned(op)) +
+  throw std::logic_error(binaryOpMsgPrefix(op) +
                          " is not a valid operator for unsigned short");
 }
 
@@ -236,8 +254,7 @@ void performOp(BinaryOpType op, T a, T b, unsigned char &result) {
   ONE_OP(LOGICAL_AND, a && b);
   ONE_OP(LOGICAL_OR, a || b);
   ONE_OP(NOT_EQUAL, a != b);
-  throw std::logic_error(std::to_string(unsigned(op)) +
-                         " is not a boolean operator");
+  throw std::logic_error(binaryOpMsgPrefix(op) + " is not a boolean operator");
 }
 
 #define ONE_OP_OUTX2(opId, expr)                                               \
@@ -259,8 +276,7 @@ std::pair<float, float> performOp(BinaryOpType op, T a, T b) {
   ONE_OP_OUTX2(LOGICAL_AND, a && b);
   ONE_OP_OUTX2(LOGICAL_OR, a || b);
   ONE_OP_OUTX2(NOT_EQUAL, a != b);
-  throw std::logic_error(std::to_string(unsigned(op)) +
-                         " is not a boolean operator");
+  throw std::logic_error(binaryOpMsgPrefix(op) + " is not a boolean operator");
 }
 
 #undef COMMON_OPS
@@ -389,9 +405,27 @@ void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
       min1 = min2 = 0;
     }
   } else {
-    // Non floating point case (INT, UNSIGNED)./ For BOOL these are ignored
-    min1 = min2 = std::numeric_limits<HostDataType>::min();
-    max1 = max2 = std::numeric_limits<HostDataType>::max();
+    if (op == BinaryOpType::POWER) {
+      // For the power operator we want values in a small range, to
+      // avoid having mostly overflows/underflows
+      if constexpr (std::numeric_limits<HostDataType>::min() >= 0) {
+        min1 = min2 = std::numeric_limits<HostDataType>::min();
+
+      } else {
+        min1 = std::max(static_cast<HostDataType>(-12),
+                        std::numeric_limits<HostDataType>::min());
+        min2 = std::max(static_cast<HostDataType>(-1),
+                        std::numeric_limits<HostDataType>::min());
+      }
+      max1 = std::min(static_cast<HostDataType>(12),
+                      std::numeric_limits<HostDataType>::max());
+      max2 = std::min(static_cast<HostDataType>(9),
+                      std::numeric_limits<HostDataType>::max());
+    } else {
+      // Non floating point case (INT, UNSIGNED)./ For BOOL these are ignored
+      min1 = min2 = std::numeric_limits<HostDataType>::min();
+      max1 = max2 = std::numeric_limits<HostDataType>::max();
+    }
   }
 
   // Shifting more than 31 can give different results on different platforms

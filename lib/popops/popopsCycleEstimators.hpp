@@ -366,6 +366,10 @@ inline const BinaryOpPerfTable binaryOpPerfInfo = {
     // Power instruction not used
     {{BinaryOpType::POWER, FLOAT}, {312, false, 1}},
     {{BinaryOpType::POWER, HALF}, {325, false, 1}},
+    // power function for int data type is implemented as loop so performance is
+    // directly dependent of `y` which is runtime value. Estimations are done
+    // for constant value of `y` arbitrary set to 9.
+    {{BinaryOpType::POWER, INT}, {32, false, 1}},
 
     {{BinaryOpType::REMAINDER, FLOAT}, {133, false, 2}},
     {{BinaryOpType::REMAINDER, HALF}, {300, false, 4}},
@@ -524,6 +528,10 @@ inline const BinaryOpPerfTable binaryOpInPlacePerfInfo = {
     // Power instruction not used
     {{BinaryOpType::POWER, FLOAT}, {312, false, 1}},
     {{BinaryOpType::POWER, HALF}, {325, false, 1}},
+    // power function for int data type is implemented as loop so performance is
+    // directly dependent of `y` which is runtime value. Estimations are done
+    // for constant value of `y` arbitrary set to 9.
+    {{BinaryOpType::POWER, INT}, {34, false, 1}},
 
     {{BinaryOpType::REMAINDER, FLOAT}, {133, false, 2}},
     {{BinaryOpType::REMAINDER, HALF}, {300, false, 4}},
@@ -632,6 +640,10 @@ inline const BinaryOpPerfTable broadcastOpPerfInfo = {
 
     {{BinaryOpType::POWER, FLOAT}, {312, false, 1}},
     {{BinaryOpType::POWER, HALF}, {325, false, 1}},
+    // power function for int data type is implemented as loop so performance is
+    // directly dependent of `y` which is runtime value. Estimations are done
+    // for constant value of `y` arbitrary set to 9.
+    {{BinaryOpType::POWER, INT}, {23, false, 1}},
 
     {{BinaryOpType::REMAINDER, FLOAT}, {93, false, 2}},
     {{BinaryOpType::REMAINDER, HALF}, {225, false, 4}},
@@ -790,6 +802,10 @@ inline const BinaryOpPerfTable broadcastOpInPlacePerfInfo = {
 
     {{BinaryOpType::POWER, FLOAT}, {312, false, 1}},
     {{BinaryOpType::POWER, HALF}, {325, false, 1}},
+    // power function for int data type is implemented as loop so performance is
+    // directly dependent of `y` which is runtime value. Estimations are done
+    // for constant value of `y` arbitrary set to 9.
+    {{BinaryOpType::POWER, INT}, {25, false, 1}},
 
     {{BinaryOpType::REMAINDER, FLOAT}, {93, false, 2}},
     {{BinaryOpType::REMAINDER, HALF}, {225, false, 4}},

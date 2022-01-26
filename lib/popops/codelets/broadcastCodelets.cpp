@@ -782,7 +782,7 @@ namespace popops {
                  unsigned long long, long long)                                \
   INSTANTIATE_OP(name, BinaryOpType::MULTIPLY, float, half, int, unsigned,     \
                  unsigned long long, long long)                                \
-  INSTANTIATE_OP(name, BinaryOpType::POWER, float, half)                       \
+  INSTANTIATE_OP(name, BinaryOpType::POWER, float, half, int)                  \
   INSTANTIATE_OP(name, BinaryOpType::REMAINDER, float, half, int, unsigned,    \
                  unsigned long long, long long)                                \
   INSTANTIATE_OP(name, BinaryOpType::SHIFT_LEFT, int, unsigned,                \

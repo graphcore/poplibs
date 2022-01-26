@@ -860,7 +860,7 @@ INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::MULTIPLY, float, half, int,
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::NOT_EQUAL, float, half, int,
                unsigned, bool, short, unsigned short, unsigned long long,
                long long)
-INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::POWER, float, half)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::POWER, float, half, int)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::REMAINDER, float, half, int,
                unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_LEFT, int, unsigned,
@@ -907,7 +907,7 @@ INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MULTIPLY, float, half, int,
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::NOT_EQUAL, float, half, int,
                unsigned, bool, short, unsigned short, unsigned long long,
                long long)
-INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::POWER, float, half)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::POWER, float, half, int)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::REMAINDER, float, half, int,
                unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::SHIFT_LEFT, int, unsigned,
@@ -946,7 +946,7 @@ INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::MINIMUM, float, half, int,
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::MULTIPLY, float, half,
                int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::NOT_EQUAL, bool)
-INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::POWER, float, half)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::POWER, float, half, int)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::REMAINDER, float, half,
                int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::SHIFT_LEFT, int, unsigned,
@@ -977,7 +977,7 @@ INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::MINIMUM, float, half, int,
                unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::MULTIPLY, float, half,
                int, unsigned, unsigned long long, long long)
-INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::POWER, float, half)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::POWER, float, half, int)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::REMAINDER, float, half,
                int, unsigned, unsigned long long, long long)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SHIFT_LEFT, int, unsigned,

@@ -75,6 +75,44 @@ template <> struct BinaryLibCall<expr::BinaryOpType::MINIMUM> {
   }
 };
 
+// This functions powers two integer values with 2 caveats:
+// 1. anything raised to negative power is equal 0, this covers corner cases:
+//    0^(-1) and (+-1)^(-1)
+// 2. under/over-flow doesn't saturate to min/max int val, it returns value
+//    truncated to integer bit size
+// This solution satisfies TF implementation of integer power.
+template <typename T> inline T powInteger(T x, T y) {
+  static_assert(std::is_integral<T>::value,
+                "Intended for integral types only.");
+  if (y < 0)
+    return 0;
+  T res = 1;
+  for (; y > 0; --y) {
+    res *= x;
+  }
+  return res;
+}
+
+template <> struct BinaryLibCall<expr::BinaryOpType::POWER> {
+#ifdef __IPU__
+  template <typename FPType> FPType operator()(FPType x, FPType y) const {
+    if constexpr (std::is_integral<FPType>::value) {
+      return powInteger(x, y);
+    } else {
+      return ipu::pow(x, y);
+    }
+  }
+#else
+  template <typename FPType> FPType operator()(FPType x, FPType y) const {
+    if constexpr (std::is_integral<FPType>::value) {
+      return powInteger(x, y);
+    } else {
+      return std::pow(x, y);
+    }
+  }
+#endif
+};
+
 template <> struct BinaryLibCall<expr::BinaryOpType::REMAINDER> {
 #ifdef __IPU__
   template <typename FPType> FPType operator()(FPType x, FPType y) const {
@@ -263,7 +301,14 @@ DEFINE_BINARY_OP_FN(expr::BinaryOpType::MINIMUM, return min(x, y);
                     return BinaryLibCall<expr::BinaryOpType::MINIMUM>{}(x, y);)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::MULTIPLY, return x * y;)
 DEFINE_BINARY_OP_FN(expr::BinaryOpType::NOT_EQUAL, return x != y;)
-DEFINE_BINARY_OP_FN_STD(expr::BinaryOpType::POWER, pow);
+DEFINE_BINARY_OP_FN(
+    expr::BinaryOpType::POWER,
+    if constexpr (std::is_integral<T>::value) {
+      return powInteger(x, y);
+    } else {
+      return std::pow(PromoteHalfsToFloats(x), PromoteHalfsToFloats(y));
+    },
+    return BinaryLibCall<expr::BinaryOpType::POWER>{}(x, y);)
 DEFINE_BINARY_OP_FN(
     expr::BinaryOpType::REMAINDER,
     if (std::is_integral<T>::value) {

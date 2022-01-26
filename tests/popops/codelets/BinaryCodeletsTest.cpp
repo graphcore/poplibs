@@ -115,7 +115,7 @@ const static std::map<expr::BinaryOpType, const std::set<Type>>
          {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
         {BinaryOpType::MULTIPLY,
          {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
-        {BinaryOpType::POWER, {FLOAT, HALF}},
+        {BinaryOpType::POWER, {FLOAT, HALF, INT}},
         {BinaryOpType::REMAINDER,
          {FLOAT, HALF, INT, UNSIGNED_INT, UNSIGNED_LONGLONG, LONGLONG}},
         {BinaryOpType::SHIFT_LEFT,

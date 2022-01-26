@@ -216,10 +216,12 @@ bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
     return dType == BOOL;
 
   case BinaryOpType::ATAN2:
-  case BinaryOpType::POWER:
   case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
   case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
     return (dType == HALF || dType == FLOAT);
+
+  case BinaryOpType::POWER:
+    return (dType == HALF || dType == FLOAT || dType == INT);
 
   case BinaryOpType::BITWISE_AND:
   case BinaryOpType::BITWISE_OR:
