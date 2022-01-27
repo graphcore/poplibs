@@ -20,6 +20,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popnn;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplibs_support;
 
 namespace utf = boost::unit_test;

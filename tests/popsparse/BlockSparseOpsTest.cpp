@@ -290,12 +290,12 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   std::vector<std::pair<std::string, char *>> streamMaps;
 
   std::unique_ptr<char[]> bsSoftmaxRawHost =
-      poplibs_test::util::allocateHostMemoryForTensor(
+      poplar_test::allocateHostMemoryForTensor(
           bsSoftmax, "bsSoftmax", graph, uploadProg, downloadProg, streamMaps);
 
   std::vector<std::unique_ptr<char[]>> nnSoftmaxRawHosts(rows);
   for (unsigned int r = 0; r < rows; ++r) {
-    nnSoftmaxRawHosts[r] = poplibs_test::util::allocateHostMemoryForTensor(
+    nnSoftmaxRawHosts[r] = poplar_test::allocateHostMemoryForTensor(
         nnSoftmaxs[r], std::string("nnSoftmax") + std::to_string(r), graph,
         uploadProg, downloadProg, streamMaps);
   }
@@ -314,7 +314,7 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
                                   {"debug.nanOverflowMode", "true"}};
 
   Engine engine(graph, mainSequence, engineOptions);
-  poplibs_test::util::attachStreams(engine, streamMaps);
+  poplar_test::attachStreams(engine, streamMaps);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -322,15 +322,14 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
 
   boost::multi_array<float, 2> bsSoftmaxHost(
       boost::extents[sparseShape[0]][sparseShape[1]]);
-  poplibs_test::util::copy(target, dataType, bsSoftmaxRawHost.get(),
-                           bsSoftmaxHost);
+  poplar_test::copy(target, dataType, bsSoftmaxRawHost.get(), bsSoftmaxHost);
 
   std::vector<boost::multi_array<float, 2>> nnSoftmaxHosts;
   for (unsigned int r = 0; r < rows; ++r) {
     boost::multi_array<float, 2> nnSoftmaxHost(
         boost::extents[1][valuesRowSparse[r].size()]);
-    poplibs_test::util::copy(target, dataType, nnSoftmaxRawHosts[r].get(),
-                             nnSoftmaxHost);
+    poplar_test::copy(target, dataType, nnSoftmaxRawHosts[r].get(),
+                      nnSoftmaxHost);
     nnSoftmaxHosts.push_back(nnSoftmaxHost);
   }
 
@@ -623,13 +622,13 @@ void softmaxGradTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   std::vector<std::pair<std::string, char *>> streamMaps;
 
   std::unique_ptr<char[]> bsSoftmaxGradRawHost =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          bsSoftmaxGrad, "bsSoftmaxGrad", graph, uploadProg, downloadProg,
-          streamMaps);
+      poplar_test::allocateHostMemoryForTensor(bsSoftmaxGrad, "bsSoftmaxGrad",
+                                               graph, uploadProg, downloadProg,
+                                               streamMaps);
 
   std::vector<std::unique_ptr<char[]>> nnSoftmaxGradRawHosts(rows);
   for (unsigned int r = 0; r < rows; ++r) {
-    nnSoftmaxGradRawHosts[r] = poplibs_test::util::allocateHostMemoryForTensor(
+    nnSoftmaxGradRawHosts[r] = poplar_test::allocateHostMemoryForTensor(
         nnSoftmaxGrads[r], std::string("nnSoftmaxGrad") + std::to_string(r),
         graph, uploadProg, downloadProg, streamMaps);
   }
@@ -648,7 +647,7 @@ void softmaxGradTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, mainSequence, engineOptions);
-  poplibs_test::util::attachStreams(engine, streamMaps);
+  poplar_test::attachStreams(engine, streamMaps);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -656,15 +655,15 @@ void softmaxGradTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
 
   boost::multi_array<float, 2> bsSoftmaxGradHost(
       boost::extents[sparseShape[0]][sparseShape[1]]);
-  poplibs_test::util::copy(target, outType, bsSoftmaxGradRawHost.get(),
-                           bsSoftmaxGradHost);
+  poplar_test::copy(target, outType, bsSoftmaxGradRawHost.get(),
+                    bsSoftmaxGradHost);
 
   std::vector<boost::multi_array<float, 2>> nnSoftmaxGradHosts;
   for (unsigned int r = 0; r < rows; ++r) {
     boost::multi_array<float, 2> nnSoftmaxGradHost(
         boost::extents[1][vOutRowSparse[r].size()]);
-    poplibs_test::util::copy(target, outType, nnSoftmaxGradRawHosts[r].get(),
-                             nnSoftmaxGradHost);
+    poplar_test::copy(target, outType, nnSoftmaxGradRawHosts[r].get(),
+                      nnSoftmaxGradHost);
     nnSoftmaxGradHosts.push_back(nnSoftmaxGradHost);
   }
 

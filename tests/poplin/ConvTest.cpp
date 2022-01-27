@@ -16,6 +16,7 @@
 using namespace poplar;
 using namespace poplin;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplibs_support;
 
 BOOST_AUTO_TEST_CASE(MappingSplitOutChansSerially) {

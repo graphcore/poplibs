@@ -29,6 +29,7 @@ using namespace poputil;
 using namespace popops;
 using namespace poplibs_support;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using poplibs_support::toString;
 
 constexpr bool useDSMapper = true;

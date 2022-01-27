@@ -35,6 +35,7 @@ using namespace poplar::program;
 using namespace popops;
 using namespace poplibs_support;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 
 using boost::format;
 using std::to_string;
@@ -355,7 +356,7 @@ std::istream &operator>>(std::istream &in, SizeDesc &sd) {
       in.ignore();
     } else {
       while (true) {
-        sd.val.push_back(detail::readValue<unsigned>(in));
+        sd.val.push_back(poplibs_test::util::detail::readValue<unsigned>(in));
         skipSpaces(in);
         c = in.get();
         if (c == ']') {
@@ -375,7 +376,7 @@ std::istream &operator>>(std::istream &in, SizeDesc &sd) {
       throw std::runtime_error(
           "Invalid size descriptor; expected '[' or digit");
     }
-    sd.val.push_back(detail::readValue<unsigned>(in));
+    sd.val.push_back(poplibs_test::util::detail::readValue<unsigned>(in));
     skipSpaces(in);
     in.clear();
     c = in.peek();
@@ -386,7 +387,7 @@ std::istream &operator>>(std::istream &in, SizeDesc &sd) {
       if (!std::isdigit(in.peek())) {
         throw std::runtime_error("Invalid size descriptor; expected a digit");
       }
-      sd.val.push_back(detail::readValue<unsigned>(in));
+      sd.val.push_back(poplibs_test::util::detail::readValue<unsigned>(in));
       in.clear();
       skipSpaces(in);
     }

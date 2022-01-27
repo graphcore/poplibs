@@ -33,6 +33,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace popops;
 using namespace poplibs_support;
 
@@ -476,7 +477,7 @@ int main(int argc, char **argv) {
   } else if (operation == "GELU_ERF") {
     unaryOp = 1;
     unaryOperation = expr::UnaryOpType::GELU_ERF;
-    unaryHostFn = [](double x) -> double { return 1 + 
+    unaryHostFn = [](double x) -> double { return 1 +
         std::erf(a * 7.071067811865475e-01)) * 0.5 * a
     };
   } else if (operation == "INVERSE") {

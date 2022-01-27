@@ -31,6 +31,7 @@ using namespace poplibs_support;
 using namespace poplibs_test::ctc;
 using namespace poplibs_test;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 
 // Default tolerances used in tests
 #define FLOAT_REL_TOL 0.01

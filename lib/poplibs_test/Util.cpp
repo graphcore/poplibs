@@ -1,84 +1,29 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
-#include <boost/random.hpp>
-#include <boost/test/tools/floating_point_comparison.hpp>
-#include <cassert>
-#include <cmath>
+#include "poplibs_test/Util.hpp"
+
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/gcd.hpp>
-#include <poplibs_test/Util.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
+#include <boost/random.hpp>
+#include <boost/test/tools/floating_point_comparison.hpp>
+
+#include <cmath>
+
 using namespace poplar;
+using namespace poplar_test;
 using namespace poplar::program;
 
 namespace poplibs_test {
 namespace util {
 
-std::unique_ptr<char[]>
-allocateHostMemoryForTensor(const Target &target, const Tensor &t,
-                            unsigned replicationFactor,
-                            std::size_t &allocatedSizeInBytes) {
-  const auto dType = t.elementType();
-  std::unique_ptr<char[]> p;
-
-  allocatedSizeInBytes =
-      t.numElements() * target.getTypeSize(dType) * replicationFactor;
-
-  p.reset(new char[allocatedSizeInBytes]);
-  std::fill(&p[0], &p[allocatedSizeInBytes], 0);
-
-  return p;
-}
-
-std::unique_ptr<char[]>
-allocateHostMemoryForTensor(const Target &target, const Tensor &t,
-                            unsigned replicationFactor) {
-  std::size_t allocatedSizeInbytes = 0;
-
-  return allocateHostMemoryForTensor(target, t, replicationFactor,
-                                     allocatedSizeInbytes);
-}
-
-std::unique_ptr<char[]>
-allocateHostMemoryForTensor(const Tensor &t, const std::string &name,
-                            Graph &graph,
-                            boost::optional<Sequence &> uploadProg,
-                            boost::optional<Sequence &> downloadProg,
-                            std::vector<std::pair<std::string, char *>> &map) {
-  std::unique_ptr<char[]> p = allocateHostMemoryForTensor(
-      graph.getTarget(), t, graph.getReplicationFactor());
-
-  if (downloadProg) {
-    auto downloadId = graph.addDeviceToHostFIFO(
-        name + "_download", t.elementType(), t.numElements());
-    downloadProg->add(Copy(t, downloadId, true, name));
-    map.emplace_back(name + "_download", p.get());
-  }
-
-  if (uploadProg) {
-    auto uploadId = graph.addHostToDeviceFIFO(name + "_upload", t.elementType(),
-                                              t.numElements());
-    uploadProg->add(Copy(uploadId, t, true, name));
-    map.emplace_back(name + "_upload", p.get());
-  }
-
-  return p;
-}
-
-void attachStreams(Engine &e,
-                   const std::vector<std::pair<std::string, char *>> &map) {
-  for (const auto &p : map) {
-    e.connectStream(p.first, p.second);
-  }
-}
-
 template <typename T>
-void roundToHalfPrecision(const Target &target, T *begin, T *end) {
+void roundToHalfPrecision(const poplar::Target &target, T *begin, T *end) {
   auto N = end - begin;
   std::vector<char> buf(N * target.getTypeSize(poplar::HALF));
-  detail::copyToDevice(target, begin, buf.data(), N);
-  detail::copyFromDevice(target, buf.data(), begin, N);
+  poplar_test::detail::copyToDevice(target, begin, buf.data(), N);
+  poplar_test::detail::copyFromDevice(target, buf.data(), begin, N);
 }
 
 template <typename T, typename F>

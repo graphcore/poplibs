@@ -878,10 +878,9 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   A.setBlockTensor(tensorA);
   poputil::mapTensorLinearly(graph, tensorA);
 
-  std::unique_ptr<char[]> rawHostA =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostA, dataType, rawHostA.get());
+  std::unique_ptr<char[]> rawHostA = poplar_test::allocateHostMemoryForTensor(
+      tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostA, dataType, rawHostA.get());
 
   // RHS sparse matrix
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
@@ -889,9 +888,9 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   poputil::mapTensorLinearly(graph, tensorB);
 
   std::unique_ptr<char[]> blocksRawHostB =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
+      poplar_test::allocateHostMemoryForTensor(tensorB, "B", graph, uploadProg,
+                                               downloadProg, streamMaps);
+  poplar_test::copy(target, blocksHostB, dataType, blocksRawHostB.get());
 
   // No reduction
   HyperGraphBlockTest hg(A, B, dataType, dataType, dataType, 1, 1);
@@ -909,7 +908,7 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
 
   std::vector<std::unique_ptr<char[]>> rawHostCParts;
   for (auto iter = tensorCParts.begin(); iter != tensorCParts.end(); ++iter) {
-    rawHostCParts.push_back(poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostCParts.push_back(poplar_test::allocateHostMemoryForTensor(
         iter->second, std::string("C_") + std::to_string(iter->first), graph,
         uploadProg, downloadProg, streamMaps));
   }
@@ -922,7 +921,7 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
-  poplibs_test::util::attachStreams(engine, streamMaps);
+  poplar_test::attachStreams(engine, streamMaps);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -933,8 +932,8 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   for (std::size_t i = 0; i < rawHostCParts.size(); ++i) {
     boost::multi_array<float, 2> blocksHostCPart(
         boost::extents[rowsInBlockC][colsInBlockC]);
-    poplibs_test::util::copy(target, dataType, rawHostCParts[i].get(),
-                             blocksHostCPart);
+    poplar_test::copy(target, dataType, rawHostCParts[i].get(),
+                      blocksHostCPart);
     blocksHostCParts.push_back(std::move(blocksHostCPart));
   }
 
@@ -1011,10 +1010,9 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   A.setBlockTensor(tensorA);
   poputil::mapTensorLinearly(graph, tensorA);
 
-  std::unique_ptr<char[]> rawHostA =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostA, dataType, rawHostA.get());
+  std::unique_ptr<char[]> rawHostA = poplar_test::allocateHostMemoryForTensor(
+      tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostA, dataType, rawHostA.get());
 
   // RHS sparse matrix
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
@@ -1022,9 +1020,9 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   poputil::mapTensorLinearly(graph, tensorB);
 
   std::unique_ptr<char[]> blocksRawHostB =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
+      poplar_test::allocateHostMemoryForTensor(tensorB, "B", graph, uploadProg,
+                                               downloadProg, streamMaps);
+  poplar_test::copy(target, blocksHostB, dataType, blocksRawHostB.get());
 
   // Reduction
   HyperGraphBlockTest hg(A, B, dataType, dataType, dataType,
@@ -1047,7 +1045,7 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   std::vector<std::unique_ptr<char[]>> rawHostCParts;
 
   for (std::size_t i = 0; i < hg.matC->getBlockTensor().size(); ++i) {
-    rawHostCParts.push_back(poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostCParts.push_back(poplar_test::allocateHostMemoryForTensor(
         hg.matC->getBlockTensor()[i], std::string("C_") + std::to_string(i),
         graph, uploadProg, downloadProg, streamMaps));
   }
@@ -1061,7 +1059,7 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
-  poplibs_test::util::attachStreams(engine, streamMaps);
+  poplar_test::attachStreams(engine, streamMaps);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -1072,8 +1070,8 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   for (std::size_t i = 0; i < rawHostCParts.size(); ++i) {
     boost::multi_array<float, 2> blocksHostCPart(
         boost::extents[rowsInBlockC][colsInBlockC]);
-    poplibs_test::util::copy(target, dataType, rawHostCParts[i].get(),
-                             blocksHostCPart);
+    poplar_test::copy(target, dataType, rawHostCParts[i].get(),
+                      blocksHostCPart);
     blocksHostCParts.push_back(std::move(blocksHostCPart));
   }
 
@@ -1150,24 +1148,22 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
   A.setBlockTensor(tensorA);
   poputil::mapTensorLinearly(graph, tensorA);
 
-  std::unique_ptr<char[]> rawHostA =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostA, dataType, rawHostA.get());
+  std::unique_ptr<char[]> rawHostA = poplar_test::allocateHostMemoryForTensor(
+      tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostA, dataType, rawHostA.get());
 
   // RHS dense matrix
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
   B.setBlockTensor(tensorB);
   poputil::mapTensorLinearly(graph, tensorB);
 
-  std::unique_ptr<char[]> rawHostB =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
+  std::unique_ptr<char[]> rawHostB = poplar_test::allocateHostMemoryForTensor(
+      tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
   if (needTranspose) {
     boost::multi_array<float, 2> hostBTransposed = transpose(hostB);
-    poplibs_test::util::copy(target, hostBTransposed, dataType, rawHostB.get());
+    poplar_test::copy(target, hostBTransposed, dataType, rawHostB.get());
   } else {
-    poplibs_test::util::copy(target, hostB, dataType, rawHostB.get());
+    poplar_test::copy(target, hostB, dataType, rawHostB.get());
   }
 
   // No reduction
@@ -1186,7 +1182,7 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
 
   std::vector<std::unique_ptr<char[]>> rawHostCParts;
   for (auto iter = tensorCParts.begin(); iter != tensorCParts.end(); ++iter) {
-    rawHostCParts.push_back(poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostCParts.push_back(poplar_test::allocateHostMemoryForTensor(
         iter->second, std::string("C_") + std::to_string(iter->first), graph,
         uploadProg, downloadProg, streamMaps));
   }
@@ -1199,7 +1195,7 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
   const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
-  poplibs_test::util::attachStreams(engine, streamMaps);
+  poplar_test::attachStreams(engine, streamMaps);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -1213,9 +1209,8 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
           boost::extents[rowsInBlockC][colsInBlockC]);
       std::fill_n(blocksHostCPart.data(), blocksHostCPart.num_elements(), 0.0f);
       if (sparsityC[br * blockColsC + bc] > 0) {
-        poplibs_test::util::copy(target, dataType,
-                                 rawHostCParts[outBlockIdx].get(),
-                                 blocksHostCPart);
+        poplar_test::copy(target, dataType, rawHostCParts[outBlockIdx].get(),
+                          blocksHostCPart);
         ++outBlockIdx;
       }
       blocksHostCParts.push_back(std::move(blocksHostCPart));
@@ -1342,19 +1337,18 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   A.setBlockTensor(tensorA);
   poputil::mapTensorLinearly(graph, tensorA);
 
-  std::unique_ptr<char[]> rawHostA =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostA, dataType, rawHostA.get());
+  std::unique_ptr<char[]> rawHostA = poplar_test::allocateHostMemoryForTensor(
+      tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostA, dataType, rawHostA.get());
 
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
   B.setBlockTensor(tensorB);
   poputil::mapTensorLinearly(graph, tensorB);
 
   std::unique_ptr<char[]> blocksRawHostB =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
+      poplar_test::allocateHostMemoryForTensor(tensorB, "B", graph, uploadProg,
+                                               downloadProg, streamMaps);
+  poplar_test::copy(target, blocksHostB, dataType, blocksRawHostB.get());
 
   // No reduction
   HyperGraphBlockTest hg(A, B, dataType, dataType, dataType, 1, 1);
@@ -1371,7 +1365,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
 
   std::vector<std::unique_ptr<char[]>> rawHostCParts;
   for (auto iter = tensorCParts.begin(); iter != tensorCParts.end(); ++iter) {
-    rawHostCParts.push_back(poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostCParts.push_back(poplar_test::allocateHostMemoryForTensor(
         iter->second, std::string("C_") + std::to_string(iter->first), graph,
         uploadProg, downloadProg, streamMaps));
   }
@@ -1381,10 +1375,9 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   A1.setBlockTensor(tensorA1);
   poputil::mapTensorLinearly(graph, tensorA1);
 
-  std::unique_ptr<char[]> rawHostA1 =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorA1, "A1", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostA1, dataType, rawHostA1.get());
+  std::unique_ptr<char[]> rawHostA1 = poplar_test::allocateHostMemoryForTensor(
+      tensorA1, "A1", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostA1, dataType, rawHostA1.get());
 
 #if 0 // Reference path for tensor Bt
 
@@ -1397,10 +1390,10 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   Bt.setBlockTensor(tensorBt);
   poputil::mapTensorLinearly(graph, tensorBt);
 
-  std::unique_ptr<char[]> blocksRawHostBt = poplibs_test::util::allocateHostMemoryForTensor(
+  std::unique_ptr<char[]> blocksRawHostBt = poplar_test::allocateHostMemoryForTensor(
         tensorBt, "Bt", graph, uploadProg,
         downloadProg, streamMaps);
-  poplibs_test::util::copy(target, blocksHostBt, dataType,
+  poplar_test::copy(target, blocksHostBt, dataType,
                              blocksRawHostBt.get());
 
 #else
@@ -1425,7 +1418,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
 
   std::vector<std::unique_ptr<char[]>> rawHostC1Parts;
   for (auto iter = tensorCParts1.begin(); iter != tensorCParts1.end(); ++iter) {
-    rawHostC1Parts.push_back(poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostC1Parts.push_back(poplar_test::allocateHostMemoryForTensor(
         iter->second, std::string("C1_") + std::to_string(iter->first), graph,
         uploadProg, downloadProg, streamMaps));
   }
@@ -1440,7 +1433,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
-  poplibs_test::util::attachStreams(engine, streamMaps);
+  poplar_test::attachStreams(engine, streamMaps);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -1451,8 +1444,8 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   for (std::size_t i = 0; i < rawHostCParts.size(); ++i) {
     boost::multi_array<float, 2> blocksHostCPart(
         boost::extents[rowsInBlockC][colsInBlockC]);
-    poplibs_test::util::copy(target, dataType, rawHostCParts[i].get(),
-                             blocksHostCPart);
+    poplar_test::copy(target, dataType, rawHostCParts[i].get(),
+                      blocksHostCPart);
     blocksHostCParts.push_back(std::move(blocksHostCPart));
   }
 
@@ -1466,8 +1459,8 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   for (std::size_t i = 0; i < rawHostC1Parts.size(); ++i) {
     boost::multi_array<float, 2> blocksHostC1Part(
         boost::extents[rowsInBlockC][colsInBlockC]);
-    poplibs_test::util::copy(target, dataType, rawHostC1Parts[i].get(),
-                             blocksHostC1Part);
+    poplar_test::copy(target, dataType, rawHostC1Parts[i].get(),
+                      blocksHostC1Part);
     blocksHostC1Parts.push_back(std::move(blocksHostC1Part));
   }
 
@@ -1594,19 +1587,18 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   A.setBlockTensor(tensorA);
   poputil::mapTensorLinearly(graph, tensorA);
 
-  std::unique_ptr<char[]> rawHostA =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostA, dataType, rawHostA.get());
+  std::unique_ptr<char[]> rawHostA = poplar_test::allocateHostMemoryForTensor(
+      tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostA, dataType, rawHostA.get());
 
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
   B.setBlockTensor(tensorB);
   poputil::mapTensorLinearly(graph, tensorB);
 
   std::unique_ptr<char[]> blocksRawHostB =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
+      poplar_test::allocateHostMemoryForTensor(tensorB, "B", graph, uploadProg,
+                                               downloadProg, streamMaps);
+  poplar_test::copy(target, blocksHostB, dataType, blocksRawHostB.get());
 
   // No reduction
   HyperGraphBlockTest hg(A, B, dataType, dataType, dataType, 1, 1);
@@ -1623,7 +1615,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
 
   std::vector<std::unique_ptr<char[]>> rawHostCParts;
   for (auto iter = tensorCParts.begin(); iter != tensorCParts.end(); ++iter) {
-    rawHostCParts.push_back(poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostCParts.push_back(poplar_test::allocateHostMemoryForTensor(
         iter->second, std::string("C_") + std::to_string(iter->first), graph,
         uploadProg, downloadProg, streamMaps));
   }
@@ -1633,10 +1625,9 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   B1.setBlockTensor(tensorB1);
   poputil::mapTensorLinearly(graph, tensorB1);
 
-  std::unique_ptr<char[]> rawHostB1 =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorB1, "B1", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostB1, dataType, rawHostB1.get());
+  std::unique_ptr<char[]> rawHostB1 = poplar_test::allocateHostMemoryForTensor(
+      tensorB1, "B1", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostB1, dataType, rawHostB1.get());
 
 #if 0 // Reference path for tensor At
 
@@ -1645,9 +1636,9 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   poputil::mapTensorLinearly(graph, tensorAt);
 
   std::unique_ptr<char[]> rawHostAt =
-      poplibs_test::util::allocateHostMemoryForTensor(
+      poplar_test::allocateHostMemoryForTensor(
           tensorAt, "At", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostAt, dataType, rawHostAt.get());
+  poplar_test::copy(target, hostAt, dataType, rawHostAt.get());
 
 #else
 
@@ -1672,7 +1663,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
 
   std::vector<std::unique_ptr<char[]>> rawHostC1Parts;
   for (auto iter = tensorCParts1.begin(); iter != tensorCParts1.end(); ++iter) {
-    rawHostC1Parts.push_back(poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostC1Parts.push_back(poplar_test::allocateHostMemoryForTensor(
         iter->second, std::string("C1_") + std::to_string(iter->first), graph,
         uploadProg, downloadProg, streamMaps));
   }
@@ -1687,7 +1678,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
-  poplibs_test::util::attachStreams(engine, streamMaps);
+  poplar_test::attachStreams(engine, streamMaps);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -1698,8 +1689,8 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   for (std::size_t i = 0; i < rawHostCParts.size(); ++i) {
     boost::multi_array<float, 2> blocksHostCPart(
         boost::extents[rowsInBlockC][colsInBlockC]);
-    poplibs_test::util::copy(target, dataType, rawHostCParts[i].get(),
-                             blocksHostCPart);
+    poplar_test::copy(target, dataType, rawHostCParts[i].get(),
+                      blocksHostCPart);
     blocksHostCParts.push_back(std::move(blocksHostCPart));
   }
 
@@ -1717,9 +1708,8 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
       std::fill_n(blocksHostC1Part.data(), blocksHostC1Part.num_elements(),
                   0.0f);
       if (sparsityC1[br * blockColsC1 + bc] > 0) {
-        poplibs_test::util::copy(target, dataType,
-                                 rawHostC1Parts[outBlockIdx].get(),
-                                 blocksHostC1Part);
+        poplar_test::copy(target, dataType, rawHostC1Parts[outBlockIdx].get(),
+                          blocksHostC1Part);
         ++outBlockIdx;
       }
       blocksHostC1Parts.push_back(std::move(blocksHostC1Part));
@@ -1789,15 +1779,14 @@ void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize,
   // RHS sparse matrix
   poplar::Tensor tensorB = createBSMatMulInputRHS(graph, bsParams, "B");
 
-  std::unique_ptr<char[]> rawHostA =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostA, dataType, rawHostA.get());
+  std::unique_ptr<char[]> rawHostA = poplar_test::allocateHostMemoryForTensor(
+      tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostA, dataType, rawHostA.get());
 
   std::unique_ptr<char[]> blocksRawHostB =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
+      poplar_test::allocateHostMemoryForTensor(tensorB, "B", graph, uploadProg,
+                                               downloadProg, streamMaps);
+  poplar_test::copy(target, blocksHostB, dataType, blocksRawHostB.get());
 
   poplar::program::Sequence matMulProg;
 
@@ -1807,9 +1796,8 @@ void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize,
   poplar::Tensor tensorC =
       bsMatMul(graph, bsParams, matMulProg, tensorA, tensorB, options);
 
-  std::unique_ptr<char[]> rawHostC =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorC, "C", graph, uploadProg, downloadProg, streamMaps);
+  std::unique_ptr<char[]> rawHostC = poplar_test::allocateHostMemoryForTensor(
+      tensorC, "C", graph, uploadProg, downloadProg, streamMaps);
 
   Sequence allSequence;
   allSequence.add(uploadProg);
@@ -1819,7 +1807,7 @@ void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize,
   const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
-  poplibs_test::util::attachStreams(engine, streamMaps);
+  poplar_test::attachStreams(engine, streamMaps);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -1828,7 +1816,7 @@ void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize,
   std::vector<std::vector<float>> hostC = matMul(hostA, hostB);
 
   boost::multi_array<float, 2> blocksHostC(boost::extents[rowsC][colsC]);
-  poplibs_test::util::copy(target, dataType, rawHostC.get(), blocksHostC);
+  poplar_test::copy(target, dataType, rawHostC.get(), blocksHostC);
 
   checkDenseResult(dataType, rowsC, colsC, hostC, blocksHostC);
 }
@@ -1885,15 +1873,13 @@ void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize,
   // RHS dense matrix
   poplar::Tensor tensorB = createBSMatMulInputRHS(graph, bsParams, "B");
 
-  std::unique_ptr<char[]> rawHostA =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostA, dataType, rawHostA.get());
+  std::unique_ptr<char[]> rawHostA = poplar_test::allocateHostMemoryForTensor(
+      tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostA, dataType, rawHostA.get());
 
-  std::unique_ptr<char[]> rawHostB =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
-  poplibs_test::util::copy(target, hostB, dataType, rawHostB.get());
+  std::unique_ptr<char[]> rawHostB = poplar_test::allocateHostMemoryForTensor(
+      tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
+  poplar_test::copy(target, hostB, dataType, rawHostB.get());
 
   poplar::program::Sequence matMulProg;
 
@@ -1904,9 +1890,8 @@ void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize,
   poplar::Tensor tensorC =
       bsMatMul(graph, bsParams, matMulProg, tensorA, tensorB, options);
 
-  std::unique_ptr<char[]> rawHostC =
-      poplibs_test::util::allocateHostMemoryForTensor(
-          tensorC, "C", graph, uploadProg, downloadProg, streamMaps);
+  std::unique_ptr<char[]> rawHostC = poplar_test::allocateHostMemoryForTensor(
+      tensorC, "C", graph, uploadProg, downloadProg, streamMaps);
 
   Sequence allSequence;
   allSequence.add(uploadProg);
@@ -1916,7 +1901,7 @@ void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize,
   const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, allSequence, engineOptions);
-  poplibs_test::util::attachStreams(engine, streamMaps);
+  poplar_test::attachStreams(engine, streamMaps);
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -1926,7 +1911,7 @@ void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize,
 
   boost::multi_array<float, 2> blocksHostC(
       boost::extents[tensorC.dim(0)][tensorC.dim(1)]);
-  poplibs_test::util::copy(target, dataType, rawHostC.get(), blocksHostC);
+  poplar_test::copy(target, dataType, rawHostC.get(), blocksHostC);
 
   checkSparseResult(dataType, blockRowsC, blockColsC, rowsInBlockC,
                     colsInBlockC, hostC, blocksHostC, sparsityC);

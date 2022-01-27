@@ -14,6 +14,7 @@
 
 using namespace poplibs_support;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 
 // Used data types
 // TODO: We could make the testing of actual bucket creation by passing

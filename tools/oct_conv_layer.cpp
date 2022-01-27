@@ -42,6 +42,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poputil;
 using poplibs_test::Pass;
 using namespace poplibs_support;

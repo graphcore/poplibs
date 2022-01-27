@@ -17,6 +17,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace popops;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poputil;
 
 using namespace poplibs_support;
@@ -190,7 +191,7 @@ int main(int argc, char **argv) {
     ("profile", "Output profiling report")
     ("type", po::value(&dataType)->default_value(dataType),
       "Data type of data and limits")
-    ("two-d", po::value(&twoD)->default_value(twoD), 
+    ("two-d", po::value(&twoD)->default_value(twoD),
      "Use 2D input tensor (data size must be even in such case")
     ("inner-dim-size", po::value(&innermostDimSize)->required(),
       "Number of data elements in the innermost dimension (number of elements "

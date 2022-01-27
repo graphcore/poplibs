@@ -38,6 +38,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace popnn;
 using namespace popops;
 using namespace poplibs_support;
@@ -518,7 +519,7 @@ int main(int argc, char **argv) {
     ("norm-type",
      po::value<std::string>(&test)->required(),
      "Normalisation type: BN | GN | IN | LN")
-     
+
     ("strided-channel-grouping",
      po::value<bool>(&groupNormStridedChannelGrouping)->
                     default_value(groupNormStridedChannelGrouping),

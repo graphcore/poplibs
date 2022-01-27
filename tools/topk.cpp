@@ -25,6 +25,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_support;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poputil;
 
 #define FLOAT_REL_TOL 1e-6

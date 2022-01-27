@@ -34,6 +34,7 @@ using namespace poplar;
 using namespace poplin;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace popsparse::experimental;
 using namespace poplibs_support;
 using namespace poplibs_test;
@@ -1077,7 +1078,7 @@ int main(int argc, char **argv) {
             }
           }
           if (checkResult == 1) {
-            outputRawHost = poplibs_test::util::allocateHostMemoryForTensor(
+            outputRawHost = poplar_test::allocateHostMemoryForTensor(
                 outTensor, debugPrefix + "/matrix_output" + stepSuffix, graph,
                 uploadProg, downloadProg, tmap);
           }
@@ -1279,7 +1280,7 @@ int main(int argc, char **argv) {
             }
           }
           if (checkResult == 1) {
-            outputRawHost = poplibs_test::util::allocateHostMemoryForTensor(
+            outputRawHost = poplar_test::allocateHostMemoryForTensor(
                 outTensor, debugPrefix + "/matrix_output" + stepSuffix, graph,
                 uploadProg, downloadProg, tmap);
           }
@@ -1356,7 +1357,7 @@ int main(int argc, char **argv) {
             copy(target, inputBlocksHost, dataType, inputRawHost[nStep].get());
           }
           if (checkResult == 1) {
-            outputRawHost = poplibs_test::util::allocateHostMemoryForTensor(
+            outputRawHost = poplar_test::allocateHostMemoryForTensor(
                 outTensor, debugPrefix + "/output" + stepSuffix, graph,
                 uploadProg, downloadProg, tmap);
           }
@@ -1407,7 +1408,7 @@ int main(int argc, char **argv) {
             copy(target, inputHost, dataType, inputRawHost[nStep].get());
           }
           if (checkResult == 1) {
-            outputRawHost = poplibs_test::util::allocateHostMemoryForTensor(
+            outputRawHost = poplar_test::allocateHostMemoryForTensor(
                 outTensor, debugPrefix + "/output" + stepSuffix, graph,
                 uploadProg, downloadProg, tmap);
           }
@@ -1453,7 +1454,7 @@ int main(int argc, char **argv) {
 
   std::cout << "Start " << runs << " runs of " << numReps << " rep(s)..."
             << std::endl;
-  poplibs_test::util::attachStreams(engine, tmap);
+  poplar_test::attachStreams(engine, tmap);
   device.bind([&](const Device &d) {
     engine.load(d);
     auto start = std::chrono::system_clock::now();

@@ -17,6 +17,7 @@ using namespace poplar::program;
 using namespace popops::rearrange;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplin;
 using namespace poplibs_support;
 

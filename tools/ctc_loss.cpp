@@ -35,6 +35,7 @@ using namespace poplibs_test::ctc;
 using namespace poplibs_test;
 using namespace poplibs_test::matrix;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplibs_support;
 using namespace poputil;
 
@@ -321,7 +322,7 @@ int main(int argc, char **argv) {
      deviceTypeHelp)
     ("tiles-per-ipu", po::value<boost::optional<unsigned>>(&tiles),
      "Number of tiles per IPU")
-    ("available-mem-proportion", 
+    ("available-mem-proportion",
       po::value<boost::optional<double>>(&availableMemProportion),
      "Available memory proportion given to the planner")
     ("profile", "Show profile report")

@@ -20,6 +20,7 @@ using namespace poplar;
 using namespace poputil;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplibs_support;
 
 // Some test cases are to be run only on IPU2

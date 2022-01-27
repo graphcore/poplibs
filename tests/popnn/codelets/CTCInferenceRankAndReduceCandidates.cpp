@@ -21,6 +21,7 @@ using namespace poplar::program;
 using namespace poplibs_test::ctc;
 using namespace poplibs_test;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplibs_support;
 using namespace poputil;
 

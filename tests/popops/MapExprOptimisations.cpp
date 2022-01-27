@@ -59,10 +59,10 @@ executeExpr(const Expr &expression, const poplar::Type &dType, bool inPlace,
   const std::vector<float> hostInB = {
       8.25, 7.25, 6.5, 5.5, 4.5, 3.5, 2.75, 1.75, 8, 7, 6, 5, 4, 3, 2, 1};
 
-  poplibs_test::util::copy(target, hostInA.data(), size, dType,
-                           reinterpret_cast<void *>(rawInA.data()));
-  poplibs_test::util::copy(target, hostInC.data(), size, dType,
-                           reinterpret_cast<void *>(rawInC.data()));
+  poplar_test::copy(target, hostInA.data(), size, dType,
+                    reinterpret_cast<void *>(rawInA.data()));
+  poplar_test::copy(target, hostInC.data(), size, dType,
+                    reinterpret_cast<void *>(rawInC.data()));
 
   poplar::OptionFlags enableOptims = {
       {"enableExpressionOptimizations", "true"}};
@@ -118,13 +118,11 @@ executeExpr(const Expr &expression, const poplar::Type &dType, bool inPlace,
   });
 
   std::vector<float> hostOutOpt(size);
-  poplibs_test::util::copy(target, dType,
-                           reinterpret_cast<void *>(rawOutOpt.data()),
-                           hostOutOpt.data(), size);
+  poplar_test::copy(target, dType, reinterpret_cast<void *>(rawOutOpt.data()),
+                    hostOutOpt.data(), size);
   std::vector<float> hostOutNoOpt(size);
-  poplibs_test::util::copy(target, dType,
-                           reinterpret_cast<void *>(rawOutNoOpt.data()),
-                           hostOutNoOpt.data(), size);
+  poplar_test::copy(target, dType, reinterpret_cast<void *>(rawOutNoOpt.data()),
+                    hostOutNoOpt.data(), size);
 
   return std::make_pair(hostOutOpt, hostOutNoOpt);
 }

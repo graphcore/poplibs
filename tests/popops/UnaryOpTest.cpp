@@ -29,6 +29,7 @@
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 
 // Some non linearities can be executed also via popnn calls as well, in
 // addition to the popops 'map' call.

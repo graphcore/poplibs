@@ -213,17 +213,17 @@ int main(int argc, char **argv) try {
       rawHostOutputs;
   if (!ignoreData) {
     for (unsigned i = 0; i < convolutionArgs.size(); ++i) {
-      auto rawHostInput = poplibs_test::util::allocateHostMemoryForTensor(
+      auto rawHostInput = poplar_test::allocateHostMemoryForTensor(
           convolutionArgs[i].inputs, createInputArgs[i].name, graph, uploadProg,
           boost::none, tmap);
       rawHostInputs.push_back(std::move(rawHostInput));
 
-      auto rawHostWeight = poplibs_test::util::allocateHostMemoryForTensor(
+      auto rawHostWeight = poplar_test::allocateHostMemoryForTensor(
           convolutionArgs[i].weights, createWeightsArgs[i].name, graph,
           uploadProg, boost::none, tmap);
       rawHostWeights.push_back(std::move(rawHostWeight));
 
-      auto rawHostOutput = poplibs_test::util::allocateHostMemoryForTensor(
+      auto rawHostOutput = poplar_test::allocateHostMemoryForTensor(
           outs[i], "output_" + std::to_string(i), graph, boost::none,
           downloadProg, tmap);
       rawHostOutputs.push_back(std::move(rawHostOutput));
@@ -246,7 +246,7 @@ int main(int argc, char **argv) try {
   std::vector<boost::multi_array<double, 4>> hostWeights;
   std::vector<boost::multi_array<double, 3>> modelOutputs;
   if (!ignoreData) {
-    poplibs_test::util::attachStreams(engine, tmap);
+    poplar_test::attachStreams(engine, tmap);
 
     std::mt19937 randomEngine;
     for (unsigned i = 0; i < convolutionArgs.size(); ++i) {
@@ -258,16 +258,16 @@ int main(int argc, char **argv) try {
           boost::extents[p.batchSize][inChannels][product(p.inputFieldShape)]);
       poplibs_test::util::writeRandomBinaryValues(
           target, p.inputType, hostInputs.back(), -1.0, 1.0, randomEngine);
-      poplibs_test::util::copy(target, hostInputs.back(), p.inputType,
-                               rawHostInputs[i].get());
+      poplar_test::copy(target, hostInputs.back(), p.inputType,
+                        rawHostInputs[i].get());
 
       hostWeights.emplace_back(
           boost::extents[p.numConvGroups][p.outputChannelsPerConvGroup]
                         [p.inputChannelsPerConvGroup][product(p.kernelShape)]);
       poplibs_test::util::writeRandomBinaryValues(
           target, p.inputType, hostWeights.back(), -1.0, 1.0, randomEngine);
-      poplibs_test::util::copy(target, hostWeights.back(), p.inputType,
-                               rawHostWeights[i].get());
+      poplar_test::copy(target, hostWeights.back(), p.inputType,
+                        rawHostWeights[i].get());
 
       // build a reference model to validate against
       boost::multi_array<double, 1> biases(boost::extents[outChannels]);
@@ -338,8 +338,8 @@ int main(int argc, char **argv) try {
 
       boost::multi_array<double, 3> hostOutput(
           boost::extents[p.batchSize][outChannels][product(outFieldShape)]);
-      poplibs_test::util::copy(target, p.outputType, rawHostOutputs[i].get(),
-                               hostOutput);
+      poplar_test::copy(target, p.outputType, rawHostOutputs[i].get(),
+                        hostOutput);
 
       const auto tolerance = 0.0;
       matchesModel &= poplibs_test::util::checkIsClose(

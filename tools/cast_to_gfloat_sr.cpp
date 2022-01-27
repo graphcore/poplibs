@@ -33,6 +33,7 @@ const float sr_tolerance = 0.03;
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poputil;
 using namespace popfloat::experimental;
 using namespace poplibs_support;

@@ -28,6 +28,7 @@
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 
 //*************************************************************************
 /// Verifies if the results of the operation performed on the device match

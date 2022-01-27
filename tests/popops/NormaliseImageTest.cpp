@@ -14,6 +14,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplibs_support;
 
 static constexpr float halfTolerance = .005;

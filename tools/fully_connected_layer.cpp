@@ -35,6 +35,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplin;
 using namespace poputil;
 using namespace popops;

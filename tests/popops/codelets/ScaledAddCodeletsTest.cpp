@@ -51,6 +51,7 @@
 using namespace poplar;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace popops;
 using namespace poplibs_support;
 

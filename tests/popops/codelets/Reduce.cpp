@@ -24,6 +24,7 @@ using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplibs_support;
 
 static bool do_test(const DeviceType &deviceType, const Type &inType,

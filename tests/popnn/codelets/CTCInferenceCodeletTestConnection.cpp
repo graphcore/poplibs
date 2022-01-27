@@ -6,6 +6,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 
 namespace poplibs_test {
 namespace ctc {

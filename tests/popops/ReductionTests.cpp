@@ -27,6 +27,7 @@ using namespace popops;
 using namespace poplibs_support;
 using namespace poplibs_test;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 
 const OptionFlags options;
 

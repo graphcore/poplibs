@@ -9,6 +9,7 @@
 #include <poplar/Program.hpp>
 #include <poplar/Target.hpp>
 #include <poplar/Type.hpp>
+#include <poplar_test/Util.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/MultiArray.hpp>
 #include <poputil/Util.hpp>
@@ -29,61 +30,6 @@
 
 namespace poplibs_test {
 namespace util {
-
-namespace detail {
-
-template <typename T>
-void inline copyToDevice(const poplar::Target &target, const T *src, void *dst,
-                         std::size_t n) {}
-
-template <>
-void inline copyToDevice(const poplar::Target &target, const float *src,
-                         void *dst, std::size_t n) {
-  poplar::copyFloatToDeviceHalf(target, src, dst, n);
-}
-
-template <>
-void inline copyToDevice(const poplar::Target &target, const double *src,
-                         void *dst, std::size_t n) {
-  poplar::copyDoubleToDeviceHalf(target, src, dst, n);
-}
-
-template <typename T>
-void inline copyFromDevice(const poplar::Target &target, const void *src,
-                           T *dst, std::size_t n) {}
-
-template <>
-void inline copyFromDevice(const poplar::Target &target, const void *src,
-                           float *dst, std::size_t n) {
-  poplar::copyDeviceHalfToFloat(target, src, dst, n);
-}
-
-template <>
-void inline copyFromDevice(const poplar::Target &target, const void *src,
-                           double *dst, std::size_t n) {
-  poplar::copyDeviceHalfToDouble(target, src, dst, n);
-}
-
-} // namespace detail
-
-std::unique_ptr<char[]>
-allocateHostMemoryForTensor(const poplar::Target &target,
-                            const poplar::Tensor &t, unsigned replicationFactor,
-                            std::size_t &allocatedSizeInBytes);
-
-std::unique_ptr<char[]>
-allocateHostMemoryForTensor(const poplar::Target &target,
-                            const poplar::Tensor &t,
-                            unsigned replicationFactor);
-
-std::unique_ptr<char[]> allocateHostMemoryForTensor(
-    const poplar::Tensor &t, const std::string &name, poplar::Graph &graph,
-    boost::optional<poplar::program::Sequence &> uploadProg,
-    boost::optional<poplar::program::Sequence &> downloadProg,
-    std::vector<std::pair<std::string, char *>> &map);
-
-void attachStreams(poplar::Engine &e,
-                   const std::vector<std::pair<std::string, char *>> &map);
 
 template <typename T>
 void writeRandomBinaryValues(const poplar::Target &target,
@@ -168,128 +114,15 @@ bool isLikelyToHaveNumericalErrorsUsingBernoulli(
     size_t macsPerOutputElement, const poplar::Type &inputType,
     const poplar::Type &outputType);
 
-template <typename T>
-void copy(const poplar::Target &target, const T *src, std::size_t n,
-          const poplar::Type &dstType, void *dst) {
-
-  // For HALF we have to convert ...
-  if (dstType == poplar::HALF) {
-    detail::copyToDevice<T>(target, src, dst, n);
-    return;
-  }
-  // ... for all other types we just do a std::copy. We just need to cast to
-  // the appropriate pointer type
-#define STD_COPY(DEV_TYPE, HOST_TYPE)                                          \
-  if (dstType == poplar::DEV_TYPE) {                                           \
-    std::copy(src, src + n, reinterpret_cast<HOST_TYPE *>(dst));               \
-    return;                                                                    \
-  }
-  STD_COPY(FLOAT, float)
-  STD_COPY(INT, int)
-  STD_COPY(UNSIGNED_INT, unsigned int)
-  STD_COPY(SHORT, short)
-  STD_COPY(UNSIGNED_SHORT, unsigned short)
-  STD_COPY(QUARTER, unsigned char)
-  STD_COPY(CHAR, char)
-  STD_COPY(SIGNED_CHAR, signed char)
-  STD_COPY(UNSIGNED_CHAR, unsigned char)
-  STD_COPY(BOOL, bool)
-  STD_COPY(UNSIGNED_LONGLONG, unsigned long long)
-  STD_COPY(LONGLONG, long long)
-#undef STD_COPY
-  throw std::runtime_error("destination type " + dstType.toString() +
-                           " not supported in poplibs_test::util::copy()");
-}
-
-template <typename T, unsigned long N>
-inline void copy(const poplar::Target &target, boost::multi_array_ref<T, N> src,
-                 const poplar::Type &dstType, void *dst) {
-  assert(src.storage_order() == boost::c_storage_order());
-  copy(target, src.data(), src.num_elements(), dstType, dst);
-}
-
-template <typename T>
-inline void copy(const poplar::Target &target, const std::vector<T> &src,
-                 const poplar::Type &dstType, void *dst) {
-  copy(target, src.data(), src.size(), dstType, dst);
-}
-
 inline void copy(const poplar::Target &target,
                  const poplibs_support::MultiArray<double> &src,
                  const poplar::Type &dstType, void *dst) {
-  copy(target, src.data(), src.numElements(), dstType, dst);
-}
-
-template <typename T>
-void copy(const poplar::Target &target, const poplar::Type &srcType, void *src,
-          T *dst, size_t n) {
-
-  // For HALF we have to convert ...
-  if (srcType == poplar::HALF) {
-    detail::copyFromDevice<T>(target, src, dst, n);
-    return;
-  }
-
-  // ... for all other types we just do a std::copy. We just need to cast to
-  // the appropriate pointer types
-#define STD_COPY(DEV_TYPE, HOST_TYPE)                                          \
-  if (srcType == poplar::DEV_TYPE) {                                           \
-    std::copy(reinterpret_cast<HOST_TYPE *>(src),                              \
-              reinterpret_cast<HOST_TYPE *>(src) + n, dst);                    \
-    return;                                                                    \
-  }
-  STD_COPY(FLOAT, float)
-  STD_COPY(INT, int)
-  STD_COPY(UNSIGNED_INT, unsigned int)
-  STD_COPY(SHORT, short)
-  STD_COPY(UNSIGNED_SHORT, unsigned short)
-  STD_COPY(QUARTER, unsigned char)
-  STD_COPY(CHAR, char)
-  STD_COPY(SIGNED_CHAR, signed char)
-  STD_COPY(UNSIGNED_CHAR, unsigned char)
-  STD_COPY(BOOL, bool)
-  STD_COPY(UNSIGNED_LONGLONG, unsigned long long)
-  STD_COPY(LONGLONG, long long)
-
-#undef STD_COPY
-  throw std::runtime_error("source type " + srcType.toString() +
-                           " not supported in poplibs_test::util::copy()");
-}
-
-template <typename T>
-inline void copy(const poplar::Target &target, const poplar::Type &srcType,
-                 void *src, std::vector<T> &dst) {
-  copy(target, srcType, src, dst.data(), dst.size());
-}
-
-template <typename T, unsigned long N>
-inline void copy(const poplar::Target &target, const poplar::Type &srcType,
-                 void *src, boost::multi_array_ref<T, N> dst) {
-  assert(dst.storage_order() == boost::c_storage_order());
-  copy(target, srcType, src, dst.data(), dst.num_elements());
+  poplar_test::copy(target, src.data(), src.numElements(), dstType, dst);
 }
 
 inline void copy(const poplar::Target &target, const poplar::Type &srcType,
                  void *src, poplibs_support::MultiArray<double> &dst) {
-  copy(target, srcType, src, dst.data(), dst.numElements());
-}
-
-template <typename T, unsigned N>
-inline void copy(const poplar::Target &target, const poplar::Type &type,
-                 const std::vector<boost::multi_array<T, N>> &src,
-                 const std::vector<std::unique_ptr<char[]>> &dst) {
-  for (unsigned i = 0; i < src.size(); ++i) {
-    copy(target, src[i], type, dst[i].get());
-  }
-}
-
-template <typename T, unsigned N>
-inline void copy(const poplar::Target &target, const poplar::Type &type,
-                 const std::vector<std::unique_ptr<char[]>> &src,
-                 const std::vector<boost::multi_array<T, N>> &dst) {
-  for (unsigned i = 0; i < src.size(); ++i) {
-    copy(target, type, src[i].get(), dst[i]);
-  }
+  poplar_test::copy(target, srcType, src, dst.data(), dst.numElements());
 }
 
 template <typename intType>

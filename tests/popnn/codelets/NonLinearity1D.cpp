@@ -21,6 +21,7 @@ using namespace poplar::program;
 using namespace popnn;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplibs_support;
 
 #define TOL 0.1 // tolerance of 0.1%

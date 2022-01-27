@@ -18,6 +18,7 @@ using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 
 using namespace poplibs_support;
 namespace po = boost::program_options;

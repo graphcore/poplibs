@@ -27,6 +27,7 @@
 
 using namespace poplar;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplar::program;
 using namespace poplibs_support;
 
@@ -144,7 +145,7 @@ int main(int argc, char **argv) {
     ("partial-type",
      po::value<boost::optional<Type>>(&opts.partialType)
       ->default_value(boost::none),
-     "Partials type (defaults to data type ")     
+     "Partials type (defaults to data type ")
     ("show-execution-steps",
      po::value<bool>(&opts.showExecutionSteps)
        ->default_value(opts.showExecutionSteps),

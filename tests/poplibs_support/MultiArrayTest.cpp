@@ -7,13 +7,15 @@
 #include "poplibs_test/Util.hpp"
 
 #include <poplar/Target.hpp>
+#include <poplar_test/Util.hpp>
 
 #include <boost/multi_array.hpp>
 
 #include <random>
 
 using namespace poplibs_support;
-using namespace poplibs_test;
+using namespace poplar_test;
+using namespace poplibs_test::util;
 
 BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
   const std::array<std::size_t, 5> dims{1, 2, 3, 4, 5};
@@ -90,16 +92,16 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
       }
     }
   }
-  BOOST_CHECK(util::checkIsClose("uut", uut, uutClone, 0.1));
+  BOOST_CHECK(checkIsClose("uut", uut, uutClone, 0.1));
 
   const auto target = poplar::Target::createIPUTarget(1, "ipu1");
   const auto size = uut.numElements() * sizeof(float);
 
   std::unique_ptr<char[]> uutBuffer(new char[size]);
-  util::copy(target, uut, poplar::FLOAT, uutBuffer.get());
+  copy(target, uut, poplar::FLOAT, uutBuffer.get());
 
   std::unique_ptr<char[]> modelBuffer(new char[size]);
-  util::copy(target, model, poplar::FLOAT, modelBuffer.get());
+  copy(target, model, poplar::FLOAT, modelBuffer.get());
 
   BOOST_CHECK(
       std::equal(uutBuffer.get(), uutBuffer.get() + size, modelBuffer.get()));
@@ -108,8 +110,8 @@ BOOST_AUTO_TEST_CASE(CompareWithBoostMultiArray) {
   boost::multi_array<double, 5> modelAfter{
       boost::extents[dims[0]][dims[1]][dims[2]][dims[3]][dims[4]]};
 
-  util::copy(target, poplar::FLOAT, uutBuffer.get(), uutAfter);
-  util::copy(target, poplar::FLOAT, modelBuffer.get(), modelAfter);
+  copy(target, poplar::FLOAT, uutBuffer.get(), uutAfter);
+  copy(target, poplar::FLOAT, modelBuffer.get(), modelAfter);
   BOOST_CHECK(std::equal(uutAfter.data(),
                          uutAfter.data() + uutAfter.numElements(),
                          modelAfter.data()));

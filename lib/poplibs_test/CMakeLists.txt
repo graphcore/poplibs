@@ -41,7 +41,11 @@ add_library(poplibs_test SHARED
 
 target_link_libraries(poplibs_test
   PUBLIC
-    poplar poputil Boost::boost spdlog::spdlog_header_only
+    poplar
+    poplar_test
+    poputil
+    Boost::boost
+    spdlog::spdlog_header_only
 )
 
 target_include_directories(poplibs_test

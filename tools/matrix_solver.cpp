@@ -259,18 +259,18 @@ int main(int argc, char **argv) try {
   std::unique_ptr<char[]> rawHostInputA, rawHostInputB, rawHostOutput,
       rawHostOutputT;
   if (!ignoreData) {
-    rawHostInputA = poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostInputA = poplar_test::allocateHostMemoryForTensor(
         inputA, "A", graph, uploadProg, boost::none, tmap);
 
     if (!runCholesky) {
-      rawHostInputB = poplibs_test::util::allocateHostMemoryForTensor(
+      rawHostInputB = poplar_test::allocateHostMemoryForTensor(
           inputB, "B", graph, uploadProg, boost::none, tmap);
     }
 
-    rawHostOutput = poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostOutput = poplar_test::allocateHostMemoryForTensor(
         out, "X", graph, boost::none, downloadProg, tmap);
 
-    rawHostOutputT = poplibs_test::util::allocateHostMemoryForTensor(
+    rawHostOutputT = poplar_test::allocateHostMemoryForTensor(
         poplin::transposeGroupedMatrix(out), "XT", graph, boost::none,
         downloadProg, tmap);
   }
@@ -299,7 +299,7 @@ int main(int argc, char **argv) try {
     boost::random::uniform_real_distribution<> dist(0.01, 1.0);
     boost::random::uniform_real_distribution<> diagonalDist(0.95, 1.05);
 
-    poplibs_test::util::attachStreams(engine, tmap);
+    poplar_test::attachStreams(engine, tmap);
 
     if (runCholesky) {
       hostInputAFilled.resize(boost::extents[numBatches][aRank][aRank]);
@@ -328,15 +328,14 @@ int main(int argc, char **argv) try {
         }
       }
     }
-    poplibs_test::util::copy(target, hostInputA, dataType, rawHostInputA.get());
+    poplar_test::copy(target, hostInputA, dataType, rawHostInputA.get());
 
     if (!runCholesky) {
       hostInputB.resize(
           boost::extents[numBatches][inputBShape[1]][inputBShape[2]]);
       poplibs_test::util::writeRandomValues(target, dataType, hostInputB, -1.0,
                                             1.0, randomEngine);
-      poplibs_test::util::copy(target, hostInputB, dataType,
-                               rawHostInputB.get());
+      poplar_test::copy(target, hostInputB, dataType, rawHostInputB.get());
     }
   }
 
@@ -369,12 +368,11 @@ int main(int argc, char **argv) try {
 
     boost::multi_array<double, 3> hostOutput(
         boost::extents[numBatches][dim1][dim2]);
-    poplibs_test::util::copy(target, dataType, rawHostOutput.get(), hostOutput);
+    poplar_test::copy(target, dataType, rawHostOutput.get(), hostOutput);
 
     boost::multi_array<double, 3> hostOutputT(
         boost::extents[numBatches][dim1][dim2]);
-    poplibs_test::util::copy(target, dataType, rawHostOutputT.get(),
-                             hostOutputT);
+    poplar_test::copy(target, dataType, rawHostOutputT.get(), hostOutputT);
 
     boost::multi_array<double, 3> modelOutput(
         boost::extents[numBatches][dim1][dim2]);

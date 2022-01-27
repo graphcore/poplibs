@@ -28,6 +28,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace popfloat::experimental;
 using namespace poputil;
 using namespace poplibs_support;

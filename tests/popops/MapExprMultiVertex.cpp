@@ -24,6 +24,7 @@ using namespace poplibs_support;
 using namespace popops;
 using namespace popops::expr;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 
 std::pair<std::vector<double>, std::vector<double>>
 executeExpr(const DeviceType &deviceType, const Expr &expression,
@@ -153,7 +154,7 @@ int main(int argc, char **argv) {
      "Device Type")
     ("length",
      po::value<unsigned>(&length)->required(),
-     "Data length")     
+     "Data length")
     ("slices",
      po::value<unsigned>(&slices)->default_value(slices),
      "Number of slices to operate on")

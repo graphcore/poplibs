@@ -53,10 +53,10 @@ executeExpr(const Expr &expression, const poplar::Type &dType, bool inPlace,
   std::vector<char> rawOutOpt(rawBufSize);
   std::vector<char> rawOutNoOpt(rawBufSize);
 
-  poplibs_test::util::copy(target, hostInA.data(), size, dType,
-                           reinterpret_cast<void *>(rawInA.data()));
-  poplibs_test::util::copy(target, hostInC.data(), size, dType,
-                           reinterpret_cast<void *>(rawInC.data()));
+  poplar_test::copy(target, hostInA.data(), size, dType,
+                    reinterpret_cast<void *>(rawInA.data()));
+  poplar_test::copy(target, hostInC.data(), size, dType,
+                    reinterpret_cast<void *>(rawInC.data()));
 
   poplar::OptionFlags enableOptims = {
       {"enableExpressionOptimizations", "true"}};
@@ -112,13 +112,11 @@ executeExpr(const Expr &expression, const poplar::Type &dType, bool inPlace,
   });
 
   std::vector<float> hostOutOpt(size);
-  poplibs_test::util::copy(target, dType,
-                           reinterpret_cast<void *>(rawOutOpt.data()),
-                           hostOutOpt.data(), size);
+  poplar_test::copy(target, dType, reinterpret_cast<void *>(rawOutOpt.data()),
+                    hostOutOpt.data(), size);
   std::vector<float> hostOutNoOpt(size);
-  poplibs_test::util::copy(target, dType,
-                           reinterpret_cast<void *>(rawOutNoOpt.data()),
-                           hostOutNoOpt.data(), size);
+  poplar_test::copy(target, dType, reinterpret_cast<void *>(rawOutNoOpt.data()),
+                    hostOutNoOpt.data(), size);
 
   return std::make_pair(hostOutOpt, hostOutNoOpt);
 }
@@ -138,7 +136,7 @@ int main(int argc, char **argv) {
      "Device Type")
     ("rhs-is-signed",
      po::value<bool>(&rhsIsSigned)->required(),
-     "Right hand side is signed")     
+     "Right hand side is signed")
     ("power-of-two",
      po::value<bool>(&powerOfTwo)->required(),
      "right hand side is power of two")

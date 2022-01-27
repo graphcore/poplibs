@@ -25,6 +25,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
+using namespace poplar_test;
 using namespace poplibs_support;
 namespace br = boost::random;
 namespace pe = popops::expr;
