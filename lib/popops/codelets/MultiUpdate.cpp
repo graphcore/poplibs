@@ -26,7 +26,7 @@ public:
   IS_EXTERNAL_CODELET(true);
 
   Input<Vector<unsigned>> offsets; // in \a baseT
-  InOut<Vector<Type, ONE_PTR>> baseT;
+  InOut<Vector<Type, ONE_PTR, 4>> baseT;
   Input<Vector<Type, ONE_PTR>> subT;
   const unsigned baseOffset;       // in the slice dimension
   const unsigned numBaseElements;  // in the slice dimension

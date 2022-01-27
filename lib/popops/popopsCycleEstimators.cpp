@@ -2166,11 +2166,13 @@ static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
                                  bool isUpdate) {
   const auto regionSize =
       vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
+  const auto splitSingleRegion =
+      vertex.getFieldInfo("splitSingleRegion").getInitialValue<bool>(target);
   const auto offsets = vertex.getFieldInfo("offsets");
   // Assume worst case scenario where every index is in range for the vertex.
   return getMultiSliceCycleEstimate(MultiSliceTargetParameters{target, type},
                                     regionSize, offsets.size(), offsets.size(),
-                                    0, isUpdate);
+                                    0, isUpdate, splitSingleRegion);
 }
 
 VertexPerfEstimate

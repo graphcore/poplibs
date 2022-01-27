@@ -175,6 +175,7 @@ FN_SIZE Slice_copy_function_half
 
 FN_SECTION Slice_copy_function_float_int 8 nop
 FN_EXPORT Slice_copy_function_float_int
+
     // Aligned output?
     and      $mScratch, $mDstPtr, 4
     brz      $mScratch, 1f

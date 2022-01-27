@@ -24,7 +24,7 @@ public:
 
   Input<Vector<unsigned>> offsets; // in \a baseT
   Input<Vector<Type, ONE_PTR>> baseT;
-  Output<Vector<Type, ONE_PTR>> subT;
+  Output<Vector<Type, ONE_PTR, 4>> subT;
   const unsigned baseOffset;       // in the slice dimension
   const unsigned numBaseElements;  // in the slice dimension
   const unsigned short regionSize; // stride between slices

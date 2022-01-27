@@ -307,6 +307,7 @@ MultiSlice_region_split:
   // worker start offset in bytes
   shl $mWkrStartScaled, $mWkrStart, $mRegionSize
   shl $mRegionSizeInBytes, $mElemSize, $mRegionSize
+  brz $mWkrElems, MultiSlice_common_exit
 
   // copy only part of the region in elements
   mov $mRegionSize, $mWkrElems

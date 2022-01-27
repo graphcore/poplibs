@@ -112,7 +112,7 @@ std::uint64_t getMultiSliceCycleEstimate(
     const unsigned elemsPerSlice, const unsigned numOffsets,
     const unsigned numOffsetsInRangePerWorker,
     const unsigned offsetsPerDictEntry, const bool isUpdate = false,
-    const bool indicesAreSorted = false);
+    const bool indicesAreSorted = false, const bool splitSingleRegion = false);
 
 /** Cycle estimate for MultiUpdateAdd vertex.
  */

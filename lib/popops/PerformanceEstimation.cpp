@@ -46,13 +46,12 @@ binarySearchForIndicesCycleEstimate(const unsigned numOffsets,
   return binarySearch + repeatedEntriesSearch + 4 + 5;
 }
 
-std::uint64_t
-getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
-                           const unsigned elemsPerSlice,
-                           const unsigned numOffsets,
-                           const unsigned numOffsetsInRangePerWorker,
-                           const unsigned offsetsPerDictEntry,
-                           const bool isUpdate, const bool indicesAreSorted) {
+std::uint64_t getMultiSliceCycleEstimate(
+    const MultiSliceTargetParameters &targetParams,
+    const unsigned elemsPerSlice, const unsigned numOffsets,
+    const unsigned numOffsetsInRangePerWorker,
+    const unsigned offsetsPerDictEntry, const bool isUpdate,
+    const bool indicesAreSorted, const bool splitSingleRegion) {
   assert(numOffsets != 0);
 
   unsigned vectorWidth;
@@ -76,7 +75,7 @@ getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
     assert(false && "getMultiSliceCycleEstimate for unhandled element size");
     break;
   }
-  const std::uint64_t proAndEpilogueCycles = isUpdate ? 29 : 28;
+  const std::uint64_t proAndEpilogueCycles = isUpdate ? 29 : 30;
 
   std::uint64_t binarySearchCycles = 0;
   if (indicesAreSorted) {
@@ -88,7 +87,7 @@ getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
 
   // Almost exactly the same for each copy function assuming fastest
   // (aligned) path.
-  constexpr std::uint64_t cyclesOverheadPerOffsetInRange = 21;
+  constexpr std::uint64_t cyclesOverheadPerOffsetInRange = 19;
   constexpr std::uint64_t cyclesOverheadPerOffsetOutOfRange = 8;
   // Note the assumption that every offset in the vertex requires copying.
   // This could be pessimistic for a multi-stage multiSlice operation
@@ -99,9 +98,7 @@ getMultiSliceCycleEstimate(const MultiSliceTargetParameters &targetParams,
 
   // There is a single offset and thus just spread the work over available
   // workers.
-  if (numOffsets == 1 && (elemsPerSlice * targetParams.bytesPerElem) %
-                                 targetParams.atomicWriteSize ==
-                             0) {
+  if (splitSingleRegion) {
     vectorsPerOffset =
         ceildiv(vectorsPerOffset, targetParams.numWorkerContexts);
   }

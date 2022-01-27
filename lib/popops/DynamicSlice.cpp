@@ -3160,6 +3160,9 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
 
   const std::size_t minGrainSizeBytes = target.getDataPathWidth() / 8;
 
+  // Attempt to use single region optimisation.
+  const auto trySingleRegionOptimisation = plannedNumIndices == 1;
+
   // The embedding dimension can be split (embeddingSplit),
   // the entries can be split (dictSplit),
   // the indices can be split (lookupSplit)
@@ -3340,7 +3343,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
             mNumEntries,
             mDictEntriesPerTile,
         },
-        [numWorkerContexts, targetParams,
+        [numWorkerContexts, targetParams, trySingleRegionOptimisation,
          options](const std::vector<unsigned> &values) {
           const auto elemsPerSlice = values[0];
           const auto numOffsets = values[1];
@@ -3357,9 +3360,14 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                   // Samples are assumed to be IID
                   // with uniform distribution and a random mapping to tiles.
                   std::ceil(maxOffsetsPerWorker * proportionIndicesInRange);
+          const auto splitSingleRegion =
+              ((elemsPerSlice * targetParams.bytesPerElem) %
+                   targetParams.atomicWriteSize ==
+               0) &&
+              trySingleRegionOptimisation;
           const auto cycles = getMultiSliceCycleEstimate(
               targetParams, elemsPerSlice, maxOffsetsPerWorker,
-              offsetsInRangePerWorker, 0, false, false);
+              offsetsInRangePerWorker, 0, false, false, splitSingleRegion);
           return popsolver::DataType{cycles * numWorkerContexts};
         },
         "slice.0.compute.cycles");
@@ -3378,7 +3386,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
             mNumEntries,
             mDictEntriesPerTile,
         },
-        [numWorkerContexts, targetParams,
+        [numWorkerContexts, targetParams, trySingleRegionOptimisation,
          options](const std::vector<unsigned> &values) {
           const auto elemsPerSlice = values[0];
           const auto numOffsets = values[1];
@@ -3395,12 +3403,17 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                   // Samples are assumed to be IID
                   // with uniform distribution and a random mapping to tiles.
                   std::ceil(maxOffsetsPerWorker * proportionIndicesInRange);
+          const auto splitSingleRegion =
+              ((elemsPerSlice * targetParams.bytesPerElem) %
+                   targetParams.atomicWriteSize ==
+               0) &&
+              trySingleRegionOptimisation;
 
           const auto cycles = getMultiSliceCycleEstimate(
               targetParams, elemsPerSlice, maxOffsetsPerWorker,
               offsetsInRangePerWorker,
               0, // Sorting information is not used
-              false, false);
+              false, false, splitSingleRegion);
           return popsolver::DataType{cycles * numWorkerContexts};
         },
         "slice.1.compute.cycles");
@@ -3515,7 +3528,8 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           {mUnslicedElemsPerTile, mLookupsPerTile, mNumEntries,
            mDictEntriesPerTile, mNeedsCast},
           [&target, &options, operation, offsetsPerDictEntry, useOrderingInfo,
-           &dataType](const std::vector<unsigned> &values) {
+           &dataType,
+           trySingleRegionOptimisation](const std::vector<unsigned> &values) {
             const auto elemsPerSlice = values[0];
             const auto numOffsets = values[1];
             const auto numDictEntries = values[2];
@@ -3554,7 +3568,11 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                     numOffsets * maxProportionOfIndexableRangePerWorker);
               }
             }
-
+            const auto splitSingleRegion =
+                ((elemsPerSlice * targetMultiUpdateParams.bytesPerElem) %
+                     targetMultiUpdateParams.atomicWriteSize ==
+                 0) &&
+                trySingleRegionOptimisation;
             const bool isScaled = true;
             // cycle estimates for update without an operation has same cycles
             // as a slice.
@@ -3563,7 +3581,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                     ? getMultiSliceCycleEstimate(
                           targetMultiUpdateParams, elemsPerSlice, numOffsets,
                           numOffsetsInRangePerWorker, maxOffsetsPerDictEntry,
-                          true, useOrderingInfo)
+                          true, useOrderingInfo, splitSingleRegion)
                     : getMultiUpdateOpCycleEstimate(
                           targetMultiUpdateOpParams,
                           /* subWordWritesRequired */ false, elemsPerSlice,
