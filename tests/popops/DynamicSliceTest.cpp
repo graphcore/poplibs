@@ -36,9 +36,6 @@ using poplibs_support::toString;
 
 constexpr bool useDSMapper = true;
 
-const auto dir = TempDir::create();
-const OptionFlags options;
-
 #define NUM_DIMS 3
 
 struct TestData {
@@ -431,7 +428,7 @@ void updateTestND(unsigned tilesPerIPU, const std::vector<size_t> &testShape,
   graph.createHostRead("out", t1);
 
   BOOST_TEST_MESSAGE("Creating engine");
-  Engine eng(graph, prog, options);
+  Engine eng(graph, prog);
   device.bind([&](const Device &d) {
     eng.load(d);
 
@@ -557,7 +554,7 @@ void largeRegions() {
   std::vector<float> hOut(subTensor.numElements());
   std::vector<char> rawOut(target.getTypeSize(HALF) * hOut.size());
 
-  Engine e(graph, std::move(prog), options);
+  Engine e(graph, std::move(prog));
 
   device.bind([&](const Device &d) {
     e.load(d);
@@ -682,11 +679,15 @@ BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
   BOOST_CHECK_EQUAL(s1.dim(0), M);
   BOOST_CHECK_EQUAL(getTileImbalance(graph, s1), 0);
 
+  auto tempDir = TempDir::create();
+  poplar::OptionFlags engineOptions;
+  engineOptions.set("autoReport.outputExecutionProfile", "true");
+  engineOptions.set("autoReport.directory", tempDir.getPath());
   OptionFlags profileOptions{{"showExecutionSteps", "true"},
                              {"showVarStorage", "true"}};
   // Actually build the graph to check that it fits onto the target
   // This will fail if many edge pointers or significant exchange is required
-  Engine eng(graph, prog, options);
+  Engine eng(graph, prog, engineOptions);
 
   std::stringstream ss;
   eng.printProfileSummary(ss, profileOptions);
@@ -857,12 +858,16 @@ void multislice(const std::vector<unsigned> &indicies,
   std::vector<uint32_t> hIn(t.numElements());
   std::vector<uint32_t> hOut(s.numElements());
   std::iota(hIn.begin(), hIn.end(), 0u);
+  auto tempDir = TempDir::create();
+  poplar::OptionFlags engineOptions;
+  engineOptions.set("autoReport.outputExecutionProfile", "true");
+  engineOptions.set("autoReport.directory", tempDir.getPath());
   OptionFlags profileOptions{{"showExecutionSteps", "true"},
                              {"showVarStorage", "true"}};
   // Engine creation will fail for non-cpu targets if many edge pointers or
   // significant exchange is required; this should not happen if
   // createSliceableTensor() has given a good layout
-  Engine eng(graph, prog, options);
+  Engine eng(graph, prog, engineOptions);
   device.bind([&](const Device &d) {
     eng.load(d);
     eng.writeTensor("in", hIn.data(), hIn.data() + hIn.size());
@@ -982,7 +987,11 @@ BOOST_AUTO_TEST_CASE(MultiSlicePoorlyMapped) {
   std::vector<std::uint32_t> hOut(t.numElements());
   std::iota(hIn.begin(), hIn.end(), 0u);
 
-  Engine e(graph, prog, options);
+  auto tempDir = TempDir::create();
+  poplar::OptionFlags engineOptions;
+  engineOptions.set("autoReport.outputExecutionProfile", "true");
+  engineOptions.set("autoReport.directory", tempDir.getPath());
+  Engine e(graph, prog, engineOptions);
   device.bind([&](const Device &d) {
     e.load(d);
     e.writeTensor("in", hIn.data(), hIn.data() + hIn.size());
@@ -1628,7 +1637,7 @@ void multiUpdatePoorlyMappedSlices() {
 
   const auto dir = TempDir::create();
   Engine e(graph, prog,
-           {{"autoReport.outputGraphProfile", "true"},
+           {{"autoReport.outputExecutionProfile", "true"},
             {"autoReport.directory", dir.getPath()}});
   device.bind([&](const Device &d) {
     e.load(d);

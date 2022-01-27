@@ -1769,7 +1769,7 @@ struct HalfTensorAXBYTestFixture {
   pva::Report runProgram(const poplar::program::Program &program,
                          const std::string &dir) {
     Engine engine(graph_, program,
-                  {{"autoReport.outputGraphProfile", "true"},
+                  {{"autoReport.outputExecutionProfile", "true"},
                    {"autoReport.directory", dir}});
     engine.enableExecutionProfiling();
 

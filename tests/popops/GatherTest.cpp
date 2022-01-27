@@ -84,7 +84,6 @@ deviceGather(const std::vector<T> &in, const std::vector<std::size_t> &in_shape,
   graph.createHostWrite("indices", tIndices, true);
   graph.createHostRead("out", tOut, true);
 
-  const auto dir = TempDir::create();
   Engine eng(graph, seq);
   std::vector<T> out(tOut.numElements());
   device.bind([&](const Device &d) {
