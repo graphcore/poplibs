@@ -161,7 +161,7 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE} -fno-omit-frame-pointer 
 # on the compiler ID.
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -pedantic -pedantic-errors -Wvla -Wno-maybe-uninitialized")
+  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -pedantic -pedantic-errors -Wvla -Wno-maybe-uninitialized -Wno-error=deprecated-declarations")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -pedantic -pedantic-errors -Wvla")
 endif()
