@@ -81,6 +81,9 @@
 #define MS_UNSIGNED_FUNC __runCodelet_popops__MultiSlice___unsigned_int
 #define MU_UNSIGNED_FUNC __runCodelet_popops__MultiUpdate___unsigned_int
 
+#define MS_QUARTER_FUNC __runCodelet_popops__MultiSlice___quarter
+#define MU_QUARTER_FUNC __runCodelet_popops__MultiUpdate___quarter
+
 // Split work between workers
 .macro DIVIDE_WORK ELEM_SIZE, MAX_ELEMS, WORKER_ELEM_SIZE 
   // divide the offsets dimension
@@ -103,7 +106,6 @@
   sub \WORKER_ELEM_SIZE, $mWkrEnd, $mWkrStart
 .endm
 
-
 //******************************************************************************
 // Entry points for each function, each setting up a pointer to the copy
 // function and then using common code
@@ -112,6 +114,7 @@ FN_WORKER_ENTRY_POINT MU_BOOL_FUNC 4 "" STACK_SIZE
 FN_EXPORT MU_CHAR_FUNC
 FN_EXPORT MU_UCHAR_FUNC
 FN_EXPORT MU_SCHAR_FUNC
+FN_EXPORT MU_QUARTER_FUNC
    setzi   $mCopyPtr, copy_loop_MU_8
    setzi   $mRegionSize, 0
    bri     MultiSlice_common_u
@@ -121,6 +124,7 @@ FN_WORKER_ENTRY_POINT MS_BOOL_FUNC
 FN_EXPORT MS_CHAR_FUNC
 FN_EXPORT MS_UCHAR_FUNC
 FN_EXPORT MS_SCHAR_FUNC
+FN_EXPORT MS_QUARTER_FUNC
    setzi   $mCopyPtr, copy_loop_MS_8
    setzi   $mRegionSize, 0
    bri     MultiSlice_common_s

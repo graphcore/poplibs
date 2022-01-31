@@ -375,12 +375,8 @@ BOOST_AUTO_TEST_CASE(TransposeTest_half_true_SplitTranspose) {
   TransposeTest(HALF, true, splitTranspose1DTest);
 }
 
-BOOST_AUTO_TEST_CASE(TransposeTest_quarter_true_SplitTranspose) {
-  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
-    std::cerr << "Test `TransposeTest_quarter_true_SplitTranspose` not"
-                 " executed on this device type\n";
-    return;
-  }
+BOOST_AUTO_TEST_CASE(TransposeTest_quarter_true_SplitTranspose,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
   TransposeTest(QUARTER, true, splitTranspose1DTest);
 }
 
@@ -388,21 +384,13 @@ BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(Transpose_quarter)
 
-BOOST_AUTO_TEST_CASE(TransposeTest_quarter_true) {
-  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
-    std::cerr << "Test `TransposeTest_quarter_true` not executed on this "
-                 "device type\n";
-    return;
-  }
+BOOST_AUTO_TEST_CASE(TransposeTest_quarter_true,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
   TransposeTest(QUARTER, true, quarterTypeTestList);
 }
 
-BOOST_AUTO_TEST_CASE(TransposeTest_quarter_false) {
-  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
-    std::cerr << "Test `TransposeTest_quarter_false` not executed on this "
-                 "device type\n";
-    return;
-  }
+BOOST_AUTO_TEST_CASE(TransposeTest_quarter_false,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
   TransposeTest(QUARTER, false, SmallTestList);
 }
 

@@ -175,10 +175,10 @@ void MultiSliceCodeletTest(const Type &dataType) {
   // it will fail a check on small data types (8bit types and HALF). 2048 is the
   // largest integer number that can be represented bit-exact by HALF's
   // (significant)
-  unsigned limit =
-      (dataType == CHAR || dataType == UNSIGNED_CHAR || dataType == SIGNED_CHAR)
-          ? 127
-          : 2048;
+  unsigned limit = (dataType == QUARTER || dataType == CHAR ||
+                    dataType == UNSIGNED_CHAR || dataType == SIGNED_CHAR)
+                       ? 127
+                       : 2048;
   for (unsigned i = 0; i < total_size; i++)
     inTest[i] = (dataType == BOOL) ? 1 : (i + 1) % limit;
 
@@ -426,4 +426,8 @@ BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_char) {
 }
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_bool) {
   MultiSliceCodeletTest(BOOL);
+}
+BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_quarter,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
+  MultiSliceCodeletTest(QUARTER);
 }

@@ -75,6 +75,9 @@ void writeRandomValues(const Target &target, const Type &type, T *begin, T *end,
   } else if (type == poplar::BOOL) {
     boost::random::uniform_int_distribution<unsigned> dist(0, 1);
     writeValues(begin, end, [&]() { return dist(randomEngine); });
+  } else if (type == poplar::QUARTER) {
+    boost::random::uniform_int_distribution<unsigned> dist(0, 16);
+    writeValues(begin, end, [&]() { return dist(randomEngine); });
   } else {
     throw poputil::poplibs_error("Unknown type");
   }

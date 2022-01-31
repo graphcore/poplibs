@@ -1053,10 +1053,6 @@ BOOST_AUTO_TEST_CASE(
 }
 
 BOOST_AUTO_TEST_CASE(StdCast) {
-  if (TEST_TARGET == poplibs_support::DeviceType::Sim21) {
-    std::cerr << "Test `StdCast` not executed on this device type\n";
-    return;
-  }
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -1096,13 +1092,8 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf) {
-
-  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
-    std::cerr
-        << "Test `CastHalfQuarterHalf` not executed on this device type\n";
-    return;
-  }
+BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
 
@@ -1147,13 +1138,8 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(CastCharQuarterChar) {
-
-  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
-    std::cerr
-        << "Test `CastCharQuarterChar` not executed on this device type\n";
-    return;
-  }
+BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -1192,11 +1178,8 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(CastQuarterQuarter) {
-  if (TEST_TARGET != poplibs_support::DeviceType::Sim21) {
-    std::cerr << "Test `CastQuarterQuarter` not executed on this device type\n";
-    return;
-  }
+BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);

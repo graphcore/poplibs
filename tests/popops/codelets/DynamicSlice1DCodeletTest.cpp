@@ -351,3 +351,7 @@ BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_char) {
 BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_bool) {
   DynamicSliceCodeletTest(BOOL, testsBool);
 }
+BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_quarter,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
+  DynamicSliceCodeletTest(QUARTER, testsBool);
+}

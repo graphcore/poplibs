@@ -79,4 +79,8 @@ template class MultiSlice<char>;
 template class MultiSlice<unsigned char>;
 template class MultiSlice<signed char>;
 
+#if __IPU_ARCH_VERSION__ == 21
+template class MultiSlice<quarter>;
+#endif
+
 } // namespace popops

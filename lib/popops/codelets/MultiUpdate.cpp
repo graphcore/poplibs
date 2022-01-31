@@ -82,4 +82,7 @@ template class MultiUpdate<char>;
 template class MultiUpdate<unsigned char>;
 template class MultiUpdate<signed char>;
 
+#if __IPU_ARCH_VERSION__ == 21
+template class MultiUpdate<quarter>;
+#endif
 } // namespace popops

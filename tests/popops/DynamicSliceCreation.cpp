@@ -102,3 +102,8 @@ BOOST_AUTO_TEST_CASE(UlongLongDim2,
                      *boost::unit_test::precondition(enableIfIpuModel())) {
   testDim(2, UNSIGNED_LONGLONG);
 }
+
+BOOST_AUTO_TEST_CASE(QuarterDim2,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
+  testDim(2, QUARTER);
+}
