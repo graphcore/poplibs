@@ -3586,9 +3586,6 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, INT),
 
     CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
-                          UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT, INT),
     CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, UNSIGNED_INT,
                           FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT, FLOAT),

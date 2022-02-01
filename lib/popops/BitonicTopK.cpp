@@ -509,11 +509,17 @@ static std::string getVertexClass(const Tensor &keys,
 
 static void
 compareAndSwapAtDistance(Graph &graph, Sequence &prog, const Tensor &keys,
-                         const std::optional<Tensor> &values, unsigned distance,
+                         std::optional<Tensor> values, unsigned distance,
                          unsigned distanceToChangeOrder, bool initialOrder,
                          unsigned nActive, const DebugNameAndId &dnai) {
   assert(!values || keys.shape() == values->shape());
 
+  // Because values are only copied and not used for comparison or calculation,
+  // we can re-use code for one value type for all value types with the same
+  // size per-element using a reinterpret.
+  if (values && values->elementType() != FLOAT) {
+    values = values->reinterpret(FLOAT);
+  }
   const auto vertexClass = getVertexClass(keys, values);
 
   const auto &target = graph.getTarget();
@@ -780,20 +786,10 @@ std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
     t = cast(graph, t, FLOAT, prog, dnai);
   }
 
-  std::optional<Type> valueType;
-  if (other && other->elementType() != FLOAT) {
-    valueType = other->elementType();
-    if (inputType != FLOAT &&
-        (*valueType == FLOAT || *valueType == UNSIGNED_INT ||
-         *valueType == INT)) {
-      // Since arithmetic operations are not performed on the value tensor, it
-      // is sufficient to use the float type for any type of the same size.
-      // Distinctive value-type based assembly codelets exist if the key is of
-      // type float.
-      other = other->reinterpret(FLOAT);
-    } else if (*valueType == HALF) {
-      // Use the float path to implement half data type in order to avoid
-      // sub-word writes by the worker threads.
+  Type origValueType;
+  if (other) {
+    origValueType = other->elementType();
+    if (other->elementType() == HALF) {
       other = cast(graph, *other, FLOAT, prog, dnai);
     }
   }
@@ -988,14 +984,8 @@ std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
     t = cast(graph, t, inputType, prog, dnai);
   }
 
-  if (valueType && *valueType != other->elementType()) {
-    if (inputType != FLOAT &&
-        (*valueType == FLOAT || *valueType == UNSIGNED_INT ||
-         *valueType == INT)) {
-      other = other->reinterpret(*valueType);
-    } else if (*valueType == HALF) {
-      other = cast(graph, *other, *valueType, prog, dnai);
-    }
+  if (other && origValueType != other->elementType()) {
+    other = cast(graph, *other, origValueType, prog, dnai);
   }
 
   t = t.reshape({k, b}).transpose().reshape(outputShape);
