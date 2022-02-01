@@ -26,7 +26,8 @@ poplar::Tensor sort(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
   poplar::Tensor result;
   const auto n = t.dim(dim);
   const bool largest = true;
-  const popops::TopKParams params(n, largest, popops::SortOrder::ASCENDING);
+  const popops::TopKParams params(n, largest, popops::SortOrder::ASCENDING,
+                                  false);
   auto in = t.dimRoll(dim, t.rank() - 1);
   result = popops::topK(graph, prog, in, params, {di});
   result = result.dimRoll(result.rank() - 1, dim);
@@ -48,7 +49,8 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
 
   const auto n = t.dim(dim);
   const bool largest = true;
-  const popops::TopKParams params(n, largest, popops::SortOrder::ASCENDING);
+  const popops::TopKParams params(n, largest, popops::SortOrder::ASCENDING,
+                                  false);
   auto in = t.dimRoll(dim, t.rank() - 1);
   // We just use the non in-place API with a copy after the fact
   // as with bitonic sort there is not much difference.
@@ -68,7 +70,7 @@ poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
   auto value = v;
   const auto n = k.dim(dim);
   const bool largest = true;
-  const TopKParams params(n, largest, popops::SortOrder::ASCENDING);
+  const TopKParams params(n, largest, popops::SortOrder::ASCENDING, false);
   key = key.dimRoll(dim, key.rank() - 1);
   value = value.dimRoll(dim, value.rank() - 1);
   std::tie(key, value) =
@@ -101,7 +103,7 @@ void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
   auto value = v;
   const auto n = k.dim(dim);
   const bool largest = true;
-  const TopKParams params(n, largest, popops::SortOrder::ASCENDING);
+  const TopKParams params(n, largest, popops::SortOrder::ASCENDING, false);
   key = key.dimRoll(dim, key.rank() - 1);
   value = value.dimRoll(dim, value.rank() - 1);
   // We just use the non in-place API with a copy after the fact

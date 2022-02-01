@@ -61,6 +61,50 @@ template void writeRandomBinaryValues<unsigned>(const Target &target,
                                                 std::mt19937 &randomEngine);
 
 template <typename T>
+void writeRandomValuesWithRepetitions(const Target &target, const Type &type,
+                                      T *begin, T *end, T min, T max,
+                                      double repeatProbabilty,
+                                      std::mt19937 &randomEngine) {
+  std::bernoulli_distribution commonValueDistribution(repeatProbabilty);
+  if (type == poplar::FLOAT || type == poplar::HALF) {
+    boost::random::uniform_real_distribution<> dist(min, max);
+    writeValues(begin, end, [&, commonVal = dist(randomEngine)]() {
+      return commonValueDistribution(randomEngine) ? commonVal
+                                                   : dist(randomEngine);
+    });
+    if (type == poplar::HALF) {
+      roundToHalfPrecision(target, begin, end);
+    }
+  } else if (type == poplar::INT) {
+    boost::random::uniform_int_distribution<int> dist(min, max);
+    writeValues(begin, end, [&, commonVal = dist(randomEngine)]() {
+      return commonValueDistribution(randomEngine) ? commonVal
+                                                   : dist(randomEngine);
+    });
+  } else if (type == poplar::UNSIGNED_INT) {
+    boost::random::uniform_int_distribution<unsigned> dist(min, max);
+    writeValues(begin, end, [&, commonVal = dist(randomEngine)]() {
+      return commonValueDistribution(randomEngine) ? commonVal
+                                                   : dist(randomEngine);
+    });
+  } else if (type == poplar::BOOL) {
+    boost::random::uniform_int_distribution<unsigned> dist(0, 1);
+    writeValues(begin, end, [&, commonVal = dist(randomEngine)]() {
+      return commonValueDistribution(randomEngine) ? commonVal
+                                                   : dist(randomEngine);
+    });
+  } else if (type == poplar::QUARTER) {
+    boost::random::uniform_int_distribution<unsigned> dist(0, 16);
+    writeValues(begin, end, [&, commonVal = dist(randomEngine)]() {
+      return commonValueDistribution(randomEngine) ? commonVal
+                                                   : dist(randomEngine);
+    });
+  } else {
+    throw poputil::poplibs_error("Unknown type");
+  }
+}
+
+template <typename T>
 void writeRandomValues(const Target &target, const Type &type, T *begin, T *end,
                        T min, T max, std::mt19937 &randomEngine) {
   if (type == poplar::FLOAT || type == poplar::HALF) {
@@ -98,6 +142,12 @@ template void writeRandomValues<unsigned>(const Target &target,
 template void writeRandomValues<int>(const Target &target, const Type &type,
                                      int *begin, int *end, int min, int max,
                                      std::mt19937 &randomEngine);
+
+template void
+writeRandomValuesWithRepetitions<double>(const Target &target, const Type &type,
+                                         double *begin, double *end, double min,
+                                         double max, double repeatProbabilty,
+                                         std::mt19937 &randomEngine);
 
 size_t maxContiguousInteger(const Type &t) {
   if (t == HALF)

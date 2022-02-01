@@ -497,10 +497,12 @@ struct WorklistBuilder {
  *  of elements per tile (in each compare and swap step).
  */
 static std::string getVertexClass(const Tensor &keys,
-                                  const std::optional<Tensor> &values) {
+                                  const std::optional<Tensor> &values,
+                                  const bool valuesAreSecondaryKey) {
   if (values) {
     return templateVertex("popops::CompareAndSwapAtDistanceKeyVal",
-                          keys.elementType(), values->elementType());
+                          keys.elementType(), values->elementType(),
+                          valuesAreSecondaryKey);
   } else {
     return templateVertex("popops::CompareAndSwapAtDistance",
                           keys.elementType());
@@ -509,18 +511,20 @@ static std::string getVertexClass(const Tensor &keys,
 
 static void
 compareAndSwapAtDistance(Graph &graph, Sequence &prog, const Tensor &keys,
-                         std::optional<Tensor> values, unsigned distance,
+                         std::optional<Tensor> values,
+                         bool valuesIsSecondaryKey, unsigned distance,
                          unsigned distanceToChangeOrder, bool initialOrder,
                          unsigned nActive, const DebugNameAndId &dnai) {
   assert(!values || keys.shape() == values->shape());
 
-  // Because values are only copied and not used for comparison or calculation,
-  // we can re-use code for one value type for all value types with the same
-  // size per-element using a reinterpret.
-  if (values && values->elementType() != FLOAT) {
+  // When values are only copied and not used for comparison or calculation
+  // (e.g. when valuesIsSecondaryKey is not set), we can re-use code for one
+  // value type for all value types with the same size per-element using a
+  // reinterpret.
+  if (!valuesIsSecondaryKey && values && values->elementType() != FLOAT) {
     values = values->reinterpret(FLOAT);
   }
-  const auto vertexClass = getVertexClass(keys, values);
+  const auto vertexClass = getVertexClass(keys, values, valuesIsSecondaryKey);
 
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
@@ -673,12 +677,11 @@ Tensor createTopKInputImpl(Graph &graph, const Type &type,
  *  we keep sorting and discarding descreasing sized powers of 2 until we
  *  are left with just k elements.
  */
-std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
-                                   const Tensor &t_,
-                                   const std::optional<Tensor> &other_,
-                                   const unsigned k, const bool largest,
-                                   const bool sorted, const bool ascendingOrder,
-                                   const DebugNameAndId &dnai) {
+std::pair<Tensor, Tensor>
+topKImpl(Graph &graph, Sequence &prog, const Tensor &t_,
+         const std::optional<Tensor> &other_, const unsigned k,
+         const bool largest, const bool sorted, const bool ascendingOrder,
+         bool otherIsSecondaryKey, const DebugNameAndId &dnai) {
 
   if (other_ && (other_->shape() != t_.shape())) {
     throw poplibs_error("t.shape() (" + toString(t_.shape()) +
@@ -703,6 +706,12 @@ std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
     throw poplibs_error("bitonic::topKImpl: Unsupported value type " +
                         other_->elementType().toString());
   }
+  if (!sorted && other_ && otherIsSecondaryKey) {
+    logging::popops::warn(
+        "bitonicTopKImpl: !sorted && other_ && otherIsSecondaryKey may cause "
+        "suboptimal performance. Consider turning off otherIsSecondaryKey "
+        "flag.");
+  }
 
   const std::vector<std::size_t> outputShape = [&] {
     auto s = t_.shape();
@@ -726,9 +735,10 @@ std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
   const unsigned b = t.dim(1);
 
   logging::popops::debug("bitonicTopK(batchSize={}, n={}, k={}, sorted={}, "
+                         "otherIsSecondaryKey={}, "
                          "haveOther={}, debugPath='{}')",
-                         b, n, k, sorted, (other ? "true" : "false"),
-                         dnai.getPathName());
+                         b, n, k, sorted, otherIsSecondaryKey,
+                         (other ? "true" : "false"), dnai.getPathName());
 
   if (k > n) {
     throw poplibs_error(
@@ -860,9 +870,9 @@ std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
     // discard the higher k' elements.
     const auto changeDirDistance =
         mergeStep < logK ? mergeDistance : 1u << (logN - 1);
-    compareAndSwapAtDistance(graph, prog, t, other, mergeDistance * b,
-                             changeDirDistance * b, mergeOrder, nThisStep * b,
-                             {dnai, stepName});
+    compareAndSwapAtDistance(graph, prog, t, other, otherIsSecondaryKey,
+                             mergeDistance * b, changeDirDistance * b,
+                             mergeOrder, nThisStep * b, {dnai, stepName});
 
     t = toCanonicalOrder(graph, t, mergeDistance * b, nThisStep * b);
     if (other) {
@@ -936,9 +946,9 @@ std::pair<Tensor, Tensor> topKImpl(Graph &graph, Sequence &prog,
                                  {dnai, "values" + stepName});
       }
 
-      compareAndSwapAtDistance(graph, prog, t, other, sortDistance * b,
-                               changeDirDistance * b, sortOrder, nThisStep * b,
-                               {dnai, stepName});
+      compareAndSwapAtDistance(graph, prog, t, other, otherIsSecondaryKey,
+                               sortDistance * b, changeDirDistance * b,
+                               sortOrder, nThisStep * b, {dnai, stepName});
       t = toCanonicalOrder(graph, t, sortDistance * b, nThisStep * b);
       if (other) {
         other =

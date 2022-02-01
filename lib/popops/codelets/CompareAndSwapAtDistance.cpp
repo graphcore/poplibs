@@ -130,16 +130,23 @@ template class CompareAndSwapAtDistance<float>;
 template class CompareAndSwapAtDistance<unsigned>;
 template class CompareAndSwapAtDistance<int>;
 
-template <typename KeyType, typename ValueType>
+template <typename KeyType, typename ValueType, bool valuesAreSecondaryKey>
 constexpr inline bool hasAssemblyVersionKeyVal() {
-  return std::is_same_v<KeyType, float> && std::is_same_v<ValueType, float>;
+  return !valuesAreSecondaryKey && std::is_same_v<KeyType, float> &&
+         std::is_same_v<ValueType, float>;
 }
 
-template <typename KeyType, typename ValueType> struct KeyValImpl {
+template <typename KeyType, typename ValueType, bool valuesAreSecondaryKey>
+struct KeyValImpl {
   KeyType *keys;
   ValueType *values;
   void compareAndSwap(unsigned distance, bool order) {
     if (order == (keys[0] > keys[distance])) {
+      std::swap(keys[0], keys[distance]);
+      std::swap(values[0], values[distance]);
+    }
+    if (valuesAreSecondaryKey && (keys[0] == keys[distance]) &&
+        (order == (values[0] > values[distance]))) {
       std::swap(keys[0], keys[distance]);
       std::swap(values[0], values[distance]);
     }
@@ -150,7 +157,7 @@ template <typename KeyType, typename ValueType> struct KeyValImpl {
   }
 };
 
-template <typename KeyType, typename ValueType>
+template <typename KeyType, typename ValueType, bool valuesAreSecondaryKey>
 class CompareAndSwapAtDistanceKeyVal : public MultiVertex {
 public:
   InOut<Vector<KeyType, ONE_PTR>> keys;
@@ -163,11 +170,13 @@ public:
   // a given comparison.
   unsigned distanceToChangeOrder;
 
-  IS_EXTERNAL_CODELET((hasAssemblyVersionKeyVal<KeyType, ValueType>()));
+  IS_EXTERNAL_CODELET(
+      (hasAssemblyVersionKeyVal<KeyType, ValueType, valuesAreSecondaryKey>()));
 
   bool compute(unsigned wid) {
     const auto numWorkers = worklists.size();
-    KeyValImpl<KeyType, ValueType> impl = {&keys[0], &values[0]};
+    KeyValImpl<KeyType, ValueType, valuesAreSecondaryKey> impl = {&keys[0],
+                                                                  &values[0]};
     if (wid < numWorkers) {
       const WorklistType *worklist = &worklists[wid][0];
       workerCompute(wid, impl, worklist, distanceToChangeOrder);
@@ -176,8 +185,19 @@ public:
   }
 };
 
-template class CompareAndSwapAtDistanceKeyVal<float, float>;
-template class CompareAndSwapAtDistanceKeyVal<unsigned, float>;
-template class CompareAndSwapAtDistanceKeyVal<int, float>;
+template class CompareAndSwapAtDistanceKeyVal<float, float, false>;
+template class CompareAndSwapAtDistanceKeyVal<float, unsigned, false>;
+template class CompareAndSwapAtDistanceKeyVal<float, int, false>;
+template class CompareAndSwapAtDistanceKeyVal<unsigned, float, false>;
+template class CompareAndSwapAtDistanceKeyVal<int, float, false>;
+template class CompareAndSwapAtDistanceKeyVal<float, float, true>;
+template class CompareAndSwapAtDistanceKeyVal<float, unsigned, true>;
+template class CompareAndSwapAtDistanceKeyVal<float, int, true>;
+template class CompareAndSwapAtDistanceKeyVal<unsigned, float, true>;
+template class CompareAndSwapAtDistanceKeyVal<unsigned, unsigned, true>;
+template class CompareAndSwapAtDistanceKeyVal<unsigned, int, true>;
+template class CompareAndSwapAtDistanceKeyVal<int, float, true>;
+template class CompareAndSwapAtDistanceKeyVal<int, unsigned, true>;
+template class CompareAndSwapAtDistanceKeyVal<int, int, true>;
 
 } // end namespace popops

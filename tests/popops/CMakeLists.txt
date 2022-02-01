@@ -1531,6 +1531,23 @@ foreach(DATA_TYPE half float unsigned int)
               --largest ${LARGEST}
               --sort-order=${SORT_ORDER}
               --tiles-per-ipu=4)
+
+          if (INDICES) 
+            add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1000_k100_largest${LARGEST}_${SORT_ORDER}_stableSort
+              COMMAND topk
+                --n 1000
+                --k 100
+                --batch-size ${BATCH_SIZE}
+                --data-type ${DATA_TYPE}
+                --index-type uint
+                --return-indices ${INDICES}
+                --largest ${LARGEST}
+                --sort-order=${SORT_ORDER}
+                --api=popops
+                --stable-sort=1
+                --tiles-per-ipu=4
+              VARIANTS ${IPUMODEL_VARIANTS})
+          endif()
         endforeach()
       endforeach()
 

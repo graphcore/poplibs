@@ -26,7 +26,8 @@ std::pair<poplar::Tensor, poplar::Tensor>
 topKImpl(poplar::Graph &graph, poplar::program::Sequence &prog,
          const poplar::Tensor &t, const std::optional<poplar::Tensor> &other,
          const unsigned k, const bool largest, const bool sorted,
-         const bool ascendingOrder, const poplar::DebugNameAndId &dnai = {});
+         const bool ascendingOrder, const bool otherIsSecondaryKey,
+         const poplar::DebugNameAndId &dnai = {});
 
 } // end namespace bitonic
 } // end namespace popops

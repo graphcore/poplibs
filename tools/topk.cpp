@@ -103,6 +103,7 @@ int main(int argc, char **argv) try {
   API api = API::Popops;
   bool returnIndices = true;
   bool returnValues = true;
+  bool stableSort = false;
 
   po::options_description desc("Options");
   // clang-format off
@@ -151,6 +152,9 @@ int main(int argc, char **argv) try {
       ("return-values",
        po::value(&returnValues)->default_value(returnValues),
        "Use API returning top k values")
+      ("stable-sort",
+       po::value(&stableSort)->default_value(stableSort),
+       "Maintain relative order of values that compare equal not to change in the output")
       ("api",
        po::value(&api)->default_value(api),
        "Which API to use (popops | popnn)")
@@ -199,7 +203,12 @@ int main(int argc, char **argv) try {
 
   switch (api) {
   case API::Popops:
-    // Nothing. Popops API supports all arguments.
+    if (sortOrder == popops::SortOrder::NONE && stableSort) {
+      std::cerr << "Warning: popops API doesn't support stable sorting while "
+                   "sort order is set to NONE. Forcing "
+                   "stableSort to false.\n";
+      stableSort = false;
+    }
     break;
   case API::Popnn:
     if (!returnIndices) {
@@ -222,6 +231,11 @@ int main(int argc, char **argv) try {
                    "values. Forcing largest to true\n";
       largest = true;
     }
+    if (stableSort) {
+      std::cerr << "Warning: popnn API doesn't support stable sorting. Forcing "
+                   "stableSort to false.\n";
+      stableSort = false;
+    }
     break;
   case API::PopopsSort:
     if (n != k) {
@@ -233,6 +247,11 @@ int main(int argc, char **argv) try {
       std::cerr << "Warning: popops sort API only supports returning either "
                    "keys or values not both. Forcing returnValues to false\n";
       returnValues = false;
+    }
+    if (stableSort) {
+      std::cerr << "Warning: popops sort API doesn't support stable sorting. "
+                   "Forcing stableSort to false.\n";
+      stableSort = false;
     }
     break;
   }
@@ -270,7 +289,7 @@ int main(int argc, char **argv) try {
       outIndices = outIndices.squeeze({1});
     }
   } else if (api == API::Popops) {
-    const popops::TopKParams params(k, largest, sortOrder);
+    const popops::TopKParams params(k, largest, sortOrder, stableSort);
     if (returnIndices) {
       std::tie(outValues, outIndices) =
           popops::topKWithPermutation(graph, prog, in, params, "top-k");
@@ -359,7 +378,15 @@ int main(int argc, char **argv) try {
   // TODO: Check what happens with NaN values..
   double rangeMin = (dataType == UNSIGNED_INT) ? 0 : -50.0;
   double rangeMax = 50.0;
-  writeRandomValues(target, dataType, hostIn, rangeMin, rangeMax, randomEngine);
+  if (stableSort) {
+    const double repetitionProbability = 0.85;
+    writeRandomValuesWithRepetitions(target, dataType, hostIn, rangeMin,
+                                     rangeMax, repetitionProbability,
+                                     randomEngine);
+  } else {
+    writeRandomValues(target, dataType, hostIn, rangeMin, rangeMax,
+                      randomEngine);
+  }
   copy(target, hostIn, dataType, rawHostIn.get());
 
   device.bind([&](const Device &d) {
@@ -466,6 +493,19 @@ int main(int argc, char **argv) try {
     matchesModel &= checkIsClose("indexedValues", indexedValues.data(),
                                  {batchSize, k}, modelValuesOut.data(),
                                  batchSize * k, relTolerance, absTolerance);
+    if (stableSort && k > 1) {
+      for (unsigned batchIdx = 0; batchIdx < batchSize; ++batchIdx) {
+        for (unsigned i = 0; i < k - 1; ++i) {
+          const unsigned index = batchIdx * k + i;
+          if (hostValuesOut[index] == hostValuesOut[index + 1] &&
+              ((sortOrder == popops::SortOrder::ASCENDING &&
+                hostIndicesOut[index] > hostIndicesOut[index + 1]) ||
+               (sortOrder == popops::SortOrder::DESCENDING &&
+                hostIndicesOut[index] < hostIndicesOut[index + 1])))
+            matchesModel &= false;
+        }
+      }
+    }
   }
   if (returnValues) {
     matchesModel &= checkIsClose("values", hostValuesOut.data(), {batchSize, k},

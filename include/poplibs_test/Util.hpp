@@ -99,6 +99,24 @@ void inline writeRandomValues(const poplar::Target &target,
   }
 }
 
+template <typename T>
+void writeRandomValuesWithRepetitions(const poplar::Target &target,
+                                      const poplar::Type &type, T *begin,
+                                      T *end, T min, T max,
+                                      double repeatProbabilty,
+                                      std::mt19937 &randomEngine);
+
+template <typename T>
+void inline writeRandomValuesWithRepetitions(const poplar::Target &target,
+                                             const poplar::Type &type,
+                                             std::vector<T> &a, T min, T max,
+                                             double repeatProbabilty,
+                                             std::mt19937 &randomEngine) {
+  return writeRandomValuesWithRepetitions(target, type, a.data(),
+                                          a.data() + a.size(), min, max,
+                                          repeatProbabilty, randomEngine);
+}
+
 size_t maxContiguousInteger(const poplar::Type &t);
 
 size_t maxContiguousIntegerFromBinaryOp(const poplar::Type &inputType,

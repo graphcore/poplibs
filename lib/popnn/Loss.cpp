@@ -572,7 +572,7 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
   const bool largest = true;
   const auto sortOrder =
       sort ? popops::SortOrder::DESCENDING : popops::SortOrder::NONE;
-  const popops::TopKParams params(K, largest, sortOrder);
+  const popops::TopKParams params(K, largest, sortOrder, false);
   std::tie(output, indices) =
       popops::topKWithPermutation(graph, prog, input, params, {di});
 

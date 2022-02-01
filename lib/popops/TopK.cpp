@@ -6,6 +6,7 @@
 
 #include <poputil/DebugInfo.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 
 #include "poplibs_support/Tracepoint.hpp"
 #include <poplibs_support/logging.hpp>
@@ -25,6 +26,7 @@ template <> ProfileValue toProfileValue(const popops::TopKParams &p) {
   v.emplace("k", toProfileValue(p.k));
   v.emplace("largest", toProfileValue(p.largest));
   v.emplace("sortOrder", toProfileValue(p.sortOrder));
+  v.emplace("stableSort", toProfileValue(p.stableSort));
   return v;
 }
 
@@ -32,13 +34,15 @@ template <> ProfileValue toProfileValue(const popops::TopKParams &p) {
 
 namespace popops {
 
-TopKParams::TopKParams(unsigned k, bool largest, SortOrder sortOrder) noexcept
-    : k(k), largest(largest), sortOrder(sortOrder) {}
+TopKParams::TopKParams(unsigned k, bool largest, SortOrder sortOrder,
+                       bool stableSort) noexcept
+    : k(k), largest(largest), sortOrder(sortOrder), stableSort(stableSort) {}
 
 std::ostream &operator<<(std::ostream &os, const TopKParams &p) {
   os << "{"
      << "k=" << p.k << ", largest=" << (p.largest ? "true" : "false")
-     << ", sortOrder=" << p.sortOrder << "}";
+     << ", sortOrder=" << p.sortOrder
+     << ", stableSort=" << (p.stableSort ? "true" : "false") << "}";
   return os;
 }
 
@@ -64,9 +68,10 @@ Tensor topK(Graph &graph, Sequence &prog, const Tensor &t,
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, params), "topK");
   const bool sorted = params.sortOrder != SortOrder::NONE;
   const bool ascending = params.sortOrder != SortOrder::DESCENDING;
-  const auto result = bitonic::topKImpl(graph, prog, t, std::nullopt, params.k,
-                                        params.largest, sorted, ascending, {di})
-                          .first;
+  const auto result =
+      bitonic::topKImpl(graph, prog, t, std::nullopt, params.k, params.largest,
+                        sorted, ascending, params.stableSort, {di})
+          .first;
   di.addOutput(result);
   return result;
 }
@@ -81,10 +86,13 @@ std::pair<Tensor, Tensor> topKKeyValue(Graph &graph, Sequence &prog,
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(key, value, params),
                                  "topKKeyValue");
   const bool sorted = params.sortOrder != SortOrder::NONE;
+  if (sorted && params.stableSort) {
+    throw poplibs_error("topKKeyValue: stable sort is not supported");
+  }
   const bool ascending = params.sortOrder != SortOrder::DESCENDING;
   const auto result =
       bitonic::topKImpl(graph, prog, key, value, params.k, params.largest,
-                        sorted, ascending, {di});
+                        sorted, ascending, params.stableSort, {di});
   di.addOutput(result.first);
   di.addOutput(result.second);
   return result;
@@ -120,9 +128,9 @@ topKWithPermutation(Graph &graph, Sequence &prog, const Tensor &t,
     poputil::mapTensorLinearly(graph, iota);
     prog.add(Copy(iota.broadcast(b, 0).flatten(), indicesToPermute.flatten()));
   }
-  const auto result =
-      bitonic::topKImpl(graph, prog, t, indicesToPermute, params.k,
-                        params.largest, sorted, ascending, {di});
+  const auto result = bitonic::topKImpl(graph, prog, t, indicesToPermute,
+                                        params.k, params.largest, sorted,
+                                        ascending, params.stableSort, {di});
   di.addOutput(result.first);
   di.addOutput(result.second);
   return result;

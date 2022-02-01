@@ -26,8 +26,13 @@ struct TopKParams {
   bool largest;
   /// The required ordering of elements in the resulting tensor.
   SortOrder sortOrder;
+  /// When sortOrder != SortOrder::NONE and stableSort is
+  /// true, the relative order of values that compare equal are
+  /// guaranteed not to change in the output.
+  bool stableSort;
 
-  TopKParams(unsigned k, bool largest, SortOrder sortOrder) noexcept;
+  TopKParams(unsigned k, bool largest, SortOrder sortOrder,
+             bool stableSort = false) noexcept;
 };
 
 std::ostream &operator<<(std::ostream &os, const TopKParams &p);
