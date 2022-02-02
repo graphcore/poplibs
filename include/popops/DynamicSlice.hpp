@@ -203,6 +203,12 @@ createSliceableTensorFromSlice(poplar::Graph &graph, const poplar::Tensor &s,
  *  \p offset[0], \p dims and \p sizes must have the same size. \p offset may
  *  have a second dimension with an element per tile, which can eliminate
  *  exchange.
+ *
+ * \note If the elements of a single slice cannot be well spread across
+ * available tiles (for example, because it has fewer elements than the
+ * available number of tiles) then the operation as a whole will also have poor
+ * tile balance and consequently poor tile memory balance.
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The source tensor.
  *  \param offset      A tensor of offsets at which the output is extracted.
