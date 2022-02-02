@@ -97,8 +97,7 @@ bool operator<(const ConvTransform &a, const ConvTransform &b) {
   constexpr static auto helper = poplibs_support::makeStructHelper(
       &ConvTransform::extraFieldDims, &ConvTransform::dilatePostConv,
       &ConvTransform::swapOperands, &ConvTransform::expandDims,
-      &ConvTransform::outChanFlattenDims, &ConvTransform::flattenDims,
-      &ConvTransform::combineConvGroupsFactor);
+      &ConvTransform::outChanFlattenDims, &ConvTransform::flattenDims);
 
   return helper.lt(a, b);
 }
@@ -107,8 +106,7 @@ bool operator==(const ConvTransform &a, const ConvTransform &b) {
   constexpr static auto helper = poplibs_support::makeStructHelper(
       &ConvTransform::extraFieldDims, &ConvTransform::dilatePostConv,
       &ConvTransform::swapOperands, &ConvTransform::expandDims,
-      &ConvTransform::outChanFlattenDims, &ConvTransform::flattenDims,
-      &ConvTransform::combineConvGroupsFactor);
+      &ConvTransform::outChanFlattenDims, &ConvTransform::flattenDims);
 
   return helper.eq(a, b);
 }
@@ -129,9 +127,7 @@ std::ostream &operator<<(std::ostream &os, const ConvTransform &t) {
   os << "\n"
      << "             flattenDims             ";
   printContainer(t.flattenDims, os);
-  os << "\n"
-     << "             combineConvGroupsFactor " << t.combineConvGroupsFactor
-     << "\n";
+  os << "\n";
   return os;
 }
 
@@ -715,123 +711,6 @@ static std::vector<unsigned> getDilatePostConvDims(const ConvParams &params,
   return dilateAfterConv;
 }
 
-#ifndef NDEBUG
-static bool isPowerOf2(const unsigned n) {
-  if (n == 0) {
-    return false;
-  }
-  return (n & (n - 1)) == 0;
-}
-#endif
-
-static std::vector<unsigned> getCombineConvGroupCandidates(
-    const unsigned level, const ConvParams &params, const ConvOptions &options,
-    const poplar::Target &target, const bool isJointPlan) {
-
-  std::string transform = std::to_string(level) + ".transform.";
-  std::vector<unsigned> validValues = [&] {
-    // when we have more than one conv group and one input channel we want to
-    // try this transformation.
-    const auto ci = params.inputChannelsPerConvGroup;
-    const bool validInputChannelSize =
-        (params.inputType == poplar::FLOAT && ci == 1) ||
-        (params.inputType == poplar::HALF && (ci == 1 || ci == 2));
-
-    // Joint plans may invalidate this transformation if they, for example, swap
-    // the input channels with the batch size and the batch size does not
-    // satisfy the constraint above. TODO: T12886 With a more advanced check
-    // here we could support cases like this.
-    if (validInputChannelSize && params.numConvGroups > 1 && !isJointPlan &&
-        !options.disableTransformations) {
-      const auto baseLoadElements =
-          params.inputType == poplar::HALF
-              ? target.getFp16ConvUnitInputLoadElemsPerCycle()
-              : target.getFp32ConvUnitInputLoadElemsPerCycle();
-
-      unsigned minFactor = convGroupCombineFactor(baseLoadElements, ci);
-      const unsigned maxFactor =
-          (params.inputType == poplar::HALF ? 16U : 8U) / ci;
-
-      assert(isPowerOf2(baseLoadElements));
-      assert(isPowerOf2(ci));
-      assert(isPowerOf2(maxFactor));
-      assert(minFactor > 0);
-      std::vector<unsigned> result;
-
-      // We call `result.push_back` until `minFactor * (2^n) <= maxFactor` is
-      // false, where `n` is the loop counter. Solving for the loop counter
-      // when the condition is false gives:
-      //
-      //    n > log2(maxFactor / minFactor)
-      //
-      // As n is an integer the greater than condition is first fulfilled by
-      //
-      //    n = floor(log2(maxFactor / minFactor)) + 1
-      //      = 8 * sizeof(maxFactor) - __builtin_clz(maxFactor / minFactor)
-      //
-      // We also unconditionally push_back once and __builtin_clz (and log2)
-      // is undefined for an input of zero, so we need to handle that case too.
-      //
-      // Some examples of the using the formula:
-      //
-      //     minFactor | maxFactor | expected | formula
-      //    -----------+-----------+----------+---------
-      //             1 |         2 |        3 |       3
-      //             1 |         8 |        5 |       5
-      //             3 |         8 |        3 |       3
-      //             2 |        16 |        5 |       5
-      //             4 |         2 |        1 |       1
-      size_t n = 1;
-      if (minFactor < maxFactor)
-        n += 8 * sizeof(maxFactor) - __builtin_clz(maxFactor / minFactor);
-
-      result.reserve(n);
-      result.push_back(1U); // 1 is noop transform
-      while (minFactor <= maxFactor) {
-        result.push_back(minFactor);
-        minFactor *= 2;
-      }
-      return result;
-    } else {
-      return std::vector<unsigned>{1U};
-    }
-  }();
-
-  const auto &planConstraints = options.planConstraints;
-  const auto constraint_ =
-      planConstraints.get_child_optional(transform + "combineConvGroupsFactor");
-  if (constraint_) {
-    std::set<unsigned> constraints;
-    for (const auto &child : *constraint_) {
-      constraints.insert(child.second.get_value<unsigned>());
-    }
-    if (std::any_of(constraints.begin(), constraints.end(),
-                    [](unsigned i) { return i != 1U; })) {
-      const auto expandDimsConstraint =
-          planConstraints.get_child_optional(transform + "expandDims");
-      const auto outChanFlattenDimsConstraint =
-          planConstraints.get_child_optional(transform + "outChanFlattenDims");
-      if ((expandDimsConstraint && !expandDimsConstraint->empty()) ||
-          (outChanFlattenDimsConstraint &&
-           !outChanFlattenDimsConstraint->empty())) {
-        throw poputil::poplibs_error(
-            "The combineConvGroups transformation is only valid when there is "
-            "there is not another transformation that can increase the number "
-            "of input channels (ie. expandDims or outChanFlattenDims");
-      }
-    }
-
-    auto constrainedValues =
-        boost::adaptors::filter(validValues, [&](unsigned i) {
-          return static_cast<bool>(constraints.count(i));
-        });
-    return std::vector<unsigned>(constrainedValues.begin(),
-                                 constrainedValues.end());
-  }
-
-  return validValues;
-}
-
 /*
  * Function ensures:
  * 1. Each level specified in plan constraints is within range of hierarchy.
@@ -1044,67 +923,58 @@ createPlan(const ConvParams &params, const ConvOptions &options,
             calculateFlattenedParams(expandedParams, outChanFlattenDims,
                                      transforms[ipuLevel].flattenDims);
 
-        for (const unsigned combineConvGroups : getCombineConvGroupCandidates(
-                 ipuLevel, flattenedParams, options, target, isJointPlan)) {
-          transforms[ipuLevel].combineConvGroupsFactor = combineConvGroups;
-          const auto groupedParams = calculateGroupedParams(
-              flattenedParams, transforms[ipuLevel].combineConvGroupsFactor);
+        const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
+            target, params.inputType, params.outputType, options.partialsType,
+            flattenedParams, options, isJointPlan);
 
-          const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
-              target, params.inputType, params.outputType, options.partialsType,
-              groupedParams, options, isJointPlan);
+        for (const auto &convVertexType : convVertexTypeCandidates) {
+          std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
+          if (isJointPlan) {
+            assert(options.pass == Pass::FC_TRAINING_FWD);
+            // The innermost grain size becomes the inChansPerGroup in the
+            // backward pass. For now assume the same grouping in both
+            // passes.
+            // TODO: T12887 Search for the optimal grouping in each pass.
+            fieldGrainSize.back() = convVertexType.inChansPerGroup;
+          } else if (flattenedParams.outputType == poplar::HALF &&
+                     convVertexType.partialChansPerGroup % 2 &&
+                     flattenedParams.getOutputSize(
+                         flattenedParams.getNumFieldDims() - 1) %
+                             2 ==
+                         0) {
+            // If the number of output channels per group is odd then use a
+            // field grain size of 2 to ensure the result has an even number
+            // of elements on each tile since an odd number of elements
+            // on a tile tends to cause costly rearrangements in the next
+            // layer.
+            fieldGrainSize.back() = 2;
+          }
+          Plan candidate;
+          Cost candidateCost;
+          const auto convTypes = getConvTypes(
+              target, convVertexType.partialType, params.outputType, options);
+          popsolver::ConstraintEvaluationSummary constraintsEvaluated{};
+          std::tie(candidate, candidateCost, constraintsEvaluated) =
+              choosePlan(target, transforms, convTypes, hierarchy,
+                         perLevelExchangeBytesPerCycle, fieldGrainSize,
+                         convVertexType, params, isJointPlan, bestCost,
+                         objective, startTileIdxForVirtualHierarchy,
+                         referencePlan, referenceCost, cache, options);
+          logging::poplin::trace("Evaluated {} constraints for candidate plan",
+                                 constraintsEvaluated);
+          totalConstraintsEvaluated += constraintsEvaluated;
+          if (candidateCost == highestCost) {
+            continue;
+          }
 
-          for (const auto &convVertexType : convVertexTypeCandidates) {
-            std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
-            if (isJointPlan) {
-              assert(options.pass == Pass::FC_TRAINING_FWD);
-              // The innermost grain size becomes the inChansPerGroup in the
-              // backward pass. For now assume the same grouping in both
-              // passes.
-              // TODO: T12887 Search for the optimal grouping in each pass.
-              fieldGrainSize.back() = convVertexType.inChansPerGroup;
-            } else if (groupedParams.outputType == poplar::HALF &&
-                       convVertexType.partialChansPerGroup % 2 &&
-                       groupedParams.getOutputSize(
-                           groupedParams.getNumFieldDims() - 1) %
-                               2 ==
-                           0) {
-              // If the number of output channels per group is odd then use a
-              // field grain size of 2 to ensure the result has an even number
-              // of elements on each tile since an odd number of elements
-              // on a tile tends to cause costly rearrangements in the next
-              // layer.
-              fieldGrainSize.back() = 2;
-            }
-            Plan candidate;
-            Cost candidateCost;
-            const auto convTypes = getConvTypes(
-                target, convVertexType.partialType, params.outputType, options);
-            popsolver::ConstraintEvaluationSummary constraintsEvaluated{};
-            std::tie(candidate, candidateCost, constraintsEvaluated) =
-                choosePlan(target, transforms, convTypes, hierarchy,
-                           perLevelExchangeBytesPerCycle, fieldGrainSize,
-                           convVertexType, params, isJointPlan, bestCost,
-                           objective, startTileIdxForVirtualHierarchy,
-                           referencePlan, referenceCost, cache, options);
-            logging::poplin::trace(
-                "Evaluated {} constraints for candidate plan",
-                constraintsEvaluated);
-            totalConstraintsEvaluated += constraintsEvaluated;
-            if (candidateCost == highestCost) {
-              continue;
-            }
+          if (objective.lowerCost(candidateCost, bestCost)) {
+            bestPlan = candidate;
+            bestCost = candidateCost;
 
-            if (objective.lowerCost(candidateCost, bestCost)) {
-              bestPlan = candidate;
-              bestCost = candidateCost;
-
-              logging::poplin::debug(
-                  "Found new best candidate plan using {}: {}",
-                  candidate.method, candidateCost);
-              logPlanBreakdown(logging::Level::Trace, bestPlan, bestCost,
-                               referenceCost);
-            }
+            logging::poplin::debug("Found new best candidate plan using {}: {}",
+                                   candidate.method, candidateCost);
+            logPlanBreakdown(logging::Level::Trace, bestPlan, bestCost,
+                             referenceCost);
           }
         }
       }
@@ -1485,8 +1355,6 @@ static PlanConstraints getPlanConstraints(const Plan &plan) {
     constraints.add(keySuffix + "swapOperands", t.swapOperands);
     constrainArray(keySuffix + "expandDims", t.expandDims);
     constrainArray(keySuffix + "outChanFlattenDims", t.outChanFlattenDims);
-    constrainArray(keySuffix + "combineConvGroupsFactor",
-                   {t.combineConvGroupsFactor});
   }
 
   // Partitions
