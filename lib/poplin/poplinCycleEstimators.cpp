@@ -248,7 +248,6 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
 
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numWorkerContexts = target.getNumWorkerContexts();
-  const auto actsVectorWidth = target.getVectorWidth(fpType);
 
   std::vector<unsigned> tZeroWorkList;
   for (unsigned i = 0; i != numWorkerContexts; ++i) {
@@ -287,12 +286,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   std::uint64_t flops = static_cast<std::uint64_t>(numConvGroups) *
                         numInGroups * numOutGroups * inChansPerGroup *
                         outChansPerGroup * totalFieldPos * flopsForMAC();
+
   std::uint64_t cycles =
       zeroCycles + getConvPartialHorizontalMacSupervisorCycleEstimate(
                        workerPartitions, numConvGroups, numInGroups,
                        numOutGroups, kernelSize, inChansPerGroup,
-                       outChansPerGroup, numWorkerContexts, actsVectorWidth,
-                       floatActivations, floatPartials);
+                       outChansPerGroup, numWorkerContexts, floatActivations,
+                       floatPartials);
   return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
