@@ -415,11 +415,12 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                                        Tensor weights, Tensor out,
                                        bool use128BitConvUnitLoad,
                                        const DebugNameAndId &dnai) {
-  const auto &target = graph.getTarget();
-  const auto numConvUnitsRequired = plan.numConvUnitsOrChainsRequired;
-  auto weightsPerConvUnit = target.getWeightsPerConvUnit(in.elementType());
+  // AMP vertices only support having a single conv group per grouping.
+  assert(plan.convGroupsPerGroup == 1);
 
-  const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
+  const auto &target = graph.getTarget();
+  const auto convUnitWeightHeight =
+      target.getWeightsPerConvUnit(in.elementType()) / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
     assert(weights.dim(3) % convUnitWeightHeight == 0);
     assert(params->inputTransform.truncationLower[0] == 0);
@@ -433,39 +434,60 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   const unsigned numConvGroupGroups = out.dim(0);
   const unsigned numOutChanGroups = out.dim(1);
   const unsigned numInChanGroups = in.dim(1);
-  const auto outChansPerGroup = plan.partialChansPerGroup;
+  const unsigned outChansPerGroup = plan.partialChansPerGroup;
   const unsigned inChansPerGroup = plan.inChansPerGroup;
+  const bool flipOut = params->inputTransform.flip[numFieldDims - 1];
 
-  // AMP vertices only support having a single conv group per grouping.
-  assert(plan.convGroupsPerGroup == 1);
-
-  auto isNonZero = [](unsigned x) { return x != 0; };
-
-  // If the number of input channels is zero, the output could still be only
-  // padding. The 1x1 vertex requires the input channels to be non-zero to
-  // write zero to the output. Hence we always use a nx1 vertex if number
-  // of input channels is zero.
-  bool nx1Vertex =
-      numInChanGroups * inChansPerGroup == 0 ||
-      product(params->kernelShape) != 1 ||
-      params->inputTransform.dilation != params->outputTransform.stride ||
-      std::any_of(params->outputTransform.paddingLower.begin(),
-                  params->outputTransform.paddingLower.end(), isNonZero) ||
-      std::any_of(params->outputTransform.paddingUpper.begin(),
-                  params->outputTransform.paddingUpper.end(), isNonZero);
-  bool flipOut = params->inputTransform.flip[numFieldDims - 1];
+  // Reshape the tensors into the shape expected by the vertex.
+  //
+  // The tensors are currently in grouped internal shape:
+  //
+  //    in      [G1][IC1][N]...[G2][IC2]
+  //    weights [G1][OC1][IC1]...[G2][OC2][IC2]
+  //    out     [G1][OC1][N]...[G2][OC2]
+  //
+  // however the vertex expects a flatter format of:
+  //
+  //    in      [G1 * IC1][N * ... * G2 * IC2]
+  //    weights [G1 * OC1 * IC1][... * G2 * OC2 * IC2]
+  //    out     [G1 * OC1][N * ... * G2 * OC2]
+  //
+  // where ... are the field dimensions.
 
   std::vector<Tensor> weightsWindow;
   for (unsigned cg = 0; cg != numConvGroupGroups; ++cg) {
     for (unsigned ozg = 0; ozg < numOutChanGroups; ++ozg) {
       for (unsigned izg = 0; izg < numInChanGroups; ++izg) {
-        auto window = weights[cg][ozg][izg].flatten();
+        auto window = weights[cg][ozg][izg];
         weightsWindow.push_back(window.flatten());
       }
     }
   }
 
-  const auto contextsPerVertex = target.getNumWorkerContexts();
+  std::vector<Tensor> outWindow;
+  std::vector<Tensor> inWindow;
+  for (unsigned cg = 0; cg != numConvGroupGroups; ++cg) {
+    for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
+      auto o = out[cg][ozg];
+      outWindow.push_back(o.flatten());
+    }
+    // TODO: T12872 If the tile kernel size is 1 and the stride is greater than
+    // one we could subsample the input instead of using input striding.
+    for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
+      auto window = in[cg][izg];
+      inWindow.push_back(window.flatten());
+    }
+  }
+
+  std::vector<std::size_t> inputBatchAndFieldShape = {params->getBatchSize()};
+  std::vector<std::size_t> outputBatchAndFieldShape = {params->getBatchSize()};
+  for (size_t dim = 0; dim != numFieldDims; ++dim) {
+    inputBatchAndFieldShape.push_back(params->inputFieldShape[dim]);
+    outputBatchAndFieldShape.push_back(params->getOutputSize(dim));
+  }
+
+  // Figure out how to partition the convolution across AMP units.
+
   // The number of n x 1 x ... 1 slices required to cover the kernel in each
   // dimension.
   auto numSubKernelSlices = params->kernelShape;
@@ -481,23 +503,29 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   inStrideX /= strideDivisor;
   outStrideX /= strideDivisor;
 
-  const auto convInputLoadElems =
-      target.getConvUnitInputLoadElemsPerCycle(in.elementType());
-
+  const auto contextsPerVertex = target.getNumWorkerContexts();
   const auto convUnitWeightWidth = 1u;
   auto partitions = createPartitions(params, convUnitWeightHeight,
                                      convUnitWeightWidth, contextsPerVertex);
-
   assert(!partitions.empty());
-  std::vector<std::size_t> inputBatchAndFieldShape = {params->getBatchSize()};
-  std::vector<std::size_t> outputBatchAndFieldShape = {params->getBatchSize()};
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    inputBatchAndFieldShape.push_back(params->inputFieldShape[dim]);
-    outputBatchAndFieldShape.push_back(params->getOutputSize(dim));
-  }
+
+  // Choose whether to use the nx1 vertex or 1x1 vertex.
+
+  auto isNonZero = [](unsigned x) { return x != 0; };
+  bool nx1Vertex =
+      // If the number of input channels is zero, the output could still be only
+      // padding. The 1x1 vertex requires the input channels to be non-zero to
+      // write zero to the output. Hence we always use a nx1 vertex if number
+      // of input channels is zero.
+      numInChanGroups * inChansPerGroup == 0 ||
+      product(params->kernelShape) != 1 ||
+      params->inputTransform.dilation != params->outputTransform.stride ||
+      std::any_of(params->outputTransform.paddingLower.begin(),
+                  params->outputTransform.paddingLower.end(), isNonZero) ||
+      std::any_of(params->outputTransform.paddingUpper.begin(),
+                  params->outputTransform.paddingUpper.end(), isNonZero);
 
   bool useConvPartial1x1OutVertex = !nx1Vertex;
-
   if (useConvPartial1x1OutVertex) {
     // In most common cases there should only be one partition per worker for
     // a 1x1 vertex. To avoid having two types of 1x1 vertices we just make it
@@ -509,14 +537,12 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                   });
 
     // find if any of the contexts has more than one partition
-    unsigned contextsHaveMoreThanOnePartition = false;
     for (auto v : partitionsPerContext) {
       if (v > 1) {
-        contextsHaveMoreThanOnePartition = true;
+        useConvPartial1x1OutVertex = false;
         break;
       }
     }
-    useConvPartial1x1OutVertex = !contextsHaveMoreThanOnePartition;
   }
 
   // create worklist now that dimensions of all splits are known
@@ -565,21 +591,6 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
     }
   }
 
-  std::vector<Tensor> outWindow;
-  std::vector<Tensor> inWindow;
-
-  for (unsigned cg = 0; cg != numConvGroupGroups; ++cg) {
-    for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
-      auto o = out[cg][ozg];
-      outWindow.push_back(o.flatten());
-    }
-    // TODO: T12872 If the tile kernel size is 1 and the stride is greater than
-    // one we could subsample the input instead of using input striding.
-    for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
-      auto window = in[cg][izg];
-      inWindow.push_back(window.flatten());
-    }
-  }
   // This stride is what's used to move down one element in the input field by
   // the vertex.
   int inRowStride = getInRowStride(
@@ -588,11 +599,13 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
           (inputBatchAndFieldShape[0] * inputBatchAndFieldShape[1]),
       useConvPartial1x1OutVertex, convUnitWeightHeight);
 
+  const auto convInputLoadElems =
+      target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
   int transformedInStride =
       getTransformedInStride(convUnitWeightHeight, inStrideX, inRowStride,
                              convInputLoadElems, inChansPerGroup);
 
-  // fill in worklist
+  const auto numConvUnitsRequired = plan.numConvUnitsOrChainsRequired;
   unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
   int transformedOutStride = getTransformedOutStride(
       outStrideToUse, outChansPerGroup, numConvUnitsRequired,
