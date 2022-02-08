@@ -130,7 +130,7 @@ template <> struct UnaryLibCall<expr::UnaryOpType::GELU_ERF> {
   // In double precision, error is <1.5e-5. The error is similar to a 5th
   // order polynomial where the erf differs for small values of x. As the
   // approximation is used only for fp16, the max relative error is around 1e03.
-  // The (1 + erf(x/sqrt(2)))  done in fp16 has similar results because for 
+  // The (1 + erf(x/sqrt(2)))  done in fp16 has similar results because for
   // small x, 1 + erf(x/sqrt(2)) ~= 1 with the product with x pushing the result
   // toward 0.
   float compute(float xAbs) const {
@@ -183,16 +183,34 @@ template <> struct UnaryLibCall<expr::UnaryOpType::LOGARITHM_ONE_PLUS> {
 };
 
 #ifdef __IPU__
+
+// domain below which sine(theta) = theta for half precision
+constexpr float smallAngleApproxThresh = 3.90625e-03f;
+
 // Compute Tau function based on Legendre polynomial of the 5th order.
 // (https://mae.ufl.edu/~uhk/IEEETrigpaper8.pdf)
 // The algorithm used here deviates from the one in the paper in that the input
 // range is extended over  (-pi:pi) which simplifies the calculation without
 // having to check ranges that should enable this to be vectorised. Note that
 // the approximation in the range [-pi/4:pi/4] is even better than the native
-// implementation used by the compiler The performance of the algorithm itself
-// is exact in half range with an absolute error of ~5e-6 before converting the
-// output to half and well within the denorm range.
-static float computeTrigTau(float x) {
+// implementation used by the compiler.
+// The relative error for sine is less than 1ulp except at ~339 * 2 * pi where
+// it is 1.6ulp
+// The relative error for cosine is less than 1ulp except at the following
+// points
+// +/-54304 (8.4ulp error and value of function is 1.86373627898000e-04)
+// +/-42944 (1.1ulp)
+// +/-887.5 (2.6ulp)
+// +/-532.5 (1.64ulp)
+// +/-177.5 (1.06ulp)
+// We could use a common sine function by using the identity
+// cos(x) = sin(x + pi/2) but the addition would need to be in float precision.
+
+// Return (x % (2*pi) - pi)/2
+// Get to within 2*pi and and then subtract pi to get within [-pi,pi].
+// Further scale by 0.5 to get within [-pi/2,pi/2] because we actually
+// compute angle/2 to avoid checking for quadrants.
+static float rangeReduceAndHalve(float x) {
   // Split the numerator into two parts such that the product of the first part
   // with xNorm always remains within the mantissa of FP32. After the first
   // subtraction x * piDen - xNorm * piNum, there is no loss of information but
@@ -202,22 +220,24 @@ static float computeTrigTau(float x) {
   constexpr float piNum2 = 0.00193530716933310031890869140625f;
   constexpr float invTwoPi = 0.15915493667125701904296875f;
   const auto xNorm = ipu::floor(x * invTwoPi) + 0.5f;
-  const auto y = (x - xNorm * piNum1 - xNorm * piNum2) * 0.5f;
-  const auto y2 = y * y;
-  constexpr float c0 = 945.0f;
-  constexpr float c1 = -105.00625f;
-  constexpr float c2 = -420.0007f;
-  constexpr float c3 = 14.99822f;
-  const auto tau5 = y * (c0 + y2 * (c1 + y2)) / (c0 + y2 * (c2 + c3 * y2));
-  return tau5;
+  return (x - xNorm * piNum1 - xNorm * piNum2) * 0.5f;
 }
 #endif
 
 template <> struct UnaryLibCall<expr::UnaryOpType::COS> {
 #ifdef __IPU__
   float compute(float x) const {
-    const auto tau = computeTrigTau(x);
-    return (tau * tau - 1) / (tau * tau + 1);
+    const auto y = rangeReduceAndHalve(x);
+    const auto y2 = y * y;
+    constexpr float c0 = 945.0f;
+    constexpr float c1 = -105.0f;
+    constexpr float c2 = -420.000f;
+    constexpr float c3 = 15.0f;
+    const auto num = y * (c0 + y2 * (c1 + y2));
+    const auto den = (c0 + y2 * (c2 + c3 * y2));
+    const auto num2 = num * num;
+    const auto den2 = den * den;
+    return (num2 - den2) / (num2 + den2);
   }
 
   template <typename FPType> FPType operator()(FPType x) const {
@@ -242,8 +262,15 @@ template <> struct UnaryLibCall<expr::UnaryOpType::COS> {
 template <> struct UnaryLibCall<expr::UnaryOpType::SIN> {
 #ifdef __IPU__
   float compute(float x) const {
-    const auto tau = computeTrigTau(x);
-    return -2.0f * tau / (tau * tau + 1);
+    const auto y = rangeReduceAndHalve(x);
+    const auto y2 = y * y;
+    constexpr float c0 = 945.0f;
+    constexpr float c1 = -105.00625f;
+    constexpr float c2 = -420.0007f;
+    constexpr float c3 = 14.99822f;
+    const auto num = y * (c0 + y2 * (c1 + y2));
+    const auto den = (c0 + y2 * (c2 + c3 * y2));
+    return -2.0f * num * den / (num * num + den * den);
   }
 
   template <typename FPType> FPType operator()(FPType x) const {
@@ -256,9 +283,18 @@ template <> struct UnaryLibCall<expr::UnaryOpType::SIN> {
         for (unsigned i = 0; i != n; ++i) {
           y[i] = compute(static_cast<float>(x[i]));
         }
+        // use small angle approximation (sin(x) = x)
+        auto mask = ipu::fabs(x) < Const<FPType>(smallAngleApproxThresh);
+        auto *xPtr = reinterpret_cast<decltype(mask) *>(&x);
+        auto *yPtr = reinterpret_cast<decltype(mask) *>(&y);
+        *yPtr = (*xPtr & mask) | (*yPtr & ~mask);
         return y;
       } else {
-        return compute(static_cast<float>(x));
+        FPType y = compute(static_cast<float>(x));
+        if (ipu::fabs(x) < Const<FPType>(smallAngleApproxThresh)) {
+          y = x;
+        }
+        return y;
       }
     }
   }
