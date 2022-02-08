@@ -11,6 +11,11 @@
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
+#ifdef __IPU__
+#include "StackSizeDefs.hpp"
+#include "inlineAssemblerConv.hpp"
+#endif
+
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
@@ -216,6 +221,219 @@ public:
   }
 };
 
+#ifdef __IPU__
+
+#if __IPU_ARCH_VERSION__ >= 21
+
+template <typename UnsignedType, unsigned numConvUnits>
+class WorkerClassNx1 : public Vertex {
+public:
+  static bool compute() { return true; }
+};
+
+template <> class WorkerClassNx1<unsigned short, 16> : public Vertex {
+public:
+  static bool compute() {
+    auto state = workerState<WorkerStateNx1>();
+
+    unsigned deltaNData = *(state->partitionList + getWid());
+    unsigned workListLength = deltaNData >> DELTAN_OFFSET_BITS;
+    unsigned offset = deltaNData - (workListLength << DELTAN_OFFSET_BITS);
+    const unsigned short *workListPtr =
+        reinterpret_cast<const unsigned short *>(state->partitionBase);
+    workListPtr += offset;
+
+    constexpr auto outputVectorWidth = 4;
+    constexpr auto inputVectorWidth = 8;
+    const unsigned short *workListEndPtr = workListPtr + workListLength;
+
+    while (workListPtr < workListEndPtr) {
+      unsigned loops = CSR_W_REPEAT_COUNT__VALUE__MASK & (workListPtr[1] + 3);
+      auto outPtr = state->outChanPtr + workListPtr[0] * outputVectorWidth;
+      auto inPtr = state->inChanPtr + workListPtr[2] * inputVectorWidth;
+      workListPtr += 3;
+      convQuarterHalfLoop(inPtr, outPtr, loops, state->strides);
+    }
+    return true;
+  }
+};
+
+struct WorkerMemZeroState {
+  half *outPtr;
+  unsigned zerosInfo;
+};
+
+static __attribute__((always_inline)) unsigned
+divideWork(const unsigned size, const unsigned vectorWidthShifts,
+           const unsigned worker) {
+  // Multiply by 0xaaab and shift by 18 is just a multiplication by 1/6 in
+  // fixed point (Q14.18)
+  return (((size >> vectorWidthShifts) + 5 - worker) * 0xaaab) >> 18;
+}
+
+class WorkerMemZero : public Vertex {
+public:
+  static bool compute() {
+    auto state = workerState<WorkerMemZeroState>();
+    asm volatile(" mov %[state], $mvertex_base\n" : [state] "=r"(state) : :);
+
+    // All workers write the last 2 halves (treated as a float) which won't be
+    // covered by the loop.  Only necessary where the number of elements is not
+    // a multiple of 4 which the loop will deal with, but executed regardless.
+    float *last2Elems =
+        reinterpret_cast<float *>(state->outPtr + (state->zerosInfo) - 2);
+    *last2Elems = 0.0f;
+
+    const auto wid = getWid();
+    unsigned loops = divideWork(state->zerosInfo, 2, wid);
+    asm volatile(
+        R"l(
+          .align 8
+          ld64step $azeros, $mzero, %[wrPtr]+=, %[workerOffset]
+          rpt %[loops], (2f - 1f) / 8 -1
+          1:
+            {st64step $azeros, $mzero, %[wrPtr]+=, 6
+             fnop}
+           2:
+        )l"
+        : [wrPtr] "+r"(state->outPtr)
+        : [workerOffset] "r"(wid), [loops] "r"(loops)
+        : "$m0", "memory");
+
+    return true;
+  }
+};
+
+template <bool useLimitedVer, bool use128BitLoad, unsigned numConvUnits>
+class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartialnx1<
+    quarter, half, useLimitedVer, use128BitLoad, numConvUnits>
+    : public SupervisorVertex {
+  static const bool needsAlignWorkers = false;
+
+public:
+  ConvPartialnx1();
+  using FPType = quarter;
+  using AccumType = half;
+
+  using WorkListType =
+      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using WorkListNumFieldType =
+      typename std::conditional<useLimitedVer, short, int>::type;
+  using UnsignedType =
+      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
+  static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
+
+  // This value is
+  // (inStrideX - 1 - (ampKernelHeight - 1) * inRowStride)
+  //      * inChansPerGroup / convInputLoadElems + 1)
+  // Where inStrideX is the actual stride
+  // const SignedType transformedInStride;
+  const signed transformedInStride;
+  // This output stride also encodes the flip parameter and is given as
+  // -6 + outChansPerGroup * (actual output stride) if flipOut = false
+  // -6 - outChansPerGroup * (actual output stride) if flipOut = true
+  // const SignedType transformedOutStride;
+  const signed transformedOutStride;
+
+  Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, ONE_PTR> in;
+  Input<unsigned char> inMetaData;
+  Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
+         ONE_PTR>
+      weights;
+  Input<unsigned char> weightsMetaData;
+  Vector<Output<Vector<AccumType, COMPACT_PTR, 8, true>>, ONE_PTR> out;
+  const unsigned zerosInfo;
+  Input<VectorList<WorkListType, COMPACT_DELTAN>> worklists;
+  const UnsignedType numOutGroupsM1;
+  const UnsignedType numInGroups;
+  const UnsignedType kernelOuterSizeM1;
+  const UnsignedType kernelInnerElementsM1;
+
+  const UnsignedType numConvGroupsM1;
+  // The number of kernel elements we accumulate across within the AMP unit
+  const UnsignedType ampKernelHeightM1;
+  // The actual coding of this is
+  //  (inRowSride - 1) * inChansPerGroup / convInputLoadElems + 1
+  const SignedType transformedInRowStride;
+  const UnsignedType outChansPerGroup;
+  const UnsignedType inChansPerGroup;
+
+  __attribute__((target("supervisor"))) bool compute() {
+    WorkerStateNx1 workerState;
+    auto wlStatePtr = reinterpret_cast<unsigned *>(&worklists);
+    workerState.partitionBase =
+        reinterpret_cast<unsigned *>(*wlStatePtr & DELTAN_OFFSET_MASK);
+
+    setFp8Format(weightsMetaData, inMetaData);
+    setFp8Scale(weightsMetaData, inMetaData);
+
+    // A small amount of manipulation on the passed strides.
+    // This could be avoided by packing differently for this vertex but this
+    // way it's compatible with others
+    constexpr auto unsignedSize = 32;
+    int unpackedTransformedInStride = transformedInStride
+                                      << (unsignedSize - 2 * NUM_STRIDE_BITS);
+    int inStride =
+        (unpackedTransformedInStride >> (unsignedSize - NUM_STRIDE_BITS)) -
+        transformedInRowStride;
+    workerState.strides =
+        packStrides(inStride, transformedOutStride & NUM_STRIDE_BITS_MASK);
+    // Zeroing - using a worker function with 64 bit writes, rpt and bundles
+    const unsigned numOutGroups = numOutGroupsM1 + 1;
+    const unsigned numConvGroups = numConvGroupsM1 + 1;
+    WorkerMemZeroState workerMemZeroState;
+    workerMemZeroState.zerosInfo = zerosInfo;
+    for (unsigned cg = 0; cg != numConvGroups; ++cg) {
+      for (unsigned og = 0; og != numOutGroups; ++og) {
+        workerMemZeroState.outPtr = &out[cg * numOutGroups + og][0];
+        RUN_ALL("__runCodelet_poplin__WorkerMemZero", &workerMemZeroState);
+      }
+    }
+
+    const unsigned ampKernelHeight = ampKernelHeightM1 + 1;
+    const unsigned kernelOuterSize = kernelOuterSizeM1 + 1;
+    const unsigned kernelInnerElements = kernelInnerElementsM1 + 1;
+
+    for (unsigned cg = 0; cg < numConvGroups; ++cg) {
+      for (unsigned og = 0; og < numOutGroups; ++og) {
+        workerState.outChanPtr = &out[cg * numOutGroups + og][0];
+        for (unsigned ig = 0; ig < numInGroups; ++ig) {
+          workerState.partitionList = reinterpret_cast<unsigned *>(
+              *(wlStatePtr + 1) & DELTAN_OFFSET_MASK);
+
+          const auto &w = weights[cg * numOutGroups * numInGroups +
+                                  ig * numOutGroups + (numOutGroups - 1 - og)];
+
+          for (unsigned ky = 0; ky < kernelOuterSize; ++ky) {
+            for (unsigned kx = 0; kx < kernelInnerElements; ++kx) {
+
+              // Amp kernel height loop extracted out - supervisor function,
+              // affecting weight load.
+              const auto weightIndex = ky * ampKernelHeight *
+                                           kernelInnerElements *
+                                           outChansPerGroup * inChansPerGroup +
+                                       kx * outChansPerGroup * inChansPerGroup;
+
+              ampLoadWeights<use128BitLoad, numConvUnits>(&w[weightIndex]);
+              workerState.inChanPtr = &in[cg * numInGroups + ig][0];
+
+              RUN_ALL("__runCodelet_poplin__WorkerClassNx1___unsigned_short_16",
+                      &workerState)
+              // Advance for the next loop
+              workerState.partitionList += CTXT_WORKERS;
+            }
+          }
+        }
+      }
+    }
+    return true;
+  }
+};
+
+#endif // __IPU_ARCH_VERSION__
+#endif // __IPU__
+
 template class ConvPartialnx1<float, float, true, false, 8>;
 template class ConvPartialnx1<half, half, true, false, 8>;
 template class ConvPartialnx1<half, float, true, false, 8>;
@@ -239,5 +457,12 @@ template class ConvPartialnx1<float, float, true, true, 16>;
 template class ConvPartialnx1<half, half, true, true, 16>;
 template class ConvPartialnx1<float, float, false, true, 16>;
 template class ConvPartialnx1<half, half, false, true, 16>;
+
+#if __IPU_ARCH_VERSION__ >= 21
+template class ConvPartialnx1<quarter, half, false, false, 16>;
+template class ConvPartialnx1<quarter, half, false, true, 16>;
+template class ConvPartialnx1<quarter, half, true, false, 16>;
+template class ConvPartialnx1<quarter, half, true, true, 16>;
+#endif
 
 } // end namespace poplin

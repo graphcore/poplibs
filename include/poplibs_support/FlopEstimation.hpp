@@ -11,7 +11,8 @@ namespace poplibs_support {
 // \param type Poplar type
 // \return true if poplar type is a floating point type
 static inline bool isFPType(const poplar::Type &type) {
-  return type == poplar::FLOAT || type == poplar::HALF;
+  return type == poplar::FLOAT || type == poplar::HALF ||
+         type == poplar::QUARTER;
 }
 
 // Data dependent rules for determining FLOPS

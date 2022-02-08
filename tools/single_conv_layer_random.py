@@ -20,14 +20,17 @@ from functools import reduce
 from itertools import chain
 
 vector_width = {
+    'quarter': 8,
     'half': 4,
     'float': 2
 }
 amp_in_chans = {
+    'quarter': 32,
     'half': 16,
     'float': 4
 }
 amp_out_chans = {
+    'quarter': 16,
     'half': 8,
     'float': 8
 }
@@ -44,7 +47,7 @@ max_kernel_size = 16
 max_kernel_dilation = 4
 max_kernel_padding = 3
 
-max_chans_per_group = 128
+max_chans_per_group = 512
 max_stride = 4
 max_flops = 500000
 max_flops_per_tile = 50000
@@ -121,7 +124,11 @@ class Params:
         def shape_to_str(shape):
             return '{' + ','.join(str(e) for e in shape) + '}'
         cmd = []
-        cmd.append('--data-type=' + self.data_type)
+        if self.data_type == 'quarter':
+          cmd.append('--input-type=' + self.data_type)
+          cmd.append('--output-type=half')
+        else:
+          cmd.append('--data-type=' + self.data_type)
         cmd.append('--conv-groups=' + str(self.conv_groups))
         cmd.append('--batch-size=' + str(self.batch_size))
         cmd.append('--field=' + shape_to_str(self.field))
@@ -201,7 +208,7 @@ class Params:
         return (output_elements * kernel_elements * in_chans_per_group *
                 out_chans_per_group)
 
-def make_params(partials_type):
+def make_params(args):
     """Return a random set of convolution parameters"""
     params = Params()
 
@@ -221,13 +228,30 @@ def make_params(partials_type):
     # therefore given any values for x and s (which are both > 0), we can create
     # a padding that allows us to have a positive kernel size.
     symmetrical = random.randrange(0, 100) > 70
+    if not args.device_type == 'Sim21' and args.input_type == 'quarter' :
+      message = 'Failed to run a self test. Quarter type is only supported in Sim21'
+      raise TestFailureException(message, 1)
 
-    types = [('float', 'float'), ('half', 'half')]
-    if not symmetrical:
-        types.append(('half', 'float'))
+    if args.input_type == 'float':
+      types =[('float', 'float')]
+    elif args.input_type == 'half':
+      types =[('half', 'half')]
+    elif args.input_type == 'quarter':
+      # Any test using quarter is asymmetrical
+      types =[('quarter', 'half')]
+    else:
+      types = [('float', 'float'), ('half', 'half')]
+
+    if args.input_type == 'all' and args.device_type == 'Sim21':
+      # Any test using quarter is asymmetrical
+      types.append(('quarter', 'half'))
+
+    if not symmetrical and (args.input_type == 'all' or args.input_type == 'half'):
+      types.append(('half', 'float'))
+
     params.data_type, params.conv_options['partialsType'] = random.choice(types)
-    if partials_type is not 'any':
-        params.conv_options['partialsType'] = partials_type
+    if args.partials_type is not 'any':
+        params.conv_options['partialsType'] = args.partials_type
     params.use_create_input = random.choice([True, False])
     params.preplan = random.choice([True, False])
     params.conv_options['remapOutputTensor'] = random.choice([True, False])
@@ -336,7 +360,7 @@ def make_params(partials_type):
 
     return params
 
-def make_constrained_params(tiles_per_ipu, max_flops_per_conv, max_flops_per_tile_per_conv, partials_type):
+def make_constrained_params(tiles_per_ipu, max_flops_per_conv, max_flops_per_tile_per_conv, args):
     """
     Return a random set of convolution parameters subject to constraints
 
@@ -344,7 +368,7 @@ def make_constrained_params(tiles_per_ipu, max_flops_per_conv, max_flops_per_til
     by single_conv_layer and not exceed the maximum number of FLOPs.
     """
     while True:
-        p = make_params(partials_type)
+        p = make_params(args)
         if any(f < k for f, k in zip(p.get_dilated_and_padded_input_size(),
                                      p.get_dilated_and_padded_kernel_size())):
             continue
@@ -508,8 +532,8 @@ def main():
     parser.add_argument('--partials-type', default="any", choices=("half", "float"),
                         help='If not default, restricts test to use chosen partials type')
     parser.add_argument('--ci-test', default=False, action='store_true', help='Runs self checks')
-
-
+    parser.add_argument('--input-type', default="all", choices=("all","quarter","half","float"),
+                        help='Constrain tests to use a single input type')
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -529,7 +553,7 @@ def main():
     max_flops_per_tile_per_conv = max_flops_per_tile / num_convs
     def make_conv_params():
         return make_constrained_params(tiles_per_ipu, max_flops_per_conv, \
-                                       max_flops_per_tile_per_conv, args.partials_type)
+                                       max_flops_per_tile_per_conv, args)
     params = [make_conv_params() for _ in range(num_convs)]
     try:
         extra_args=device_args + ['--device-type=' +
@@ -540,6 +564,7 @@ def main():
             extra_args.append('--profile')
         if args.constraints_file:
             extra_args.append('--fwd-plan-constraints-file=' + str(args.constraints_file))
+
         run(params, binary=args.binary,
             extra_args=extra_args,
             dummy_run=args.dummy,

@@ -186,7 +186,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
     poplar::Type partialType, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
-  assert(params.inputType == poplar::HALF || params.inputType == poplar::FLOAT);
+  assert(params.inputType == poplar::QUARTER ||
+         params.inputType == poplar::HALF || params.inputType == poplar::FLOAT);
   unsigned actsVectorWidth = target.getVectorWidth(params.inputType);
   bool floatActivations = params.inputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
@@ -214,10 +215,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
     throw poputil::poplibs_error(ss.str());
   }
   case Plan::Method::AMP: {
-    assert(target.getWeightsPerConvUnit(floatActivations) % inChansPerGroup ==
-           0);
-
-    auto weightsPerConvUnit = target.getWeightsPerConvUnit(floatActivations);
+    auto weightsPerConvUnit = target.getWeightsPerConvUnit(params.inputType);
+    assert(weightsPerConvUnit % inChansPerGroup == 0);
 
     const auto weightBytesPerConvUnit =
         weightsPerConvUnit * target.getTypeSize(params.inputType);
@@ -245,7 +244,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         [&target, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
          outChansPerGroup, partialType, params, transformedDims,
          transformedInputDilation, transformedOutputStride,
-         convUnitWeightHeight, cache, floatActivations, weightBytesPerConvUnit,
+         convUnitWeightHeight, cache, weightBytesPerConvUnit,
          convUnitCoeffLoadBytesPerCycle, numConvUnitsRequired](
             const std::vector<unsigned> &values) -> popsolver::DataType {
           const auto convSize =
@@ -263,7 +262,6 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               ceildiv(convSize.convGroupSize, convGroupsPerGroup);
 
           const auto floatPartials = partialType == poplar::FLOAT;
-
           if (canUseConvPartial1x1Vertex(
                   params, transformedDims, transformedInputDilation,
                   transformedOutputStride, convUnitWeightHeight,
@@ -273,23 +271,25 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                     convSize.batchSize, convSize.fieldSize,
                     target.getNumWorkerContexts(), numConvUnitsRequired,
                     transformedInputDilation, transformedOutputStride,
-                    floatActivations, floatPartials);
+                    params.inputType, floatPartials);
             const auto innerLoopCyclesWithoutZeroing =
                 cache->mGetConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
                     convSize.batchSize, convSize.fieldSize,
                     target.getNumWorkerContexts(), numConvUnitsRequired,
                     transformedInputDilation, transformedOutputStride,
-                    floatActivations, floatPartials);
+                    params.inputType, floatPartials);
 
-            return popsolver::DataType{
+            auto cycles = popsolver::DataType{
                 getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                     innerLoopCyclesWithZeroing, innerLoopCyclesWithoutZeroing,
                     tileNumConvGroups, tileNumInGroups, tileNumOutGroups,
                     outChansPerGroup, weightBytesPerConvUnit,
                     numConvUnitsRequired, convUnitCoeffLoadBytesPerCycle,
-                    floatActivations, floatPartials,
+                    params.inputType, floatPartials,
                     target.getNumWorkerContexts())};
+            return cycles;
           }
+
           const auto zeroCycles = cache->mEstimateZeroSupervisorCycles(
               product(convSize.fieldSize) * convSize.batchSize,
               tileNumOutGroups, tileNumConvGroups, outChansPerGroup,
@@ -301,13 +301,13 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   convUnitWeightHeight, outChansPerGroup,
                   weightBytesPerConvUnit, numConvUnitsRequired,
                   convUnitCoeffLoadBytesPerCycle, target.getNumWorkerContexts(),
-                  floatActivations, floatPartials, transformedInputDilation,
+                  params.inputType, floatPartials, transformedInputDilation,
                   transformedOutputStride);
           return popsolver::DataType{
               getConvPartialnx1SupervisorOuterLoopCycleEstimate(
                   innerLoopCycles, tileNumConvGroups, tileNumOutGroups,
                   tileNumInGroups, outChansPerGroup, numConvUnitsRequired,
-                  target.getNumWorkerContexts(), floatActivations,
+                  target.getNumWorkerContexts(), params.inputType,
                   floatPartials) +
               zeroCycles};
         },
@@ -830,9 +830,7 @@ addTileLevelTransformEstimates(
   case Plan::Method::AMP: {
     // the logic in this case is designed to mirror the implementation found
     // in `Convolution.cpp:createConvPartialAmpVertices`
-    auto weightsPerConvUnit =
-        target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
-
+    auto weightsPerConvUnit = target.getWeightsPerConvUnit(params.inputType);
     if (inChansPerGroup != weightsPerConvUnit) {
       const auto numConvUnitsonIpu =
           getNumConvUnits(params.inputType == poplar::FLOAT,
@@ -1319,7 +1317,7 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
                           swapOperands != isMatmulOrFullyConnectedLayer ||
                           padInChannels || padPartialChannels;
   const auto weightsPerConvUnit =
-      target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
+      target.getWeightsPerConvUnit(params.inputType);
   bool outputShouldBeSwapped =
       isConvWeightUpdate || isMatmulOrFullyConnectedLayer;
   bool rearrangeOutput = swapOperands != outputShouldBeSwapped ||

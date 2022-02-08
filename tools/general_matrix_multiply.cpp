@@ -1,5 +1,6 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poplibs_test/TempDir.hpp"
+#include "popops/Cast.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
@@ -97,6 +98,10 @@ int main(int argc, char **argv) {
   bool remapOutputTensor;
   bool enableFastReduce;
 
+  Fp8Format fp8FormatA = Fp8Format::QUART152;
+  Fp8Format fp8FormatB = Fp8Format::QUART152;
+  int fp8ScaleA = 0, fp8ScaleB = 0;
+
   boost::optional<std::string> profileDir;
 
   po::options_description desc("Options");
@@ -135,6 +140,16 @@ int main(int argc, char **argv) {
     ("partials-type",
      po::value<Type>(&partialsType),
      "Type of the partials")
+    ("fp8-scale-A", po::value<int>(&fp8ScaleA)->default_value(fp8ScaleA),
+     "Scaling to apply to matrix A if its type is quarter")
+    ("fp8-scale-B", po::value<int>(&fp8ScaleB)->default_value(fp8ScaleB),
+     "Scaling to apply to matrix B if its type is quarter")
+    ("fp8-format-A",
+      po::value<Fp8Format>(&fp8FormatA)->default_value(fp8FormatA),
+     "The data format of matrix A if its type is quarter")
+    ("fp8-format-B",
+      po::value<Fp8Format>(&fp8FormatB)->default_value(fp8FormatB),
+     "The data format of matrix B if its type is quarter")
     ("alpha",
       po::value<float>(&alpha)->default_value(1.0),
       "alpha in the operation "
@@ -304,6 +319,17 @@ int main(int argc, char **argv) {
   auto outerProg = Sequence();
   auto prog = Sequence();
 
+  const auto inputTypeHost = inputType == QUARTER ? HALF : inputType;
+  auto matAToCopy = graph.clone(inputTypeHost, matA);
+  auto matBToCopy = graph.clone(inputTypeHost, matB);
+
+  if (inputType == QUARTER) {
+    auto inMetaData = createFp8MetaDataTensor(graph, fp8FormatA, fp8ScaleA);
+    auto weightsMetaData =
+        createFp8MetaDataTensor(graph, fp8FormatB, fp8ScaleB);
+    prog.add(cast(graph, matAToCopy, matA, inMetaData, "CastIn"));
+    prog.add(cast(graph, matBToCopy, matB, weightsMetaData, "CastWeights"));
+  }
   auto matLhs = transposeA ? matA.dimShufflePartial({1, 2}, {2, 1}) : matA;
   auto matRhs = transposeB ? matB.dimShufflePartial({1, 2}, {2, 1}) : matB;
 
@@ -330,10 +356,13 @@ int main(int argc, char **argv) {
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
+
   auto rawHostMatA = allocateHostMemoryForTensor(
-      matA, "matA", graph, uploadProg, downloadProg, tmap);
+      (inputType == QUARTER) ? matAToCopy : matA, "matA", graph, uploadProg,
+      downloadProg, tmap);
   auto rawHostMatB = allocateHostMemoryForTensor(
-      matB, "matB", graph, uploadProg, downloadProg, tmap);
+      (inputType == QUARTER) ? matBToCopy : matB, "matB", graph, uploadProg,
+      downloadProg, tmap);
   auto rawHostMatC = allocateHostMemoryForTensor(
       matC, "matC", graph, uploadProg, downloadProg, tmap);
 
@@ -383,8 +412,8 @@ int main(int argc, char **argv) {
         hostMatA, hostMatB, hostMatC, refMatC, alpha, beta, transposeA,
         transposeB);
 
-    copy(target, hostMatA, inputType, rawHostMatA.get());
-    copy(target, hostMatB, inputType, rawHostMatB.get());
+    copy(target, hostMatA, inputTypeHost, rawHostMatA.get());
+    copy(target, hostMatB, inputTypeHost, rawHostMatB.get());
     copy(target, hostMatC, outputType, rawHostMatC.get());
   }
 

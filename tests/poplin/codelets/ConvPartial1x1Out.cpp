@@ -7,6 +7,9 @@
 #define BOOST_TEST_MODULE ConvPartial1x1Out
 #include "poplibs_test/Util.hpp"
 #include "poplin/codelets.hpp"
+#include "popops/Cast.hpp"
+#include "popops/codelets.hpp"
+#include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/multi_array.hpp>
@@ -27,6 +30,12 @@ using namespace poplibs_support;
 boost::test_tools::assertion_result isIpu2(boost::unit_test::test_unit_id = 0) {
   return TEST_TARGET == DeviceType::Sim2 ||
          TEST_TARGET == DeviceType::IpuModel2;
+}
+
+// Some test cases are to be run only on IPU21
+boost::test_tools::assertion_result
+isIpu21(boost::unit_test::test_unit_id = 0) {
+  return TEST_TARGET == DeviceType::Sim21;
 }
 
 const unsigned LOAD_SIZE = 8; // How many bytes in one 'ld64' IPU instruction
@@ -54,7 +63,9 @@ struct testParams {
       : verificationTolerance(0.00001), numConvUnits(8), inStride(1),
         alignedAllocation(false), inType(FLOAT), accumType(FLOAT),
         fieldWidth(1), numConvGroups(1), numOutGroups(1), numInGroups(1),
-        outChansPerGroup(8), flipOut(false) {}
+        outChansPerGroup(8), flipOut(false), use128BitLoad(false),
+        weightFp8Format(Fp8Format::QUART143), weightFp8Scale(0),
+        inputFp8Format(Fp8Format::QUART143), inputFp8Scale(0) {}
   double verificationTolerance;
   unsigned numConvUnits;
   int inStride;
@@ -69,6 +80,13 @@ struct testParams {
   UnsignedType numInGroups;
   UnsignedType outChansPerGroup;
   bool flipOut;
+  bool use128BitLoad;
+
+  Fp8Format weightFp8Format;
+  int weightFp8Scale;
+  Fp8Format inputFp8Format;
+  int inputFp8Scale;
+
   std::vector<worklistElem> worklists;
 };
 
@@ -150,16 +168,25 @@ void vertexCompute(const unsigned numContexts, const unsigned inTypeSize,
 ///
 void populateData(boost::multi_array<float, 2> &in,
                   boost::multi_array<float, 2> &weights,
-                  boost::multi_array<float, 2> &out) {
+                  boost::multi_array<float, 2> &out, bool limitRangeForFp8) {
   for (unsigned i = 0; i < in.shape()[0]; i++) {
     for (unsigned j = 0; j < in.shape()[1]; j++) {
-      in[i][j] = i * 0.27182818 - j * 0.31415926;
+      if (limitRangeForFp8) {
+        in[i][j] = ((i + j) % 5);
+      } else {
+        in[i][j] = i * 0.27182818 - j * 0.31415926;
+      }
     }
   }
-
+  float weightVal = 1.0f;
   for (unsigned i = 0; i < weights.shape()[0]; i++) {
     for (unsigned j = 0; j < weights.shape()[1]; j++) {
-      weights[i][j] = i * 0.142857 - j * 0.0618034;
+      if (limitRangeForFp8) {
+        weights[i][j] = weightVal;
+        weightVal = unsigned((weightVal + 1)) % 6;
+      } else {
+        weights[i][j] = i * 0.142857 - j * 0.0618034;
+      }
     }
   }
 
@@ -228,9 +255,10 @@ void runTest(const struct testParams &t) {
 
   // Check correctness of test parameters
   std::string err;
-  if ((t.numConvUnits != 8) && (t.numConvUnits != 16)) {
-    err = "'numConvUnits' must be 8 or 16 (16 only on IPU2)";
-  } else if ((t.numConvUnits == 16) && !isIpu2()) {
+  if ((t.numConvUnits != 4) && (t.numConvUnits != 8) &&
+      (t.numConvUnits != 16)) {
+    err = "'numConvUnits' must be 4, 8 or 16 (16 only on IPU2 / IPU21)";
+  } else if ((t.numConvUnits == 16) && !isIpu2() && !isIpu21()) {
     err = "'numConvUnits' can be 16 only on IPU2";
   } else if ((t.outChansPerGroup % t.numConvUnits) != 0) {
     err = "'outChansPerGroup' must be a multiple of 'numConvUnits'";
@@ -240,6 +268,7 @@ void runTest(const struct testParams &t) {
   if (!err.empty()) {
     throw poputil::poplibs_error(err);
   }
+  const bool isFp8 = t.inType == QUARTER;
 
   // This value is hard coded in the vertex assembly because of the AMP
   // hardware structure
@@ -247,7 +276,7 @@ void runTest(const struct testParams &t) {
   if (t.numConvUnits == 8) {
     inChansPerGroup = (t.inType == HALF) ? 16 : 8;
   } else {
-    inChansPerGroup = 16;
+    inChansPerGroup = isFp8 ? 32 : 16;
   }
 
   // "Host side" buffers
@@ -262,12 +291,13 @@ void runTest(const struct testParams &t) {
                     [t.fieldWidth * t.outChansPerGroup]};
 
   poplin::addCodelets(graph);
+  popops::addCodelets(graph);
 
   Sequence prog;
 
   auto cs = graph.addComputeSet("cs");
 
-  populateData(inBuf, weightsBuf, outBuf);
+  populateData(inBuf, weightsBuf, outBuf, isFp8);
 
   // The vertex wants the worklist as a flat vector of 6x3 UnsignedType.
   // Also, the 'numFieldElems' needs to be adjusted by subtracting 3 to its
@@ -292,37 +322,60 @@ void runTest(const struct testParams &t) {
   boost::multi_array<float, 2> outHost{outShape};
   outHost = outBuf;
 
-  const unsigned inTypeSize = target.getTypeSize(t.inType);
-  Tensor in = graph.addVariable(t.inType, inShape, "in");
+  const auto hostInType = isFp8 ? HALF : t.inType;
+  const unsigned inTypeSize = target.getTypeSize(hostInType);
+  Tensor in = graph.addVariable(hostInType, inShape, "in");
   Tensor out = graph.addVariable(t.accumType, outShape, "out");
+  Tensor weights = graph.addVariable(hostInType, wShape, "weights");
 
-  Tensor weights = graph.addVariable(t.inType, wShape, "weights");
   graph.setTileMapping(in, 0);
   graph.setTileMapping(weights, 0);
   graph.setTileMapping(out, 0);
 
-  prog.add(Execute(cs));
-
   const std::string vertexName =
       templateVertex("poplin::ConvPartial1x1Out", t.inType, t.accumType, true,
-                     true, t.numConvUnits);
+                     t.use128BitLoad, t.numConvUnits);
   std::cout << "========= " << vertexName << "\n";
 
   auto v = graph.addVertex(cs, vertexName);
   graph.setTileMapping(v, 0);
 
-  graph.connect(v["in"], in);
-  graph.connect(v["weights"], weights);
   graph.connect(v["out"], out);
   auto worklists = graph.addConstant(worklistEntryType, {worklistsBuf.size()},
                                      worklistsBuf.data(), "worklists");
   graph.setTileMapping(worklists, 0);
   graph.connect(v["worklists"], worklists);
 
+  if (isFp8) {
+    // Applying a scale in metadata should result in casting half->fp8 and
+    // applying 2^(-scale) for both weights and in, so the values stored as fp8
+    // are smaller.
+    // But then when doing the convolution 2^(scaleWeights + scaleIn) should be
+    // applied so we get the same result.  (Subject to values being
+    // representable in each number format)
+    auto weightsMetaData =
+        createFp8MetaDataTensor(graph, t.weightFp8Format, t.weightFp8Scale);
+    auto inMetaData =
+        createFp8MetaDataTensor(graph, t.inputFp8Format, t.inputFp8Scale);
+    graph.connect(v["weightsMetaData"], weightsMetaData.reshape({}));
+    graph.connect(v["inMetaData"], inMetaData.reshape({}));
+
+    auto inFp8 = popops::cast(graph, in, QUARTER, inMetaData, prog, "CastIn");
+    auto weightsFp8 = popops::cast(graph, weights, QUARTER, weightsMetaData,
+                                   prog, "CastWeights");
+    graph.connect(v["in"], inFp8);
+    graph.connect(v["weights"], weightsFp8);
+  } else {
+    graph.connect(v["in"], in);
+    graph.connect(v["weights"], weights);
+  }
+
   graph.createHostWrite("in", in);
   graph.createHostWrite("out", out);
   graph.createHostRead("out", out);
   graph.createHostWrite("weights", weights);
+
+  prog.add(Execute(cs));
 
   // Populate the 'composite' vertex fields
   auto loadElems = LOAD_SIZE / inTypeSize;
@@ -370,8 +423,8 @@ void runTest(const struct testParams &t) {
       }
     };
     e.load(d);
-    writeTensorData(t.inType, "in", inBuf);
-    writeTensorData(t.inType, "weights", weightsBuf);
+    writeTensorData(hostInType, "in", inBuf);
+    writeTensorData(hostInType, "weights", weightsBuf);
     writeTensorData(t.accumType, "out", outBuf);
     e.run();
     readTensorData(t.accumType, "out", outBuf);
@@ -513,4 +566,98 @@ BOOST_AUTO_TEST_CASE(t1) {
                  {12, 1, 12}, {16, 1, 8}, {24, 2, 0}};
   runTest(t);
 }
+BOOST_AUTO_TEST_SUITE_END()
+
+// ====================== QUARTER HALF ======================
+BOOST_AUTO_TEST_SUITE(quarter_half, *boost::unit_test::precondition(isIpu21))
+BOOST_AUTO_TEST_CASE(t1) {
+  testParams t;
+  t.inType = QUARTER;
+  t.accumType = HALF;
+  t.verificationTolerance = 0.005;
+  t.fieldWidth = 256;
+  t.numConvGroups = 1;
+  t.numOutGroups = 2;
+  t.numInGroups = 2;
+  t.outChansPerGroup = 16;
+  t.flipOut = false;
+  t.numConvUnits = 16;
+
+  // Worklist 'outOffs' are in units of 4 half values,
+  // 'inOffs' are in units of 8 quarter values,
+  // 'numFieldElems' is in units of outChansPerGroup (16 half values)
+  t.worklists = {{0, 1, 0}, {4, 1, 16}, {8, 2, 32},
+                 {0, 0, 0}, {0, 0, 0},  {0, 0, 0}};
+  runTest(t);
+}
+BOOST_AUTO_TEST_CASE(t2) {
+  testParams t;
+  t.inType = QUARTER;
+  t.accumType = HALF;
+  t.verificationTolerance = 0.005;
+  t.fieldWidth = 256;
+  t.numConvGroups = 1;
+  t.numOutGroups = 2;
+  t.numInGroups = 2;
+  t.outChansPerGroup = 16;
+  t.flipOut = false;
+  t.numConvUnits = 16;
+  t.use128BitLoad = false;
+
+  // Worklist 'outOffs' are in units of 4 half values,
+  // 'inOffs' are in units of 8 quarter values,
+  // 'numFieldElems' is in units of outChansPerGroup (16 half values)
+  t.worklists = {{0, 1, 0}, {4, 1, 16}, {8, 2, 32},
+                 {0, 0, 0}, {0, 0, 0},  {0, 0, 0}};
+  runTest(t);
+}
+
+BOOST_AUTO_TEST_CASE(t3) {
+  testParams t;
+  t.inType = QUARTER;
+  t.accumType = HALF;
+  t.verificationTolerance = 0.005;
+  t.fieldWidth = 32;
+  t.numConvGroups = 1;
+  t.numOutGroups = 1;
+  t.numInGroups = 1;
+  t.outChansPerGroup = 16;
+  t.flipOut = true;
+  t.numConvUnits = 16;
+  t.use128BitLoad = true;
+  t.inStride = 2;
+
+  // Worklist 'outOffs' are in units of 4 half values,
+  // 'inOffs' are in units of 8 quarter values,
+  // 'numFieldElems' is in units of outChansPerGroup (16 half values)
+  t.worklists = {{4, 2, 16}, {0, 0, 0}, {0, 0, 0},
+                 {0, 0, 0},  {0, 0, 0}, {0, 0, 0}};
+  runTest(t);
+}
+
+BOOST_AUTO_TEST_CASE(t4) {
+  testParams t;
+  t.inType = QUARTER;
+  t.accumType = HALF;
+  t.verificationTolerance = 0.005;
+  t.fieldWidth = 64;
+  t.numConvGroups = 1;
+  t.numOutGroups = 1;
+  t.numInGroups = 1;
+  t.outChansPerGroup = 16;
+  t.numConvUnits = 16;
+  t.use128BitLoad = true;
+  t.inStride = 1;
+  t.weightFp8Scale = -1;
+  t.inputFp8Scale = 2;
+  t.weightFp8Format = Fp8Format::QUART152;
+
+  // Worklist 'outOffs' are in units of 4 half values,
+  // 'inOffs' are in units of 8 quarter values,
+  // 'numFieldElems' is in units of outChansPerGroup (16 half values)
+  t.worklists = {{0, 2, 0}, {8, 2, 16}, {0, 0, 0},
+                 {0, 0, 0}, {0, 0, 0},  {0, 0, 0}};
+  runTest(t);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -22,7 +22,8 @@ void poplin::validateLayerParams(const ConvParams &params,
       {options.interIpuPartialsType, "inter-ipu partial type"},
   };
   for (const auto &entry : typesToCheck) {
-    if (entry.type != poplar::HALF && entry.type != poplar::FLOAT) {
+    if (entry.type != poplar::HALF && entry.type != poplar::FLOAT &&
+        entry.type != poplar::QUARTER) {
       throw poputil::poplibs_error(std::string("Unsupported ") + entry.name +
                                    " (must be float or half)");
     }
@@ -39,11 +40,19 @@ void poplin::validateLayerParams(const ConvParams &params,
   for (const auto &partialType : partialTypes) {
     if (target.getTypeSize(partialType.type) <
         target.getTypeSize(params.outputType)) {
-      logging::popnn::warn(
+      logging::poplin::warn(
           "Ignoring {} ({}) which is smaller than the output type ({})",
           partialType.name, partialType.type.toString(),
           params.outputType.toString());
       partialType.type = params.outputType;
+    }
+  }
+  if (params.inputType == poplar::QUARTER) {
+    for (const auto &partialType : partialTypes) {
+      logging::poplin::warn(
+          "Selecting partial type HALF which is the only valid option where"
+          " the input is of type QUARTER");
+      partialType.type = poplar::HALF;
     }
   }
 }

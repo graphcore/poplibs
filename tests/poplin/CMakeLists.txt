@@ -851,6 +851,18 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           ALLOW_SKIP)
   endforeach()
 
+  foreach(n RANGE 1 500)
+    add_multitarget_test(
+            NAME conv_random_quarter${n}
+            COMMAND ${PYTHON_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
+                    --seed ${n}
+                    --binary $<TARGET_FILE:single_conv_layer>
+                    --input-type=quarter
+            VARIANTS "Sim21"
+            ALLOW_SKIP)
+  endforeach()
+
   # Random single_conv_layer tests with fixed seed on multi ipus
   set(NUM_CONV_RANDOM_TESTS 25)
   foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
@@ -869,7 +881,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
   # Random multi_conv_layer tests with fixed seed.
   set(NUM_CONV_RANDOM_TESTS 25)
   foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
-  add_multitarget_test(
+    add_multitarget_test(
           NAME multi_conv_random_${n}
           COMMAND ${PYTHON_EXECUTABLE}
                   ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py

@@ -41,15 +41,24 @@ conv1x1WorkerRetentionSavings(bool floatActivations, bool floatPartials,
   }
 }
 
+inline static std::pair<std::uint64_t, std::uint64_t>
+conv1x1WorkerRetentionSavings(unsigned numConvUnits) {
+  return std::make_pair(0, 0);
+}
+
 inline static std::uint64_t
 convnx1WorkerRetentionSavings(bool /*floatActivations */,
                               bool /*floatPartials */) {
   return 4;
 }
 
+inline static std::uint64_t convnx1WorkerRetentionSavings() { return 0; }
+
 inline static std::uint64_t zeroPartialsRetentionSavings(bool floatPartials) {
   return floatPartials ? 9 : 10;
 }
+
+inline static std::uint64_t zeroPartialsRetentionSavings() { return 0; }
 
 inline std::uint64_t getDenseDotProductCycles(unsigned activationsVectorWidth,
                                               bool floatActivations,
@@ -452,10 +461,80 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
   return maxWorkerCycles;
 }
 
+inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+    const std::vector<std::vector<unsigned>> &workerPartitions,
+    unsigned numWorkerContexts, unsigned numConvUnits, bool outputZeroing) {
+
+  assert(numConvUnits == 16);
+  // Core loop cycles for AMP vertex - 32 QUARTER inputs
+  auto coreCycles = 4;
+
+  auto retentionSavings = conv1x1WorkerRetentionSavings(numConvUnits);
+  unsigned usedContexts = workerPartitions.size();
+  uint64_t maxWorkerCycles = 0;
+  uint64_t minWorkerCycles = usedContexts < numWorkerContexts
+                                 ? 0
+                                 : std::numeric_limits<uint64_t>::max();
+
+  const auto zeroCyclesPerLoop = 4u;
+  const auto elemsPerLoop = 32u;
+  const auto overhead = 30;
+  for (const auto &worker : workerPartitions) {
+    // 1x1 vertex doesn't support more than one worklist item per worker.
+    assert(worker.size() <= 1);
+
+    uint64_t thisWorkerCycles = overhead;
+    if (!worker.empty()) {
+      const auto numElems = worker.front();
+      if (outputZeroing) {
+        thisWorkerCycles += zeroCyclesPerLoop * numElems / elemsPerLoop;
+      }
+      switch (numElems) {
+      case 0:
+        thisWorkerCycles += 0;
+        break;
+      case 1:
+        thisWorkerCycles += 2 + 14;
+        break;
+      case 2:
+        thisWorkerCycles += 14;
+        break;
+      default:
+        thisWorkerCycles += 14 + (numElems - 2) * coreCycles;
+      }
+      thisWorkerCycles -= retentionSavings.first;
+    }
+
+    maxWorkerCycles =
+        std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+    minWorkerCycles =
+        std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+  }
+
+  // tag cost to worker with min cycles
+  maxWorkerCycles = std::max(maxWorkerCycles, minWorkerCycles + 14);
+
+  return maxWorkerCycles;
+}
+
+inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+    const std::vector<std::vector<unsigned>> &workerPartitions,
+    unsigned numWorkerContexts, unsigned numConvUnits, bool outputZeroing,
+    const poplar::Type &actsType, bool floatPartials) {
+  if (actsType == poplar::QUARTER) {
+    return getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+        workerPartitions, numWorkerContexts, numConvUnits, outputZeroing);
+  } else {
+    auto floatActivations = actsType == poplar::FLOAT;
+    return getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+        workerPartitions, numWorkerContexts, numConvUnits, outputZeroing,
+        floatActivations, floatPartials);
+  }
+}
+
 inline unsigned getConvPartialAmpSupervisorWeightLoadCycleEstimate(
     unsigned weightBytesPerConvUnit, unsigned numConvUnits,
-    unsigned convUnitCoeffLoadBytesPerCycle, bool floatActivations,
-    unsigned filterHeight) {
+    unsigned convUnitCoeffLoadBytesPerCycle, unsigned filterHeight) {
 
   // Nx1 specific - due to data shuffling can't use ld128 for filter height
   // equal to 4 so it's always uses ld64. ld128 allows to us to
@@ -469,7 +548,7 @@ inline unsigned getConvPartialAmpSupervisorWeightLoadCycleEstimate(
   return weightsLoadCycles;
 }
 
-inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
+inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimateHalfFloat(
     std::uint64_t innerLoopCyclesWithZeroing,
     std::uint64_t innerLoopCyclesWithoutZeroing, unsigned numConvGroups,
     unsigned numInGroups, unsigned numOutGroups, unsigned outChansPerGroup,
@@ -484,8 +563,7 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
 
   // Filter height is not applicable to 1x1 vertex so set it to 1
   const auto numLoads = getConvPartialAmpSupervisorWeightLoadCycleEstimate(
-      weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle,
-      floatActivations, 1);
+      weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle, 1);
   // The code paths for half activations, half partials and 16 conv units is
   // = half activations, float partials and 8 conv units.
   bool commonHalfAndFloatPartialsCodePath =
@@ -513,29 +591,93 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                                             innerLoopCyclesWithZeroing))));
 }
 
+inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimateQuarter(
+    std::uint64_t innerLoopCyclesWithZeroing,
+    std::uint64_t innerLoopCyclesWithoutZeroing, unsigned numConvGroups,
+    unsigned numInGroups, unsigned numOutGroups, unsigned outChansPerGroup,
+    unsigned weightBytesPerConvUnit, unsigned numConvUnits,
+    unsigned convUnitCoeffLoadBytesPerCycle, unsigned numWorkerContexts) {
+
+  const auto outputPassesPerGroup =
+      (outChansPerGroup + numConvUnits - 1) / numConvUnits;
+
+  const auto retentionSavings = conv1x1WorkerRetentionSavings(numConvUnits);
+
+  // Filter height is not applicable to 1x1 vertex so set it to 1
+  const auto numLoads = getConvPartialAmpSupervisorWeightLoadCycleEstimate(
+      weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle, 1);
+  // The code paths for half activations, half partials and 16 conv units is
+  // = half activations, float partials and 8 conv units.
+  bool commonHalfAndFloatPartialsCodePath = numConvUnits == 16;
+
+  const uint64_t supervisorNonloopOverhead = 50;
+  const unsigned outPassesOverhead = 7;
+  const unsigned excessInChanOverhead = 1;
+  return supervisorNonloopOverhead +
+         numWorkerContexts *
+             (retentionSavings.first +
+              retentionSavings.second * (numInGroups * numConvGroups - 1)) +
+         numConvGroups *
+             (12 + commonHalfAndFloatPartialsCodePath +
+              (numInGroups - 1) *
+                  (15 - commonHalfAndFloatPartialsCodePath +
+                   excessInChanOverhead +
+                   numOutGroups * (19 + outputPassesPerGroup *
+                                            (6 + numLoads +
+                                             innerLoopCyclesWithoutZeroing))) +
+              (10 + excessInChanOverhead +
+               numOutGroups *
+                   (19 - commonHalfAndFloatPartialsCodePath +
+                    outputPassesPerGroup * (outPassesOverhead + numLoads +
+                                            innerLoopCyclesWithZeroing))));
+}
+
+inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
+    std::uint64_t innerLoopCyclesWithZeroing,
+    std::uint64_t innerLoopCyclesWithoutZeroing, unsigned numConvGroups,
+    unsigned numInGroups, unsigned numOutGroups, unsigned outChansPerGroup,
+    unsigned weightBytesPerConvUnit, unsigned numConvUnits,
+    unsigned convUnitCoeffLoadBytesPerCycle, const poplar::Type &actsType,
+    bool floatPartials, unsigned numWorkerContexts) {
+  if (actsType == poplar::QUARTER) {
+    return getConvPartial1x1SupervisorOuterLoopCycleEstimateQuarter(
+        innerLoopCyclesWithZeroing, innerLoopCyclesWithoutZeroing,
+        numConvGroups, numInGroups, numOutGroups, outChansPerGroup,
+        weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle,
+        numWorkerContexts);
+  } else {
+    auto floatActivations = actsType == poplar::FLOAT;
+    return getConvPartial1x1SupervisorOuterLoopCycleEstimateHalfFloat(
+        innerLoopCyclesWithZeroing, innerLoopCyclesWithoutZeroing,
+        numConvGroups, numInGroups, numOutGroups, outChansPerGroup,
+        weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle,
+        floatActivations, floatPartials, numWorkerContexts);
+  }
+}
+
 inline std::uint64_t getConvPartial1x1SupervisorCycleEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numConvGroups, unsigned numInGroups, unsigned numOutGroups,
     unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
     unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
-    unsigned numWorkerContexts, bool floatActivations, bool floatPartials) {
+    unsigned numWorkerContexts, poplar::Type actsType, bool floatPartials) {
   auto innerLoopCyclesWithZeroing =
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(
-          workerPartitions, numWorkerContexts, numConvUnits, true,
-          floatActivations, floatPartials);
+          workerPartitions, numWorkerContexts, numConvUnits, true, actsType,
+          floatPartials);
   auto innerLoopCyclesWithoutZeroing =
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(
-          workerPartitions, numWorkerContexts, numConvUnits, false,
-          floatActivations, floatPartials);
+          workerPartitions, numWorkerContexts, numConvUnits, false, actsType,
+          floatPartials);
 
   return getConvPartial1x1SupervisorOuterLoopCycleEstimate(
       innerLoopCyclesWithZeroing, innerLoopCyclesWithoutZeroing, numConvGroups,
       numInGroups, numOutGroups, outChansPerGroup, weightBytesPerConvUnit,
-      numConvUnits, convUnitCoeffLoadBytesPerCycle, floatActivations,
-      floatPartials, numWorkerContexts);
+      numConvUnits, convUnitCoeffLoadBytesPerCycle, actsType, floatPartials,
+      numWorkerContexts);
 }
 
-inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimate(
+inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimateHalfFloat(
     std::uint64_t innerLoopCycles, unsigned numConvGroups,
     unsigned numOutGroups, unsigned numInGroups, unsigned outChansPerGroup,
     unsigned numConvUnits, unsigned numWorkerContexts, bool floatActivations,
@@ -554,6 +696,44 @@ inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimate(
       (numConvGroups - 1) * 6 + 1 +
       // Supervisor code loop over conv/in/out groups
       numConvGroups * (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
+}
+
+inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimateQuarter(
+    std::uint64_t innerLoopCycles, unsigned numConvGroups,
+    unsigned numOutGroups, unsigned numInGroups, unsigned outChansPerGroup,
+    unsigned numConvUnits, unsigned numWorkerContexts) {
+  uint64_t cycles = innerLoopCycles;
+  return // Other constant supervisor code cycles
+      convNx1Overhead() +
+      // First iteration does not save cycles to calculate state which
+      // will then be retained
+      numWorkerContexts * convnx1WorkerRetentionSavings() +
+      numWorkerContexts * zeroPartialsRetentionSavings() +
+      // Supervisor code loop to zero partials. brnzdec loops mean
+      // 6-cycle stall for all but last iteration.
+      numConvGroups * (numOutGroups * 17 + (numOutGroups - 1) * 6 + 1) +
+      (numConvGroups - 1) * 6 + 1 +
+      // Supervisor code loop over conv/in/out groups
+      numConvGroups * (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
+}
+
+inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimate(
+    std::uint64_t innerLoopCycles, unsigned numConvGroups,
+    unsigned numOutGroups, unsigned numInGroups, unsigned outChansPerGroup,
+    unsigned numConvUnits, unsigned numWorkerContexts,
+    const poplar::Type &actsType, bool floatPartials) {
+
+  if (actsType == poplar::QUARTER) {
+    return getConvPartialnx1SupervisorOuterLoopCycleEstimateQuarter(
+        innerLoopCycles, numConvGroups, numOutGroups, numInGroups,
+        outChansPerGroup, numConvUnits, numWorkerContexts);
+  } else {
+    auto floatActivations = actsType == poplar::FLOAT;
+    return getConvPartialnx1SupervisorOuterLoopCycleEstimateHalfFloat(
+        innerLoopCycles, numConvGroups, numOutGroups, numInGroups,
+        outChansPerGroup, numConvUnits, numWorkerContexts, floatActivations,
+        floatPartials);
+  }
 }
 
 // Cycles for a single run of the ConvPartialnx1 vertex worker code
@@ -599,8 +779,42 @@ static std::uint64_t inline getConvPartialnx1WorkerCycles(
   return cycles;
 }
 
+// Cycles for a single run of the ConvPartialnx1 vertex worker code
+// with the given worklist and parameters
+static std::uint64_t inline getConvPartialnx1WorkerCycles(
+    const std::vector<unsigned> &worklist, unsigned numConvUnits,
+    unsigned retentionSavings) {
+
+  // Core loop cycles for vertex will all engines in use
+  auto coreCycles = 4;
+
+  const auto overhead = 30;
+  const auto worklistLoopOverhead = 8;
+  std::uint64_t cycles = overhead;
+  for (auto &numElems : worklist) {
+    cycles += worklistLoopOverhead;
+    switch (numElems) {
+    case 0:
+      cycles += 0;
+      break;
+    case 1:
+      cycles += 2 + 14;
+      break;
+    case 2:
+      cycles += 14;
+      break;
+    default:
+      cycles += 14 + (numElems - 2) * coreCycles;
+    }
+    cycles -= retentionSavings;
+  }
+
+  return cycles;
+}
+
 // Overload with per kernel position worklists
-static inline std::uint64_t getConvPartialnx1SupervisorKernelLoopCycleEstimate(
+static inline std::uint64_t
+getConvPartialnx1SupervisorKernelLoopCycleEstimateHalfFloat(
     const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
     unsigned kernelInnerElems, unsigned kernelOuterElems,
     unsigned numOutChanPasses, unsigned numWorkerContexts,
@@ -633,7 +847,8 @@ static inline std::uint64_t getConvPartialnx1SupervisorKernelLoopCycleEstimate(
 }
 
 // Overload with assumed same worklist for every kernel position.
-static inline std::uint64_t getConvPartialnx1SupervisorKernelLoopCycleEstimate(
+static inline std::uint64_t
+getConvPartialnx1SupervisorKernelLoopCycleEstimateHalfFloat(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned kernelInnerElems, unsigned kernelOuterElems,
     unsigned numOutChanPasses, unsigned numWorkerContexts,
@@ -659,8 +874,66 @@ static inline std::uint64_t getConvPartialnx1SupervisorKernelLoopCycleEstimate(
   return cycles * kernelOuterElems * kernelInnerElems;
 }
 
+// Overload with per kernel position worklists
+static inline std::uint64_t
+getConvPartialnx1SupervisorKernelLoopCycleEstimateQuarter(
+    const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
+    unsigned kernelInnerElems, unsigned kernelOuterElems,
+    unsigned numOutChanPasses, unsigned numWorkerContexts,
+    unsigned numConvUnits) {
+  unsigned usedContexts = workerPartitions.size();
+  const auto retentionSavings = convnx1WorkerRetentionSavings();
+  std::uint64_t cycles = 0;
+  for (auto ky = 0U; ky != kernelOuterElems; ++ky) {
+    for (auto kx = 0U; kx != kernelInnerElems; ++kx) {
+      uint64_t maxWorkerCycles = 0;
+      uint64_t minWorkerCycles = usedContexts < numWorkerContexts
+                                     ? 0
+                                     : std::numeric_limits<uint64_t>::max();
+      for (auto context = 0U; context != usedContexts; ++context) {
+        const auto k = ky * kernelInnerElems + kx;
+        const auto thisWorkerCycles = getConvPartialnx1WorkerCycles(
+            workerPartitions[context][k], numConvUnits, retentionSavings);
+        maxWorkerCycles =
+            std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+        minWorkerCycles =
+            std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+      }
+      cycles +=
+          std::max(maxWorkerCycles, minWorkerCycles + 9) * numOutChanPasses;
+    }
+  }
+  return cycles;
+}
+
+// Overload with assumed same worklist for every kernel position.
+static inline std::uint64_t
+getConvPartialnx1SupervisorKernelLoopCycleEstimateQuarter(
+    const std::vector<std::vector<unsigned>> &workerPartitions,
+    unsigned kernelInnerElems, unsigned kernelOuterElems,
+    unsigned numOutChanPasses, unsigned numWorkerContexts,
+    unsigned numConvUnits) {
+  unsigned usedContexts = workerPartitions.size();
+  const auto retentionSavings = convnx1WorkerRetentionSavings();
+  uint64_t maxWorkerCycles = 0;
+  uint64_t minWorkerCycles = usedContexts < numWorkerContexts
+                                 ? 0
+                                 : std::numeric_limits<uint64_t>::max();
+  for (auto context = 0U; context != usedContexts; ++context) {
+    const auto thisWorkerCycles = getConvPartialnx1WorkerCycles(
+        workerPartitions[context], numConvUnits, retentionSavings);
+    maxWorkerCycles =
+        std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+    minWorkerCycles =
+        std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+  }
+  const auto cycles =
+      std::max(maxWorkerCycles, minWorkerCycles + 9) * numOutChanPasses;
+  return cycles * kernelOuterElems * kernelInnerElems;
+}
+
 template <typename WorkerWorklist>
-inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
+inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimateHalfFloat(
     const std::vector<WorkerWorklist> &workerPartitions,
     unsigned kernelInnerElems, unsigned kernelOuterElems, unsigned filterHeight,
     unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
@@ -673,7 +946,7 @@ inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
   uint64_t innermostLoopCycles =
       getConvPartialAmpSupervisorWeightLoadCycleEstimate(
           weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle,
-          floatActivations, filterHeight);
+          filterHeight);
 
   // additional load cycles dependent on filterHeight
   switch (filterHeight) {
@@ -701,11 +974,71 @@ inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
       (14 +
        kernelInnerElems * (17 - 5 + numOutChanPasses * innermostLoopCycles));
 
-  innerLoopCycles += getConvPartialnx1SupervisorKernelLoopCycleEstimate(
-      workerPartitions, kernelInnerElems, kernelOuterElems, numOutChanPasses,
-      numWorkerContexts, floatActivations, floatPartials, numConvUnits);
+  innerLoopCycles +=
+      getConvPartialnx1SupervisorKernelLoopCycleEstimateHalfFloat(
+          workerPartitions, kernelInnerElems, kernelOuterElems,
+          numOutChanPasses, numWorkerContexts, floatActivations, floatPartials,
+          numConvUnits);
 
   return innerLoopCycles;
+}
+
+template <typename WorkerWorklist>
+inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimateQuarter(
+    const std::vector<WorkerWorklist> &workerPartitions,
+    unsigned kernelInnerElems, unsigned kernelOuterElems, unsigned filterHeight,
+    unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
+    unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned numWorkerContexts) {
+
+  unsigned numOutChanPasses = outChansPerGroup / numConvUnits;
+
+  // innermostLoopCycles is the cycles in the innermost supervisor loop
+  uint64_t innermostLoopCycles =
+      getConvPartialAmpSupervisorWeightLoadCycleEstimate(
+          weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle,
+          filterHeight);
+
+  // Load cycles dependent on filterHeight
+  innermostLoopCycles += 20 * filterHeight;
+
+  innermostLoopCycles += 3;
+
+  // Supervisor cycles for supervisor overhead on each outer loop as
+  // well as loading of weights etc. in the innermost loop.
+  uint64_t innerLoopCycles =
+      kernelOuterElems *
+      (14 +
+       kernelInnerElems * (17 - 5 + numOutChanPasses * innermostLoopCycles));
+
+  innerLoopCycles += getConvPartialnx1SupervisorKernelLoopCycleEstimateQuarter(
+      workerPartitions, kernelInnerElems, kernelOuterElems, numOutChanPasses,
+      numWorkerContexts, numConvUnits);
+
+  return innerLoopCycles;
+}
+
+template <typename WorkerWorklist>
+inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
+    const std::vector<WorkerWorklist> &workerPartitions,
+    unsigned kernelInnerElems, unsigned kernelOuterElems, unsigned filterHeight,
+    unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
+    unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned numWorkerContexts, const poplar::Type &actsType,
+    bool floatPartials) {
+  if (actsType == poplar::QUARTER) {
+    return getConvPartialnx1SupervisorInnerLoopCycleEstimateQuarter(
+        workerPartitions, kernelInnerElems, kernelOuterElems, filterHeight,
+        outChansPerGroup, weightBytesPerConvUnit, numConvUnits,
+        convUnitCoeffLoadBytesPerCycle, numWorkerContexts);
+  } else {
+    auto floatActivations = actsType == poplar::FLOAT;
+    return getConvPartialnx1SupervisorInnerLoopCycleEstimateHalfFloat(
+        workerPartitions, kernelInnerElems, kernelOuterElems, filterHeight,
+        outChansPerGroup, weightBytesPerConvUnit, numConvUnits,
+        convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatActivations,
+        floatPartials);
+  }
 }
 
 inline std::uint64_t getConvPartialnx1SupervisorCycleEstimate(
@@ -715,15 +1048,15 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleEstimate(
     unsigned inChansPerGroup, unsigned outChansPerGroup,
     unsigned weightBytesPerConvUnit, unsigned numConvUnits,
     unsigned convUnitCoeffLoadBytesPerCycle, unsigned numWorkerContexts,
-    bool floatActivations, bool floatPartials) {
+    const poplar::Type &actsType, bool floatPartials) {
   auto innerLoopCycles = getConvPartialnx1SupervisorInnerLoopCycleEstimate(
       workerPartitions, kernelInnerElems, kernelOuterElems, filterHeight,
       outChansPerGroup, weightBytesPerConvUnit, numConvUnits,
-      convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatActivations,
+      convUnitCoeffLoadBytesPerCycle, numWorkerContexts, actsType,
       floatPartials);
   return getConvPartialnx1SupervisorOuterLoopCycleEstimate(
       innerLoopCycles, numConvGroups, numOutGroups, numInGroups,
-      outChansPerGroup, numConvUnits, numWorkerContexts, floatActivations,
+      outChansPerGroup, numConvUnits, numWorkerContexts, actsType,
       floatPartials);
 }
 
@@ -1191,8 +1524,8 @@ inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
     const std::vector<unsigned> &kernelShape, unsigned filterHeight,
     unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
     unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
-    unsigned numWorkerContexts, bool floatWeights, bool floatPartials,
-    const std::vector<unsigned> &inputDilation,
+    unsigned numWorkerContexts, const poplar::Type &actsType,
+    bool floatPartials, const std::vector<unsigned> &inputDilation,
     const std::vector<unsigned> &stride) {
   const auto kernelElements = product(kernelShape);
   const auto partition = partitionConvPartialByWorker(
@@ -1227,7 +1560,7 @@ inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
   return getConvPartialnx1SupervisorInnerLoopCycleEstimate(
       workList, kernelInnerElems, kernelOuterElems, filterHeight,
       outChansPerGroup, weightBytesPerConvUnit, numConvUnits,
-      convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights,
+      convUnitCoeffLoadBytesPerCycle, numWorkerContexts, actsType,
       floatPartials);
 }
 
@@ -1235,7 +1568,7 @@ inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimate(
     unsigned batchElements, const std::vector<unsigned> &outShape,
     unsigned numWorkerContexts, unsigned numConvUnits,
     const std::vector<unsigned> &inputDilation,
-    const std::vector<unsigned> &stride, bool floatActivations,
+    const std::vector<unsigned> &stride, const poplar::Type &actsType,
     bool floatPartials, bool zeroPartials) {
   assert(inputDilation == stride);
   std::vector<std::vector<PartialRow>> partition = partitionConvPartialByWorker(
@@ -1252,30 +1585,30 @@ inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimate(
     }
   }
   return getConvPartial1x1SupervisorInnerLoopCycleEstimate(
-      worklist, numWorkerContexts, numConvUnits, zeroPartials, floatActivations,
-      floatPartials);
+      worklist, numWorkerContexts, numConvUnits, zeroPartials,
+      actsType == poplar::FLOAT, floatPartials);
 }
 
 inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithZeroing(
     unsigned batchElements, const std::vector<unsigned> &outShape,
     unsigned numWorkerContexts, unsigned numConvUnits,
     const std::vector<unsigned> &inputDilation,
-    const std::vector<unsigned> &stride, bool floatActivations,
+    const std::vector<unsigned> &stride, const poplar::Type &actsType,
     bool floatPartials) {
   return getConvPartial1x1InnerLoopCycleEstimate(
       batchElements, outShape, numWorkerContexts, numConvUnits, inputDilation,
-      stride, floatActivations, floatPartials, true);
+      stride, actsType, floatPartials, true);
 }
 
 inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
     unsigned batchElements, const std::vector<unsigned> &outShape,
     unsigned numWorkerContexts, unsigned numConvUnits,
     const std::vector<unsigned> &inputDilation,
-    const std::vector<unsigned> &stride, bool floatActivations,
+    const std::vector<unsigned> &stride, const poplar::Type &actsType,
     bool floatPartials) {
   return getConvPartial1x1InnerLoopCycleEstimate(
       batchElements, outShape, numWorkerContexts, numConvUnits, inputDilation,
-      stride, floatActivations, floatPartials, false);
+      stride, actsType, floatPartials, false);
 }
 
 inline std::uint64_t getConvPartialSlicInnerLoopCycles(

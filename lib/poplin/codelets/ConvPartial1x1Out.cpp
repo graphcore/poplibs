@@ -10,9 +10,14 @@
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
+#ifdef __IPU__
+#include "inlineAssemblerConv.hpp"
+#endif
+
 using namespace poplar;
 
 static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
+static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 namespace poplin {
 
@@ -139,6 +144,141 @@ public:
   }
 };
 
+#ifdef __IPU__
+
+#if __IPU_ARCH_VERSION__ >= 21
+template <typename UnsignedType, unsigned numConvUnits>
+class WorkerClass1x1 : public Vertex {
+public:
+  static bool compute() { return true; }
+};
+
+template <> class WorkerClass1x1<unsigned short, 16> : public Vertex {
+public:
+  static bool compute() {
+    auto partitionOffset = 3 * getWid();
+    auto state = workerState<WorkerState1x1<unsigned short>>();
+
+    unsigned loops = CSR_W_REPEAT_COUNT__VALUE__MASK &
+                     (state->partition[partitionOffset + 1] + 3);
+    constexpr auto outputVectorWidth = 4;
+    constexpr auto inputVectorWidth = 8;
+
+    auto outPtr = state->outChanPtr +
+                  state->partition[partitionOffset] * outputVectorWidth;
+    auto inPtr = state->inChanPtr +
+                 state->partition[partitionOffset + 2] * inputVectorWidth;
+    if (state->firstTime) {
+      asm volatile(
+          R"l(
+            .align 8
+            mov $m0, %[wrPtr]
+            rpt %[loops], (2f - 1f) / 8 - 1
+            1:
+              {st64step $azeros, $mzero, $m0+=, 1
+               fnop}
+              {st64step $azeros, $mzero, $m0+=, 1
+               fnop}
+              {st64step $azeros, $mzero, $m0+=, 1
+               fnop}
+              {st64step $azeros, $mzero, $m0+=,%[inOutStrides]
+               fnop}
+            2:
+          )l"
+          :
+          : [wrPtr] "r"(outPtr), [loops] "r"(loops),
+            [inOutStrides] "r"(state->inOutStrides)
+          : "$m0", "memory");
+    }
+    convQuarterHalfLoop(inPtr, outPtr, loops, state->strides);
+    return true;
+  }
+};
+
+template <bool useLimitedVer, bool use128BitLoad, unsigned numConvUnits>
+class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out<
+    quarter, half, useLimitedVer, use128BitLoad, numConvUnits>
+    : public SupervisorVertex {
+  static const bool needsAlignWorkers = false;
+
+public:
+  ConvPartial1x1Out();
+  using FPType = quarter;
+  using AccumType = half;
+
+  using WorkListType =
+      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using WorkListNumFieldType =
+      typename std::conditional<useLimitedVer, short, int>::type;
+  using UnsignedType =
+      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
+  static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
+  Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, COMPACT_PTR, 4> in;
+  Input<unsigned char> inMetaData;
+  Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
+         COMPACT_PTR, 4>
+      weights;
+  Input<unsigned char> weightsMetaData;
+  Vector<Output<Vector<AccumType, COMPACT_PTR, 16, true>>, COMPACT_PTR, 4> out;
+  Input<Vector<WorkListType, COMPACT_PTR, 4>> worklists;
+  const UnsignedType numConvGroupsM1;
+  // Actual value is 1 more than this
+  const UnsignedType numOutGroupsM1;
+  const UnsignedType numInGroups;
+  // This value is
+  // (inStrideX - 1) * inChansPerGroup / convInputLoadElems + 1)
+  // Where inStrideX is the actual stride
+  const SignedType transformedInStride;
+  const UnsignedType outChansPerGroup;
+  // This stride encodes the flip out parameter
+  const SignedType transformedOutStride;
+  const UnsignedType inChansPerGroup;
+
+  __attribute__((target("supervisor"))) bool compute() {
+    WorkerState1x1<UnsignedType> workerState;
+    workerState.partition = &worklists[0];
+    setFp8Format(weightsMetaData, inMetaData);
+    setFp8Scale(weightsMetaData, inMetaData);
+
+    // modify to set actual values used by vertex
+    const unsigned numConvGroups = numConvGroupsM1 + 1;
+    const unsigned numOutGroups = numOutGroupsM1 + 1;
+
+    // For AMP 1x1 output stride is always 1 unless flipOut = true
+    constexpr auto outStrideThresh = -4;
+    const auto flipOut = transformedOutStride < outStrideThresh;
+    // Stride for memory initialisation
+    workerState.inOutStrides = flipOut ? -1 * (numConvUnits >> 1) + 1 : 1;
+
+    auto inStride = (transformedInStride - 1) *
+                    CONV_UNIT_INPUT_LOAD_ELEMS_HALF / inChansPerGroup;
+    // Strides for use with tapack
+    workerState.strides = packStrides(
+        (1 + 4 * inStride), workerState.inOutStrides & NUM_STRIDE_BITS_MASK);
+
+    for (unsigned cg = 0; cg < numConvGroups; ++cg) {
+      for (unsigned og = 0; og < numOutGroups; ++og) {
+        workerState.outChanPtr = &out[cg * numOutGroups + og][0];
+        for (unsigned ig = 0; ig < numInGroups; ++ig) {
+          workerState.inChanPtr = &in[cg * numInGroups + ig][0];
+          const auto *w =
+              &weights[cg * numOutGroups * numInGroups + ig * numOutGroups +
+                       (numOutGroups - 1 - og)][0];
+          ampLoadWeights<use128BitLoad, numConvUnits>(w);
+          workerState.firstTime = (ig == 0);
+          RUN_ALL("__runCodelet_poplin__WorkerClass1x1___unsigned_short_16",
+                  &workerState)
+        }
+      }
+    }
+    return true;
+  }
+};
+
+#endif // __IPU_ARCH_VERSION__
+#endif // __IPU__
+
 template class ConvPartial1x1Out<half, half, true, false, 8>;
 template class ConvPartial1x1Out<half, float, true, false, 8>;
 template class ConvPartial1x1Out<float, half, true, false, 8>;
@@ -166,5 +306,12 @@ template class ConvPartial1x1Out<half, half, true, true, 16>;
 template class ConvPartial1x1Out<float, float, true, true, 16>;
 template class ConvPartial1x1Out<half, half, false, true, 16>;
 template class ConvPartial1x1Out<float, float, false, true, 16>;
+
+#if __IPU_ARCH_VERSION__ >= 21
+template class ConvPartial1x1Out<quarter, half, true, false, 16>;
+template class ConvPartial1x1Out<quarter, half, true, true, 16>;
+template class ConvPartial1x1Out<quarter, half, false, false, 16>;
+template class ConvPartial1x1Out<quarter, half, false, true, 16>;
+#endif
 
 } // end namespace poplin

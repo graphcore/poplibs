@@ -390,8 +390,8 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                                        const DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
   const auto numConvUnitsRequired = plan.numConvUnitsOrChainsRequired;
-  const auto weightsPerConvUnit =
-      target.getWeightsPerConvUnit(in.elementType() == FLOAT);
+  auto weightsPerConvUnit = target.getWeightsPerConvUnit(in.elementType());
+
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
     assert(weights.dim(3) % convUnitWeightHeight == 0);
@@ -455,7 +455,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   outStrideX /= strideDivisor;
 
   const auto convInputLoadElems =
-      target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
+      target.getConvUnitInputLoadElemsPerCycle(in.elementType());
 
   const auto convUnitWeightWidth = 1u;
   auto partitions = createPartitions(params, convUnitWeightHeight,
@@ -517,7 +517,9 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   // Encode worklist offsets
   [&](std::vector<std::vector<unsigned>> &worklists) {
     const auto outElementTypeSize = out.elementType() == HALF ? 2 : 4;
-    const auto inElementTypeSize = in.elementType() == HALF ? 2 : 4;
+    const auto inElementTypeSize =
+        in.elementType() == QUARTER ? 1 : (in.elementType() == HALF ? 2 : 4);
+
     // We represent the the worklist offset as:
     // offset = field offset * chansPerGroup * size(element) / 8
     // This works because we know chansPerGroup * size(element) % 8 = 0, from
@@ -587,7 +589,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   bool useLimitedVer = true;
   const auto zerosInfo = outWindow[0].numElements();
   const int convOutputStoreElems =
-      target.getConvUnitInputLoadElemsPerCycle(out.elementType() == FLOAT);
+      target.getConvUnitInputLoadElemsPerCycle(out.elementType());
 
   if (!fitsMachineStride(target, transformedOutStride / convOutputStoreElems) ||
       !fitsMachineStride(target, transformedInStride) ||
@@ -681,6 +683,16 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
     }
   };
 
+  if (inWindow[0].elementType() == QUARTER &&
+      weightsWindow[0].elementType() == QUARTER) {
+    // TODO - As yet we are not using the metadata provided by poplar.
+    // assume some fixed format here until that is complete
+    auto weightsMetaData =
+        createFp8MetaDataTensor(graph, Fp8Format::QUART143, 0);
+    auto inMetaData = createFp8MetaDataTensor(graph, Fp8Format::QUART143, 0);
+    graph.connect(v["weightsMetaData"], weightsMetaData.reshape({}));
+    graph.connect(v["inMetaData"], inMetaData.reshape({}));
+  }
   // Worklists are 2D for nx1 and 1D for 1x1
   if (useConvPartial1x1OutVertex) {
     std::vector<unsigned> worklist1x1(contextsPerVertex * 3);
@@ -785,8 +797,7 @@ static void createConvPartialAmpVertices(
     bool use128BitConvUnitLoad, const DebugNameAndId &dnai) {
   assert(params == params.canonicalize());
   const auto &target = graph.getTarget();
-  const auto weightsPerConvUnit =
-      target.getWeightsPerConvUnit(in.elementType() == FLOAT);
+  auto weightsPerConvUnit = target.getWeightsPerConvUnit(in.elementType());
   assert(weightsPerConvUnit % plan.inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
@@ -825,7 +836,7 @@ static void createConvPartialAmpVertices(
       params, product(params.inputFieldShape) / params.inputFieldShape[0],
       useConvPartial1x1OutVertex, convUnitWeightHeight);
   const auto convInputLoadElems =
-      target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
+      target.getConvUnitInputLoadElemsPerCycle(in.elementType());
 
   int transformedInStrideBeforeSplit = getTransformedInStride(
       convUnitWeightHeight, inStrideX, inRowStrideBeforeSplit,

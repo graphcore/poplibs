@@ -42,6 +42,9 @@ void writeRandomBinaryValues(const Target &target, const Type &type, T *begin,
     if (type == poplar::HALF) {
       roundToHalfPrecision(target, begin, end);
     }
+  } else if (type == poplar::QUARTER) {
+    boost::random::uniform_int_distribution<int> dist(a, b);
+    writeValues(begin, end, [&]() { return dist(randomEngine); });
   } else {
     throw poputil::poplibs_error("Unsupported type");
   }
@@ -76,7 +79,7 @@ void writeRandomValues(const Target &target, const Type &type, T *begin, T *end,
     boost::random::uniform_int_distribution<unsigned> dist(0, 1);
     writeValues(begin, end, [&]() { return dist(randomEngine); });
   } else if (type == poplar::QUARTER) {
-    boost::random::uniform_int_distribution<unsigned> dist(0, 16);
+    boost::random::uniform_int_distribution<int> dist(min, max);
     writeValues(begin, end, [&]() { return dist(randomEngine); });
   } else {
     throw poputil::poplibs_error("Unknown type");
@@ -105,6 +108,9 @@ size_t maxContiguousInteger(const Type &t) {
     return 16777216;
   else if (t == INT)
     return std::numeric_limits<int>::max();
+  else if (t == QUARTER)
+    // Limited numeric range that can be represented exactly
+    return 16;
   else
     throw std::runtime_error("Type not supported");
 }
@@ -330,8 +336,7 @@ Tensor createGenericConvInput(Graph &graph, const Type &type,
                               std::size_t chansPerConvGroup,
                               const std::vector<std::size_t> &fieldShape,
                               const std::string &name) {
-  assert(type == HALF || type == FLOAT);
-  bool isFloat = type == FLOAT;
+  assert(type == QUARTER || type == HALF || type == FLOAT);
   std::size_t convGroupsPerGroup, chansPerGroup;
   // Take an educated guess at how the input is grouped. We assume
   // the input is laid out for AMP unless the number of input channels
@@ -342,7 +347,7 @@ Tensor createGenericConvInput(Graph &graph, const Type &type,
     chansPerGroup = chansPerConvGroup;
   } else {
     convGroupsPerGroup = 1;
-    auto weightsPerConvUnit = graph.getTarget().getWeightsPerConvUnit(isFloat);
+    auto weightsPerConvUnit = graph.getTarget().getWeightsPerConvUnit(type);
     chansPerGroup =
         gcd(static_cast<std::size_t>(weightsPerConvUnit), chansPerConvGroup);
   }
