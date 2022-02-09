@@ -33,6 +33,10 @@ add_subdirectory(popnn)
 add_subdirectory(poplibs_test)
 add_subdirectory(popfloat)
 
+add_subdirectory(poplin_mock)
+add_subdirectory(poputil_mock)
+add_subdirectory(popops_mock)
+
 if(${zoltan_FOUND})
   add_subdirectory(popsparse)
 endif()

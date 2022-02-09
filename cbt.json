@@ -6,6 +6,7 @@
     "poplar",
     "spdlog",
     "tbb",
+    "googletest",
     "zoltan"
   ]
 }
