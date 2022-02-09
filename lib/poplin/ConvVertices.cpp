@@ -21,6 +21,29 @@ using namespace poplibs_support;
 
 namespace poplin {
 
+// A list of work for a conv partial vertex worker.
+//
+// The data layout of an entry should match what the vertex expects.
+template <typename Entry> struct GenericWorkList : public std::vector<Entry> {
+  using entry_value_type = typename Entry::value_type;
+  static_assert(sizeof(Entry) % sizeof(entry_value_type) == 0,
+                "An entry should only contain values.");
+
+  using std::vector<Entry>::vector;
+
+  constexpr static size_t numValuesPerEntry() noexcept {
+    return sizeof(Entry) / sizeof(entry_value_type);
+  }
+
+  entry_value_type *dataAsValues() noexcept {
+    return reinterpret_cast<entry_value_type *>(this->data());
+  }
+
+  size_t sizeInValues() const noexcept {
+    return this->size() * numValuesPerEntry();
+  }
+};
+
 struct ConvOutputSlice {
   unsigned splitFactor;
   unsigned splitBegin;
@@ -492,35 +515,37 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
     useConvPartial1x1OutVertex = !contextsHaveMoreThanOnePartition;
   }
 
-  std::vector<std::vector<unsigned>> worklist(contextsPerVertex *
-                                              numSubKernelPositions);
-
   // create worklist now that dimensions of all splits are known
+  struct AMPWorkListEntry {
+    using value_type = unsigned;
+    unsigned outputOffset;
+    unsigned numFieldElements;
+    unsigned inputOffset;
+  };
+  using WorkList = GenericWorkList<AMPWorkListEntry>;
+  std::vector<WorkList> worklists(contextsPerVertex * numSubKernelPositions);
   for (const auto &p : partitions) {
+    auto wIndex = p.subKernelPosition * contextsPerVertex + p.context;
+    WorkList &worklist = worklists.at(wIndex);
+
+    AMPWorkListEntry &entry = worklist.emplace_back();
     const auto outBeginOffset =
         flattenIndex(outputBatchAndFieldShape, p.outBeginIndices);
-    const auto inBeginOffset =
-        flattenIndex(inputBatchAndFieldShape, p.inBeginIndices);
-    const auto outOffset =
+    entry.outputOffset =
         flipOut ? outBeginOffset + p.outXWidth - 1 : outBeginOffset;
-    const auto numFieldElems =
-        useConvPartial1x1OutVertex
-            ? p.outXWidth
-            : (p.outXWidth + outStrideX - 1) / outStrideX;
-    const auto wIndex = p.subKernelPosition * contextsPerVertex + p.context;
-
-    worklist[wIndex].push_back(outOffset);
-    worklist[wIndex].push_back(numFieldElems);
-    worklist[wIndex].push_back(inBeginOffset);
+    entry.numFieldElements = useConvPartial1x1OutVertex
+                                 ? p.outXWidth
+                                 : (p.outXWidth + outStrideX - 1) / outStrideX;
+    entry.inputOffset = flattenIndex(inputBatchAndFieldShape, p.inBeginIndices);
   }
 
   // Encode worklist offsets
-  [&](std::vector<std::vector<unsigned>> &worklists) {
+  {
     const auto outElementTypeSize = out.elementType() == HALF ? 2 : 4;
     const auto inElementTypeSize =
         in.elementType() == QUARTER ? 1 : (in.elementType() == HALF ? 2 : 4);
 
-    // We represent the the worklist offset as:
+    // We represent the worklist offset as:
     // offset = field offset * chansPerGroup * size(element) / 8
     // This works because we know chansPerGroup * size(element) % 8 = 0, from
     // the constraints on the vertex. Which means in the vertex we just need to
@@ -529,14 +554,12 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
     assert((inChansPerGroup * inElementTypeSize) % 8 == 0);
 
     for (auto &worklist : worklists) {
-      for (unsigned i = 0; i < worklist.size(); i += 3) {
-        worklist[i] = (worklist[i] * outChansPerGroup * outElementTypeSize) / 8;
-      }
-      for (unsigned i = 2; i < worklist.size(); i += 3) {
-        worklist[i] = (worklist[i] * inChansPerGroup * inElementTypeSize) / 8;
+      for (auto &entry : worklist) {
+        entry.outputOffset *= (outChansPerGroup * outElementTypeSize) / 8;
+        entry.inputOffset *= (inChansPerGroup * inElementTypeSize) / 8;
       }
     }
-  }(worklist);
+  }
 
   std::vector<Tensor> outWindow;
   std::vector<Tensor> inWindow;
@@ -624,23 +647,12 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       useLimitedVer = false;
   }
   // check if all worklist items meet range constraints
-  for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
-    const auto &vec = worklist[j];
-    for (auto i = 0U; i != vec.size(); ++i) {
-      // worklist is a multiple of 3.
-      // i % 3 == 0 : output offset
-      // i % 3 == 1 : number of field elems
-      // i % 3 == 2 : input offset
-      if ((i % 3) == 1) {
-        if (vec[i] > target.getRptCountMax()) {
-          useLimitedVer = false;
-          break;
-        }
-      } else {
-        if (vec[i] > unsignedMax) {
-          useLimitedVer = false;
-          break;
-        }
+  for (size_t i = 0; i != worklists.size() && useLimitedVer; ++i) {
+    for (const AMPWorkListEntry &entry : worklists[i]) {
+      if (entry.inputOffset > unsignedMax || entry.outputOffset > unsignedMax ||
+          entry.numFieldElements > target.getRptCountMax()) {
+        useLimitedVer = false;
+        break;
       }
     }
   }
@@ -671,14 +683,11 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   graph.setInitialValue(v["numConvGroupsM1"], numConvGroupGroups - 1);
 
   // Subtract numFieldElems by 3 to avoid computing this within the vertex
-  auto numFieldElemsLessThree = [worklistEntryType](
-                                    std::vector<unsigned> &wlist) {
-    for (unsigned i = 1; i < wlist.size(); i += 3) {
-      auto numFieldElemsMinus3 = static_cast<int>(wlist[i]) - 3;
+  auto numFieldElemsLessThree = [worklistEntryType](WorkList &worklist) {
+    for (AMPWorkListEntry &entry : worklist) {
+      entry.numFieldElements -= 3;
       if (worklistEntryType == UNSIGNED_SHORT) {
-        wlist[i] = static_cast<unsigned short>(numFieldElemsMinus3 & 0xffff);
-      } else {
-        wlist[i] = static_cast<unsigned>(numFieldElemsMinus3);
+        entry.numFieldElements &= 0xffff;
       }
     }
   };
@@ -695,22 +704,24 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   }
   // Worklists are 2D for nx1 and 1D for 1x1
   if (useConvPartial1x1OutVertex) {
-    std::vector<unsigned> worklist1x1(contextsPerVertex * 3);
-    for (unsigned i = 0; i < worklist.size(); ++i) {
-      std::copy(std::begin(worklist[i]), std::end(worklist[i]),
-                worklist1x1.begin() + 3 * i);
+    WorkList worklist1x1(contextsPerVertex);
+    for (size_t i = 0; i < worklist1x1.size(); ++i) {
+      assert(worklists[i].size() <= 1);
+      if (!worklists[i].empty())
+        worklist1x1[i] = worklists[i][0];
     }
     numFieldElemsLessThree(worklist1x1);
-    auto t = graph.addConstant(worklistEntryType, {worklist1x1.size()},
-                               worklist1x1.data(), {dnai, "worklists"});
+    auto t = graph.addConstant(worklistEntryType, {worklist1x1.sizeInValues()},
+                               worklist1x1.dataAsValues(), {dnai, "worklists"});
     graph.setTileMapping(t, tile);
     graph.connect(v["worklists"], t);
   } else {
-    graph.setFieldSize(v["worklists"], worklist.size());
-    for (unsigned i = 0; i < worklist.size(); ++i) {
-      numFieldElemsLessThree(worklist[i]);
-      auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                                 worklist[i].data(), {dnai, "worklists"});
+    graph.setFieldSize(v["worklists"], worklists.size());
+    for (unsigned i = 0; i < worklists.size(); ++i) {
+      numFieldElemsLessThree(worklists[i]);
+      auto t =
+          graph.addConstant(worklistEntryType, {worklists[i].sizeInValues()},
+                            worklists[i].dataAsValues(), {dnai, "worklists"});
       graph.setTileMapping(t, 0);
       graph.connect(v["worklists"][i], t);
     }
@@ -982,8 +993,6 @@ void createConvPartialSlicVertex(
       "poplin::ConvPartial1xNSLIC", inType, partialsType, outputStride,
       /* useShortTypes */ true, slicWindowWidth, convChainsRequired,
       convGroupsPerGroupVertexType);
-  std::vector<std::vector<unsigned short>> worklists(numWorkerContexts *
-                                                     numSubKernels);
   const auto slicWindowHeight = 1u;
   auto partitions = createPartitions(params, slicWindowHeight, slicWindowWidth,
                                      numWorkerContexts);
@@ -996,18 +1005,26 @@ void createConvPartialSlicVertex(
   }
 
   // create worklist now that dimensions of all splits are known
+  struct SLICWorkListEntry {
+    using value_type = unsigned short;
+    unsigned short inBeginOffset;
+    unsigned short outBeginOffset;
+    unsigned short partitionOutXWidth;
+  };
+  static_assert(sizeof(SLICWorkListEntry) == 6, "The layout must match asm.");
+  using WorkList = GenericWorkList<SLICWorkListEntry>;
+  std::vector<WorkList> worklists(numWorkerContexts * numSubKernels);
   for (const auto &p : partitions) {
     if (p.inBeginIndices.size() == 0) {
       continue;
     }
-    const auto outBeginOffset =
-        flattenIndex(outputBatchAndFieldShape, p.outBeginIndices);
-    const auto inBeginOffset =
-        flattenIndex(inputBatchAndFieldShape, p.inBeginIndices);
     const auto wIndex = p.subKernelPosition * numWorkerContexts + p.context;
-    worklists[wIndex].push_back(inBeginOffset);
-    worklists[wIndex].push_back(outBeginOffset);
-    worklists[wIndex].push_back(p.outXWidth);
+    SLICWorkListEntry &entry = worklists[wIndex].emplace_back();
+    entry.inBeginOffset =
+        flattenIndex(inputBatchAndFieldShape, p.inBeginIndices);
+    entry.outBeginOffset =
+        flattenIndex(outputBatchAndFieldShape, p.outBeginIndices);
+    entry.partitionOutXWidth = p.outXWidth;
   }
   // Determine whether or not we can use the assembly implementation
   // with short types.
@@ -1126,8 +1143,9 @@ void createConvPartialSlicVertex(
   graph.setFieldSize(v["worklists"], worklists.size());
 
   for (unsigned i = 0; i < worklists.size(); ++i) {
-    const auto t = graph.addConstant(UNSIGNED_SHORT, {worklists[i].size()},
-                                     worklists[i].data(), {dnai, "worklists"});
+    const auto t =
+        graph.addConstant(UNSIGNED_SHORT, {worklists[i].sizeInValues()},
+                          worklists[i].dataAsValues(), {dnai, "worklists"});
     graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
@@ -1207,8 +1225,15 @@ static void createConvPartialHorizontalMacVertex(
   const unsigned numKernelFieldElems = product(params.kernelShape);
   const unsigned kernelSizeX = params.kernelShape.back();
   const auto contextsPerVertex = target.getNumWorkerContexts();
-  std::vector<std::vector<unsigned>> worklist(contextsPerVertex *
-                                              numKernelFieldElems);
+
+  struct HMACWorkListEntry {
+    using value_type = unsigned;
+    unsigned outOffset;
+    unsigned numFieldElems;
+    unsigned inBeginOffset;
+  };
+  using WorkList = GenericWorkList<HMACWorkListEntry>;
+  std::vector<WorkList> worklists(contextsPerVertex * numKernelFieldElems);
   for (unsigned k = 0; k != numKernelFieldElems / kernelSizeX; ++k) {
     // unflatten kernel index into a co-ordinate for the kernel
     auto kCoord = unflattenIndex(params.kernelShape, k * kernelSizeX);
@@ -1271,6 +1296,10 @@ static void createConvPartialHorizontalMacVertex(
               xDimIndex, {workerOutXBegin, workerOutXEnd}, kx, params);
           workerIn.push_back(workerInXBegin);
 
+          auto kIndex = k * kernelSizeX + kx;
+          HMACWorkListEntry &entry =
+              worklists[kIndex * contextsPerVertex + i].emplace_back();
+
           auto workerOutFieldIndicesBegin =
               vectorConvert<std::size_t>(workerSlice.outFieldIndices);
           workerOutFieldIndicesBegin.push_back(workerOutXBegin);
@@ -1278,20 +1307,11 @@ static void createConvPartialHorizontalMacVertex(
               workerSlice.b * numOutFieldElems +
               flattenIndex(outputFieldShape, workerOutFieldIndicesBegin);
 
-          const auto inBeginOffset =
-              workerSlice.b * numInFieldElems +
-              flattenIndex(params.inputFieldShape, workerIn);
-
-          auto kIndex = k * kernelSizeX + kx;
-          const auto numFieldElems =
-              (workerOutWidth + outStrideX - 1) / outStrideX;
-
-          const auto outOffset =
+          entry.inBeginOffset = workerSlice.b * numInFieldElems +
+                                flattenIndex(params.inputFieldShape, workerIn);
+          entry.numFieldElems = (workerOutWidth + outStrideX - 1) / outStrideX;
+          entry.outOffset =
               flipOut ? outBeginOffset + workerOutWidth - 1 : outBeginOffset;
-
-          worklist[kIndex * contextsPerVertex + i].push_back(outOffset);
-          worklist[kIndex * contextsPerVertex + i].push_back(numFieldElems);
-          worklist[kIndex * contextsPerVertex + i].push_back(inBeginOffset);
         }
       }
     }
@@ -1329,10 +1349,10 @@ static void createConvPartialHorizontalMacVertex(
     useLimitedVer = false;
 
   // check if all worklist items meet range constraints
-  for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
-    const auto &vec = worklist[j];
-    for (auto entry : vec) {
-      if (entry > unsignedMax) {
+  for (size_t i = 0; i != worklists.size() && useLimitedVer; ++i) {
+    for (const HMACWorkListEntry &entry : worklists[i]) {
+      if (entry.inBeginOffset > unsignedMax ||
+          entry.numFieldElems > unsignedMax || entry.outOffset > unsignedMax) {
         useLimitedVer = false;
         break;
       }
@@ -1374,10 +1394,10 @@ static void createConvPartialHorizontalMacVertex(
   graph.setInitialValue(v["transformedInStride"], transformedInStride);
   graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
   graph.setInitialValue(v["numConvGroupsM1"], numConvGroupGroups - 1);
-  graph.setFieldSize(v["worklists"], worklist.size());
-  for (unsigned i = 0; i < worklist.size(); ++i) {
-    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                               worklist[i].data(), {dnai, "worklist"});
+  graph.setFieldSize(v["worklists"], worklists.size());
+  for (unsigned i = 0; i < worklists.size(); ++i) {
+    auto t = graph.addConstant(worklistEntryType, {worklists[i].sizeInValues()},
+                               worklists[i].dataAsValues(), {dnai, "worklist"});
     graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
@@ -1445,17 +1465,16 @@ static void createConvPartialVerticalMacVertex(
   const unsigned numKernelFieldElems = product(params.kernelShape);
   const unsigned kernelSizeX = params.kernelShape.back();
   const auto contextsPerVertex = target.getNumWorkerContexts();
-  struct WorklistEntry {
-    unsigned inOffset;
-    unsigned weightOffset;
+
+  struct VMACWorkListEntry {
+    using value_type = unsigned;
     unsigned outOffset;
+    unsigned weightOffset;
+    unsigned inOffset;
     unsigned numElems;
-    WorklistEntry(unsigned inOffset, unsigned weightOffset, unsigned outOffset,
-                  unsigned numElems)
-        : inOffset(inOffset), weightOffset(weightOffset), outOffset(outOffset),
-          numElems(numElems){};
   };
-  std::vector<std::vector<WorklistEntry>> worklistEntry(contextsPerVertex);
+  using WorkList = GenericWorkList<VMACWorkListEntry>;
+  std::vector<WorkList> worklists(contextsPerVertex);
   for (unsigned k = 0; k != numKernelFieldElems / kernelSizeX; ++k) {
     // unflatten kernel index into a co-ordinate for the kernel
     auto kCoord = unflattenIndex(params.kernelShape, k * kernelSizeX);
@@ -1527,30 +1546,39 @@ static void createConvPartialVerticalMacVertex(
         const auto outBeginOffset =
             workerSlice.b * numOutFieldElems +
             flattenIndex(outputFieldShape, workerOutFieldIndicesBegin);
-        worklistEntry[context].emplace_back(inOffsetBegin, kOffsetBegin,
-                                            outBeginOffset, workerWidth);
+        VMACWorkListEntry &entry = worklists[context].emplace_back();
+        entry.outOffset = outBeginOffset;
+        entry.weightOffset = kOffsetBegin;
+        entry.inOffset = inOffsetBegin;
+        entry.numElems = workerWidth;
       }
     }
   }
 
   // sort by output offset in order to minimise reloading of accumulators
-  std::vector<std::vector<unsigned>> worklist(contextsPerVertex);
-  for (unsigned context = 0; context != contextsPerVertex; ++context) {
-    std::sort(worklistEntry[context].begin(), worklistEntry[context].end(),
+  for (WorkList &worklist : worklists) {
+    std::sort(worklist.begin(), worklist.end(),
               [](const auto &lhs, const auto &rhs) {
                 return lhs.outOffset < rhs.outOffset;
               });
     unsigned prev = 0;
-    for (auto wl : worklistEntry[context]) {
+    unsigned current = 0;
+    for (auto &entry : worklist) {
       // Output offsets are stored as the difference from the previous offset,
       // except for the very first output offset.
-      worklist[context].push_back(wl.outOffset - prev);
-      prev = wl.outOffset;
+      current = entry.outOffset;
+      entry.outOffset -= prev;
+      prev = current;
 
-      worklist[context].push_back(wl.weightOffset);
-      worklist[context].push_back(wl.inOffset);
-      assert(wl.numElems > 0);
-      worklist[context].push_back(wl.numElems - 1);
+      // Reduce the number of elements by 1 so for a loop that looks like:
+      //
+      //  start:
+      //    // do stuff
+      //    brnzdec $numElems, start
+      //
+      // we loop the correct number of times.
+      assert(entry.numElems > 0);
+      entry.numElems -= 1;
     }
   }
 
@@ -1562,20 +1590,13 @@ static void createConvPartialVerticalMacVertex(
     useLimitedVer = false;
 
   // check if all worklist items meet range constraints
-  for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
-    const auto &vec = worklist[j];
-    for (auto j = 0U; j != vec.size(); ++j) {
-      if (vec[j] > unsignedMax) {
+  for (size_t i = 0; i != worklists.size() && useLimitedVer; ++i) {
+    for (const VMACWorkListEntry &e : worklists[i]) {
+      if (e.inOffset > unsignedMax || e.outOffset > unsignedMax ||
+          e.weightOffset > unsignedMax || e.numElems > unsignedMax ||
+          e.numElems > target.getRptCountMax()) {
         useLimitedVer = false;
         break;
-      }
-      // check that the count is within rpt count limits.
-      if (j % 4 == 3) {
-        const auto maxRptCount = vec[j];
-        if (maxRptCount > target.getRptCountMax()) {
-          useLimitedVer = false;
-          break;
-        }
       }
     }
   }
@@ -1596,11 +1617,11 @@ static void createConvPartialVerticalMacVertex(
   graph.setInitialValue(v["inStride"], inStrideX);
   graph.setInitialValue(v["weightsStride"], weightStrideX);
   graph.setInitialValue(v["numConvGroupsM1"], numConvGroupGroups - 1);
-  graph.setFieldSize(v["worklists"], worklist.size());
+  graph.setFieldSize(v["worklists"], worklists.size());
 
-  for (unsigned i = 0; i < worklist.size(); ++i) {
-    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                               worklist[i].data(), {dnai, "worklist"});
+  for (unsigned i = 0; i < worklists.size(); ++i) {
+    auto t = graph.addConstant(worklistEntryType, {worklists[i].sizeInValues()},
+                               worklists[i].dataAsValues(), {dnai, "worklist"});
     graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
