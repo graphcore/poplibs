@@ -114,14 +114,16 @@ bool isLikelyToHaveNumericalErrorsUsingBernoulli(
     size_t macsPerOutputElement, const poplar::Type &inputType,
     const poplar::Type &outputType);
 
+template <typename T>
 inline void copy(const poplar::Target &target,
-                 const poplibs_support::MultiArray<double> &src,
+                 const poplibs_support::MultiArray<T> &src,
                  const poplar::Type &dstType, void *dst) {
   poplar_test::copy(target, src.data(), src.numElements(), dstType, dst);
 }
 
+template <typename T>
 inline void copy(const poplar::Target &target, const poplar::Type &srcType,
-                 void *src, poplibs_support::MultiArray<double> &dst) {
+                 void *src, poplibs_support::MultiArray<T> &dst) {
   poplar_test::copy(target, srcType, src, dst.data(), dst.numElements());
 }
 

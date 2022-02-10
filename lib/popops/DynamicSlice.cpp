@@ -70,6 +70,7 @@ template <> poplar::ProfileValue toProfileValue(const popops::SlicePlan &p) {
               toProfileValue(p.internal->partition.slicedDimSplit)});
     v.insert({"unslicedDimSplit",
               toProfileValue(p.internal->partition.unslicedDimSplit)});
+    v.insert({"groupSplit", toProfileValue(p.internal->partition.groupSplit)});
     v.insert({"unslicedGrainSize",
               toProfileValue(p.internal->partition.unslicedGrainSize)});
   }
@@ -155,7 +156,7 @@ std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
     os << "(op=" << *o.opForUpdate << ")";
   }
   if (o.partialType == std::nullopt) {
-    os << " (partialType=none)";
+    os << ", (partialType=none)";
   } else {
     os << " (partialType=" << *o.partialType << ")";
   }
@@ -181,7 +182,7 @@ struct ValidateSlicePlanConstraintsOption {
     for (const auto &child : t) {
       if (child.first != "lookupSplit" && child.first != "slicedDimSplit" &&
           child.first != "unslicedDimSplit" &&
-          child.first != "unslicedGrainSize" &&
+          child.first != "unslicedGrainSize" && child.first != "groupSplit" &&
           child.first != "useOrderingInfo") {
         throw poplibs_error("Unrecognised constraint " + child.first);
       }
@@ -203,6 +204,7 @@ std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p) {
   o << "    lookupSplit=" << p.partition.lookupSplit << "\n";
   o << "    slicedDimSplit=" << p.partition.slicedDimSplit << "\n";
   o << "    unslicedDimSplit=" << p.partition.unslicedDimSplit << "\n";
+  o << "    groupSplit=" << p.partition.groupSplit << "\n";
   o << "    unslicedGrainSize=" << p.partition.unslicedGrainSize << "\n";
   o << "  useIndicesOrderingInfo="
     << (p.useIndicesOrderingInfo ? " true" : "false");
@@ -314,25 +316,26 @@ poplar::Type partialTypeToUse(std::optional<poplar::Type> partialType,
   return *partialType;
 }
 
-static Tensor createSliceTensor(Graph &graph, const Type &type,
-                                const std::vector<std::size_t> &shape,
-                                const std::size_t slicedDim,
-                                const std::size_t numIndices,
-                                const SlicePlanInternal &plan,
-                                const OptionFlags &options,
-                                const DebugNameAndId &dnai);
+static Tensor
+createSliceTensor(Graph &graph, const Type &type, const std::size_t groupSize,
+                  const std::vector<std::size_t> &shape,
+                  const std::size_t slicedDim, const std::size_t numIndices,
+                  const SlicePlanInternal &plan, const OptionFlags &options,
+                  const DebugNameAndId &dnai);
 
 // This is specifically for embedding layer shaped operations currently.
 // Given an index into a set of indices into partitions of different
 // dimensions of the operation, return the tile on which this portion
 // of the operation will be calculated.
-static unsigned linearizeSliceIndices(const std::size_t indexPartition,
-                                      const std::size_t slicedPartition,
-                                      const std::size_t unslicedPartition,
-                                      const std::size_t indexIdx,
-                                      const std::size_t slicedIdx,
-                                      const std::size_t unslicedIdx) {
+static unsigned linearizeSliceIndices(
+    const std::size_t groupPartition, const std::size_t indexPartition,
+    const std::size_t slicedPartition, const std::size_t unslicedPartition,
+    const std::size_t groupIdx, const std::size_t indexIdx,
+    const std::size_t slicedIdx, const std::size_t unslicedIdx) {
   unsigned tile = 0;
+
+  // groups
+  tile = tile * groupPartition + groupIdx;
 
   // indices
   tile = tile * indexPartition + indexIdx;
@@ -528,11 +531,15 @@ static void generateMultiSliceVerticesOnTile(
     bool isUpdate, unsigned baseSlicedDim, boost::optional<unsigned> baseOffset,
     boost::optional<Operation> op, bool indicesAreSorted,
     const DebugNameAndId &dnai) {
-  assert(base.rank() == 2);
-  assert(offset.rank() == 1);
+  assert(base.rank() == 3);
+  assert(offset.rank() == 2);
   assert(slices.rank() == base.rank() + 1);
-  assert(offset.dim(0) == slices.dim(0));
+  assert(offset.dim(1) == slices.dim(1));
+  assert(base.dim(0) == offset.dim(0));
+  assert(base.dim(0) == slices.dim(0));
   assert(baseSlicedDim < base.rank());
+  const auto groupSize = base.dim(0);
+
   // Only support slicing single elements from the sliced dimension currently.
   assert(slices.dim(1 + baseSlicedDim) == 1);
 
@@ -540,13 +547,13 @@ static void generateMultiSliceVerticesOnTile(
   const auto &target = graph.getTarget();
   const auto atomsPerWord = std::max(
       target.getAtomicStoreGranularity() / target.getTypeSize(dType), 1UL);
-  const auto regionSize = base.dim(baseSlicedDim ^ 1);
+  const auto regionSize = base.dim(((baseSlicedDim - 1) ^ 1) + 1);
 
   // What dimension to split amongst workers and vertices depends on whether it
   // is an update or slice, or if there is only 1 element in the offset. For
   // a single offset element, attempt to split region amongst workers.
   const auto vertexHasSplitRegionField = !isUpdate || op == boost::none;
-  const bool splitRegion = offset.numElements() == 1 &&
+  const bool splitRegion = offset[0].numElements() == 1 &&
                            ((regionSize * target.getTypeSize(dType)) %
                                 target.getAtomicStoreGranularity() ==
                             0) &&
@@ -558,7 +565,7 @@ static void generateMultiSliceVerticesOnTile(
     elemsPerVertex = regionSize;
   } else {
     maxElemsToSplitOnTile =
-        isUpdate ? base.dim(baseSlicedDim) : offset.numElements();
+        isUpdate ? base.dim(baseSlicedDim) : offset[0].numElements();
     elemsPerVertex =
         isUpdate ? graph.getMaxFieldDim(vertexName, "baseT", 0) / regionSize
                  : graph.getMaxFieldDim(vertexName, "offsets", 0);
@@ -577,47 +584,53 @@ static void generateMultiSliceVerticesOnTile(
     auto firstElem = lastElem;
     lastElem = std::min(lastElem + elemsPerVertex, maxElemsToSplitOnTile);
 
-    Tensor vertexOffsets, vertexSlices, baseSlices;
-    if (splitRegion) {
-      vertexOffsets = offset;
-      vertexSlices = slices;
-      baseSlices = base;
-    } else if (splitBase) {
-      // split base
-      vertexOffsets = offset;
-      vertexSlices = slices;
-      baseSlices = base.slice(firstElem, lastElem, baseSlicedDim);
-    } else {
-      // split offsets
-      vertexOffsets = offset.slice({firstElem, lastElem});
-      vertexSlices = slices.slice({firstElem, lastElem});
-      baseSlices = base;
-    }
-    auto v = graph.addVertex(cs, vertexName,
-                             {{"offsets", vertexOffsets},
-                              {"baseT", baseSlices.flatten()},
-                              {"subT", vertexSlices.flatten()}});
-    if (scale) {
-      graph.connect(v["scale"], scale.get());
-    }
-
     // Divide work amongst workers. For Mult-Update, divide the slice dimension
     // and for slice, divide the number of output slices.
     const auto maxElementsPerWorker = getMultiSliceUpdateOpMaxElemsPerWorker(
         target.getNumWorkerContexts(), lastElem - firstElem, grainSize);
 
-    graph.setInitialValue(v["maxElementsPerWorker"], maxElementsPerWorker);
-    graph.setInitialValue(v["indicesAreSorted"], indicesAreSorted && isUpdate);
-    graph.setInitialValue(v["baseOffset"], (baseOffset ? *baseOffset : 0u) +
-                                               (splitBase ? firstElem : 0));
-    graph.setInitialValue(
-        v["numBaseElements"],
-        (splitBase ? (lastElem - firstElem) : base.dim(baseSlicedDim)));
-    if (vertexHasSplitRegionField) {
-      graph.setInitialValue(v["splitSingleRegion"], splitRegion);
+    // create a vertex per group elem as there's no specialisation to deal
+    // with multiple group elements per tile.
+    for (unsigned g = 0; g != groupSize; ++g) {
+      Tensor vertexOffsets, vertexSlices, baseSlices;
+      if (splitRegion) {
+        vertexOffsets = offset[g];
+        vertexSlices = slices[g];
+        baseSlices = base[g];
+      } else if (splitBase) {
+        // split base
+        vertexOffsets = offset[g];
+        vertexSlices = slices[g];
+        baseSlices =
+            base.slice(g, g + 1, 0).slice(firstElem, lastElem, baseSlicedDim);
+      } else {
+        // split offsets
+        vertexOffsets = offset[g].slice({firstElem, lastElem});
+        vertexSlices = slices[g].slice({firstElem, lastElem});
+        baseSlices = base[g];
+      }
+      auto v = graph.addVertex(cs, vertexName,
+                               {{"offsets", vertexOffsets},
+                                {"baseT", baseSlices.flatten()},
+                                {"subT", vertexSlices.flatten()}});
+      if (scale) {
+        graph.connect(v["scale"], scale.get());
+      }
+
+      graph.setInitialValue(v["maxElementsPerWorker"], maxElementsPerWorker);
+      graph.setInitialValue(v["indicesAreSorted"],
+                            indicesAreSorted && isUpdate);
+      graph.setInitialValue(v["baseOffset"], (baseOffset ? *baseOffset : 0u) +
+                                                 (splitBase ? firstElem : 0));
+      graph.setInitialValue(
+          v["numBaseElements"],
+          (splitBase ? (lastElem - firstElem) : base.dim(baseSlicedDim)));
+      if (vertexHasSplitRegionField) {
+        graph.setInitialValue(v["splitSingleRegion"], splitRegion);
+      }
+      graph.setInitialValue(v["regionSize"], regionSize);
+      graph.setTileMapping(v, tile);
     }
-    graph.setInitialValue(v["regionSize"], regionSize);
-    graph.setTileMapping(v, tile);
   }
 }
 
@@ -813,9 +826,9 @@ static void generateMultiSliceVertices(
     } else {
       vertexName = templateVertex(vertexNameUntemplated, base.elementType());
     }
-
-    generateMultiSliceVerticesOnTile(graph, cs, tile, tileBase, offsets1d,
-                                     tileSub, scale, vertexName, isUpdate, 0u,
+    generateMultiSliceVerticesOnTile(graph, cs, tile, tileBase.expand({0}),
+                                     offsets1d.expand({0}), tileSub.expand({0}),
+                                     scale, vertexName, isUpdate, 1u,
                                      baseOffset, op, false, {dnai});
   }
 
@@ -865,20 +878,21 @@ static void generatePlannedMultiUpdateOp(
   std::vector<unsigned> multiUpdateSubwordTiles;
 
   // un-/slicedDim are in base, must add one in slices
-  constexpr unsigned slicedDim = 0;
-  constexpr unsigned unslicedDim = 1;
-  assert(offsets.rank() == 2);
-  assert(base.rank() == 2);
+  constexpr unsigned slicedDim = 1;
+  constexpr unsigned unslicedDim = 2;
+  assert(offsets.rank() == 3);
+  assert(base.rank() == 3);
   assert(slices.rank() == base.rank() + 1);
-  assert(offsets.dim(0) == slices.dim(0));
+  assert(offsets.dim(1) == slices.dim(1));
   // only single-dim slicing supported by these vertices
-  assert(offsets.dim(1) == 1);
+  assert(offsets.dim(2) == 1);
   assert(baseSlicedDim == slicedDim);
   assert(base.dim(unslicedDim) == slices.dim(1 + unslicedDim));
 
-  const auto offsets1d = offsets.squeeze({1});
+  const auto offsets1d = offsets.squeeze({2});
   const auto &target = graph.getTarget();
   const auto type = base.elementType();
+  const auto groupSize = base.dim(0);
 
 #ifndef NDEBUG
   const unsigned numSubElements = slices.dim(1 + slicedDim);
@@ -900,19 +914,20 @@ static void generatePlannedMultiUpdateOp(
   const auto &p = plan.partition;
   const unsigned slicedSplit = p.slicedDimSplit;
   const unsigned unslicedSplit = p.unslicedDimSplit;
+  const unsigned groupSplit = p.groupSplit;
 
   // Updates are divided into `lookupSplit` groups.
   // When the plan is for many index splits and there are few in this instance
   // some of the splits can be empty. In this case we generate no partials or
   // vertices on tiles in those splits.
-  const auto subSlicedDim = 0;
+  const auto subSlicedDim = 1;
   const auto endSubIndex = slices.dim(subSlicedDim);
   const auto subIndicesPerSplit = ceildiv(endSubIndex, p.lookupSplit);
   const auto nonEmptyLookupSplits = ceildiv(endSubIndex, subIndicesPerSplit);
   assert(nonEmptyLookupSplits <= p.lookupSplit);
 
   const unsigned numUsedTiles =
-      slicedSplit * unslicedSplit * nonEmptyLookupSplits;
+      groupSplit * slicedSplit * unslicedSplit * nonEmptyLookupSplits;
   bool multipleStages = partialType != base.elementType() || p.lookupSplit > 1;
 
   // Each subSplit holds a subset of the subIndices. When numSubSplits>1 dense
@@ -920,13 +935,14 @@ static void generatePlannedMultiUpdateOp(
 
   const auto unslicedSize = base.dim(unslicedDim);
   const auto endBaseIndex = base.dim(slicedDim);
+  const auto groupsPerSplit = ceildiv(groupSize, groupSplit);
   const auto baseIndicesPerSplit = ceildiv(endBaseIndex, slicedSplit);
   const auto elemsPerUSplit = ceildiv(unslicedSize, unslicedSplit);
 
   logging::popops::debug(
-      "PlannedMUOp: activeTiles={}, split {}/{}/{}, shapes {} {}", numUsedTiles,
-      nonEmptyLookupSplits, slicedSplit, unslicedSplit, base.shape(),
-      slices.shape());
+      "PlannedMUOp: activeTiles={}, split {}/{}/{}/{}, shapes {} {}",
+      numUsedTiles, groupSplit, nonEmptyLookupSplits, slicedSplit,
+      unslicedSplit, base.shape(), slices.shape());
 
   // There are two situations in which we choose to rearrange the slices
   // into this multi-update:
@@ -947,8 +963,8 @@ static void generatePlannedMultiUpdateOp(
   if ((type != partialType) ||
       slicedSplit >= slicesBroadcastDestRearrangeThreshold) {
     const auto slicesRearranged = createSliceTensor(
-        graph, type, base.shape(), slicedDim, offsets1d.numElements(), plan,
-        optionFlags, {dnai, "slicesRearranged"});
+        graph, type, groupSize, base[0].shape(), slicedDim - 1,
+        offsets1d.dim(1), plan, optionFlags, {dnai, "slicesRearranged"});
     seq.add(Copy(slices, slicesRearranged, false, {dnai}));
     slices = slicesRearranged;
     logging::popops::trace(
@@ -967,8 +983,7 @@ static void generatePlannedMultiUpdateOp(
   boost::optional<Tensor> stage0Scale = boost::none;
   if (!multipleStages) {
     slicesInput = slices;
-    stage0Output = base.expand({0}); // insert lookupSplit dimension
-
+    stage0Output = base.expand({1}); // insert lookupSplit dimension
     stage0Scale = scale;
     stage0OutputType = base.elementType();
   } else {
@@ -982,10 +997,9 @@ static void generatePlannedMultiUpdateOp(
       stage1Scale =
           cast(graph, *scale, stage0OutputType, seq, {dnai, "CastScale"});
     }
-
     // lookupSplit copies of the base tensor
     auto wantedShape = base.shape();
-    wantedShape.insert(wantedShape.begin(), nonEmptyLookupSplits);
+    wantedShape.insert(wantedShape.begin() + 1, nonEmptyLookupSplits);
 
     // TODO: T12933 Consider cast after broadcasting to first stage updateOp
     // vertices to save time spent exchanging the larger data type. This may be
@@ -995,117 +1009,137 @@ static void generatePlannedMultiUpdateOp(
                       ? slices
                       : popops::cast(graph, slices, partialType, seq,
                                      {dnai, "CastSlices"});
-    stage0Output = createPartitionableTensor(
-        graph, partialType, wantedShape,
-        {nonEmptyLookupSplits, p.slicedDimSplit, p.unslicedDimSplit},
-        {dnai, "gathered"});
+    stage0Output =
+        createPartitionableTensor(graph, partialType, wantedShape,
+                                  {p.groupSplit, nonEmptyLookupSplits,
+                                   p.slicedDimSplit, p.unslicedDimSplit},
+                                  {dnai, "gathered"});
 
     // stage0Output is zeroed before stage0 executes; the zero program
     // is added after we've added the stage0 vertices and mapped the output
     // but is sequenced before `csU`.
   }
 
-  for (unsigned lookupSplitIdx = 0; lookupSplitIdx != nonEmptyLookupSplits;
-       ++lookupSplitIdx) {
-    const unsigned beginSubIdx =
-        std::min((lookupSplitIdx + 0) * subIndicesPerSplit, endSubIndex);
-    const unsigned endSubIdx =
-        std::min((lookupSplitIdx + 1) * subIndicesPerSplit, endSubIndex);
+  for (unsigned g = 0; g != groupSplit; ++g) {
+    const unsigned beginGroupIdx = std::min(g * groupsPerSplit, groupSize);
+    const unsigned endGroupIdx = std::min((g + 1) * groupsPerSplit, groupSize);
+    const unsigned numGroups = endGroupIdx - beginGroupIdx;
+    if (numGroups == 0) {
+      continue;
+    }
+    const auto offsetG = offsets.slice(beginGroupIdx, endGroupIdx, 0);
+    const auto stage0OutputG =
+        stage0Output.slice(beginGroupIdx, endGroupIdx, 0);
+    for (unsigned lookupSplitIdx = 0; lookupSplitIdx != nonEmptyLookupSplits;
+         ++lookupSplitIdx) {
+      const unsigned beginSubIdx =
+          std::min((lookupSplitIdx + 0) * subIndicesPerSplit, endSubIndex);
+      const unsigned endSubIdx =
+          std::min((lookupSplitIdx + 1) * subIndicesPerSplit, endSubIndex);
 
-    const auto indices = offsets.slice(beginSubIdx, endSubIdx, 0).flatten();
+      const auto indices =
+          offsetG.slice(beginSubIdx, endSubIdx, 1).flatten(1, offsetG.rank());
 
-    auto thisBase = stage0Output[lookupSplitIdx];
-    for (unsigned s = 0; s != slicedSplit; ++s) {
-      // indices in the index dimension
-      const unsigned beginBaseIdx =
-          std::min((s + 0) * baseIndicesPerSplit, endBaseIndex);
-      const unsigned endBaseIdx =
-          std::min((s + 1) * baseIndicesPerSplit, endBaseIndex);
+      auto thisBase = stage0OutputG.slice(lookupSplitIdx, lookupSplitIdx + 1, 1)
+                          .squeeze({1});
+      for (unsigned s = 0; s != slicedSplit; ++s) {
+        // indices in the index dimension
+        const unsigned beginBaseIdx =
+            std::min((s + 0) * baseIndicesPerSplit, endBaseIndex);
+        const unsigned endBaseIdx =
+            std::min((s + 1) * baseIndicesPerSplit, endBaseIndex);
 
-      const boost::optional<unsigned> baseOffset(slicedSplit > 1, beginBaseIdx);
+        const boost::optional<unsigned> baseOffset(slicedSplit > 1,
+                                                   beginBaseIdx);
 
-      // Update vertex is invoked on all slicedIdx tiles; the vertex decides
-      // whether to make an update based on the range of base indices present
-      auto numBaseIndices = endBaseIdx - beginBaseIdx;
-      if (numBaseIndices == 0) {
-        continue;
-      }
-
-      for (unsigned u = 0; u != unslicedSplit; ++u) {
-        // indices in the embedding dimension;
-        const unsigned beginOffset =
-            std::min((u + 0) * elemsPerUSplit, unslicedSize);
-        const unsigned endOffset =
-            std::min((u + 1) * elemsPerUSplit, unslicedSize);
-        auto numOffsets = endOffset - beginOffset;
-        if (numOffsets == 0) {
+        // Update vertex is invoked on all slicedIdx tiles; the vertex decides
+        // whether to make an update based on the range of base indices present
+        auto numBaseIndices = endBaseIdx - beginBaseIdx;
+        if (numBaseIndices == 0) {
           continue;
         }
-        const auto tile = linearizeSliceIndices(
-            p.lookupSplit, slicedSplit, unslicedSplit, lookupSplitIdx, s, u);
-        // We have different specialisations for half data depending on the need
-        // for subword writes
-        //
-        // TODO: T12934 Pad if not a multiple of grain size to ensure uniform
-        // execution time of update on each tile given an uneven split.
-        bool needSubwordWrites =
-            target.getTypeSize(stage0OutputType) == 2 && numOffsets % 2 != 0;
 
-        if (needSubwordWrites) {
-          multiUpdateSubwordTiles.emplace_back(tile);
-        }
+        for (unsigned u = 0; u != unslicedSplit; ++u) {
+          // indices in the embedding dimension;
+          const unsigned beginOffset =
+              std::min((u + 0) * elemsPerUSplit, unslicedSize);
+          const unsigned endOffset =
+              std::min((u + 1) * elemsPerUSplit, unslicedSize);
+          auto numOffsets = endOffset - beginOffset;
+          if (numOffsets == 0) {
+            continue;
+          }
+          const auto tile =
+              linearizeSliceIndices(groupSplit, p.lookupSplit, slicedSplit,
+                                    unslicedSplit, g, lookupSplitIdx, s, u);
+          // We have different specialisations for half data depending on the
+          // need for subword writes
+          //
+          // TODO: T12934 Pad if not a multiple of grain size to ensure uniform
+          // execution time of update on each tile given an uneven split.
+          bool needSubwordWrites =
+              target.getTypeSize(stage0OutputType) == 2 && numOffsets % 2 != 0;
 
-        std::string vertexName;
-        if (op == boost::none) {
-          vertexName = templateVertex(vertexNameUntemplated, stage0OutputType);
-        } else {
-          vertexName =
-              stage0Scale == boost::none
-                  ? templateVertex(vertexNameUntemplated, stage0OutputType,
-                                   needSubwordWrites, *op)
-                  : templateVertex(vertexNameUntemplated, stage0OutputType,
-                                   stage0Scale->elementType(),
-                                   needSubwordWrites, *op);
-        }
+          if (needSubwordWrites) {
+            multiUpdateSubwordTiles.emplace_back(tile);
+          }
 
-        logging::popops::trace("generatePlannedMultiUpdateOp: "
-                               "Offsets {}/{} ({}); "
-                               "BaseIdx {}/{} ({}), "
-                               "SubIdx {}/{} ({}) "
-                               "for indices {},{},{} "
-                               "on tile {}",
-                               beginOffset, endOffset, unslicedDim,
-                               beginBaseIdx, endBaseIdx, baseSlicedDim,
-                               beginSubIdx, endSubIdx, subSlicedDim,
-                               lookupSplitIdx, s, u, tile);
+          std::string vertexName;
+          if (op == boost::none) {
+            vertexName =
+                templateVertex(vertexNameUntemplated, stage0OutputType);
+          } else {
+            vertexName =
+                stage0Scale == boost::none
+                    ? templateVertex(vertexNameUntemplated, stage0OutputType,
+                                     needSubwordWrites, *op)
+                    : templateVertex(vertexNameUntemplated, stage0OutputType,
+                                     stage0Scale->elementType(),
+                                     needSubwordWrites, *op);
+          }
 
-        const Tensor tileBase =
-            thisBase.slice(beginBaseIdx, endBaseIdx, baseSlicedDim)
-                .slice(beginOffset, endOffset, unslicedDim);
-        const Tensor tileSlice =
-            slicesInput.slice(beginSubIdx, endSubIdx, subSlicedDim)
-                .slice(beginOffset, endOffset, 1 + unslicedDim);
+          logging::popops::trace(
+              "generatePlannedMultiUpdateOp: "
+              "Group {}/{} ({}) "
+              "Offsets {}/{} ({}), "
+              "BaseIdx {}/{} ({}), "
+              "SubIdx {}/{} ({}) "
+              "for indices {},{},{},{} "
+              "on tile {}",
+              beginGroupIdx, endGroupIdx, 0, beginOffset, endOffset,
+              unslicedDim, beginBaseIdx, endBaseIdx, baseSlicedDim, beginSubIdx,
+              endSubIdx, subSlicedDim, g, lookupSplitIdx, s, u, tile);
 
-        if (multipleStages) {
-          // base tensor was distributed across `p.lookupSplit` groups
-          // so we must copy our input
-          graph.setTileMapping(tileBase, tile);
-        } else {
-          // Check that this vertex is mapped to the tile where the data lives
-          if (logging::popops::shouldLog(logging::Level::Warn)) {
-            const auto &m = graph.getTileMapping(tileBase);
-            if (m[tile].empty() ||
-                m[tile].begin()->size() != numBaseIndices * numOffsets) {
-              logging::popops::warn("Unexpected base tensor mapping for tile "
-                                    "{} in planned multiUpdate op",
-                                    tile);
+          const Tensor tileBase =
+              thisBase.slice(beginBaseIdx, endBaseIdx, baseSlicedDim)
+                  .slice(beginOffset, endOffset, unslicedDim);
+          const Tensor tileSlice =
+
+              slicesInput.slice(beginGroupIdx, endGroupIdx, 0)
+                  .slice(beginSubIdx, endSubIdx, subSlicedDim)
+                  .slice(beginOffset, endOffset, 1 + unslicedDim);
+          if (multipleStages) {
+            // base tensor was distributed across `p.lookupSplit` groups
+            // so we must copy our input
+            graph.setTileMapping(tileBase, tile);
+          } else {
+            // Check that this vertex is mapped to the tile where the data lives
+            if (logging::popops::shouldLog(logging::Level::Warn)) {
+              const auto &m = graph.getTileMapping(tileBase);
+              if (m[tile].empty() || m[tile].begin()->size() != numBaseIndices *
+                                                                    numOffsets *
+                                                                    numGroups) {
+                logging::popops::warn("Unexpected base tensor mapping for tile "
+                                      "{} in planned multiUpdate op",
+                                      tile);
+              }
             }
           }
+          generateMultiSliceVerticesOnTile(graph, csU, tile, tileBase, indices,
+                                           tileSlice, stage0Scale, vertexName,
+                                           true, baseSlicedDim, baseOffset, op,
+                                           plan.useIndicesOrderingInfo, {dnai});
         }
-        generateMultiSliceVerticesOnTile(graph, csU, tile, tileBase, indices,
-                                         tileSlice, stage0Scale, vertexName,
-                                         true, baseSlicedDim, baseOffset, op,
-                                         plan.useIndicesOrderingInfo, {dnai});
       }
     }
   }
@@ -1129,18 +1163,18 @@ static void generatePlannedMultiUpdateOp(
     // away once T15113 is done.
     std::vector<Tensor> stage0OutputReordered, cumulativeUpdateReordered;
     iterateTensorPartitions(
-        stage0Output, {1, slicedSplit, unslicedSplit},
+        stage0Output, {groupSplit, 1, slicedSplit, unslicedSplit},
         [&](const std::vector<std::size_t> &, const Tensor &s) {
-          stage0OutputReordered.emplace_back(s.flatten(1, 3));
+          stage0OutputReordered.emplace_back(s.flatten(2, 4));
         });
     iterateTensorPartitions(
-        cumulativeUpdate, {slicedSplit, unslicedSplit},
+        cumulativeUpdate, {groupSplit, slicedSplit, unslicedSplit},
         [&](const std::vector<std::size_t> &, const Tensor &s) {
-          cumulativeUpdateReordered.emplace_back(s.flatten());
+          cumulativeUpdateReordered.emplace_back(s.flatten(1, 3));
         });
 
-    reduceWithOutput(graph, concat(stage0OutputReordered, 1u),
-                     concat(cumulativeUpdateReordered), {0}, {*op}, seq,
+    reduceWithOutput(graph, concat(stage0OutputReordered, 2u),
+                     concat(cumulativeUpdateReordered, 1), {1}, {*op}, seq,
                      {dnai, "Reduce"});
 
     // Add the sum of the partials to the base tensor
@@ -1321,6 +1355,7 @@ static void validatePlanForGivenParameters(
     const SlicePlanInternal &p, const std::vector<std::size_t> &shape,
     const std::vector<std::size_t> &dims, const std::vector<std::size_t> &sizes,
     const std::string &callerDebugStr) {
+
   if (p.slicedDims != dims) {
     std::stringstream ss;
     ss << callerDebugStr
@@ -1342,6 +1377,7 @@ static void validatePlanForGivenParameters(
     ss << ")";
     throw poplibs_error(ss.str());
   }
+
   if (p.rank != shape.size()) {
     std::stringstream ss;
     ss << callerDebugStr
@@ -1569,6 +1605,7 @@ static Tensor createSliceableTensorGivenOrder(
 }
 
 static Tensor createSliceableTensor(Graph &graph, const Type &type,
+                                    const unsigned groupSize,
                                     const std::vector<std::size_t> &shape,
                                     const std::size_t slicedDim,
                                     const SlicePlanInternal &plan,
@@ -1597,8 +1634,10 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
       std::accumulate(unslicedShape.begin(), unslicedShape.end(),
                       std::size_t(1), std::multiplies<std::size_t>());
 
-  std::vector<std::size_t> createShape = {shape[slicedDim], totalUnslicedElems};
-  std::vector<std::size_t> createSplits = {plan.partition.slicedDimSplit,
+  std::vector<std::size_t> createShape = {groupSize, shape[slicedDim],
+                                          totalUnslicedElems};
+  std::vector<std::size_t> createSplits = {plan.partition.groupSplit,
+                                           plan.partition.slicedDimSplit,
                                            plan.partition.unslicedDimSplit};
 
   // Get 't' such that slice of 't' corresponding to each partition
@@ -1626,41 +1665,45 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
   iterateTensorPartitions(
       t, createSplits,
       [&](const std::vector<std::size_t> &i, const Tensor &tSlice) {
-        // We flatten all but the grain size from the plan and distribute this
+        // We keep the group as it is and flatten all
+        // We flatten all but grain size from the plan and distribute this
         // between tiles that use these elements.
-        const auto flattenedSlice = tSlice.flatten();
-        const auto sliceNumElems = flattenedSlice.numElements();
+        const auto flattenedSlice = tSlice.flatten(1, tSlice.rank());
 
+        const auto sliceNumElems = flattenedSlice.numElements() / tSlice.dim(0);
         const auto sliceNumGrains = ceildiv(sliceNumElems, extraGrainSize);
         const auto grainsPerSplit = ceildiv(sliceNumGrains, extraSplit);
         const auto elemsPerSplit = grainsPerSplit * extraGrainSize;
 
-        assert(i.size() == 2);
-        const std::size_t slicedIdx = i.front();
+        assert(i.size() == 3);
+        const std::size_t groupIdx = i.front();
+        const std::size_t slicedIdx = i.at(1);
         const std::size_t unslicedIdx = i.back();
 
         for (std::size_t indexIdx = 0; indexIdx < plan.partition.lookupSplit;
              ++indexIdx) {
           unsigned tile = linearizeSliceIndices(
-              plan.partition.lookupSplit, plan.partition.slicedDimSplit,
-              plan.partition.unslicedDimSplit, indexIdx, slicedIdx,
-              unslicedIdx);
+              plan.partition.groupSplit, plan.partition.lookupSplit,
+              plan.partition.slicedDimSplit, plan.partition.unslicedDimSplit,
+              groupIdx, indexIdx, slicedIdx, unslicedIdx);
           const auto begin = std::min(sliceNumElems, indexIdx * elemsPerSplit);
           const auto end =
               std::min(sliceNumElems, (indexIdx + 1) * elemsPerSplit);
-          graph.setTileMapping(flattenedSlice.slice(begin, end), tile);
+          graph.setTileMapping(flattenedSlice.slice(begin, end, 1), tile);
         }
       });
 
-  std::vector<unsigned> inversePermutation(shape.size());
-  inversePermutation[slicedDim] = 0;
+  // inverse permutation includes group size
+  std::vector<unsigned> inversePermutation(shape.size() + 1);
+  inversePermutation[slicedDim + 1] = 1;
+  inversePermutation[0] = 0;
 
-  // Unsliced dimensions (starting from dims.size() which is always 1).
+  // Unsliced dimensions (starting from dims.size() which is always 2)
   for (std::size_t d = 0; d < unslicedDims.size(); ++d) {
-    inversePermutation[unslicedDims[d]] = 1 + d;
+    inversePermutation[unslicedDims[d] + 1] = 2 + d;
   }
   // Give expected shape and order of dimensions to the returned tensor.
-  return t.reshapePartial(1, 2, unslicedShape).dimShuffle(inversePermutation);
+  return t.reshapePartial(2, 3, unslicedShape).dimShuffle(inversePermutation);
 }
 
 // Create and map a tensor so that dynamic slicing of it will not require
@@ -1720,7 +1763,42 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
   // more than a single slice.
   assert(dims.size() == 1);
   assert(sizes.size() == 1 && sizes[0] == 1);
-  auto output = createSliceableTensor(graph, type, shape, dims[0],
+  auto output = createSliceableTensor(graph, type, 1UL, shape, dims[0],
+                                      plan.getImpl(), options, {di});
+  // remove singleton group dimension
+  output = output.squeeze({0});
+  di.addOutput(output);
+  return output;
+}
+
+Tensor createGroupedSliceableTensor(
+    Graph &graph, const Type &type, const std::size_t groupSize,
+    const std::vector<std::size_t> &shape, const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &sizes, const SlicePlan &plan,
+    const OptionFlags &options, const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(type, groupSize, shape, dims, sizes, plan, options));
+
+  logging::popops::info("createGroupedSliceableTensor for {} / {} / {} / {}; "
+                        "nullplan ? {}",
+                        groupSize, shape, dims, sizes, plan.getImpl().isNull);
+  if (plan.getImpl().isNull) {
+    throw poputil::poplibs_error("Grouped sliceable tensor can only be created "
+                                 "with a plan");
+  }
+  if (plan.getImpl().groupSize != groupSize) {
+    throw poputil::poplibs_error("createGroupedSliceableTensor: group size "
+                                 "passed does not match the plan");
+  }
+  validateParams("createGroupedSliceableTensor", {}, {}, shape, boost::none,
+                 dims, sizes, true);
+  // For now we don't plan anything which slices more than one dimension or
+  // more than a single slice.
+  assert(dims.size() == 1);
+  assert(sizes.size() == 1 && sizes[0] == 1);
+  auto output = createSliceableTensor(graph, type, groupSize, shape, dims[0],
                                       plan.getImpl(), options, {di});
   di.addOutput(output);
   return output;
@@ -1762,13 +1840,12 @@ static Tensor createSliceTensor(Graph &graph, const poplar::Type &type,
       {dnai, std::string("slices") + std::to_string(numUpdates)});
 }
 
-static Tensor createSliceTensor(Graph &graph, const Type &type,
-                                const std::vector<std::size_t> &shape,
-                                const std::size_t slicedDim,
-                                const std::size_t numIndices,
-                                const SlicePlanInternal &plan,
-                                const OptionFlags &options,
-                                const DebugNameAndId &dnai) {
+static Tensor
+createSliceTensor(Graph &graph, const Type &type, const std::size_t groupSize,
+                  const std::vector<std::size_t> &shape,
+                  const std::size_t slicedDim, const std::size_t numIndices,
+                  const SlicePlanInternal &plan, const OptionFlags &options,
+                  const DebugNameAndId &dnai) {
   std::vector<bool> dimIsSliced(shape.size());
   dimIsSliced[slicedDim] = true;
 
@@ -1789,8 +1866,10 @@ static Tensor createSliceTensor(Graph &graph, const Type &type,
       unslicedDims.begin(), unslicedDims.end(), std::size_t(1),
       [&](std::size_t total, unsigned d) { return total * shape[d]; });
 
-  std::vector<std::size_t> createShape = {numIndices, 1, totalUnslicedElems};
-  std::vector<std::size_t> createSplits = {plan.partition.lookupSplit, 1,
+  std::vector<std::size_t> createShape = {groupSize, numIndices, 1,
+                                          totalUnslicedElems};
+  std::vector<std::size_t> createSplits = {plan.partition.groupSplit,
+                                           plan.partition.lookupSplit, 1,
                                            plan.partition.unslicedDimSplit};
 
   auto t =
@@ -1806,8 +1885,10 @@ static Tensor createSliceTensor(Graph &graph, const Type &type,
   iterateTensorPartitions(
       t, createSplits,
       [&](const std::vector<std::size_t> &i, const Tensor &tSlice) {
-        std::size_t indexIdx = i[0];
+        const auto groupIdx = i.front();
+        std::size_t indexIdx = i.at(1);
         const auto unslicedIdx = i.back();
+
         // If there is a split of the sliced dimension there is
         // also a second split of the indices in the second stage
         // of slicing which affects where the final output ends up
@@ -1815,28 +1896,31 @@ static Tensor createSliceTensor(Graph &graph, const Type &type,
         for (std::size_t s = 0; s < iSplitStage1; ++s) {
           const auto slicedIdx = s;
           const auto sBegin =
-              std::min(tSlice.dim(0), s * iElemsPerPartitionStage1);
+              std::min(tSlice.dim(1), s * iElemsPerPartitionStage1);
           const auto sEnd =
-              std::min(tSlice.dim(0), (s + 1) * iElemsPerPartitionStage1);
+              std::min(tSlice.dim(1), (s + 1) * iElemsPerPartitionStage1);
           unsigned tile = linearizeSliceIndices(
-              plan.partition.lookupSplit, plan.partition.slicedDimSplit,
-              plan.partition.unslicedDimSplit, indexIdx, slicedIdx,
-              unslicedIdx);
-          graph.setTileMapping(tSlice.slice(sBegin, sEnd, 0), tile);
+              plan.partition.groupSplit, plan.partition.lookupSplit,
+              plan.partition.slicedDimSplit, plan.partition.unslicedDimSplit,
+              groupIdx, indexIdx, slicedIdx, unslicedIdx);
+          graph.setTileMapping(tSlice.slice(sBegin, sEnd, 1), tile);
         }
       });
 
-  std::vector<unsigned> inversePermutation(shape.size() + 1);
+  std::vector<unsigned> inversePermutation(shape.size() + 2);
+  inversePermutation[1] = 1;
+
+  // Sliced dimensions (starting from 2)
+  inversePermutation[2 + slicedDim] = 2;
+
+  // Group dimension
   inversePermutation[0] = 0;
 
-  // Sliced dimensions (starting from 1)
-  inversePermutation[1 + slicedDim] = 1;
-
-  // Unsliced dimensions (starting from 1 + dims.size(), which is always 1)
+  // Unsliced dimensions (starting from 2 + dims.size())
   for (std::size_t i = 0; i < unslicedDims.size(); ++i) {
-    inversePermutation[1 + unslicedDims[i]] = 2 + i;
+    inversePermutation[2 + unslicedDims[i]] = 3 + i;
   }
-  t = t.reshapePartial(2, 3, unslicedShape).dimShuffle(inversePermutation);
+  t = t.reshapePartial(3, 4, unslicedShape).dimShuffle(inversePermutation);
   return t;
 }
 
@@ -1863,8 +1947,43 @@ Tensor createSliceTensor(Graph &graph, const Type &type,
     // more than a single slice.
     assert(dims.size() == 1);
     assert(sizes.size() == 1 && sizes[0] == 1);
-    output = createSliceTensor(graph, type, shape, dims[0], numIndices, p,
+    output = createSliceTensor(graph, type, 1UL, shape, dims[0], numIndices, p,
                                options, {di});
+    // remove group dimension
+    output = output.squeeze({0});
+  }
+  di.addOutput(output);
+  return output;
+}
+
+Tensor createGroupedSliceTensor(
+    Graph &graph, const Type &type, const std::size_t groupSize,
+    const std::vector<std::size_t> &shape, const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &sizes, const std::size_t numIndices,
+    const SlicePlan &plan, const OptionFlags &options,
+    const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(type, groupSize, shape, dims, sizes, numIndices, plan, options));
+  validateParams("createGroupedSliceTensor", plan, options, shape, {}, dims,
+                 sizes, false);
+  const auto &p = plan.getImpl();
+  Tensor output;
+  if (p.isNull) {
+    throw poputil::poplibs_error("createGroupedSliceTensor only creates tensor "
+                                 " with a valid plan");
+  } else {
+    if (plan.getImpl().groupSize != groupSize) {
+      throw poputil::poplibs_error("createGroupedSliceTensor: group size "
+                                   "passed does not match the plan");
+    }
+    // We don't plan anything which slices more than one dimension for now or
+    // more than a single slice.
+    assert(dims.size() == 1);
+    assert(sizes.size() == 1 && sizes[0] == 1);
+    output = createSliceTensor(graph, type, groupSize, shape, dims[0],
+                               numIndices, p, options, {di});
   }
   di.addOutput(output);
   return output;
@@ -1902,18 +2021,41 @@ Tensor createSliceTensor(Graph &graph, const Tensor &t,
   return output;
 }
 
-poplar::Tensor createIndicesTensor(Graph &graph,
-                                   const std::vector<std::size_t> &dims,
-                                   const std::size_t numIndices,
-                                   const SlicePlan & /* plan */,
-                                   const OptionFlags & /* options */,
-                                   const poplar::DebugContext &debugContext) {
+Tensor createIndicesTensor(Graph &graph, const std::vector<std::size_t> &dims,
+                           const std::size_t numIndices,
+                           const SlicePlan & /* plan */,
+                           const OptionFlags & /* options */,
+                           const poplar::DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(dims, numIndices));
 
   logging::popops::info("createIndicesTensor for {} / {}", numIndices, dims);
   const auto indices =
       graph.addVariable(UNSIGNED_INT, {numIndices, dims.size()}, {di});
+  mapTensorLinearly(graph, indices, minIndicesPerTile, 1);
+  di.addOutput(indices);
+  return indices;
+}
+
+Tensor createGroupedIndicesTensor(Graph &graph, const std::size_t groupSize,
+                                  const std::vector<std::size_t> &dims,
+                                  const std::size_t numIndices,
+                                  const SlicePlan &plan,
+                                  const OptionFlags & /* options */,
+                                  const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(groupSize, dims, numIndices));
+
+  logging::popops::info("createGroupedIndicesTensor for {} / {} / {}",
+                        groupSize, numIndices, dims);
+
+  if (plan.getImpl().groupSize != groupSize) {
+    throw poputil::poplibs_error("createGroupedSliceTensor: group size "
+                                 "passed does not match the plan");
+  }
+  const auto indices = graph.addVariable(
+      UNSIGNED_INT, {groupSize, numIndices, dims.size()}, {di});
   mapTensorLinearly(graph, indices, minIndicesPerTile, 1);
   di.addOutput(indices);
   return indices;
@@ -2160,7 +2302,8 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
   }
 }
 
-// Implementation of multiSlice with a non-null plan
+// Implementation of multiSlice with a non-null plan. Both offset, base and
+// slice have the same dimensions
 static void multiSlicePlanned(Graph &graph, const Tensor &t,
                               const Tensor &offset, const Tensor &slice,
                               const std::vector<std::size_t> &dims,
@@ -2169,23 +2312,29 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
                               const OptionFlags &optionFlags,
                               const DebugNameAndId &dnai) {
   assert(!p.isNull);
-  assert(offset.rank() == 2);
-  assert(offset.dim(1) == 1);
+  assert(offset.rank() == 3);
+  assert(offset.dim(2) == 1);
   assert(dims.size() == 1);
   assert(sizes.size() == dims.size());
-  assert(t.rank() == 2);
+  assert(t.rank() == 3);
   assert(slice.rank() == t.rank() + 1);
+  assert(t.dim(0) == offset.dim(0));
+  assert(t.dim(0) == slice.dim(0));
 
-  const auto slicedDim = dims[0];
-  const auto unslicedDim = slicedDim ^ 1;
+  // first dimension is group
+  const auto slicedDim = 1 + dims[0];
+  const auto unslicedDim = 1 + (dims[0] ^ 1);
 
   const auto iSplit = p.partition.lookupSplit;
   const auto sSplit = p.partition.slicedDimSplit;
   const auto hSplit = p.partition.unslicedDimSplit;
+  const auto gSplit = p.partition.groupSplit;
   const auto options = parseSliceOptions(optionFlags);
 
-  const auto iTotalElems = offset.dim(0);
-  const auto iElemsPerPartition = ceildiv(offset.dim(0), iSplit);
+  const auto gTotalElems = offset.dim(0);
+  const auto gElemsPerPartition = ceildiv(gTotalElems, gSplit);
+  const auto iTotalElems = offset.dim(1);
+  const auto iElemsPerPartition = ceildiv(iTotalElems, iSplit);
   const auto sTotalElems = t.dim(slicedDim);
   const auto sElemsPerPartition = ceildiv(sTotalElems, sSplit);
   const auto hTotalElems = t.dim(unslicedDim);
@@ -2196,61 +2345,79 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
   // given output tensor.
   const Tensor stage0Slice = [&] {
     if (sSplit > 1) {
-      auto shape = t.shape();
+      // exclude group
+      auto shape = t[0].shape();
       shape[dims[0]] = sizes[0];
       shape.insert(shape.begin(), iTotalElems);
       shape.insert(shape.begin(), sSplit);
+      shape.insert(shape.begin(), gTotalElems);
       std::vector<std::size_t> nPartitions(shape.size(), 1);
-      nPartitions[0] = sSplit;
-      nPartitions[1] = iSplit;
+      nPartitions[0] = gSplit;
+      nPartitions[1] = sSplit;
+      nPartitions[2] = iSplit;
       nPartitions.back() = hSplit;
       return createPartitionableTensor(graph, t.elementType(), shape,
                                        nPartitions, {dnai, "stage0Output"});
     }
-    return slice.expand({0});
+    return slice.expand({1});
   }();
 
   const std::string vertexClass =
       templateVertex("popops::MultiSlice", t.elementType());
   const auto cs1 = graph.addComputeSet({dnai, "stage0"});
-  for (std::size_t i = 0; i < iSplit; ++i) {
-    const auto iBegin = std::min(iTotalElems, i * iElemsPerPartition);
-    const auto iEnd = std::min(iTotalElems, (i + 1) * iElemsPerPartition);
-    if (iEnd - iBegin == 0) {
+
+  for (std::size_t g = 0; g != gSplit; ++g) {
+    const auto gBegin = std::min(gTotalElems, g * gElemsPerPartition);
+    const auto gEnd = std::min(gTotalElems, (g + 1) * gElemsPerPartition);
+    if (gBegin - gEnd == 0) {
       break;
     }
-    const Tensor iSplitByI = offset.slice(iBegin, iEnd, 0);
-    const Tensor sSplitByI = stage0Slice.slice(iBegin, iEnd, 1);
-    for (std::size_t s = 0; s < sSplit; ++s) {
-      const auto sBegin = std::min(sTotalElems, s * sElemsPerPartition);
-      const auto sEnd = std::min(sTotalElems, (s + 1) * sElemsPerPartition);
-      if (sEnd - sBegin == 0) {
+    const Tensor iSplitByG = offset.slice(gBegin, gEnd, 0);
+    const Tensor sSplitByG = stage0Slice.slice(gBegin, gEnd, 0);
+
+    for (std::size_t i = 0; i < iSplit; ++i) {
+      const auto iBegin = std::min(iTotalElems, i * iElemsPerPartition);
+      const auto iEnd = std::min(iTotalElems, (i + 1) * iElemsPerPartition);
+      if (iEnd - iBegin == 0) {
         break;
       }
-      const Tensor tSplitByS = t.slice(sBegin, sEnd, slicedDim);
-      const Tensor sSplitByS = sSplitByI.slice(s, s + 1, 0).squeeze({0});
-      boost::optional<unsigned> baseOffset;
-      if (sSplit > 1) {
-        baseOffset = sBegin;
-      }
 
-      for (std::size_t h = 0; h < hSplit; ++h) {
-        unsigned tile = linearizeSliceIndices(
-            p.partition.lookupSplit, p.partition.slicedDimSplit,
-            p.partition.unslicedDimSplit, i, s, h);
-        const auto hBegin = std::min(hTotalElems, h * hElemsPerPartition);
-        const auto hEnd = std::min(hTotalElems, (h + 1) * hElemsPerPartition);
-        if (hEnd - hBegin == 0) {
+      const Tensor iSplitByI = iSplitByG.slice(iBegin, iEnd, 1);
+      const Tensor sSplitByI = sSplitByG.slice(iBegin, iEnd, 2);
+
+      for (std::size_t s = 0; s < sSplit; ++s) {
+        const auto sBegin = std::min(sTotalElems, s * sElemsPerPartition);
+        const auto sEnd = std::min(sTotalElems, (s + 1) * sElemsPerPartition);
+        if (sEnd - sBegin == 0) {
           break;
         }
-        const Tensor indices = iSplitByI.squeeze({1});
-        const Tensor input = tSplitByS.slice(hBegin, hEnd, unslicedDim);
-        const Tensor output = sSplitByS.slice(hBegin, hEnd, 1 + unslicedDim);
-        graph.setTileMapping(output, tile);
-        generateMultiSliceVerticesOnTile(
-            graph, cs1, tile, input, indices, output, boost::none, vertexClass,
-            false, slicedDim, baseOffset, boost::none, options.indicesAreSorted,
-            {dnai});
+        const Tensor tSplitByG = t.slice(gBegin, gEnd, 0);
+        const Tensor tSplitByS = tSplitByG.slice(sBegin, sEnd, slicedDim);
+        const Tensor sSplitByS = sSplitByI.slice(s, s + 1, 1).squeeze({1});
+        boost::optional<unsigned> baseOffset;
+        if (sSplit > 1) {
+          baseOffset = sBegin;
+        }
+
+        for (std::size_t h = 0; h < hSplit; ++h) {
+          unsigned tile = linearizeSliceIndices(
+              p.partition.groupSplit, p.partition.lookupSplit,
+              p.partition.slicedDimSplit, p.partition.unslicedDimSplit, g, i, s,
+              h);
+          const auto hBegin = std::min(hTotalElems, h * hElemsPerPartition);
+          const auto hEnd = std::min(hTotalElems, (h + 1) * hElemsPerPartition);
+          if (hEnd - hBegin == 0) {
+            break;
+          }
+          const Tensor indices = iSplitByI.squeeze({2});
+          const Tensor input = tSplitByS.slice(hBegin, hEnd, unslicedDim);
+          const Tensor output = sSplitByS.slice(hBegin, hEnd, 1 + unslicedDim);
+          graph.setTileMapping(output, tile);
+          generateMultiSliceVerticesOnTile(
+              graph, cs1, tile, input, indices, output, boost::none,
+              vertexClass, false, slicedDim, baseOffset, boost::none,
+              options.indicesAreSorted, {dnai});
+        }
       }
     }
   }
@@ -2300,13 +2467,15 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
       // on each tile and hence is just an ascending sequence of integers.
       const Tensor innerIdx = [&] {
         Tensor t =
-            graph.clone(offset.slice(0, iElemsPerPartitionStage1), {dnai});
+            graph.clone(offset[0].slice(0, iElemsPerPartitionStage1), {dnai});
         iota(graph, t.squeeze({1}), 0u, prog, {dnai});
         t = t.broadcast(iSplitStage1, 0)
                 .slice(0, iElemsPerPartition)
                 .broadcast(iSplit, 0)
                 .slice(0, iTotalElems);
-        return t;
+        // add group dimension
+        t = t.expand({0});
+        return t.broadcast(gTotalElems, 0);
       }();
 
       // innerElems represents the number of indices this partition processes.
@@ -2360,15 +2529,16 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
         graph.setTileMapping(tCeil0AndRem1, 0);
         graph.setTileMapping(tRem0And1, 0);
 
-        return concat(
-                   // Evenly split part
-                   concat(tCeil0And1.broadcast(nCeil0And1, 0),
-                          tCeil0AndRem1.broadcast(nCeil0AndRem1, 0), 0)
-                       .broadcast(nCeil0, 0),
-                   // Remainder
-                   concat(tCeil0And1.broadcast(nRem0AndCeil1, 0),
-                          tRem0And1.broadcast(nRem0And1, 0), 0))
-            .expand({1});
+        auto t = concat(
+                     // Evenly split part
+                     concat(tCeil0And1.broadcast(nCeil0And1, 0),
+                            tCeil0AndRem1.broadcast(nCeil0AndRem1, 0), 0)
+                         .broadcast(nCeil0, 0),
+                     // Remainder
+                     concat(tCeil0And1.broadcast(nRem0AndCeil1, 0),
+                            tRem0And1.broadcast(nRem0And1, 0), 0))
+                     .expand({1});
+        return t.expand({0}).broadcast(gTotalElems, 0);
       }();
 
       using namespace expr;
@@ -2377,44 +2547,57 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
                  {dnai, "adjustedIndicesStage1"});
     }();
 
-    for (std::size_t i = 0; i < iSplit; ++i) {
-      const auto iBegin = std::min(iTotalElems, i * iElemsPerPartition);
-      const auto iEnd = std::min(iTotalElems, (i + 1) * iElemsPerPartition);
-      if (iEnd - iBegin == 0) {
+    for (std::size_t g = 0; g != gSplit; ++g) {
+      const auto gBegin = std::min(gTotalElems, g * gElemsPerPartition);
+      const auto gEnd = std::min(gTotalElems, (g + 1) * gElemsPerPartition);
+      if (gEnd - gBegin == 0) {
         break;
       }
-      const Tensor iSplitByI = transformedOffset.slice(iBegin, iEnd, 0);
-      const Tensor tSplitByI = stage0Slice.slice(iBegin, iEnd, 1);
-      const Tensor sSplitByI = slice.slice(iBegin, iEnd, 0);
-      for (std::size_t s = 0; s < iSplitStage1; ++s) {
-        const auto sBegin =
-            std::min(iEnd - iBegin, s * iElemsPerPartitionStage1);
-        const auto sEnd =
-            std::min(iEnd - iBegin, (s + 1) * iElemsPerPartitionStage1);
-        if (sEnd - sBegin == 0) {
+      const Tensor iSplitByG = transformedOffset.slice(gBegin, gEnd, 0);
+      const Tensor tSplitByG = stage0Slice.slice(gBegin, gEnd, 0);
+      const Tensor sSplitByG = slice.slice(gBegin, gEnd, 0);
+
+      for (std::size_t i = 0; i < iSplit; ++i) {
+        const auto iBegin = std::min(iTotalElems, i * iElemsPerPartition);
+        const auto iEnd = std::min(iTotalElems, (i + 1) * iElemsPerPartition);
+        if (iEnd - iBegin == 0) {
           break;
         }
-        const Tensor iSplitByS = iSplitByI.slice(sBegin, sEnd, 0);
-        const Tensor tSplitByS = tSplitByI.slice(sBegin, sEnd, 1)
-                                     .flatten(2, tSplitByI.rank())
-                                     .flatten(0, 2);
-        const Tensor sSplitByS =
-            sSplitByI.slice(sBegin, sEnd, 0).flatten(2, sSplitByI.rank());
-        for (std::size_t h = 0; h < hSplit; ++h) {
-          const auto hBegin = std::min(hTotalElems, h * hElemsPerPartition);
-          const auto hEnd = std::min(hTotalElems, (h + 1) * hElemsPerPartition);
-          if (hEnd - hBegin == 0) {
+        const Tensor iSplitByI = iSplitByG.slice(iBegin, iEnd, 1);
+        const Tensor tSplitByI = tSplitByG.slice(iBegin, iEnd, 2);
+        const Tensor sSplitByI = sSplitByG.slice(iBegin, iEnd, 1);
+        for (std::size_t s = 0; s < iSplitStage1; ++s) {
+          const auto sBegin =
+              std::min(iEnd - iBegin, s * iElemsPerPartitionStage1);
+          const auto sEnd =
+              std::min(iEnd - iBegin, (s + 1) * iElemsPerPartitionStage1);
+          if (sEnd - sBegin == 0) {
             break;
           }
-          unsigned tile = linearizeSliceIndices(
-              p.partition.lookupSplit, p.partition.slicedDimSplit,
-              p.partition.unslicedDimSplit, i, s, h);
-          const Tensor indices = iSplitByS.squeeze({1});
-          const Tensor input = tSplitByS.slice(hBegin, hEnd, 1);
-          const Tensor output = sSplitByS.slice(hBegin, hEnd, 2);
-          generateMultiSliceVerticesOnTile(
-              graph, cs2, tile, input, indices, output, boost::none,
-              vertexClass, false, slicedDim, 0, boost::none, false, {dnai});
+          const Tensor iSplitByS = iSplitByI.slice(sBegin, sEnd, 1);
+          const Tensor tSplitByS = tSplitByI.slice(sBegin, sEnd, 2)
+                                       .flatten(3, tSplitByI.rank())
+                                       .flatten(1, 3);
+          const Tensor sSplitByS =
+              sSplitByI.slice(sBegin, sEnd, 1).flatten(3, sSplitByI.rank());
+          for (std::size_t h = 0; h < hSplit; ++h) {
+            const auto hBegin = std::min(hTotalElems, h * hElemsPerPartition);
+            const auto hEnd =
+                std::min(hTotalElems, (h + 1) * hElemsPerPartition);
+            if (hEnd - hBegin == 0) {
+              break;
+            }
+            unsigned tile = linearizeSliceIndices(
+                p.partition.groupSplit, p.partition.lookupSplit,
+                p.partition.slicedDimSplit, p.partition.unslicedDimSplit, g, i,
+                s, h);
+            const Tensor indices = iSplitByS.squeeze({2});
+            const Tensor input = tSplitByS.slice(hBegin, hEnd, 2);
+            const Tensor output = sSplitByS.slice(hBegin, hEnd, 3);
+            generateMultiSliceVerticesOnTile(
+                graph, cs2, tile, input, indices, output, boost::none,
+                vertexClass, false, slicedDim, 0, boost::none, false, {dnai});
+          }
         }
       }
     }
@@ -2429,9 +2612,11 @@ regroupBaseTensor(Graph &graph, std::vector<Copy> &preCopies, ComputeSet &cs,
                   const std::vector<std::size_t> &sliceSizes,
                   const SlicePlan &plan, const OptionFlags &options,
                   const DebugNameAndId &dnai) {
-  auto base =
-      createSliceableTensor(graph, t.elementType(), t.shape(), sliceDims,
-                            sliceSizes, plan, options, {dnai, "base"});
+  const auto baseShape = t[0].shape();
+
+  auto base = createGroupedSliceableTensor(graph, t.elementType(), t.dim(0),
+                                           baseShape, sliceDims, sliceSizes,
+                                           plan, options, {dnai, "base"});
 
   boost::optional<Tensor> tRegrouped;
   // explicity check if mapping is different if copy merging in poplar
@@ -2470,9 +2655,9 @@ static Tensor regroupSliceTensor(Graph &graph, std::vector<Copy> &preCopies,
                                  const SlicePlan &plan,
                                  const OptionFlags &options,
                                  const DebugNameAndId &dnai) {
-  auto slice =
-      createSliceTensor(graph, s.elementType(), t.shape(), sliceDims,
-                        sliceSizes, numIndices, plan, options, {dnai, "slice"});
+  auto slice = createGroupedSliceTensor(
+      graph, s.elementType(), t.dim(0), t[0].shape(), sliceDims, sliceSizes,
+      numIndices, plan, options, {dnai, "slice"});
 
   auto sRearranged = rearrange::regroupIfBeneficial(
       graph, s, slice, preCopies, cs, {dnai, "PreRegroupSlice"});
@@ -2499,67 +2684,78 @@ static void addPreRegroupProgs(Sequence &prog,
   }
 }
 
-Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
-                  const std::vector<std::size_t> &dims,
-                  const std::vector<std::size_t> &sizes, Sequence &prog,
-                  const SlicePlan &plan, const OptionFlags &optionFlags,
-                  const poplar::DebugContext &debugContext) {
-  POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(
-      debugContext, DI_ARGS(t, offset, dims, sizes, plan, optionFlags));
+static void validateMultiSlice(const Tensor &t, const Tensor &offset,
+                               const std::vector<std::size_t> &dims,
+                               const std::vector<std::size_t> &sizes,
+                               const bool grouped, const SlicePlan &plan,
+                               const OptionFlags &optionFlags) {
+  const std::string dName = grouped ? "groupedMultiSlice" : "multiSlice";
+  const auto rank = grouped + 2UL;
 
-  // small number of slices are instantiated individually
-  // large number of slices are sliced by a specialisation or in a loop
-  std::string dName = "multiSlice";
-
-  // Check the offsets have been specified with a multi-slice dimension
-  if (offset.rank() != 2)
+  if (offset.rank() != rank) {
     throw poputil::poplibs_error(
-        "multiSlice expects offset.rank() == 2 but it is" +
-        std::to_string(offset.rank()));
-  if (offset.dim(1) != dims.size())
-    throw poputil::poplibs_error(
-        "multiSlice expects offset.dim(1) == dims.size(); offset.dim(1)==" +
-        std::to_string(offset.dim(1)) +
-        ", dims.size()== " + std::to_string(dims.size()));
-  validateParams("multiSlice", plan, optionFlags, t.shape(), offset[0], dims,
-                 sizes);
+        dName + " expects offset.rank() == " + std::to_string(rank) +
+        " but it is " + std::to_string(offset.rank()));
+  }
 
+  if (offset.dim(grouped + 1) != dims.size()) {
+    throw poputil::poplibs_error(
+        dName + " expects offset.dim(" + std::to_string(1 + grouped) +
+        ") == dims.size(); but " + std::to_string(offset.dim(1 + grouped)) +
+        " != " + std::to_string(dims.size()));
+  }
+
+  validateParams(dName, plan, optionFlags, grouped ? t[0].shape() : t.shape(),
+                 grouped ? offset[0][0] : offset[0], dims, sizes);
+}
+
+static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
+                                 const Tensor &offset_,
+                                 const std::vector<std::size_t> &dims,
+                                 const std::vector<std::size_t> &sizes,
+                                 Sequence &prog, const SlicePlan &plan,
+                                 const OptionFlags &optionFlags,
+                                 const DebugNameAndId &dnai) {
   // We always map the output in the same way to avoid surprising changes when
   // the number of slices changes
   Tensor sMulti;
   if (plan.getImpl().isNull) {
-    sMulti =
-        createSliceTensor(graph, t, dims, sizes, offset.dim(0), {di, dName});
+    sMulti = createSliceTensor(graph, t_.squeeze({0}), dims, sizes,
+                               offset_.dim(1), {dnai});
   } else {
-    sMulti = createSliceTensor(graph, t.elementType(), t.shape(), dims, sizes,
-                               offset.dim(0), plan, optionFlags, {di, dName});
+    sMulti = createGroupedSliceTensor(
+        graph, t_.elementType(), t_.dim(0), t_[0].shape(), dims, sizes,
+        offset_.dim(1), plan, optionFlags, {dnai});
   }
 
-  logging::popops::info("multiSlice {} -> {}, name={}, nullplan?={}", t.shape(),
-                        sMulti.shape(), debugContext.getPathName(),
-                        plan.getImpl().isNull);
+  logging::popops::info("name {} : {} -> {}, nullplan?={}", dnai.getPathName(),
+                        t_.shape(), sMulti.shape(), plan.getImpl().isNull);
 
   const auto options = parseSliceOptions(optionFlags);
   if (options.validateIndices)
-    addIndexValidation(graph, prog, offset, t.dim(0), {di, "validateIndices"});
+    addIndexValidation(graph, prog, offset_.flatten(0, 2), t_.dim(1),
+                       {dnai, "validateIndices"});
 
   if (!plan.getImpl().isNull) {
     std::vector<Copy> preCopies;
-    auto transposeCS = graph.addComputeSet({di, dName + "/preRegroup"});
+    auto transposeCS = graph.addComputeSet({dnai, "preRegroup"});
 
     auto [tRegroupedPre, base] =
-        regroupBaseTensor(graph, preCopies, transposeCS, t, dims, sizes, plan,
-                          optionFlags, {di, dName});
+        regroupBaseTensor(graph, preCopies, transposeCS, t_, dims, sizes, plan,
+                          optionFlags, {dnai});
 
     addPreRegroupProgs(prog, preCopies, transposeCS, tRegroupedPre, base,
-                       {di, dName});
+                       {dnai});
 
-    multiSlicePlanned(graph, tRegroupedPre ? base : t, offset, sMulti, dims,
-                      sizes, prog, plan.getImpl(), optionFlags, {di, dName});
-    di.addOutput(sMulti);
+    multiSlicePlanned(graph, tRegroupedPre ? base : t_, offset_, sMulti, dims,
+                      sizes, prog, plan.getImpl(), optionFlags, {dnai});
     return sMulti;
   }
+
+  // sequeeze out first dimensions as there's no group dimension for unplanned
+  // multi-slice
+  auto t = t_.squeeze({0});
+  auto offset = offset_.squeeze({0});
 
   // When there are only a few slices the looping code can be larger than
   // instantiating multiple vertices
@@ -2567,10 +2763,9 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   if (offset.dim(0) <= inliningThreshold) {
     for (unsigned slice = 0; slice != offset.dim(0); ++slice) {
       auto s = dynamicSlice(graph, t, offset[slice], dims, sizes, prog,
-                            {di, dName + "/" + std::to_string(slice)});
-      prog.add(Copy(s, sMulti[slice], false, {di}));
+                            {dnai, std::to_string(slice)});
+      prog.add(Copy(s, sMulti[slice], false, {dnai}));
     }
-    di.addOutput(sMulti);
     return sMulti;
   }
 
@@ -2580,30 +2775,97 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiSlice", false, boost::none, graph,
                                prog, offset, t, sMulti, boost::none, dims[0],
-                               boost::none, optionFlags, {di, dName});
-    di.addOutput(sMulti);
+                               boost::none, optionFlags, {dnai});
     return sMulti;
   }
 
   // looping case
+  prog.add(popops::countedLoop(graph, offset.dim(0),
+                               [&](poplar::Tensor sIdx) {
+                                 Sequence body({}, {dnai});
+                                 auto tIdx =
+                                     dynamicSlice(graph, offset, sIdx, {0}, {1},
+                                                  body, {dnai, "sliceIndex"})
+                                         .squeeze({0});
 
-  prog.add(popops::countedLoop(
-      graph, offset.dim(0),
-      [&](poplar::Tensor sIdx) {
-        Sequence body({}, {di});
-        auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
-                                 {di, dName + "/sliceIndex"})
-                        .squeeze({0});
+                                 auto sI =
+                                     dynamicSlice(graph, t, tIdx, dims, sizes,
+                                                  body, {dnai, "slice"})
+                                         .expand({0});
+                                 dynamicUpdate(graph, sMulti, sI, sIdx, {0},
+                                               {1}, body, {dnai, "update"});
+                                 return body;
+                               },
+                               {dnai, "loop"}));
 
-        auto sI = dynamicSlice(graph, t, tIdx, dims, sizes, body,
-                               {di, dName + "/slice"})
-                      .expand({0});
-        dynamicUpdate(graph, sMulti, sI, sIdx, {0}, {1}, body,
-                      {di, dName + "/update"});
-        return body;
-      },
-      {di, dName + "/loop"}));
+  return sMulti;
+}
 
+static void validateGroupDims(const std::vector<Tensor> &t,
+                              const std::vector<std::string> &names,
+                              const DebugNameAndId &dnai) {
+  assert(t.size() == names.size());
+  if (t.size() == 0) {
+    return;
+  }
+
+  const auto groupSize = t.at(0).dim(0);
+  for (std::size_t i = 1UL; i < t.size(); ++i) {
+    if (t[i].dim(0) != groupSize) {
+      throw poplibs_error(dnai.getPathName() + ": Group dimension of " +
+                          names[0] + " does not match " + names[i]);
+    }
+  }
+  if (groupSize == 0) {
+    throw poplibs_error(dnai.getPathName() + ": Group size of 0 is not "
+                                             "supported");
+  }
+}
+
+Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
+                  const std::vector<std::size_t> &dims,
+                  const std::vector<std::size_t> &sizes, Sequence &prog,
+                  const SlicePlan &plan, const OptionFlags &optionFlags,
+                  const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(t, offset, dims, sizes, plan, optionFlags));
+  validateMultiSlice(t, offset, dims, sizes, false, plan, optionFlags);
+  // Internal multi-slice needs a group dimension. Add singleton dimensions
+  // to both base and offset tensors.
+  auto sMulti =
+      multiSliceInternal(graph, t.expand({0}), offset.expand({0}), dims, sizes,
+                         prog, plan, optionFlags, {di, "multiSlice"});
+
+  // Only planned version returns tensor with a grouped dimension
+  if (!plan.getImpl().isNull) {
+    sMulti = sMulti.squeeze({0});
+  }
+  di.addOutput(sMulti);
+  return sMulti;
+}
+
+Tensor groupedMultiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
+                         const std::vector<std::size_t> &dims,
+                         const std::vector<std::size_t> &sizes, Sequence &prog,
+                         const SlicePlan &plan, const OptionFlags &optionFlags,
+                         const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(t, offset, dims, sizes, plan, optionFlags));
+  if (plan.getImpl().isNull) {
+    throw poputil::poplibs_error("groupedMultiSlice only supported with "
+                                 "valid plans");
+  }
+
+  if (plan.getImpl().groupSize != t.dim(0)) {
+    throw poputil::poplibs_error("groupedMultiSlice: group size "
+                                 "passed does not match the plan");
+  }
+  validateGroupDims({t, offset}, {"base", "offset"}, {di, "groupedMultiSlice"});
+  validateMultiSlice(t, offset, dims, sizes, true, plan, optionFlags);
+  auto sMulti = multiSliceInternal(graph, t, offset, dims, sizes, prog, plan,
+                                   optionFlags, {di, "groupedMultiSlice"});
   di.addOutput(sMulti);
   return sMulti;
 }
@@ -2652,33 +2914,37 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
                           const std::vector<std::size_t> &dims,
                           const std::vector<std::size_t> &sizes, Sequence &prog,
                           const SlicePlan &plan, boost::optional<Operation> op,
-                          const OptionFlags &optionFlags,
+                          const bool grouped, const OptionFlags &optionFlags,
                           const DebugNameAndId &dnai) {
   const std::string opName = op == boost::none ? "" : asString(*op);
-  const std::string multiUpdateName = "multiUpdate" + opName;
+  const std::string multiUpdateName =
+      (grouped ? "groupedMultiUpdate" : "multiUpdate") + opName;
   logging::popops::info(multiUpdateName + " {} into {}, name={}, nullplan={}",
                         sMulti.shape(), t.shape(), dnai.getPathName(),
                         plan.getImpl().isNull);
-  // Check the offsets have been specified with a multi-slice dimension
-  if (offset.rank() != 2)
-    throw poputil::poplibs_error(multiUpdateName +
-                                 " expects offset.rank() == 2 but it is" +
-                                 std::to_string(offset.rank()));
-  if (offset.dim(1) != dims.size())
-    throw poputil::poplibs_error(
-        multiUpdateName +
-        " expects offset.dim(1) == dims.size(); offset.dim(1)==" +
-        std::to_string(offset.dim(1)) +
-        ", dims.size()== " + std::to_string(dims.size()));
-  validateParams(multiUpdateName, plan, optionFlags, t.shape(), offset[0], dims,
-                 sizes);
+  const std::string rankStr = std::to_string(2 + grouped);
+  const std::string offsetDimStr = std::to_string(1 + grouped);
 
-  if (t.rank() != 2 || dims.size() != 1 || offset.rank() != 2 ||
-      offset.dim(1) != 1)
+  // Check the offsets have been specified with a multi-slice dimension
+  if (offset.rank() != 3)
     throw poputil::poplibs_error(
-        multiUpdateName +
-        " requires t to have 2 dimensions and dims to specify "
-        "1 dimension");
+        multiUpdateName + " expects offset.rank() == " + rankStr +
+        " but it is" + std::to_string(offset.rank() - !grouped));
+  if (offset.dim(2) != dims.size())
+    throw poputil::poplibs_error(
+        multiUpdateName + " expects offset.dim(" + offsetDimStr +
+        ") == dims.size(); offset.dim(" + offsetDimStr +
+        ") ==" + std::to_string(offset.dim(1 + grouped)) +
+        ", dims.size() == " + std::to_string(dims.size()));
+  validateParams(multiUpdateName, plan, optionFlags, t[0].shape(), offset[0][0],
+                 dims, sizes);
+
+  if (t.rank() != 3 || dims.size() != 1 || offset.rank() != 3 ||
+      offset.dim(2) != 1)
+    throw poputil::poplibs_error(multiUpdateName + " requires t to have " +
+                                 rankStr +
+                                 " dimensions and dims to specify "
+                                 "1 dimension");
   if (t.elementType() != sMulti.elementType())
     throw poputil::poplibs_error(multiUpdateName +
                                  " expects t, sMulti to have the same type");
@@ -2695,12 +2961,13 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
   }
   const auto options = parseSliceOptions(optionFlags);
   if (options.validateIndices)
-    addIndexValidation(graph, prog, offset, t.dim(0),
+    addIndexValidation(graph, prog, offset.flatten(0, 2), t.dim(1),
                        {dnai, "validateIndices"});
   if (plan.getImpl().isNull) {
-    generateMultiSliceVertices(vertexName, true, op, graph, prog, offset, t,
-                               sMulti, scale, dims[0], boost::none, optionFlags,
-                               {dnai, multiUpdateName});
+    generateMultiSliceVertices(vertexName, true, op, graph, prog,
+                               offset.squeeze({0}), t.squeeze({0}),
+                               sMulti.squeeze({0}), scale, dims[0], boost::none,
+                               optionFlags, {dnai, multiUpdateName});
   } else {
 
     // The input base tensor may not have a layout that is good for efficient
@@ -2725,7 +2992,7 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
         regroupBaseTensor(graph, preTranspose, transposeCS, t, dims, sizes,
                           plan, optionFlags, {dnai, multiUpdateName});
     auto sRearranged = regroupSliceTensor(
-        graph, preTranspose, transposeCS, t, sMulti, offset.dim(0), dims, sizes,
+        graph, preTranspose, transposeCS, t, sMulti, offset.dim(1), dims, sizes,
         plan, optionFlags, {dnai, multiUpdateName});
 
     addPreRegroupProgs(prog, preTranspose, transposeCS, tRegroupedPre, base,
@@ -2733,7 +3000,7 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
 
     generatePlannedMultiUpdateOp(vertexName, plan.getImpl(), graph, prog,
                                  offset, tRegroupedPre ? base : t, sRearranged,
-                                 scale, dims[0], op, optionFlags,
+                                 scale, 1 + dims[0], op, optionFlags,
                                  {dnai, multiUpdateName});
 
     // we need to keep the input tensor untouched, hence we explicitly copy the
@@ -2749,31 +3016,33 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
 
 // This is derived from multiSlice with \a s input rather than generated,
 // the tensors swapped, etc
-void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
-                 const Tensor &offset, const std::vector<std::size_t> &dims,
-                 const std::vector<std::size_t> &sizes, Sequence &prog,
-                 const SlicePlan &plan, const OptionFlags &options,
-                 const poplar::DebugContext &debugContext) {
-  POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(
-      debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
-
-  logging::popops::info("multiUpdate {} into {}, name={}", sMulti.shape(),
-                        t.shape(), debugContext.getPathName());
+void multiUpdateInternal(Graph &graph, const Tensor &t_, const Tensor &sMulti_,
+                         const Tensor &offset_, const bool grouped,
+                         const std::vector<std::size_t> &dims,
+                         const std::vector<std::size_t> &sizes, Sequence &prog,
+                         const SlicePlan &plan, const OptionFlags &options,
+                         const DebugNameAndId &dnai) {
+  std::string dName = grouped ? "groupedMultiUpdate" : "multiUpdate";
+  logging::popops::info(dName + " {} into {}, name={}", sMulti_.shape(),
+                        t_.shape(), dnai.getPathName());
   // small number of slices are updated individually
   // large number of slices are updated by a specialisation or in a loop
-  std::string dName = "multiUpdate";
+  std::string offsetRankStr = std::to_string(offset_.rank() - !grouped);
+  std::string offsetDimStr = std::to_string(1 + grouped);
 
   // Check the offsets have been specified with a multi-slice dimension
-  if (offset.rank() != 2)
+  if (offset_.rank() != 3)
     throw poputil::poplibs_error(
-        "multiUpdate expects offset.rank() == 2 but it is" +
-        std::to_string(offset.rank()));
-  if (offset.dim(1) != dims.size())
+        "multiUpdate expects offset.rank() == " + offsetRankStr + " but it is" +
+        std::to_string(offset_.rank() - !grouped));
+
+  if (offset_.dim(2) != dims.size())
     throw poputil::poplibs_error(
-        "multiUpdate expects offset.dim(1) == dims.size(); offset.dim(1)==" +
-        std::to_string(offset.dim(1)) +
-        ", dims.size()== " + std::to_string(dims.size()));
+        "multiUpdate expects offset.dim(" + offsetDimStr +
+        ") == dims.size(); "
+        " offset.dim(" +
+        offsetDimStr + ") == " + std::to_string(offset_.dim(2)) +
+        ", dims.size() == " + std::to_string(dims.size()));
 
   // when planned we just use the multi-update op path with op set to
   // boost::none
@@ -2784,10 +3053,14 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
                           "the correct options (operationForUpdate possibly "
                           "set incorrectly");
     }
-    multiUpdateOp(graph, t, sMulti, offset, boost::none, dims, sizes, prog,
-                  plan, boost::none, options, {di});
+    multiUpdateOp(graph, t_, sMulti_, offset_, boost::none, dims, sizes, prog,
+                  plan, boost::none, grouped, options, {dnai});
     return;
   }
+
+  auto t = t_.squeeze({0});
+  auto offset = offset_.squeeze({0});
+  auto sMulti = sMulti_.squeeze({0});
 
   validateParams("multiUpdate", plan, options, t.shape(), offset[0], dims,
                  sizes);
@@ -2798,7 +3071,7 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
   if (offset.dim(0) <= inliningThreshold) {
     for (unsigned slice = 0; slice != offset.dim(0); ++slice) {
       dynamicUpdate(graph, t, sMulti[slice], offset[slice], dims, sizes, prog,
-                    {di, dName + "/" + std::to_string(slice)});
+                    {dnai, dName + "/" + std::to_string(slice)});
     }
     return;
   }
@@ -2814,21 +3087,57 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
   // looping case
   prog.add(countedLoop(graph, offset.dim(0),
                        [&](poplar::Tensor sIdx) {
-                         Sequence body({}, {di});
+                         Sequence body({}, {dnai});
                          auto tIdx =
                              dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
-                                          {di, dName + "/sliceIndex"})
+                                          {dnai, dName + "/sliceIndex"})
                                  .squeeze({0});
 
                          auto sI =
                              dynamicSlice(graph, sMulti, sIdx, dims, sizes,
-                                          body, {di, dName + "/slice"})
+                                          body, {dnai, dName + "/slice"})
                                  .squeeze({0});
                          dynamicUpdate(graph, t, sI, tIdx, {0}, {1}, body,
-                                       {di, dName + "/update"});
+                                       {dnai, dName + "/update"});
                          return body;
                        },
-                       {di, dName + "/loop"}));
+                       {dnai, dName + "/loop"}));
+}
+
+void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
+                 const Tensor &offset, const std::vector<std::size_t> &dims,
+                 const std::vector<std::size_t> &sizes, Sequence &prog,
+                 const SlicePlan &plan, const OptionFlags &options,
+                 const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
+  multiUpdateInternal(graph, t.expand({0}), sMulti.expand({0}),
+                      offset.expand({0}), false, dims, sizes, prog, plan,
+                      options, {di});
+}
+
+void groupedMultiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
+                        const Tensor &offset,
+                        const std::vector<std::size_t> &dims,
+                        const std::vector<std::size_t> &sizes, Sequence &prog,
+                        const SlicePlan &plan, const OptionFlags &options,
+                        const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
+  if (plan.getImpl().isNull) {
+    throw poplibs_error(debugContext.getPathName() + ": groupedMultiUpdate "
+                                                     "must have a valid plan");
+  }
+  if (plan.getImpl().groupSize != t.dim(0)) {
+    throw poputil::poplibs_error("groupedMultiUpdate: group size "
+                                 "passed does not match the plan");
+  }
+  validateGroupDims({t, sMulti, offset}, {"base", "slice", "offset"},
+                    {di, "groupedMultiUpdate"});
+  multiUpdateInternal(graph, t, sMulti, offset, true, dims, sizes, prog, plan,
+                      options, {di});
 }
 
 // This is derived from multiUpdate, but s is added to t rather than replacing
@@ -2850,8 +3159,39 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
                         "multiUpdateAdd of type half");
   }
 
+  multiUpdateOp(graph, t.expand({0}), sMulti.expand({0}), offset.expand({0}),
+                scale, dims, sizes, prog, plan, Operation::ADD, false, options,
+                {di});
+}
+
+void groupedMultiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
+                           const Tensor &offset, const Tensor &scale,
+                           const std::vector<std::size_t> &dims,
+                           const std::vector<std::size_t> &sizes,
+                           Sequence &prog, const SlicePlan &plan,
+                           const OptionFlags &options,
+                           const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(t, sMulti, offset, scale, dims, sizes, plan, options));
+
+  if (t.elementType() != HALF && scale.elementType() != t.elementType()) {
+    throw poplibs_error("Scale type can be different from data type only for "
+                        "groupedMultiUpdateAdd of type half");
+  }
+  if (plan.getImpl().isNull) {
+    throw poplibs_error(debugContext.getPathName() + ": groupedMultiUpdateAdd "
+                                                     "must have a valid plan");
+  }
+  if (plan.getImpl().groupSize != t.dim(0)) {
+    throw poputil::poplibs_error("groupedMultiUpdateAdd: group size "
+                                 "passed does not match the plan");
+  }
+  validateGroupDims({t, sMulti, offset}, {"base", "slice", "offset"},
+                    {di, "groupedMultiUpdateAdd"});
   multiUpdateOp(graph, t, sMulti, offset, scale, dims, sizes, prog, plan,
-                Operation::ADD, options, {di});
+                Operation::ADD, true, options, {di});
 }
 
 static void multiUpdateAddUnique(Graph &graph, const Tensor &t, const Tensor &s,
@@ -3049,8 +3389,35 @@ void multiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
+  multiUpdateOp(graph, t.expand({0}), sMulti.expand({0}), offset.expand({0}),
+                boost::none, dims, sizes, prog, plan, Operation::MAX, false,
+                options, {di});
+}
+
+// This is derived from multiUpdate, but a max of s is and t is done rather than
+// replacing it. Currently only a single dimension may be sliced
+void groupedMultiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,
+                           const Tensor &offset,
+                           const std::vector<std::size_t> &dims,
+                           const std::vector<std::size_t> &sizes,
+                           Sequence &prog, const SlicePlan &plan,
+                           const OptionFlags &options,
+                           const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
+  if (plan.getImpl().isNull) {
+    throw poplibs_error(debugContext.getPathName() + ": groupedMultiUpdateMax "
+                                                     "must have a valid plan");
+  }
+  if (plan.getImpl().groupSize != t.dim(0)) {
+    throw poputil::poplibs_error("groupedMultiUpdateMax: group size "
+                                 "passed does not match the plan");
+  }
+  validateGroupDims({t, sMulti, offset}, {"base", "slice", "offset"},
+                    {di, "groupedMultiUpdateMax"});
   multiUpdateOp(graph, t, sMulti, offset, boost::none, dims, sizes, prog, plan,
-                Operation::MAX, options, {di});
+                Operation::MAX, true, options, {di});
 }
 
 namespace embedding {
@@ -3058,7 +3425,8 @@ static void applyPlanConstraints(popsolver::Model &m,
                                  const PlanConstraints &planConstraints,
                                  const popsolver::Variable mSlicedDimSplit,
                                  const popsolver::Variable mUnslicedDimSplit,
-                                 const popsolver::Variable mLookupSplit) {
+                                 const popsolver::Variable mLookupSplit,
+                                 const popsolver::Variable mGroupSplit) {
   const auto constrainVar = [&](const char *name, popsolver::Variable var) {
     if (auto constraint = planConstraints.get_optional<unsigned>(name)) {
       m.equal(var, popsolver::DataType{*constraint});
@@ -3070,6 +3438,7 @@ static void applyPlanConstraints(popsolver::Model &m,
   constrainVar("slicedDimSplit", mSlicedDimSplit);
   constrainVar("unslicedDimSplit", mUnslicedDimSplit);
   constrainVar("lookupSplit", mLookupSplit);
+  constrainVar("groupSplit", mGroupSplit);
 }
 
 static sliceInternal::Partition<std::size_t> fromSolution(
@@ -3079,6 +3448,7 @@ static sliceInternal::Partition<std::size_t> fromSolution(
   partition.lookupSplit = *s[partitionVars.lookupSplit];
   partition.slicedDimSplit = *s[partitionVars.slicedDimSplit];
   partition.unslicedDimSplit = *s[partitionVars.unslicedDimSplit];
+  partition.groupSplit = *s[partitionVars.groupSplit];
   partition.unslicedGrainSize = *s[partitionVars.unslicedGrainSize];
   return partition;
 }
@@ -3086,8 +3456,7 @@ static sliceInternal::Partition<std::size_t> fromSolution(
 template <typename T> struct EmbeddingEstimates {
   EmbeddingEstimates() = default;
   EmbeddingEstimates(const T &init)
-      : baseStorageBytesPerTile(init), outputStorageBytesPerTile(init),
-        indicesStorageBytesPerTile(init), exchangeCodeBytes(init),
+      : baseStorageBytesPerTile(init), exchangeCodeBytes(init),
         sliceTempBytes(init), updateTempBytes(init), peakTempBytes(init),
         sliceFirstStageExchangeCycles(init), sliceFirstStageComputeCycles(init),
         sliceSecondStageExchangeCycles(init),
@@ -3101,8 +3470,6 @@ template <typename T> struct EmbeddingEstimates {
 
   // Memory (all per-tile)
   T baseStorageBytesPerTile;
-  T outputStorageBytesPerTile;
-  T indicesStorageBytesPerTile;
   T exchangeCodeBytes;
 
   T sliceTempBytes;
@@ -3136,7 +3503,8 @@ static std::tuple<sliceInternal::Partition<popsolver::Variable>,
                   EmbeddingEstimates<popsolver::Variable>>
 constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                const std::size_t numEntries, const std::size_t outputSize,
-               const std::vector<std::size_t> &numLookups, bool useOrderingInfo,
+               const std::vector<std::size_t> &numLookups,
+               std::size_t groupSize, bool useOrderingInfo,
                const SliceOptions &options) {
   const auto dataElementSize = target.getTypeSize(dataType);
   const auto numWorkerContexts = target.getNumWorkerContexts();
@@ -3194,6 +3562,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                             dataElementSize));
   const auto bytesPerGrain = unslicedGrainSize * dataElementSize;
 
+  partition.groupSplit = m.addVariable(1, groupSize, "groupSplit");
   partition.unslicedGrainSize =
       m.addConstant(unslicedGrainSize, "unslicedGrainSize");
   const auto mBytesPerGrain = m.addConstant(bytesPerGrain);
@@ -3237,69 +3606,71 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   const auto mNumTiles = m.addConstant(target.getNumTiles(), "numTiles");
   const auto mNumEntries = m.addConstant(numEntries);
   const auto mNumIndices = m.addConstant(plannedNumIndices);
+  const auto mGroupSize = m.addConstant(groupSize);
 
   // Max number of each dimension of the embedding processed on each
   // tile during forward pass (slice)
-  const auto mUnslicedGrainsPerTile =
+  const auto mUnslicedGrainsPerGroupPerTile =
       m.ceildivConstrainDivisor(mNumUnslicedGrains, partition.unslicedDimSplit);
-  const auto mDictEntriesPerTile =
+  const auto mDictEntriesPerGroupPerTile =
       m.ceildivConstrainDivisor(mNumEntries, partition.slicedDimSplit);
-  const auto mLookupsPerTile =
+  const auto mLookupsPerGroupPerTile =
       m.ceildivConstrainDivisor(mNumIndices, partition.lookupSplit);
-
+  const auto mGroupSizePerTile =
+      m.ceildivConstrainDivisor(mGroupSize, partition.groupSplit);
   const auto mUsedTiles =
       m.product({partition.unslicedDimSplit, partition.slicedDimSplit,
-                 partition.lookupSplit},
+                 partition.lookupSplit, partition.groupSplit},
                 "totalSplit");
   m.lessOrEqual(mUsedTiles, mNumTiles);
 
-  const auto mBaseGrainsPerTile =
-      m.product({mUnslicedGrainsPerTile, mDictEntriesPerTile});
+  const auto mBaseGrainsPerGroupPerTile =
+      m.product({mUnslicedGrainsPerGroupPerTile, mDictEntriesPerGroupPerTile});
 
-  const auto mUnslicedElemsPerTile =
-      m.product({mUnslicedGrainsPerTile, partition.unslicedGrainSize});
+  const auto mUnslicedElemsPerGroupPerTile =
+      m.product({mUnslicedGrainsPerGroupPerTile, partition.unslicedGrainSize});
 
   // Calculate persistent bytes for storage per-tile.
   // We also spread base tensor grains over tiles that will use them when
   // allocating i.e. over lookupSplit tiles.
-  const auto mBaseGrainsStoragePerTile =
-      m.ceildiv(mBaseGrainsPerTile, partition.lookupSplit);
-  const auto mBaseElemsStoragePerTile =
-      m.product({mBaseGrainsStoragePerTile, partition.unslicedGrainSize});
+  const auto mBaseGrainsStoragePerGroupPerTile =
+      m.ceildiv(mBaseGrainsPerGroupPerTile, partition.lookupSplit);
+  const auto mBaseElemsStoragePerGroupPerTile = m.product(
+      {mBaseGrainsStoragePerGroupPerTile, partition.unslicedGrainSize});
   e.baseStorageBytesPerTile =
-      m.product({mBaseGrainsStoragePerTile, mBytesPerGrain});
+      m.product({mBaseGrainsStoragePerGroupPerTile, mBytesPerGrain});
 
-  const auto mBaseBytesPerTile =
-      m.product({mBaseGrainsPerTile, mBytesPerGrain});
+  const auto mBaseBytesPerTile = m.product(
+      {mBaseGrainsPerGroupPerTile, mBytesPerGrain, mGroupSizePerTile});
   auto mBaseBytesPerTileDiffWithPerfectlyDistributed = m.zero();
   if (options.alwaysIncludeBaseRearrangementCost) {
     const auto mBaseBytesStoragePerTilePerfectlyDistributed = m.product(
-        {m.ceildiv(m.product({mNumEntries, mNumUnslicedGrains}), mNumTiles),
+        {m.ceildiv(m.product({mNumEntries, mNumUnslicedGrains, mGroupSize}),
+                   mNumTiles),
          mBytesPerGrain});
+
     mBaseBytesPerTileDiffWithPerfectlyDistributed =
         m.sub(mBaseBytesPerTile, mBaseBytesStoragePerTilePerfectlyDistributed);
   }
 
   // We allocate indices linearly with a minimum no. per-tile.
-  const auto mMinIndicesPerTile =
+  const auto mMinIndicesPerGroupPerTile =
       m.min({mNumIndices, m.addConstant(minIndicesPerTile)});
-  const auto mIndicesPerTile =
-      m.max({mMinIndicesPerTile, m.ceildiv(mNumIndices, mNumTiles)});
-  e.indicesStorageBytesPerTile = m.product({mIndicesPerTile, mBytesPerIndex});
+  const auto mIndicesPerGroupPerTile =
+      m.max({mMinIndicesPerGroupPerTile, m.ceildiv(mNumIndices, mNumTiles)});
 
   // We allocate output based on forward pass (slice) usage.
   // The first stage results in partition.slicedDimSplit partials spread over
-  // tiles. Partials per-tile are mLookupsPerTile * mUnslicedGrainsPerTile.
-  const auto mSecondStageLookupsPerTile =
-      m.ceildiv(mLookupsPerTile, partition.slicedDimSplit);
-  // The second stage results in mLookupsPerTile spread over
+  // tiles. Partials per-tile are mLookupsPerGroupPerTile *
+  // mUnslicedGrainsPerGroupPerTile.
+  const auto mSecondStageLookupsPerGroupPerTile =
+      m.ceildiv(mLookupsPerGroupPerTile, partition.slicedDimSplit);
+  // The second stage results in mLookupsPerGroupPerTile spread over
   // partition.slicedDimSplit tiles.
-  const auto mOutputGrainsPerTile =
-      m.product({mSecondStageLookupsPerTile, mUnslicedGrainsPerTile});
-  const auto mOutputElemsPerTile =
-      m.product({mOutputGrainsPerTile, partition.unslicedGrainSize});
-  e.outputStorageBytesPerTile =
-      m.product({mOutputGrainsPerTile, mBytesPerGrain});
+  const auto mOutputGrainsPerGroupPerTile = m.product(
+      {mSecondStageLookupsPerGroupPerTile, mUnslicedGrainsPerGroupPerTile});
+  const auto mOutputElemsPerGroupPerTile =
+      m.product({mOutputGrainsPerGroupPerTile, partition.unslicedGrainSize});
 
   // The base tensor must be broadcast across the `partition.lookupSplit` groups
   // as it is distributed to balance memory. The indices must be received from a
@@ -3307,13 +3678,13 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   //
   // 0 and 1 indicate which stage in the forward pass this exchange is
   // attributed to.
-  const auto mIndicesExchangeInstrs0 =
-      m.ceildiv(mLookupsPerTile, mIndicesPerTile);
+  const auto mIndicesExchangeInstrs0PerGroup =
+      m.ceildiv(mLookupsPerGroupPerTile, mIndicesPerGroupPerTile);
 
   if (options.usedForSlice) {
-    // mBaseBytesPerTile gives the size of data taken as input to MultiSlice
-    // vertices in the first stage. If there is a lookup split then this data
-    // must be broadcast.
+    // mBaseBytesPerTile gives the size of data taken as input to
+    // MultiSlice vertices in the first stage. If there is a lookup split then
+    // this data must be broadcast.
     //
     // If there is no lookup split and the base tensor is allocated according to
     // the partition in the plan, we should not need to exchange anything.
@@ -3330,25 +3701,22 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     const auto mBaseTempBytesPerTile =
         m.max({m.product({mLookupsAreSplit, mBaseBytesPerTile}),
                mBaseBytesPerTileDiffWithPerfectlyDistributed});
-    // mBaseGrainsPerTile gives the number of grains taken as input
+    // mBaseGrainsPerGroupPerTile gives the number of grains taken as input
     // to MultiSlice vertices in the first stage. If there is a lookup
     // split then this data must be broadcast.
     e.sliceFirstStageExchangeCycles = exchangeEstimator(
         mBaseTempBytesPerTile, ipuLevel, "slice.0.exchange.cycles");
     const MultiSliceTargetParameters targetParams{target, dataType};
     e.sliceFirstStageComputeCycles = m.call<unsigned>(
-        {
-            mUnslicedElemsPerTile,
-            mLookupsPerTile,
-            mNumEntries,
-            mDictEntriesPerTile,
-        },
+        {mUnslicedElemsPerGroupPerTile, mLookupsPerGroupPerTile, mNumEntries,
+         mDictEntriesPerGroupPerTile, mGroupSizePerTile},
         [numWorkerContexts, targetParams, trySingleRegionOptimisation,
          options](const std::vector<unsigned> &values) {
           const auto elemsPerSlice = values[0];
           const auto numOffsets = values[1];
           const auto numDictEntries = values[2];
           const auto maxDictEntriesPerTile = values[3];
+          const auto groupSizePerTile = values[4];
           const double proportionIndicesInRange =
               double(maxDictEntriesPerTile) / double(numDictEntries);
           const auto maxOffsetsPerWorker =
@@ -3368,23 +3736,26 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           const auto cycles = getMultiSliceCycleEstimate(
               targetParams, elemsPerSlice, maxOffsetsPerWorker,
               offsetsInRangePerWorker, 0, false, false, splitSingleRegion);
-          return popsolver::DataType{cycles * numWorkerContexts};
+          // Each vertex call process a groupSizePerTile
+          return popsolver::DataType{cycles * numWorkerContexts *
+                                     groupSizePerTile};
         },
         "slice.0.compute.cycles");
 
     // For the second stage, we exchange the result of the first slice
     // all to all between groups of tiles.
-    const auto mSecondStageInputBytesPerTile =
-        m.product({partition.slicedDimSplit, mSecondStageLookupsPerTile,
-                   mUnslicedGrainsPerTile, mBytesPerGrain});
+    const auto mSecondStageInputBytesPerTile = m.product(
+        {partition.slicedDimSplit, mSecondStageLookupsPerGroupPerTile,
+         mUnslicedGrainsPerGroupPerTile, mBytesPerGrain, mGroupSizePerTile});
     e.sliceSecondStageExchangeCycles = exchangeEstimator(
         mSecondStageInputBytesPerTile, ipuLevel, "slice.1.exchange.cycles");
     e.sliceSecondStageComputeCycles = m.call<unsigned>(
         {
-            mUnslicedGrainsPerTile,
-            mSecondStageLookupsPerTile,
+            mUnslicedGrainsPerGroupPerTile,
+            mSecondStageLookupsPerGroupPerTile,
             mNumEntries,
-            mDictEntriesPerTile,
+            mDictEntriesPerGroupPerTile,
+            mGroupSizePerTile,
         },
         [numWorkerContexts, targetParams, trySingleRegionOptimisation,
          options](const std::vector<unsigned> &values) {
@@ -3392,6 +3763,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           const auto numOffsets = values[1];
           const auto numDictEntries = values[2];
           const auto maxDictEntriesPerTile = values[3];
+          const auto groupSizePerTile = values[4];
           const double proportionIndicesInRange =
               double(maxDictEntriesPerTile) / double(numDictEntries);
           const auto maxOffsetsPerWorker =
@@ -3414,7 +3786,9 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
               offsetsInRangePerWorker,
               0, // Sorting information is not used
               false, false, splitSingleRegion);
-          return popsolver::DataType{cycles * numWorkerContexts};
+          // each vertex processes only 1 group elem
+          return popsolver::DataType{cycles * numWorkerContexts *
+                                     groupSizePerTile};
         },
         "slice.1.compute.cycles");
 
@@ -3427,34 +3801,39 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
          e.sliceSecondStageExchangeCycles, e.sliceSecondStageComputeCycles});
     e.totalCycles = e.sliceTotalCycles;
 
-    const auto mEmbeddingExchangeInstrs0 =
+    const auto mEmbeddingExchangeInstrs0PerGroup =
         m.product({mLookupsAreSplit, partition.lookupSplit});
     // When there is a dictSplit the data will be exchanged between groups of
     // `partition.slicedDimSplit` tiles
-    const auto mOutputToInputExchangeInstrs1 =
+    const auto mOutputToInputExchangeInstrs1PerGroup =
         m.product({mDictIsSplit, partition.slicedDimSplit});
 
     // The indices are copied implicitly and are re-broadcast for the second
     // stage
-    const auto &mIndicesExchangeInstrs1 = mIndicesExchangeInstrs0;
-    e.exchangeCodeBytes = m.product(
-        {m.addConstant(4u),
-         m.sum({mEmbeddingExchangeInstrs0, mIndicesExchangeInstrs0,
-                mOutputToInputExchangeInstrs1, mIndicesExchangeInstrs1})});
+    const auto &mIndicesExchangeInstrs1PerGroup =
+        mIndicesExchangeInstrs0PerGroup;
+    e.exchangeCodeBytes =
+        m.product({m.addConstant(4u), mGroupSizePerTile,
+                   m.sum({mEmbeddingExchangeInstrs0PerGroup,
+                          mIndicesExchangeInstrs0PerGroup,
+                          mOutputToInputExchangeInstrs1PerGroup,
+                          mIndicesExchangeInstrs1PerGroup})});
 
     // When splitting the dictionary a the output of the first stage will be
     // rearranged for the second stage.
-    const auto mSlicesFirstStageOutputTempBytes =
-        m.product({mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile,
-                   mBytesPerGrain});
+    const auto mSlicesFirstStageOutputTempBytes = m.product(
+        {mDictIsSplit, mLookupsPerGroupPerTile, mUnslicedGrainsPerGroupPerTile,
+         mBytesPerGrain, mGroupSizePerTile});
     const auto mSlicesSecondStageInputTempBytes = m.product(
-        {mDictIsSplit, partition.slicedDimSplit, mSecondStageLookupsPerTile,
-         mUnslicedGrainsPerTile, mBytesPerGrain});
+        {mDictIsSplit, partition.slicedDimSplit,
+         mSecondStageLookupsPerGroupPerTile, mUnslicedGrainsPerGroupPerTile,
+         mBytesPerGrain, mGroupSizePerTile});
 
     const auto mIndicesFirstStageTempBytes =
-        m.product({mLookupsPerTile, mBytesPerIndex});
+        m.product({mLookupsPerGroupPerTile, mBytesPerIndex, mGroupSizePerTile});
     const auto mIndicesSecondStageTempBytes =
-        m.product({mSecondStageLookupsPerTile, mBytesPerIndex});
+        m.product({mSecondStageLookupsPerGroupPerTile, mBytesPerIndex,
+                   mGroupSizePerTile});
 
     e.sliceTempBytes =
         m.max({// Potentially multi-cast copy of base tensor/indices, and
@@ -3481,23 +3860,26 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // tile, the updates are cast to FLOAT and then accumulated
     // with a FLOAT copy of the base tensor.
     const auto mNeedsCast = m.addConstant(partialType != dataType ? 1u : 0u);
-    const auto mUpdatesCastTempBytesPerTile =
-        m.product({mNeedsCast, mOutputElemsPerTile, mBytesPerPartial});
+    const auto mUpdatesCastTempBytesPerGroupPerTile =
+        m.product({mNeedsCast, mOutputElemsPerGroupPerTile, mBytesPerPartial});
     // Temp bytes needed if the updates are multi-cast to tiles.
-    const auto mUpdatesTempBytesPerTile =
-        m.product({mDictIsSplit, mLookupsPerTile, mUnslicedGrainsPerTile,
-                   partition.unslicedGrainSize, mBytesPerPartial});
+    const auto mUpdatesTempBytesPerGroupPerTile = m.product(
+        {mDictIsSplit, mLookupsPerGroupPerTile, mUnslicedGrainsPerGroupPerTile,
+         partition.unslicedGrainSize, mBytesPerPartial});
     // Temp bytes needed if the updates need to be cast to a higher precision
     // if they do not also need to be multi-cast - i.e. if not multi-cast
     // we will directly use the casted updates and they will stay live,
     // otherwise we will use the multi-cast updates and the casted updates
     // will die.
-    const auto mUpdatesCastTempBytesPerTileAfterMulticast =
-        m.product({m.booleanNot(mDictIsSplit), mUpdatesCastTempBytesPerTile});
+    const auto mUpdatesCastTempBytesPerGroupPerTileAfterMulticast = m.product(
+        {m.booleanNot(mDictIsSplit), mUpdatesCastTempBytesPerGroupPerTile});
+
+    const auto mPartialElemsPerGroupPerTile =
+        m.product({mDictEntriesPerGroupPerTile, mUnslicedGrainsPerGroupPerTile,
+                   partition.unslicedGrainSize});
 
     const auto mPartialElemsPerTile =
-        m.product({mDictEntriesPerTile, mUnslicedGrainsPerTile,
-                   partition.unslicedGrainSize});
+        m.product({mPartialElemsPerGroupPerTile, mGroupSizePerTile});
 
     // Multipled by 2 because we would need to copy from source base tensor
     // *and back*.
@@ -3507,8 +3889,10 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                    m.addConstant(2u)});
 
     e.updateCastSlicesCycles =
-        modelContiguousCast(target, dataType, FLOAT, m, mOutputElemsPerTile,
-                            "update.0.castSlices")
+        modelContiguousCast(
+            target, dataType, FLOAT, m,
+            m.product({mGroupSizePerTile, mOutputElemsPerGroupPerTile}),
+            "update.0.castSlices")
             .cycles;
     e.updateCastSlicesCycles =
         m.product({mNeedsCast, e.updateCastSlicesCycles});
@@ -3521,12 +3905,13 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // Account for exchange of updates to tiles here, where the updates
     // will be broadcast by the number of splits of the sliced dimension.
     e.updateFirstStageExchangeCycles = exchangeEstimator(
-        mUpdatesTempBytesPerTile, ipuLevel, "update.0.exchange.cycles");
+        m.product({mGroupSizePerTile, mUpdatesTempBytesPerGroupPerTile}),
+        ipuLevel, "update.0.exchange.cycles");
 
     {
       e.updateFirstStageComputeCycles = m.call<unsigned>(
-          {mUnslicedElemsPerTile, mLookupsPerTile, mNumEntries,
-           mDictEntriesPerTile, mNeedsCast},
+          {mUnslicedElemsPerGroupPerTile, mLookupsPerGroupPerTile, mNumEntries,
+           mDictEntriesPerGroupPerTile, mNeedsCast, mGroupSizePerTile},
           [&target, &options, operation, offsetsPerDictEntry, useOrderingInfo,
            &dataType,
            trySingleRegionOptimisation](const std::vector<unsigned> &values) {
@@ -3535,6 +3920,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
             const auto numDictEntries = values[2];
             const auto maxDictEntriesPerTile = values[3];
             const auto needsCast = values[4];
+            const auto groupSizePerTile = values[5];
 
             const MultiUpdateOpTargetParameters targetMultiUpdateOpParams{
                 target, needsCast ? FLOAT : dataType};
@@ -3589,14 +3975,17 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                           maxOffsetsPerDictEntry, *operation, isScaled,
 
                           false, useOrderingInfo);
-            return popsolver::DataType{cycles};
+            return popsolver::DataType{cycles * groupSizePerTile};
           },
           "update.0.compute.cycles");
     }
 
-    const auto mPartialsBytesPerTile =
-        m.product({mLookupsAreSplit, mPartialElemsPerTile, mBytesPerPartial});
+    const auto mPartialsBytesPerGroupPerTile = m.product(
+        {mLookupsAreSplit, mPartialElemsPerGroupPerTile, mBytesPerPartial});
     auto mReduceEstimateCyles = m.zero();
+
+    const auto mBaseElemsStoragePerTile =
+        m.product({mGroupSizePerTile, mBaseElemsStoragePerGroupPerTile});
 
     // We can't do a reduction or cast if there is no operation in the
     // multi-update. Take conditional paths only because there is no
@@ -3656,35 +4045,41 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
 
     e.totalCycles = m.sum({e.totalCycles, e.updateTotalCycles});
 
-    const auto mIndicesTempBytesPerTile =
-        m.product({mLookupsPerTile, mBytesPerIndex});
+    const auto mIndicesTempBytesPerGroupPerTile =
+        m.product({mLookupsPerGroupPerTile, mBytesPerIndex});
 
     e.updateTempBytes = m.sum(
         {mBaseTempBytesPerTile,
-         m.max({// If we need a cast version of the updates, this will take
-                // temporary memory.
-                mUpdatesCastTempBytesPerTile,
-                // If we have split the dictionary, we will need to multi-cast
-                // the updates.
-                m.sum({mUpdatesCastTempBytesPerTile, mUpdatesTempBytesPerTile}),
-                // During the update, we have partials, casted/multi-cast
-                // updates, and multi-cast indices temporarily.
-                m.sum({mUpdatesCastTempBytesPerTileAfterMulticast,
-                       mUpdatesTempBytesPerTile, mPartialsBytesPerTile,
-                       mIndicesTempBytesPerTile}),
-                // If we need a reduction we will have
-                // reduction (also the actual update will have the base upcast
-                // to the same size as the partials, so the same footprint)
-                m.product({mLookupsAreSplit, mPartialsBytesPerTile,
-                           m.addConstant(2u)})})});
+         m.product(
+             {mGroupSizePerTile,
+              m.max({// If we need a cast version of the updates, this will take
+                     // temporary memory.
+                     mUpdatesCastTempBytesPerGroupPerTile,
+                     // If we have split the dictionary, we will need to
+                     // multi-cast the updates.
+                     m.sum({mUpdatesCastTempBytesPerGroupPerTile,
+                            mUpdatesTempBytesPerGroupPerTile}),
+                     // During the update, we have partials, casted/multi-cast
+                     // updates, and multi-cast indices temporarily.
+                     m.sum({mUpdatesCastTempBytesPerGroupPerTileAfterMulticast,
+                            mUpdatesTempBytesPerGroupPerTile,
+                            mPartialsBytesPerGroupPerTile,
+                            mIndicesTempBytesPerGroupPerTile}),
+                     // If we need a reduction we will have
+                     // reduction (also the actual update will have the base
+                     // upcast to the same size as the partials, so the same
+                     // footprint)
+                     m.product({mLookupsAreSplit, mPartialsBytesPerGroupPerTile,
+                                m.addConstant(2u)})})})});
 
     // Indices are as for the forward pass;
     // plus the rearrangement will be an all-all exchange
     e.exchangeCodeBytes =
         m.sum({e.exchangeCodeBytes,
-               m.product({mIndicesExchangeInstrs0, m.addConstant(4)}),
+               m.product({mIndicesExchangeInstrs0PerGroup, m.addConstant(4),
+                          mGroupSizePerTile}),
                m.product({mLookupsAreSplit, partition.lookupSplit,
-                          m.addConstant(4)})});
+                          m.addConstant(4), mGroupSizePerTile})});
   }
 
   e.peakTempBytes = m.max({e.sliceTempBytes, e.updateTempBytes});
@@ -3697,7 +4092,8 @@ applyConstraints(popsolver::Model &m, const Target &target,
                  const EmbeddingEstimates<popsolver::Variable> &estimates,
                  const SliceOptions &options, bool limitTempMemory) {
   applyPlanConstraints(m, options.planConstraints, partition.slicedDimSplit,
-                       partition.unslicedDimSplit, partition.lookupSplit);
+                       partition.unslicedDimSplit, partition.lookupSplit,
+                       partition.groupSplit);
   if (options.availableMemoryProportion && limitTempMemory) {
     const auto mMaxAllowedTempBytes = m.addConstant(
         options.availableMemoryProportion.value() * target.getBytesPerTile());
@@ -3718,6 +4114,7 @@ struct PlanAndEstimates {
 };
 
 static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
+                                   const std::size_t groupSize,
                                    const std::size_t numEntries,
                                    const std::size_t outputSize,
                                    const std::vector<std::size_t> &numLookups,
@@ -3745,7 +4142,7 @@ static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
     popsolver::Model m;
     auto [partition, estimates] =
         constructModel(m, target, dataType, numEntries, outputSize, numLookups,
-                       useOrderingInfo, options);
+                       groupSize, useOrderingInfo, options);
     applyConstraints(m, target, partition, estimates, options, limitTempMemory);
     auto s = minimize(m, target, estimates);
     if (s.validSolution()) {
@@ -3757,15 +4154,12 @@ static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
       p.slicedDims = {0};
       p.slicedDimSizes = {1};
       p.isNull = false;
+      p.groupSize = groupSize;
       if (totalCycles < bestPlanCyclesCost && s.validSolution()) {
         bestPlanCyclesCost = totalCycles;
         best.plan = p;
 
         best.e.baseStorageBytesPerTile = *s[estimates.baseStorageBytesPerTile];
-        best.e.outputStorageBytesPerTile =
-            *s[estimates.outputStorageBytesPerTile];
-        best.e.indicesStorageBytesPerTile =
-            *s[estimates.indicesStorageBytesPerTile];
         best.e.exchangeCodeBytes = *s[estimates.exchangeCodeBytes];
         best.e.sliceTempBytes = *s[estimates.sliceTempBytes];
         best.e.updateTempBytes = *s[estimates.updateTempBytes];
@@ -3809,21 +4203,22 @@ static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
 // Plan an embedding layer for slicing/updating.
 // This planner aims to minimise the persistent tile memory while keeping
 // temporary memory below a bound.
-SlicePlan plan(const Graph &graph, const Type &dataType,
-               const std::size_t numEntries,
-               const std::size_t outputSize, // embedding size
-               const std::vector<std::size_t> &numLookups,
-               const OptionFlags &optionFlags) {
+static SlicePlan planInternal(const Graph &graph, const Type &dataType,
+                              const std::size_t groupSize,
+                              const std::size_t numEntries,
+                              const std::size_t outputSize, // embedding size
+                              const std::vector<std::size_t> &numLookups,
+                              const OptionFlags &optionFlags) {
   const auto options = parseSliceOptions(optionFlags);
 
   logging::popops::debug(
-      "DynamicSlicePlan for type {}, numEntries {}, outputSize {},"
-      " numLookups {},\n  options={}",
-      dataType, numEntries, outputSize, numLookups, options);
+      "DynamicSlicePlan for type {}, groupSize {}. numEntries {}, "
+      " outputSize {}, numLookups {},\n  options={}",
+      dataType, groupSize, numEntries, outputSize, numLookups, options);
   const auto &target = graph.getTarget();
 
-  auto best = choosePlan(target, dataType, numEntries, outputSize, numLookups,
-                         options, true);
+  auto best = choosePlan(target, dataType, groupSize, numEntries, outputSize,
+                         numLookups, options, true);
 
   if (best.plan.isNull && options.availableMemoryProportion) {
     // Warn and try again without the available memory proportion if
@@ -3832,8 +4227,8 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
                           "with availableMemoryProportion={}, trying again "
                           "with unlimited temporary memory",
                           *options.availableMemoryProportion);
-    best = choosePlan(target, dataType, numEntries, outputSize, numLookups,
-                      options, false);
+    best = choosePlan(target, dataType, groupSize, numEntries, outputSize,
+                      numLookups, options, false);
   }
 
   // If we don't have a valid plan, error - we should always be able to
@@ -3845,18 +4240,15 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
 
   logging::popops::debug("Embedding plan {}", best.plan);
 
-  logging::popops::debug(
-      "Tile memory estimates (bytes on worst tile):\n"
-      "  base storage {},\n"
-      "  output storage {},\n"
-      "  indices storage {},\n"
-      "  exchange code {}, \n"
-      "  slice peak temporary memory {},\n"
-      "  update peak temporary memory {}, \n"
-      "  peak temporary memory {}\n",
-      best.e.baseStorageBytesPerTile, best.e.outputStorageBytesPerTile,
-      best.e.indicesStorageBytesPerTile, best.e.exchangeCodeBytes,
-      best.e.sliceTempBytes, best.e.updateTempBytes, best.e.peakTempBytes);
+  logging::popops::debug("Tile memory estimates (bytes on worst tile):\n"
+                         "  base storage {},\n"
+                         "  exchange code {}, \n"
+                         "  slice peak temporary memory {},\n"
+                         "  update peak temporary memory {}, \n"
+                         "  peak temporary memory {}\n",
+                         best.e.baseStorageBytesPerTile,
+                         best.e.exchangeCodeBytes, best.e.sliceTempBytes,
+                         best.e.updateTempBytes, best.e.peakTempBytes);
 
   logging::popops::debug(
       "Cycle estimates (worst tile):\n"
@@ -3888,6 +4280,24 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
       best.e.updateTotalCycles, best.e.totalCycles);
 
   return std::make_unique<SlicePlanInternal>(std::move(best.plan));
+}
+
+SlicePlan plan(const Graph &graph, const Type &dataType,
+               const std::size_t numEntries,
+               const std::size_t outputSize, // embedding size
+               const std::vector<std::size_t> &numLookups,
+               const OptionFlags &optionFlags) {
+  return planInternal(graph, dataType, 1UL, numEntries, outputSize, numLookups,
+                      optionFlags);
+}
+
+SlicePlan plan(const Graph &graph, const Type &dataType,
+               const std::size_t groupSize, const std::size_t numEntries,
+               const std::size_t outputSize, // embedding size
+               const std::vector<std::size_t> &numLookups,
+               const OptionFlags &optionFlags) {
+  return planInternal(graph, dataType, groupSize, numEntries, outputSize,
+                      numLookups, optionFlags);
 }
 
 } // end namespace embedding

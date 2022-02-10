@@ -94,7 +94,40 @@ createSliceableTensor(poplar::Graph &graph, const poplar::Type &type,
                       const poplar::OptionFlags &options,
                       const poplar::DebugContext &debugContext = {});
 
-/** Create and map a tensor to be sliced into or updated from efficiently.
+/** Create and map a tensor with a group dimension to be sliced/updated
+ *  efficiently.
+ *
+ *  Groups allow multiple independent slice/update operations of the same size
+ *  to be done in parallel.
+ *
+ *  The \p shape, \p dims, and \p sizes parameters are defined as in
+ *  \p createSliceableTensor() and are used for every group.
+ *
+ *  A valid plan must be provided.
+ *  The returned tensor will be laid out according to the plan.
+ *
+ *  \param graph        The Poplar graph.
+ *  \param type         The type of the elements.
+ *  \param groupSize    The group size.
+ *  \param shape        The shape of the tensor to be slice/updated.
+ *  \param dims         The dimensions of the tensor that will be slice/updated.
+ *  \param sizes        The size of the slice in each of the dimensions.
+ *  \param plan         Plan describing how the slicing/updating operation will
+ *                      be implemented.
+ *  \param options      Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ *  \returns            A tensor suitably mapped with \p groupSize as the first
+ *                      dimension and the remaining dimensions as in \p shape.
+ **/
+poplar::Tensor createGroupedSliceableTensor(
+    poplar::Graph &graph, const poplar::Type &type, const std::size_t groupSize,
+    const std::vector<std::size_t> &shape, const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &sizes, const SlicePlan &plan,
+    const poplar::OptionFlags &options,
+    const poplar::DebugContext &debugContext = {});
+
+/** Create and map a tensor that is used as a result of slicing, or as an
+ *  input to an update.
  *
  *  Introspection on the tensor \p t is used to lay out
  *  the created tensor such that it can be used to efficiently update \p t.
@@ -120,7 +153,8 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Tensor &t,
                                  std::size_t numIndices,
                                  const poplar::DebugContext &debugContext = {});
 
-/** Create and map a tensor to be sliced into or updated from efficiently.
+/** Create and map a tensor that is used as a result of slicing, or as an
+ *  input to an update.
  *
  *  The returned tensor is laid out according to the plan for the
  *  slice/update operation.
@@ -138,8 +172,7 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Tensor &t,
  *  \param options      Flags controlling how the operation will be implemented.
  *  \param debugContext Optional debug information.
  *
- *  \returns            A tensor with shape [numIndices, shape...] mapped
- *                      appropriately to be sliced into/updated from.
+ *  \returns            A tensor with shape [numIndices, shape...]
  **/
 poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Type &type,
                                  const std::vector<std::size_t> &shape,
@@ -148,6 +181,43 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Type &type,
                                  std::size_t numIndices, const SlicePlan &plan,
                                  const poplar::OptionFlags &options,
                                  const poplar::DebugContext &debugContext = {});
+
+/** Create and map a tensor with a group dimension that is used as a result of
+ *  slicing, or as an input to an update. The group dimension is the first
+ *  dimension of the output tensor.
+ *
+ *  Groups allow multiple independent slice/update operations of the same size
+ *  to be done in parallel.
+ *
+ *  The \p shape, \p dims, and \p sizes parameters are defined as in
+ *  \p createGroupedSliceTensor and are used for every group.
+ *
+ *  The returned tensor is laid out according to the plan for the
+ *  slice/update operation. It is an error to call this function without a
+ *  valid plan.
+ *
+ *  \param graph        The Poplar graph.
+ *  \param type         The type of the elements.
+ *  \param groupSize    The group size
+ *  \param shape        The shape of the tensor to be slice/updated.
+ *  \param dims         The dimensions of the tensor that will be
+ *                      sliced/updated.
+ *  \param sizes        The number of elements of each dimension in \p dims
+ *                      that will be sliced/updated.
+ *  \param numIndices   The number of slices this tensor should contain.
+ *  \param plan         Plan describing how the slicing/updating operation will
+ *                      be implemented.
+ *  \param options      Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ *
+ *  \returns            A tensor with shape [groupSize, numIndices, shape...]
+ **/
+poplar::Tensor createGroupedSliceTensor(
+    poplar::Graph &graph, const poplar::Type &type, const std::size_t groupSize,
+    const std::vector<std::size_t> &shape, const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &sizes, const std::size_t numIndices,
+    const SlicePlan &plan, const poplar::OptionFlags &options,
+    const poplar::DebugContext &debugContext = {});
 
 /** Create and map a tensor to contain indices for slicing or updating
  *  a tensor efficiently.
@@ -170,6 +240,40 @@ createIndicesTensor(poplar::Graph &graph, const std::vector<std::size_t> &dims,
                     std::size_t numIndices, const SlicePlan &plan,
                     const poplar::OptionFlags &options,
                     const poplar::DebugContext &debugContext = {});
+
+/** Create and map a tensor with a group dimension to contain indices for
+ *  slicing or updating a tensor efficiently.
+ *
+ *  Groups allow multiple independent slice/update operations of the same size
+ *  to be done in parallel. Indices have the same bounds for every element in
+ *  the group.
+ *
+ *  \p dims is defined as in the non-grouped version. They do not include a
+ *  group dimension.
+ *
+ *  It is an error to call this function without a
+ *  valid plan and \p groupSize must match the group size with which the
+ *  operation is planned in \p plan.
+ *
+ * \param graph       The Poplar graph.
+ * \param groupSize   The size of the group
+ * \param dims        The dimensions of a tensor to be sliced/updated that will
+ *                    be sliced/updated using these indices.
+ * \param numIndices  The number of indices this tensor should contain
+ * \param plan        Plan describing how the slicing/updating operation will
+ *                    be implemented.
+ * \param options     Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ *
+ * \returns A tensor of shape [groupSize, numIndices, dims.size()] mapped
+ *          appropriately to be used as the indices for a slice/update
+ *          operation. Element type is always UNSIGNED_INT.
+ */
+poplar::Tensor createGroupedIndicesTensor(
+    poplar::Graph &graph, const std::size_t groupSize,
+    const std::vector<std::size_t> &dims, const std::size_t numIndices,
+    const SlicePlan & /* plan */, const poplar::OptionFlags & /* options */,
+    const poplar::DebugContext &debugContext = {});
 
 /** Create and map a tensor to be sliced/updated.
  *
@@ -325,6 +429,41 @@ poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
                           const poplar::OptionFlags &options,
                           const poplar::DebugContext &debugContext = {});
 
+/** Take multiple slices from a base tensor where the \p base tensor and the
+ *  \p offsets tensor have the group dimension as the first dimension. The
+ *  indices given in the \p offsets tensor should be in the range [0,
+ *  \p base.dim(1)]. Indices outside of this range are allowed but return
+ *  undefined values.
+ *
+ *
+ * The returned tensor will have a rank one greater than \p t. Its outer
+ * dimension is the group size and the second dimension
+ * will be \p offsets.dim(1).  \p dims indexes the dimensions of each group
+ * in \p t. This makes it consistent with grouped variants of functions to
+ * create tensors. \p t can be created using \p createGroupedSliceableTensor()
+ * to ensure efficient mapping.
+ *
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being sliced.
+ *  \param offsets     The offsets within \p t to be sliced.
+ *  \param dims        The dimensions of \p t for each group.
+ *  \param sizes       The size of the update in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
+ *  \param plan        Plan describing how the operation will
+ *                     be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ */
+poplar::Tensor groupedMultiSlice(poplar::Graph &graph, const poplar::Tensor &t,
+                                 const poplar::Tensor &offsets,
+                                 const std::vector<std::size_t> &dims,
+                                 const std::vector<std::size_t> &sizes,
+                                 poplar::program::Sequence &prog,
+                                 const SlicePlan &plan,
+                                 const poplar::OptionFlags &options,
+                                 const poplar::DebugContext &debugContext = {});
+
 /** Take multiple slices from a base tensor.
  *
  * The returned tensor will have a rank one greater than \p t. Its outer
@@ -364,10 +503,30 @@ void multiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
                  const poplar::OptionFlags &options,
                  const poplar::DebugContext &debugContext = {});
 
+/** Update multiple slices in a tensor with a group dimension. The tensors \p t
+ *  \p s , and \p offsets have group dimension as the first dimension.
+ *
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being updated.
+ *  \param s           The slices to insert.
+ *  \param offsets     The offsets within \p t to be updated.
+ *  \param dims        The dimensions of each group of \p t to be updated.
+ *  \param sizes       The size of the update in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
+ *  \param plan        Plan describing how the operation will be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ */
+void groupedMultiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
+                        const poplar::Tensor &s, const poplar::Tensor &offsets,
+                        const std::vector<std::size_t> &dims,
+                        const std::vector<std::size_t> &sizes,
+                        poplar::program::Sequence &prog, const SlicePlan &plan,
+                        const poplar::OptionFlags &options,
+                        const poplar::DebugContext &debugContext = {});
+
 /** Accumulate multiple slices in a tensor
- * for i offsets:
- *   t[offsets[i]] += scale * s[i]
- * \p t, \p s must be of the same type
  *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated (must be rank 2).
@@ -395,9 +554,37 @@ void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
                     const poplar::OptionFlags &options,
                     const poplar::DebugContext &debugContext = {});
 
+/** Accumulate multiple slices in a tensor where the first dimension of the
+ *  tensors \p t, \p s and \p offsets is the group dimension.
+ *
+ * \p t, \p s must be of the same type
+ *
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being updated (must be rank 3).
+ *  \param s           The slices to accumulate.
+ *  \param offsets     The offsets within \p t to be accumulated.
+ *  \param scale       The scaling to apply to the update. The type of the
+ *                     tensor should be the same as that of \p t and \p s except
+ *                     for the case when \p t and \p s are of type HALF. In
+ *                     which case \p scale can be of type FLOAT or HALF.
+ *  \param dims        The dimensions of of each group to be accumulated.
+ *  \param sizes       The size of the accumulate in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
+ *  \param plan        Plan describing how the operation will be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ */
+void groupedMultiUpdateAdd(
+    poplar::Graph &graph, const poplar::Tensor &t, const poplar::Tensor &s,
+    const poplar::Tensor &offsets, const poplar::Tensor &scale,
+    const std::vector<std::size_t> &dims, const std::vector<std::size_t> &sizes,
+    poplar::program::Sequence &prog, const SlicePlan &plan,
+    const poplar::OptionFlags &options,
+    const poplar::DebugContext &debugContext = {});
+
 /** Accumulate multiple slices in a tensor
- * for i offsets:
- *   t[offsets[i]] += scale * s[i]
+ *
  * \p t, \p s must be of the same type
  *
  *  \param graph       The Poplar graph.
@@ -419,8 +606,7 @@ void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
                     const poplar::DebugContext &debugContext = {});
 
 /** Find maximum over multiple slices in a tensor
- * for i offsets:
- *   t[offsets[i]] = max(t[offsets[i]], s[i])
+ *
  * \p t, \p s must have the same element type
  *  offsets[i] >= t.dim(0) are ignored.
  *
@@ -444,6 +630,31 @@ void multiUpdateMax(poplar::Graph &graph, const poplar::Tensor &t,
                     poplar::program::Sequence &prog, const SlicePlan &plan,
                     const poplar::OptionFlags &options,
                     const poplar::DebugContext &debugContext = {});
+
+/** Find maximum over multiple slices in a tensor with a group dimension.
+ *  The tensors \p t, \p s, \p offsets have groups as their first dimension.
+ *  The \p offsets tensor contains indices per group which update elements of
+ *  the corresponding group.
+ *
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being updated (must be rank 2).
+ *  \param s           The slices to find maximum over.
+ *  \param offsets     The offsets within \p t to find maximum over.
+ *  \param dims        The dimensions of each group of \p t to find maximum over
+ *                     (must be rank 1).
+ *  \param sizes       The size of the update in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
+ *  \param plan        Plan describing how the operation will be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ */
+void groupedMultiUpdateMax(
+    poplar::Graph &graph, const poplar::Tensor &t, const poplar::Tensor &s,
+    const poplar::Tensor &offsets, const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &sizes, poplar::program::Sequence &prog,
+    const SlicePlan &plan, const poplar::OptionFlags &options,
+    const poplar::DebugContext &debugContext = {});
 
 namespace embedding {
 
@@ -529,6 +740,14 @@ namespace embedding {
  */
 SlicePlan plan(const poplar::Graph &graph, const poplar::Type &dataType,
                const std::size_t numEntries, const std::size_t outputSize,
+               const std::vector<std::size_t> &numLookups,
+               const poplar::OptionFlags &options);
+
+/** Overload of \p plan with group size
+ */
+SlicePlan plan(const poplar::Graph &graph, const poplar::Type &dataType,
+               const std::size_t groupSize, const std::size_t numEntries,
+               const std::size_t outputSize,
                const std::vector<std::size_t> &numLookups,
                const poplar::OptionFlags &options);
 

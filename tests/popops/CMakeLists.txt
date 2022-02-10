@@ -233,6 +233,54 @@ add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
   --operation MULTIPLY
   --in-place 1)
 
+# Grouped and un-grouped planned MultiSlice/MultiUpdate tests
+add_multi_target_test_executable(PlannedMultiSliceUpdateTest PlannedMultiSliceUpdateTest.cpp)
+
+foreach(dtype half float)
+  foreach(dictSize 16 1024)
+    foreach(numIndices 1024 2)
+      foreach(groupSize 1 3)
+        add_multitarget_test(
+        NAME PlannedGroupedMultiSliceTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}
+          COMMAND PlannedMultiSliceUpdateTest
+            --num-indices=${numIndices}
+            --data-type=${dtype}
+            --update=false
+            --shape={${dictSize},16}
+            --tiles-per-ipu=16
+            --group-size=${groupSize}
+            VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+
+        add_multitarget_test(
+        NAME PlannedGroupedMultiUpdateTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}
+          COMMAND PlannedMultiSliceUpdateTest
+            --num-indices=${numIndices}
+            --data-type=${dtype}
+            --update=true
+            --shape={${dictSize},16}
+            --tiles-per-ipu=16
+            --group-size=${groupSize}
+            VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+
+        foreach(OPERATION MAX ADD)
+
+          add_multitarget_test(
+          NAME PlannedGroupedMultiUpdateOpTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}_${OPERATION}
+            COMMAND PlannedMultiSliceUpdateTest
+              --num-indices=${numIndices}
+              --data-type=${dtype}
+              --update=true
+              --shape={${dictSize},16}
+              --tiles-per-ipu=16
+              --group-size=${groupSize}
+              --operation=${OPERATION}
+              VARIANTS ${IPUMODEL_VARIANTS};Sim2)        
+        endforeach()    
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
 add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(RegroupTest RegroupTest.cpp)
