@@ -199,3 +199,39 @@ foreach(LOWER_TRUNCATION 0 1 2)
       VARIANTS "Cpu;${DEFAULT_TEST_VARIANTS}")
   endforeach() # UPPER_TRUNCATION
 endforeach() # LOWER_TRUNCATION
+
+foreach(KERNEL_SIZE 4 8 12)
+  foreach(FIELD_SIZE 12 13 14 15 16 32 256)
+    add_multitarget_test(NAME "ConvPartial1x4SLIC_quarter_${KERNEL_SIZE}_${FIELD_SIZE}"
+      COMMAND ConvPartial1xNSLIC
+        --input-type=quarter
+        --partials-type=half
+        --conv-groups-per-group=1
+        --chans-per-group=8
+        --conv-group-groups=3
+        --batch-size=2
+        --in-field-size={4,${FIELD_SIZE}}
+        --kernel-size={1,${KERNEL_SIZE}}
+        --output-stride={1,1}
+        --conv-chains=4
+      LABELS codelet
+      VARIANTS "Sim21")
+  endforeach()
+endforeach()
+
+foreach(FIELD_SIZE 4 5 6 7 8 9 10)
+  add_multitarget_test(NAME "ConvPartial1x4SLIC_quarter_kernel_4_${FIELD_SIZE}"
+    COMMAND ConvPartial1xNSLIC
+      --input-type=quarter
+      --partials-type=half
+      --conv-groups-per-group=1
+      --chans-per-group=8
+      --conv-group-groups=1
+      --batch-size=1
+      --in-field-size={1,${FIELD_SIZE}}
+      --kernel-size={1,4}
+      --output-stride={1,1}
+      --conv-chains=4
+    LABELS codelet
+    VARIANTS "Sim21")
+endforeach()

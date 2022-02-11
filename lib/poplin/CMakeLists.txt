@@ -148,6 +148,7 @@ add_gp_library(
     PerformanceEstimation.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Dot.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerConv.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerSLIC.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_common.h.S
 )
 

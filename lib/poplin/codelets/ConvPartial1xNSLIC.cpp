@@ -1,12 +1,18 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include <poplar/AvailableVTypes.h>
 #include <poplar/HalfFloat.hpp>
+#include <poplar/QuarterFloat.hpp>
 #include <poplar/Vertex.hpp>
 
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
 #include <type_traits>
+
+#ifdef __IPU__
+#include "inlineAssemblerConv.hpp"
+#include "inlineAssemblerSLIC.hpp"
+#endif
 
 using namespace poplar;
 
@@ -167,6 +173,190 @@ public:
   }
 };
 
+#ifdef __IPU__
+
+#if __IPU_ARCH_VERSION__ >= 21
+
+template <typename UnsignedType, unsigned numConvUnits>
+class WorkerClass1xN : public Vertex {
+public:
+  static bool compute() { return true; }
+};
+
+template <typename UnsignedType>
+class WorkerClass1xN<UnsignedType, 16> : public Vertex {
+public:
+  static bool compute() {
+
+    auto state = workerState<WorkerState1xN>();
+    unsigned deltaNData = *(state->partitionList + getWid());
+    unsigned workListLength = deltaNData >> DELTAN_OFFSET_BITS;
+    unsigned offset = deltaNData - (workListLength << DELTAN_OFFSET_BITS);
+    const UnsignedType *workListPtr =
+        reinterpret_cast<const UnsignedType *>(state->partitionBase);
+    workListPtr += offset;
+
+    int strides = (0) |       // 0b01 (0 for no stride to avoid overread)
+                  (0 << 10) | // 0b10 (unused)
+                  (2 << 20);  // 0b11 (out stride over 2nd call)
+    const UnsignedType *workListEndPtr = workListPtr + workListLength;
+    while (workListPtr < workListEndPtr) {
+      constexpr unsigned inVectorWidth = 8;
+      constexpr unsigned outVectorWidth = 4;
+      constexpr unsigned outVectorsPerOuterLoop = 2;
+
+      auto outPtr = state->outChanPtr +
+                    outVectorsPerOuterLoop * outVectorWidth * workListPtr[1];
+      auto partialsPtr = state->partialsChanPtr + outVectorsPerOuterLoop *
+                                                      outVectorWidth *
+                                                      workListPtr[1];
+      auto inPtr = state->inChanPtr + workListPtr[0] * inVectorWidth;
+      constexpr int slicPipeLength = 5;
+      int loops =
+          (CSR_W_REPEAT_COUNT__VALUE__MASK & workListPtr[2]) - slicPipeLength;
+
+      // Process the first 4 output channels using weights=W0
+      auto triAddr = __builtin_ipu_tapack(inPtr, partialsPtr, outPtr);
+      if (state->noImplicitZero) {
+        if (loops < 0) {
+          F8v8HIHO_SLIC_LESS_THAN_5(TSLIC_F16V4_1x4_W0)
+        } else {
+          F8v8HIHO_SLIC(TSLIC_F16V4_1x4_W0)
+        }
+      } else {
+        F8v8HIHO_SLIC_IMPLICIT_ZERO(TSLIC_F16V4_1x4_W0)
+      }
+      // Process the second 4 output channels using weights=W1
+      triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
+                                     outPtr + outVectorWidth);
+      if (state->noImplicitZero) {
+        if (loops < 0) {
+          F8v8HIHO_SLIC_LESS_THAN_5(TSLIC_F16V4_1x4_W1)
+        } else {
+          F8v8HIHO_SLIC(TSLIC_F16V4_1x4_W1)
+        }
+      } else {
+        F8v8HIHO_SLIC_IMPLICIT_ZERO(TSLIC_F16V4_1x4_W1)
+      }
+      workListPtr += 3;
+    }
+    return true;
+  }
+};
+
+template class WorkerClass1xN<unsigned short, 16>;
+template class WorkerClass1xN<unsigned, 16>;
+
+template <unsigned outStride, bool useShortTypes, unsigned windowWidth,
+          unsigned numConvChains, unsigned convGroupsPerGroupVertexType>
+class [[poplar::constraint(
+    "elem(**in) != elem(**out)",
+    "elem(**in) != "
+    "elem(*"
+    "outFieldBuffer"
+    ")")]] ConvPartial1xNSLIC<quarter, half, outStride, useShortTypes,
+                              windowWidth, numConvChains,
+                              convGroupsPerGroupVertexType>
+    : public SupervisorVertex {
+  static const bool needsAlignWorkers = false;
+
+public:
+  ConvPartial1xNSLIC();
+  using FPType = quarter;
+  using AccumType = half;
+
+  // Depending on whether strides/sizes fit, use short types for storage.
+  using UnsignedType =
+      std::conditional_t<useShortTypes, unsigned short, unsigned int>;
+  using WorkListType =
+      std::conditional_t<useShortTypes, unsigned short, unsigned int>;
+
+  // A pointer for inputs per conv group group.
+  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> in;
+  Input<unsigned char> inMetaData;
+  // A weights pointer per sub-kernel/conv group group.
+  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> weights;
+  Input<unsigned char> weightsMetaData;
+  // A pointer for outputs per conv group group. Enforced to be 16-byte
+  // aligned to allow use of ld2xst64pace instruction along with
+  // `outFieldBuffer`.
+  Vector<Output<Vector<AccumType, PTR_ALIGN64, 16, true>>, PTR_ALIGN32> out;
+  // A pointer to a buffer with size of outputs per conv group group
+  // + 8 bytes. Enforced to be 16-byte aligned and offset by 8 bytes to
+  // allow use of ld2xst64pace instruction along with each entry in `out`.
+  Output<Vector<AccumType, PTR_ALIGN64, 16, true>> outFieldBuffer;
+
+  // Array with shape:
+  // [numSubKernels * numWorkerContexts][numFieldRows * 3]
+  Input<VectorList<WorkListType, DELTAN>> worklists;
+
+  // For a generic C++ vertex this will indicate which mode the vertex operates
+  // in, specifying conv groups, input and output channels.
+  // However this specialisation is for a specific vertex and these parameters
+  // are implied by the assembler instructions used. So this parameter is
+  // redundant.
+  const unsigned char chansPerGroupLog2;
+  // This essentially encodes whether numSubKernels is odd or not in a
+  // way that avoids manipulating state on load in the assembly.
+  const unsigned char outPtrLoadOffset;
+
+  const UnsignedType numSubKernelsM1;
+  const UnsignedType numConvGroupGroupsM1;
+
+  __attribute__((target("supervisor"))) bool compute() {
+    WorkerState1xN workerState;
+    auto wlStatePtr = reinterpret_cast<unsigned *>(&worklists);
+    workerState.partitionBase =
+        reinterpret_cast<unsigned *>(*wlStatePtr & DELTAN_OFFSET_MASK);
+
+    setFp8Format(weightsMetaData, inMetaData);
+    setFp8Scale(weightsMetaData, inMetaData);
+
+    constexpr unsigned outFieldBufferOffset = 200u / sizeof(AccumType);
+    const unsigned numSubKernels = numSubKernelsM1 + 1;
+    const unsigned numConvGroupGroups = numConvGroupGroupsM1 + 1;
+
+    for (unsigned cg = 0; cg < numConvGroupGroups; ++cg) {
+      // Partials input read / output write alternate between a buffer and
+      // the true output.  Pick the starting state, which will result in the
+      // final output being written to the true output
+      auto *lastOutBuffer = (!outPtrLoadOffset)
+                                ? &outFieldBuffer[outFieldBufferOffset]
+                                : &out[cg][0];
+      auto *currOutBuffer = (!outPtrLoadOffset)
+                                ? &out[cg][0]
+                                : &outFieldBuffer[outFieldBufferOffset];
+      for (unsigned kg = 0; kg < numSubKernels; ++kg) {
+        workerState.noImplicitZero = kg;
+        workerState.outChanPtr = currOutBuffer;
+        workerState.partialsChanPtr = lastOutBuffer;
+        const auto &w = weights[cg * numSubKernels + kg];
+
+        workerState.partitionList =
+            reinterpret_cast<unsigned *>(*(wlStatePtr + 1) &
+                                         DELTAN_OFFSET_MASK) +
+            kg * CTXT_WORKERS;
+
+        slicLoadWeights<false, 16>(&w[0]);
+        workerState.inChanPtr = &in[cg][0];
+        if constexpr (useShortTypes) {
+          RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_short_16",
+                  &workerState);
+        } else {
+          RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_16",
+                  &workerState);
+        }
+        std::swap(lastOutBuffer, currOutBuffer);
+      }
+    }
+    return true;
+  }
+};
+
+#endif
+
+#endif
+
 template class ConvPartial1xNSLIC<half, float, 1, false, 4, 2, 4>;
 template class ConvPartial1xNSLIC<half, float, 1, true, 4, 2, 4>;
 template class ConvPartial1xNSLIC<half, float, 2, false, 4, 2, 4>;
@@ -192,4 +382,8 @@ template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 16>;
 template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 16>;
 template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 16>;
 
+#if __IPU_ARCH_VERSION__ >= 21
+template class ConvPartial1xNSLIC<quarter, half, 1, false, 4, 4, 8>;
+template class ConvPartial1xNSLIC<quarter, half, 1, true, 4, 4, 8>;
+#endif
 } // end namespace poplin

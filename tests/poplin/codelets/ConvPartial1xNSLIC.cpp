@@ -1,6 +1,9 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ConvPartial1xNSLIC
 #include "ConvVertices.hpp"
+#include "popops/Cast.hpp"
+#include "popops/codelets.hpp"
+
 #include <poplibs_support/TestDevice.hpp>
 
 #include <assert.h>
@@ -76,6 +79,11 @@ int main(int argc, char **argv) try {
   Type inputType = HALF;
   Type partialsType = FLOAT;
 
+  int weightFp8Scale = 0;
+  int inputFp8Scale = 0;
+  Fp8Format weightFp8Format = Fp8Format::QUART143;
+  Fp8Format inputFp8Format = Fp8Format::QUART143;
+
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -92,7 +100,7 @@ int main(int argc, char **argv) try {
      "Number of conv groups per group (1, 2, or 4)")
     ("chans-per-group",
      po::value<unsigned>(&chansPerGroup)->default_value(chansPerGroup),
-     "Number of input/output channels per group (1, 2, or 4)")
+     "Number of input/output channels per group (1, 2, 4 or 8)")
     ("conv-group-groups",
      po::value<unsigned>(&convGroupGroups)->default_value(convGroupGroups),
      "Number of groups of conv groups")
@@ -134,7 +142,8 @@ int main(int argc, char **argv) try {
      "Output truncation upper")
     ("conv-chains",
      po::value<unsigned>(&convChainsRequired)->default_value(convChainsRequired),
-     "Conv chains to use.  If partials are float(=2), if half (=2 or 4")
+     "Conv chains to use.  If partials are float(=2), if half (=2 or 4),"
+     " if quarter(=4)")
   ;
   // clang-format on
   po::variables_map vm;
@@ -155,8 +164,9 @@ int main(int argc, char **argv) try {
   bool showExecutionSteps = vm.count("show-execution-steps");
   bool showVarStorage = vm.count("show-var-storage");
 
-  if (inputType != HALF) {
-    throw poputil::poplibs_error("Only inputType=HALF is currently supported");
+  if (inputType != HALF && inputType != QUARTER) {
+    throw poputil::poplibs_error("Only inputTypes of HALF or QUARTER are "
+                                 " currently supported");
   }
 
   if (inChanGroups != 1) {
@@ -203,6 +213,10 @@ int main(int argc, char **argv) try {
   const auto &target = device.getTarget();
   Graph graph(target);
   poplin::addCodelets(graph);
+  popops::addCodelets(graph);
+
+  const bool isFp8 = inputType == QUARTER;
+  const auto hostInputType = isFp8 ? HALF : inputType;
 
   // Create input, weights, output
   constexpr std::size_t overreadConvGroups = 1;
@@ -223,12 +237,12 @@ int main(int argc, char **argv) try {
   outputShape.insert(outputShape.end(), {convGroupsPerGroup, chansPerGroup});
 
   const auto inGroupedWithOverread =
-      graph.addVariable(inputType, inShape, "in");
+      graph.addVariable(hostInputType, inShape, "in");
   const auto inGrouped = inGroupedWithOverread.slice(0, convGroupGroups, 0);
   const auto inOverreadMemory = inGroupedWithOverread.slice(
       convGroupGroups, convGroupGroups + overreadConvGroups, 0);
   const auto weightsGrouped =
-      graph.addVariable(inputType, weightsShape, "weights");
+      graph.addVariable(hostInputType, weightsShape, "weights");
   const auto outGrouped = graph.addVariable(partialsType, outputShape, "out");
 
   graph.setTileMapping(inGroupedWithOverread, 0);
@@ -271,6 +285,20 @@ int main(int argc, char **argv) try {
   fillWithNaNs(outGrouped);
   fillWithNaNs(inOverreadMemory);
 
+  Tensor inGroupedFp8, weightsGroupedFp8;
+  Sequence castProg;
+  if (isFp8) {
+    auto weightsMetaData =
+        createFp8MetaDataTensor(graph, weightFp8Format, weightFp8Scale);
+    auto inMetaData =
+        createFp8MetaDataTensor(graph, inputFp8Format, inputFp8Scale);
+
+    inGroupedFp8 =
+        popops::cast(graph, inGrouped, QUARTER, inMetaData, castProg, "CastIn");
+    weightsGroupedFp8 = popops::cast(graph, weightsGrouped, QUARTER,
+                                     weightsMetaData, castProg, "CastWeights");
+  }
+
   // create the vertex
   auto fwdCS = graph.addComputeSet("fwdCS");
 
@@ -278,10 +306,15 @@ int main(int argc, char **argv) try {
   std::map<poplar::Type,
            std::pair<std::vector<poplar::Tensor>, std::vector<poplar::Tensor>>>
       postProg;
+  auto vertexIn = isFp8 ? inGroupedFp8 : inGrouped;
+  auto vertexWeights = isFp8 ? weightsGroupedFp8 : weightsGrouped;
   createConvPartialSlicVertex(graph, windowWidth, convGroupsPerGroup,
                               chansPerGroup, convChainsRequired, 0, params,
                               transformPre, copyWritten, fwdCS, postProg,
-                              inGrouped, weightsGrouped, outGrouped, "vertex");
+                              vertexIn, vertexWeights, outGrouped, "vertex");
+  if (isFp8) {
+    prog.add(castProg);
+  }
   for (const auto &copy : transformPre) {
     prog.add(copy);
   }
@@ -350,9 +383,8 @@ int main(int argc, char **argv) try {
     std::mt19937 randomEngine;
     writeRandomValues(target, inputType, hostIn, -1.0, +5.0, randomEngine);
     writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
-
-    copy(target, hostIn, inputType, rawHostIn.get());
-    copy(target, hostWeights, inputType, rawHostWeights.get());
+    copy(target, hostIn, hostInputType, rawHostIn.get());
+    copy(target, hostWeights, hostInputType, rawHostWeights.get());
   }
   device.bind([&](const Device &d) { engine.loadAndRun(d); });
 
