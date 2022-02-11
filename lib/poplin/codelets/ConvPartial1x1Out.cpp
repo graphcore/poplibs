@@ -170,9 +170,9 @@ public:
   static bool compute() {
     auto partitionOffset = 3 * getWid();
     auto state = workerState<WorkerState1x1<unsigned short>>();
-
-    unsigned loops = CSR_W_REPEAT_COUNT__VALUE__MASK &
-                     (state->partition[partitionOffset + 1] + 3);
+    int loops = *reinterpret_cast<const short *>(state->partition +
+                                                 partitionOffset + 1) +
+                3;
     constexpr auto outputVectorWidth = 4;
     constexpr auto inputVectorWidth = 8;
 

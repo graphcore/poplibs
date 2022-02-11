@@ -365,7 +365,7 @@ inline std::uint64_t getConvPartialVerticalMacSupervisorCycleEstimate(
   return cycles;
 }
 
-inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimateHalfFloat(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numWorkerContexts, unsigned numConvUnits, bool outputZeroing,
     bool floatActivations, bool floatPartials) {
@@ -461,7 +461,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
   return maxWorkerCycles;
 }
 
-inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimateQuarter(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numWorkerContexts, unsigned numConvUnits, bool outputZeroing) {
 
@@ -522,11 +522,11 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
     unsigned numWorkerContexts, unsigned numConvUnits, bool outputZeroing,
     const poplar::Type &actsType, bool floatPartials) {
   if (actsType == poplar::QUARTER) {
-    return getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+    return getConvPartial1x1SupervisorInnerLoopCycleEstimateQuarter(
         workerPartitions, numWorkerContexts, numConvUnits, outputZeroing);
   } else {
     auto floatActivations = actsType == poplar::FLOAT;
-    return getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+    return getConvPartial1x1SupervisorInnerLoopCycleEstimateHalfFloat(
         workerPartitions, numWorkerContexts, numConvUnits, outputZeroing,
         floatActivations, floatPartials);
   }
@@ -1584,9 +1584,14 @@ inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimate(
       worklist[context].push_back(workerOutWidth);
     }
   }
-  return getConvPartial1x1SupervisorInnerLoopCycleEstimate(
-      worklist, numWorkerContexts, numConvUnits, zeroPartials,
-      actsType == poplar::FLOAT, floatPartials);
+  if (actsType == poplar::QUARTER) {
+    return getConvPartial1x1SupervisorInnerLoopCycleEstimateQuarter(
+        worklist, numWorkerContexts, numConvUnits, zeroPartials);
+  } else {
+    return getConvPartial1x1SupervisorInnerLoopCycleEstimateHalfFloat(
+        worklist, numWorkerContexts, numConvUnits, zeroPartials,
+        actsType == poplar::FLOAT, floatPartials);
+  }
 }
 
 inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithZeroing(

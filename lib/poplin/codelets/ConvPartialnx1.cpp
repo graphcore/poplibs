@@ -248,7 +248,7 @@ public:
     const unsigned short *workListEndPtr = workListPtr + workListLength;
 
     while (workListPtr < workListEndPtr) {
-      unsigned loops = CSR_W_REPEAT_COUNT__VALUE__MASK & (workListPtr[1] + 3);
+      int loops = (*reinterpret_cast<const short *>(workListPtr + 1) + 3);
       auto outPtr = state->outChanPtr + workListPtr[0] * outputVectorWidth;
       auto inPtr = state->inChanPtr + workListPtr[2] * inputVectorWidth;
       workListPtr += 3;
