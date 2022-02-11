@@ -84,7 +84,7 @@ public:
     const unsigned convInputLoadElems = std::is_same<FPType, float>::value
                                             ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
                                             : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
-    const auto usedContexts = CTXT_WORKERS;
+    const unsigned usedContexts = CTXT_WORKERS;
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
@@ -100,40 +100,52 @@ public:
                                     numConvUnits, outChansPerGroup)
             .first;
 
+    const UnsignedType accumTypeSize = std::is_same<AccumType, float>() ? 4 : 2;
+    const UnsignedType typeSize = std::is_same<FPType, float>() ? 4 : 2;
+
+    // TODO(T35918): Use this struct inside the worklists' definition.
+    struct WorklistEntry {
+      WorkListType outOffset;
+      WorkListNumFieldType numFieldElems;
+      WorkListType inOffset;
+    };
+    const WorklistEntry *worklists_ =
+        reinterpret_cast<const WorklistEntry *>(&worklists[0]);
+
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
-          const auto &w = weights[cg * numOutGroups * numInGroups +
-                                  ig * numOutGroups + (numOutGroups - 1 - og)];
+          const auto outRow = cg * numOutGroups + og;
+          const auto inRow = cg * numInGroups + ig;
+          const auto wRow = cg * numOutGroups * numInGroups +
+                            ig * numOutGroups + (numOutGroups - 1 - og);
           for (unsigned context = 0; context < usedContexts; ++context) {
-            const auto accumTypeSize = std::is_same<AccumType, float>() ? 4 : 2;
-            const auto typeSize = std::is_same<FPType, float>() ? 4 : 2;
-            const auto outOffset = (worklists[3 * context] * 8) /
-                                   (outChansPerGroup * accumTypeSize);
+            WorklistEntry entry = worklists_[context];
+            // Decode the worklist offsets.
+            entry.outOffset /= (outChansPerGroup * accumTypeSize) / 8;
+            entry.inOffset /= (inChansPerGroup * typeSize) / 8;
             // The numFieldElems values from worklist is less by 3
-            const int numFieldElems =
-                static_cast<WorkListNumFieldType>(worklists[3 * context + 1]) +
-                3;
-            const auto inOffset =
-                (worklists[3 * context + 2] * 8) / (inChansPerGroup * typeSize);
+            entry.numFieldElems += 3;
 
-            for (unsigned i = 0; i < numFieldElems; ++i) {
+            for (unsigned i = 0; i < entry.numFieldElems; ++i) {
               for (unsigned outChan = 0; outChan < outChansPerGroup;
                    ++outChan) {
-                const auto outIndex =
-                    (outOffset + (flipOut ? -i : i)) * outChansPerGroup +
-                    outChan;
-                if (ig == 0)
-                  out[cg * numOutGroups + og][outIndex] = 0;
+                const auto outCol =
+                    (entry.outOffset + (flipOut ? -i : i)) * outChansPerGroup;
+                const auto inCol =
+                    (entry.inOffset + i * inStride) * inChansPerGroup;
+                const auto wCol = outChan * inChansPerGroup;
+
                 float sum = 0;
                 for (unsigned inChan = 0; inChan < inChansPerGroup; ++inChan) {
-                  const auto inIndex =
-                      (inOffset + i * inStride) * inChansPerGroup + inChan;
-                  const auto weightIndex = outChan * inChansPerGroup + inChan;
-                  sum += float(in[cg * numInGroups + ig][inIndex]) *
-                         float(w[weightIndex]);
+                  sum += float(in[inRow][inCol + inChan]) *
+                         float(weights[wRow][wCol + inChan]);
                 }
-                out[cg * numOutGroups + og][outIndex] += sum;
+
+                if (ig == 0)
+                  out[outRow][outCol + outChan] = sum;
+                else
+                  out[outRow][outCol + outChan] += sum;
               }
             }
           }
