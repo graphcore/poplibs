@@ -463,7 +463,7 @@ uint64_t WgdTilePartition::tilePartition(unsigned inpZic, unsigned weightsZoc,
          * needn't be exchanged
          */
         Cost ecAcc = 0;
-        const auto weightsPerConvUnit = target.getWeightsPerConvUnit(isFloat);
+        const auto weightsPerConvUnit = target.getWeightsPerConvUnit(dType);
         const auto numConvUnits =
             isFloat ? target.getFp32InFp32OutConvUnitsPerTile()
                     : target.getFp16InFp16OutConvUnitsPerTile();
