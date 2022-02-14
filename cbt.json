@@ -6,7 +6,9 @@
     "poplar",
     "spdlog",
     "tbb",
-    "googletest",
     "zoltan"
+  ],
+  "optional_dependencies": [
+    "googletest"
   ]
 }
