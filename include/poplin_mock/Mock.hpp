@@ -4,11 +4,14 @@
 
 #include <gmock/gmock.h>
 #include <poplin/MatMul.hpp>
+#include <poplin/codelets.hpp>
 
 namespace poplin_mock {
 
 class MockPoplin {
 public:
+  // MatMul.hpp
+
   MOCK_METHOD(::poplar::Tensor, matMulGrouped,
               (::poplar::Graph &, const ::poplar::Tensor &,
                const ::poplar::Tensor &, ::poplar::program::Sequence &,
@@ -35,6 +38,10 @@ public:
                const std::vector<std::size_t> &, const ::poplar::DebugContext &,
                const ::poplar::OptionFlags &,
                ::poplin::matmul::PlanningCache *));
+
+  // codelets.hpp
+
+  MOCK_METHOD(void, addCodelets, (::poplar::Graph &));
 };
 
 extern MockPoplin *mockPoplin_;

@@ -1,5 +1,8 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-add_library(poplin_mock SHARED MatMul.cpp)
+add_library(poplin_mock SHARED
+  MatMul.cpp
+  codelets.cpp
+)
 
 target_link_libraries(poplin_mock
   PRIVATE

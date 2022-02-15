@@ -1,5 +1,8 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-add_library(popops_mock SHARED ElementWise.cpp)
+add_library(popops_mock SHARED
+  ElementWise.cpp
+  codelets.cpp
+)
 
 target_link_libraries(popops_mock
   PRIVATE
