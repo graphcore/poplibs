@@ -16,10 +16,15 @@ target_include_directories(poputil_mock
 
 install(TARGETS poputil_mock
         COMPONENT poputil_mock
-        EXPORT poputil_mock-export
+        EXPORT poputil_mock
         DESTINATION ${CMAKE_INSTALL_LIBDIR}
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+
+install(EXPORT poputil_mock
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poputil_mock
+        FILE poputil_mock-targets.cmake
+        COMPONENT poputil_mock)
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/poputil_mock
         COMPONENT poputil_mock

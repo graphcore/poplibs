@@ -46,3 +46,7 @@ endif()
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/poplibs-config.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poplibs
         COMPONENT poplibs)
+
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/poplibs_mock-config.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poplibs_mock
+        COMPONENT poplibs_mock)

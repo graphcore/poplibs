@@ -16,10 +16,15 @@ target_include_directories(poplin_mock
 
 install(TARGETS poplin_mock
         COMPONENT poplin_mock
-        EXPORT poplin_mock-export
+        EXPORT poplin_mock
         DESTINATION ${CMAKE_INSTALL_LIBDIR}
         INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+
+install(EXPORT poplin_mock
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poplin_mock
+        FILE poplin_mock-targets.cmake
+        COMPONENT poplin_mock)
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/poplin_mock
         COMPONENT poplin_mock
