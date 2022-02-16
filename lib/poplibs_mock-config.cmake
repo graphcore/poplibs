@@ -9,7 +9,7 @@ get_filename_component(POPLIBS_MOCK_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
 # These should be in the same order as the add_subdirectory()'s in the
 # CMakeLists.txt so dependencies are handled correctly
 foreach(t
-      poputil_mock popops_mock poplin_mock
+      poputil_mock popops_mock poplin_mock popnn_mock poprand_mock popfloat_mock
     )
   if(NOT TARGET ${t} AND NOT ${t}_BINARY_DIR)
     include("${POPLIBS_MOCK_CMAKE_DIR}/../${t}/${t}-targets.cmake")
