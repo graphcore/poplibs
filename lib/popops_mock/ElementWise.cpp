@@ -12,8 +12,17 @@ void mapInPlace(poplar::Graph &graph, const expr::Expr &expr,
                 poplar::program::Sequence &prog,
                 const poplar::DebugContext &debugContext,
                 const poplar::OptionFlags &options) {
-  return popops_mock::mockPopops_->mapInPlace(graph, expr, ts, prog,
-                                              debugContext, options);
+  popops_mock::mockPopops_->mapInPlace(graph, expr, ts, prog, debugContext,
+                                       options);
+}
+
+poplar::Tensor map(poplar::Graph &graph, const expr::Expr &expr,
+                   const std::vector<poplar::Tensor> &ts,
+                   poplar::program::Sequence &prog,
+                   const poplar::DebugContext &debugContext,
+                   const poplar::OptionFlags &options) {
+  return popops_mock::mockPopops_->map(graph, expr, ts, prog, debugContext,
+                                       options);
 }
 
 } // namespace popops
