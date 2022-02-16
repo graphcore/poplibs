@@ -321,7 +321,7 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
           dst.push_back(transposedSlice);
           auto v = graph.addVertex(
               *transposeCS,
-              poputil::templateVertex("popops::Transpose2D", inDataType));
+              poputil::templateVertex("poplar_rt::Transpose2D", inDataType));
 
           graph.connect(v["src"], src);
           graph.connect(v["dst"], dst);

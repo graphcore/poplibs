@@ -103,7 +103,7 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                                --vertexRE ${TYPE}
                                --operation ABSOLUTE BITWISE_NOT CEIL CBRT
                                            COUNT_LEADING_ZEROS ERF EXPONENT
-                                           EXPONENT_MINUS_ONE FLOOR GELU_ERF 
+                                           EXPONENT_MINUS_ONE FLOOR GELU_ERF
                                            INVERSE LOGARITHM LOGARITHM_ONE_PLUS
                                            LOGICAL_NOT NEGATE POPCOUNT RELU
                                            SIGNUM TANH ROUND RSQRT SQRT SIGMOID
@@ -338,12 +338,6 @@ add_unit_test(ScaledAddSupervisor_integral
                      ScaledSubtractSupervisorIntTensor ScaledSubtractSupervisorUnsignedIntTensor
               LABELS codelet
               VARIANTS ${SIM_VARIANTS})
-add_unit_test(TransposeTest
-              TransposeTest.cpp
-              SUITES TransposeFast_16bit TransposeFast_Float TransposeFast_Integral
-                     Transpose2d T19548 T33035 SplitTranspose1D Transpose_quarter
-              LABELS codelet
-              VARIANTS ${SIM_VARIANTS})
 
 # Fill vertices for 8 bit types need to be tested with a lot of different data
 # lengths and start offsets (from 0 to 7), because the assembly code is quite
@@ -376,7 +370,7 @@ test_fill_vertex(schar 7)
 
 foreach(DATA_TYPE ulonglong longlong)
   add_multitarget_test(NAME "FillCodelets_${DATA_TYPE}"
-                       COMMAND FillCodeletsTest 
+                       COMMAND FillCodeletsTest
                               --size 1 2 10
                               --data ${DATA_TYPE}
                               --vertex Fill Fill2d

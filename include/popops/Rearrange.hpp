@@ -18,7 +18,9 @@
 namespace popops {
 namespace rearrange {
 
-/** Determine if a fast transposition codelet may be used based on the given
+/** \deprecated Fast transpose is now automatic in poplar with Copy programs
+ *
+ * Determine if a fast transposition codelet may be used based on the given
  *  target/data type/no. of rows/no. of columns.
  *
  *  \param target The target the operation will be targeted at.
@@ -33,8 +35,9 @@ bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
                          unsigned numRows, unsigned numColumns,
                          unsigned numTranspositions);
 
-/// Transposes of a set of matrices stored on multiple tiles.
-/// This adds all the needed vertices on the graph.
+/// \deprecated Use a copy program instead to perform transpose
+///  Transposes of a set of matrices stored on multiple tiles. This adds all
+/// the needed vertices on the graph.
 ///
 /// \param graph, cs  The graph and compute set to add the vertices to.
 ///
@@ -61,12 +64,13 @@ void addTransposeVertices(
         getInOut,
     const poplar::DebugContext &debugContext = {});
 
-/// Transpose the innermost pair of dimensions of the specified tensor, writing
-/// the results to a new tensor. This function assumes order of the underlying
-/// storage matches the order of the elements in the tensor. This function is
-/// optimized for group sizes that are typical of the underlying memory
-/// layout of convolution activations / weights - it may be inefficient for
-/// other group sizes.
+/// \deprecated Use a copy program instead to perform transpose
+/// Transpose the innermost pair of dimensions of the specified tensor,
+/// writing the results to a new tensor. This function assumes order of the
+/// underlying storage matches the order of the elements in the tensor. This
+/// function is optimized for group sizes that are typical of the underlying
+/// memory layout of convolution activations / weights - it may be inefficient
+/// for other group sizes.
 poplar::Tensor partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
                                 const poplar::ComputeSet &cs,
                                 const poplar::DebugContext &debugContext = {});

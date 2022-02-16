@@ -165,11 +165,13 @@ void addTransposeVertices(
         Transpose2D,
         SplitTranspose1D
       };
+      // Note, these `poplar_rt` are not stable and poplibs cannot expect the
+      // interface to stay the same. These will be replaced by Copy programs.
       std::map<VertexType, std::string> vertexNames = {
-          {Transpose1D, "popops::Transpose1D"},
-          {Transpose1DSingleWorker, "popops::Transpose1DSingleWorker"},
-          {Transpose2D, "popops::Transpose2D"},
-          {SplitTranspose1D, "popops::SplitTranspose1D"}};
+          {Transpose1D, "poplar_rt::Transpose1D"},
+          {Transpose1DSingleWorker, "poplar_rt::Transpose1DSingleWorker"},
+          {Transpose2D, "poplar_rt::Transpose2D"},
+          {SplitTranspose1D, "poplar_rt::SplitTranspose1D"}};
       VertexType vertexType = Transpose1D;
       // Will we end up splitting among workers (if not 1D MultiVertex)?
       bool splitToWorkers = false;

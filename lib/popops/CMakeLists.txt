@@ -167,7 +167,6 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd_half_half_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAddaXPlusbY_mixed.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SliceCopyFunction.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Transpose.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversion2D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversion1D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Fill.S
@@ -232,10 +231,6 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromIntervals.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromRowsInColumns.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SeqSlice.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2D.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose1D.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SplitTranspose1D.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateColumnsDEC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalDEC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalsDEC.cpp
@@ -257,7 +252,6 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssembler.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerCast.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerTranspose.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerUnaryOps.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectScalarFromRows.hpp

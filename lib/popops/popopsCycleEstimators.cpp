@@ -3562,24 +3562,26 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf1D, FLOAT, true),
     CYCLE_ESTIMATOR_ENTRY(popops, HasNaNOrInf1D, HALF, true),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, FLOAT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, UNSIGNED_INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, INT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, UNSIGNED_SHORT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose2D, SHORT),
+    // These poplar_rt estimators are temporary, while porting transpose to
+    // poplar and will be removed when poplibs stops using the vertices directly
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose2D, FLOAT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose2D, UNSIGNED_INT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose2D, INT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose2D, HALF),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose2D, UNSIGNED_SHORT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose2D, SHORT),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose1DSingleWorker, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose1DSingleWorker, UNSIGNED_SHORT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose1DSingleWorker, SHORT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose1DSingleWorker, HALF),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose1DSingleWorker, UNSIGNED_SHORT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose1DSingleWorker, SHORT),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose1D, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose1D, UNSIGNED_SHORT),
-    CYCLE_ESTIMATOR_ENTRY(popops, Transpose1D, SHORT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose1D, HALF),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose1D, UNSIGNED_SHORT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, Transpose1D, SHORT),
 
-    CYCLE_ESTIMATOR_ENTRY(popops, SplitTranspose1D, HALF),
-    CYCLE_ESTIMATOR_ENTRY(popops, SplitTranspose1D, UNSIGNED_SHORT),
-    CYCLE_ESTIMATOR_ENTRY(popops, SplitTranspose1D, SHORT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, SplitTranspose1D, HALF),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, SplitTranspose1D, UNSIGNED_SHORT),
+    CYCLE_ESTIMATOR_ENTRY(poplar_rt, SplitTranspose1D, SHORT),
 
     CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, FLOAT),
     CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, UNSIGNED_INT),
