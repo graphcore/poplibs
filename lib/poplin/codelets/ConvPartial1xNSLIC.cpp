@@ -12,6 +12,7 @@
 #ifdef __IPU__
 #include "inlineAssemblerConv.hpp"
 #include "inlineAssemblerSLIC.hpp"
+#include "inlineAssemblerSLICStride2.hpp"
 #endif
 
 using namespace poplar;
@@ -177,17 +178,67 @@ public:
 
 #if __IPU_ARCH_VERSION__ >= 21
 
-template <typename UnsignedType, unsigned numConvUnits>
+template <unsigned stride>
+static __attribute__((always_inline)) void
+f8v8hihoSLIC(const quarter *inPtr, half *partialsPtr, half *outPtr,
+             unsigned strides, int loops, unsigned noImplicitZero,
+             unsigned outVectorWidth) {
+  // Process the first 4 output channels using weights=W0
+  auto triAddr = __builtin_ipu_tapack(inPtr, partialsPtr, outPtr);
+  if (noImplicitZero) {
+    if (loops < 0) {
+      F8v8HIHO_SLIC_LESS_THAN_5(TSLIC_F16V4_1x4_W0)
+    } else {
+      F8v8HIHO_SLIC(TSLIC_F16V4_1x4_W0)
+    }
+  } else {
+    F8v8HIHO_SLIC_IMPLICIT_ZERO(TSLIC_F16V4_1x4_W0)
+  }
+  // Process the second 4 output channels using weights=W1
+  triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
+                                 outPtr + outVectorWidth);
+  if (noImplicitZero) {
+    if (loops < 0) {
+      F8v8HIHO_SLIC_LESS_THAN_5(TSLIC_F16V4_1x4_W1)
+    } else {
+      F8v8HIHO_SLIC(TSLIC_F16V4_1x4_W1)
+    }
+  } else {
+    F8v8HIHO_SLIC_IMPLICIT_ZERO(TSLIC_F16V4_1x4_W1)
+  }
+}
+
+template <>
+void f8v8hihoSLIC<2>(const quarter *inPtr, half *partialsPtr, half *outPtr,
+                     unsigned strides, int loops, unsigned noImplicitZero,
+                     unsigned outVectorWidth) {
+  // Process the first 4 output channels using weights=W0
+  auto triAddr = __builtin_ipu_tapack(inPtr, partialsPtr, outPtr);
+  if (noImplicitZero) {
+    F8v8HIHO_SLIC_STRIDE2(TSLIC_F16V4_1x4_W0)
+  } else {
+    F8v8HIHO_SLIC_IMPLICIT_ZERO_STRIDE2(TSLIC_F16V4_1x4_W0)
+  }
+  // Process the second 4 output channels using weights=W1
+  triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
+                                 outPtr + outVectorWidth);
+  if (noImplicitZero) {
+    F8v8HIHO_SLIC_STRIDE2(TSLIC_F16V4_1x4_W1)
+  } else {
+    F8v8HIHO_SLIC_IMPLICIT_ZERO_STRIDE2(TSLIC_F16V4_1x4_W1)
+  }
+}
+
+template <typename UnsignedType, unsigned stride, unsigned numConvUnits>
 class WorkerClass1xN : public Vertex {
 public:
   static bool compute() { return true; }
 };
 
-template <typename UnsignedType>
-class WorkerClass1xN<UnsignedType, 16> : public Vertex {
+template <typename UnsignedType, unsigned stride>
+class WorkerClass1xN<UnsignedType, stride, 16> : public Vertex {
 public:
   static bool compute() {
-
     auto state = workerState<WorkerState1xN>();
     unsigned deltaNData = *(state->partitionList + getWid());
     unsigned workListLength = deltaNData >> DELTAN_OFFSET_BITS;
@@ -211,41 +262,21 @@ public:
                                                       outVectorWidth *
                                                       workListPtr[1];
       auto inPtr = state->inChanPtr + workListPtr[0] * inVectorWidth;
-      constexpr int slicPipeLength = 5;
+      constexpr int slicPipeLength = stride == 1 ? 5 : 3;
       int loops =
           (CSR_W_REPEAT_COUNT__VALUE__MASK & workListPtr[2]) - slicPipeLength;
-
-      // Process the first 4 output channels using weights=W0
-      auto triAddr = __builtin_ipu_tapack(inPtr, partialsPtr, outPtr);
-      if (state->noImplicitZero) {
-        if (loops < 0) {
-          F8v8HIHO_SLIC_LESS_THAN_5(TSLIC_F16V4_1x4_W0)
-        } else {
-          F8v8HIHO_SLIC(TSLIC_F16V4_1x4_W0)
-        }
-      } else {
-        F8v8HIHO_SLIC_IMPLICIT_ZERO(TSLIC_F16V4_1x4_W0)
-      }
-      // Process the second 4 output channels using weights=W1
-      triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
-                                     outPtr + outVectorWidth);
-      if (state->noImplicitZero) {
-        if (loops < 0) {
-          F8v8HIHO_SLIC_LESS_THAN_5(TSLIC_F16V4_1x4_W1)
-        } else {
-          F8v8HIHO_SLIC(TSLIC_F16V4_1x4_W1)
-        }
-      } else {
-        F8v8HIHO_SLIC_IMPLICIT_ZERO(TSLIC_F16V4_1x4_W1)
-      }
+      f8v8hihoSLIC<stride>(inPtr, partialsPtr, outPtr, strides, loops,
+                           state->noImplicitZero, outVectorWidth);
       workListPtr += 3;
     }
     return true;
   }
 };
 
-template class WorkerClass1xN<unsigned short, 16>;
-template class WorkerClass1xN<unsigned, 16>;
+template class WorkerClass1xN<unsigned short, 1, 16>;
+template class WorkerClass1xN<unsigned, 1, 16>;
+template class WorkerClass1xN<unsigned short, 2, 16>;
+template class WorkerClass1xN<unsigned, 2, 16>;
 
 template <unsigned outStride, bool useShortTypes, unsigned windowWidth,
           unsigned numConvChains, unsigned convGroupsPerGroupVertexType>
@@ -339,11 +370,11 @@ public:
 
         slicLoadWeights<false, 16>(&w[0]);
         workerState.inChanPtr = &in[cg][0];
-        if constexpr (useShortTypes) {
-          RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_short_16",
+        if constexpr (outStride == 1) {
+          RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_short_1_16",
                   &workerState);
         } else {
-          RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_16",
+          RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_short_2_16",
                   &workerState);
         }
         std::swap(lastOutBuffer, currOutBuffer);
@@ -385,5 +416,9 @@ template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 16>;
 #if __IPU_ARCH_VERSION__ >= 21
 template class ConvPartial1xNSLIC<quarter, half, 1, false, 4, 4, 8>;
 template class ConvPartial1xNSLIC<quarter, half, 1, true, 4, 4, 8>;
+
+template class ConvPartial1xNSLIC<quarter, half, 2, false, 4, 4, 8>;
+template class ConvPartial1xNSLIC<quarter, half, 2, true, 4, 4, 8>;
 #endif
+
 } // end namespace poplin
