@@ -320,8 +320,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         convSizeVarsVector,
         [&target, params, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
          outChansPerGroup, transformedInputDilation, transformedOutputStride,
-         numConvChainsRequired, slicWindowWidth, floatActivations,
-         floatPartials,
+         numConvChainsRequired, slicWindowWidth, floatPartials,
          cache](const auto &values) -> boost::optional<popsolver::DataType> {
           const auto convSize =
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
@@ -361,14 +360,14 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   /* implicitZeroing */ true, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
                   numConvChainsRequired, slicWindowWidth, convGroupsPerGroup,
-                  floatActivations, floatPartials);
+                  params.inputType, floatPartials);
           const auto innerLoopCycles =
               cache->mGetConvPartialSlicInnerLoopCycles(
                   params.outputTransform.stride.back(),
                   /* implicitZeroing */ false, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
                   numConvChainsRequired, slicWindowWidth, convGroupsPerGroup,
-                  floatActivations, floatPartials);
+                  params.inputType, floatPartials);
           const auto weightLoadCycles =
               getConvPartialSlicSupervisorWeightLoadCycleEstimate(
                   convGroupsPerGroup, inChansPerGroup,
@@ -379,7 +378,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   implicitZeroInnerLoopCycles, innerLoopCycles,
                   weightLoadCycles, tileNumConvGroups, numWeightBlocks,
                   numConvChainsRequired, slicWindowWidth, convGroupsPerGroup,
-                  floatActivations, floatPartials);
+                  params.inputType, floatPartials);
 
           return popsolver::DataType{cycles};
         });

@@ -202,7 +202,7 @@ endforeach() # LOWER_TRUNCATION
 
 foreach (STRIDE 1 2)
   foreach(KERNEL_SIZE 4 8 12)
-    foreach(FIELD_SIZE RANGE 12 256)
+    foreach(FIELD_SIZE 12 13 14 15 16 32 256)
       add_multitarget_test(NAME "ConvPartial1x4SLIC_quarter_${KERNEL_SIZE}_${FIELD_SIZE}_${STRIDE}"
         COMMAND ConvPartial1xNSLIC
           --input-type=quarter
@@ -222,7 +222,7 @@ foreach (STRIDE 1 2)
 endforeach()
 
 foreach(STRIDE 1 2)
-  foreach(FIELD_SIZE RANGE 12 56)
+  foreach(FIELD_SIZE 4 5 6 7 8 9 10)
     add_multitarget_test(NAME "ConvPartial1x4SLIC_quarter_kernel_4_${FIELD_SIZE}_${STRIDE}"
       COMMAND ConvPartial1xNSLIC
         --input-type=quarter

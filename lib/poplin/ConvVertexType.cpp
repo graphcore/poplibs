@@ -392,7 +392,7 @@ static void getConvVertexSLICCandidates(
     const ConvParams &params, const ConvOptions &options, bool isJointPlan,
     std::vector<ConvVertexType> &candidates) {
 
-  if (inputType != poplar::HALF) {
+  if (inputType != poplar::HALF && inputType != poplar::QUARTER) {
     return;
   }
 
@@ -425,6 +425,7 @@ static void getConvVertexSLICCandidates(
     }
   }();
   const bool floatActivations = inputType == poplar::FLOAT;
+  const bool quarterActivations = inputType == poplar::QUARTER;
   const bool floatPartials = partialType == poplar::FLOAT;
   bool ampFloatPartials = floatPartials;
   auto numConvUnits =
@@ -444,7 +445,9 @@ static void getConvVertexSLICCandidates(
     }
     // This is always available with 8, or 16 conv units - let cycle estimates
     // reject it in favour of the 16 conv unit version if that's available
-    convChainsCandidates.push_back(2);
+    if (!quarterActivations) {
+      convChainsCandidates.push_back(2);
+    }
   }
 
   const auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;
@@ -452,8 +455,8 @@ static void getConvVertexSLICCandidates(
 
   // the numbers below are hardcoded but dependent on the expected machine
   // model that the real hardware models. ie. we expect 16 weights per conv unit
-
-  if (weightsPerConvUnit != 16) {
+  if ((quarterActivations && weightsPerConvUnit != 32) ||
+      (!quarterActivations && weightsPerConvUnit != 16)) {
     throw poputil::poplibs_error("Unsupported number of weights per conv "
                                  "unit for the SLIC instruction.");
   }
@@ -477,10 +480,13 @@ static void getConvVertexSLICCandidates(
     unsigned channels;
   };
 
-  std::vector<Candidate> groupings{Candidate{1u, 4u}, Candidate{2u, 2u},
-                                   Candidate{4u, 1u}};
-
-  if (!floatPartials && numConvUnits == 16) {
+  std::vector<Candidate> groupings;
+  if (quarterActivations) {
+    groupings.emplace_back(Candidate{1u, 8u});
+  } else {
+    groupings = {Candidate{1u, 4u}, Candidate{2u, 2u}, Candidate{4u, 1u}};
+  }
+  if (!quarterActivations && !floatPartials && numConvUnits == 16) {
     groupings.emplace_back(Candidate{8u, 1u});
     groupings.emplace_back(Candidate{16u, 1u});
   }

@@ -350,8 +350,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialVerticalMac)(
 
 // TODO: T12902 Add cost estimates for non-limited version?
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
-    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
-    const Type &accumType, unsigned outStride, bool, /* useShortTypes */
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &actsType, const Type &accumType, unsigned outStride,
+    bool, /* useShortTypes */
     unsigned windowWidth, unsigned numConvChains,
     unsigned convGroupsPerGroupVertexType) {
   CODELET_SCALAR_VAL(chansPerGroupLog2, unsigned char);
@@ -361,7 +362,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
   CODELET_FIELD(out);
   CODELET_FIELD(weights);
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
-  assert(fpType == HALF);
+  assert(actsType == HALF || actsType == QUARTER);
 
   const auto numWorkerContexts = target.getNumWorkerContexts();
 
@@ -399,17 +400,16 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
   }
 #endif // !defined(NDEBUG)
 
-  const bool floatActivations = fpType == FLOAT;
   const bool floatPartials = accumType == FLOAT;
 
   const auto implicitZeroingInnerCycles =
       getConvPartialSlicSupervisorInnerLoopCycleEstimate(
           workerPartitions, numWorkerContexts, numConvChains, windowWidth,
-          convGroupsPerGroup, floatActivations, floatPartials, outStride,
+          convGroupsPerGroup, actsType, floatPartials, outStride,
           /* implicitZeroing */ true);
   const auto innerCycles = getConvPartialSlicSupervisorInnerLoopCycleEstimate(
       workerPartitions, numWorkerContexts, numConvChains, windowWidth,
-      convGroupsPerGroup, floatActivations, floatPartials, outStride,
+      convGroupsPerGroup, actsType, floatPartials, outStride,
       /* implicitZeroing */ false);
   const auto weightLoadCycles =
       getConvPartialSlicSupervisorWeightLoadCycleEstimate(
@@ -417,14 +417,14 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
   const auto cycles = getConvPartialSlicSupervisorOuterLoopCycleEstimate(
       implicitZeroingInnerCycles, innerCycles, weightLoadCycles,
       numConvGroupGroups, numSubKernels, numConvChains, windowWidth,
-      convGroupsPerGroup, floatActivations, floatPartials);
+      convGroupsPerGroup, actsType, floatPartials);
 
   // total field elements are for a single sub-kernel element
   std::uint64_t flops = static_cast<std::uint64_t>(numConvGroupGroups) *
                         numSubKernels * windowWidth * convGroupsPerGroup *
                         chansPerGroup * chansPerGroup * totalFieldElems *
                         flopsForMAC();
-  return {cycles, convertToTypeFlops(flops, fpType)};
+  return {cycles, convertToTypeFlops(flops, actsType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(WgdDataTransform)(
@@ -870,7 +870,12 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                               4, 4, 16),
         CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, false,
                               4, 4, 16),
-
+#if __IPU_ARCH_VERSION__ >= 21
+        CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, QUARTER, HALF, 1,
+                              true, 4, 4, 8),
+        CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, QUARTER, HALF, 1,
+                              false, 4, 4, 8),
+#endif
         CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT, true, false),
         CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT, true, false),
         CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, HALF, true, false),
