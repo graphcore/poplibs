@@ -17,7 +17,6 @@
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Compiler.hpp"
-#include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
@@ -193,49 +192,44 @@ static unsigned
 linearizeTileIndices(const Target &target, const ConvOptions &opts,
                      const std::vector<Split<ConvIndices>> &indices,
                      const Plan &plan) {
-  const auto hierarchy = poplibs::getTileHierarchy(target);
-  const auto numLevels = hierarchy.size();
-  assert(indices.size() == numLevels);
-  assert(plan.partitions.size() == numLevels);
+  assert(indices.size() == numLevels - 1);
+  assert(plan.partitions.size() == numLevels - 1);
   unsigned tile = 0;
-  for (unsigned i = 0; i != numLevels; ++i) {
-    const auto &levelIndices = indices[i].parallel;
-    const auto &levelPartition = plan.partitions[i];
-    auto fwdOutIndices = levelIndices.out;
-    const auto &fwdKernelIndices = levelIndices.kernel;
-    auto fwdic = levelIndices.ic;
-    const auto fwdb = levelIndices.b;
-    auto fwdoc = levelIndices.oc;
-    const auto fwdcg = levelIndices.cg;
-    auto fwdFieldSplit = levelPartition.fieldSplit;
-    const auto &fwdKernelSplit = levelPartition.kernelSplit;
-    auto fwdInChanSplit = levelPartition.inChanSplit.parallel;
-    const auto &fwdBatchSplit = levelPartition.batchSplit;
-    auto fwdOutChanSplit = levelPartition.outChanSplit.parallel;
-    switch (plan.linearizeTileOrder) {
-    case Plan::LinearizeTileOrder::FC_WU:
-      // For the fully connected weight update the in group and out group are
-      // swapped compared to the forward pass.
-      std::swap(fwdInChanSplit, fwdOutChanSplit);
-      std::swap(fwdic, fwdoc);
-      break;
-    case Plan::LinearizeTileOrder::FC_BWD_AS_CONV:
-      // For the fully connected backward pass the width and the input channels
-      // are swapped compared to the forward pass.
-      {
-        std::swap(fwdFieldSplit.back(), fwdInChanSplit);
-        std::swap(fwdOutIndices.back(), fwdic);
-      }
-      break;
-    case Plan::LinearizeTileOrder::STANDARD:
-      break;
+  const auto &levelIndices = indices[0].parallel;
+  const auto &levelPartition = plan.partitions[0];
+  auto fwdOutIndices = levelIndices.out;
+  const auto &fwdKernelIndices = levelIndices.kernel;
+  auto fwdic = levelIndices.ic;
+  const auto fwdb = levelIndices.b;
+  auto fwdoc = levelIndices.oc;
+  const auto fwdcg = levelIndices.cg;
+  auto fwdFieldSplit = levelPartition.fieldSplit;
+  const auto &fwdKernelSplit = levelPartition.kernelSplit;
+  auto fwdInChanSplit = levelPartition.inChanSplit.parallel;
+  const auto &fwdBatchSplit = levelPartition.batchSplit;
+  auto fwdOutChanSplit = levelPartition.outChanSplit.parallel;
+  switch (plan.linearizeTileOrder) {
+  case Plan::LinearizeTileOrder::FC_WU:
+    // For the fully connected weight update the in group and out group are
+    // swapped compared to the forward pass.
+    std::swap(fwdInChanSplit, fwdOutChanSplit);
+    std::swap(fwdic, fwdoc);
+    break;
+  case Plan::LinearizeTileOrder::FC_BWD_AS_CONV:
+    // For the fully connected backward pass the width and the input channels
+    // are swapped compared to the forward pass.
+    {
+      std::swap(fwdFieldSplit.back(), fwdInChanSplit);
+      std::swap(fwdOutIndices.back(), fwdic);
     }
-    const auto linearizedIndex =
-        linearizeConvIndices(fwdOutIndices, fwdKernelIndices, fwdic, fwdb,
-                             fwdoc, fwdcg, fwdFieldSplit, fwdKernelSplit,
-                             fwdInChanSplit, fwdBatchSplit, fwdOutChanSplit);
-    tile = tile * hierarchy[i] + linearizedIndex;
+    break;
+  case Plan::LinearizeTileOrder::STANDARD:
+    break;
   }
+  const auto linearizedIndex = linearizeConvIndices(
+      fwdOutIndices, fwdKernelIndices, fwdic, fwdb, fwdoc, fwdcg, fwdFieldSplit,
+      fwdKernelSplit, fwdInChanSplit, fwdBatchSplit, fwdOutChanSplit);
+  tile = tile * target.getNumTiles() + linearizedIndex;
 
   // split into a per-IPU tile here so that any wrap around from the dithering
   // stays on the same IPU.
@@ -2108,13 +2102,13 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
   // lower the transforms in ascending order as we climb the hierarchy.
   for (unsigned level = 0; level < numLevels; ++level) {
     if (plan.is_initialized()) {
-      const auto ipuLevel = plan->transforms.size() - 2;
+      const auto systemLevel = plan->transforms.size() - 2;
       const auto tileLevel = plan->transforms.size() - 1;
 
       // if no serial split of acts then move
-      // transformPre[ipuLevel].postTransposeActs before a convolution loop
+      // transformPre[systemLevel].postTransposeActs before a convolution loop
       if (plan->broadcastInputBeforeLoop &&
-          (level == ipuLevel || level == tileLevel)) {
+          (level == systemLevel || level == tileLevel)) {
 
         moveTransposeOps(transformPreSerial.preTransposeActs,
                          transformPre[level].preTransposeActs);
@@ -2186,14 +2180,14 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       convolutionPreprocess(graph, serialParams.releaseParams(), options, plan,
                             level, indices, inSlice, weightsSlice, true);
 
-  const auto ipuLevel = plan.transforms.size() - 2;
+  const auto systemLevel = plan.transforms.size() - 2;
 
   auto levelIndices = indices;
   levelIndices.emplace_back();
   auto parallelParams = serialParams;
   const std::string levelSuffix = "[" + std::to_string(level) + "]";
   // we only support serial splits on the ipu level.
-  if (level == ipuLevel) {
+  if (level == systemLevel) {
     const auto &partition = plan.partitions[level];
 
     if (partition.totalSerialSplit() > 1) {
@@ -2287,7 +2281,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   // Transform.
   bool rearrangeActs = false;
   bool rearrangeWeights = false;
-  if (level == ipuLevel) {
+  if (level == systemLevel) {
     // If the input tensors have a different memory layout to the one expected
     // by the vertices poplar will rearrange the data using exchange code or
     // copy pointers. If the data is broadcast this rearrangement happens on
@@ -2313,12 +2307,12 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     }
     rearrangeActs = inputRearrangementIsExpensive(options) ||
                     (inNumDests > inViewMaxBroadcastDests) ||
-                    !plan.transforms[ipuLevel].expandDims.empty() ||
-                    !plan.transforms[ipuLevel].outChanFlattenDims.empty();
+                    !plan.transforms[systemLevel].expandDims.empty() ||
+                    !plan.transforms[systemLevel].outChanFlattenDims.empty();
     rearrangeWeights = weightRearrangementIsExpensive(options) ||
                        (weightsNumDests > weightViewMaxBroadcastDests) ||
-                       !plan.transforms[ipuLevel].expandDims.empty() ||
-                       !plan.transforms[ipuLevel].outChanFlattenDims.empty();
+                       !plan.transforms[systemLevel].expandDims.empty() ||
+                       !plan.transforms[systemLevel].outChanFlattenDims.empty();
     // Check if the input/weights respect the desired grainSize at this level
     // in the correct dimension. If not we should probably rearrange prior to
     // the exchange.
@@ -2522,7 +2516,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
                                cpt.transformPost[level], {dnai});
 
   // Update.
-  if (level == ipuLevel) {
+  if (level == systemLevel) {
     const auto &partition = plan.partitions[level];
     const bool inChansAreSeriallySplit = partition.inChanSplit.serial > 1;
     const bool outChansAreSeriallySplit = partition.outChanSplit.serial > 1;

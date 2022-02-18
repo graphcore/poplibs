@@ -10,6 +10,11 @@
 
 namespace poplibs_support {
 
+// Number of levels in the transformation hierarchy (0 - system, 1 - tile)
+constexpr unsigned systemLevel = 0;
+constexpr unsigned tileLevel = 1;
+constexpr unsigned numLevels = 2;
+
 // Wraps ptree only in order to add custom comparison operators.
 class PlanConstraints : public boost::property_tree::ptree {
   using BaseTreeType = boost::property_tree::ptree;

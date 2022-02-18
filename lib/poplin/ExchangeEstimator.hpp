@@ -24,23 +24,15 @@ class ExchangeEstimator {
 
 public:
   ExchangeEstimator(popsolver::Model &m, const poplar::Target &target,
-                    const std::vector<double> &perLevelExchangeBytesPerCycle,
-                    const unsigned numLevelsOfHierarchy,
                     const std::vector<PartitionVariables> &partitionVars,
                     const Plan::LinearizeTileOrder linearizeTileOrder)
-      : m(m), target(target), numLevelsOfHierarchy(numLevelsOfHierarchy) {
-    for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
-      const auto scaledBytesPerCycle = getScaledExchangeBytesPerCycle(
-          m, perLevelExchangeBytesPerCycle[level], exchangeBytesScalingFactor);
+      : m(m), target(target) {
+    const auto scaledBytesPerCycle = getScaledExchangeBytesPerCycle(
+        m, target.getExchangeBytesPerCycle(), exchangeBytesScalingFactor);
 
-      perLevelScaledExchangeBytesPerCycle.push_back(scaledBytesPerCycle);
-      perLevelScaledExchangeBytesPerCycleVar.push_back(
-          m.addConstant(scaledBytesPerCycle));
-    }
-
-    const unsigned ipuLevel = numLevelsOfHierarchy - 2;
-    scaledInputElementBytesPerCycle =
-        perLevelScaledExchangeBytesPerCycleVar[ipuLevel];
+    scaledExchangeBytesPerCycle = scaledBytesPerCycle;
+    scaledExchangeBytesPerCycleVar = m.addConstant(scaledBytesPerCycle);
+    scaledInputElementBytesPerCycle = scaledExchangeBytesPerCycleVar;
 
     // when we lay the data out on the tiles (assuming the standard linearlize
     // tile order) we make the grouped output channels the innermost dimension.
@@ -65,7 +57,7 @@ public:
 
       // don't care about the serial split here as that does not change the
       // tiles that the input elements are mapped to.
-      const auto outChanSplit = partitionVars[ipuLevel].outChanSplit.parallel;
+      const auto outChanSplit = partitionVars[0].outChanSplit.parallel;
       const auto multiplier = m.call<unsigned>(
           {outChanSplit},
           [tilesPerSuperTile](const auto &values) -> popsolver::DataType {
@@ -80,7 +72,6 @@ public:
   popsolver::Variable
   getInputElementCycles(const popsolver::Variable numInputElements,
                         const poplar::Type inputElementType,
-                        const unsigned level,
                         const std::string &debugName = "") const {
     const auto scaledInputElementSize = m.addConstant(
         target.getTypeSize(inputElementType) * exchangeBytesScalingFactor);
@@ -88,35 +79,28 @@ public:
     const auto scaledInputElementBytes =
         m.product({numInputElements, scaledInputElementSize});
 
-    if (level + 2 == numLevelsOfHierarchy) {
-      return m.ceildiv(scaledInputElementBytes, scaledInputElementBytesPerCycle,
-                       debugName);
-    } else {
-      return m.ceildiv(scaledInputElementBytes,
-                       perLevelScaledExchangeBytesPerCycleVar[level],
-                       debugName);
-    }
+    return m.ceildiv(scaledInputElementBytes, scaledInputElementBytesPerCycle,
+                     debugName);
   }
 
   popsolver::Variable getCycles(const popsolver::Variable numElements,
                                 const poplar::Type elementType,
-                                const unsigned level,
                                 const std::string &debugName = "") const {
     const auto scaledSize = m.addConstant(target.getTypeSize(elementType) *
                                           exchangeBytesScalingFactor);
 
     const auto scaledElementBytes = m.product({numElements, scaledSize});
-    return m.ceildiv(scaledElementBytes,
-                     perLevelScaledExchangeBytesPerCycleVar[level], debugName);
+    return m.ceildiv(scaledElementBytes, scaledExchangeBytesPerCycleVar,
+                     debugName);
   }
 
-  unsigned getCycles(unsigned numElements, const poplar::Type elementType,
-                     unsigned level) const {
+  unsigned getCycles(unsigned numElements,
+                     const poplar::Type elementType) const {
     const unsigned scaledSize =
         target.getTypeSize(elementType) * exchangeBytesScalingFactor;
     const auto scaledElementBytes = numElements * scaledSize;
     return poplibs_support::ceildiv(scaledElementBytes,
-                                    perLevelScaledExchangeBytesPerCycle[level]);
+                                    scaledExchangeBytesPerCycle);
   }
 
 private:
@@ -139,9 +123,8 @@ private:
 
   popsolver::Model &m;
   const poplar::Target &target;
-  unsigned numLevelsOfHierarchy;
-  std::vector<unsigned> perLevelScaledExchangeBytesPerCycle;
-  std::vector<popsolver::Variable> perLevelScaledExchangeBytesPerCycleVar;
+  unsigned scaledExchangeBytesPerCycle;
+  popsolver::Variable scaledExchangeBytesPerCycleVar;
 
   // input elements can sometimes benefit from a fast bandwidth. see comment
   // in the constructor about why this is the case.

@@ -75,10 +75,10 @@ struct ReduceEstimates {
  *
  */
 ReduceEstimates modelBalancedIntertileReduction(
-    const poplar::Target &target, const std::vector<unsigned> &hierarchy,
-    const poplar::Type &inputType, const poplar::Type &partialType,
-    const popops::Operation &operation, const bool isUpdate,
-    popsolver::Model &m, const ExchangeEstimator &exchangeEstimator,
+    const poplar::Target &target, const poplar::Type &inputType,
+    const poplar::Type &partialType, const popops::Operation &operation,
+    const bool isUpdate, popsolver::Model &m,
+    const ExchangeEstimator &exchangeEstimator,
     const popsolver::Variable &mInputsPerTile,
     const popsolver::Variable &mReductionFactor,
     const std::string &debugPrefix = "");

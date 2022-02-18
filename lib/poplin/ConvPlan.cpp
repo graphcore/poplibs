@@ -12,7 +12,6 @@
 #include "poplar/Graph.hpp"
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
-#include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
@@ -447,8 +446,6 @@ static std::tuple<Plan, Cost, popsolver::ConstraintEvaluationSummary>
 choosePlan(const poplar::Target &target,
            const std::vector<ConvTransform> &transforms,
            const std::vector<ConvTypes> &types,
-           const std::vector<unsigned> &hierarchy,
-           const std::vector<double> &perLevelExchangeBytesPerCycle,
            const std::vector<unsigned> &fieldGrainSize,
            const ConvVertexType &convVertexType, const ConvParams &params,
            bool isJointPlan, Cost bestCost, const PlanningObjective &objective,
@@ -461,10 +458,9 @@ choosePlan(const poplar::Target &target,
   std::vector<PartitionVariables> partitionVars;
   popsolver::Variable broadcastInputBeforeLoop = m.zero();
   Estimates<popsolver::Variable> e = constructModel(
-      target, transforms, types, hierarchy, perLevelExchangeBytesPerCycle,
-      fieldGrainSize, convVertexType, params, isJointPlan, bestCost, objective,
-      referencePlan, referenceCost, cache, options, m, partitionVars,
-      broadcastInputBeforeLoop);
+      target, transforms, types, fieldGrainSize, convVertexType, params,
+      isJointPlan, bestCost, objective, referencePlan, referenceCost, cache,
+      options, m, partitionVars, broadcastInputBeforeLoop);
   popsolver::Solution s;
 
   switch (objective.getType()) {
@@ -546,11 +542,11 @@ static std::vector<std::vector<T>> getPowerSet(const std::vector<T> &items) {
 }
 
 static std::vector<std::vector<unsigned>>
-getExpandDimsCandidates(unsigned ipuLevel, const ConvParams &params,
+getExpandDimsCandidates(unsigned systemLevel, const ConvParams &params,
                         const ConvOptions &options) {
   const auto &planConstraints = options.planConstraints;
   const auto constraint = planConstraints.get_child_optional(
-      std::to_string(ipuLevel) + ".transform.expandDims");
+      std::to_string(systemLevel) + ".transform.expandDims");
   std::vector<std::vector<unsigned>> candidateDimSets;
   if (constraint) {
     std::vector<unsigned> forcedDims;
@@ -591,12 +587,12 @@ getExpandDimsCandidates(unsigned ipuLevel, const ConvParams &params,
 }
 
 static std::vector<std::vector<unsigned>>
-getOutChanFlattenDimsCandidates(unsigned ipuLevel, const ConvParams &params,
+getOutChanFlattenDimsCandidates(unsigned systemLevel, const ConvParams &params,
                                 const ConvOptions &options) {
   auto swappedParams = params;
   const auto &planConstraints = options.planConstraints;
   const auto constraint = planConstraints.get_child_optional(
-      std::to_string(ipuLevel) + ".transform.outChanFlattenDims");
+      std::to_string(systemLevel) + ".transform.outChanFlattenDims");
   std::vector<std::vector<unsigned>> candidateDimSets;
   if (constraint) {
     std::vector<unsigned> forcedDims;
@@ -1003,17 +999,9 @@ createPlan(const ConvParams &params, const ConvOptions &options,
   // A coarse metric to measure the efficiency of the constraint solver
   popsolver::ConstraintEvaluationSummary totalConstraintsEvaluated{};
 
-  // perLevelExchangeBytesPerCycle is indexed by hierarchy (not including the
-  // tile level), lower indices to higher hierarchies.
-  const auto perLevelExchangeBytesPerCycle =
-      poplibs::getPerLevelExchangeBytesPerCycle(target);
-  const auto hierarchy = poplibs::getTileHierarchy(target);
-  const auto numLevels = hierarchy.size() + 1;
-
   validatePlanConstraints(params, options.planConstraints, numLevels);
 
   std::vector<ConvTransform> transforms(numLevels);
-  const auto ipuLevel = transforms.size() - 2;
   auto numFieldDims = params.getNumFieldDims();
   transforms[0].extraFieldDims = calculateExtraFieldDims(numFieldDims);
   auto paramsWithExtraDims = params;
@@ -1033,22 +1021,23 @@ createPlan(const ConvParams &params, const ConvOptions &options,
         calculateSwappedParams(paramsWithDeferredDilation, swapOperands);
 
     for (const std::vector<unsigned> &expandDims :
-         getExpandDimsCandidates(ipuLevel, swappedParams, options)) {
-      transforms[ipuLevel].expandDims = expandDims;
+         getExpandDimsCandidates(systemLevel, swappedParams, options)) {
+      transforms[systemLevel].expandDims = expandDims;
       auto expandedParams = calculateExpandedParams(swappedParams, expandDims);
 
       for (const std::vector<unsigned> &outChanFlattenDims :
-           getOutChanFlattenDimsCandidates(ipuLevel, expandedParams, options)) {
-        transforms[ipuLevel].outChanFlattenDims = outChanFlattenDims;
+           getOutChanFlattenDimsCandidates(systemLevel, expandedParams,
+                                           options)) {
+        transforms[systemLevel].outChanFlattenDims = outChanFlattenDims;
         auto flattenedParams =
             calculateFlattenedParams(expandedParams, outChanFlattenDims,
-                                     transforms[ipuLevel].flattenDims);
+                                     transforms[systemLevel].flattenDims);
 
         for (const unsigned combineConvGroups : getCombineConvGroupCandidates(
-                 ipuLevel, flattenedParams, options, target, isJointPlan)) {
-          transforms[ipuLevel].combineConvGroupsFactor = combineConvGroups;
+                 systemLevel, flattenedParams, options, target, isJointPlan)) {
+          transforms[systemLevel].combineConvGroupsFactor = combineConvGroups;
           const auto groupedParams = calculateGroupedParams(
-              flattenedParams, transforms[ipuLevel].combineConvGroupsFactor);
+              flattenedParams, transforms[systemLevel].combineConvGroupsFactor);
 
           const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
               target, params.inputType, params.outputType, options.partialsType,
@@ -1082,8 +1071,7 @@ createPlan(const ConvParams &params, const ConvOptions &options,
                 target, convVertexType.partialType, params.outputType, options);
             popsolver::ConstraintEvaluationSummary constraintsEvaluated{};
             std::tie(candidate, candidateCost, constraintsEvaluated) =
-                choosePlan(target, transforms, convTypes, hierarchy,
-                           perLevelExchangeBytesPerCycle, fieldGrainSize,
+                choosePlan(target, transforms, convTypes, fieldGrainSize,
                            convVertexType, params, isJointPlan, bestCost,
                            objective, startTileIdxForVirtualHierarchy,
                            referencePlan, referenceCost, cache, options);
@@ -2087,10 +2075,8 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
     tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
     cacheImpl = tempCache.get();
   }
-  const auto perLevelExchangeBytesPerCycle =
-      poplibs::getPerLevelExchangeBytesPerCycle(target);
-  const auto hierarchy = poplibs::getTileHierarchy(target);
-  assert(perLevelExchangeBytesPerCycle.size() == plan.partitions.size());
+
+  assert(1 == plan.partitions.size());
   auto objective = PlanningObjective::minimizeCycles();
   ConvVertexType convVertexType(
       plan.method, params.inputType, plan.types.back().partialType,
@@ -2108,10 +2094,9 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
   std::vector<PartitionVariables> partitionVars;
   popsolver::Variable broadcastInputBeforeLoop = m.zero();
   const auto e = constructModel(
-      target, plan.transforms, plan.types, hierarchy,
-      perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType, params,
-      plan.isJointPlan, highestCost, objective, boost::none, boost::none,
-      &cacheImpl->cycleEstimation, options, m, partitionVars,
+      target, plan.transforms, plan.types, fieldGrainSize, convVertexType,
+      params, plan.isJointPlan, highestCost, objective, boost::none,
+      boost::none, &cacheImpl->cycleEstimation, options, m, partitionVars,
       broadcastInputBeforeLoop);
   const auto numLevelsOfHierarchy = plan.partitions.size();
   assert(partitionVars.size() == numLevelsOfHierarchy);

@@ -16,7 +16,6 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "poplibs_support/PlanConstraints.hpp"
-#include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
@@ -3561,12 +3560,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
       options.indicesDistribution == IndicesDistribution::UNIFORM
           ? static_cast<double>(plannedNumIndices) / numEntries
           : plannedNumIndices;
-  const auto hierarchy = getTileHierarchy(target);
-  const auto perLevelExchangeBytesPerCycle =
-      getPerLevelExchangeBytesPerCycle(target);
-  ExchangeEstimator exchangeEstimator(m, target, hierarchy,
-                                      perLevelExchangeBytesPerCycle);
-  const auto ipuLevel = hierarchy.size() - 1;
+  ExchangeEstimator exchangeEstimator(m, target);
 
   // Indices are int32 so 4bytes each
   const auto mBytesPerIndex = m.addConstant(target.getTypeSize(UNSIGNED_INT));
@@ -3722,8 +3716,8 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // mBaseGrainsPerGroupPerTile gives the number of grains taken as input
     // to MultiSlice vertices in the first stage. If there is a lookup
     // split then this data must be broadcast.
-    e.sliceFirstStageExchangeCycles = exchangeEstimator(
-        mBaseTempBytesPerTile, ipuLevel, "slice.0.exchange.cycles");
+    e.sliceFirstStageExchangeCycles =
+        exchangeEstimator(mBaseTempBytesPerTile, "slice.0.exchange.cycles");
     const MultiSliceTargetParameters targetParams{target, dataType};
     e.sliceFirstStageComputeCycles = m.call<unsigned>(
         {mUnslicedElemsPerGroupPerTile, mLookupsPerGroupPerTile, mNumEntries,
@@ -3766,7 +3760,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
         {partition.slicedDimSplit, mSecondStageLookupsPerGroupPerTile,
          mUnslicedGrainsPerGroupPerTile, mBytesPerGrain, mGroupSizePerTile});
     e.sliceSecondStageExchangeCycles = exchangeEstimator(
-        mSecondStageInputBytesPerTile, ipuLevel, "slice.1.exchange.cycles");
+        mSecondStageInputBytesPerTile, "slice.1.exchange.cycles");
     e.sliceSecondStageComputeCycles = m.call<unsigned>(
         {
             mUnslicedGrainsPerGroupPerTile,
@@ -3902,7 +3896,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // Multipled by 2 because we would need to copy from source base tensor
     // *and back*.
     e.updateRearrangeBaseCycles =
-        m.product({exchangeEstimator(mBaseTempBytesPerTile, ipuLevel,
+        m.product({exchangeEstimator(mBaseTempBytesPerTile,
                                      "update.0.rearrangeBase.cycles"),
                    m.addConstant(2u)});
 
@@ -3924,7 +3918,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // will be broadcast by the number of splits of the sliced dimension.
     e.updateFirstStageExchangeCycles = exchangeEstimator(
         m.product({mGroupSizePerTile, mUpdatesTempBytesPerGroupPerTile}),
-        ipuLevel, "update.0.exchange.cycles");
+        "update.0.exchange.cycles");
 
     {
       e.updateFirstStageComputeCycles = m.call<unsigned>(
@@ -4010,7 +4004,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // reduction defined for no update operation.
     if (operation != std::nullopt) {
       const auto mUpdateReduceEstimates = modelBalancedIntertileReduction(
-          target, hierarchy, FLOAT, FLOAT, *operation, /* isUpdate */ false, m,
+          target, FLOAT, FLOAT, *operation, /* isUpdate */ false, m,
           exchangeEstimator, mPartialElemsPerTile, partition.lookupSplit,
           "update.1.reduce");
       e.updateReduceExchangeCycles =

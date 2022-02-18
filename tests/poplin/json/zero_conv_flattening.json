@@ -40,12 +40,5 @@
             },
             "convGroupSplit": 1
         }
-    },
-    "2":{
-        "transform":{
-            "swapOperands": false,
-            "expandDims": [],
-            "outChanFlattenDims": []
-        }
     }
 }

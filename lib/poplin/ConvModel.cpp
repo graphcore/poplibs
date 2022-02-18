@@ -1,7 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "ConvModel.hpp"
 #include "ExchangeEstimator.hpp"
-#include "poplibs_support/TileHierarchy.hpp"
 #include "popops/PerformanceEstimation.hpp"
 #include <boost/functional/hash.hpp>
 #include <poputil/exceptions.hpp>
@@ -614,9 +613,7 @@ padKernelSpatialDim(popsolver::Model &m, const ConvParams &params,
     return;
   }
 
-  assert(transformedSizes.size() >= 2);
-  const auto numLevelsOfHierarchy = transformedSizes.size();
-  const auto ipuLevel = numLevelsOfHierarchy - 2;
+  assert(transformedSizes.size() >= numLevels);
 
   // Here we need to calculate how much padding (P) is required for the
   // kernel. We do this by taking the size of the kernel dim we want to
@@ -634,15 +631,15 @@ padKernelSpatialDim(popsolver::Model &m, const ConvParams &params,
   // overall cycle/memory estimates to be somewhat pessimistic.
   const auto x = m.addConstant(padToMultipleOf);
 
-  assert(transformedSizes[ipuLevel].kernelSize.size() > dim);
-  assert(partitionVars[ipuLevel].kernelSplit.size() > dim);
+  assert(transformedSizes[systemLevel].kernelSize.size() > dim);
+  assert(partitionVars[systemLevel].kernelSplit.size() > dim);
 
   // TODO: T12876 There is an added complexity here as either rounding up or
   // down produces the most padding at each level of the hierarchy. Therefore,
   // we need to walk over the entire hierarchy to find the padding required
   // for the lowest level.
-  const auto h = transformedSizes[ipuLevel].kernelSize[dim];
-  const auto s = partitionVars[ipuLevel].kernelSplit[dim];
+  const auto h = transformedSizes[systemLevel].kernelSize[dim];
+  const auto s = partitionVars[systemLevel].kernelSplit[dim];
 
   // This is how many elements the kernel size has increased by in
   // the given dimension. To get the number of bytes we need to multiply
@@ -692,15 +689,11 @@ static void truncateDilateAndPadInput(
     const std::vector<PartitionVariables> &partitionVars,
     std::vector<popsolver::Variable> &inputPadding, const unsigned dim) {
   assert(dim < inputPadding.size());
-
-  assert(transformedSizes.size() >= 2);
-  const auto numLevelsOfHierarchy = transformedSizes.size();
-  const auto ipuLevel = numLevelsOfHierarchy - 2;
-  const auto tileLevel = numLevelsOfHierarchy - 1;
+  assert(transformedSizes.size() >= numLevels);
 
   // field size for this dim include any zero padding already applied
   const auto fieldGrainSize =
-      m.addConstant(partitionVars[ipuLevel].fieldGrainSize[dim]);
+      m.addConstant(partitionVars[systemLevel].fieldGrainSize[dim]);
   const auto fieldSize =
       m.sum({m.product({transformedSizes[tileLevel].numFieldGrains[dim],
                         fieldGrainSize}),
@@ -734,21 +727,18 @@ applyPadding(popsolver::Model &m, const poplar::Target &target,
              const ExchangeEstimator &exchangeEstimator,
              const std::vector<popsolver::Variable> &kernelPadding,
              const std::vector<popsolver::Variable> &inputPadding) {
-  assert(transformedSizes.size() >= 2);
-  const auto numLevelsOfHierarchy = transformedSizes.size();
-  const auto ipuLevel = numLevelsOfHierarchy - 2;
-  const auto tileLevel = numLevelsOfHierarchy - 1;
+  assert(transformedSizes.size() >= numLevels);
 
   const auto convGroupSize =
       m.product({transformedSizes[tileLevel].numConvGroupGrains,
-                 m.addConstant(partitionVars[ipuLevel].convGroupGrainSize)});
+                 m.addConstant(partitionVars[systemLevel].convGroupGrainSize)});
   const auto batchSize = transformedSizes[tileLevel].batchSize;
   const auto inChanSize =
       m.product({transformedSizes[tileLevel].numInChanGrains,
-                 m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
+                 m.addConstant(partitionVars[systemLevel].inChanGrainSize)});
   const auto outChanSize =
       m.product({transformedSizes[tileLevel].numOutChanGrains,
-                 m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
+                 m.addConstant(partitionVars[systemLevel].outChanGrainSize)});
 
   // estimate cycles and temp memory by total number of zeroes from all of
   // the transformations.
@@ -776,7 +766,7 @@ applyPadding(popsolver::Model &m, const poplar::Target &target,
     std::vector<popsolver::Variable> paddedFieldDims;
     for (unsigned d = 0; d < numFieldDims; ++d) {
       const auto fieldGrainSize =
-          m.addConstant(partitionVars[ipuLevel].fieldGrainSize[d]);
+          m.addConstant(partitionVars[systemLevel].fieldGrainSize[d]);
       const auto fieldSize = m.product(
           {transformedSizes[tileLevel].numFieldGrains[d], fieldGrainSize});
 
@@ -789,10 +779,9 @@ applyPadding(popsolver::Model &m, const poplar::Target &target,
     return m.product({convGroupSize, batchSize, padding, inChanSize});
   }();
 
-  const auto kernelCycles =
-      exchangeEstimator.getCycles(kernelZeros, inputType, ipuLevel);
+  const auto kernelCycles = exchangeEstimator.getCycles(kernelZeros, inputType);
   const auto inputCycles =
-      exchangeEstimator.getInputElementCycles(inputZeros, inputType, ipuLevel);
+      exchangeEstimator.getInputElementCycles(inputZeros, inputType);
   const auto extraCycles = m.sum({kernelCycles, inputCycles});
 
   // we sum the temp memory here as all of these transformations will be
@@ -913,9 +902,9 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
   weightsPerLevel.clear();
 
   // The number of cycles for exchange is the sum of the cycles for the input,
-  // weights and partials for each level in the hierarchy (not including the
-  // tile level). These are stored in each vector.  The sum of each vector is
-  // returned to give itemised results and help with analysis.
+  // weights and partials at the system level. These are stored in each vector.
+  // The sum of each vector is returned to give itemised results and help with
+  // analysis.
   std::vector<popsolver::Variable> inputExchangeCycles;
   std::vector<popsolver::Variable> weightExchangeCycles;
   std::vector<popsolver::Variable> reduceFirstStageExchangeCycles;
@@ -1015,10 +1004,10 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     const auto numberOfPartialSums = numberOfOutputElements;
 
     inputExchangeCycles.push_back(exchangeEstimator.getInputElementCycles(
-        numberOfInputElements, params.inputType, level));
+        numberOfInputElements, params.inputType));
 
     weightExchangeCycles.push_back(
-        exchangeEstimator.getCycles(numberOfWeights, params.inputType, level));
+        exchangeEstimator.getCycles(numberOfWeights, params.inputType));
 
     // We do the first stage of any reduction separately so that we
     // can prune the search space based on this from previous best
@@ -1028,7 +1017,7 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     // Any further stages are dependent on the reduction plan and their
     // cycle cost is added through a call.
     reduceFirstStageExchangeCycles.push_back(exchangeEstimator.getCycles(
-        numberOfPartialSums, types[level + 1].resultType, level));
+        numberOfPartialSums, types[level + 1].resultType));
 
     auto reduceDimSizes = partitionsNextLevel.kernelSplit;
     reduceDimSizes.push_back(partitionsNextLevel.inChanSplit.parallel);
@@ -1055,8 +1044,8 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
           for (const auto d : reducePlan) {
             // We add first stage reduction exchange cycles separately above.
             if (!firstStage) {
-              cycles += popsolver::DataType{exchangeEstimator.getCycles(
-                  outputSizeThisStage, resultType, level)};
+              cycles += popsolver::DataType{
+                  exchangeEstimator.getCycles(outputSizeThisStage, resultType)};
             }
             const auto depthThisStage = ceildiv(remainingDepth, d);
             outputSizeThisStage = ceildiv(outputSizeThisStage, depthThisStage);
@@ -1065,8 +1054,8 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
           }
           // Final reduction
           if (remainingDepth > 1 && !firstStage) {
-            cycles += popsolver::DataType{exchangeEstimator.getCycles(
-                outputSizeThisStage, resultType, level)};
+            cycles += popsolver::DataType{
+                exchangeEstimator.getCycles(outputSizeThisStage, resultType)};
           }
           return cycles;
         },
@@ -1291,9 +1280,8 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
   bool swapOperands = false;
   bool outChanFlattenDims = false;
   bool combineConvGroups = false;
-  assert(transforms.size() >= 2);
-  const auto ipuLevel = transforms.size() - 2;
-  for (unsigned level = 0; level <= ipuLevel; ++level) {
+  assert(transforms.size() >= numLevels);
+  for (unsigned level = 0; level <= systemLevel; ++level) {
     if (transforms[level].swapOperands)
       swapOperands = true;
     if (!transforms[level].expandDims.empty())
@@ -1347,19 +1335,19 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
     return estimates;
   }
 
-  const auto &convSize = transformedConvSizes[ipuLevel];
+  const auto &convSize = transformedConvSizes[systemLevel];
   std::vector<popsolver::Variable> outputFieldSizes;
   std::vector<popsolver::Variable> inputFieldSizes;
-  const auto numFieldDims = partitionVars[ipuLevel].fieldSplit.size();
+  const auto numFieldDims = partitionVars[systemLevel].fieldSplit.size();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto fieldGrainSize = partitionVars[ipuLevel].fieldGrainSize[dim];
+    const auto fieldGrainSize = partitionVars[systemLevel].fieldGrainSize[dim];
     auto outputFieldSize = convSize.numFieldGrains[dim];
     if (fieldGrainSize != 1) {
       outputFieldSize =
           m.product({outputFieldSize, m.addConstant(fieldGrainSize)});
     }
     outputFieldSizes.push_back(outputFieldSize);
-    if (transformedDims[ipuLevel].count(dim)) {
+    if (transformedDims[systemLevel].count(dim)) {
       inputFieldSizes.push_back(outputFieldSize);
     } else {
       auto inputFieldSize =
@@ -1370,22 +1358,24 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
   }
   const auto numConvGroups =
       m.product({convSize.numConvGroupGrains,
-                 m.addConstant(partitionVars[ipuLevel].convGroupGrainSize)});
+                 m.addConstant(partitionVars[systemLevel].convGroupGrainSize)});
   const auto numInChans =
       m.product({convSize.numInChanGrains,
-                 m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
+                 m.addConstant(partitionVars[systemLevel].inChanGrainSize)});
   const auto numOutChans =
       m.product({convSize.numOutChanGrains,
-                 m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
+                 m.addConstant(partitionVars[systemLevel].outChanGrainSize)});
   std::vector<popsolver::Variable> ipuSplits = {
-      partitionVars[ipuLevel].batchSplit,
-      partitionVars[ipuLevel].convGroupSplit,
-      partitionVars[ipuLevel].inChanSplit.parallel,
-      partitionVars[ipuLevel].outChanSplit.parallel};
-  ipuSplits.insert(ipuSplits.end(), partitionVars[ipuLevel].fieldSplit.begin(),
-                   partitionVars[ipuLevel].fieldSplit.end());
-  ipuSplits.insert(ipuSplits.end(), partitionVars[ipuLevel].kernelSplit.begin(),
-                   partitionVars[ipuLevel].kernelSplit.end());
+      partitionVars[systemLevel].batchSplit,
+      partitionVars[systemLevel].convGroupSplit,
+      partitionVars[systemLevel].inChanSplit.parallel,
+      partitionVars[systemLevel].outChanSplit.parallel};
+  ipuSplits.insert(ipuSplits.end(),
+                   partitionVars[systemLevel].fieldSplit.begin(),
+                   partitionVars[systemLevel].fieldSplit.end());
+  ipuSplits.insert(ipuSplits.end(),
+                   partitionVars[systemLevel].kernelSplit.begin(),
+                   partitionVars[systemLevel].kernelSplit.end());
   auto ipuUsedTiles = m.product(ipuSplits);
   const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
 
@@ -1465,7 +1455,7 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
         {totalOutputFieldSize, convSize.batchSize, numOutChans, numConvGroups});
     auto numElementsPerTile = m.ceildiv(numElements, ipuUsedTiles);
     const auto outputBytesPerElement =
-        target.getTypeSize(types[ipuLevel].resultType);
+        target.getTypeSize(types[systemLevel].resultType);
     auto bytesPerTile =
         m.product({numElementsPerTile, m.addConstant(outputBytesPerElement)});
     const auto factor = getScaleFactorForTransform(
@@ -1500,10 +1490,10 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
 
   // We don't have a regression analysis for the fully_connected_layer
   // benchmarks hence allowing to fallback into an old way of getting estimates
-  if (transforms[ipuLevel].extraFieldDims == 0 &&
+  if (transforms[systemLevel].extraFieldDims == 0 &&
       options.enableTransformsConvTable == true) {
 
-    const auto ipuTransforms = transforms[ipuLevel];
+    const auto ipuTransforms = transforms[systemLevel];
 
     auto getCycles = [](unsigned atomSize,
                         const uint64_t &bytesPerTile) -> uint64_t {
@@ -1531,7 +1521,8 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
     };
 
     estimates.inputsCopyCycles = m.call<uint64_t>(
-        {partitionVars[ipuLevel].inChanSplit.serial, estimates.inputsTempBytes},
+        {partitionVars[systemLevel].inChanSplit.serial,
+         estimates.inputsTempBytes},
         [getCycles, ipuTransforms, transformedViewParams, convVertexType,
          inputBytesPerElement](
             const std::vector<uint64_t> &vars) -> popsolver::DataType {
@@ -1555,8 +1546,8 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
         });
 
     estimates.weightsCopyCycles = m.call<uint64_t>(
-        {partitionVars[ipuLevel].inChanSplit.serial,
-         partitionVars[ipuLevel].outChanSplit.serial,
+        {partitionVars[systemLevel].inChanSplit.serial,
+         partitionVars[systemLevel].outChanSplit.serial,
          estimates.weightsTempBytes},
         [getCycles, ipuTransforms, transformedViewParams, convVertexType,
          inputBytesPerElement](
@@ -1746,7 +1737,7 @@ addRearrangeBeforeSliceEstimate(popsolver::Model &m,
       m.min({m.sub(totalSerialSplits, m.one()), m.one()});
 
   const auto exchangeCycles =
-      exchangeEstimator.getCycles(weightsPerTile, params.inputType, level);
+      exchangeEstimator.getCycles(weightsPerTile, params.inputType);
 
   // We assume one element per-cycle as a rough estimate to rearrange on-tile
   // as we don't know what the layout of these could be.
@@ -1770,9 +1761,7 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
     const std::vector<ConvSizeVariables> &transformedConvSize,
     popsolver::Variable usedTiles,
     const std::vector<std::unordered_set<unsigned>> &transformedDims,
-    const poplar::Target &target,
-    const std::vector<double> &perLevelExchangeBytesPerCycle,
-    const ConvParams &untransformedParams,
+    const poplar::Target &target, const ConvParams &untransformedParams,
     const ConvParams &transformedViewParams,
     const ConvParams &transformedOnceParams,
     const ConvParams &transformedOnceUnpaddedParams, const bool isJointPlan,
@@ -1783,9 +1772,7 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
     const Plan::LinearizeTileOrder linearizeTileOrder,
     const boost::optional<SinglePassCost> &referenceCost,
     const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
-  const auto numLevelsOfHierarchy = convSize.size();
-  ExchangeEstimator exchangeEstimator(m, target, perLevelExchangeBytesPerCycle,
-                                      numLevelsOfHierarchy, partitionVars,
+  ExchangeEstimator exchangeEstimator(m, target, partitionVars,
                                       linearizeTileOrder);
 
   std::vector<popsolver::Variable> variables;
@@ -1896,16 +1883,12 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
   // to rearrange the weights prior to slicing. The memory cost of this is
   // added to the temporary memory estimate rather than maxed because it will
   // remain live from before the serial loop begins to after it finishes.
-  //
-  // NOTE: Currently it is only possible for there to be a slice at the IPU
-  // level so we always add rearrange estimates just for the ipu level. If
-  // this capability was expanded for multi-IPU etc. this would have to change.
-  const auto ipuLevel = transforms.size() - 2;
+
   std::tie(e.rearrangeBeforeSliceCycles, e.rearrangeBeforeSliceTempBytes,
            e.rearrangeBeforeSliceTempDuringRearrangeBytes) =
       addRearrangeBeforeSliceEstimate(
           m, target, exchangeEstimator, weightsPerTile, intraTileSplits,
-          ipuLevel, transformedOnceParams, options, isJointPlan);
+          systemLevel, transformedOnceParams, options, isJointPlan);
 
   // if this convolution has been split serially we must include the cycle cost
   // for performing the dynamic slice / update as well as multiplying our new
@@ -2077,7 +2060,6 @@ std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
                                     poplar::Type vertexOutputType,
                                     poplar::Type resultType,
                                     const ConvOptions &options) {
-  auto numLevels = poplibs::getTileHierarchy(target).size() + 1;
   std::vector<ConvTypes> types(numLevels);
   for (int level = numLevels - 1; level >= 0; --level) {
     bool isTileLevel = static_cast<unsigned>(level) == numLevels - 1;
@@ -2152,9 +2134,7 @@ addBwdEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
                 const ConvVertexType &fwdConvVertexType,
                 const popsolver::Variable broadcastInputBeforeLoop,
                 const popsolver::Variable usedTiles,
-                const poplar::Target &target,
-                const std::vector<double> &perLevelExchangeBytesPerCycle,
-                const bool isJointPlan,
+                const poplar::Target &target, const bool isJointPlan,
                 const boost::optional<SinglePassCost> &referenceCost,
                 const ConvOptions &fwdOptions,
                 PlanningCacheImpl::CycleEstimationImpl *cache) {
@@ -2220,14 +2200,13 @@ addBwdEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
       numLevelsOfHierarchy);
-  return addEstimates(m, bwdPartitionVars, bwdConvSize, bwdTransformedConvSize,
-                      usedTiles, transformedDims, target,
-                      perLevelExchangeBytesPerCycle, bwdUntransformedParams,
-                      bwdTransformedViewParams, bwdTransformedOnceParams,
-                      bwdTransformedOnceUnpaddedParams, isJointPlan,
-                      bwdConvVertexType, broadcastInputBeforeLoop, bwdTypes,
-                      transforms, Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
-                      referenceCost, bwdOptions, cache);
+  return addEstimates(
+      m, bwdPartitionVars, bwdConvSize, bwdTransformedConvSize, usedTiles,
+      transformedDims, target, bwdUntransformedParams, bwdTransformedViewParams,
+      bwdTransformedOnceParams, bwdTransformedOnceUnpaddedParams, isJointPlan,
+      bwdConvVertexType, broadcastInputBeforeLoop, bwdTypes, transforms,
+      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, referenceCost, bwdOptions,
+      cache);
 }
 
 static Plan::Method getFullyConnectedWUMethod(const ConvParams &wuParams,
@@ -2297,7 +2276,6 @@ addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
                const popsolver::Variable broadcastInputBeforeLoop,
                const popsolver::Variable usedTiles,
                const poplar::Target &target, const unsigned numFieldDims,
-               const std::vector<double> &perLevelExchangeBytesPerCycle,
                const bool isJointPlan,
                const boost::optional<SinglePassCost> &referenceCost,
                const ConvOptions &fwdOptions,
@@ -2387,10 +2365,9 @@ addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
       numLevelsOfHierarchy);
   return addEstimates(
       m, wuPartitionVars, wuConvSize, wuTransformedConvSize, usedTiles,
-      transformedDims, target, perLevelExchangeBytesPerCycle,
-      wuUntransformedParams, wuTransformedViewParams, wuTransformedOnceParams,
-      wuTransformedOnceUnpaddedParams, isJointPlan, wuConvVertexType,
-      broadcastInputBeforeLoop, wuTypes, transforms,
+      transformedDims, target, wuUntransformedParams, wuTransformedViewParams,
+      wuTransformedOnceParams, wuTransformedOnceUnpaddedParams, isJointPlan,
+      wuConvVertexType, broadcastInputBeforeLoop, wuTypes, transforms,
       Plan::LinearizeTileOrder::FC_WU, referenceCost, wuOptions, cache);
 }
 
@@ -2893,31 +2870,26 @@ static void addMethodConstraints(popsolver::Model &m, const Plan::Method method,
 static popsolver::Variable
 getUsedTiles(popsolver::Model &m,
              const std::vector<PartitionVariables> &partitionVars,
-             const std::vector<unsigned> &hierarchy) {
-  std::vector<popsolver::Variable> perLevelSplits;
-  for (unsigned level = 0; level != hierarchy.size(); ++level) {
-    const auto &p = partitionVars[level];
-    // we only care about splits across tiles so don't include the serial splits
-    std::vector<popsolver::Variable> splits;
-    splits.push_back(p.batchSplit);
-    splits.push_back(p.outChanSplit.parallel);
-    splits.push_back(p.inChanSplit.parallel);
-    splits.push_back(p.convGroupSplit);
-    splits.insert(splits.end(), p.fieldSplit.begin(), p.fieldSplit.end());
-    splits.insert(splits.end(), p.kernelSplit.begin(), p.kernelSplit.end());
-    const auto levelSplit =
-        m.product(splits, arrIndStr(level) + ".partition.total");
-    m.lessOrEqual(levelSplit, popsolver::DataType{hierarchy[level]});
-    perLevelSplits.push_back(levelSplit);
-  }
+             const unsigned &tilesPerIPU) {
+  popsolver::Variable perLevelSplits;
+  const auto &p = partitionVars[0];
+  // we only care about splits across tiles so don't include the serial splits
+  std::vector<popsolver::Variable> splits;
+  splits.push_back(p.batchSplit);
+  splits.push_back(p.outChanSplit.parallel);
+  splits.push_back(p.inChanSplit.parallel);
+  splits.push_back(p.convGroupSplit);
+  splits.insert(splits.end(), p.fieldSplit.begin(), p.fieldSplit.end());
+  splits.insert(splits.end(), p.kernelSplit.begin(), p.kernelSplit.end());
+  perLevelSplits = m.product(splits, arrIndStr(0) + ".partition.total");
+  m.lessOrEqual(perLevelSplits, popsolver::DataType{tilesPerIPU});
 
-  return m.product(std::move(perLevelSplits));
+  return perLevelSplits;
 }
 
 Estimates<popsolver::Variable> constructModel(
     const poplar::Target &target, const std::vector<ConvTransform> &transforms,
-    const std::vector<ConvTypes> &types, const std::vector<unsigned> &hierarchy,
-    const std::vector<double> &perLevelExchangeBytesPerCycle,
+    const std::vector<ConvTypes> &types,
     const std::vector<unsigned> &fieldGrainSize,
     const ConvVertexType &convVertexType, const ConvParams &untransformedParams,
     bool isJointPlan, Cost bestCost, const PlanningObjective &objective,
@@ -2968,13 +2940,14 @@ Estimates<popsolver::Variable> constructModel(
 
   const auto numFieldDims = transformedOnceParams.getNumFieldDims();
   // the hierarchy vector contains how many agents there are on each level, in
-  // other words how many IPUs in the multi-IPU split and how many tiles in the
-  // tile split. we add one level of hierarchy here to represent the whole
-  // system level which comes before the IPU split level. each level only
-  // supports certain transforms and the tile level has no partition splits as
-  // it is the last level (so there is nothing to split into).
-  const auto numLevelsOfHierarchy = hierarchy.size() + 1;
-  assert(numLevelsOfHierarchy >= 1);
+  // other words how many tiles in the tile split. we add one level of hierarchy
+  // here to represent the whole system level which comes before the tile split
+  // level. each level only supports certain transforms and the tile level has
+  // no partition splits as it is the last level (so there is nothing to split
+  // into).
+
+  const auto numTilesPerIPU = target.getTilesPerIPU();
+  const auto numLevelsOfHierarchy = numLevels;
   partitionVars.clear();
 
   const auto getNumGrains = [](const std::size_t total,
@@ -3173,7 +3146,7 @@ Estimates<popsolver::Variable> constructModel(
     ConvSizeVariables nextConvSize;
     convSize.back().numFieldGrains.reserve(numFieldDims);
     convSize.back().kernelSize.reserve(numFieldDims);
-    const auto levelMaxSplit = hierarchy[level];
+    const auto levelMaxSplit = numTilesPerIPU;
     PartitionVariables p;
     p.fieldSplit.reserve(numFieldDims);
     p.kernelSplit.reserve(numFieldDims);
@@ -3223,12 +3196,12 @@ Estimates<popsolver::Variable> constructModel(
                         arrIndStr(level) + ".partition.outChanSplit.parallel");
     }
 
-    // We only support splitting serially in the IPU level of the hierarchy.
-    // This is always the penultimate level.
+    // We only support splitting serially in the system level of the hierarchy.
+    // This is always the ultimate level.
     // TODO: T10037 For now we do not attempt to serially split any plan
     // that has an inter-IPU level split.
-    assert(numLevelsOfHierarchy >= 2);
-    if (numLevelsOfHierarchy == 2 && level == numLevelsOfHierarchy - 2) {
+    assert(numLevelsOfHierarchy >= numLevels);
+    if (numLevelsOfHierarchy == numLevels && level == systemLevel) {
       // TODO: T10408 We do not support splitting the input channels serially
       // during a joint plan as that will become a serial field split
       // during the backward pass, which is not currently supported.
@@ -3339,14 +3312,11 @@ Estimates<popsolver::Variable> constructModel(
 
   {
     // We only apply these constraints at the tile-split level.
-    const auto ipuLevel = numLevelsOfHierarchy - 2;
-    const auto tileLevel = numLevelsOfHierarchy - 1;
-
-    addMethodConstraints(m, convVertexType.method, partitionVars[ipuLevel],
+    addMethodConstraints(m, convVertexType.method, partitionVars[systemLevel],
                          convSize[tileLevel], transformedOnceParams);
   }
 
-  const auto usedTiles = getUsedTiles(m, partitionVars, hierarchy);
+  const auto usedTiles = getUsedTiles(m, partitionVars, numTilesPerIPU);
 
   Estimates<popsolver::Variable> e;
   boost::optional<SinglePassCost> passReferenceCost;
@@ -3355,10 +3325,9 @@ Estimates<popsolver::Variable> constructModel(
   }
   e.passEstimates = addEstimates(
       m, partitionVars, convSize, transformedConvSize, usedTiles,
-      transformedDims, target, perLevelExchangeBytesPerCycle,
-      untransformedParams, transformedViewParams, transformedOnceParams,
-      transformedOnceUnpaddedParams, isJointPlan, convVertexType,
-      broadcastInputBeforeLoop, types, transforms,
+      transformedDims, target, untransformedParams, transformedViewParams,
+      transformedOnceParams, transformedOnceUnpaddedParams, isJointPlan,
+      convVertexType, broadcastInputBeforeLoop, types, transforms,
       Plan::LinearizeTileOrder::STANDARD, passReferenceCost, options, cache);
 
   if (isJointPlan) {
@@ -3373,15 +3342,14 @@ Estimates<popsolver::Variable> constructModel(
         m, untransformedParams, transformedViewParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
         convSize, transforms, convVertexType, broadcastInputBeforeLoop,
-        usedTiles, target, perLevelExchangeBytesPerCycle, isJointPlan,
-        bwdReferenceCost, options, cache);
+        usedTiles, target, isJointPlan, bwdReferenceCost, options, cache);
 
     e.jointPlanWuEstimates = addWuEstimates(
         m, untransformedParams, transformedViewParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
         convSize, transforms, convVertexType, broadcastInputBeforeLoop,
-        usedTiles, target, numFieldDims, perLevelExchangeBytesPerCycle,
-        isJointPlan, wuReferenceCost, options, cache);
+        usedTiles, target, numFieldDims, isJointPlan, wuReferenceCost, options,
+        cache);
 
     if (objective.getTileTempMemoryBound() > popsolver::DataType{0}) {
       auto bound = objective.getTileTempMemoryBound();

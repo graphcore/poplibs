@@ -18,14 +18,11 @@ namespace modelling {
 
 class ExchangeEstimator {
 public:
-  ExchangeEstimator(popsolver::Model &m, const poplar::Target &target,
-                    const std::vector<unsigned> &hierarchy,
-                    const std::vector<double> &perLevelExchangeBytesPerCycle);
+  ExchangeEstimator(popsolver::Model &m, const poplar::Target &target);
 
   // Return estimated cycles to exchange the given number of bytes via exchange
   // at the given level in the hierarchy.
   popsolver::Variable operator()(const popsolver::Variable mNumBytes,
-                                 const unsigned level,
                                  const std::string &debugName = "") const;
 
   // Return estimated cycles to exchange the given number of bytes via exchange
@@ -35,24 +32,22 @@ public:
   operator()(const popsolver::Variable mNumBytes,
              const popsolver::Variable mConsecutiveTilesReceivingSameData,
              const popsolver::Variable mTotalReceivingTiles,
-             const unsigned level, const std::string &debugName = "") const;
+             const std::string &debugName = "") const;
 
 private:
   popsolver::Variable
   getCycles(const popsolver::Variable mNumBytes,
             const popsolver::Variable mConsecutiveTilesReceivingSameData,
             const popsolver::Variable mTotalReceivingTiles,
-            const unsigned level, const std::string &debugName = "") const;
+            const std::string &debugName = "") const;
 
   popsolver::Variable getCycles(const popsolver::Variable mNumBytes,
-                                const unsigned level,
                                 const std::string &debugName) const;
 
   popsolver::Model &m;
   const poplar::Target &target;
-  const unsigned levelsOfHierarchy;
-  std::vector<unsigned> perLevelScaledExchangeBytesPerCycle;
-  std::vector<popsolver::Variable> perLevelScaledExchangeBytesPerCycleVar;
+  unsigned scaledExchangeBytesPerCycle;
+  popsolver::Variable scaledExchangeBytesPerCycleVar;
 };
 
 } // end namespace modelling

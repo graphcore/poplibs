@@ -11,8 +11,7 @@ namespace poplin {
 
 Estimates<popsolver::Variable> constructModel(
     const poplar::Target &target, const std::vector<ConvTransform> &transforms,
-    const std::vector<ConvTypes> &types, const std::vector<unsigned> &hierarchy,
-    const std::vector<double> &perLevelExchangeBytesPerCycle,
+    const std::vector<ConvTypes> &types,
     const std::vector<unsigned> &fieldGrainSize,
     const ConvVertexType &convVertexType, const ConvParams &untransformedParams,
     bool isJointPlan, Cost bestCost, const PlanningObjective &objective,

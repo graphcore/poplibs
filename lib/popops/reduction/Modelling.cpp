@@ -20,8 +20,7 @@ namespace popops {
 namespace modelling {
 
 ReduceEstimates modelBalancedIntertileReduction(
-    const Target &target, const std::vector<unsigned> &hierarchy,
-    const Type &inputType, const Type &partialsType,
+    const Target &target, const Type &inputType, const Type &partialsType,
     const popops::Operation &operation, const bool isUpdate,
     popsolver::Model &m, const ExchangeEstimator &exchangeEstimator,
     const popsolver::Variable &mInputsPerTile,
@@ -43,9 +42,8 @@ ReduceEstimates modelBalancedIntertileReduction(
 
   // We only handle estimation for a single IPU hence this does not account for
   // potential global exchange cost.
-  const auto ipuLevel = hierarchy.size() - 1;
   e.cyclesBreakdown.exchange = m.product(
-      {mNeedsReduction, exchangeEstimator(mInputBytesPerTile, ipuLevel,
+      {mNeedsReduction, exchangeEstimator(mInputBytesPerTile,
                                           debugPrefix + ".cycles.exchange")});
 
   // We make the assumption that work is split amongst workers only using

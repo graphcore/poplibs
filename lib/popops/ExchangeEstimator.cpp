@@ -40,49 +40,39 @@ static unsigned getScaledExchangeBytesPerCycle(popsolver::Model &m,
   return static_cast<unsigned>(scaledExchangeBytesPerCycle);
 }
 
-ExchangeEstimator::ExchangeEstimator(
-    popsolver::Model &m, const Target &target,
-    const std::vector<unsigned> &hierarchy,
-    const std::vector<double> &perLevelExchangeBytesPerCycle)
-    : m(m), target(target), levelsOfHierarchy(hierarchy.size()) {
-  perLevelScaledExchangeBytesPerCycle.reserve(hierarchy.size());
-  perLevelScaledExchangeBytesPerCycleVar.reserve(hierarchy.size());
-  for (unsigned level = 0; level != hierarchy.size(); ++level) {
-    const auto scaledBytesPerCycle = getScaledExchangeBytesPerCycle(
-        m, perLevelExchangeBytesPerCycle[level], exchangeBytesScalingFactor);
+ExchangeEstimator::ExchangeEstimator(popsolver::Model &m, const Target &target)
+    : m(m), target(target) {
+  const auto scaledBytesPerCycle = getScaledExchangeBytesPerCycle(
+      m, target.getExchangeBytesPerCycle(), exchangeBytesScalingFactor);
 
-    perLevelScaledExchangeBytesPerCycle.push_back(scaledBytesPerCycle);
-    perLevelScaledExchangeBytesPerCycleVar.push_back(
-        m.addConstant(scaledBytesPerCycle));
-  }
+  scaledExchangeBytesPerCycle = scaledBytesPerCycle;
+  scaledExchangeBytesPerCycleVar = m.addConstant(scaledBytesPerCycle);
 }
 
 popsolver::Variable
 ExchangeEstimator::operator()(const popsolver::Variable mNumBytes,
-                              const unsigned level,
                               const std::string &debugName) const {
-  return getCycles(mNumBytes, level, debugName);
+  return getCycles(mNumBytes, debugName);
 }
 
 popsolver::Variable ExchangeEstimator::operator()(
     const popsolver::Variable mNumBytes,
     const popsolver::Variable mConsecutiveTilesReceivingSameData,
-    const popsolver::Variable mTotalReceivingTiles, const unsigned level,
+    const popsolver::Variable mTotalReceivingTiles,
     const std::string &debugName) const {
   return getCycles(mNumBytes, mConsecutiveTilesReceivingSameData,
-                   mTotalReceivingTiles, level, debugName);
+                   mTotalReceivingTiles, debugName);
 }
 
 popsolver::Variable ExchangeEstimator::getCycles(
     const popsolver::Variable mNumBytes,
     const popsolver::Variable mConsecutiveTilesReceivingSameData,
-    const popsolver::Variable mTotalReceivingTiles, const unsigned level,
+    const popsolver::Variable mTotalReceivingTiles,
     const std::string &debugName) const {
-  assert(level < perLevelScaledExchangeBytesPerCycleVar.size());
 
-  auto mScaledBytesPerCycle = perLevelScaledExchangeBytesPerCycleVar[level];
+  auto mScaledBytesPerCycle = scaledExchangeBytesPerCycleVar;
   assert(target.getTilesPerSharedExchangeBus() == 2);
-  if (level == levelsOfHierarchy - 1 && target.supportsExchangeBusSharing() &&
+  if (target.supportsExchangeBusSharing() &&
       target.getTilesPerSharedExchangeBus() == 2) {
 
     // In general the factor by which we can speed up the exchange by sharing
@@ -119,11 +109,8 @@ popsolver::Variable ExchangeEstimator::getCycles(
 
 popsolver::Variable
 ExchangeEstimator::getCycles(const popsolver::Variable mNumBytes,
-                             const unsigned level,
                              const std::string &debugName = "") const {
-  assert(level < perLevelScaledExchangeBytesPerCycleVar.size());
-  const auto mScaledBytesPerCycle =
-      perLevelScaledExchangeBytesPerCycleVar[level];
+  const auto mScaledBytesPerCycle = scaledExchangeBytesPerCycleVar;
   const auto mScalingFactor = m.addConstant(exchangeBytesScalingFactor);
   const auto mScaledBytes = m.product({mNumBytes, mScalingFactor});
   return m.ceildiv(mScaledBytes, mScaledBytesPerCycle, debugName);

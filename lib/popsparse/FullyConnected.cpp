@@ -30,7 +30,6 @@
 #include <poputil/exceptions.hpp>
 
 #include "poplibs_support/Algorithm.hpp"
-#include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
@@ -287,10 +286,9 @@ public:
   std::vector<std::vector<ComputeSet>> reductionCSs;
   std::vector<Sequence> post;
 
-  ProgBuilder(Graph &graph, const std::vector<unsigned> &hierarchy,
+  ProgBuilder(Graph &graph, const unsigned &tilesPerIPU,
               const poplar::DebugNameAndId &dnai)
-      : pre(hierarchy.size() + 1), distributionExchange(hierarchy.size() + 1),
-        reductionCSs(hierarchy.size()), post(hierarchy.size() + 1) {}
+      : pre(2), distributionExchange(2), reductionCSs(1), post(2) {}
 
   void setPropagationMustReachStartingOffset() {
     propagationMustReachStartingOffset = true;
@@ -734,20 +732,16 @@ static Tensor stitchNextLevelOutputs(const Vector<unsigned> &partition_,
   return std::move(ts[0]);
 }
 
-static unsigned getPartitionTile(const std::vector<unsigned> &hierarchy,
+static unsigned getPartitionTile(const unsigned &tilesPerIPU,
                                  const SinglePassPlan &plan,
                                  const std::vector<Vector<unsigned>> &indices) {
-  assert(indices.size() == hierarchy.size());
-
-  // We only support single-IPU currently.
-  assert(hierarchy.size() == 1);
+  assert(indices.size() == 1);
 
   unsigned tile = 0;
-  for (unsigned level = 0; level < hierarchy.size(); ++level) {
-    const auto levelPNId =
-        plan.mapping.getPNIdForPartition(plan.partition, indices[level]);
-    tile = tile * hierarchy[level] + levelPNId;
-  }
+  const auto levelPNId =
+      plan.mapping.getPNIdForPartition(plan.partition, indices[0]);
+  tile = tile * tilesPerIPU + levelPNId;
+
   return tile;
 }
 
@@ -806,7 +800,7 @@ static Tensor groupActs(const Tensor &t, const Vector<unsigned> &grouping) {
 static void getNextLevelInputs(Graph &graph, const Vector<unsigned> &shape,
                                const std::vector<Vector<unsigned>> &indices,
                                const SinglePassPlan &plan,
-                               const std::vector<unsigned> &hierarchy,
+                               const unsigned &tilesPerIPU,
                                const unsigned level, const Tensor &acts,
                                Tensor &nextLevelInputs) {
   nextLevelInputs = acts;
@@ -817,7 +811,7 @@ template <typename NextLevelInput>
 static void getNextLevelInputs(Graph &graph, const Vector<unsigned> &shape,
                                const std::vector<Vector<unsigned>> &indices,
                                const SinglePassPlan &plan,
-                               const std::vector<unsigned> &hierarchy,
+                               const unsigned &tilesPerIPU,
                                const unsigned level, const Tensor &acts,
                                std::vector<NextLevelInput> &nextLevelInputs) {
   const auto &partition = plan.partition;
@@ -834,7 +828,7 @@ static void getNextLevelInputs(Graph &graph, const Vector<unsigned> &shape,
         const auto subActs = acts.slice(actBegin, actEnd);
         auto subIndices = indices;
         subIndices.emplace_back(i);
-        getNextLevelInputs(graph, subShape, subIndices, plan, hierarchy,
+        getNextLevelInputs(graph, subShape, subIndices, plan, tilesPerIPU,
                            level + 1, subActs,
                            nextLevelInputs[flattenIndex(partition.asStdVector(),
                                                         i.asStdVector())]);
@@ -970,7 +964,7 @@ static std::vector<Tensor> rearrangePartitions(
 static void allocatePerPartitionInputs(
     Graph &graph, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    bool isActs, const Type &inputType, const std::vector<unsigned> &hierarchy,
+    bool isActs, const Type &inputType, const unsigned &tilesPerIPU,
     const unsigned level, Tensor &input, const poplar::DebugNameAndId &dnai) {
   const auto &grouping = plan.grouping;
   std::vector<unsigned> memOrdering;
@@ -993,7 +987,7 @@ static void allocatePerPartitionInputs(
   input = graph.addVariable(inputType, shapeAllocation, {dnai})
               .dimShuffle(inversePermutation(memOrdering));
   input = factorDims(input, inputGrouping);
-  const auto tile = getPartitionTile(hierarchy, plan, indices);
+  const auto tile = getPartitionTile(tilesPerIPU, plan, indices);
   graph.setTileMapping(input, tile);
 }
 
@@ -1001,7 +995,7 @@ template <typename NextLevelInput>
 static void allocatePerPartitionInputs(
     Graph &graph, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    bool isActs, const Type &inputType, const std::vector<unsigned> &hierarchy,
+    bool isActs, const Type &inputType, const unsigned &tilesPerIPU,
     const unsigned level, std::vector<NextLevelInput> &perPartitionInputs,
     const poplar::DebugNameAndId &dnai) {
   const auto &partition = plan.partition;
@@ -1016,7 +1010,7 @@ static void allocatePerPartitionInputs(
         const auto partitionIndexFlat =
             flattenIndex(partition.asStdVector(), i.asStdVector());
         allocatePerPartitionInputs(
-            graph, subShape, subIndices, plan, isActs, inputType, hierarchy,
+            graph, subShape, subIndices, plan, isActs, inputType, tilesPerIPU,
             level + 1, perPartitionInputs[partitionIndexFlat], {dnai});
       });
 }
@@ -1025,7 +1019,7 @@ static void allocatePerPartitionInputs(
 static void getNextLevelWeights(Graph &graph, const Vector<unsigned> &shape,
                                 const std::vector<Vector<unsigned>> &indices,
                                 const SinglePassPlan &plan,
-                                const std::vector<unsigned> &hierarchy,
+                                const unsigned &tilesPerIPU,
                                 const unsigned level, const Tensor &weights,
                                 Tensor &nextLevelWeights) {
   nextLevelWeights = weights;
@@ -1036,7 +1030,7 @@ template <typename NextLevelInput>
 static void getNextLevelWeights(Graph &graph, const Vector<unsigned> &shape,
                                 const std::vector<Vector<unsigned>> &indices,
                                 const SinglePassPlan &plan,
-                                const std::vector<unsigned> &hierarchy,
+                                const unsigned &tilesPerIPU,
                                 const unsigned level, const Tensor &weights,
                                 std::vector<NextLevelInput> &nextLevelWeights) {
   const auto &partition = plan.partition;
@@ -1053,7 +1047,7 @@ static void getNextLevelWeights(Graph &graph, const Vector<unsigned> &shape,
         const auto subWeights = weights.slice(weightBegin, weightEnd);
         auto subIndices = indices;
         subIndices.emplace_back(i);
-        getNextLevelWeights(graph, subShape, subIndices, plan, hierarchy,
+        getNextLevelWeights(graph, subShape, subIndices, plan, tilesPerIPU,
                             level + 1, subWeights,
                             nextLevelWeights[flattenIndex(
                                 partition.asStdVector(), i.asStdVector())]);
@@ -1138,8 +1132,8 @@ static void createPartialsDense(Graph &graph, const Vector<unsigned> &shape,
                                 const std::vector<Vector<unsigned>> &indices,
                                 const SinglePassPlan &plan,
                                 const Options &options,
-                                const std::vector<unsigned> &hierarchy,
-                                unsigned level, Tensor &partials,
+                                const unsigned &tilesPerIPU, unsigned level,
+                                Tensor &partials,
                                 const poplar::DebugNameAndId &dnai) {
   const auto &grouping = plan.grouping;
   const std::vector<std::size_t> partialsShape = {
@@ -1158,19 +1152,19 @@ static void createPartialsDense(Graph &graph, const Vector<unsigned> &shape,
   const std::vector<std::size_t> partialsGrouping = {
       plan.grouping.groups, plan.grouping.x, plan.grouping.z};
   partials = factorDims(partials, partialsGrouping);
-  const auto tile = getPartitionTile(hierarchy, plan, indices);
+  const auto tile = getPartitionTile(tilesPerIPU, plan, indices);
   graph.setTileMapping(partials, tile);
 }
 
 // IPU-level (and above)
 template <typename NextLevelPartials>
-static void
-createPartialsDense(Graph &graph, const Vector<unsigned> &shape,
-                    const std::vector<Vector<unsigned>> &indices,
-                    const SinglePassPlan &plan, const Options &options,
-                    const std::vector<unsigned> &hierarchy, unsigned level,
-                    std::vector<NextLevelPartials> &partials,
-                    const poplar::DebugNameAndId &dnai) {
+static void createPartialsDense(Graph &graph, const Vector<unsigned> &shape,
+                                const std::vector<Vector<unsigned>> &indices,
+                                const SinglePassPlan &plan,
+                                const Options &options,
+                                const unsigned &tilesPerIPU, unsigned level,
+                                std::vector<NextLevelPartials> &partials,
+                                const poplar::DebugNameAndId &dnai) {
   const auto &partition = plan.partition;
   const auto &grouping = plan.grouping;
   const auto totalPartitions = product(partition.asStdVector());
@@ -1183,7 +1177,7 @@ createPartialsDense(Graph &graph, const Vector<unsigned> &shape,
                       subIndices.emplace_back(i);
                       const auto subShape = end - begin;
                       createPartialsDense(graph, subShape, subIndices, plan,
-                                          options, hierarchy, level + 1,
+                                          options, tilesPerIPU, level + 1,
                                           partials[partitionIndexFlat], {dnai});
                     });
 }
@@ -1193,47 +1187,48 @@ static void createPartialsSparse(Graph &graph, const Vector<unsigned> &shape,
                                  const std::vector<Vector<unsigned>> &indices,
                                  const SinglePassPlan &plan,
                                  const Options &options,
-                                 const std::vector<unsigned> &hierarchy,
-                                 unsigned level, Tensor &partials,
+                                 const unsigned &tilesPerIPU, unsigned level,
+                                 Tensor &partials,
                                  const poplar::DebugNameAndId &dnai) {
   // We include partitions in the shape of partials. This makes it easier
   // to get back to the output shape.
   partials = graph.addVariable(options.partialsType,
                                {1, 1, 1, 1, 1, plan.nzElemsPerBucket}, {dnai});
-  const auto tile = getPartitionTile(hierarchy, plan, indices);
+  const auto tile = getPartitionTile(tilesPerIPU, plan, indices);
   graph.setTileMapping(partials, tile);
 }
 
 // IPU-level (and above)
 template <typename NextLevelPartials>
-static void
-createPartialsSparse(Graph &graph, const Vector<unsigned> &shape,
-                     const std::vector<Vector<unsigned>> &indices,
-                     const SinglePassPlan &plan, const Options &options,
-                     const std::vector<unsigned> &hierarchy, unsigned level,
-                     std::vector<NextLevelPartials> &partials,
-                     const poplar::DebugNameAndId &dnai) {
+static void createPartialsSparse(Graph &graph, const Vector<unsigned> &shape,
+                                 const std::vector<Vector<unsigned>> &indices,
+                                 const SinglePassPlan &plan,
+                                 const Options &options,
+                                 const unsigned &tilesPerIPU, unsigned level,
+                                 std::vector<NextLevelPartials> &partials,
+                                 const poplar::DebugNameAndId &dnai) {
   const auto &partition = plan.partition;
   const auto &grouping = plan.grouping;
   const auto totalPartitions = product(partition.asStdVector());
   partials.resize(totalPartitions);
-  iteratePartitions(shape, partition, grouping,
-                    [&](const auto &i, const auto &begin, const auto &end) {
-                      const auto partitionIndexFlat = flattenIndex(
-                          partition.asStdVector(), i.asStdVector());
-                      auto subIndices = indices;
-                      subIndices.emplace_back(i);
-                      const auto subShape = end - begin;
-                      createPartialsSparse(
-                          graph, subShape, subIndices, plan, options, hierarchy,
-                          level + 1, partials[partitionIndexFlat], {dnai});
-                    });
+  iteratePartitions(
+      shape, partition, grouping,
+      [&](const auto &i, const auto &begin, const auto &end) {
+        const auto partitionIndexFlat =
+            flattenIndex(partition.asStdVector(), i.asStdVector());
+        auto subIndices = indices;
+        subIndices.emplace_back(i);
+        const auto subShape = end - begin;
+        createPartialsSparse(graph, subShape, subIndices, plan, options,
+                             tilesPerIPU, level + 1,
+                             partials[partitionIndexFlat], {dnai});
+      });
 }
 
 static void getSubGroupIds(Graph &graph,
                            const std::vector<Vector<unsigned>> &indices,
                            const SinglePassPlan &plan, const Options &options,
-                           const std::vector<unsigned> &hierarchy, unsigned &id,
+                           const unsigned &tilesPerIPU, unsigned &id,
                            const poplar::DebugNameAndId &dnai) {
   id = getSubGroupId(plan, indices);
 }
@@ -1241,28 +1236,27 @@ static void getSubGroupIds(Graph &graph,
 static void getSubGroupIds(Graph &graph,
                            const std::vector<Vector<unsigned>> &indices,
                            const SinglePassPlan &plan, const Options &options,
-                           const std::vector<unsigned> &hierarchy, Tensor &id,
+                           const unsigned &tilesPerIPU, Tensor &id,
                            const poplar::DebugNameAndId &dnai) {
   const auto val = getSubGroupId(plan, indices);
   id = graph.addConstant(UNSIGNED_SHORT, {1}, val, {dnai});
-  const auto tile = getPartitionTile(hierarchy, plan, indices);
+  const auto tile = getPartitionTile(tilesPerIPU, plan, indices);
   graph.setTileMapping(id, tile);
 }
 
 template <typename NextLevelIDs>
-static void getSubGroupIds(Graph &graph,
-                           const std::vector<Vector<unsigned>> &indices,
-                           const SinglePassPlan &plan, const Options &options,
-                           const std::vector<unsigned> &hierarchy,
-                           std::vector<NextLevelIDs> &ids,
-                           const poplar::DebugNameAndId &dnai) {
+static void
+getSubGroupIds(Graph &graph, const std::vector<Vector<unsigned>> &indices,
+               const SinglePassPlan &plan, const Options &options,
+               const unsigned &tilesPerIPU, std::vector<NextLevelIDs> &ids,
+               const poplar::DebugNameAndId &dnai) {
   ids.resize(product(plan.partition.asStdVector()));
   iteratePartitions(plan.partition, [&](const auto &i) {
     const auto partitionIndexFlat =
         flattenIndex(plan.partition.asStdVector(), i.asStdVector());
     auto subIndices = indices;
     subIndices.emplace_back(i);
-    getSubGroupIds(graph, subIndices, plan, options, hierarchy,
+    getSubGroupIds(graph, subIndices, plan, options, tilesPerIPU,
                    ids[partitionIndexFlat], {dnai});
   });
 }
@@ -1271,14 +1265,14 @@ static void compute(Graph &graph, const ComputeSet &cs,
                     const Vector<unsigned> &shape,
                     const std::vector<Vector<unsigned>> &indices,
                     const SinglePassPlan &plan, const Options &options,
-                    const std::vector<unsigned> &hierarchy, unsigned level,
+                    const unsigned &tilesPerIPU, unsigned level,
                     bool zeroPartials, const Tensor &acts,
                     const Tensor &weights, const Tensor &metaInfo,
                     const Tensor &partials,
                     const boost::variant<unsigned, Tensor> &subGroupId,
                     const poplar::DebugNameAndId &dnai) {
   const std::string levelPrefix = "l" + std::to_string(level);
-  const auto tile = getPartitionTile(hierarchy, plan, indices);
+  const auto tile = getPartitionTile(tilesPerIPU, plan, indices);
 
   // Though it complicates this function slightly, for clarity what we give
   // to the onTileImpl is the dimensions of the block, as ordered for this
@@ -1303,8 +1297,8 @@ static void
 compute(Graph &graph, const ComputeSet &cs, const Vector<unsigned> &shape,
         const std::vector<Vector<unsigned>> &indices,
         const SinglePassPlan &plan, const Options &options,
-        const std::vector<unsigned> &hierarchy, unsigned level,
-        bool zeroPartials, const std::vector<NextLevelInput> &nextLevelInputs,
+        const unsigned &tilesPerIPU, unsigned level, bool zeroPartials,
+        const std::vector<NextLevelInput> &nextLevelInputs,
         const std::vector<NextLevelWeights> &nextLevelWeights,
         const std::vector<NextLevelMetaInfo> &nextLevelMetaInfo,
         const std::vector<NextLevelPartials> &partials,
@@ -1320,7 +1314,7 @@ compute(Graph &graph, const ComputeSet &cs, const Vector<unsigned> &shape,
         const auto subShape = end - begin;
         const auto partitionIndexFlat =
             flattenIndex(partition.asStdVector(), i.asStdVector());
-        compute(graph, cs, subShape, subIndices, plan, options, hierarchy,
+        compute(graph, cs, subShape, subIndices, plan, options, tilesPerIPU,
                 level + 1, zeroPartials, nextLevelInputs[partitionIndexFlat],
                 nextLevelWeights[partitionIndexFlat],
                 nextLevelMetaInfo[partitionIndexFlat],
@@ -1329,12 +1323,14 @@ compute(Graph &graph, const ComputeSet &cs, const Vector<unsigned> &shape,
       });
 }
 
-static Tensor finalReduction(
-    Graph &graph, ProgBuilder &progBuilder, const Vector<unsigned> &shape,
-    const Type &resultType, const std::vector<Vector<unsigned>> &indices,
-    const SinglePassPlan &plan, const Options &options,
-    const std::vector<unsigned> &hierarchy, unsigned level,
-    const Tensor &partials, bool forGradW, const poplar::DebugNameAndId &dnai) {
+static Tensor finalReduction(Graph &graph, ProgBuilder &progBuilder,
+                             const Vector<unsigned> &shape,
+                             const Type &resultType,
+                             const std::vector<Vector<unsigned>> &indices,
+                             const SinglePassPlan &plan, const Options &options,
+                             const unsigned &tilesPerIPU, unsigned level,
+                             const Tensor &partials, bool forGradW,
+                             const poplar::DebugNameAndId &dnai) {
   const std::string levelPrefix = "l" + std::to_string(level);
   const Type &levelResultType = options.partialsType;
 
@@ -1353,7 +1349,7 @@ finalReduction(Graph &graph, ProgBuilder &progBuilder,
                const Vector<unsigned> &shape, const Type &resultType,
                const std::vector<Vector<unsigned>> &indices,
                const SinglePassPlan &plan, const Options &options,
-               const std::vector<unsigned> &hierarchy, unsigned level,
+               const unsigned &tilesPerIPU, unsigned level,
                const std::vector<NextLevelPartials> &partials, bool forGradW,
                const poplar::DebugNameAndId &dnai) {
   const std::string levelPrefix = "l" + std::to_string(level);
@@ -1372,7 +1368,7 @@ finalReduction(Graph &graph, ProgBuilder &progBuilder,
                       const auto sShape = end - begin;
                       auto output = finalReduction(
                           graph, progBuilder, sShape, resultType, sIndices,
-                          plan, options, hierarchy, level + 1,
+                          plan, options, tilesPerIPU, level + 1,
                           partials[partitionIndexFlat], forGradW, {dnai});
                       if (!forGradW) {
                         output = output.expand({2});
@@ -1452,48 +1448,47 @@ static void writeUndefPartitions(Sequence &prog, const std::vector<Tensor> &ts,
 
 static void mapBuckets(Graph &graph,
                        const std::vector<Vector<unsigned>> &indices,
-                       const SinglePassPlan &plan,
-                       const std::vector<unsigned> &hierarchy,
+                       const SinglePassPlan &plan, const unsigned &tilesPerIPU,
                        const Tensor &buckets) {
-  const auto tile = getPartitionTile(hierarchy, plan, indices);
+  const auto tile = getPartitionTile(tilesPerIPU, plan, indices);
   graph.setTileMapping(buckets, tile);
 }
 
 template <typename NextLevelBuckets>
-static void
-mapBuckets(Graph &graph, const std::vector<Vector<unsigned>> &indices,
-           const SinglePassPlan &plan, const std::vector<unsigned> &hierarchy,
-           const NextLevelBuckets &buckets) {
+static void mapBuckets(Graph &graph,
+                       const std::vector<Vector<unsigned>> &indices,
+                       const SinglePassPlan &plan, const unsigned &tilesPerIPU,
+                       const NextLevelBuckets &buckets) {
   iteratePartitions(plan.partition, [&](const auto &i) {
     auto sIndices = indices;
     sIndices.emplace_back(i);
     const auto partitionIndexFlat =
         flattenIndex(plan.partition.asStdVector(), i.asStdVector());
-    mapBuckets(graph, sIndices, plan, hierarchy, buckets[partitionIndexFlat]);
+    mapBuckets(graph, sIndices, plan, tilesPerIPU, buckets[partitionIndexFlat]);
   });
 }
 
 static Tensor createBuckets(Graph &graph, const Type &type,
                             const SinglePassPlan &plan,
                             const std::size_t elemsPerBucket,
-                            const std::vector<unsigned> &hierarchy,
+                            const unsigned &tilesPerIPU,
                             const poplar::DebugNameAndId &dnai) {
   const std::size_t numBuckets = product(plan.partition.asStdVector());
   const auto buckets =
       graph.addVariable(type, {numBuckets, elemsPerBucket}, {dnai});
   std::vector<Tensor> bucketsByPartition;
   getBucketsByPartition(plan, buckets, bucketsByPartition);
-  mapBuckets(graph, {}, plan, hierarchy, bucketsByPartition);
+  mapBuckets(graph, {}, plan, tilesPerIPU, bucketsByPartition);
   return buckets;
 }
 
 static void createPropagationBuffers(
     Graph &graph, const Type &inputType, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    const Options &options, const std::vector<unsigned> &hierarchy,
-    unsigned level, const Tensor &reference, const Tensor &allocationReference,
-    Tensor &buffer, const poplar::DebugNameAndId &dnai) {
-  const auto tile = getPartitionTile(hierarchy, plan, indices);
+    const Options &options, const unsigned &tilesPerIPU, unsigned level,
+    const Tensor &reference, const Tensor &allocationReference, Tensor &buffer,
+    const poplar::DebugNameAndId &dnai) {
+  const auto tile = getPartitionTile(tilesPerIPU, plan, indices);
   buffer = graph.clone(allocationReference, {dnai});
   graph.setTileMapping(buffer, tile);
 }
@@ -1502,9 +1497,9 @@ template <typename NextLevelBuffers>
 static void createPropagationBuffers(
     Graph &graph, const Type &inputType, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    const Options &options, const std::vector<unsigned> &hierarchy,
-    unsigned level, const std::vector<NextLevelBuffers> &reference,
-    const Tensor &, std::vector<NextLevelBuffers> &buffers,
+    const Options &options, const unsigned &tilesPerIPU, unsigned level,
+    const std::vector<NextLevelBuffers> &reference, const Tensor &,
+    std::vector<NextLevelBuffers> &buffers,
     const poplar::DebugNameAndId &dnai) {
   buffers.resize(product(plan.partition.asStdVector()));
   // Note this is done under the assumption that the first partition is
@@ -1524,7 +1519,7 @@ static void createPropagationBuffers(
         }
 #endif
         createPropagationBuffers(graph, inputType, sShape, sIndices, plan,
-                                 options, hierarchy, level + 1,
+                                 options, tilesPerIPU, level + 1,
                                  reference[partitionIndexFlat], allocReference,
                                  buffers[partitionIndexFlat], {dnai});
       });
@@ -1611,7 +1606,7 @@ static void addBufferIncrementProg(Graph &graph, const Tensor &t, Sequence &seq,
 static void addPropagationExchanges(
     Graph &graph, ProgBuilder &progBuilder, const Vector<unsigned> &shape,
     const SinglePassPlan &plan, const Options &options,
-    const std::vector<unsigned> &hierarchy,
+    const unsigned &tilesPerIPU,
     const MetaInfoAndValues<std::vector<Tensor>> &buckets,
     const MetaInfoAndValues<std::array<std::vector<Tensor>, 2>> &buffers,
     const Tensor &bufferIdx, const poplar::DebugNameAndId &dnai) {
@@ -1673,7 +1668,7 @@ static void addPropagationExchanges(
 static void addPropagationExchangesGradW(
     Graph &graph, ProgBuilder &progBuilder, const Vector<unsigned> &shape,
     const SinglePassPlan &plan, const Options &options,
-    const std::vector<unsigned> &hierarchy, const std::vector<Tensor> &inputs,
+    const unsigned &tilesPerIPU, const std::vector<Tensor> &inputs,
     const std::vector<Tensor> &weights, const std::vector<Tensor> &subGroupIds,
     const std::vector<Tensor> &metaInfo, const std::vector<Tensor> &partials,
     const std::array<std::vector<Tensor>, numBuffers> &inputBuffers,
@@ -1914,11 +1909,9 @@ static Tensor transposeBuckets(Graph &graph, Sequence &prog,
 static Tensor fullyConnectedImpl(
     Graph &graph, ProgBuilder &progBuilder, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    const Options &options, const std::vector<unsigned> &hierarchy,
-    unsigned level, Tensor metaInfoBuckets, Tensor nzValueBuckets, Tensor acts,
+    const Options &options, const unsigned &tilesPerIPU, unsigned level,
+    Tensor metaInfoBuckets, Tensor nzValueBuckets, Tensor acts,
     const bool transposedBuckets, const poplar::DebugNameAndId &dnai) {
-  // Only supporting single-IPU currently.
-  assert(hierarchy.size() == 1);
 
   const std::string levelPrefix = "l" + std::to_string(level);
   const auto &inputType = acts.elementType();
@@ -1959,15 +1952,15 @@ static Tensor fullyConnectedImpl(
   std::vector<Tensor> partials;
   MetaInfoAndValues<std::vector<Tensor>> nextLevelPropagationBuckets;
   std::vector<unsigned> subGroupIds;
-  getNextLevelInputs(graph, shape, {}, plan, hierarchy, 0, acts,
+  getNextLevelInputs(graph, shape, {}, plan, tilesPerIPU, 0, acts,
                      nextLevelInputs);
   getNextLevelDistributionBuckets(graph, plan, options, metaInfoBuckets,
                                   nextLevelDistributionBuckets.metaInfo);
   getNextLevelDistributionBuckets(graph, plan, options, nzValueBuckets,
                                   nextLevelDistributionBuckets.values);
-  createPartialsDense(graph, shape, {}, plan, options, hierarchy, 0, partials,
+  createPartialsDense(graph, shape, {}, plan, options, tilesPerIPU, 0, partials,
                       {dnai, "partials"});
-  getSubGroupIds(graph, {}, plan, options, hierarchy, subGroupIds,
+  getSubGroupIds(graph, {}, plan, options, tilesPerIPU, subGroupIds,
                  {dnai, "subGroupIds"});
   // For now the buckets to propagate are just those on each tile without
   // broadcast hence these are just home locations.
@@ -1987,7 +1980,7 @@ static Tensor fullyConnectedImpl(
   {
     std::vector<Tensor> perPartitionInputs;
     allocatePerPartitionInputs(graph, shape, {}, plan, true, inputType,
-                               hierarchy, 0, perPartitionInputs,
+                               tilesPerIPU, 0, perPartitionInputs,
                                {dnai, "partitionedInputs"});
     copyPartitions(graph, progBuilder.preDistribution, nextLevelInputs,
                    perPartitionInputs, {dnai});
@@ -1997,7 +1990,7 @@ static Tensor fullyConnectedImpl(
   writeUndefPartitions(progBuilder.preDistribution, partials, {dnai});
   const auto distributionCS =
       graph.addComputeSet({dnai, "ComputePartialsInitialDistribution"});
-  compute(graph, distributionCS, shape, {}, plan, options, hierarchy, 0, true,
+  compute(graph, distributionCS, shape, {}, plan, options, tilesPerIPU, 0, true,
           nextLevelInputs, nextLevelDistributionBuckets.values,
           nextLevelDistributionBuckets.metaInfo, partials, subGroupIds, {dnai});
   progBuilder.distributionCompute.add(Execute(distributionCS, {dnai}));
@@ -2008,10 +2001,10 @@ static Tensor fullyConnectedImpl(
       propagationBuffers;
   for (std::size_t buffer = 0; buffer < numBuffers; ++buffer) {
     const auto metaInfoBuffer = createBuckets(
-        graph, UNSIGNED_SHORT, plan, plan.metaInfoElemsPerBucket, hierarchy,
+        graph, UNSIGNED_SHORT, plan, plan.metaInfoElemsPerBucket, tilesPerIPU,
         {dnai, "metaInfoPropagationBuffer" + std::to_string(buffer)});
     const auto nzValueBuffer = createBuckets(
-        graph, inputType, plan, plan.nzElemsPerBucket, hierarchy,
+        graph, inputType, plan, plan.nzElemsPerBucket, tilesPerIPU,
         {dnai, "nzValuesPropagationBuffer" + std::to_string(buffer)});
     getBucketsByPartition(plan, metaInfoBuffer,
                           propagationBuffers.metaInfo[buffer]);
@@ -2022,7 +2015,7 @@ static Tensor fullyConnectedImpl(
     progBuilder.prePropagation.add(WriteUndef(metaInfoBuffer, {dnai}));
     progBuilder.prePropagation.add(WriteUndef(nzValueBuffer, {dnai}));
   }
-  addPropagationExchanges(graph, progBuilder, shape, plan, options, hierarchy,
+  addPropagationExchanges(graph, progBuilder, shape, plan, options, tilesPerIPU,
                           nextLevelPropagationBuckets, propagationBuffers,
                           bufferIdx, {dnai});
   std::array<ComputeSet, numBuffers> propagationCS;
@@ -2030,8 +2023,8 @@ static Tensor fullyConnectedImpl(
     propagationCS.at(buffer) = graph.addComputeSet(
         {dnai, "ComputePartialsPropagateBuffer" + std::to_string(buffer)});
     compute(
-        graph, propagationCS.at(buffer), shape, {}, plan, options, hierarchy, 0,
-        false, nextLevelInputs, propagationBuffers.values.at(buffer),
+        graph, propagationCS.at(buffer), shape, {}, plan, options, tilesPerIPU,
+        0, false, nextLevelInputs, propagationBuffers.values.at(buffer),
         propagationBuffers.metaInfo.at(buffer), partials, subGroupIds, {dnai});
   }
   progBuilder.propagationCompute = {
@@ -2039,7 +2032,7 @@ static Tensor fullyConnectedImpl(
              Execute(propagationCS.at(true), {dnai}), {dnai})};
   const auto output =
       finalReduction(graph, progBuilder, shape, resultType, {}, plan, options,
-                     hierarchy, 0, partials, false, {dnai});
+                     tilesPerIPU, 0, partials, false, {dnai});
 
   return unfactorDims(output, 3);
 }
@@ -2047,8 +2040,7 @@ static Tensor fullyConnectedImpl(
 static void computeInitialDistributionGradW(
     Graph &graph, Sequence &prog, const Vector<unsigned> &shape,
     const SinglePassPlan &plan, const Options &options,
-    const std::vector<unsigned> &hierarchy,
-    const std::vector<Tensor> &nextLevelInputs,
+    const unsigned &tilesPerIPU, const std::vector<Tensor> &nextLevelInputs,
     const std::vector<Tensor> &nextLevelWeights,
     const std::vector<Tensor> &nextLevelMetaInfoBuckets,
     const std::vector<Tensor> &partials, const std::vector<Tensor> &subGroupIds,
@@ -2065,7 +2057,7 @@ static void computeInitialDistributionGradW(
   if (product(plan.initialDistributionPartitions.asStdVector()) == 1) {
     const auto cs =
         graph.addComputeSet({dnai, "ComputePartialsInitialDistribution"});
-    compute(graph, cs, shape, {}, plan, options, hierarchy, 0, true,
+    compute(graph, cs, shape, {}, plan, options, tilesPerIPU, 0, true,
             nextLevelInputs, nextLevelWeights, nextLevelMetaInfoBuckets,
             partials, subGroupIds, {dnai});
     prog.add(Execute(cs, {dnai}));
@@ -2080,7 +2072,7 @@ static void computeInitialDistributionGradW(
           {dnai, std::string("ComputePartialsInitialDistribution") +
                      (zeroPartials ? "ZeroPartials" : "")});
       compute(graph, computeCSs[zeroPartials], shape, {}, plan, options,
-              hierarchy, 0, zeroPartials,
+              tilesPerIPU, 0, zeroPartials,
               moveInputs ? inputBuffer : nextLevelInputs,
               moveWeights ? weightBuffer : nextLevelWeights,
               nextLevelMetaInfoBuckets, partials,
@@ -2134,7 +2126,7 @@ static void computeInitialDistributionGradW(
 static void computePropagationGradW(
     Graph &graph, ProgBuilder &progBuilder, const Vector<unsigned> &shape,
     const SinglePassPlan &plan, const Options &options,
-    const std::vector<unsigned> &hierarchy, const std::vector<Tensor> &inputs,
+    const unsigned &tilesPerIPU, const std::vector<Tensor> &inputs,
     const std::vector<Tensor> &weights, const std::vector<Tensor> &subGroupIds,
     const std::vector<Tensor> &metaInfo, const std::vector<Tensor> &partials,
     const std::array<std::vector<Tensor>, numBuffers> &inputBuffers,
@@ -2149,9 +2141,9 @@ static void computePropagationGradW(
     for (std::size_t buffer = 0; buffer < numBuffers; ++buffer) {
       const auto cs = graph.addComputeSet(
           {dnai, "ComputePartialsPropagationBuffer" + std::to_string(buffer)});
-      compute(graph, cs, shape, {}, plan, options, hierarchy, 0, false, inputs,
-              weights, metaInfoBuffers.at(buffer), partialBuffers.at(buffer),
-              subGroupIds, {dnai});
+      compute(graph, cs, shape, {}, plan, options, tilesPerIPU, 0, false,
+              inputs, weights, metaInfoBuffers.at(buffer),
+              partialBuffers.at(buffer), subGroupIds, {dnai});
       computeProgs.push_back(Execute(cs, {dnai}));
     }
   } else {
@@ -2170,7 +2162,7 @@ static void computePropagationGradW(
                          std::to_string(inputBuffer) + "Weights" +
                          std::to_string(weightBuffer) + "SubGroupId" +
                          std::to_string(subGroupIdBuffer)});
-          compute(graph, cs, shape, {}, plan, options, hierarchy, 0, false,
+          compute(graph, cs, shape, {}, plan, options, tilesPerIPU, 0, false,
                   inputBuffers.at(inputBuffer), weightBuffers.at(weightBuffer),
                   metaInfo, partials, subGroupIdBuffers.at(subGroupIdBuffer),
                   {dnai});
@@ -2263,11 +2255,9 @@ static Tensor fullyConnectedSparseGradWImpl(
     Graph &graph, ProgBuilder &progBuilder, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
     const OnTileMethod &fwdMethod, const OnTileMethod &gradAMethod,
-    const Options &options, const std::vector<unsigned> &hierarchy,
-    unsigned level, Tensor metaInfoBuckets, Tensor weights, Tensor acts,
+    const Options &options, const unsigned &tilesPerIPU, unsigned level,
+    Tensor metaInfoBuckets, Tensor weights, Tensor acts,
     const poplar::DebugNameAndId &dnai) {
-  // Only supporting single-IPU currently.
-  assert(hierarchy.size() == 1);
 
   const std::string levelPrefix = "l" + std::to_string(level);
   const auto &inputType = acts.elementType();
@@ -2296,16 +2286,16 @@ static Tensor fullyConnectedSparseGradWImpl(
   std::vector<Tensor> nextLevelInputs;
   std::vector<Tensor> nextLevelWeights;
   std::vector<Tensor> nextLevelMetaInfoBuckets;
-  getNextLevelInputs(graph, shape, {}, plan, hierarchy, 0, acts,
+  getNextLevelInputs(graph, shape, {}, plan, tilesPerIPU, 0, acts,
                      nextLevelInputs);
-  getNextLevelWeights(graph, shape, {}, plan, hierarchy, 0, weights,
+  getNextLevelWeights(graph, shape, {}, plan, tilesPerIPU, 0, weights,
                       nextLevelWeights);
   getBucketsByPartition(plan, metaInfoBuckets, nextLevelMetaInfoBuckets);
   std::vector<Tensor> partials;
-  createPartialsSparse(graph, shape, {}, plan, options, hierarchy, 0, partials,
-                       {dnai, "partials"});
+  createPartialsSparse(graph, shape, {}, plan, options, tilesPerIPU, 0,
+                       partials, {dnai, "partials"});
   std::vector<Tensor> subGroupIds;
-  getSubGroupIds(graph, {}, plan, options, hierarchy, subGroupIds,
+  getSubGroupIds(graph, {}, plan, options, tilesPerIPU, subGroupIds,
                  {dnai, "subGroupIds"});
 
   // Pre-arrange inputs and weights. We use the plans for forward and grada
@@ -2332,7 +2322,7 @@ static Tensor fullyConnectedSparseGradWImpl(
       std::vector<Tensor> perPartition;
       const auto prearranged =
           createBuckets(graph, metaInfoBuckets.elementType(), plan,
-                        plan.metaInfoElemsPerBucket, hierarchy,
+                        plan.metaInfoElemsPerBucket, tilesPerIPU,
                         {dnai, "partitionedMetaInfoBuckets"});
       getBucketsByPartition(plan, prearranged, perPartition);
       copyPartitions(graph, progBuilder.preDistribution,
@@ -2349,7 +2339,7 @@ static Tensor fullyConnectedSparseGradWImpl(
     if (inputSrcMemOrdering != inputDstMemOrdering) {
       std::vector<Tensor> perPartition;
       allocatePerPartitionInputs(graph, shape, {}, plan, true, inputType,
-                                 hierarchy, 0, perPartition,
+                                 tilesPerIPU, 0, perPartition,
                                  {dnai, "partitionedInputs"});
       auto perPartitionView = rearrangePartitions(
           graph, transposeCS, rearrangePreCopies, nextLevelInputs, perPartition,
@@ -2360,7 +2350,7 @@ static Tensor fullyConnectedSparseGradWImpl(
     if (weightsSrcMemOrdering != weightsDstMemOrdering) {
       std::vector<Tensor> perPartition;
       allocatePerPartitionInputs(graph, shape, {}, plan, false, inputType,
-                                 hierarchy, 0, perPartition,
+                                 tilesPerIPU, 0, perPartition,
                                  {dnai, "partitionedWeights"});
       auto perPartitionView = rearrangePartitions(
           graph, transposeCS, rearrangePreCopies, nextLevelWeights,
@@ -2379,32 +2369,32 @@ static Tensor fullyConnectedSparseGradWImpl(
   for (std::size_t buffer = 0; buffer < numBuffers; ++buffer) {
     if (plan.exchangeBuckets) {
       createPropagationBuffers(
-          graph, UNSIGNED_SHORT, shape, {}, plan, options, hierarchy, 0,
+          graph, UNSIGNED_SHORT, shape, {}, plan, options, tilesPerIPU, 0,
           nextLevelMetaInfoBuckets, {}, metaInfoPropagationBuffers.at(buffer),
           {dnai, "metaInfoPropagationBuffer" + std::to_string(buffer)});
       createPropagationBuffers(
-          graph, options.partialsType, shape, {}, plan, options, hierarchy, 0,
+          graph, options.partialsType, shape, {}, plan, options, tilesPerIPU, 0,
           partials, {}, partialPropagationBuffers.at(buffer),
           {dnai, "partialPropagationBuffer" + std::to_string(buffer)});
     } else {
       createPropagationBuffers(
-          graph, inputType, shape, {}, plan, options, hierarchy, 0,
+          graph, inputType, shape, {}, plan, options, tilesPerIPU, 0,
           nextLevelInputs, {}, inputPropagationBuffers.at(buffer),
           {dnai, "inputPropagationBuffer" + std::to_string(buffer)});
       createPropagationBuffers(
-          graph, inputType, shape, {}, plan, options, hierarchy, 0,
+          graph, inputType, shape, {}, plan, options, tilesPerIPU, 0,
           nextLevelWeights, {}, weightPropagationBuffers.at(buffer),
           {dnai, "weightPropagationBuffer" + std::to_string(buffer)});
       createPropagationBuffers(
-          graph, inputType, shape, {}, plan, options, hierarchy, 0, subGroupIds,
-          {}, subGroupIdPropagationBuffers.at(buffer),
+          graph, inputType, shape, {}, plan, options, tilesPerIPU, 0,
+          subGroupIds, {}, subGroupIdPropagationBuffers.at(buffer),
           {dnai, "subGroupIdPropagationBuffer" + std::to_string(buffer)});
     }
   }
 
   writeUndefPartitions(progBuilder.preDistribution, partials, {dnai});
   computeInitialDistributionGradW(
-      graph, progBuilder.distributionCompute, shape, plan, options, hierarchy,
+      graph, progBuilder.distributionCompute, shape, plan, options, tilesPerIPU,
       nextLevelInputs, nextLevelWeights, nextLevelMetaInfoBuckets, partials,
       subGroupIds, inputPropagationBuffers.at(0),
       weightPropagationBuffers.at(0), subGroupIdPropagationBuffers.at(0),
@@ -2416,14 +2406,14 @@ static Tensor fullyConnectedSparseGradWImpl(
       graph.addVariable(UNSIGNED_INT, {}, {dnai, "bufferIdx"});
   graph.setTileMapping(bufferIdx, controlFlowTile);
   addPropagationExchangesGradW(
-      graph, progBuilder, shape, plan, options, hierarchy, nextLevelInputs,
+      graph, progBuilder, shape, plan, options, tilesPerIPU, nextLevelInputs,
       nextLevelWeights, subGroupIds, nextLevelMetaInfoBuckets, partials,
       inputPropagationBuffers, weightPropagationBuffers,
       subGroupIdPropagationBuffers, metaInfoPropagationBuffers,
       partialPropagationBuffers, bufferIdx, {dnai});
 
   computePropagationGradW(
-      graph, progBuilder, shape, plan, options, hierarchy, nextLevelInputs,
+      graph, progBuilder, shape, plan, options, tilesPerIPU, nextLevelInputs,
       nextLevelWeights, subGroupIds, nextLevelMetaInfoBuckets, partials,
       inputPropagationBuffers, weightPropagationBuffers,
       subGroupIdPropagationBuffers, metaInfoPropagationBuffers,
@@ -2431,7 +2421,7 @@ static Tensor fullyConnectedSparseGradWImpl(
 
   const auto output =
       finalReduction(graph, progBuilder, shape, resultType, {}, plan, options,
-                     hierarchy, 0, partials, true, {dnai});
+                     tilesPerIPU, 0, partials, true, {dnai});
   // Output includes partitions and buckets per partition in its shape so
   // flatten these away for return.
   // TODO: We could just keep buckets by partition in the shape for
@@ -2439,21 +2429,23 @@ static Tensor fullyConnectedSparseGradWImpl(
   return output.flatten(0, 5);
 }
 
-static void iterateInputTensorUsage(
-    Graph &graph, const Vector<unsigned> &shape,
-    const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    const std::vector<unsigned> &hierarchy, const unsigned level,
-    const Tensor &acts, TensorUseTracker &usage) {
-  const auto tile = getPartitionTile(hierarchy, plan, indices);
+static void
+iterateInputTensorUsage(Graph &graph, const Vector<unsigned> &shape,
+                        const std::vector<Vector<unsigned>> &indices,
+                        const SinglePassPlan &plan, const unsigned &tilesPerIPU,
+                        const unsigned level, const Tensor &acts,
+                        TensorUseTracker &usage) {
+  const auto tile = getPartitionTile(tilesPerIPU, plan, indices);
   usage.add(graph, tile, acts);
 }
 
 template <typename NextLevelActs>
-static void iterateInputTensorUsage(
-    Graph &graph, const Vector<unsigned> &shape,
-    const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    const std::vector<unsigned> &hierarchy, const unsigned level,
-    const NextLevelActs &acts, TensorUseTracker &usage) {
+static void
+iterateInputTensorUsage(Graph &graph, const Vector<unsigned> &shape,
+                        const std::vector<Vector<unsigned>> &indices,
+                        const SinglePassPlan &plan, const unsigned &tilesPerIPU,
+                        const unsigned level, const NextLevelActs &acts,
+                        TensorUseTracker &usage) {
   iteratePartitions(
       shape, plan.partition, plan.grouping,
       [&](const auto &i, const auto &begin, const auto &end) {
@@ -2462,12 +2454,12 @@ static void iterateInputTensorUsage(
         sIndices.emplace_back(i);
         const auto partitionIndexFlat =
             flattenIndex(plan.partition.asStdVector(), i.asStdVector());
-        iterateInputTensorUsage(graph, sShape, sIndices, plan, hierarchy,
+        iterateInputTensorUsage(graph, sShape, sIndices, plan, tilesPerIPU,
                                 level + 1, acts[partitionIndexFlat], usage);
       });
 }
 
-static void mapInput(Graph &graph, const std::vector<unsigned> &hierarchy,
+static void mapInput(Graph &graph, const unsigned &tilesPerIPU,
                      const Vector<unsigned> &shape, const SinglePassPlan &plan,
                      Tensor input) {
   TensorUseTracker usage(graph.getTarget().getNumTiles());
@@ -2475,10 +2467,10 @@ static void mapInput(Graph &graph, const std::vector<unsigned> &hierarchy,
   input = groupActs(input, plan.grouping);
 
   std::vector<Tensor> nextLevelInputs;
-  getNextLevelInputs(graph, shape, {}, plan, hierarchy, 0, input,
+  getNextLevelInputs(graph, shape, {}, plan, tilesPerIPU, 0, input,
                      nextLevelInputs);
-  iterateInputTensorUsage(graph, shape, {}, plan, hierarchy, 0, nextLevelInputs,
-                          usage);
+  iterateInputTensorUsage(graph, shape, {}, plan, tilesPerIPU, 0,
+                          nextLevelInputs, usage);
 
   const std::vector<std::size_t> actGrouping = {
       plan.grouping.groups, plan.grouping.y, plan.grouping.z};
@@ -2587,23 +2579,23 @@ SparseTensor createFullyConnectedWeights(
   std::tie(plan, cost) =
       getPlan(graph.getTarget(), inputType, params, optionFlags, cache);
 
-  const auto hierarchy = poplibs::getTileHierarchy(target);
+  const auto tilesPerIPU = target.getTilesPerIPU();
 
   const auto fwdPlan = getFwdPlan(plan);
 
   // Create variables. This handles forward pass only but in future there should
   // be multiple variables for any pass-specific meta-info.
   const auto fwdMetaInfoBuckets = createBuckets(
-      graph, UNSIGNED_SHORT, fwdPlan, plan.fwdMetaInfoElemsPerBucket, hierarchy,
-      {di, "metaInfoForward"});
+      graph, UNSIGNED_SHORT, fwdPlan, plan.fwdMetaInfoElemsPerBucket,
+      tilesPerIPU, {di, "metaInfoForward"});
   const auto gradAMetaInfoBuckets =
       plan.sharedBuckets() ? Tensor()
                            : createBuckets(graph, UNSIGNED_SHORT, fwdPlan,
                                            plan.gradAMetaInfoElemsPerBucket,
-                                           hierarchy, {di, "metaInfoGradA"});
+                                           tilesPerIPU, {di, "metaInfoGradA"});
   const auto nzValueBuckets =
-      createBuckets(graph, inputType, fwdPlan, plan.nzElemsPerBucket, hierarchy,
-                    {di, "nzValues"});
+      createBuckets(graph, inputType, fwdPlan, plan.nzElemsPerBucket,
+                    tilesPerIPU, {di, "nzValues"});
   const auto weightBuckets =
       SparseTensor(plan.sharedBuckets()
                        ? fwdMetaInfoBuckets
@@ -2662,7 +2654,7 @@ Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
   std::tie(plan, cost) =
       getPlan(graph.getTarget(), inputType, params, optionFlags, cache);
   const auto &target = graph.getTarget();
-  const auto hierarchy = poplibs::getTileHierarchy(target);
+  const auto tilesPerIPU = target.getTilesPerIPU();
 
   const auto fwdPlan = getFwdPlan(plan);
 
@@ -2683,7 +2675,7 @@ Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
       static_cast<unsigned>(params.getOutputChannelsPerGroup()),
       static_cast<unsigned>(params.getInputChannelsPerGroup()),
       static_cast<unsigned>(params.getBatchSize())};
-  mapInput(graph, hierarchy, shape, fwdPlan, input);
+  mapInput(graph, tilesPerIPU, shape, fwdPlan, input);
 
   return inputInternalToExternalShape(input, params.getNumGroups());
 }
@@ -2756,7 +2748,7 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
                                   cache, {{di}, "denseOperation"}, options);
   }
 
-  const auto hierarchy = poplibs::getTileHierarchy(target);
+  const auto tilesPerIPU = target.getTilesPerIPU();
 
   const Vector<unsigned> shape = {
       static_cast<unsigned>(params.getNumGroups()),
@@ -2779,11 +2771,11 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
                                               plan.fwdMetaInfoElemsPerBucket);
 
   const auto fwdPlan = getFwdPlan(plan);
-  ProgBuilder progBuilder(graph, hierarchy, {di});
+  ProgBuilder progBuilder(graph, tilesPerIPU, {di});
   std::vector<Vector<unsigned>> indices;
   constexpr bool transposedBuckets = false;
   const auto &outputActivations = fullyConnectedImpl(
-      graph, progBuilder, shape, indices, fwdPlan, options, hierarchy,
+      graph, progBuilder, shape, indices, fwdPlan, options, tilesPerIPU,
       0u /* level */, weightBuckets.getMetaInfoTensor(),
       weightBuckets.getNzValuesTensor(), input, transposedBuckets, {di});
   progBuilder.addToSequence(graph, prog, fwdPlan, overflowInfo, {di});
@@ -2838,7 +2830,7 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
                           {{di}, "denseBwds"}, cache, options);
   }
 
-  const auto hierarchy = poplibs::getTileHierarchy(target);
+  const auto tilesPerIPU = target.getTilesPerIPU();
 
   const Vector<unsigned> shape = {
       static_cast<unsigned>(params.getNumGroups()),
@@ -2877,11 +2869,11 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
                                    .dimShufflePartial(shuffleSrc, shuffleDest)
                                    .flatten(0, 5));
 
-  ProgBuilder progBuilder(graph, hierarchy, {di});
+  ProgBuilder progBuilder(graph, tilesPerIPU, {di});
   std::vector<Vector<unsigned>> indices;
   constexpr bool transposedBuckets = true;
   const auto &inputGradients = fullyConnectedImpl(
-      graph, progBuilder, shape, indices, gradAPlan, options, hierarchy,
+      graph, progBuilder, shape, indices, gradAPlan, options, tilesPerIPU,
       0u /* level */, weightBuckets.getMetaInfoTensor(),
       weightBuckets.getNzValuesTensor(), input, transposedBuckets, {di});
   progBuilder.addToSequence(graph, prog, gradAPlan, overflowInfo, {di});
@@ -2913,7 +2905,7 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
   Cost cost;
   std::tie(plan, cost) = getPlan(target, inputType, params, optionFlags, cache);
 
-  const auto hierarchy = poplibs::getTileHierarchy(target);
+  const auto tilesPerIPU = target.getTilesPerIPU();
 
   const Vector<unsigned> shape = {
       static_cast<unsigned>(params.getNumGroups()),
@@ -2953,11 +2945,11 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
                              vectorConvert<unsigned>(gradWPlan.dimShuffleToFwd))
           .flatten(0, 5);
 
-  ProgBuilder progBuilder(graph, hierarchy, {di});
+  ProgBuilder progBuilder(graph, tilesPerIPU, {di});
   std::vector<Vector<unsigned>> indices;
   auto weightGradientBuckets = fullyConnectedSparseGradWImpl(
       graph, progBuilder, shape, indices, gradWPlan, plan.method.fwd,
-      plan.method.gradA, options, hierarchy, 0u /* level */, metaInfoBuckets,
+      plan.method.gradA, options, tilesPerIPU, 0u /* level */, metaInfoBuckets,
       outputGrad, input, {di});
   progBuilder.addToSequence(graph, prog, gradWPlan, overflowInfo, {di});
 
