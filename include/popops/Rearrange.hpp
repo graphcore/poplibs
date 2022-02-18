@@ -2,6 +2,7 @@
 /** \file
  *
  * Operations to rearrange tensors on tiles.
+ * \deprecated This file is deprecated.
  *
  */
 
@@ -11,16 +12,16 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Type.hpp>
 
-#include <functional>
-
 #include <poputil/VarStructure.hpp>
+
+#include <gccs/CompilerFeatures.hpp>
+
+#include <functional>
 
 namespace popops {
 namespace rearrange {
 
-/** \deprecated Fast transpose is now automatic in poplar with Copy programs
- *
- * Determine if a fast transposition codelet may be used based on the given
+/** Determine if a fast transposition codelet may be used based on the given
  *  target/data type/no. of rows/no. of columns.
  *
  *  \param target The target the operation will be targeted at.
@@ -30,12 +31,15 @@ namespace rearrange {
  *
  * \returns A boolean indicating whether or not the fast transposition codelets
  *          can be targeted based on the given parameters.
+ *
+ *  \deprecated This function is deprecated
  */
-bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
-                         unsigned numRows, unsigned numColumns,
-                         unsigned numTranspositions);
+GC_DEPRECATED bool canUseFastTranspose(const poplar::Target &target,
+                                       const poplar::Type &type,
+                                       unsigned numRows, unsigned numColumns,
+                                       unsigned numTranspositions);
 
-/// \deprecated Use a copy program instead to perform transpose
+///
 ///  Transposes of a set of matrices stored on multiple tiles. This adds all
 /// the needed vertices on the graph.
 ///
@@ -56,7 +60,8 @@ bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
 ///                 2D matrices, but they must be flattened to a single
 ///                 dimension.
 ///
-void addTransposeVertices(
+/// \deprecated This function is deprecated
+GC_DEPRECATED void addTransposeVertices(
     poplar::Graph &graph, const poplar::ComputeSet &cs,
     const poplar::Type &dType, unsigned rows, unsigned cols,
     const poplar::Graph::TileToTensorMapping &mapping,
@@ -64,16 +69,18 @@ void addTransposeVertices(
         getInOut,
     const poplar::DebugContext &debugContext = {});
 
-/// \deprecated Use a copy program instead to perform transpose
 /// Transpose the innermost pair of dimensions of the specified tensor,
 /// writing the results to a new tensor. This function assumes order of the
 /// underlying storage matches the order of the elements in the tensor. This
 /// function is optimized for group sizes that are typical of the underlying
 /// memory layout of convolution activations / weights - it may be inefficient
 /// for other group sizes.
-poplar::Tensor partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
-                                const poplar::ComputeSet &cs,
-                                const poplar::DebugContext &debugContext = {});
+///
+/// \deprecated This function is deprecated
+GC_DEPRECATED poplar::Tensor
+partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
+                 const poplar::ComputeSet &cs,
+                 const poplar::DebugContext &debugContext = {});
 
 /** Get the smallest grouping we can transpose between for the given type
  *  using fast transposition codelets.
@@ -82,8 +89,9 @@ poplar::Tensor partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
  *
  *  \returns The smallest size of grouping that can be efficiently transposed
  *           for the given type.
+ * \deprecated This function is deprecated
  */
-unsigned getMinimumRegroupGrainSize(const poplar::Type &type);
+GC_DEPRECATED unsigned getMinimumRegroupGrainSize(const poplar::Type &type);
 
 /** Insert copies or other operations into the given programs/compute sets
  *  to transform the grouping found on the given tensor from \p from to
@@ -101,13 +109,14 @@ unsigned getMinimumRegroupGrainSize(const poplar::Type &type);
  *
  *  \returns A tensor with the contents of \p t but laid out such that
  *           it has the grouping specified in \p to.
+ *
+ *  \deprecated This function is deprecated
  */
-poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
-                             poplar::program::Sequence &copies,
-                             const poplar::ComputeSet &transposeCS,
-                             const poputil::GroupingInfo &from,
-                             const poputil::GroupingInfo &to,
-                             const poplar::DebugContext &debugContext = {});
+GC_DEPRECATED poplar::Tensor regroupTensor(
+    poplar::Graph &graph, const poplar::Tensor &t,
+    poplar::program::Sequence &copies, const poplar::ComputeSet &transposeCS,
+    const poputil::GroupingInfo &from, const poputil::GroupingInfo &to,
+    const poplar::DebugContext &debugContext = {});
 
 /** Insert copies or other operations into the given program to transform the
  *  grouping found on the given tensor to \p to. This is a no-op for a
@@ -124,11 +133,14 @@ poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
  *
  *  \returns A tensor with the contents of \p t but laid out such that
  *           it has the grouping specified in \p to.
+ *
+ *  \deprecated This function is deprecated
  */
-poplar::Tensor regroupIfPossible(poplar::Graph &graph, const poplar::Tensor &t,
-                                 poplar::program::Sequence &prog,
-                                 const poputil::GroupingInfo &to,
-                                 const poplar::DebugContext &debugContext = {});
+GC_DEPRECATED poplar::Tensor
+regroupIfPossible(poplar::Graph &graph, const poplar::Tensor &t,
+                  poplar::program::Sequence &prog,
+                  const poputil::GroupingInfo &to,
+                  const poplar::DebugContext &debugContext = {});
 
 /** Insert copies or other operations into the given programs/compute sets
  *  to transform the grouping found on the given tensor from \p from to
@@ -148,13 +160,16 @@ poplar::Tensor regroupIfPossible(poplar::Graph &graph, const poplar::Tensor &t,
  *
  *  \returns A tensor with the contents of \p t but laid out such that
  *           it has the grouping specified in \p to.
+ *
+ *  \deprecated This function is deprecated
  */
-poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
-                             std::vector<poplar::program::Copy> &copies,
-                             const poplar::ComputeSet &transposeCS,
-                             const poputil::GroupingInfo &from,
-                             const poputil::GroupingInfo &to,
-                             const poplar::DebugContext &debugContext = {});
+GC_DEPRECATED poplar::Tensor
+regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
+              std::vector<poplar::program::Copy> &copies,
+              const poplar::ComputeSet &transposeCS,
+              const poputil::GroupingInfo &from,
+              const poputil::GroupingInfo &to,
+              const poplar::DebugContext &debugContext = {});
 
 /** If possible and runtime efficient, add an operation to rearrange the given
  *  tensor in memory such that the grouping of the resulting tensor matches
@@ -170,8 +185,10 @@ poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
  *
  *  \returns A tensor with the contents of the given tensor \p in rearranged in
  *           memory to have a grouping matching \p ref.
+ *
+ *  \deprecated This function is deprecated
  */
-poplar::Tensor
+GC_DEPRECATED poplar::Tensor
 regroupIfBeneficial(poplar::Graph &graph, const poplar::Tensor &in,
                     const poplar::Tensor &ref, poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {});
@@ -192,8 +209,10 @@ regroupIfBeneficial(poplar::Graph &graph, const poplar::Tensor &in,
  *
  *  \returns A tensor with the contents of the given tensor \p in rearranged in
  *           memory to have a grouping matching \p ref.
+ *
+ *  \deprecated This function is deprecated
  */
-poplar::Tensor regroupIfBeneficial(
+GC_DEPRECATED poplar::Tensor regroupIfBeneficial(
     poplar::Graph &graph, const poplar::Tensor &in, const poplar::Tensor &ref,
     std::vector<poplar::program::Copy> &copies, poplar::ComputeSet transposeCS,
     const poplar::DebugContext &debugContext = {});
@@ -213,8 +232,9 @@ poplar::Tensor regroupIfBeneficial(
  *
  *  \returns A tensor with the contents of the given tensor \p in rearranged in
  *           memory to have a grouping matching \p ref.
+ *  \deprecated This function is deprecated
  */
-poplar::Tensor
+GC_DEPRECATED poplar::Tensor
 regroupIfBeneficial(poplar::Graph &graph, const poplar::Tensor &in,
                     std::size_t preferredGrouping,
                     poplar::program::Sequence &prog,
