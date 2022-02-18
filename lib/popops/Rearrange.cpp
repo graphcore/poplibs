@@ -305,6 +305,9 @@ Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
   auto outShape = in.shape();
   std::swap(outShape[rank - 2], outShape[rank - 1]);
   auto out = graph.addVariable(dType, outShape, {di, "partialTranspose"});
+  if (out.elementType() == QUARTER) {
+    out.associateMetadata(in.getMetadata());
+  }
   auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
                             numSrcRows * numSrcColumns});
   auto outFlat = out.reshape(inFlat.shape());

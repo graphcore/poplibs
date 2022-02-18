@@ -136,9 +136,27 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   } else {
     vertexName = "popops::Cast2D";
   }
-  if (fp8) {
-    vertexName = vertexName + "Fp8";
+
+  if (in.elementType() == QUARTER) {
+    graph.setInitialValue(in.getMetadata(),
+                          packFp8MetaData(fp8Format, fp8Scale));
   }
+
+  if (inTypeToFp8ToinType && inter.elementType() == QUARTER) {
+    graph.setInitialValue(inter.getMetadata(),
+                          packFp8MetaData(fp8Format, fp8Scale));
+  }
+
+  if (out.elementType() == QUARTER) {
+    if (fp8ToFp8) {
+      graph.setInitialValue(out.getMetadata(),
+                            packFp8MetaData(fp8FormatOut, fp8ScaleOut));
+    } else {
+      graph.setInitialValue(out.getMetadata(),
+                            packFp8MetaData(fp8Format, fp8Scale));
+    }
+  }
+
   auto castVertex = graph.addVertex(
       testComputeSet, templateVertex(vertexName, dataTypeIn, dataTypeOut));
   graph.setTileMapping(castVertex, 0);
@@ -169,17 +187,6 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
     graph.connect(castVertex["dst"], sliceOut);
   }
 
-  Tensor metaDataTensor;
-  if (fp8) {
-    metaDataTensor = createFp8MetaDataTensor(graph, fp8Format, fp8Scale);
-    if (fp8ToFp8) {
-      metaDataTensor =
-          concat(metaDataTensor,
-                 createFp8MetaDataTensor(graph, fp8FormatOut, fp8ScaleOut), 0);
-    }
-    graph.connect(castVertex["metaData"], metaDataTensor);
-  }
-
   popops::zero(graph, out, sequence, "Zero output");
   sequence.add(Execute(testComputeSet));
   if (inTypeToFp8ToinType) {
@@ -189,7 +196,6 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
     graph.setTileMapping(castVertex, 0);
     graph.connect(castVertex["src"], sliceInter);
     graph.connect(castVertex["dst"], sliceOut);
-    graph.connect(castVertex["metaData"], metaDataTensor);
     if (rows == 1) {
       unsigned totElems = sliceInter.numElements();
       graph.setInitialValue(castVertex["numElems"], totElems);

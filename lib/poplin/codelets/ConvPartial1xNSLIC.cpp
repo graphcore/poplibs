@@ -304,10 +304,8 @@ public:
 
   // A pointer for inputs per conv group group.
   Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> in;
-  Input<unsigned char> inMetaData;
   // A weights pointer per sub-kernel/conv group group.
   Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> weights;
-  Input<unsigned char> weightsMetaData;
   // A pointer for outputs per conv group group. Enforced to be 16-byte
   // aligned to allow use of ld2xst64pace instruction along with
   // `outFieldBuffer`.
@@ -339,7 +337,8 @@ public:
     auto wlStatePtr = reinterpret_cast<unsigned *>(&worklists);
     workerState.partitionBase =
         reinterpret_cast<unsigned *>(*wlStatePtr & DELTAN_OFFSET_MASK);
-
+    const auto weightsMetaData = *weights.getMetadata();
+    const auto inMetaData = *in.getMetadata();
     setFp8Format(weightsMetaData, inMetaData);
     setFp8Scale(weightsMetaData, inMetaData);
 

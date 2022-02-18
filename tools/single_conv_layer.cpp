@@ -120,7 +120,7 @@ int main(int argc, char **argv) try {
   Fp8Format fp8FormatFwdIn = Fp8Format::QUART143;
   Fp8Format fp8FormatWeights = Fp8Format::QUART143;
   Fp8Format fp8FormatBwdIn = Fp8Format::QUART143;
-  int fp8ScaleFwdIn = 0, fp8ScaleWeights = 0, fp8scaleBwdIn = 0;
+  int fp8ScaleFwdIn = 1, fp8ScaleWeights = 2, fp8scaleBwdIn = 1;
 
   Pass pass = Pass::ALL;
   std::string fwdPlanConstraints, fwdPlanConstraintsFile, bwdPlanConstraints,
@@ -844,25 +844,22 @@ int main(int argc, char **argv) try {
   if (testingQuarter) {
     prevActToCopy = graph.clone(inputTypeHost, prevAct, "prevActCopy");
     weightsToCopy = graph.clone(inputTypeHost, weights, "weightsCopy");
-    auto prevActMetaData =
-        createFp8MetaDataTensor(graph, fp8FormatFwdIn, fp8ScaleFwdIn);
-    auto weightsMetaData =
-        createFp8MetaDataTensor(graph, fp8FormatWeights, fp8ScaleWeights);
+    prevAct.associateMetadata(
+        createFp8MetaDataTensor(graph, fp8FormatFwdIn, fp8ScaleFwdIn));
+    weights.associateMetadata(
+        createFp8MetaDataTensor(graph, fp8FormatWeights, fp8ScaleWeights));
 
-    fwdProg.add(popops::cast(graph, prevActToCopy, prevAct, prevActMetaData,
-                             "CastPrevAct"));
-    fwdProg.add(popops::cast(graph, weightsToCopy, weights, weightsMetaData,
-                             "CastFwdWeights"));
+    fwdProg.add(popops::cast(graph, prevActToCopy, prevAct, "CastPrevAct"));
+    fwdProg.add(popops::cast(graph, weightsToCopy, weights, "CastFwdWeights"));
     if (doBwdPass) {
       zDeltasToCopy = graph.clone(inputTypeHost, zDeltas, "zDeltasCopy");
-      auto zDeltasMetaData =
-          createFp8MetaDataTensor(graph, fp8FormatBwdIn, fp8scaleBwdIn);
-      auto weightsMetaData =
-          createFp8MetaDataTensor(graph, fp8FormatWeights, fp8ScaleWeights);
-      revProg.add(popops::cast(graph, zDeltasToCopy, zDeltas, zDeltasMetaData,
-                               "CastZDeltas"));
-      revProg.add(popops::cast(graph, weightsToCopy, weights, weightsMetaData,
-                               "CastBwdWeights"));
+      zDeltas.associateMetadata(
+          createFp8MetaDataTensor(graph, fp8FormatBwdIn, fp8scaleBwdIn));
+      weights.associateMetadata(
+          createFp8MetaDataTensor(graph, fp8FormatWeights, fp8ScaleWeights));
+      revProg.add(popops::cast(graph, zDeltasToCopy, zDeltas, "CastZDeltas"));
+      revProg.add(
+          popops::cast(graph, weightsToCopy, weights, "CastBwdWeights"));
     }
   }
   // create the forward convolution as a tensor function as we may be able to

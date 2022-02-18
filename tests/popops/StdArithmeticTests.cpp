@@ -1052,7 +1052,8 @@ BOOST_AUTO_TEST_CASE(
   }
 }
 
-BOOST_AUTO_TEST_CASE(StdCast) {
+BOOST_AUTO_TEST_CASE(StdCast,
+                     *boost::unit_test::precondition(enableIfIpuModel())) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -1092,6 +1093,60 @@ BOOST_AUTO_TEST_CASE(StdCast) {
   }
 }
 
+BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
+                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  // Choose a small numeric range which is supported by the FP8 type
+  const unsigned modulo = 10;
+  std::vector<float> hIn(DIM_SIZE);
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    hIn[i] = (float)(i % modulo);
+  }
+  auto in = graph.addVariable(HALF, {DIM_SIZE}, "in");
+  auto inter = graph.addVariable(QUARTER, {DIM_SIZE}, "inter");
+  auto out = graph.addVariable(HALF, {DIM_SIZE}, "out");
+  mapTensorLinearly(graph, in);
+  mapTensorLinearly(graph, inter);
+  mapTensorLinearly(graph, out);
+  graph.createHostWrite("in", in);
+
+  auto prog = Sequence();
+
+  graph.setInitialValue(inter.getMetadata(),
+                        packFp8MetaData(poputil::Fp8Format::QUART143, 0));
+  prog.add(cast(graph, in, inter, "castToFP8"));
+
+  auto cs = graph.addComputeSet("castToHalf");
+  cast(graph, inter, out, cs);
+  prog.add(Execute(cs));
+
+  graph.createHostRead("out", out);
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
+  std::vector<char> rawIn(rawBufSize);
+  std::vector<char> rawOut(rawBufSize);
+  poplar::copyFloatToDeviceHalf(target, &hIn[0], rawIn.data(), DIM_SIZE);
+
+  Engine eng(graph, Sequence{prog});
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
+    eng.run();
+    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
+  });
+  std::vector<float> hOut(DIM_SIZE);
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0], DIM_SIZE);
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    BOOST_TEST(hOut[i] == i % modulo);
+  }
+}
+
 BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
                      *boost::unit_test::precondition(enableIfIpu21Sim())) {
   auto device = createTestDevice(TEST_TARGET);
@@ -1115,7 +1170,7 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
   poplar::Tensor metaData =
       createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, 0);
   poplar::Tensor inter = cast(graph, in, QUARTER, metaData, prog, "castToFP8");
-  poplar::Tensor out = cast(graph, inter, HALF, metaData, prog, "castToHalf");
+  poplar::Tensor out = cast(graph, inter, HALF, prog, "castToHalf");
   graph.createHostRead("out", out);
   auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
   std::vector<char> rawIn(rawBufSize);
@@ -1160,7 +1215,7 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
   poplar::Tensor metaData =
       createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, -1);
   poplar::Tensor inter = cast(graph, in, QUARTER, metaData, prog, "castToFP8");
-  poplar::Tensor out = cast(graph, inter, CHAR, metaData, prog, "castToChar");
+  poplar::Tensor out = cast(graph, inter, CHAR, prog, "castToChar");
   graph.createHostRead("out", out);
 
   std::vector<char> hOut(DIM_SIZE);
@@ -1202,13 +1257,12 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
 
   auto metaData0 =
       createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, 2);
-
+  graph.setInitialValue(in.getMetadata(),
+                        packFp8MetaData(poputil::Fp8Format::QUART143, 2));
   auto metaData1 =
       createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART152, -1);
-  auto inter = cast(graph, in, QUARTER, concat(metaData0, metaData1, 0), prog,
-                    "castToQUART143");
-  auto out = cast(graph, inter, QUARTER, concat(metaData1, metaData0, 0), prog,
-                  "castToQUART152");
+  auto inter = cast(graph, in, QUARTER, metaData1, prog, "castToQUART143");
+  auto out = cast(graph, inter, QUARTER, metaData0, prog, "castToQUART152");
   graph.createHostRead("out", out);
 
   std::vector<char> hOut(DIM_SIZE);

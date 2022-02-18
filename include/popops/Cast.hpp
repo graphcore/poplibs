@@ -32,8 +32,24 @@ poplar::Tensor cast(poplar::Graph &graph, const poplar::Tensor &src,
                     poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {});
 
+/** Cast elements of the specified \p src tensor to \p dstType, returning the
+ * result as a new tensor.
+ *
+ * Note: If `dstType == src.elementType()`, then the operation is a copy.
+ *
+ * \param graph         The graph that the operation will be added to.
+ * \param src           Source tensor to cast.
+ * \param dstType       Type of the destination tensor.
+ * \param metaData      A tensor of type QUARTER_METADATA initialised with the
+ *                      format and scale to use when casting to the destination
+ *                      tensor.  The returned tensor will contain this meta
+ *                      data.
+ * \param prog          Program to add the cast operation to.
+ * \param debugContext  Optional debug information.
+ * \return              The resultant cast tensor.
+ */
 poplar::Tensor cast(poplar::Graph &graph, const poplar::Tensor &src,
-                    const poplar::Type &dstType, const poplar::Tensor metaData,
+                    const poplar::Type &dstType, const poplar::Tensor &metaData,
                     poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {});
 
@@ -55,10 +71,6 @@ poplar::program::Program cast(poplar::Graph &graph, poplar::Tensor src,
                               poplar::Tensor dst,
                               const poplar::DebugContext &debugContext = {});
 
-poplar::program::Program cast(poplar::Graph &graph, poplar::Tensor src,
-                              poplar::Tensor dst, poplar::Tensor metaData,
-                              const poplar::DebugContext &debugContext = {});
-
 /** Create vertices to copy element wise from the \p src tensor to the \p dst
  * tensor casting between types (for example, half->float).
  * The vertices are added to the specified compute set.
@@ -72,9 +84,6 @@ poplar::program::Program cast(poplar::Graph &graph, poplar::Tensor src,
  */
 void cast(poplar::Graph &graph, poplar::Tensor src, poplar::Tensor dst,
           poplar::ComputeSet cs);
-
-void cast(poplar::Graph &graph, poplar::Tensor src, poplar::Tensor dst,
-          poplar::Tensor metaData, poplar::ComputeSet cs);
 
 /** Create vertices to cast elements of the specified \p src tensor to
  * \p dstType, returning the result as a new tensor. The vertices are added to
@@ -91,8 +100,23 @@ poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
                     const poplar::Type &dstType, poplar::ComputeSet cs,
                     const poplar::DebugContext &debugContext = {});
 
+/** Create vertices to cast elements of the specified \p src tensor to
+ * \p dstType, returning the result as a new tensor. The vertices are added to
+ * the specified compute set.
+ *
+ * \param graph         The graph that the operation will be added to.
+ * \param src           Source tensor.
+ * \param dstType       Destination type.
+ * \param metaData      A tensor of type QUARTER_METADATA initialised with the
+ *                      format and scale to use when casting to the destination
+ *                      tensor.  The returned tensor will contain this meta
+ *                      data.
+ * \param cs            Compute set to add the vertices to.
+ * \param debugContext  Optional debug information.
+ * \return              Resultant destination tensor.
+ */
 poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
-                    const poplar::Type &dstType, poplar::Tensor metaData,
+                    const poplar::Type &dstType, poplar::Tensor &metaData,
                     poplar::ComputeSet cs,
                     const poplar::DebugContext &debugContext = {});
 

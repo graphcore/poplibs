@@ -357,8 +357,6 @@ void runTest(const struct testParams &t) {
         createFp8MetaDataTensor(graph, t.weightFp8Format, t.weightFp8Scale);
     auto inMetaData =
         createFp8MetaDataTensor(graph, t.inputFp8Format, t.inputFp8Scale);
-    graph.connect(v["weightsMetaData"], weightsMetaData.reshape({}));
-    graph.connect(v["inMetaData"], inMetaData.reshape({}));
 
     auto inFp8 = popops::cast(graph, in, QUARTER, inMetaData, prog, "CastIn");
     auto weightsFp8 = popops::cast(graph, weights, QUARTER, weightsMetaData,

@@ -360,19 +360,9 @@ public:
   }
 };
 
-template <typename SrcType, typename DstType, bool charToFPType,
-          unsigned stride>
-class inLineAssemblerCastFp8 {
-public:
-  static __attribute__((always_inline)) void
-  loopBody(unsigned loopCount, SrcType inPtr, DstType outPtr) {
-    return;
-  }
-};
-
 #if __IPU_ARCH_VERSION__ == 21
 template <unsigned stride>
-class inLineAssemblerCastFp8<const half *, quarter *, true, stride> {
+class inLineAssemblerCast<const half *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) quarter
   singleCast(const half *in, float2 metaData0, float2 metaData1) {
@@ -402,7 +392,7 @@ public:
 };
 
 template <unsigned stride>
-class inLineAssemblerCastFp8<const quarter *, half *, true, stride> {
+class inLineAssemblerCast<const quarter *, half *, true, stride> {
 public:
   static __attribute__((always_inline)) half
   singleCast(const quarter *in, float2 metaData0, float2 metaData1) {
@@ -456,7 +446,7 @@ public:
                : "$a0:1", "$a2:3");
 
 template <unsigned stride>
-class inLineAssemblerCastFp8<const quarter *, char *, true, stride> {
+class inLineAssemblerCast<const quarter *, char *, true, stride> {
 public:
   static __attribute__((always_inline)) char
   singleCast(const quarter *in, float2 metaData0, float2 metaData1) {
@@ -487,7 +477,7 @@ public:
 };
 
 template <unsigned stride>
-class inLineAssemblerCastFp8<const quarter *, unsigned char *, true, stride> {
+class inLineAssemblerCast<const quarter *, unsigned char *, true, stride> {
 public:
   static __attribute__((always_inline)) unsigned char
   singleCast(const quarter *in, float2 metaData0, float2 metaData1) {
@@ -518,7 +508,7 @@ public:
 };
 
 template <unsigned stride>
-class inLineAssemblerCastFp8<const quarter *, quarter *, true, stride> {
+class inLineAssemblerCast<const quarter *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) void setFp8Config(float2 metaData) {
     asm volatile(
@@ -582,7 +572,7 @@ public:
 };
 
 template <unsigned stride>
-class inLineAssemblerCastFp8<const char *, quarter *, true, stride> {
+class inLineAssemblerCast<const char *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) quarter
   singleCast(const char *in, float2 metaData0, float2 metaData1) {
@@ -651,7 +641,7 @@ public:
 };
 
 template <unsigned stride>
-class inLineAssemblerCastFp8<const unsigned char *, quarter *, true, stride> {
+class inLineAssemblerCast<const unsigned char *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) quarter
   singleCast(const unsigned char *in, float2 metaData0, float2 metaData1) {
@@ -724,7 +714,7 @@ public:
 // bit should be zero as it is unused
 
 static __attribute__((always_inline)) void
-setFp8Config(const unsigned char *metaData) {
+setFp8Config(const MetadataType *metaData) {
   asm volatile(
       R"l(  ldb8 $a0, %[metaData], $mzero, 0
             uput $FP_SCL, $a0
@@ -738,7 +728,7 @@ setFp8Config(const unsigned char *metaData) {
 }
 
 static __attribute__((always_inline)) void
-setFp8ConfigNegScale(const unsigned char *metaData) {
+setFp8ConfigNegScale(const MetadataType *metaData) {
   asm volatile(
       R"l(  ldb8 $a0, %[metaData], $mzero, 0
             andc $a1, $a0, 0x40000000
@@ -754,7 +744,7 @@ setFp8ConfigNegScale(const unsigned char *metaData) {
       : "$a0", "$a1");
 }
 
-static float2 extractMetaData(const unsigned char *metaData) {
+static float2 extractMetaData(const MetadataType *metaData) {
   float2 result;
   asm volatile(
       R"l(  ldb8      %[scale], %[metaData], $mzero, 0
@@ -767,7 +757,7 @@ static float2 extractMetaData(const unsigned char *metaData) {
   return result;
 }
 
-static float2 extractMetaDataNegScale(const unsigned char *metaData) {
+static float2 extractMetaDataNegScale(const MetadataType *metaData) {
   float2 result;
   asm volatile(
       R"l(  ldb8      %[scale], %[metaData], $mzero, 0

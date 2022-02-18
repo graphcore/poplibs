@@ -9,8 +9,8 @@
 #define DELTAN_OFFSET_MASK ((1 << DELTAN_OFFSET_BITS) - 1)
 
 static __attribute__((always_inline)) void
-setFp8Format(const unsigned char weightsMetaData,
-             const unsigned char inMetaData) {
+setFp8Format(const MetadataType weightsMetaData,
+             const MetadataType inMetaData) {
   asm volatile(
       R"l(  shr  $m0, %[inMetaData], 6
             shr  $m1, %[weightsMetaData], 7
@@ -24,8 +24,7 @@ setFp8Format(const unsigned char weightsMetaData,
 }
 
 static __attribute__((always_inline)) void
-setFp8Scale(const unsigned char weightsMetaData,
-            const unsigned char inMetaData) {
+setFp8Scale(const MetadataType weightsMetaData, const MetadataType inMetaData) {
   // Scale is the sum of scales, as
   // we compute: half(input*weights) * 2^(scaleIn+scaleWeights)
   asm volatile(

@@ -437,7 +437,7 @@ unsigned packFp8MetaData(Fp8Format fp8Format, int fp8Scale) {
 
 poplar::Tensor createFp8MetaDataTensor(poplar::Graph &graph,
                                        Fp8Format fp8Format, int fp8Scale) {
-  auto metaDataTensor = graph.addConstant(poplar::UNSIGNED_CHAR, {1},
+  auto metaDataTensor = graph.addConstant(poplar::QUARTER_METADATA, {1},
                                           packFp8MetaData(fp8Format, fp8Scale));
   graph.setTileMapping(metaDataTensor, 0);
   return metaDataTensor;
@@ -447,7 +447,7 @@ poplar::Tensor createFp8MetaDataTensor(poplar::Graph &graph,
                                        Fp8Format fp8Format, int fp8Scale,
                                        poplar::program::Sequence &prog) {
 
-  auto metaDataTensor = graph.addVariable(poplar::UNSIGNED_CHAR, {1});
+  auto metaDataTensor = graph.addVariable(poplar::QUARTER_METADATA, {1});
   graph.setTileMapping(metaDataTensor, 0);
   graph.setInitialValue(metaDataTensor, packFp8MetaData(fp8Format, fp8Scale));
 

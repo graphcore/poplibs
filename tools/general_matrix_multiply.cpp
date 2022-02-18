@@ -324,11 +324,12 @@ int main(int argc, char **argv) {
   auto matBToCopy = graph.clone(inputTypeHost, matB);
 
   if (inputType == QUARTER) {
-    auto inMetaData = createFp8MetaDataTensor(graph, fp8FormatA, fp8ScaleA);
-    auto weightsMetaData =
-        createFp8MetaDataTensor(graph, fp8FormatB, fp8ScaleB);
-    prog.add(cast(graph, matAToCopy, matA, inMetaData, "CastIn"));
-    prog.add(cast(graph, matBToCopy, matB, weightsMetaData, "CastWeights"));
+    matA.associateMetadata(
+        createFp8MetaDataTensor(graph, fp8FormatA, fp8ScaleA));
+    matB.associateMetadata(
+        createFp8MetaDataTensor(graph, fp8FormatB, fp8ScaleB));
+    prog.add(cast(graph, matAToCopy, matA, "CastIn"));
+    prog.add(cast(graph, matBToCopy, matB, "CastWeights"));
   }
   auto matLhs = transposeA ? matA.dimShufflePartial({1, 2}, {2, 1}) : matA;
   auto matRhs = transposeB ? matB.dimShufflePartial({1, 2}, {2, 1}) : matB;

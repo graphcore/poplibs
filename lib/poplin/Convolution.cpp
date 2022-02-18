@@ -2582,6 +2582,9 @@ convolutionInternal(Graph &graph, const poplar::Tensor &in_,
     if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
       weightsTransposeChansFlipXY(graph, weights, bwdWeights, cpt, {dnai});
     }
+    if (weights.elementType() == QUARTER) {
+      bwdWeights.associateMetadata(weights.getMetadata());
+    }
     weights = bwdWeights;
   }
   weights = weightsToInternalShape(weights);
@@ -3309,6 +3312,9 @@ static Tensor fullyConnectedWeightTranspose(
   auto fwdPlan = getPlan(graph.getTarget(), fwdParams, fwdOptions, cache);
   Tensor transposed = createWeights(graph, bwdPlan, bwdParams,
                                     {dnai, "transposed"}, bwdOptions);
+  if (transposed.elementType() == QUARTER) {
+    transposed.associateMetadata(weights.getMetadata());
+  }
   auto splitTransposed = weightsToInternalShape(transposed);
 
   const auto groupSizes =

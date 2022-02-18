@@ -337,11 +337,9 @@ public:
   const signed transformedOutStride;
 
   Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, ONE_PTR> in;
-  Input<unsigned char> inMetaData;
   Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
          ONE_PTR>
       weights;
-  Input<unsigned char> weightsMetaData;
   Vector<Output<Vector<AccumType, COMPACT_PTR, 8, true>>, ONE_PTR> out;
   const unsigned zerosInfo;
   Input<VectorList<WorkListType, COMPACT_DELTAN>> worklists;
@@ -365,6 +363,8 @@ public:
     workerState.partitionBase =
         reinterpret_cast<unsigned *>(*wlStatePtr & DELTAN_OFFSET_MASK);
 
+    const auto weightsMetaData = *weights.getMetadata();
+    const auto inMetaData = *in.getMetadata();
     setFp8Format(weightsMetaData, inMetaData);
     setFp8Scale(weightsMetaData, inMetaData);
 

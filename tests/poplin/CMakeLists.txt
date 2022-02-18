@@ -859,7 +859,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                     --seed ${n}
                     --binary $<TARGET_FILE:single_conv_layer>
                     --input-type=quarter
-            VARIANTS "Sim21"
+             VARIANTS "Sim21"
             ALLOW_SKIP)
   endforeach()
 

@@ -274,6 +274,10 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
   paddingShape[dim] = paddingSize;
   auto paddingTensor =
       graph.addVariable(t.elementType(), paddingShape, {dnai, "zeroPadding"});
+
+  if (t.elementType() == QUARTER && t.getMetadata().valid()) {
+    paddingTensor.associateMetadata(t.getMetadata());
+  }
   auto paddingLowerTensor = paddingTensor.slice(0, paddingLower, dim);
   auto paddingUpperTensor = paddingTensor.slice(paddingLower, paddingSize, dim);
   padding = concat(padding, paddingTensor.flatten());
@@ -692,16 +696,6 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
     }
   };
 
-  if (inWindow[0].elementType() == QUARTER &&
-      weightsWindow[0].elementType() == QUARTER) {
-    // TODO - As yet we are not using the metadata provided by poplar.
-    // assume some fixed format here until that is complete
-    auto weightsMetaData =
-        createFp8MetaDataTensor(graph, Fp8Format::QUART143, 0);
-    auto inMetaData = createFp8MetaDataTensor(graph, Fp8Format::QUART143, 0);
-    graph.connect(v["weightsMetaData"], weightsMetaData.reshape({}));
-    graph.connect(v["inMetaData"], inMetaData.reshape({}));
-  }
   // Worklists are 2D for nx1 and 1D for 1x1
   if (useConvPartial1x1OutVertex) {
     WorkList worklist1x1(contextsPerVertex);
@@ -1153,17 +1147,6 @@ void createConvPartialSlicVertex(
   graph.setInitialValue(v["outPtrLoadOffset"], (numSubKernels % 2) ? 0 : 4);
   graph.setInitialValue(v["numSubKernelsM1"], numSubKernels - 1);
   graph.setInitialValue(v["numConvGroupGroupsM1"], numConvGroupGroups - 1);
-
-  if (inWindow[0].elementType() == QUARTER) {
-    // TODO - As yet we are not using the metadata provided by poplar.
-    // assume some fixed format here until that is complete
-    auto weightsMetaData =
-        createFp8MetaDataTensor(graph, Fp8Format::QUART143, 0);
-    auto inMetaData = createFp8MetaDataTensor(graph, Fp8Format::QUART143, 0);
-
-    graph.connect(v["inMetaData"], inMetaData.reshape({}));
-    graph.connect(v["weightsMetaData"], weightsMetaData.reshape({}));
-  }
 }
 
 static void createConvPartialHorizontalMacVertex(

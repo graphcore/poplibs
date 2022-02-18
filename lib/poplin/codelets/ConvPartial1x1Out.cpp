@@ -227,11 +227,9 @@ public:
   using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
   Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, COMPACT_PTR, 4> in;
-  Input<unsigned char> inMetaData;
   Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
          COMPACT_PTR, 4>
       weights;
-  Input<unsigned char> weightsMetaData;
   Vector<Output<Vector<AccumType, COMPACT_PTR, 16, true>>, COMPACT_PTR, 4> out;
   Input<Vector<WorkListType, COMPACT_PTR, 4>> worklists;
   const UnsignedType numConvGroupsM1;
@@ -250,6 +248,8 @@ public:
   __attribute__((target("supervisor"))) bool compute() {
     WorkerState1x1<UnsignedType> workerState;
     workerState.partition = &worklists[0];
+    const auto weightsMetaData = *weights.getMetadata();
+    const auto inMetaData = *in.getMetadata();
     setFp8Format(weightsMetaData, inMetaData);
     setFp8Scale(weightsMetaData, inMetaData);
 
