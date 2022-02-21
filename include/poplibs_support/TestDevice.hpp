@@ -225,6 +225,17 @@ struct enableIfIpu21Sim {
   }
 };
 
+struct enableIfIpu21 {
+  boost::test_tools::assertion_result
+  operator()(boost::unit_test::test_unit_id) {
+    boost::test_tools::assertion_result ans(
+        TEST_TARGET == poplibs_support::DeviceType::Sim21 ||
+        TEST_TARGET == poplibs_support::DeviceType::IpuModel21);
+    ans.message() << "test only supported for IPU21 targets";
+    return ans;
+  }
+};
+
 struct enableIfNotCpu {
   boost::test_tools::assertion_result
   operator()(boost::unit_test::test_unit_id) {

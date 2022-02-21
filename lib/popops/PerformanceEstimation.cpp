@@ -217,8 +217,15 @@ static uint64_t castWorkerCycles(const unsigned numElems, const Type &fromType,
         (fromType == INT || fromType == CHAR || fromType == SHORT) + 4;
     return 3 + numElems * cyclesPerElem;
   }
-
-  if (isCharFloat || isFloatChar) {
+  bool isQuarterChar =
+      (fromType == QUARTER) &&
+      (toType == SIGNED_CHAR || toType == CHAR || toType == UNSIGNED_CHAR);
+  bool isCharQuarter = (fromType == SIGNED_CHAR || fromType == CHAR ||
+                        fromType == UNSIGNED_CHAR) &&
+                       (toType == QUARTER);
+  bool isQuarterQuarter = (fromType == QUARTER) && (toType == QUARTER);
+  if (isCharFloat || isFloatChar || isQuarterChar || isCharQuarter ||
+      isQuarterQuarter) {
     // These assembly functions have a common structure, using an atom-sized
     // (2/4 elems) pipelined loop and a "0,1,2 or 3" remainder section.
     auto workCycles = [&](auto atomSize, auto fillDrainCycles,
@@ -238,9 +245,7 @@ static uint64_t castWorkerCycles(const unsigned numElems, const Type &fromType,
       } else if (rem == 3) {
         return c + rem3;
       } else {
-        throw poputil::poplibs_error("in castWorkerCycles/workCycles, "
-                                     "remainder must be 0..3, cannot be " +
-                                     std::to_string(rem));
+        return c + rem1 * rem;
       }
     };
     // setup clamping when casting FROM int8 types
@@ -249,6 +254,12 @@ static uint64_t castWorkerCycles(const unsigned numElems, const Type &fromType,
 
     if (isCharFloat) {
       cycles += workCycles(4, 14, 9, 12, 14, 22);
+    } else if (isQuarterChar) {
+      cycles += workCycles(8, 0, 28, 5, 5, 5);
+    } else if (isCharQuarter) {
+      cycles += workCycles(8, 0, 37, 7, 7, 7);
+    } else if (isQuarterQuarter) {
+      cycles += workCycles(8, 0, 13, 5, 5, 5);
     } else {
       cycles += clampSetupCycles + workCycles(4, 19, 16, 14, 21, 29);
     }
@@ -262,9 +273,12 @@ static uint64_t castWorkerCycles(const unsigned numElems, const Type &fromType,
     // of read/write ports. e.g. f32v2tof16 is 2 reads of 64-bit and 1 write
     // of 64-bits and f16v2tof32, a 64-bit write is the bottleneck.
     constexpr unsigned readPorts = 2, writePorts = 1;
+    // Casting quarter to/from half preforms the same as half to/from float
+    const bool quarterHalf = (fromType == QUARTER && toType == HALF) ||
+                             (fromType == HALF && toType == QUARTER);
     const bool conversionIsAuxPipeline =
-        (fromType == FLOAT || fromType == HALF) &&
-        (toType == FLOAT || toType == HALF);
+        quarterHalf || ((fromType == FLOAT || fromType == HALF) &&
+                        (toType == FLOAT || toType == HALF));
 
     // If not aux pipeline (i.e. not floating point conversion) we give an
     // innaccurate guess anyhow as we will be using C++ code to perform

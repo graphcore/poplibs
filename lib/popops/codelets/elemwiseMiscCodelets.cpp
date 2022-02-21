@@ -136,6 +136,7 @@ template class Fill2d<long long>;
   template class CastVertexName<srcType, unsigned>;                            \
   template class CastVertexName<srcType, unsigned short>;                      \
   template class CastVertexName<srcType, bool>;
+
 #define INSTANTIATE_CAST(CastVertexName)                                       \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, char)                           \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, signed char)                    \
@@ -165,6 +166,17 @@ template class Fill2d<long long>;
   template class CastVertexName<signed char, unsigned long long>;              \
   template class CastVertexName<unsigned char, long long>;                     \
   template class CastVertexName<unsigned char, unsigned long long>;
+
+#define INSTANTIATE_CAST_QUARTER(CastVertexName)                               \
+  template class CastVertexName<half, quarter>;                                \
+  template class CastVertexName<quarter, half>;                                \
+  template class CastVertexName<char, quarter>;                                \
+  template class CastVertexName<quarter, char>;                                \
+  template class CastVertexName<signed char, quarter>;                         \
+  template class CastVertexName<quarter, signed char>;                         \
+  template class CastVertexName<unsigned char, quarter>;                       \
+  template class CastVertexName<quarter, unsigned char>;                       \
+  template class CastVertexName<quarter, quarter>;
 
 // Returns some compile time parameters for Cast vertices, based on SrcType
 // and DstType, as a tuple where :
@@ -234,6 +246,20 @@ template <typename SrcType, typename DstType, bool inlineAsm,
           bool metaDataRequired>
 struct CastDispatch {
 public:
+  static void compute(unsigned numElems, const SrcType *src, DstType *dst) {}
+};
+
+template <typename SrcType, typename DstType, bool inlineAsm,
+          bool metaDataRequired>
+struct CastDispatchMultiVertex {
+public:
+  static void compute(unsigned numElems, unsigned wid, const SrcType *src,
+                      DstType *dst) {}
+};
+
+template <typename SrcType, typename DstType, bool inlineAsm>
+struct CastDispatch<SrcType, DstType, inlineAsm, false> {
+public:
   static void compute(unsigned numElems, const SrcType *src, DstType *dst) {
     constexpr unsigned elemsPerLoop = 4;
     for (unsigned i = 0; i < numElems / elemsPerLoop; ++i) {
@@ -243,14 +269,13 @@ public:
       *dst++ = static_cast<DstType>(*src++);
     }
     for (unsigned i = 0; i < (numElems & 3); i++) {
-      dst[i] = static_cast<DstType>(src[i]);
+      *dst++ = static_cast<DstType>(*src++);
     }
   }
 };
 
-template <typename SrcType, typename DstType, bool inlineAsm,
-          bool metaDataRequired>
-struct CastDispatchMultiVertex {
+template <typename SrcType, typename DstType, bool inlineAsm>
+struct CastDispatchMultiVertex<SrcType, DstType, inlineAsm, false> {
 public:
   static void compute(unsigned numElems, unsigned wid, const SrcType *src,
                       DstType *dst) {
@@ -275,12 +300,118 @@ public:
   }
 };
 
-#ifdef __IPU__
+#ifndef __IPU__
+// For non IPU and any ARCH_VERSION compile using cast functions
+// for quarter types
 
-#if __IPU_ARCH_VERSION__ > 2
+quarter_metadata unpackMetadata(const MetadataType *in) {
+  quarter_metadata out;
+  constexpr auto formatBit = 7;
+  constexpr auto formatBitMask = (1 << formatBit);
+  constexpr auto scaleSignBit = 5;
+  constexpr auto scaleSignBitMask = (1 << scaleSignBit);
+  constexpr auto scaleMask = (1 << (scaleSignBit + 1)) - 1;
+  constexpr auto scaleSignExtendMask = 0xff ^ scaleMask;
+
+  out.fmt =
+      *in & formatBitMask ? quarter_metadata::f143 : quarter_metadata::f152;
+  out.scale = static_cast<char>(*in & scaleMask);
+  if (out.scale & scaleSignBitMask) {
+    out.scale |= scaleSignExtendMask;
+  }
+  return out;
+}
+
+template <typename SrcType, typename DstType>
+DstType cast(SrcType src, quarter_metadata metadataSrc,
+             quarter_metadata metadataDst) {
+  if constexpr (std::is_same<SrcType, quarter>::value &&
+                std::is_same<DstType, quarter>::value) {
+    return toQuarter(toHalf(src, metadataSrc), metadataDst);
+  } else if constexpr (std::is_same<SrcType, quarter>::value) {
+    return static_cast<DstType>(toHalf(src, metadataSrc));
+  } else if constexpr (std::is_same<DstType, quarter>::value) {
+    return toQuarter(static_cast<half>(src), metadataDst);
+  }
+}
 
 template <typename SrcType, typename DstType>
 struct CastDispatch<SrcType, DstType, true, true> {
+public:
+  static void compute(unsigned numElems, const SrcType *src, DstType *dst,
+                      const MetadataType *metadataSrc,
+                      const MetadataType *metadataDst) {
+    quarter_metadata metadata0, metadata1;
+    if constexpr (std::is_same<SrcType, quarter>::value) {
+      metadata0 = unpackMetadata(metadataSrc);
+    }
+    if constexpr (std::is_same<DstType, quarter>::value) {
+      metadata1 = unpackMetadata(metadataDst);
+    }
+    constexpr unsigned elemsPerLoop = 4;
+    for (unsigned i = 0; i < numElems / elemsPerLoop; ++i) {
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
+    }
+    for (unsigned i = 0; i < (numElems & 3); i++) {
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
+    }
+  }
+};
+
+template <typename SrcType, typename DstType>
+struct CastDispatchMultiVertex<SrcType, DstType, true, true> {
+public:
+  static void compute(unsigned numElems, unsigned wid, const SrcType *src,
+                      DstType *dst, const MetadataType *metadataSrc,
+                      const MetadataType *metadataDst) {
+    constexpr unsigned elemsPerLoop = 4;
+    const SrcType *loopSrc = &src[wid * elemsPerLoop];
+    DstType *loopDst = &dst[wid * elemsPerLoop];
+
+    quarter_metadata metadata0, metadata1;
+    if constexpr (std::is_same<SrcType, quarter>::value) {
+      metadata0 = unpackMetadata(metadataSrc);
+    }
+    if constexpr (std::is_same<DstType, quarter>::value) {
+      metadata1 = unpackMetadata(metadataDst);
+    }
+    for (unsigned i = 0; i < divideWork(numElems, 2, wid); ++i) {
+      *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);
+      *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);
+      *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);
+      *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);
+      loopDst += elemsPerLoop * CTXT_WORKERS - elemsPerLoop;
+      loopSrc += elemsPerLoop * CTXT_WORKERS - elemsPerLoop;
+    }
+    if (wid == CTXT_WORKERS - 1 && numElems & 3) {
+      const unsigned offset = numElems & ~3;
+      for (unsigned i = 0; i < (numElems & 3); i++) {
+        dst[offset + i] =
+            cast<SrcType, DstType>(src[offset + i], metadata0, metadata1);
+      }
+    }
+  }
+};
+
+#endif // ifndef __IPU__
+
+#ifdef __IPU__
+
+#if __IPU_ARCH_VERSION__ > 2
+// For IPU and ARCH VERSION > 2 compile inline assembler implementations
+// for quarter types
+template <typename SrcType, typename DstType>
+struct CastDispatch<SrcType, DstType, true, true> {
+  using SrcTypeInternal =
+      std::conditional_t<std::is_same<SrcType, signed char>::value, char,
+                         SrcType>;
+  using DstTypeInternal =
+      std::conditional_t<std::is_same<DstType, signed char>::value, char,
+                         DstType>;
+
 public:
   static constexpr auto fp8ToFp8 = std::is_same<SrcType, quarter>::value &&
                                    std::is_same<DstType, quarter>::value;
@@ -300,21 +431,31 @@ public:
       metaData0 = extractMetaData(metadataSrc);
       metaData1 = extractMetaDataNegScale(metadataDst);
     }
-    inLineAssemblerCast<const SrcType *, DstType *, true, 1>::loopBody(
-        numElems / 8, src, dst, metaData0, metaData1);
-    src += numElems & (~7);
-    dst += numElems & (~7);
+    auto srcInternal = reinterpret_cast<const SrcTypeInternal *>(src);
+    auto dstInternal = reinterpret_cast<DstTypeInternal *>(dst);
+    inLineAssemblerCast<const SrcTypeInternal *, DstTypeInternal *, true,
+                        1>::loopBody(numElems / 8, srcInternal, dstInternal,
+                                     metaData0, metaData1);
+    srcInternal += numElems & (~7);
+    dstInternal += numElems & (~7);
     for (unsigned i = 0; i < (numElems & 7); i++) {
-      *dst++ =
-          inLineAssemblerCast<const SrcType *, DstType *, true, 1>::singleCast(
-              src, metaData0, metaData1);
-      src++;
+      *dstInternal++ =
+          inLineAssemblerCast<const SrcTypeInternal *, DstTypeInternal *, true,
+                              1>::singleCast(srcInternal, metaData0, metaData1);
+      srcInternal++;
     }
   }
 };
 
 template <typename SrcType, typename DstType>
 struct CastDispatchMultiVertex<SrcType, DstType, true, true> {
+  using SrcTypeInternal =
+      std::conditional_t<std::is_same<SrcType, signed char>::value, char,
+                         SrcType>;
+  using DstTypeInternal =
+      std::conditional_t<std::is_same<DstType, signed char>::value, char,
+                         DstType>;
+
 public:
   static constexpr auto fp8ToFp8 = std::is_same<SrcType, quarter>::value &&
                                    std::is_same<DstType, quarter>::value;
@@ -336,25 +477,48 @@ public:
       metaData0 = extractMetaData(metadataSrc);
       metaData1 = extractMetaDataNegScale(metadataDst);
     }
-    inLineAssemblerCast<const SrcType *, DstType *, true,
-                        CTXT_WORKERS>::loopBody(divideWork(numElems, 3, wid),
-                                                &src[wid * elemsPerLoop],
-                                                &dst[wid * elemsPerLoop],
-                                                metaData0, metaData1);
+    auto srcInternal = reinterpret_cast<const SrcTypeInternal *>(src);
+    auto dstInternal = reinterpret_cast<DstTypeInternal *>(dst);
+    inLineAssemblerCast<
+        const SrcTypeInternal *, DstTypeInternal *, true,
+        CTXT_WORKERS>::loopBody(divideWork(numElems, 3, wid),
+                                &srcInternal[wid * elemsPerLoop],
+                                &dstInternal[wid * elemsPerLoop], metaData0,
+                                metaData1);
     if (wid == CTXT_WORKERS - 1) {
-      src += numElems & (~7);
-      dst += numElems & (~7);
+      srcInternal += numElems & (~7);
+      dstInternal += numElems & (~7);
       for (unsigned i = 0; i < (numElems & 7); i++) {
-        *dst++ = inLineAssemblerCast<const SrcType *, DstType *, true,
-                                     CTXT_WORKERS>::singleCast(src, metaData0,
-                                                               metaData1);
-        src++;
+        *dstInternal++ =
+            inLineAssemblerCast<const SrcTypeInternal *, DstTypeInternal *,
+                                true, CTXT_WORKERS>::singleCast(srcInternal,
+                                                                metaData0,
+                                                                metaData1);
+        srcInternal++;
       }
     }
   }
 };
+#else // __IPU_ARCH_VERSION__ > 2
+// For IPU and ARCH VERSION <= 2 there is no implementation for quarter types
 
-#endif
+template <typename SrcType, typename DstType>
+struct CastDispatch<SrcType, DstType, true, true> {
+public:
+  static void compute(unsigned numElems, const SrcType *src, DstType *dst,
+                      const MetadataType *metadataSrc,
+                      const MetadataType *metadataDst) {}
+};
+
+template <typename SrcType, typename DstType>
+struct CastDispatchMultiVertex<SrcType, DstType, true, true> {
+public:
+  static void compute(unsigned numElems, unsigned wid, const SrcType *src,
+                      DstType *dst, const MetadataType *metadataSrc,
+                      const MetadataType *metadataDst) {}
+};
+
+#endif // __IPU_ARCH_VERSION__ > 2
 
 template <> struct CastDispatch<float, half, true, false> {
 public:
@@ -519,7 +683,7 @@ public:
   }
 };
 
-#endif
+#endif // __IPU__
 
 template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast1DSingleWorker
@@ -540,21 +704,22 @@ public:
   const unsigned numElems;
 
   bool compute() {
-#if __IPU_ARCH_VERSION__ > 2
     if constexpr (std::is_same<SrcType, quarter>::value ||
                   std::is_same<DstType, quarter>::value) {
       const MetadataType *metadataSrc, *metadataDst;
       if constexpr (std::is_same<SrcType, quarter>::value) {
+#if __IPU_ARCH_VERSION__ > 2
         metadataSrc = src.getMetadata();
+#endif
       }
       if constexpr (std::is_same<DstType, quarter>::value) {
+#if __IPU_ARCH_VERSION__ > 2
         metadataDst = dst.getMetadata();
+#endif
       }
       CastDispatch<SrcType, DstType, inlineAsm, true>::compute(
           numElems, &src[0], &dst[0], metadataSrc, metadataDst);
-    } else
-#endif
-    {
+    } else {
       CastDispatch<SrcType, DstType, inlineAsm, false>::compute(
           numElems, &src[0], &dst[0]);
     }
@@ -564,16 +729,7 @@ public:
 
 INSTANTIATE_CAST(Cast1DSingleWorker)
 INSTANTIATE_CAST_LONGLONG(Cast1DSingleWorker)
-
-#if __IPU_ARCH_VERSION__ > 2
-template class Cast1DSingleWorker<half, quarter>;
-template class Cast1DSingleWorker<quarter, half>;
-template class Cast1DSingleWorker<char, quarter>;
-template class Cast1DSingleWorker<quarter, char>;
-template class Cast1DSingleWorker<unsigned char, quarter>;
-template class Cast1DSingleWorker<quarter, unsigned char>;
-template class Cast1DSingleWorker<quarter, quarter>;
-#endif
+INSTANTIATE_CAST_QUARTER(Cast1DSingleWorker)
 
 template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast1D
@@ -593,22 +749,23 @@ public:
   const unsigned numElems;
 
   bool compute(unsigned wid) {
-#if __IPU_ARCH_VERSION__ > 2
     if constexpr (std::is_same<SrcType, quarter>::value ||
                   std::is_same<DstType, quarter>::value) {
       const MetadataType *metadataSrc, *metadataDst;
       if constexpr (std::is_same<SrcType, quarter>::value) {
+#if __IPU_ARCH_VERSION__ > 2
         metadataSrc = src.getMetadata();
+#endif
       }
       if constexpr (std::is_same<DstType, quarter>::value) {
+#if __IPU_ARCH_VERSION__ > 2
         metadataDst = dst.getMetadata();
+#endif
       }
       CastDispatchMultiVertex<SrcType, DstType, inlineAsm, true>::compute(
           numElems, wid, &src[0], &dst[0], metadataSrc, metadataDst);
 
-    } else
-#endif
-    {
+    } else {
       CastDispatchMultiVertex<SrcType, DstType, inlineAsm, false>::compute(
           numElems, wid, &src[0], &dst[0]);
     }
@@ -618,16 +775,7 @@ public:
 
 INSTANTIATE_CAST(Cast1D)
 INSTANTIATE_CAST_LONGLONG(Cast1D)
-
-#if __IPU_ARCH_VERSION__ > 2
-template class Cast1D<half, quarter>;
-template class Cast1D<quarter, half>;
-template class Cast1D<char, quarter>;
-template class Cast1D<quarter, char>;
-template class Cast1D<unsigned char, quarter>;
-template class Cast1D<quarter, unsigned char>;
-template class Cast1D<quarter, quarter>;
-#endif
+INSTANTIATE_CAST_QUARTER(Cast1D)
 
 template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2D
@@ -643,7 +791,6 @@ public:
 
   bool compute() {
     const unsigned limI = dst.size();
-#if __IPU_ARCH_VERSION__ > 2
     const MetadataType *metadataSrc, *metadataDst;
     if constexpr (std::is_same<SrcType, quarter>::value ||
                   std::is_same<DstType, quarter>::value) {
@@ -658,9 +805,7 @@ public:
         CastDispatch<SrcType, DstType, inlineAsm, true>::compute(
             dst[i].size(), &src[i][0], &dst[i][0], metadataSrc, metadataDst);
       }
-    } else
-#endif
-    {
+    } else {
       for (unsigned i = 0; i != limI; ++i) {
         CastDispatch<SrcType, DstType, inlineAsm, false>::compute(
             dst[i].size(), &src[i][0], &dst[i][0]);
@@ -672,16 +817,7 @@ public:
 
 INSTANTIATE_CAST(Cast2D)
 INSTANTIATE_CAST_LONGLONG(Cast2D)
-
-#if __IPU_ARCH_VERSION__ > 2
-template class Cast2D<half, quarter>;
-template class Cast2D<quarter, half>;
-template class Cast2D<quarter, char>;
-template class Cast2D<char, quarter>;
-template class Cast2D<quarter, unsigned char>;
-template class Cast2D<unsigned char, quarter>;
-template class Cast2D<quarter, quarter>;
-#endif
+INSTANTIATE_CAST_QUARTER(Cast2D)
 
 template <typename InType> class Clamp : public Vertex {
 public:

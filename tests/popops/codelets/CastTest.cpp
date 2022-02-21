@@ -35,7 +35,7 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
             unsigned rows, unsigned columns, unsigned offsetOut,
             const bool supervisor, const Fp8Format fp8Format,
             const int fp8Scale, const Fp8Format fp8FormatOut,
-            const int fp8ScaleOut) {
+            const int fp8ScaleOut, bool profile) {
 
   // Check that the output offset results in a multiple of 4
   // bytes
@@ -205,7 +205,12 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   }
 
   // Run each sequence and compare host and IPU result
-  Engine engine(graph, Sequence{uploadProg, sequence, downloadProg});
+  OptionFlags engineOptions;
+  if (profile) {
+    engineOptions.set("autoReport.outputExecutionProfile", "true");
+  }
+  Engine engine(graph, Sequence{uploadProg, sequence, downloadProg},
+                engineOptions);
   attachStreams(engine, tmap);
 
   // Put test inputs into an array of the correct type ready to use
@@ -236,7 +241,10 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
 
   bool check = checkIsClose("CastTest", outHost.data(), {outHost.size()},
                             outTest.data(), outTest.size(), 0.05, 0.05);
-
+  if (profile) {
+    engine.printProfileSummary(std::cout,
+                               OptionFlags{{"showExecutionSteps", "true"}});
+  }
   return check;
 }
 
@@ -249,6 +257,7 @@ int main(int argc, char **argv) {
   Type outType;
   unsigned rows, columns, offsetOut;
   bool supervisor = false;
+  bool profile = false;
   Fp8Format fp8Format = Fp8Format::QUART143;
   Fp8Format fp8FormatOut = Fp8Format::QUART143;
   int fp8Scale = 0, fp8ScaleOut = 0;
@@ -259,7 +268,8 @@ int main(int argc, char **argv) {
     ("device-type",
      po::value<DeviceType>(&deviceType)->required(),
      "Device Type")
-    ("in-type",
+     ("profile", "Output profiling report")
+   ("in-type",
      po::value<Type>(&inType)->required(),
      "Input Type")
     ("out-type",
@@ -307,8 +317,11 @@ int main(int argc, char **argv) {
     std::cerr << "error: 'supervisor' option requires 'rows'=1\n";
     return 1;
   }
+  if (vm.count("profile")) {
+    profile = true;
+  }
   if (!doTest(deviceType, inType, outType, rows, columns, offsetOut, supervisor,
-              fp8Format, fp8Scale, fp8FormatOut, fp8ScaleOut))
+              fp8Format, fp8Scale, fp8FormatOut, fp8ScaleOut, profile))
     return 1;
   return 0;
 }

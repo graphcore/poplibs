@@ -893,7 +893,7 @@ endforeach()
 
 # Cast half to quarter (then to half for test)
 foreach(COLUMNS 1 2 3 4 8 24 48 141)
-  foreach(IN_TYPE half quarter char)
+  foreach(IN_TYPE half quarter char schar)
     add_multitarget_test(NAME CastTest_quarter_1_${IN_TYPE}_${COLUMNS}_Supervisor
       COMMAND CastTest
         --in-type ${IN_TYPE}
@@ -913,7 +913,7 @@ endforeach()
 
 foreach(ROWS 1 2)
   foreach(COLUMNS 1 2 3 4 8 15)
-    foreach(IN_TYPE half quarter char uchar)
+    foreach(IN_TYPE half quarter char uchar schar)
       add_multitarget_test(NAME CastTest_quarter_${IN_TYPE}_${ROWS}_${COLUMNS}_Worker
         COMMAND CastTest
           --in-type ${IN_TYPE}

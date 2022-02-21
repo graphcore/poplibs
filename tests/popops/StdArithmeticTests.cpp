@@ -1148,7 +1148,7 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
 }
 
 BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
-                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
+                     *boost::unit_test::precondition(enableIfIpu21())) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
 
@@ -1194,7 +1194,7 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
 }
 
 BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
-                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
+                     *boost::unit_test::precondition(enableIfIpu21())) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
@@ -1234,7 +1234,7 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
 }
 
 BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
-                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
+                     *boost::unit_test::precondition(enableIfIpu21())) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);

@@ -3127,6 +3127,15 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
       CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, LONGLONG),                     \
       CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, UNSIGNED_LONGLONG)
 
+#define CAST_QUARTER_CYCLE_ESTIM_ENTRIES(name)                                 \
+  CYCLE_ESTIMATOR_ENTRY(popops, name, HALF, QUARTER),                          \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, QUARTER, HALF),                      \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, QUARTER),                      \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, QUARTER, CHAR),                      \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, QUARTER),             \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, QUARTER, UNSIGNED_CHAR),             \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, QUARTER, QUARTER)
+
 poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
   poputil::internal::PerfEstimatorTable table = {
     SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, FLOAT, FLOAT, FLOAT),
@@ -3332,6 +3341,9 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
     CAST_CYCLE_ESTIM_ENTRIES(Cast1DSingleWorker),
     CAST_CYCLE_ESTIM_ENTRIES(Cast2D),
     CAST_CYCLE_ESTIM_ENTRIES(Cast1D),
+    CAST_QUARTER_CYCLE_ESTIM_ENTRIES(Cast1DSingleWorker),
+    CAST_QUARTER_CYCLE_ESTIM_ENTRIES(Cast2D),
+    CAST_QUARTER_CYCLE_ESTIM_ENTRIES(Cast1D),
 
     CYCLE_ESTIMATOR_ENTRY(popops, CheckAccuracyWhenCast, FLOAT, HALF),
 
