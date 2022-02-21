@@ -81,7 +81,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  InOut<Vector<AType, PTR_ALIGN64, 8>> A;
+  InOut<Vector<AType, PTR_ALIGN64, 8, memConstraints>> A;
   Input<Vector<BType, PTR_ALIGN64, 8>> B;
   const ScaleType scaleB;
   unsigned short size;
@@ -110,7 +110,7 @@ public:
                                                                                \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<AType, PTR_ALIGN64, 8>> A;                                    \
+    InOut<Vector<AType, PTR_ALIGN64, 8, IS_CONSTRAINED>> A;                    \
     Input<Vector<BType, PTR_ALIGN64, 8>> B;                                    \
     SCALE_TYPE scaleB;                                                         \
     unsigned short size;                                                       \
@@ -356,7 +356,7 @@ class [[poplar::constraint("elem(*A) != elem(*B)")]] ScaledSubtractSupervisor
 public:
   IS_EXTERNAL_CODELET(true);
 
-  InOut<Vector<AType, PTR_ALIGN64, 8>> A;
+  InOut<Vector<AType, PTR_ALIGN64, 8, memConstraints>> A;
   Input<Vector<BType, PTR_ALIGN64, 8>> B;
   InputScaleType<ScaleType> scaleB;
   unsigned short size;
@@ -555,7 +555,7 @@ public:
   aXPlusbYSupervisor();
   IS_EXTERNAL_CODELET(true);
 
-  InOut<Vector<DataType, PTR_ALIGN64, 8>> A;
+  InOut<Vector<DataType, PTR_ALIGN64, 8, memConstraints>> A;
   Input<Vector<DataType, PTR_ALIGN64, 8>> B;
   const ScaleType scaleA;
   unsigned short size;
@@ -582,7 +582,7 @@ public:
     aXPlusbYSupervisor();                                                      \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<DataType, PTR_ALIGN64, 8>> A;                                 \
+    InOut<Vector<DataType, PTR_ALIGN64, 8, IS_CONSTRAINED>> A;                 \
     Input<Vector<DataType, PTR_ALIGN64, 8>> B;                                 \
     SCALE_DEF scaleA;                                                          \
     unsigned short size;                                                       \
@@ -629,7 +629,7 @@ template class aXPlusbYSupervisor<float, float, false, false>;
     aXPlusbYSupervisor();                                                      \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<half, PTR_ALIGN64, 8>> A;                                     \
+    InOut<Vector<half, PTR_ALIGN64, 8, IS_CONSTRAINED>> A;                     \
     Input<Vector<half, PTR_ALIGN64, 8>> B;                                     \
     SCALE_DEF scaleA;                                                          \
     unsigned short size;                                                       \
@@ -814,7 +814,7 @@ public:
   aXMinusbYSupervisor();
   IS_EXTERNAL_CODELET(true);
 
-  InOut<Vector<DataType, PTR_ALIGN64, 8>> A;
+  InOut<Vector<DataType, PTR_ALIGN64, 8, memConstraints>> A;
   Input<Vector<DataType, PTR_ALIGN64, 8>> B;
   const ScaleType scaleA;
   unsigned short size;
@@ -841,7 +841,7 @@ public:
     aXMinusbYSupervisor();                                                     \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<DataType, PTR_ALIGN64, 8>> A;                                 \
+    InOut<Vector<DataType, PTR_ALIGN64, 8, IS_CONSTRAINED>> A;                 \
     Input<Vector<DataType, PTR_ALIGN64, 8>> B;                                 \
     SCALE_TYPE scaleA;                                                         \
     unsigned short size;                                                       \
@@ -878,7 +878,7 @@ template class aXMinusbYSupervisor<float, float, false, false>;
     aXMinusbYSupervisor();                                                     \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<half, PTR_ALIGN64, 8>> A;                                     \
+    InOut<Vector<half, PTR_ALIGN64, 8, IS_CONSTRAINED>> A;                     \
     Input<Vector<half, PTR_ALIGN64, 8>> B;                                     \
     SCALE_TYPE scaleA;                                                         \
     unsigned short size;                                                       \
