@@ -468,7 +468,8 @@ Tensor regroupTensorInternal(Graph &graph, const Tensor &t,
                              const GroupingInfo &from_, const GroupingInfo &to_,
                              const DebugNameAndId &dnai) {
   const std::string fnStr = "internal";
-  logging::popops::debug("Regroup: debugstr={}", dnai.getPathName());
+  logging::popops::debug("Regroup: debugstr={}, tensor name={}",
+                         dnai.getPathName(), t.getDebugStr());
   logging::popops::debug("  t      shape={}", t.shape());
   logging::popops::debug("  from   grouping={{{},{}}}", from_.first,
                          from_.second);
@@ -665,7 +666,8 @@ Tensor regroupIfPossible(Graph &graph, const Tensor &t_,
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t_, to_));
 
   const auto groupings = detectDimGroupings(graph, t_);
-  logging::popops::debug("Regroup if possible {}", debugContext.getPathName());
+  logging::popops::debug("Regroup if possible debugStr {}, tensorStr {}",
+                         debugContext.getPathName(), t_.getDebugStr());
   logging::popops::debug("  shape {}, groupings {}", t_.shape(), groupings);
 
   const auto invalid = (t_.dim(to_.first) % to_.second) || (t_.rank() <= 1) ||
@@ -717,8 +719,10 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
 
   logging::popops::debug("Regroup if beneficial: debugstr={}",
                          debugContext.getPathName());
-  logging::popops::debug("  input      shape={}", in_.shape());
-  logging::popops::debug("  reference  shape={}", ref.shape());
+  logging::popops::debug("  input      shape={}, name={}", in_.shape(),
+                         in_.getDebugStr());
+  logging::popops::debug("  reference  shape={}, name={}", ref.shape(),
+                         ref.getDebugStr());
   auto in = in_;
 
   if (in.rank() <= 1 || ref.rank() <= 1) {
@@ -782,8 +786,9 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in_, preferredGrouping_));
-  logging::popops::debug("Regroup if beneficial (preferred): debugstr={}",
-                         debugContext.getPathName());
+  logging::popops::debug("Regroup if beneficial (preferred): debugstr={}, "
+                         " tensorStr={}",
+                         debugContext.getPathName(), in_.getDebugStr());
   logging::popops::debug("  input        shape={}", in_.shape());
   logging::popops::debug("  preferred grouping={}", preferredGrouping_);
   auto in = in_;

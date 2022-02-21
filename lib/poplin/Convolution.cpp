@@ -571,6 +571,10 @@ regroupIfBeneficialForPlan(Graph &graph, const ConvParams &params,
                                : rearrangeProg->transposeCSWeights.back();
     in = popops::rearrange::regroupTensor(graph, in, preTranspose, transposeCS,
                                           grouping[0], destGrouping[0], {dnai});
+  } else {
+    logging::poplin::debug("regroupIfBeneficialForPlan: No plan found for "
+                           "debugStr={}, tensorStr={}, isActs={}",
+                           dnai.getPathName(), in.getDebugStr(), isActs);
   }
 }
 
@@ -2763,8 +2767,11 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    bool transposeAndFlipWeights, ConvProgramTree &cpt,
                    const DebugNameAndId &dnai, const ConvOptions &options) {
   logging::poplin::info("convolution");
-  logging::poplin::info("  pass={}, name=\"{}\"", options.pass,
+  logging::poplin::info("  pass={}, compute set name=\"{}\"", options.pass,
                         dnai.getPathName());
+  logging::poplin::info("  tensor names: input=\"{}\", kernel=\"{}\"",
+                        in.getDebugStr(), weights.getDebugStr());
+
   log(2, *params);
 
   auto output =
