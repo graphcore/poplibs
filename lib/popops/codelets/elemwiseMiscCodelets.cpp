@@ -75,10 +75,6 @@ public:
   }
 };
 
-#if __IPU_ARCH_VERSION__ > 2
-template class Fill<quarter>;
-#endif
-
 template class Fill<float>;
 template class Fill<half>;
 template class Fill<int>;
@@ -106,10 +102,6 @@ public:
     return true;
   }
 };
-
-#if __IPU_ARCH_VERSION__ > 2
-template class Fill2d<quarter>;
-#endif
 
 template class Fill2d<float>;
 template class Fill2d<half>;

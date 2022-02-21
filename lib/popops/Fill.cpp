@@ -6,6 +6,7 @@
 #include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
+#include "poputil/exceptions.hpp"
 #include <poplar/Graph.hpp>
 
 using namespace poplar;
@@ -18,7 +19,13 @@ template <typename FillValueType>
 void fill(poplar::Graph &graph, poplar::Tensor t,
           const std::vector<poplar::Interval> &tileRegions, unsigned tile,
           poplar::ComputeSet fillCS, FillValueType fillValue) {
+
+  if (t.elementType() == QUARTER && fillValue != FillValueType(0)) {
+    throw poputil::poplibs_error("Fill with data type quarter and non-zero"
+                                 " values is not yet implemented");
+  }
   const auto dType = t.elementType();
+  const auto vertexType = dType == QUARTER ? UNSIGNED_CHAR : dType;
   const auto &target = graph.getTarget();
   const auto tFlat = t.flatten();
   const auto vectorWidth = target.getVectorWidth(dType);
@@ -34,14 +41,14 @@ void fill(poplar::Graph &graph, poplar::Tensor t,
     const auto numRegions = regions.size();
     VertexRef v;
     if (numRegions == 1) {
-      v = graph.addVertex(fillCS, templateVertex("popops::Fill", dType));
+      v = graph.addVertex(fillCS, templateVertex("popops::Fill", vertexType));
       const auto &region = regions.front();
-      auto out = concat(tFlat.slices(region));
+      auto out = concat(tFlat.reinterpret(vertexType).slices(region));
       graph.connect(v["out"], out);
       graph.setInitialValue<FillValueType>(v["in"], fillValue);
     } else {
-      v = graph.addVertex(fillCS, templateVertex("popops::Fill2d", dType));
-      auto out = tFlat.slices(regions);
+      v = graph.addVertex(fillCS, templateVertex("popops::Fill2d", vertexType));
+      auto out = tFlat.reinterpret(vertexType).slices(regions);
       graph.connect(v["out"], out);
       graph.setInitialValue<FillValueType>(v["in"], fillValue);
     }
@@ -76,6 +83,10 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, fillValue));
 
+  if (t.elementType() == QUARTER && fillValue != FillValueType(0)) {
+    throw poputil::poplibs_error("Fill with data type quarter and non-zero"
+                                 " values is not yet implemented");
+  }
   // Use copy to fill, only possible for the Program api
   auto tFlat = t.flatten();
   graph.reorderToSimplify(&tFlat, {}, false);
