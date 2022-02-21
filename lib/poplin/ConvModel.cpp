@@ -1290,6 +1290,7 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
   bool expandDims = false;
   bool swapOperands = false;
   bool outChanFlattenDims = false;
+  bool combineConvGroups = false;
   assert(transforms.size() >= 2);
   const auto ipuLevel = transforms.size() - 2;
   for (unsigned level = 0; level <= ipuLevel; ++level) {
@@ -1299,6 +1300,8 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
       expandDims = true;
     if (!transforms[level].outChanFlattenDims.empty())
       outChanFlattenDims = true;
+    if (transforms[level].combineConvGroupsFactor > 1)
+      combineConvGroups = true;
   }
   bool padInChannels = transformedOnceUnpaddedParams.inputChannelsPerConvGroup %
                            inChansPerGroup !=
@@ -1309,18 +1312,20 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
       0;
   bool rearrangeInput = isConvWeightUpdate || expandDims ||
                         swapOperands != isMatmulOrFullyConnectedLayer ||
-                        padInChannels || options.pass == Pass::FC_TRAINING_WU ||
+                        combineConvGroups || padInChannels ||
+                        options.pass == Pass::FC_TRAINING_WU ||
                         (options.pass == Pass::FC_TRAINING_BWD && !isJointPlan);
-  bool rearrangeWeights = isConvWeightUpdate || expandDims ||
-                          outChanFlattenDims ||
-                          swapOperands != isMatmulOrFullyConnectedLayer ||
-                          padInChannels || padPartialChannels;
+  bool rearrangeWeights =
+      isConvWeightUpdate || expandDims || outChanFlattenDims ||
+      swapOperands != isMatmulOrFullyConnectedLayer || combineConvGroups ||
+      padInChannels || padPartialChannels;
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(params.inputType);
   bool outputShouldBeSwapped =
       isConvWeightUpdate || isMatmulOrFullyConnectedLayer;
   bool rearrangeOutput = swapOperands != outputShouldBeSwapped ||
-                         outChanFlattenDims || padPartialChannels ||
+                         outChanFlattenDims || combineConvGroups ||
+                         padPartialChannels ||
                          (options.pass == Pass::FC_TRAINING_WU && !isJointPlan);
   // We assume the next layer uses an input channel grouping of
   // weightsPerConvUnit and apply a small cost if the output channel
@@ -2560,6 +2565,21 @@ unsigned convGroupCombineFactor(const unsigned factor,
   return factor / inputChannelsPerConvGroup;
 }
 
+void combineConvGroups(const unsigned factor, ConvParams &params) {
+  // divide the number of conv groups by the factor, rounding up in the process
+  params.numConvGroups = ceildiv(params.numConvGroups, factor);
+
+  // increase the number of input and output channels by the factor.
+  params.inputChannelsPerConvGroup *= factor;
+  params.outputChannelsPerConvGroup *= factor;
+}
+
+ConvParams calculateGroupedParams(ConvParams groupedParams,
+                                  unsigned combineConvGroups) {
+  poplin::combineConvGroups(combineConvGroups, groupedParams);
+  return groupedParams;
+}
+
 static ConvParams calculatePaddedParams(const ConvParams &params,
                                         const unsigned convGroupsGrainSize,
                                         const unsigned inChanGrainSize,
@@ -2599,10 +2619,13 @@ applyTransform(const ConvParams &params, const ConvTransform &transform,
   const auto flattenedParams = calculateFlattenedParams(
       expandedParams, transform.outChanFlattenDims, ignoredFlattenedDims);
 
-  auto paddedParams = calculatePaddedParams(flattenedParams, convGroupGrainSize,
+  const auto groupedParams = calculateGroupedParams(
+      std::move(flattenedParams), transform.combineConvGroupsFactor);
+
+  auto paddedParams = calculatePaddedParams(groupedParams, convGroupGrainSize,
                                             inChanGrainSize, outChanGrainSize);
 
-  return std::make_tuple(swappedParams, paddedParams, flattenedParams);
+  return std::make_tuple(swappedParams, paddedParams, groupedParams);
 }
 
 static void getTransformedDims(const ConvTransform &transform,
@@ -2631,7 +2654,9 @@ getConvGroupGrainSizes(const std::vector<ConvTransform> &transforms,
   convGroupGrainSizes.back() = convGroupsPerGroup;
 
   for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
-    convGroupGrainSizes[i] = convGroupGrainSizes[i + 1];
+    convGroupGrainSizes[i] = transforms[i + 1].combineConvGroupsFactor == 1
+                                 ? convGroupGrainSizes[i + 1]
+                                 : 1;
   }
   return convGroupGrainSizes;
 }
@@ -2647,7 +2672,8 @@ getOutChanGrainSizes(const std::vector<ConvTransform> &transforms,
   outChanGrainSizes.back() = partialChansPerGroup;
 
   for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
-    outChanGrainSizes[i] = transforms[i + 1].outChanFlattenDims.empty()
+    outChanGrainSizes[i] = (transforms[i + 1].outChanFlattenDims.empty() &&
+                            (transforms[i + 1].combineConvGroupsFactor == 1))
                                ? outChanGrainSizes[i + 1]
                                : 1;
   }
@@ -2666,7 +2692,8 @@ getInChanGrainSizes(const std::vector<ConvTransform> &transforms,
 
   for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
     inChanGrainSizes[i] = (transforms[i + 1].outChanFlattenDims.empty() &&
-                           transforms[i + 1].expandDims.empty())
+                           transforms[i + 1].expandDims.empty() &&
+                           (transforms[i + 1].combineConvGroupsFactor == 1))
                               ? inChanGrainSizes[i + 1]
                               : 1;
   }
@@ -3081,6 +3108,27 @@ Estimates<popsolver::Variable> constructModel(
               m.product(vars, arrIndStr(level) + ".size.numFieldGrains" +
                                   arrIndStr(toDim - 1));
         }
+      }
+
+      // apply combineConvGroups transformation
+      if (transforms[level].combineConvGroupsFactor != 1) {
+        assert(transforms[level].combineConvGroupsFactor != 0);
+        // to know how many input channels we have on this level we must take
+        // the grain size and number of grains from the previous level.
+        assert(level > 0);
+        const auto factor =
+            m.addConstant(transforms[level].combineConvGroupsFactor);
+        // divide by the factor, rounding up in the process.
+        transformedConvSize.back().numConvGroupGrains =
+            m.ceildiv(transformedConvSize.back().numConvGroupGrains, factor,
+                      arrIndStr(level) + ".size.numConvGroupGrains");
+        // multiply by the factor.
+        transformedConvSize.back().numInChanGrains =
+            m.product({transformedConvSize.back().numInChanGrains, factor},
+                      arrIndStr(level) + ".size.numInChanGrains");
+        transformedConvSize.back().numOutChanGrains =
+            m.product({transformedConvSize.back().numOutChanGrains, factor},
+                      arrIndStr(level) + ".size.numOutChanGrains");
       }
 
       // correct the number of grains in the case that the grain size has

@@ -443,7 +443,7 @@ BOOST_AUTO_TEST_CASE(InvalidLevel) {
     {
        "3": {
          "transform":{
-           "expandDims": [0, 1]
+           "combineConvGroups": true
          }
        }
     }
@@ -546,3 +546,4 @@ BOOST_AUTO_TEST_CASE(GetSLICPlan) {
 
   BOOST_TEST_MESSAGE(plan << "\n");
 }
+
