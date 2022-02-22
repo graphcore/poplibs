@@ -17,7 +17,6 @@
 
 using namespace poplar;
 
-static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
 namespace poplin {
@@ -59,12 +58,12 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
-  Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, COMPACT_PTR, 4> in;
-  Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
-         COMPACT_PTR, 4>
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR, 4> in;
+  Vector<Input<Vector<FPType, ONE_PTR, weightsAlign, use128BitLoad>>, ONE_PTR,
+         4>
       weights;
-  Vector<Output<Vector<AccumType, COMPACT_PTR, 16, true>>, COMPACT_PTR, 4> out;
-  Input<Vector<WorkListType, COMPACT_PTR, 4>> worklists;
+  Vector<Output<Vector<AccumType, ONE_PTR, 16, true>>, ONE_PTR, 4> out;
+  Input<Vector<WorkListType, ONE_PTR, 4>> worklists;
   const UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
   const UnsignedType numOutGroupsM1;
@@ -238,12 +237,12 @@ public:
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
-  Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, COMPACT_PTR, 4> in;
-  Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
-         COMPACT_PTR, 4>
+  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR, 4> in;
+  Vector<Input<Vector<FPType, ONE_PTR, weightsAlign, use128BitLoad>>, ONE_PTR,
+         4>
       weights;
-  Vector<Output<Vector<AccumType, COMPACT_PTR, 16, true>>, COMPACT_PTR, 4> out;
-  Input<Vector<WorkListType, COMPACT_PTR, 4>> worklists;
+  Vector<Output<Vector<AccumType, ONE_PTR, 16, true>>, ONE_PTR, 4> out;
+  Input<Vector<WorkListType, ONE_PTR, 4>> worklists;
   const UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
   const UnsignedType numOutGroupsM1;

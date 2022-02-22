@@ -178,8 +178,7 @@ template class Fill2d<long long>;
 //   element 3 is a VectorLayout: Layout for input data pointer
 //   element 4 is a VectorLayout: Layout for output pointer
 template <typename SrcType, typename DstType>
-constexpr std::tuple<bool, unsigned, unsigned, VectorLayout, VectorLayout>
-getCastParams() {
+constexpr std::tuple<bool, unsigned, unsigned> getCastParams() {
   bool floatHalf =
       std::is_same<SrcType, float>::value && std::is_same<DstType, half>::value;
   bool halfFloat =
@@ -221,17 +220,7 @@ getCastParams() {
     outAlign = 4;
   }
 
-  VectorLayout inLayout = ONE_PTR;
-  VectorLayout outLayout = ONE_PTR;
-  if (inlineAsm) {
-    inLayout = PTR_ALIGN64;
-    outLayout = PTR_ALIGN32;
-  }
-  if (halfFloat) {
-    outLayout = PTR_ALIGN64;
-  }
-
-  return {inlineAsm, inAlign, outAlign, inLayout, outLayout};
+  return {inlineAsm, inAlign, outAlign};
 }
 
 template <typename SrcType, typename DstType, bool inlineAsm,
@@ -688,11 +677,9 @@ public:
   constexpr static bool inlineAsm = std::get<0>(t);
   constexpr static unsigned inAlign = std::get<1>(t);
   constexpr static unsigned outAlign = std::get<2>(t);
-  constexpr static VectorLayout inLayout = std::get<3>(t);
-  constexpr static VectorLayout outLayout = std::get<4>(t);
 
-  Input<Vector<SrcType, inLayout, inAlign>> src;
-  Output<Vector<DstType, outLayout, outAlign>> dst;
+  Input<Vector<SrcType, ONE_PTR, inAlign>> src;
+  Output<Vector<DstType, ONE_PTR, outAlign>> dst;
   const unsigned numElems;
 
   bool compute() {
@@ -733,11 +720,9 @@ public:
   constexpr static bool inlineAsm = std::get<0>(t);
   constexpr static unsigned inAlign = std::get<1>(t);
   constexpr static unsigned outAlign = std::get<2>(t);
-  constexpr static VectorLayout inLayout = std::get<3>(t);
-  constexpr static VectorLayout outLayout = std::get<4>(t);
 
-  Input<Vector<SrcType, inLayout, inAlign>> src;
-  Output<Vector<DstType, outLayout, outAlign>> dst;
+  Input<Vector<SrcType, ONE_PTR, inAlign>> src;
+  Output<Vector<DstType, ONE_PTR, outAlign>> dst;
   const unsigned numElems;
 
   bool compute(unsigned wid) {
