@@ -132,7 +132,7 @@ struct SliceOptions {
 
   // The target maximum temporary memory usage for the operation. This
   // may not be satisfiable.
-  std::optional<double> availableMemoryProportion;
+  double availableMemoryProportion = 0.6;
 
   // For use when planning, the distribution of indices to assume when
   // estimating cycles.
@@ -160,12 +160,7 @@ std::ostream &operator<<(std::ostream &os, const SliceOptions &o) {
   } else {
     os << " (partialType=" << *o.partialType << ")";
   }
-  os << ", availableMemoryProportion=";
-  if (o.availableMemoryProportion) {
-    os << *o.availableMemoryProportion;
-  } else {
-    os << "none";
-  }
+  os << ", availableMemoryProportion=" << o.availableMemoryProportion;
   os << ", indicesDistribution=" << o.indicesDistribution
      << ", indicesAreSorted=" << (o.indicesAreSorted ? "true" : "false")
      << ", internal.alwaysIncludeBaseRearrangementCost="
@@ -276,7 +271,8 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
                           options.partialType,
                           {{"half", poplar::HALF}, {"float", poplar::FLOAT}})},
       {"availableMemoryProportion",
-       createOptionalDoubleHandler(options.availableMemoryProportion, 0.)},
+       OptionHandler::createWithDouble(options.availableMemoryProportion, false,
+                                       0., 1.)},
       {"indicesDistribution",
        OptionHandler::createWithEnum(options.indicesDistribution,
                                      indicesDistributionMap)},
@@ -711,9 +707,8 @@ static void generateMultiSliceVertices(
       const auto bytesPerElem = target.getTypeSize(type);
       const auto maxBaseBytesPerTile =
           maxUnslicedElemsPerTile * base.dim(slicedDim) * bytesPerElem;
-      const unsigned availableBytesPerTile =
-          std::ceil(target.getBytesPerTile() *
-                    valueOr(options.availableMemoryProportion, 0.6));
+      const unsigned availableBytesPerTile = std::ceil(
+          target.getBytesPerTile() * options.availableMemoryProportion);
 
       // We first check if having to rearrange the base slice would cause us to
       // exceed our temporary memory limit to avoid introspecting again if we
@@ -4117,9 +4112,9 @@ applyConstraints(popsolver::Model &m, const Target &target,
   applyPlanConstraints(m, options.planConstraints, partition.slicedDimSplit,
                        partition.unslicedDimSplit, partition.lookupSplit,
                        partition.groupSplit);
-  if (options.availableMemoryProportion && limitTempMemory) {
+  if (limitTempMemory) {
     const auto mMaxAllowedTempBytes = m.addConstant(
-        options.availableMemoryProportion.value() * target.getBytesPerTile());
+        options.availableMemoryProportion * target.getBytesPerTile());
     m.lessOrEqual(estimates.peakTempBytes, mMaxAllowedTempBytes);
   }
 }
@@ -4243,13 +4238,13 @@ static SlicePlan planInternal(const Graph &graph, const Type &dataType,
   auto best = choosePlan(target, dataType, groupSize, numEntries, outputSize,
                          numLookups, options, true);
 
-  if (best.plan.isNull && options.availableMemoryProportion) {
+  if (best.plan.isNull) {
     // Warn and try again without the available memory proportion if
     // no solution could be found.
     logging::popops::warn("embedding::plan could not find a valid solution "
                           "with availableMemoryProportion={}, trying again "
                           "with unlimited temporary memory",
-                          *options.availableMemoryProportion);
+                          options.availableMemoryProportion);
     best = choosePlan(target, dataType, groupSize, numEntries, outputSize,
                       numLookups, options, false);
   }
