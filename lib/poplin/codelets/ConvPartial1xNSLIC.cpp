@@ -4,6 +4,7 @@
 #include <poplar/QuarterFloat.hpp>
 #include <poplar/Vertex.hpp>
 
+#include "convCastSupport.hpp"
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
@@ -107,6 +108,11 @@ public:
     const unsigned numSubKernels = numSubKernelsM1 + 1;
     const unsigned numConvGroupGroups = numConvGroupGroupsM1 + 1;
 
+    quarter_metadata inMetadata, weightsMetadata;
+    if constexpr (std::is_same<FPType, quarter>::value) {
+      inMetadata = unpackMetadata(in.getMetadata());
+      weightsMetadata = unpackMetadata(weights.getMetadata());
+    }
     for (unsigned cg = 0; cg < numConvGroupGroups; ++cg) {
       auto *lastOutBuffer = (!outPtrLoadOffset)
                                 ? &outFieldBuffer[outFieldBufferOffset]
@@ -156,8 +162,10 @@ public:
                           // convGroup * outChansPerGroup * inChansPerGroup
                           convGroup * chansPerGroup * chansPerGroup +
                           outChan * chansPerGroup + inChan;
-                      sum += AccumType(in[cg][inIndex]) *
-                             AccumType(w[weightIndex]);
+                      sum += promoteType<FPType, AccumType>(in[cg][inIndex],
+                                                            inMetadata) *
+                             promoteType<FPType, AccumType>(w[weightIndex],
+                                                            weightsMetadata);
                     }
                   }
                   currOutBuffer[outIndex] = sum;
@@ -412,12 +420,9 @@ template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 16>;
 template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 16>;
 template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 16>;
 
-#if __IPU_ARCH_VERSION__ >= 21
 template class ConvPartial1xNSLIC<quarter, half, 1, false, 4, 4, 8>;
 template class ConvPartial1xNSLIC<quarter, half, 1, true, 4, 4, 8>;
-
 template class ConvPartial1xNSLIC<quarter, half, 2, false, 4, 4, 8>;
 template class ConvPartial1xNSLIC<quarter, half, 2, true, 4, 4, 8>;
-#endif
 
 } // end namespace poplin

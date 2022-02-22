@@ -8,6 +8,7 @@
 #include <type_traits>
 
 #include "ConvPartialsStridesPacking.hpp"
+#include "convCastSupport.hpp"
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
@@ -149,6 +150,11 @@ public:
         unpackedTransformedOutStride, std::is_same<AccumType, float>(),
         numConvUnits, outChansPerGroup);
 
+    quarter_metadata inMetadata, weightsMetadata;
+    if constexpr (std::is_same<FPType, quarter>::value) {
+      inMetadata = unpackMetadata(in.getMetadata());
+      weightsMetadata = unpackMetadata(weights.getMetadata());
+    }
     const unsigned numElems = zerosInfo;
 
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
@@ -203,8 +209,11 @@ public:
                                   inChansPerGroup +
                               outChan * inChansPerGroup + inChan;
 
-                          sum += AccumType(in[cg * numInGroups + ig][inIndex] *
-                                           w[weightIndex]);
+                          sum += promoteType<FPType, AccumType>(
+                                     in[cg * numInGroups + ig][inIndex],
+                                     inMetadata) *
+                                 promoteType<FPType, AccumType>(
+                                     w[weightIndex], weightsMetadata);
                         }
                       }
                       out[cg * numOutGroups + og][outIndex] = sum;
@@ -458,11 +467,9 @@ template class ConvPartialnx1<half, half, true, true, 16>;
 template class ConvPartialnx1<float, float, false, true, 16>;
 template class ConvPartialnx1<half, half, false, true, 16>;
 
-#if __IPU_ARCH_VERSION__ >= 21
 template class ConvPartialnx1<quarter, half, false, false, 16>;
 template class ConvPartialnx1<quarter, half, false, true, 16>;
 template class ConvPartialnx1<quarter, half, true, false, 16>;
 template class ConvPartialnx1<quarter, half, true, true, 16>;
-#endif
 
 } // end namespace poplin
