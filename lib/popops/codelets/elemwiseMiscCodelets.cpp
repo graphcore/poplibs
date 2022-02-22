@@ -687,14 +687,10 @@ public:
                   std::is_same<DstType, quarter>::value) {
       const MetadataType *metadataSrc, *metadataDst;
       if constexpr (std::is_same<SrcType, quarter>::value) {
-#if __IPU_ARCH_VERSION__ > 2
         metadataSrc = src.getMetadata();
-#endif
       }
       if constexpr (std::is_same<DstType, quarter>::value) {
-#if __IPU_ARCH_VERSION__ > 2
         metadataDst = dst.getMetadata();
-#endif
       }
       CastDispatch<SrcType, DstType, inlineAsm, true>::compute(
           numElems, &src[0], &dst[0], metadataSrc, metadataDst);
@@ -730,14 +726,10 @@ public:
                   std::is_same<DstType, quarter>::value) {
       const MetadataType *metadataSrc, *metadataDst;
       if constexpr (std::is_same<SrcType, quarter>::value) {
-#if __IPU_ARCH_VERSION__ > 2
         metadataSrc = src.getMetadata();
-#endif
       }
       if constexpr (std::is_same<DstType, quarter>::value) {
-#if __IPU_ARCH_VERSION__ > 2
         metadataDst = dst.getMetadata();
-#endif
       }
       CastDispatchMultiVertex<SrcType, DstType, inlineAsm, true>::compute(
           numElems, wid, &src[0], &dst[0], metadataSrc, metadataDst);

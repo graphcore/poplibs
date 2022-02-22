@@ -115,12 +115,10 @@ public:
         reinterpret_cast<const WorklistEntry *>(&worklists[0]);
 
     quarter_metadata inMetadata, weightsMetadata;
-#if __IPU_ARCH_VERSION__ >= 21
     if constexpr (std::is_same<FPType, quarter>::value) {
       inMetadata = unpackMetadata(in.getMetadata());
       weightsMetadata = unpackMetadata(weights.getMetadata());
     }
-#endif
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
