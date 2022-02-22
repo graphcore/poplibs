@@ -385,11 +385,19 @@ static void addIndexValidation(Graph &graph, Sequence &prog, Tensor indices,
  **/
 static void generateVertices(std::string vertexName, Graph &graph,
                              Sequence &prog, const Tensor &offset,
-                             Tensor t2d, // 2d base Tensor [sliceD][]
-                             Tensor s2d, // 2d sub Tensor [sizeD][]
+                             const Tensor &t2d_, // 2d base Tensor [sliceD][]
+                             const Tensor &s2d_, // 2d sub Tensor [sizeD][]
                              const DebugNameAndId &dnai) {
-  auto cs = graph.addComputeSet({dnai});
+  Tensor t2d, s2d;
+  if (t2d_.elementType() == QUARTER) {
+    t2d = t2d_.reinterpret(UNSIGNED_CHAR);
+    s2d = s2d_.reinterpret(UNSIGNED_CHAR);
+  } else {
+    t2d = t2d_;
+    s2d = s2d_;
+  }
 
+  auto cs = graph.addComputeSet({dnai});
   constexpr unsigned slicedDim = 0;
 #ifndef NDEBUG
   constexpr unsigned unslicedDim = 1;
@@ -1401,21 +1409,18 @@ static void validateParams(std::string name, const SlicePlan &plan,
                                    name);
   }
   auto tRank = shape.size();
-  std::string exceptionStr;
   std::string sizesStr = sizesAreSlices ? "numSlices" : "sizes";
   if (offset) {
     auto offsetElems = offset.get().rank() == 0 ? 0 : offset.get().dim(0);
     if (offset.get().rank() > 2 || offsetElems != dims.size())
-      exceptionStr = name + " offset (" + std::to_string(offsetElems) + ") ";
+      throw poplibs_error(name + " offset (" + std::to_string(offsetElems) +
+                          ") and dims (" + std::to_string(dims.size()) +
+                          ") : must be the same size");
   }
   if (checkSizes && dims.size() != sizesOrSlices.size()) {
-    exceptionStr += "dims (" + std::to_string(dims.size()) + ") and " +
-                    sizesStr + " (" + std::to_string(sizesOrSlices.size()) +
-                    ") ";
-  }
-  if (!exceptionStr.empty()) {
-    exceptionStr += ": must be the same size";
-    throw graph_connection_error(exceptionStr);
+    throw poplibs_error("dims (" + std::to_string(dims.size()) + ") and " +
+                        sizesStr + " (" + std::to_string(sizesOrSlices.size()) +
+                        ") : must be the same size");
   }
   std::vector<bool> dimUsed(tRank);
   for (unsigned i = 0; i != dims.size(); ++i) {
@@ -2051,7 +2056,7 @@ Tensor createGroupedIndicesTensor(Graph &graph, const std::size_t groupSize,
                         groupSize, numIndices, dims);
 
   if (plan.getImpl().groupSize != groupSize) {
-    throw poputil::poplibs_error("createGroupedSliceTensor: group size "
+    throw poputil::poplibs_error("createGroupedIndicesTensor: group size "
                                  "passed does not match the plan");
   }
   const auto indices = graph.addVariable(
@@ -2210,7 +2215,12 @@ static Tensor dynamicSliceImpl(Graph &graph, const Tensor &t,
         graph, out, checkOffset ? offset.get()[i] : offset, dims[i], sizes[i],
         prog, {dnai, std::string("dynamicSlice_d") + std::to_string(dims[i])});
   }
-
+  if (t.elementType() == QUARTER && t.getMetadata().valid()) {
+    // Where the input tensor has valid metadata, copy to the out tensor.
+    // An empty tensor will not have valid metadata, so avoid copying in that
+    // case.
+    out.associateMetadata(t.getMetadata());
+  }
   return out;
 }
 
@@ -2718,7 +2728,7 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
                                  const DebugNameAndId &dnai) {
   // We always map the output in the same way to avoid surprising changes when
   // the number of slices changes
-  Tensor sMulti;
+  Tensor sMulti, sMultiInternal, t;
   if (plan.getImpl().isNull) {
     sMulti = createSliceTensor(graph, t_.squeeze({0}), dims, sizes,
                                offset_.dim(1), {dnai});
@@ -2727,9 +2737,23 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
         graph, t_.elementType(), t_.dim(0), t_[0].shape(), dims, sizes,
         offset_.dim(1), plan, optionFlags, {dnai});
   }
+  if (t_.elementType() == QUARTER) {
+    if (t_.getMetadata().valid()) {
+      // Where the input tensor has valid metadata, copy to the out tensor.
+      // An empty tensor will not have valid metadata, so avoid copying in that
+      // case.
+      sMulti.associateMetadata(t_.getMetadata());
+    }
+    sMultiInternal = sMulti.reinterpret(UNSIGNED_CHAR);
+    t = t_.reinterpret(UNSIGNED_CHAR);
+  } else {
+    t = t_;
+    sMultiInternal = sMulti;
+  }
 
   logging::popops::info("name {} : {} -> {}, nullplan?={}", dnai.getPathName(),
-                        t_.shape(), sMulti.shape(), plan.getImpl().isNull);
+                        t.shape(), sMultiInternal.shape(),
+                        plan.getImpl().isNull);
 
   const auto options = parseSliceOptions(optionFlags);
   if (options.validateIndices)
@@ -2741,20 +2765,20 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
     auto transposeCS = graph.addComputeSet({dnai, "preRegroup"});
 
     auto [tRegroupedPre, base] =
-        regroupBaseTensor(graph, preCopies, transposeCS, t_, dims, sizes, plan,
+        regroupBaseTensor(graph, preCopies, transposeCS, t, dims, sizes, plan,
                           optionFlags, {dnai});
 
     addPreRegroupProgs(prog, preCopies, transposeCS, tRegroupedPre, base,
                        {dnai});
 
-    multiSlicePlanned(graph, tRegroupedPre ? base : t_, offset_, sMulti, dims,
-                      sizes, prog, plan.getImpl(), optionFlags, {dnai});
+    multiSlicePlanned(graph, tRegroupedPre ? base : t, offset_, sMultiInternal,
+                      dims, sizes, prog, plan.getImpl(), optionFlags, {dnai});
     return sMulti;
   }
 
   // sequeeze out first dimensions as there's no group dimension for unplanned
   // multi-slice
-  auto t = t_.squeeze({0});
+  t = t.squeeze({0});
   auto offset = offset_.squeeze({0});
 
   // When there are only a few slices the looping code can be larger than
@@ -2764,39 +2788,38 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
     for (unsigned slice = 0; slice != offset.dim(0); ++slice) {
       auto s = dynamicSlice(graph, t, offset[slice], dims, sizes, prog,
                             {dnai, std::to_string(slice)});
-      prog.add(Copy(s, sMulti[slice], false, {dnai}));
+      prog.add(Copy(s, sMultiInternal[slice], false, {dnai}));
     }
     return sMulti;
   }
 
   // When there are many offsets of single slices there is a fast vertex.
   // For now only 1d slices of 2d base tensors are supported.
-  if (t.rank() == 2 && dims.size() == 1 && sMulti.rank() == 3 &&
+  if (t.rank() == 2 && dims.size() == 1 && sMultiInternal.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiSlice", false, boost::none, graph,
-                               prog, offset, t, sMulti, boost::none, dims[0],
-                               boost::none, optionFlags, {dnai});
+                               prog, offset, t, sMultiInternal, boost::none,
+                               dims[0], boost::none, optionFlags, {dnai});
     return sMulti;
   }
 
   // looping case
-  prog.add(popops::countedLoop(graph, offset.dim(0),
-                               [&](poplar::Tensor sIdx) {
-                                 Sequence body({}, {dnai});
-                                 auto tIdx =
-                                     dynamicSlice(graph, offset, sIdx, {0}, {1},
-                                                  body, {dnai, "sliceIndex"})
-                                         .squeeze({0});
+  prog.add(popops::countedLoop(
+      graph, offset.dim(0),
+      [&](poplar::Tensor sIdx) {
+        Sequence body({}, {dnai});
+        auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
+                                 {dnai, "sliceIndex"})
+                        .squeeze({0});
 
-                                 auto sI =
-                                     dynamicSlice(graph, t, tIdx, dims, sizes,
-                                                  body, {dnai, "slice"})
-                                         .expand({0});
-                                 dynamicUpdate(graph, sMulti, sI, sIdx, {0},
-                                               {1}, body, {dnai, "update"});
-                                 return body;
-                               },
-                               {dnai, "loop"}));
+        auto sI =
+            dynamicSlice(graph, t, tIdx, dims, sizes, body, {dnai, "slice"})
+                .expand({0});
+        dynamicUpdate(graph, sMultiInternal, sI, sIdx, {0}, {1}, body,
+                      {dnai, "update"});
+        return body;
+      },
+      {dnai, "loop"}));
 
   return sMulti;
 }

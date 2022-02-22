@@ -274,8 +274,8 @@ foreach(dtype half float)
               --tiles-per-ipu=16
               --group-size=${groupSize}
               --operation=${OPERATION}
-              VARIANTS ${IPUMODEL_VARIANTS};Sim2)        
-        endforeach()    
+              VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+        endforeach()
       endforeach()
     endforeach()
   endforeach()
@@ -284,7 +284,7 @@ endforeach()
 add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(RegroupTest RegroupTest.cpp)
-add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
+add_unit_test(DynamicSliceCreation DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
               SUITES SingleDim MultiDim LargeBuffer Misc MultiSlice CheckIndexValidation
               VARIANTS Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS})
@@ -300,6 +300,9 @@ add_unit_test(MultiUpdateTestMax DynamicSliceTest.cpp
 
 add_unit_test(MultiUpdateAddHalfScaleTest DynamicSliceTest.cpp
               SUITES MultiUpdateAddHalfScale VARIANTS Hw;Sim2;IpuModel2)
+
+add_unit_test(CheckQuarterMetadata DynamicSliceTest.cpp
+              SUITES CheckQuarterMetadata VARIANTS IpuModel21)
 
 add_unit_test(SeqSliceTest SeqSliceTest.cpp)
 add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp SUITES CpuChecks VARIANTS Cpu)

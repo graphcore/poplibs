@@ -427,7 +427,3 @@ BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_char) {
 BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_bool) {
   MultiSliceCodeletTest(BOOL);
 }
-BOOST_AUTO_TEST_CASE(MultiSliceCodeletTest_quarter,
-                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
-  MultiSliceCodeletTest(QUARTER);
-}

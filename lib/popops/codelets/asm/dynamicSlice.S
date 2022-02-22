@@ -114,9 +114,6 @@
 #define DS_ULONGLONG_FUNC __runCodelet_popops__DynamicSlice2D___unsigned_long_long
 #define DUS_ULONGLONG_FUNC __runCodelet_popops__DynamicUpdateSlice2D___unsigned_long_long
 
-#define DS_QUARTER_FUNC __runCodelet_popops__DynamicSlice2D___quarter
-#define DUS_QUARTER_FUNC __runCodelet_popops__DynamicUpdateSlice2D___quarter
-
 //******************************************************************************
 // Entry points for each function, each setting up a pointer to the copy
 // function and then using common code
@@ -125,7 +122,6 @@ FN_WORKER_ENTRY_POINT DUS_BOOL_FUNC
 FN_EXPORT DUS_CHAR_FUNC
 FN_EXPORT DUS_UCHAR_FUNC
 FN_EXPORT DUS_SCHAR_FUNC
-FN_EXPORT DUS_QUARTER_FUNC
    setzi   $COPY_PTR, copy_loop_DUS_8
    bri     DynamicSlice2d_common
 FN_SIZE DUS_BOOL_FUNC
@@ -135,7 +131,6 @@ FN_WORKER_ENTRY_POINT DS_BOOL_FUNC
 FN_EXPORT DS_CHAR_FUNC
 FN_EXPORT DS_UCHAR_FUNC
 FN_EXPORT DS_SCHAR_FUNC
-FN_EXPORT DS_QUARTER_FUNC
    setzi   $COPY_PTR, copy_loop_DS_8
    bri     DynamicSlice2d_common
 FN_SIZE DS_BOOL_FUNC

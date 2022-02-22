@@ -72,15 +72,11 @@
 #define DSS_UCHAR_FUNC __runCodelet_popops__DynamicSlice1D___unsigned_char
 #define DUSS_UCHAR_FUNC __runCodelet_popops__DynamicUpdateSlice1D___unsigned_char
 
-#define DSS_QUARTER_FUNC __runCodelet_popops__DynamicSlice1D___quarter
-#define DUSS_QUARTER_FUNC __runCodelet_popops__DynamicUpdateSlice1D___quarter
 
-
-FN_WORKER_ENTRY_POINT DUSS_BOOL_FUNC 
+FN_WORKER_ENTRY_POINT DUSS_BOOL_FUNC
 FN_EXPORT DUSS_CHAR_FUNC
 FN_EXPORT DUSS_UCHAR_FUNC
 FN_EXPORT DUSS_SCHAR_FUNC
-FN_EXPORT DUSS_QUARTER_FUNC
   setzi     $aUpdate,1
   ld32      $aDst, $mzero, $mvertex_base, VOFF_BASET
   ld32      $aSrc, $mzero, $mvertex_base, VOFF_SUBT
@@ -96,7 +92,6 @@ FN_WORKER_ENTRY_POINT DSS_BOOL_FUNC 8
 FN_EXPORT DSS_CHAR_FUNC
 FN_EXPORT DSS_UCHAR_FUNC
 FN_EXPORT DSS_SCHAR_FUNC
-FN_EXPORT DSS_QUARTER_FUNC
   setzi     $aUpdate,0
   ld32      $aSrc, $mzero, $mvertex_base, VOFF_BASET
   ld32      $aDst, $mzero, $mvertex_base, VOFF_SUBT

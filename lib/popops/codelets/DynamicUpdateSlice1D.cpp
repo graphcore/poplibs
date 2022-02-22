@@ -67,8 +67,4 @@ template class DynamicUpdateSlice1D<signed char>;
 template class DynamicUpdateSlice1D<unsigned long long>;
 template class DynamicUpdateSlice1D<long long>;
 
-#if __IPU_ARCH_VERSION__ == 21
-template class DynamicUpdateSlice1D<quarter>;
-#endif
-
 } // namespace popops

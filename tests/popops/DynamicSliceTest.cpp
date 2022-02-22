@@ -1793,3 +1793,120 @@ void indexChecks(bool update) {
 BOOST_AUTO_TEST_CASE(SliceIndexChecks) { indexChecks(false); }
 BOOST_AUTO_TEST_CASE(UpdateIndexChecks) { indexChecks(true); }
 BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(CheckQuarterMetadata)
+
+void checkQuarterMetadata(void) {
+  const unsigned tilesPerIPU = 4;
+
+  auto device = createTestDevice(TEST_TARGET, 1, tilesPerIPU);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+  constexpr unsigned nonSliceableSize = 1;
+  constexpr unsigned sliceableSize = 10;
+  constexpr unsigned numIndices = 5;
+  std::vector<std::size_t> tShape = {sliceableSize, nonSliceableSize};
+  std::vector<std::size_t> sShape = {numIndices, nonSliceableSize};
+  OptionFlags optionFlags{{"validateIndices", "true"}};
+
+  popops::SlicePlan plan;
+  auto ids =
+      popops::createIndicesTensor(graph, {0}, numIndices, plan, {}, "ids");
+  graph.createHostWrite("ids", ids);
+
+  // Create an input tensor with an associated metadata value to check
+  auto embedding = popops::createSliceableTensor(graph, QUARTER, tShape, {0},
+                                                 {1}, plan, {}, "embedding");
+  graph.setInitialValue(embedding.getMetadata(),
+                        packFp8MetaData(poputil::Fp8Format::QUART143, 1));
+
+  Sequence sequence;
+  // The resulting multiSliced result should have the same metadata
+  auto subT = popops::multiSlice(graph, embedding, ids, {0}, {1}, sequence,
+                                 plan, optionFlags, "slice");
+  poplar::ArrayRef<unsigned> offsets = {0};
+  auto subTConst =
+      popops::multiSlice(graph, embedding, offsets, 0, sequence, "slice");
+
+  // A multiupdate should not affect the metadata of the embedding
+  auto dummy = popops::multiSlice(graph, embedding, ids, {0}, {1}, sequence,
+                                  plan, optionFlags, "slice");
+  // associate metadata here, so as to leave the original value of metadata in
+  // embedding intact for test.
+  dummy.associateMetadata(
+      poputil::createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, 3));
+  popops::multiUpdate(graph, embedding, dummy, ids, {0}, {1}, sequence, plan,
+                      optionFlags, "slice");
+
+  // The resulting dynamicSliced tensor should have the same metadata
+  auto idsDynamicSlice = graph.addConstant<unsigned>(UNSIGNED_INT, {1}, 0u);
+  graph.setTileMapping(idsDynamicSlice, 0);
+  auto subTDynamicSlice = popops::dynamicSlice(
+      graph, embedding, idsDynamicSlice, {0}, {1}, sequence);
+
+  // When an input is provided the metadata should be preserved
+  auto subTWithOutput = popops::createSliceTensor(
+      graph, QUARTER, {1}, {0}, {1}, 1, plan, {}, "subTWithOutput");
+  graph.setInitialValue(subTWithOutput.getMetadata(),
+                        packFp8MetaData(poputil::Fp8Format::QUART143, 1));
+  popops::dynamicSliceWithOutput(graph, subTWithOutput, embedding,
+                                 idsDynamicSlice, {0}, {1}, sequence);
+
+  // Create an input tensor with an associated metadata value to check
+  // grouped result metadata
+  unsigned groupSize = 2;
+  auto groupedPlan =
+      popops::embedding::plan(graph, QUARTER, groupSize, 1, 1, {1, 1}, {});
+  auto grouped = popops::createGroupedSliceableTensor(
+      graph, QUARTER, groupSize, tShape, {0}, {1}, groupedPlan, {},
+      "embedding");
+  auto groupedIds = popops::createGroupedIndicesTensor(
+      graph, groupSize, {0}, numIndices, groupedPlan, {}, "ids");
+  graph.setInitialValue(grouped.getMetadata(),
+                        packFp8MetaData(poputil::Fp8Format::QUART143, 1));
+  auto subTGrouped =
+      popops::groupedMultiSlice(graph, grouped, groupedIds, {0}, {1}, sequence,
+                                groupedPlan, optionFlags, "slice");
+
+  graph.createHostRead("embeddingMeta",
+                       embedding.getMetadata().reinterpret(UNSIGNED_CHAR));
+
+  graph.createHostRead("subTMeta",
+                       subT.getMetadata().reinterpret(UNSIGNED_CHAR));
+  graph.createHostRead("subTMetaConst",
+                       subTConst.getMetadata().reinterpret(UNSIGNED_CHAR));
+  graph.createHostRead(
+      "subTMetaDynamicSlice",
+      subTDynamicSlice.getMetadata().reinterpret(UNSIGNED_CHAR));
+  graph.createHostRead("subTWithOutput",
+                       subTWithOutput.getMetadata().reinterpret(UNSIGNED_CHAR));
+  graph.createHostRead("subTGrouped",
+                       grouped.getMetadata().reinterpret(UNSIGNED_CHAR));
+
+  Engine engine(graph, sequence);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    std::vector<unsigned> hIds{0, 4, 3, 2, 1};
+    engine.writeTensor("ids", &hIds.data()[0], &hIds.data()[hIds.size()]);
+
+    engine.run(0);
+    const auto numTests = 5;
+    std::vector<unsigned char> refMetaData(1);
+    std::vector<unsigned char> hostMetaData(numTests);
+    engine.readTensor("embeddingMeta", &refMetaData[0], &refMetaData[1]);
+
+    engine.readTensor("subTMeta", &hostMetaData[0], &hostMetaData[1]);
+    engine.readTensor("subTMetaConst", &hostMetaData[1], &hostMetaData[2]);
+    engine.readTensor("subTMetaDynamicSlice", &hostMetaData[2],
+                      &hostMetaData[3]);
+    engine.readTensor("subTWithOutput", &hostMetaData[3], &hostMetaData[4]);
+    engine.readTensor("subTGrouped", &hostMetaData[4], &hostMetaData[5]);
+
+    for (unsigned i = 0; i < numTests; i++) {
+      BOOST_CHECK_EQUAL(refMetaData[0], hostMetaData[i]);
+    }
+  });
+}
+
+BOOST_AUTO_TEST_CASE(CheckQuarter) { checkQuarterMetadata(); }
+BOOST_AUTO_TEST_SUITE_END()

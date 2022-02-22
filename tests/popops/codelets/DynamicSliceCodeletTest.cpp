@@ -323,7 +323,3 @@ BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_ulonglong) {
 BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_longlong) {
   DynamicSliceCodeletTest(LONGLONG);
 }
-BOOST_AUTO_TEST_CASE(DynamicSliceCodeletTest_quarter,
-                     *boost::unit_test::precondition(enableIfIpu21Sim())) {
-  DynamicSliceCodeletTest(QUARTER);
-}

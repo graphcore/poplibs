@@ -3409,15 +3409,6 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
     CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, CHAR),
     CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, BOOL),
 
-#if __IPU_ARCH_VERSION__ == 21
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice2D, QUARTER),
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicSlice1D, QUARTER),
-    CYCLE_ESTIMATOR_ENTRY(popops, Multislice, QUARTER),
-
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice2D, QUARTER),
-    CYCLE_ESTIMATOR_ENTRY(popops, DynamicUpdateSlice1D, QUARTER),
-    CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdate, QUARTER),
-#endif
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, HALF, true,
                           Operation::ADD),
     CYCLE_ESTIMATOR_ENTRY(popops, ScaledMultiUpdateOp, HALF, FLOAT, true,

@@ -81,11 +81,8 @@
 #define MS_UNSIGNED_FUNC __runCodelet_popops__MultiSlice___unsigned_int
 #define MU_UNSIGNED_FUNC __runCodelet_popops__MultiUpdate___unsigned_int
 
-#define MS_QUARTER_FUNC __runCodelet_popops__MultiSlice___quarter
-#define MU_QUARTER_FUNC __runCodelet_popops__MultiUpdate___quarter
-
 // Split work between workers
-.macro DIVIDE_WORK ELEM_SIZE, MAX_ELEMS, WORKER_ELEM_SIZE 
+.macro DIVIDE_WORK ELEM_SIZE, MAX_ELEMS, WORKER_ELEM_SIZE
   // divide the offsets dimension
   get $mWorkerId, $WSR
   and $mWorkerId, $mWorkerId, CSR_W_WSR__CTXTID_M1__MASK
@@ -93,7 +90,7 @@
   // the max to be allocated per worker is already computed and passed as
   // a vertex field
   ld32 \MAX_ELEMS, $mzero, $mvertex_base, VOFF_ELEMS_PER_WORKER
-  
+
   // Find the start entry for this worker
   mul $mWkrStart, $mWorkerId, \MAX_ELEMS
   min $mWkrStart, $mWkrStart, \ELEM_SIZE
@@ -114,7 +111,6 @@ FN_WORKER_ENTRY_POINT MU_BOOL_FUNC 4 "" STACK_SIZE
 FN_EXPORT MU_CHAR_FUNC
 FN_EXPORT MU_UCHAR_FUNC
 FN_EXPORT MU_SCHAR_FUNC
-FN_EXPORT MU_QUARTER_FUNC
    setzi   $mCopyPtr, copy_loop_MU_8
    setzi   $mRegionSize, 0
    bri     MultiSlice_common_u
@@ -124,7 +120,6 @@ FN_WORKER_ENTRY_POINT MS_BOOL_FUNC
 FN_EXPORT MS_CHAR_FUNC
 FN_EXPORT MS_UCHAR_FUNC
 FN_EXPORT MS_SCHAR_FUNC
-FN_EXPORT MS_QUARTER_FUNC
    setzi   $mCopyPtr, copy_loop_MS_8
    setzi   $mRegionSize, 0
    bri     MultiSlice_common_s
@@ -170,7 +165,7 @@ MultiSlice_common_u:
   brnz $mScratch, MultiSlice_region_split
 
   UPDATE_OFFSET_AND_SIZES $mBaseElem $mMaxElementsPerWorker $mWorkerId $mWkrStart $mWkrEnd $mBaseIdx (4*VOFF_BASE_ELEM) (4*VOFF_ELEMS_PER_WORKER) (4*VOFF_BASE_OFFSET)
-  
+
   // save registers used by binary search
   ldz8 $mIndicesAreSorted, $mvertex_base, VOFF_INDICES_ARE_SORTED
   brz $mIndicesAreSorted, MultiSlice_common_ld_offsets_span
@@ -287,7 +282,7 @@ MultiSlice_common_s:
   // from
   ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
   ld32step $mzero, $mzero, $mOffsetPtr+=, $mWkrStart
-  
+
   // this is stored in stack where we jump
   ld32  $mBaseIdx, $mzero, $mvertex_base, VOFF_BASE_OFFSET
 
@@ -328,7 +323,7 @@ MultiSlice_region_split:
   // Point to the entry in the offset vector this worker will start processing
   // from
   ld32  $mOffsetPtr, $mzero, $mvertex_base, VOFF_OFFSET_PTR
-  
+
   // only one pass through the loop
   setzi $mOffsetSize, 0
 

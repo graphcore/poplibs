@@ -8,6 +8,8 @@
 #include <popops/DynamicSlice.hpp>
 #include <popops/codelets.hpp>
 
+#include <poputil/Util.hpp>
+
 #include <poplibs_support/logging.hpp>
 
 #include "poplibs_test/TempDir.hpp"
@@ -309,6 +311,13 @@ int main(int argc, char **argv) {
       allocateHostMemoryForTensor(embeddingMatrix, "embeddingMatrix", graph,
                                   uploadProg, downloadProg, tmap);
 
+  if (embeddingMatrix.elementType() == QUARTER) {
+    // For test of transfer of the metadata from src to dst only, set the
+    // metadata to a specific value
+    embeddingMatrix.associateMetadata(poputil::createFp8MetaDataTensor(
+        graph, poputil::Fp8Format::QUART143, 1));
+  }
+
   struct PerIndexSet {
     // The indices
     std::vector<unsigned> hostIdxs;
@@ -346,6 +355,7 @@ int main(int argc, char **argv) {
         perIndexSet[i].idxs, handle, graph, uploadProg, downloadProg, tmap);
   }
 
+  std::unique_ptr<char[]> rawExtractedDataMetadata, rawEmbeddingMatrixMetadata;
   if (passEnabled(opts.pass, Pass::FWD)) {
     for (std::size_t i = 0; i < numIndices.size(); ++i) {
       logging::popops::info("Graph construction: create gather operation {}",
@@ -356,6 +366,14 @@ int main(int argc, char **argv) {
                              {1}, prog, plan, sliceOptions, handle);
       perIndexSet[i].rawOut = allocateHostMemoryForTensor(
           extractedData, handle, graph, uploadProg, downloadProg, tmap);
+      if (extractedData.elementType() == QUARTER) {
+        rawExtractedDataMetadata = allocateHostMemoryForTensor(
+            extractedData.getMetadata().reinterpret(UNSIGNED_CHAR),
+            "extractedMetadata", graph, boost::none, downloadProg, tmap);
+        rawEmbeddingMatrixMetadata = allocateHostMemoryForTensor(
+            embeddingMatrix.getMetadata().reinterpret(UNSIGNED_CHAR),
+            "embeddingMetadata", graph, boost::none, downloadProg, tmap);
+      }
     }
   }
 
@@ -397,7 +415,7 @@ int main(int argc, char **argv) {
   OptionFlags engineOptions;
   if (opts.profile || opts.profileDir) {
     engineOptions.set("autoReport.outputExecutionProfile", "true");
-    engineOptions.set("debug.computeInstrumentationLevel", "device");
+    engineOptions.set("debug.computeInstrumentationLevel", "ipu");
     if (opts.profileDir) {
       engineOptions.set("autoReport.directory", *opts.profileDir);
     } else {
@@ -419,9 +437,11 @@ int main(int argc, char **argv) {
   if (!opts.ignoreData) {
     logging::popops::info("Generating the embedding matrix on the host");
     attachStreams(engine, tmap);
-
-    writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, -10., 10.,
-                      randomEngine);
+    // Ensure positive values only for type QUARTER as it is checked as if an
+    // unsigned type
+    double lowerBound = opts.dataType == QUARTER ? 0.0 : -10.0;
+    writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, lowerBound,
+                      10., randomEngine);
     copy(target, hostEmbeddingMatrix, opts.dataType, rawEmbeddingMatrix.get());
     for (std::size_t i = 0; i < numIndices.size(); ++i) {
       copy(target, perIndexSet[i].hostIdxs.data(),
@@ -478,6 +498,19 @@ int main(int argc, char **argv) {
     copy(target, opts.dataType, rawEmbeddingMatrix.get(), hostEmbeddingMatrix);
     matchesModel &= checkIsClose("multiUpdateAdd", hostEmbeddingMatrix,
                                  modelEmbeddingMatrix, relTol, absTol);
+    if (passEnabled(opts.pass, Pass::FWD) && opts.dataType == QUARTER) {
+      boost::multi_array<double, 1> hostExtractedMetadata(boost::extents[1]),
+          hostEmbeddingMetadata(boost::extents[1]);
+      copy(target, UNSIGNED_CHAR, rawEmbeddingMatrixMetadata.get(),
+           hostEmbeddingMetadata);
+      copy(target, UNSIGNED_CHAR, rawExtractedDataMetadata.get(),
+           hostExtractedMetadata);
+      if (hostEmbeddingMetadata[0] != hostExtractedMetadata[0]) {
+        std::cerr << "Quarter data type, metadata mismatch embedding:"
+                  << hostEmbeddingMetadata[0]
+                  << " Extracted:" << hostExtractedMetadata[0] << "\n";
+      }
+    }
   }
 
   if (opts.profile) {
