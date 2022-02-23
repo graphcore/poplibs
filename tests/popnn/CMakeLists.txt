@@ -24,6 +24,7 @@ endforeach()
 add_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_unit_test(SpatialSoftmaxTest SpatialSoftmaxTest.cpp)
 add_unit_test(LogSoftmaxTest LogSoftmaxTest.cpp)
+add_unit_test(ROIAlignTest ROIAlignTest.cpp)
 
 add_multitarget_test(NAME max_pool_layer_half_with_introspection
          COMMAND pooling_layer

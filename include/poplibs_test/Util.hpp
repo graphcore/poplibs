@@ -141,10 +141,11 @@ bool checkIsClose(const std::string &name, const FPType *actual,
                   std::size_t N, double relativeTolerance,
                   double absoluteTolerance = 0);
 
+template <typename FPType>
 inline bool
 checkIsClose(const std::string &name, const std::size_t *const shape_,
-             const std::size_t rank, const double *const actual,
-             const std::size_t numActualElements, const double *const expected,
+             const std::size_t rank, const FPType *const actual,
+             const std::size_t numActualElements, const FPType *const expected,
              const std::size_t numExpectedElements,
              const double relativeTolerance, const double absoluteTolerance) {
   if (numActualElements != numExpectedElements) {
@@ -162,10 +163,10 @@ checkIsClose(const std::string &name, const std::size_t *const shape_,
                       relativeTolerance, absoluteTolerance);
 }
 
-template <std::size_t N>
+template <std::size_t N, typename FPType>
 inline bool checkIsClose(const std::string &name,
-                         const boost::multi_array<double, N> &actual,
-                         const boost::multi_array<double, N> &expected,
+                         const boost::multi_array<FPType, N> &actual,
+                         const boost::multi_array<FPType, N> &expected,
                          double relativeTolerance,
                          double absoluteTolerance = 0) {
   assert(actual.storage_order() == boost::c_storage_order());

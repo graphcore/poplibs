@@ -35,6 +35,7 @@ add_library(poplibs_test SHARED
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Pass.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Pooling.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Rnn.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/ROIAlign.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/SparseMatrix.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Util.hpp
 )

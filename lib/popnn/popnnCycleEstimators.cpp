@@ -413,6 +413,18 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SelectiveScaling)(
   return 10;
 }
 
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ROIAlignForward)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  // TODO
+  return 10;
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ROIAlignBackward)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  // TODO
+  return 10;
+}
+
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(MaxPoolingGrad)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   (void)type;
@@ -898,6 +910,12 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
 
       CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, HALF),
+
+      CYCLE_ESTIMATOR_ENTRY(popnn, ROIAlignForward, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ROIAlignForward, HALF),
+
+      CYCLE_ESTIMATOR_ENTRY(popnn, ROIAlignBackward, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, ROIAlignBackward, HALF),
 
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCAlpha, FLOAT, FLOAT, UNSIGNED_INT, true),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCAlpha, HALF, HALF, UNSIGNED_INT, true),

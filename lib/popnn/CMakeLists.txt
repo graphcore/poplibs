@@ -35,6 +35,7 @@ add_library(popnn SHARED
   PerformanceEstimation.hpp
   Recurrent.cpp
   SpatialSoftMax.cpp
+  ROIAlign.cpp
   ${CMAKE_SOURCE_DIR}/include/popnn/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/BatchNorm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/CTCPlan.hpp
@@ -57,6 +58,7 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/Pooling.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Recurrent.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/SpatialSoftMax.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/experimental/ROIAlign.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/Compiler.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/gcd.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/VectorUtils.hpp
@@ -125,6 +127,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceMinClassSparse.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectiveScaling.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SumPooling.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ROIAlign.cpp
   HEADERS
     PerformanceEstimation.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LogOps.hpp
