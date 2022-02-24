@@ -123,6 +123,10 @@ void addTransposeVertices(
     std::function<std::pair<const poplar::Tensor, const poplar::Tensor>(size_t)>
         getInOut,
     const DebugContext &debugContext) {
+  // dType == QUARTER implemented with vertices of type UNSIGNED_CHAR to
+  // avoid attachment of metadata
+  const auto dTypeVertex = dType == QUARTER ? UNSIGNED_CHAR : dType;
+
   const auto &validTypes = getValidTransposeDataTypes();
   if (std::find(validTypes.begin(), validTypes.end(), dType) ==
       validTypes.end()) {
@@ -207,13 +211,14 @@ void addTransposeVertices(
                transposition != interval.end(); ++transposition) {
             poplar::Tensor in, out;
             std::tie(in, out) = getInOut(transposition);
-            inVec.push_back(in);
-            outVec.push_back(out);
+            inVec.push_back(in.reinterpret(dTypeVertex));
+            outVec.push_back(out.reinterpret(dTypeVertex));
             graph.setTileMapping(out, tile);
           }
         }
         std::string vertexName = vertexNames[vType];
-        const auto v = graph.addVertex(cs, templateVertex(vertexName, dType));
+        const auto v =
+            graph.addVertex(cs, templateVertex(vertexName, dTypeVertex));
 
         graph.setTileMapping(v, tile);
         if (vType == Transpose1DSingleWorker || vType == Transpose1D ||

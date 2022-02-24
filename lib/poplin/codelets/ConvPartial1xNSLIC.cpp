@@ -96,9 +96,6 @@ public:
                                           windowWidth, numConvChains>()));
 
   bool compute() {
-    const auto convInputLoadElems = std::is_same<FPType, float>::value
-                                        ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
-                                        : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
     constexpr unsigned outFieldBufferOffset = 200u / sizeof(AccumType);
 
     const unsigned chansPerGroup = 1 << chansPerGroupLog2;

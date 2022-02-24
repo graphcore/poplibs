@@ -81,9 +81,11 @@ public:
       (hasAssembly<FPType, AccumType, useLimitedVer, numConvUnits>()));
 
   bool compute() {
-    const unsigned convInputLoadElems = std::is_same<FPType, float>::value
-                                            ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
-                                            : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
+    const unsigned convInputLoadElems =
+        std::is_same<FPType, float>::value ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
+        : std::is_same<FPType, half>::value
+            ? CONV_UNIT_INPUT_LOAD_ELEMS_HALF
+            : CONV_UNIT_INPUT_LOAD_ELEMS_QUARTER;
     const unsigned usedContexts = CTXT_WORKERS;
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;

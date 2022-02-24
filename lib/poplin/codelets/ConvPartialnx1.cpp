@@ -100,9 +100,11 @@ public:
 
   bool compute() {
     const unsigned numWorkers = CTXT_WORKERS;
-    const unsigned convInputLoadElems = std::is_same<FPType, float>::value
-                                            ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
-                                            : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
+    const unsigned convInputLoadElems =
+        std::is_same<FPType, float>::value ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
+        : std::is_same<FPType, half>::value
+            ? CONV_UNIT_INPUT_LOAD_ELEMS_HALF
+            : CONV_UNIT_INPUT_LOAD_ELEMS_QUARTER;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned ampKernelHeight = ampKernelHeightM1 + 1;
@@ -177,7 +179,9 @@ public:
                 while (wi < wl.size()) {
                   const auto accumTypeSize =
                       std::is_same<AccumType, float>() ? 4 : 2;
-                  const auto typeSize = std::is_same<FPType, float>() ? 4 : 2;
+                  const auto typeSize = std::is_same<FPType, float>()  ? 4
+                                        : std::is_same<FPType, half>() ? 2
+                                                                       : 1;
                   const auto outOffset =
                       (wl[wi] * 8) / (outChansPerGroup * accumTypeSize);
                   // The numFieldElems values from worklist is less by 3
