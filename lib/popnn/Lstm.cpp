@@ -7,6 +7,7 @@
 #include <popnn/Lstm.hpp>
 #include <popnn/NonLinearityDef.hpp>
 #include <popops/Cast.hpp>
+#include <popops/Pad.hpp>
 
 #include "MatMulInternal.hpp"
 #include "RnnUtil.hpp"
@@ -1024,7 +1025,20 @@ static Tensor lstmFwd(Graph &graph, const LstmParams &params,
       }
       auto newStateTensor = newState.getAsTensor();
       auto stateTensor = concat(fwdState);
-      loop.add(Copy(newStateTensor, stateTensor, false, {dnai}));
+
+      if (batchwiseFlags.valid() && params.preserveFinalState) {
+        // Create a mask which preserves the previous internal state but
+        // not the previous output
+        std::vector<long> shape = {
+            static_cast<long>(batchwiseFlags.inverse.numElements())};
+        auto mask = pad(graph, batchwiseFlags.inverse, shape, {0})
+                        .reshape({2, batchwiseFlags.inverse.numElements(), 1});
+        mapInPlace(graph, expr::_2 + expr::_3 * expr::_4,
+                   {stateTensor, newStateTensor, stateTensor, mask}, loop,
+                   {dnai, "preserveState"});
+      } else {
+        loop.add(Copy(newStateTensor, stateTensor, false, {dnai}));
+      }
     } else {
       basicLstmCellForwardPassInPlace(graph, fwdInput, weights.biases, state,
                                       inputWeightsPtr, weights.outputWeights,
@@ -1093,16 +1107,6 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
       lstmFwd(graph, params, fwdProg, fwdStateInit, weights, prevLayerActs,
               intermediatesSeq, &finalCellState, debugContext, options, cache);
   return {output, finalCellState};
-}
-
-Tensor lstmFwd(Graph &graph, const LstmParams &params, program::Sequence &prog,
-               const LstmState &fwdStateInit, const LstmWeights &weights,
-               const Tensor &prevLayerActs, Tensor *intermediatesSeq,
-               const poplar::DebugContext &debugContext,
-               const OptionFlags &options,
-               poplin::matmul::PlanningCache *cache) {
-  return lstmFwd(graph, params, prog, fwdStateInit, weights, prevLayerActs,
-                 intermediatesSeq, nullptr, debugContext, options, cache);
 }
 
 static Tensor lstmBwdRearrangeWeights(Graph &graph, const LstmParams &params,

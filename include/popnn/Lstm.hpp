@@ -53,6 +53,13 @@ struct LstmParams {
   /// If this parameter is set to false then the LSTM will skip the
   /// calculation of the gradients of the inputs.
   bool calcInputGradients = true;
+  /// If this parameter is set to true then the LSTM will preserve the internal
+  /// state at the last valid timestep for each batch entry when using
+  /// variable timesteps. This may come with a speed penalty.
+  /// See RnnParams for information about variable timesteps.
+  /// Use of this parameter does not affect the retained intermediate results in
+  /// the case of training.
+  bool preserveFinalState = false;
   /// The weights and biases for all of the layers being processed are
   /// concatenated in the outermost dimension of the weights and biases tensors.
   /// This option allows you to specify the order of the gates in that outermost
