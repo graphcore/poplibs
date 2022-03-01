@@ -3568,15 +3568,27 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
 
   // The grainsize can be constrained externally so bytesPerGrain must be
   // derived from it
-  const auto unslicedGrainSize =
-      options.planConstraints.get_optional<unsigned>("unslicedGrainSize")
+  std::size_t unslicedGrainSize =
+      options.planConstraints.get_optional<std::size_t>("unslicedGrainSize")
           .value_or(ceildiv(lcm(minGrainSizeBytes, dataElementSize),
                             dataElementSize));
+
+  // If the output size is less than the grain size, we could either pad, which
+  // actually increases the base memory requirement, or we allocate as much
+  // memory as would be required without padding. The calculations here do
+  // not exactly match the implementations as we also must include the effect
+  // of grain size from exchange. The actual graining is done on the product
+  // of the sliced and unsliced dimension.
+  // See T56837
+  unslicedGrainSize = std::min(outputSize, unslicedGrainSize);
   const auto bytesPerGrain = unslicedGrainSize * dataElementSize;
+  const auto subWordWritesRequired =
+      bytesPerGrain % target.getAtomicStoreGranularity() != 0;
 
   partition.groupSplit = m.addVariable(1, groupSize, "groupSplit");
   partition.unslicedGrainSize =
       m.addConstant(unslicedGrainSize, "unslicedGrainSize");
+  const auto mElemsPerGrain = m.addConstant(unslicedGrainSize);
   const auto mBytesPerGrain = m.addConstant(bytesPerGrain);
   const auto mOutputSize = m.addConstant(outputSize, "outputSize");
 
@@ -3640,15 +3652,15 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
       m.product({mUnslicedGrainsPerGroupPerTile, mDictEntriesPerGroupPerTile});
 
   const auto mUnslicedElemsPerGroupPerTile =
-      m.product({mUnslicedGrainsPerGroupPerTile, partition.unslicedGrainSize});
+      m.product({mUnslicedGrainsPerGroupPerTile, mElemsPerGrain});
 
   // Calculate persistent bytes for storage per-tile.
   // We also spread base tensor grains over tiles that will use them when
   // allocating i.e. over lookupSplit tiles.
   const auto mBaseGrainsStoragePerGroupPerTile =
       m.ceildiv(mBaseGrainsPerGroupPerTile, partition.lookupSplit);
-  const auto mBaseElemsStoragePerGroupPerTile = m.product(
-      {mBaseGrainsStoragePerGroupPerTile, partition.unslicedGrainSize});
+  const auto mBaseElemsStoragePerGroupPerTile =
+      m.product({mBaseGrainsStoragePerGroupPerTile, mElemsPerGrain});
   e.baseStorageBytesPerTile =
       m.product({mBaseGrainsStoragePerGroupPerTile, mBytesPerGrain});
 
@@ -3682,7 +3694,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   const auto mOutputGrainsPerGroupPerTile = m.product(
       {mSecondStageLookupsPerGroupPerTile, mUnslicedGrainsPerGroupPerTile});
   const auto mOutputElemsPerGroupPerTile =
-      m.product({mOutputGrainsPerGroupPerTile, partition.unslicedGrainSize});
+      m.product({mOutputGrainsPerGroupPerTile, mElemsPerGrain});
 
   // The base tensor must be broadcast across the `partition.lookupSplit` groups
   // as it is distributed to balance memory. The indices must be received from a
@@ -3877,7 +3889,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // Temp bytes needed if the updates are multi-cast to tiles.
     const auto mUpdatesTempBytesPerGroupPerTile = m.product(
         {mDictIsSplit, mLookupsPerGroupPerTile, mUnslicedGrainsPerGroupPerTile,
-         partition.unslicedGrainSize, mBytesPerPartial});
+         mElemsPerGrain, mBytesPerPartial});
     // Temp bytes needed if the updates need to be cast to a higher precision
     // if they do not also need to be multi-cast - i.e. if not multi-cast
     // we will directly use the casted updates and they will stay live,
@@ -3888,7 +3900,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
 
     const auto mPartialElemsPerGroupPerTile =
         m.product({mDictEntriesPerGroupPerTile, mUnslicedGrainsPerGroupPerTile,
-                   partition.unslicedGrainSize});
+                   mElemsPerGrain});
 
     const auto mPartialElemsPerTile =
         m.product({mPartialElemsPerGroupPerTile, mGroupSizePerTile});
@@ -3925,7 +3937,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           {mUnslicedElemsPerGroupPerTile, mLookupsPerGroupPerTile, mNumEntries,
            mDictEntriesPerGroupPerTile, mNeedsCast, mGroupSizePerTile},
           [&target, &options, operation, offsetsPerDictEntry, useOrderingInfo,
-           &dataType,
+           &dataType, subWordWritesRequired,
            trySingleRegionOptimisation](const std::vector<unsigned> &values) {
             const auto elemsPerSlice = values[0];
             const auto numOffsets = values[1];
@@ -3981,9 +3993,8 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                           numOffsetsInRangePerWorker, maxOffsetsPerDictEntry,
                           true, useOrderingInfo, splitSingleRegion)
                     : getMultiUpdateOpCycleEstimate(
-                          targetMultiUpdateOpParams,
-                          /* subWordWritesRequired */ false, elemsPerSlice,
-                          numOffsets, numOffsetsInRangePerWorker,
+                          targetMultiUpdateOpParams, subWordWritesRequired,
+                          elemsPerSlice, numOffsets, numOffsetsInRangePerWorker,
                           maxOffsetsPerDictEntry, *operation, isScaled,
 
                           false, useOrderingInfo);
