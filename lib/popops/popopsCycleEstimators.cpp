@@ -2533,7 +2533,7 @@ MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInf2D)(const VertexIntrospector &vertex,
 static VertexPerfEstimate CompareAndSwapKeyValueCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, const Type &keyType,
     const std::optional<Type> &valueType = std::nullopt,
-    bool valuesAreSecondaryKey = false) {
+    bool valuesAreSecondaryKey = false, bool sortValuesInReversOrder = false) {
   std::uint64_t cycles = 0;
   std::uint64_t flops = 0;
 
@@ -2677,9 +2677,11 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistance)(
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistanceKeyVal)(
     const VertexIntrospector &vertex, const Target &target, const Type &keyType,
-    const Type &valueType, bool valuesAreSecondaryKey) {
+    const Type &valueType, bool valuesAreSecondaryKey,
+    bool sortValuesInReversOrder) {
   return CompareAndSwapKeyValueCycleEstimate(vertex, target, keyType, valueType,
-                                             valuesAreSecondaryKey);
+                                             valuesAreSecondaryKey,
+                                             sortValuesInReversOrder);
 }
 
 VertexPerfEstimate
@@ -2930,7 +2932,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
       CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::MULTIPLY, HALF)
 
 #define SCALED_ADD_CYCLE_ESTIM_ENTRIES(NAME, TYPE1, TYPE2, TYPE3)              \
-      CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, true),   \
+  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, true),       \
       CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, false)
 
 // A couple of macros to create more compactly the entries for the various
@@ -3399,33 +3401,53 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, INT),
 
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
-                            FLOAT, false),
+                            FLOAT, false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
-                            UNSIGNED_INT, false),
+                            UNSIGNED_INT, false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT, INT,
-                            false),
+                            false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal,
-                            UNSIGNED_INT, FLOAT, false),
+                            UNSIGNED_INT, FLOAT, false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT, FLOAT,
-                            false),
+                            false, false),
+
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
-                            FLOAT, true),
+                            FLOAT, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
-                            UNSIGNED_INT, true),
+                            UNSIGNED_INT, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT, INT,
-                            true),
+                            true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal,
-                            UNSIGNED_INT, FLOAT, true),
+                            UNSIGNED_INT, FLOAT, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal,
-                            UNSIGNED_INT, UNSIGNED_INT, true),
+                            UNSIGNED_INT, UNSIGNED_INT, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal,
-                            UNSIGNED_INT, INT, true),
+                            UNSIGNED_INT, INT, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT, FLOAT,
-                            true),
+                            true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT,
-                            UNSIGNED_INT, true),
+                            UNSIGNED_INT, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT, INT,
-                            true),
+                            true, false),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
+                            FLOAT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
+                            UNSIGNED_INT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT, INT,
+                            true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal,
+                            UNSIGNED_INT, FLOAT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal,
+                            UNSIGNED_INT, UNSIGNED_INT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal,
+                            UNSIGNED_INT, INT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT, FLOAT,
+                            true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT,
+                            UNSIGNED_INT, true, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT, INT,
+                            true, true),
   };
 
   for (const auto &entry : unaryOpPerfInfo) {

@@ -8,7 +8,7 @@
 #include "CommonPoplibsMacros.h.S"
 
 #define COMPARE_AND_SWAP_KEY_FLOAT_SECTION .text.CompareAndSwapAtDistanceKeyVal_float
-#define COMPARE_AND_SWAP_VALUE_FLOAT_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_float_false
+#define COMPARE_AND_SWAP_VALUE_FLOAT_SYMBOL __runCodelet_popops__CompareAndSwapAtDistanceKeyVal___float_float_false_false
 
 #define STATE_OFFSET_keys 0
 #define STATE_OFFSET_values 4

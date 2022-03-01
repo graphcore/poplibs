@@ -70,7 +70,7 @@ Tensor topK(Graph &graph, Sequence &prog, const Tensor &t,
   const bool ascending = params.sortOrder != SortOrder::DESCENDING;
   const auto result =
       bitonic::topKImpl(graph, prog, t, std::nullopt, params.k, params.largest,
-                        sorted, ascending, params.stableSort, {di})
+                        sorted, ascending, params.stableSort, false, {di})
           .first;
   di.addOutput(result);
   return result;
@@ -92,7 +92,7 @@ std::pair<Tensor, Tensor> topKKeyValue(Graph &graph, Sequence &prog,
   const bool ascending = params.sortOrder != SortOrder::DESCENDING;
   const auto result =
       bitonic::topKImpl(graph, prog, key, value, params.k, params.largest,
-                        sorted, ascending, params.stableSort, {di});
+                        sorted, ascending, params.stableSort, false, {di});
   di.addOutput(result.first);
   di.addOutput(result.second);
   return result;
@@ -107,7 +107,7 @@ topKWithPermutation(Graph &graph, Sequence &prog, const Tensor &t,
       t.shape(), t.elementType(), params, debugContext.getPathName());
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, params));
-  const bool sorted = params.sortOrder != SortOrder::NONE;
+  const bool sortOrderIsNotNone = params.sortOrder != SortOrder::NONE;
   const bool ascending = params.sortOrder != SortOrder::DESCENDING;
 
   const auto numElems = t.numElements();
@@ -128,9 +128,30 @@ topKWithPermutation(Graph &graph, Sequence &prog, const Tensor &t,
     poputil::mapTensorLinearly(graph, iota);
     prog.add(Copy(iota.broadcast(b, 0).flatten(), indicesToPermute.flatten()));
   }
-  const auto result = bitonic::topKImpl(graph, prog, t, indicesToPermute,
-                                        params.k, params.largest, sorted,
-                                        ascending, params.stableSort, {di});
+  // in some cases with stable sort we need to change order of values after
+  // initial sort.
+  // i.e. after first sort: keys={41,41}, values={3,2}
+  // => after resort:       keys={41,41}, values={2,3}
+  const bool resultNeedResorting =
+      params.stableSort && params.k != n && (ascending == params.largest);
+  // in case of resorting force sort order to NONE for better performance
+  const bool sorted = sortOrderIsNotNone && !resultNeedResorting;
+  // flag thats allow to sort values in different order than keys. i.e. highest
+  // keys with lowest values and so on.
+  const bool stableSortIndicesInReverseOrder =
+      params.stableSort &&
+      ((params.k == n && !ascending) || (params.k != n && params.largest));
+
+  auto result = bitonic::topKImpl(
+      graph, prog, t, indicesToPermute, params.k, params.largest, sorted,
+      ascending, params.stableSort, stableSortIndicesInReverseOrder, {di});
+  if (resultNeedResorting) {
+    result = bitonic::topKImpl(graph, prog, result.first, result.second,
+                               params.k, params.largest, true, ascending, true,
+                               !stableSortIndicesInReverseOrder,
+                               {di, "resortIndices"});
+  }
+
   di.addOutput(result.first);
   di.addOutput(result.second);
   return result;

@@ -117,6 +117,40 @@ void inline writeRandomValuesWithRepetitions(const poplar::Target &target,
                                           repeatProbabilty, randomEngine);
 }
 
+template <class T, std::size_t N>
+void inline writeRandomValuesWithRepetitions(const poplar::Target &target,
+                                             const poplar::Type &type,
+                                             boost::multi_array<T, N> &a, T min,
+                                             T max, double repeatProbabilty,
+                                             std::mt19937 &randomEngine) {
+  return writeRandomValuesWithRepetitions(target, type, a.data(),
+                                          a.data() + a.num_elements(), min, max,
+                                          repeatProbabilty, randomEngine);
+}
+
+template <class T>
+void inline writeRandomValuesWithRepetitions(const poplar::Target &target,
+                                             const poplar::Type &type,
+                                             poplibs_support::MultiArray<T> &a,
+                                             T min, T max,
+                                             double repeatProbabilty,
+                                             std::mt19937 &randomEngine) {
+  return writeRandomValuesWithRepetitions(target, type, a.data(),
+                                          a.data() + a.numElements(), min, max,
+                                          repeatProbabilty, randomEngine);
+}
+
+template <typename T, std::size_t N>
+void inline writeRandomValuesWithRepetitions(
+    const poplar::Target &target, const poplar::Type type,
+    std::vector<boost::multi_array<T, N>> &a, const T min, const T max,
+    double repeatProbabilty, std::mt19937 &randomEngine) {
+  for (unsigned i = 0; i < a.size(); ++i) {
+    writeRandomValuesWithRepetitions(target, type, a[i], min, max,
+                                     repeatProbabilty, randomEngine);
+  }
+}
+
 size_t maxContiguousInteger(const poplar::Type &t);
 
 size_t maxContiguousIntegerFromBinaryOp(const poplar::Type &inputType,

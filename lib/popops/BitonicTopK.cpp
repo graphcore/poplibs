@@ -499,11 +499,12 @@ struct WorklistBuilder {
  */
 static std::string getVertexClass(const Tensor &keys,
                                   const std::optional<Tensor> &values,
-                                  const bool valuesAreSecondaryKey) {
+                                  const bool valuesAreSecondaryKey,
+                                  bool sortValuesInReversOrder) {
   if (values) {
     return templateVertex("popops::CompareAndSwapAtDistanceKeyVal",
                           keys.elementType(), values->elementType(),
-                          valuesAreSecondaryKey);
+                          valuesAreSecondaryKey, sortValuesInReversOrder);
   } else {
     return templateVertex("popops::CompareAndSwapAtDistance",
                           keys.elementType());
@@ -513,7 +514,8 @@ static std::string getVertexClass(const Tensor &keys,
 static void
 compareAndSwapAtDistance(Graph &graph, Sequence &prog, const Tensor &keys,
                          std::optional<Tensor> values,
-                         bool valuesIsSecondaryKey, unsigned distance,
+                         bool valuesIsSecondaryKey,
+                         bool sortValuesInReversOrder, unsigned distance,
                          unsigned distanceToChangeOrder, bool initialOrder,
                          unsigned nActive, const DebugNameAndId &dnai) {
   assert(!values || keys.shape() == values->shape());
@@ -525,7 +527,8 @@ compareAndSwapAtDistance(Graph &graph, Sequence &prog, const Tensor &keys,
   if (!valuesIsSecondaryKey && values && values->elementType() != FLOAT) {
     values = values->reinterpret(FLOAT);
   }
-  const auto vertexClass = getVertexClass(keys, values, valuesIsSecondaryKey);
+  const auto vertexClass = getVertexClass(keys, values, valuesIsSecondaryKey,
+                                          sortValuesInReversOrder);
 
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
@@ -683,7 +686,8 @@ std::pair<Tensor, Tensor>
 topKImpl(Graph &graph, Sequence &prog, const Tensor &t_,
          const std::optional<Tensor> &other_, const unsigned k,
          const bool largest, const bool sorted, const bool ascendingOrder,
-         bool otherIsSecondaryKey, const DebugNameAndId &dnai) {
+         const bool otherIsSecondaryKey, const bool sortOtherInReverseOrder,
+         const DebugNameAndId &dnai) {
 
   if (other_ && (other_->shape() != t_.shape())) {
     throw poplibs_error("t.shape() (" + toString(t_.shape()) +
@@ -873,8 +877,9 @@ topKImpl(Graph &graph, Sequence &prog, const Tensor &t_,
     const auto changeDirDistance =
         mergeStep < logK ? mergeDistance : 1u << (logN - 1);
     compareAndSwapAtDistance(graph, prog, t, other, otherIsSecondaryKey,
-                             mergeDistance * b, changeDirDistance * b,
-                             mergeOrder, nThisStep * b, {dnai, stepName});
+                             sortOtherInReverseOrder, mergeDistance * b,
+                             changeDirDistance * b, mergeOrder, nThisStep * b,
+                             {dnai, stepName});
 
     t = toCanonicalOrder(graph, t, mergeDistance * b, nThisStep * b);
     if (other) {
@@ -949,8 +954,9 @@ topKImpl(Graph &graph, Sequence &prog, const Tensor &t_,
       }
 
       compareAndSwapAtDistance(graph, prog, t, other, otherIsSecondaryKey,
-                               sortDistance * b, changeDirDistance * b,
-                               sortOrder, nThisStep * b, {dnai, stepName});
+                               sortOtherInReverseOrder, sortDistance * b,
+                               changeDirDistance * b, sortOrder, nThisStep * b,
+                               {dnai, stepName});
       t = toCanonicalOrder(graph, t, sortDistance * b, nThisStep * b);
       if (other) {
         other =

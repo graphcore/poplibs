@@ -201,14 +201,14 @@ int main(int argc, char **argv) try {
     return 1;
   }
 
+  if (stableSort && !returnIndices) {
+    std::cerr << "Stable sort testing requires return-indices turned on.\n";
+    return 1;
+  }
+
   switch (api) {
   case API::Popops:
-    if (sortOrder == popops::SortOrder::NONE && stableSort) {
-      std::cerr << "Warning: popops API doesn't support stable sorting while "
-                   "sort order is set to NONE. Forcing "
-                   "stableSort to false.\n";
-      stableSort = false;
-    }
+    // Nothing. Popops API supports all arguments.
     break;
   case API::Popnn:
     if (!returnIndices) {
@@ -407,11 +407,22 @@ int main(int argc, char **argv) try {
   }
 
   // Verify against top-k on the host.
-  const auto partialSortComparator =
-      [&]() -> std::function<bool(double, double)> {
+  //
+  // Used in partial_sort to bring largest or smallest k to the front
+  const auto topKComparator = [&]() -> std::function<bool(double, double)> {
     if (largest) {
       return std::greater<double>{};
     } else {
+      return std::less<double>{};
+    }
+  }();
+
+  // Used to sort largest/smallest k values after partial_sort
+  const auto sortComparator = [&]() -> std::function<bool(double, double)> {
+    if (sortOrder == popops::SortOrder::DESCENDING) {
+      return std::greater<double>{};
+    } else {
+      // Also if SortOrder::NONE to make validation easier
       return std::less<double>{};
     }
   }();
@@ -422,19 +433,23 @@ int main(int argc, char **argv) try {
     std::vector<unsigned> indices(n);
     for (unsigned batchIdx = 0; batchIdx < batchSize; ++batchIdx) {
       std::iota(indices.begin(), indices.end(), 0);
-      std::partial_sort(indices.begin(), indices.begin() + k, indices.end(),
-                        [&](unsigned a, unsigned b) {
-                          return partialSortComparator(
-                              hostIn[batchIdx * n + a],
-                              hostIn[batchIdx * n + b]);
-                        });
-      // Result of the partial sort will be ordered differently depending on
-      // whether we wanted the largest or smallest top-k elements, so ensure the
-      // requested correct ordering.
-      if ((largest && sortOrder == popops::SortOrder::ASCENDING) ||
-          (!largest && sortOrder == popops::SortOrder::DESCENDING)) {
-        std::reverse(indices.begin(), indices.begin() + k);
+      if (k != n) {
+        std::partial_sort(indices.begin(), indices.begin() + k, indices.end(),
+                          [&](unsigned a, unsigned b) {
+                            const auto &aKey = hostIn[batchIdx * n + a];
+                            const auto &bKey = hostIn[batchIdx * n + b];
+                            if (aKey != bKey) {
+                              return topKComparator(aKey, bKey);
+                            }
+                            return a < b;
+                          });
       }
+      std::stable_sort(indices.begin(), indices.begin() + k,
+                       [&](unsigned a, unsigned b) {
+                         const auto &aKey = hostIn[batchIdx * n + a];
+                         const auto &bKey = hostIn[batchIdx * n + b];
+                         return sortComparator(aKey, bKey);
+                       });
       for (unsigned i = 0; i < k; ++i) {
         modelIndicesOut[batchIdx * k + i] = indices[i];
         modelValuesOut[batchIdx * k + i] = hostIn[batchIdx * n + indices[i]];
@@ -450,11 +465,11 @@ int main(int argc, char **argv) try {
     std::vector<unsigned> indexBuffer(k);
     for (unsigned batchIdx = 0; batchIdx < batchSize; ++batchIdx) {
       std::iota(sortedIndices.begin(), sortedIndices.end(), 0);
-      std::sort(sortedIndices.begin(), sortedIndices.end(),
-                [&](unsigned a, unsigned b) {
-                  return partialSortComparator(hostValuesOut[batchIdx * k + a],
+      std::stable_sort(sortedIndices.begin(), sortedIndices.end(),
+                       [&](unsigned a, unsigned b) {
+                         return sortComparator(hostValuesOut[batchIdx * k + a],
                                                hostValuesOut[batchIdx * k + b]);
-                });
+                       });
       if (returnIndices) {
         std::copy_n(&hostIndicesOut[batchIdx * k], k, indexBuffer.begin());
         for (unsigned i = 0; i < k; ++i) {
@@ -473,38 +488,34 @@ int main(int argc, char **argv) try {
   double relTolerance = dataType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
   double absTolerance = dataType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
   if (returnIndices) {
-    // Because 2 values might be equal and therefore the order of the indices
-    // is not well defined, we don't directly check the indices but instead
-    // check the values the indices point to match the data.
-    std::vector<double> indexedValues(batchSize * k);
-    for (unsigned batchIdx = 0; batchIdx < batchSize; ++batchIdx) {
-      for (unsigned i = 0; i < k; ++i) {
-        const auto hostIndexOut = hostIndicesOut[batchIdx * k + i];
-        if (hostIndexOut >= n) {
-          std::cerr << "indices[" << batchIdx << "][" << i
-                    << "]=" << hostIndexOut
-                    << " which is not a valid index (n=" << n << ")\n";
-          matchesModel = false;
-        } else {
-          indexedValues[batchIdx * k + i] = hostIn[batchIdx * n + hostIndexOut];
-        }
-      }
-    }
-    matchesModel &= checkIsClose("indexedValues", indexedValues.data(),
-                                 {batchSize, k}, modelValuesOut.data(),
-                                 batchSize * k, relTolerance, absTolerance);
-    if (stableSort && k > 1) {
+    if (!stableSort) {
+      // Because 2 values might be equal and therefore the order of the indices
+      // is not well defined, we don't directly check the indices but instead
+      // check the values the indices point to match the data.
+      std::vector<double> indexedValues(batchSize * k);
       for (unsigned batchIdx = 0; batchIdx < batchSize; ++batchIdx) {
-        for (unsigned i = 0; i < k - 1; ++i) {
-          const unsigned index = batchIdx * k + i;
-          if (hostValuesOut[index] == hostValuesOut[index + 1] &&
-              ((sortOrder == popops::SortOrder::ASCENDING &&
-                hostIndicesOut[index] > hostIndicesOut[index + 1]) ||
-               (sortOrder == popops::SortOrder::DESCENDING &&
-                hostIndicesOut[index] < hostIndicesOut[index + 1])))
-            matchesModel &= false;
+        for (unsigned i = 0; i < k; ++i) {
+          const auto hostIndexOut = hostIndicesOut[batchIdx * k + i];
+          if (hostIndexOut >= n) {
+            std::cerr << "indices[" << batchIdx << "][" << i
+                      << "]=" << hostIndexOut
+                      << " which is not a valid index (n=" << n << ")\n";
+            matchesModel = false;
+          } else {
+            indexedValues[batchIdx * k + i] =
+                hostIn[batchIdx * n + hostIndexOut];
+          }
         }
       }
+      matchesModel &= checkIsClose("indexedValues", indexedValues.data(),
+                                   {batchSize, k}, modelValuesOut.data(),
+                                   batchSize * k, relTolerance, absTolerance);
+    } else {
+      // NOTE: If sortOrder == SortOrder::NONE, we did a stable sort of
+      // the resulting data so this test should also work.
+      matchesModel &=
+          checkEqual("indices", hostIndicesOut.data(), {batchSize, k},
+                     modelIndicesOut.data(), batchSize * k);
     }
   }
   if (returnValues) {

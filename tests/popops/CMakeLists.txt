@@ -1568,22 +1568,6 @@ foreach(DATA_TYPE half float unsigned int)
               --sort-order=${SORT_ORDER}
               --tiles-per-ipu=4)
 
-          if (INDICES)
-            add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1000_k100_largest${LARGEST}_${SORT_ORDER}_stableSort
-              COMMAND topk
-                --n 1000
-                --k 100
-                --batch-size ${BATCH_SIZE}
-                --data-type ${DATA_TYPE}
-                --index-type uint
-                --return-indices ${INDICES}
-                --largest ${LARGEST}
-                --sort-order=${SORT_ORDER}
-                --api=popops
-                --stable-sort=1
-                --tiles-per-ipu=4
-              VARIANTS ${IPUMODEL_VARIANTS})
-          endif()
         endforeach()
       endforeach()
 
@@ -1668,6 +1652,28 @@ foreach(DATA_TYPE half float unsigned int)
       endforeach()
     endforeach()
   endforeach()
+
+  foreach(BATCH_SIZE 1 3)
+    foreach(SORT_ORDER ascending descending none)
+      foreach(LARGEST 0 1)
+        add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices_b${BATCH_SIZE}_n1000_k100_largest${LARGEST}_${SORT_ORDER}_stableSort
+          COMMAND topk
+            --n 1000
+            --k 100
+            --batch-size ${BATCH_SIZE}
+            --data-type ${DATA_TYPE}
+            --index-type uint
+            --return-indices=1
+            --largest ${LARGEST}
+            --sort-order=${SORT_ORDER}
+            --api=popops
+            --stable-sort=1
+            --tiles-per-ipu=4
+          VARIANTS ${IPUMODEL_VARIANTS})
+      endforeach()
+    endforeach()
+  endforeach()
+
 endforeach()
 
 add_unit_test(LoopTest LoopTest.cpp)
