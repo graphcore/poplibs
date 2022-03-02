@@ -146,7 +146,6 @@ add_gp_library(
 
   HEADERS
     PerformanceEstimation.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/convCastSupport.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Dot.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerConv.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerSLIC.hpp
