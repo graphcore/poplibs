@@ -33,9 +33,13 @@ static AccumType promoteType(FPType in, quarter_metadata metadata) {
     return AccumType(in);
   }
 #else
-  // Presently unused
-  AccumType result;
-  return result;
+  if constexpr (std::is_same<FPType, quarter>::value) {
+    AccumType result;
+    // Currently unused
+    return result;
+  } else {
+    return AccumType(in);
+  }
 #endif
 }
 
