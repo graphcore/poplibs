@@ -7,6 +7,7 @@
 #include <type_traits>
 
 #include "ConvPartialsStridesPacking.hpp"
+#include "convCastSupport.hpp"
 #include "poplar/TileConstants.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 
@@ -102,7 +103,9 @@ public:
             .first;
 
     const UnsignedType accumTypeSize = std::is_same<AccumType, float>() ? 4 : 2;
-    const UnsignedType typeSize = std::is_same<FPType, float>() ? 4 : 2;
+    const UnsignedType typeSize = std::is_same<FPType, float>()
+                                      ? 4
+                                      : (std::is_same<FPType, half>() ? 2 : 1);
 
     // TODO(T35918): Use this struct inside the worklists' definition.
     struct WorklistEntry {
@@ -144,8 +147,10 @@ public:
 
                 float sum = 0;
                 for (unsigned inChan = 0; inChan < inChansPerGroup; ++inChan) {
-                  sum += float(in[inRow][inCol + inChan]) *
-                         float(weights[wRow][wCol + inChan]);
+                  sum += promoteType<FPType, float>(in[inRow][inCol + inChan],
+                                                    inMetadata) *
+                         promoteType<FPType, float>(
+                             weights[wRow][wCol + inChan], weightsMetadata);
                 }
 
                 if (ig == 0)
@@ -325,11 +330,9 @@ template class ConvPartial1x1Out<float, float, true, true, 16>;
 template class ConvPartial1x1Out<half, half, false, true, 16>;
 template class ConvPartial1x1Out<float, float, false, true, 16>;
 
-#if __IPU_ARCH_VERSION__ >= 21
 template class ConvPartial1x1Out<quarter, half, true, false, 16>;
 template class ConvPartial1x1Out<quarter, half, true, true, 16>;
 template class ConvPartial1x1Out<quarter, half, false, false, 16>;
 template class ConvPartial1x1Out<quarter, half, false, true, 16>;
-#endif
 
 } // end namespace poplin

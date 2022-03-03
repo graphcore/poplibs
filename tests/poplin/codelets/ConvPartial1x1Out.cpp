@@ -35,7 +35,8 @@ boost::test_tools::assertion_result isIpu2(boost::unit_test::test_unit_id = 0) {
 // Some test cases are to be run only on IPU21
 boost::test_tools::assertion_result
 isIpu21(boost::unit_test::test_unit_id = 0) {
-  return TEST_TARGET == DeviceType::Sim21;
+  return TEST_TARGET == DeviceType::Sim21 ||
+         TEST_TARGET == DeviceType::IpuModel21;
 }
 
 const unsigned LOAD_SIZE = 8; // How many bytes in one 'ld64' IPU instruction
