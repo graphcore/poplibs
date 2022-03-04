@@ -354,13 +354,14 @@ void runTest(const struct testParams &t) {
     // But then when doing the convolution 2^(scaleWeights + scaleIn) should be
     // applied so we get the same result.  (Subject to values being
     // representable in each number format)
-    auto weightsMetaData =
-        createFp8MetaDataTensor(graph, t.weightFp8Format, t.weightFp8Scale);
-    auto inMetaData =
-        createFp8MetaDataTensor(graph, t.inputFp8Format, t.inputFp8Scale);
+    auto weightsMetadata =
+        createFp8MetadataTensor(graph, t.weightFp8Format, t.weightFp8Scale);
+    auto inMetadata =
+        createFp8MetadataTensor(graph, t.inputFp8Format, t.inputFp8Scale);
 
-    auto inFp8 = popops::cast(graph, in, QUARTER, inMetaData, prog, "CastIn");
-    auto weightsFp8 = popops::cast(graph, weights, QUARTER, weightsMetaData,
+    // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
+    auto inFp8 = popops::cast(graph, in, QUARTER, inMetadata, prog, "CastIn");
+    auto weightsFp8 = popops::cast(graph, weights, QUARTER, weightsMetadata,
                                    prog, "CastWeights");
     graph.connect(v["in"], inFp8);
     graph.connect(v["weights"], weightsFp8);

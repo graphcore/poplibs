@@ -325,9 +325,10 @@ int main(int argc, char **argv) {
 
   if (inputType == QUARTER) {
     matA.associateMetadata(
-        createFp8MetaDataTensor(graph, fp8FormatA, fp8ScaleA));
+        createFp8MetadataTensor(graph, fp8FormatA, fp8ScaleA));
     matB.associateMetadata(
-        createFp8MetaDataTensor(graph, fp8FormatB, fp8ScaleB));
+        createFp8MetadataTensor(graph, fp8FormatB, fp8ScaleB));
+    // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
     prog.add(cast(graph, matAToCopy, matA, "CastIn"));
     prog.add(cast(graph, matBToCopy, matB, "CastWeights"));
   }

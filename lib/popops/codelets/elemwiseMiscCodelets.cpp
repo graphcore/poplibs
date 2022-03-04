@@ -224,14 +224,14 @@ constexpr std::tuple<bool, unsigned, unsigned> getCastParams() {
 }
 
 template <typename SrcType, typename DstType, bool inlineAsm,
-          bool metaDataRequired>
+          bool metadataRequired>
 struct CastDispatch {
 public:
   static void compute(unsigned numElems, const SrcType *src, DstType *dst) {}
 };
 
 template <typename SrcType, typename DstType, bool inlineAsm,
-          bool metaDataRequired>
+          bool metadataRequired>
 struct CastDispatchMultiVertex {
 public:
   static void compute(unsigned numElems, unsigned wid, const SrcType *src,
@@ -399,7 +399,7 @@ public:
   static void compute(unsigned numElems, const SrcType *src, DstType *dst,
                       const MetadataType *metadataSrc,
                       const MetadataType *metadataDst) {
-    float2 metaData0, metaData1;
+    float2 metadata0, metadata1;
     if constexpr (!fp8ToFp8) {
       // Setup the Fp8 config once for the codelet
       if constexpr (std::is_same<SrcType, quarter>::value) {
@@ -409,20 +409,20 @@ public:
       }
     } else {
       // We need to keep changing these so extract the bitfield
-      metaData0 = extractMetaData(metadataSrc);
-      metaData1 = extractMetaDataNegScale(metadataDst);
+      metadata0 = extractMetadata(metadataSrc);
+      metadata1 = extractMetadataNegScale(metadataDst);
     }
     auto srcInternal = reinterpret_cast<const SrcTypeInternal *>(src);
     auto dstInternal = reinterpret_cast<DstTypeInternal *>(dst);
     inLineAssemblerCast<const SrcTypeInternal *, DstTypeInternal *, true,
                         1>::loopBody(numElems / 8, srcInternal, dstInternal,
-                                     metaData0, metaData1);
+                                     metadata0, metadata1);
     srcInternal += numElems & (~7);
     dstInternal += numElems & (~7);
     for (unsigned i = 0; i < (numElems & 7); i++) {
       *dstInternal++ =
           inLineAssemblerCast<const SrcTypeInternal *, DstTypeInternal *, true,
-                              1>::singleCast(srcInternal, metaData0, metaData1);
+                              1>::singleCast(srcInternal, metadata0, metadata1);
       srcInternal++;
     }
   }
@@ -445,7 +445,7 @@ public:
                       const MetadataType *metadataDst) {
 
     constexpr unsigned elemsPerLoop = 8;
-    float2 metaData0, metaData1;
+    float2 metadata0, metadata1;
     if constexpr (!fp8ToFp8) {
       // Setup the Fp8 config once for the codelet
       if constexpr (std::is_same<SrcType, quarter>::value) {
@@ -455,8 +455,8 @@ public:
       }
     } else {
       // We need to keep changing these so extract the bitfield
-      metaData0 = extractMetaData(metadataSrc);
-      metaData1 = extractMetaDataNegScale(metadataDst);
+      metadata0 = extractMetadata(metadataSrc);
+      metadata1 = extractMetadataNegScale(metadataDst);
     }
     auto srcInternal = reinterpret_cast<const SrcTypeInternal *>(src);
     auto dstInternal = reinterpret_cast<DstTypeInternal *>(dst);
@@ -464,8 +464,8 @@ public:
         const SrcTypeInternal *, DstTypeInternal *, true,
         CTXT_WORKERS>::loopBody(divideWork(numElems, 3, wid),
                                 &srcInternal[wid * elemsPerLoop],
-                                &dstInternal[wid * elemsPerLoop], metaData0,
-                                metaData1);
+                                &dstInternal[wid * elemsPerLoop], metadata0,
+                                metadata1);
     if (wid == CTXT_WORKERS - 1) {
       srcInternal += numElems & (~7);
       dstInternal += numElems & (~7);
@@ -473,8 +473,8 @@ public:
         *dstInternal++ =
             inLineAssemblerCast<const SrcTypeInternal *, DstTypeInternal *,
                                 true, CTXT_WORKERS>::singleCast(srcInternal,
-                                                                metaData0,
-                                                                metaData1);
+                                                                metadata0,
+                                                                metadata1);
         srcInternal++;
       }
     }

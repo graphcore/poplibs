@@ -83,6 +83,7 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, fillValue));
 
+  // TODO - T57116 - non zero values
   if (t.elementType() == QUARTER && fillValue != FillValueType(0)) {
     throw poputil::poplibs_error("Fill with data type quarter and non-zero"
                                  " values is not yet implemented");

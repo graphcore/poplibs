@@ -365,7 +365,7 @@ template <unsigned stride>
 class inLineAssemblerCast<const half *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) quarter
-  singleCast(const half *in, float2 metaData0, float2 metaData1) {
+  singleCast(const half *in, float2 metadata0, float2 metadata1) {
     quarter result;
     half2 in2 = {*in, *in};
     asm volatile(
@@ -381,7 +381,7 @@ public:
 
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const half *inPtr, quarter *outPtr,
-           float2 metaData0, float2 metaData1) {
+           float2 metadata0, float2 metadata1) {
     if constexpr (stride == CTXT_WORKERS) {
       CAST_FP_DEMOTE_LOOP(STR(CTXT_WORKERS), "f16v8tof8")
     } else {
@@ -395,7 +395,7 @@ template <unsigned stride>
 class inLineAssemblerCast<const quarter *, half *, true, stride> {
 public:
   static __attribute__((always_inline)) half
-  singleCast(const quarter *in, float2 metaData0, float2 metaData1) {
+  singleCast(const quarter *in, float2 metadata0, float2 metadata1) {
     half2 result;
     asm volatile(
         R"l(  ldb8 $a0, $mzero, %[in], 0
@@ -410,7 +410,7 @@ public:
 
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const quarter *inPtr, half *outPtr,
-           float2 metaData0, float2 metaData1) {
+           float2 metadata0, float2 metadata1) {
     if constexpr (stride == CTXT_WORKERS) {
       CAST_FP_PROMOTE_LOOP(STR(CTXT_WORKERS), "f8v4tof16")
     } else {
@@ -449,7 +449,7 @@ template <unsigned stride>
 class inLineAssemblerCast<const quarter *, char *, true, stride> {
 public:
   static __attribute__((always_inline)) char
-  singleCast(const quarter *in, float2 metaData0, float2 metaData1) {
+  singleCast(const quarter *in, float2 metadata0, float2 metadata1) {
     unsigned result;
     CAST_QUARTER_TO_INT8("f32toi32")
     return result;
@@ -463,7 +463,7 @@ public:
 
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const quarter *inPtr, char *outPtr,
-           float2 metaData0, float2 metaData1) {
+           float2 metadata0, float2 metadata1) {
     const float *inPtr4 = reinterpret_cast<const float *>(inPtr);
     float *outPtr4 = reinterpret_cast<float *>(outPtr);
     for (unsigned i = 0; i < loopCount; i++) {
@@ -480,7 +480,7 @@ template <unsigned stride>
 class inLineAssemblerCast<const quarter *, unsigned char *, true, stride> {
 public:
   static __attribute__((always_inline)) unsigned char
-  singleCast(const quarter *in, float2 metaData0, float2 metaData1) {
+  singleCast(const quarter *in, float2 metadata0, float2 metadata1) {
     unsigned result;
     CAST_QUARTER_TO_INT8("f32toui32")
     return result;
@@ -494,7 +494,7 @@ public:
 
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const quarter *inPtr, unsigned char *outPtr,
-           float2 metaData0, float2 metaData1) {
+           float2 metadata0, float2 metadata1) {
     const float *inPtr4 = reinterpret_cast<const float *>(inPtr);
     float *outPtr4 = reinterpret_cast<float *>(outPtr);
     for (unsigned i = 0; i < loopCount; i++) {
@@ -510,20 +510,20 @@ public:
 template <unsigned stride>
 class inLineAssemblerCast<const quarter *, quarter *, true, stride> {
 public:
-  static __attribute__((always_inline)) void setFp8Config(float2 metaData) {
+  static __attribute__((always_inline)) void setFp8Config(float2 metadata) {
     asm volatile(
         R"l(  uput $FP_SCL, %[scale]
               uput $FP_NFMT, %[format]
         )l"
         :
-        : [format] "r"(metaData[0]), [scale] "r"(metaData[1])
+        : [format] "r"(metadata[0]), [scale] "r"(metadata[1])
         :);
   }
 
   static __attribute__((always_inline)) quarter
-  singleCast(const quarter *in, float2 metaData0, float2 metaData1) {
+  singleCast(const quarter *in, float2 metadata0, float2 metadata1) {
     quarter result;
-    setFp8Config(metaData0);
+    setFp8Config(metadata0);
     asm volatile(
         R"l(  ldb8 $a0, $mzero, %[in], 0
               f8v2tof16 $a0, $a0
@@ -533,14 +533,14 @@ public:
               atom %[result], $a0
           )l"
         : [result] "=r"(result)
-        : [in] "r"(in), [scale] "r"(metaData1[1]), [format] "r"(metaData1[0])
+        : [in] "r"(in), [scale] "r"(metadata1[1]), [format] "r"(metadata1[0])
         : "$a0");
 
     return result;
   }
 
   static __attribute__((always_inline)) float2 vectorCast8(const float2 in,
-                                                           float2 metaData) {
+                                                           float2 metadata) {
     float2 out;
     asm volatile(
         R"l( f8v4tof16  $a0:1, %[in0]
@@ -550,20 +550,20 @@ public:
              f16v8tof8  %[out], $a0:3
         )l"
         : [out] "=r"(out)
-        : [in0] "r"(in[0]), [in1] "r"(in[1]), [scale] "r"(metaData[1]),
-          [format] "r"(metaData[0])
+        : [in0] "r"(in[0]), [in1] "r"(in[1]), [scale] "r"(metadata[1]),
+          [format] "r"(metadata[0])
         : "$a0:1", "$a2:3");
     return out;
   }
 
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const quarter *inPtr, quarter *outPtr,
-           float2 metaData0, float2 metaData1) {
+           float2 metadata0, float2 metadata1) {
     const float2 *inPtr8 = reinterpret_cast<const float2 *>(inPtr);
     float2 *outPtr8 = reinterpret_cast<float2 *>(outPtr);
     for (unsigned i = 0; i < loopCount; i++) {
-      setFp8Config(metaData0);
-      *outPtr8 = vectorCast8(*inPtr8, metaData1);
+      setFp8Config(metadata0);
+      *outPtr8 = vectorCast8(*inPtr8, metadata1);
       inPtr8 += stride;
       outPtr8 += stride;
     }
@@ -575,7 +575,7 @@ template <unsigned stride>
 class inLineAssemblerCast<const char *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) quarter
-  singleCast(const char *in, float2 metaData0, float2 metaData1) {
+  singleCast(const char *in, float2 metadata0, float2 metadata1) {
     quarter result;
     unsigned scratch;
     asm volatile(
@@ -627,7 +627,7 @@ public:
 
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const char *inPtr, quarter *outPtr,
-           float2 metaData0, float2 metaData1) {
+           float2 metadata0, float2 metadata1) {
     float *outPtr4 = reinterpret_cast<float *>(outPtr);
     for (unsigned i = 0; i < loopCount; i++) {
       *outPtr4++ = vectorCast4(inPtr);
@@ -644,7 +644,7 @@ template <unsigned stride>
 class inLineAssemblerCast<const unsigned char *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) quarter
-  singleCast(const unsigned char *in, float2 metaData0, float2 metaData1) {
+  singleCast(const unsigned char *in, float2 metadata0, float2 metadata1) {
     quarter result;
     asm volatile(
         R"l(  ldb8        $a0, $mzero, %[in], 0
@@ -688,7 +688,7 @@ public:
 
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const unsigned char *inPtr, quarter *outPtr,
-           float2 metaData0, float2 metaData1) {
+           float2 metadata0, float2 metadata1) {
     const float *inPtr4 = reinterpret_cast<const float *>(inPtr);
     float *outPtr4 = reinterpret_cast<float *>(outPtr);
     for (unsigned i = 0; i < loopCount; i++) {
@@ -701,7 +701,7 @@ public:
   }
 };
 
-// Setting Fp8 meta data:
+// Setting Fp8 metadata:
 // It's OK to write to reserved bits of $FP_NFMT, $FP_SCL
 // We can't do many regular bit manipulations on the ARF register file
 // instead:
@@ -714,23 +714,23 @@ public:
 // bit should be zero as it is unused
 
 static __attribute__((always_inline)) void
-setFp8Config(const MetadataType *metaData) {
+setFp8Config(const MetadataType *metadata) {
   asm volatile(
-      R"l(  ldb8 $a0, %[metaData], $mzero, 0
+      R"l(  ldb8 $a0, %[metadata], $mzero, 0
             uput $FP_SCL, $a0
             andc $a0, $a0, 0x40000000
             f32cmplt $a0, $a0, $azero
             uput $FP_NFMT, $a0
       )l"
       :
-      : [metaData] "r"(metaData)
+      : [metadata] "r"(metadata)
       : "$a0");
 }
 
 static __attribute__((always_inline)) void
-setFp8ConfigNegScale(const MetadataType *metaData) {
+setFp8ConfigNegScale(const MetadataType *metadata) {
   asm volatile(
-      R"l(  ldb8 $a0, %[metaData], $mzero, 0
+      R"l(  ldb8 $a0, %[metadata], $mzero, 0
             andc $a1, $a0, 0x40000000
             f32cmplt $a1, $a1, $azero
             uput $FP_NFMT, $a1
@@ -740,35 +740,35 @@ setFp8ConfigNegScale(const MetadataType *metaData) {
             uput $FP_SCL, $a0
       )l"
       :
-      : [metaData] "r"(metaData)
+      : [metadata] "r"(metadata)
       : "$a0", "$a1");
 }
 
-static float2 extractMetaData(const MetadataType *metaData) {
+static float2 extractMetadata(const MetadataType *metadata) {
   float2 result;
   asm volatile(
-      R"l(  ldb8      %[scale], %[metaData], $mzero, 0
+      R"l(  ldb8      %[scale], %[metadata], $mzero, 0
             andc      $a0, %[scale], 0x40000000
             f32cmplt  %[format], $a0, $azero
       )l"
       : [format] "=r"(result[0]), [scale] "=r"(result[1])
-      : [metaData] "r"(metaData)
+      : [metadata] "r"(metadata)
       : "$a0");
   return result;
 }
 
-static float2 extractMetaDataNegScale(const MetadataType *metaData) {
+static float2 extractMetadataNegScale(const MetadataType *metadata) {
   float2 result;
   asm volatile(
-      R"l(  ldb8      %[scale], %[metaData], $mzero, 0
+      R"l(  ldb8      %[scale], %[metadata], $mzero, 0
             andc      $a0, %[scale], 0x40000000
             f32cmplt  %[format], $a0, $azero
-            and       %[scale], %[scale], 0x3f 
+            and       %[scale], %[scale], 0x3f
             setzi     $a0, 0x80
             f16v2sub  %[scale], $a0, %[scale]
       )l"
       : [format] "=r"(result[0]), [scale] "=r"(result[1])
-      : [metaData] "r"(metaData)
+      : [metadata] "r"(metadata)
       : "$a0");
   return result;
 }

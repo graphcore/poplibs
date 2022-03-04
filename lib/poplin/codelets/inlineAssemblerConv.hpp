@@ -9,30 +9,30 @@
 #define DELTAN_OFFSET_MASK ((1 << DELTAN_OFFSET_BITS) - 1)
 
 static __attribute__((always_inline)) void
-setFp8Format(const MetadataType weightsMetaData,
-             const MetadataType inMetaData) {
+setFp8Format(const MetadataType weightsMetadata,
+             const MetadataType inMetadata) {
   asm volatile(
-      R"l(  shr  $m0, %[inMetaData], 6
-            shr  $m1, %[weightsMetaData], 7
+      R"l(  shr  $m0, %[inMetadata], 6
+            shr  $m1, %[weightsMetadata], 7
             and  $m0, $m0, 0x2
             or   $m0, $m0, $m1
             put  $FP_INFMT, $m0
       )l"
       :
-      : [inMetaData] "r"(inMetaData), [weightsMetaData] "r"(weightsMetaData)
+      : [inMetadata] "r"(inMetadata), [weightsMetadata] "r"(weightsMetadata)
       : "$m0", "$m1");
 }
 
 static __attribute__((always_inline)) void
-setFp8Scale(const MetadataType weightsMetaData, const MetadataType inMetaData) {
+setFp8Scale(const MetadataType weightsMetadata, const MetadataType inMetadata) {
   // Scale is the sum of scales, as
   // we compute: half(input*weights) * 2^(scaleIn+scaleWeights)
   asm volatile(
-      R"l(  add  $m0, %[weightsMetaData], %[inMetaData]
+      R"l(  add  $m0, %[weightsMetadata], %[inMetadata]
             put  $FP_ISCL, $m0
       )l"
       :
-      : [inMetaData] "r"(inMetaData), [weightsMetaData] "r"(weightsMetaData)
+      : [inMetadata] "r"(inMetadata), [weightsMetadata] "r"(weightsMetadata)
       : "$m0");
 }
 

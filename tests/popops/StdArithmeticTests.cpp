@@ -1102,11 +1102,14 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
   popops::addCodelets(graph);
 
   // Choose a small numeric range which is supported by the FP8 type
+  // TODO - T57103 create real quarter data
   const unsigned modulo = 10;
   std::vector<float> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     hIn[i] = (float)(i % modulo);
   }
+  // TODO - T57103 won't need an intermediate cast once we can copy data to the
+  // IPU, or is this a useful test anyhow?
   auto in = graph.addVariable(HALF, {DIM_SIZE}, "in");
   auto inter = graph.addVariable(QUARTER, {DIM_SIZE}, "inter");
   auto out = graph.addVariable(HALF, {DIM_SIZE}, "out");
@@ -1118,7 +1121,7 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
   auto prog = Sequence();
 
   graph.setInitialValue(inter.getMetadata(),
-                        packFp8MetaData(poputil::Fp8Format::QUART143, 0));
+                        packFp8Metadata(poputil::Fp8Format::QUART143, 0));
   prog.add(cast(graph, in, inter, "castToFP8"));
 
   auto cs = graph.addComputeSet("castToHalf");
@@ -1156,6 +1159,7 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
   popops::addCodelets(graph);
 
   // Choose a small numeric range which is supported by the FP8 type
+  // TODO - T57103 create real quarter data
   const unsigned modulo = 10;
   std::vector<float> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1167,9 +1171,11 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
 
   auto prog = Sequence();
 
-  poplar::Tensor metaData =
-      createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, 0);
-  poplar::Tensor inter = cast(graph, in, QUARTER, metaData, prog, "castToFP8");
+  // TODO - T57103 won't need an intermediate cast once we can copy data to the
+  // IPU, or is this a useful test anyhow?
+  poplar::Tensor metadata =
+      createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 0);
+  poplar::Tensor inter = cast(graph, in, QUARTER, metadata, prog, "castToFP8");
   poplar::Tensor out = cast(graph, inter, HALF, prog, "castToHalf");
   graph.createHostRead("out", out);
   auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
@@ -1201,6 +1207,7 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
   popops::addCodelets(graph);
 
   // Choose a small numeric range which is supported by the FP8 type
+  // TODO - T57103 create real quarter data
   const unsigned modulo = 10;
   std::vector<char> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1212,9 +1219,11 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
 
   auto prog = Sequence();
 
-  poplar::Tensor metaData =
-      createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, -1);
-  poplar::Tensor inter = cast(graph, in, QUARTER, metaData, prog, "castToFP8");
+  // TODO - T57103 won't need an intermediate cast once we can copy data to the
+  // IPU, or is this a useful test anyhow?
+  poplar::Tensor metadata =
+      createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, -1);
+  poplar::Tensor inter = cast(graph, in, QUARTER, metadata, prog, "castToFP8");
   poplar::Tensor out = cast(graph, inter, CHAR, prog, "castToChar");
   graph.createHostRead("out", out);
 
@@ -1241,6 +1250,7 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
   popops::addCodelets(graph);
 
   // Choose a small numeric range which is supported by the FP8 type
+  // TODO - T57103 create real quarter data
   const unsigned modulo = 8;
   std::vector<char> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1255,14 +1265,16 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
 
   auto prog = Sequence();
 
-  auto metaData0 =
-      createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, 2);
+  auto metadata0 =
+      createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 2);
   graph.setInitialValue(in.getMetadata(),
-                        packFp8MetaData(poputil::Fp8Format::QUART143, 2));
-  auto metaData1 =
-      createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART152, -1);
-  auto inter = cast(graph, in, QUARTER, metaData1, prog, "castToQUART143");
-  auto out = cast(graph, inter, QUARTER, metaData0, prog, "castToQUART152");
+                        packFp8Metadata(poputil::Fp8Format::QUART143, 2));
+  // TODO - T57103 won't need an intermediate cast once we can copy data to the
+  // IPU, or is this a useful test anyhow?
+  auto metadata1 =
+      createFp8MetadataTensor(graph, poputil::Fp8Format::QUART152, -1);
+  auto inter = cast(graph, in, QUARTER, metadata1, prog, "castToQUART143");
+  auto out = cast(graph, inter, QUARTER, metadata0, prog, "castToQUART152");
   graph.createHostRead("out", out);
 
   std::vector<char> hOut(DIM_SIZE);

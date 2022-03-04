@@ -259,10 +259,10 @@ public:
   __attribute__((target("supervisor"))) bool compute() {
     WorkerState1x1<UnsignedType> workerState;
     workerState.partition = &worklists[0];
-    const auto weightsMetaData = *weights.getMetadata();
-    const auto inMetaData = *in.getMetadata();
-    setFp8Format(weightsMetaData, inMetaData);
-    setFp8Scale(weightsMetaData, inMetaData);
+    const auto weightsMetadata = *weights.getMetadata();
+    const auto inMetadata = *in.getMetadata();
+    setFp8Format(weightsMetadata, inMetadata);
+    setFp8Scale(weightsMetadata, inMetadata);
 
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;

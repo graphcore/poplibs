@@ -197,15 +197,15 @@ poplar::Tensor factorDims(const poplar::Tensor &t,
 poplar::Tensor unfactorDims(const poplar::Tensor &t, unsigned numDims,
                             unsigned startDim = 0);
 
-// Create metaData for use with FP8 data types
+// Create metadata for use with FP8 data types
 enum class Fp8Format { QUART152, QUART143 };
 
-unsigned packFp8MetaData(Fp8Format fp8Format, int fp8Scale);
+unsigned packFp8Metadata(Fp8Format fp8Format, int fp8Scale);
 
-poplar::Tensor createFp8MetaDataTensor(poplar::Graph &graph,
+poplar::Tensor createFp8MetadataTensor(poplar::Graph &graph,
                                        Fp8Format fp8Format, int fp8Scale);
 
-poplar::Tensor createFp8MetaDataTensor(poplar::Graph &graph,
+poplar::Tensor createFp8MetadataTensor(poplar::Graph &graph,
                                        Fp8Format fp8Format, int fp8Scale,
                                        poplar::program::Sequence &prog);
 } // end namespace poputil

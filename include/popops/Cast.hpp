@@ -40,16 +40,16 @@ poplar::Tensor cast(poplar::Graph &graph, const poplar::Tensor &src,
  * \param graph         The graph that the operation will be added to.
  * \param src           Source tensor to cast.
  * \param dstType       Type of the destination tensor.
- * \param metaData      A tensor of type QUARTER_METADATA initialised with the
+ * \param metadata      A tensor of type QUARTER_METADATA initialised with the
  *                      format and scale to use when casting to the destination
- *                      tensor.  The returned tensor will contain this meta
- *                      data.
+ *                      tensor.  The returned tensor will contain this
+ *                      metadata.
  * \param prog          Program to add the cast operation to.
  * \param debugContext  Optional debug information.
  * \return              The resultant cast tensor.
  */
 poplar::Tensor cast(poplar::Graph &graph, const poplar::Tensor &src,
-                    const poplar::Type &dstType, const poplar::Tensor &metaData,
+                    const poplar::Type &dstType, const poplar::Tensor &metadata,
                     poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {});
 
@@ -107,16 +107,16 @@ poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
  * \param graph         The graph that the operation will be added to.
  * \param src           Source tensor.
  * \param dstType       Destination type.
- * \param metaData      A tensor of type QUARTER_METADATA initialised with the
+ * \param metadata      A tensor of type QUARTER_METADATA initialised with the
  *                      format and scale to use when casting to the destination
- *                      tensor.  The returned tensor will contain this meta
- *                      data.
+ *                      tensor.  The returned tensor will contain this
+ *                      metadata.
  * \param cs            Compute set to add the vertices to.
  * \param debugContext  Optional debug information.
  * \return              Resultant destination tensor.
  */
 poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
-                    const poplar::Type &dstType, poplar::Tensor &metaData,
+                    const poplar::Type &dstType, poplar::Tensor &metadata,
                     poplar::ComputeSet cs,
                     const poplar::DebugContext &debugContext = {});
 

@@ -92,11 +92,14 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   bool fp8ToFp8 = dataTypeIn == QUARTER && dataTypeOut == QUARTER;
   bool inTypeToFp8ToinType = fp8 && dataTypeOut == QUARTER && !fp8ToFp8;
 
+  // TODO - T57103 should do this properly once we can copy data to the IPU
   if (dataTypeIn == QUARTER) {
     std::cout << "WARNING: Codelets will be run for quarter->" << dataTypeOut
               << " but result checking is incomplete\n";
   }
 
+  // TODO - T57103 shouldn't need an intermediate step once we can copy data to
+  // the IPU
   Tensor inter;
   if (inTypeToFp8ToinType) {
     std::cout << "Using the process " << dataTypeIn << "->quarter->"
@@ -139,21 +142,21 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
 
   if (in.elementType() == QUARTER) {
     graph.setInitialValue(in.getMetadata(),
-                          packFp8MetaData(fp8Format, fp8Scale));
+                          packFp8Metadata(fp8Format, fp8Scale));
   }
 
   if (inTypeToFp8ToinType && inter.elementType() == QUARTER) {
     graph.setInitialValue(inter.getMetadata(),
-                          packFp8MetaData(fp8Format, fp8Scale));
+                          packFp8Metadata(fp8Format, fp8Scale));
   }
 
   if (out.elementType() == QUARTER) {
     if (fp8ToFp8) {
       graph.setInitialValue(out.getMetadata(),
-                            packFp8MetaData(fp8FormatOut, fp8ScaleOut));
+                            packFp8Metadata(fp8FormatOut, fp8ScaleOut));
     } else {
       graph.setInitialValue(out.getMetadata(),
-                            packFp8MetaData(fp8Format, fp8Scale));
+                            packFp8Metadata(fp8Format, fp8Scale));
     }
   }
 

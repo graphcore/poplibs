@@ -314,7 +314,7 @@ int main(int argc, char **argv) {
   if (embeddingMatrix.elementType() == QUARTER) {
     // For test of transfer of the metadata from src to dst only, set the
     // metadata to a specific value
-    embeddingMatrix.associateMetadata(poputil::createFp8MetaDataTensor(
+    embeddingMatrix.associateMetadata(poputil::createFp8MetadataTensor(
         graph, poputil::Fp8Format::QUART143, 1));
   }
 
@@ -439,6 +439,7 @@ int main(int argc, char **argv) {
     attachStreams(engine, tmap);
     // Ensure positive values only for type QUARTER as it is checked as if an
     // unsigned type
+    // TODO - T57103 Reconsider numeric range once we copy fp8 data to the IPU
     double lowerBound = opts.dataType == QUARTER ? 0.0 : -10.0;
     writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, lowerBound,
                       10., randomEngine);

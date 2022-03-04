@@ -376,10 +376,10 @@ public:
     workerState.partitionBase =
         reinterpret_cast<unsigned *>(*wlStatePtr & DELTAN_OFFSET_MASK);
 
-    const auto weightsMetaData = *weights.getMetadata();
-    const auto inMetaData = *in.getMetadata();
-    setFp8Format(weightsMetaData, inMetaData);
-    setFp8Scale(weightsMetaData, inMetaData);
+    const auto weightsMetadata = *weights.getMetadata();
+    const auto inMetadata = *in.getMetadata();
+    setFp8Format(weightsMetadata, inMetadata);
+    setFp8Scale(weightsMetadata, inMetadata);
 
     // A small amount of manipulation on the passed strides.
     // This could be avoided by packing differently for this vertex but this

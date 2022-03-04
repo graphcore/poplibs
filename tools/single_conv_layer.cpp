@@ -845,18 +845,19 @@ int main(int argc, char **argv) try {
     prevActToCopy = graph.clone(inputTypeHost, prevAct, "prevActCopy");
     weightsToCopy = graph.clone(inputTypeHost, weights, "weightsCopy");
     prevAct.associateMetadata(
-        createFp8MetaDataTensor(graph, fp8FormatFwdIn, fp8ScaleFwdIn));
+        createFp8MetadataTensor(graph, fp8FormatFwdIn, fp8ScaleFwdIn));
     weights.associateMetadata(
-        createFp8MetaDataTensor(graph, fp8FormatWeights, fp8ScaleWeights));
+        createFp8MetadataTensor(graph, fp8FormatWeights, fp8ScaleWeights));
 
+    // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
     fwdProg.add(popops::cast(graph, prevActToCopy, prevAct, "CastPrevAct"));
     fwdProg.add(popops::cast(graph, weightsToCopy, weights, "CastFwdWeights"));
     if (doBwdPass) {
       zDeltasToCopy = graph.clone(inputTypeHost, zDeltas, "zDeltasCopy");
       zDeltas.associateMetadata(
-          createFp8MetaDataTensor(graph, fp8FormatBwdIn, fp8scaleBwdIn));
+          createFp8MetadataTensor(graph, fp8FormatBwdIn, fp8scaleBwdIn));
       weights.associateMetadata(
-          createFp8MetaDataTensor(graph, fp8FormatWeights, fp8ScaleWeights));
+          createFp8MetadataTensor(graph, fp8FormatWeights, fp8ScaleWeights));
       revProg.add(popops::cast(graph, zDeltasToCopy, zDeltas, "CastZDeltas"));
       revProg.add(
           popops::cast(graph, weightsToCopy, weights, "CastBwdWeights"));

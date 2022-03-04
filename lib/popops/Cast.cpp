@@ -100,7 +100,7 @@ Program cast(Graph &graph, Tensor src, Tensor dst,
   // Casting one type into itself, or int<->unsigned, is just a copy.
   // We use the '.reinterpret(dstType)' to bypass type checking in Copy for the
   // int<->unsigned case
-  // Casting between fp8 types is never just a copy as the meta data is not
+  // Casting between fp8 types is never just a copy as the metadata is not
   // known until runtime
   auto srcType = src.elementType();
   auto dstType = dst.elementType();
@@ -129,7 +129,7 @@ Tensor cast(Graph &graph, Tensor src, const Type &dstType, ComputeSet cs,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType, cs));
   if (dstType == QUARTER) {
-    throw poputil::poplibs_error("Meta data is required when creating a"
+    throw poputil::poplibs_error("Metadata is required when creating a"
                                  " tensor of type quarter and casting to it");
   }
   auto dst = graph.clone(dstType, src, {di, "cast"});
@@ -139,18 +139,18 @@ Tensor cast(Graph &graph, Tensor src, const Type &dstType, ComputeSet cs,
 }
 
 Tensor cast(Graph &graph, Tensor src, const Type &dstType,
-            const Tensor &metaData, ComputeSet cs,
+            const Tensor &metadata, ComputeSet cs,
             const poplar::DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
-                                 DI_ARGS(src, dstType, metaData, cs));
+                                 DI_ARGS(src, dstType, metadata, cs));
 
   if (dstType != QUARTER) {
-    throw poputil::poplibs_error("Meta data only required when creating a"
+    throw poputil::poplibs_error("Metadata only required when creating a"
                                  " tensor of type quarter and casting to it");
   }
   auto dst = graph.clone(dstType, src, {di, "cast"});
-  dst.associateMetadata(metaData);
+  dst.associateMetadata(metadata);
 
   castImpl(graph, src, dst, cs);
   di.addOutput(dst);
@@ -165,7 +165,7 @@ Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
             Sequence &prog, const poplar::DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
   if (dstType == QUARTER) {
-    throw poputil::poplibs_error("Meta data is required when creating a"
+    throw poputil::poplibs_error("Metadata is required when creating a"
                                  " tensor of type quarter and casting to it");
   }
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType));
@@ -176,17 +176,17 @@ Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
 }
 
 Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
-            const Tensor &metaData, Sequence &prog,
+            const Tensor &metadata, Sequence &prog,
             const poplar::DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType, metaData));
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType, metadata));
 
   if (dstType != QUARTER) {
-    throw poputil::poplibs_error("Meta data only required when creating a "
+    throw poputil::poplibs_error("Metadata only required when creating a "
                                  " tensor of type quarter and casting to it");
   }
   auto dst = graph.clone(dstType, src, {di, "cast"});
-  prog.add(Copy(metaData, dst.getMetadata()));
+  prog.add(Copy(metadata, dst.getMetadata()));
 
   prog.add(cast(graph, src, dst, {di}));
   di.addOutput(dst);

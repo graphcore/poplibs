@@ -288,15 +288,16 @@ int main(int argc, char **argv) try {
   Tensor inGroupedFp8, weightsGroupedFp8;
   Sequence castProg;
   if (isFp8) {
-    auto weightsMetaData =
-        createFp8MetaDataTensor(graph, weightFp8Format, weightFp8Scale);
-    auto inMetaData =
-        createFp8MetaDataTensor(graph, inputFp8Format, inputFp8Scale);
+    auto weightsMetadata =
+        createFp8MetadataTensor(graph, weightFp8Format, weightFp8Scale);
+    auto inMetadata =
+        createFp8MetadataTensor(graph, inputFp8Format, inputFp8Scale);
 
+    // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
     inGroupedFp8 =
-        popops::cast(graph, inGrouped, QUARTER, inMetaData, castProg, "CastIn");
+        popops::cast(graph, inGrouped, QUARTER, inMetadata, castProg, "CastIn");
     weightsGroupedFp8 = popops::cast(graph, weightsGrouped, QUARTER,
-                                     weightsMetaData, castProg, "CastWeights");
+                                     weightsMetadata, castProg, "CastWeights");
   }
 
   // create the vertex

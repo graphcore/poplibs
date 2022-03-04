@@ -342,10 +342,10 @@ public:
     auto wlStatePtr = reinterpret_cast<unsigned *>(&worklists);
     workerState.partitionBase =
         reinterpret_cast<unsigned *>(*wlStatePtr & DELTAN_OFFSET_MASK);
-    const auto weightsMetaData = *weights.getMetadata();
-    const auto inMetaData = *in.getMetadata();
-    setFp8Format(weightsMetaData, inMetaData);
-    setFp8Scale(weightsMetaData, inMetaData);
+    const auto weightsMetadata = *weights.getMetadata();
+    const auto inMetadata = *in.getMetadata();
+    setFp8Format(weightsMetadata, inMetadata);
+    setFp8Scale(weightsMetadata, inMetadata);
 
     constexpr unsigned outFieldBufferOffset = 200u / sizeof(AccumType);
     const unsigned numSubKernels = numSubKernelsM1 + 1;

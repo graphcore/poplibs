@@ -1818,7 +1818,7 @@ void checkQuarterMetadata(void) {
   auto embedding = popops::createSliceableTensor(graph, QUARTER, tShape, {0},
                                                  {1}, plan, {}, "embedding");
   graph.setInitialValue(embedding.getMetadata(),
-                        packFp8MetaData(poputil::Fp8Format::QUART143, 1));
+                        packFp8Metadata(poputil::Fp8Format::QUART143, 1));
 
   Sequence sequence;
   // The resulting multiSliced result should have the same metadata
@@ -1834,7 +1834,7 @@ void checkQuarterMetadata(void) {
   // associate metadata here, so as to leave the original value of metadata in
   // embedding intact for test.
   dummy.associateMetadata(
-      poputil::createFp8MetaDataTensor(graph, poputil::Fp8Format::QUART143, 3));
+      poputil::createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 3));
   popops::multiUpdate(graph, embedding, dummy, ids, {0}, {1}, sequence, plan,
                       optionFlags, "slice");
 
@@ -1848,7 +1848,7 @@ void checkQuarterMetadata(void) {
   auto subTWithOutput = popops::createSliceTensor(
       graph, QUARTER, {1}, {0}, {1}, 1, plan, {}, "subTWithOutput");
   graph.setInitialValue(subTWithOutput.getMetadata(),
-                        packFp8MetaData(poputil::Fp8Format::QUART143, 1));
+                        packFp8Metadata(poputil::Fp8Format::QUART143, 1));
   popops::dynamicSliceWithOutput(graph, subTWithOutput, embedding,
                                  idsDynamicSlice, {0}, {1}, sequence);
 
@@ -1863,7 +1863,7 @@ void checkQuarterMetadata(void) {
   auto groupedIds = popops::createGroupedIndicesTensor(
       graph, groupSize, {0}, numIndices, groupedPlan, {}, "ids");
   graph.setInitialValue(grouped.getMetadata(),
-                        packFp8MetaData(poputil::Fp8Format::QUART143, 1));
+                        packFp8Metadata(poputil::Fp8Format::QUART143, 1));
   auto subTGrouped =
       popops::groupedMultiSlice(graph, grouped, groupedIds, {0}, {1}, sequence,
                                 groupedPlan, optionFlags, "slice");
@@ -1891,19 +1891,19 @@ void checkQuarterMetadata(void) {
 
     engine.run(0);
     const auto numTests = 5;
-    std::vector<unsigned char> refMetaData(1);
-    std::vector<unsigned char> hostMetaData(numTests);
-    engine.readTensor("embeddingMeta", &refMetaData[0], &refMetaData[1]);
+    std::vector<unsigned char> refMetadata(1);
+    std::vector<unsigned char> hostMetadata(numTests);
+    engine.readTensor("embeddingMeta", &refMetadata[0], &refMetadata[1]);
 
-    engine.readTensor("subTMeta", &hostMetaData[0], &hostMetaData[1]);
-    engine.readTensor("subTMetaConst", &hostMetaData[1], &hostMetaData[2]);
-    engine.readTensor("subTMetaDynamicSlice", &hostMetaData[2],
-                      &hostMetaData[3]);
-    engine.readTensor("subTWithOutput", &hostMetaData[3], &hostMetaData[4]);
-    engine.readTensor("subTGrouped", &hostMetaData[4], &hostMetaData[5]);
+    engine.readTensor("subTMeta", &hostMetadata[0], &hostMetadata[1]);
+    engine.readTensor("subTMetaConst", &hostMetadata[1], &hostMetadata[2]);
+    engine.readTensor("subTMetaDynamicSlice", &hostMetadata[2],
+                      &hostMetadata[3]);
+    engine.readTensor("subTWithOutput", &hostMetadata[3], &hostMetadata[4]);
+    engine.readTensor("subTGrouped", &hostMetadata[4], &hostMetadata[5]);
 
     for (unsigned i = 0; i < numTests; i++) {
-      BOOST_CHECK_EQUAL(refMetaData[0], hostMetaData[i]);
+      BOOST_CHECK_EQUAL(refMetadata[0], hostMetadata[i]);
     }
   });
 }
