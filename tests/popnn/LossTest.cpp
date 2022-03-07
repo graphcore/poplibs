@@ -349,10 +349,11 @@ static bool argMinMaxTest(bool max, const Type &inType, std::size_t batchSize,
       boost::extents[batchSize][numClasses]);
   const bool isFpType = inType == HALF || inType == FLOAT;
   const bool isInt = inType == INT;
-  writeRandomValues(target, inType, hostActivations,
-                    isInt ? std::numeric_limits<int>::min() : 0.0,
-                    isFpType ? 1.0 : std::numeric_limits<int>::max(),
-                    randomEngine);
+  writeRandomValuesWithRepetitions(
+      target, inType, hostActivations,
+      isInt ? std::numeric_limits<int>::min() : 0.0,
+      isFpType ? 1.0 : std::numeric_limits<int>::max(), 0.8, randomEngine);
+
   copy(target, hostActivations, inType, rawHostActivations.get());
 
   Sequence prog;
@@ -421,10 +422,11 @@ static bool maxMinArgMinMaxTest(bool max, const Type &inType,
       boost::extents[batchSize][numClasses]);
   const bool isFpType = inType == HALF || inType == FLOAT;
   const bool isInt = inType == INT;
-  writeRandomValues(target, inType, hostActivations,
-                    isInt ? std::numeric_limits<int>::min() : 0.0,
-                    isFpType ? 1.0 : std::numeric_limits<int>::max(),
-                    randomEngine);
+  writeRandomValuesWithRepetitions(
+      target, inType, hostActivations,
+      isInt ? std::numeric_limits<int>::min() : 0.0,
+      isFpType ? 1.0 : std::numeric_limits<int>::max(), 0.8, randomEngine);
+
   copy(target, hostActivations, inType, rawHostActivations.get());
 
   Sequence prog;
