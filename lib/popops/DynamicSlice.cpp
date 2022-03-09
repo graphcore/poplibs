@@ -3749,8 +3749,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
               targetParams, elemsPerSlice, maxOffsetsPerWorker,
               offsetsInRangePerWorker, 0, false, false, splitSingleRegion);
           // Each vertex call process a groupSizePerTile
-          return popsolver::DataType{cycles * numWorkerContexts *
-                                     groupSizePerTile};
+          return popsolver::DataType{cycles * groupSizePerTile};
         },
         "slice.0.compute.cycles");
 
@@ -3799,8 +3798,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
               0, // Sorting information is not used
               false, false, splitSingleRegion);
           // each vertex processes only 1 group elem
-          return popsolver::DataType{cycles * numWorkerContexts *
-                                     groupSizePerTile};
+          return popsolver::DataType{cycles * groupSizePerTile};
         },
         "slice.1.compute.cycles");
 
