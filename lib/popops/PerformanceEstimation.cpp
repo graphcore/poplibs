@@ -1,12 +1,13 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "popops/PerformanceEstimation.hpp"
 
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/forceInterleavedEstimates.hpp"
 #include "poplibs_support/gcd.hpp"
 
 #include <poputil/cyclesTables.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 #include <cmath>
 
@@ -40,7 +41,7 @@ static uint64_t
 binarySearchForIndicesCycleEstimate(const unsigned numOffsets,
                                     const unsigned offsetsPerDictEntry) {
   // 2 for upper and lower binary search
-  std::uint64_t binarySearch = 2 * poplibs_support::ceilLog2(numOffsets) * 10;
+  std::uint64_t binarySearch = 2 * gccs::ceilLog2(numOffsets) * 10;
   // for lower and upper binary search
   std::uint64_t repeatedEntriesSearch = offsetsPerDictEntry * (7 + 8);
   return binarySearch + repeatedEntriesSearch + 4 + 5;
@@ -94,13 +95,13 @@ std::uint64_t getMultiSliceCycleEstimate(
   // where vertices in the first stage may try to slice indices which
   // are not part of partition of the sliced tensor on that tile and so
   // skip the copying cycles in a data-dependent way.
-  auto vectorsPerOffset = ceildiv(elemsPerSlice, vectorWidth);
+  auto vectorsPerOffset = gccs::ceildiv(elemsPerSlice, vectorWidth);
 
   // There is a single offset and thus just spread the work over available
   // workers.
   if (splitSingleRegion) {
     vectorsPerOffset =
-        ceildiv(vectorsPerOffset, targetParams.numWorkerContexts);
+        gccs::ceildiv(vectorsPerOffset, targetParams.numWorkerContexts);
   }
 
   unsigned numOffsetsInRange = numOffsetsInRangePerWorker;
@@ -312,7 +313,7 @@ static uint64_t castWorkerCycles(const unsigned numElems, const Type &fromType,
     // Rough estimation of cycles for processing remainders. This should be
     // relatively insignificant so rough is fine.
     const auto remainingElems = numElems % opVectorWidth;
-    const auto maxRemainderBit = ceilLog2(opVectorWidth);
+    const auto maxRemainderBit = gccs::ceilLog2(opVectorWidth);
     for (unsigned i = 0; i < maxRemainderBit; ++i) {
       const auto remainder = (1u << i);
       // Check the remainder. Conservative in that some paths will

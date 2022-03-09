@@ -22,7 +22,6 @@
 
 #include <poplar/Graph.hpp>
 
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_support/print.hpp>
 
@@ -36,9 +35,10 @@
 #include <poputil/exceptions.hpp>
 
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
+#include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 
-#include <poplibs_test/TempDir.hpp>
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;

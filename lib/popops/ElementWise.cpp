@@ -4,7 +4,6 @@
 #include "ElementWiseUtilInternal.hpp"
 #include "ExprOpUtil.hpp"
 #include "ScalarMultiply.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
@@ -22,19 +21,22 @@
 #include "poputil/VarStructure.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
-#include <boost/optional.hpp>
-#include <iostream>
+
+#include <gccs/Algorithm.hpp>
+
 #include <tbb/parallel_for.h>
-#include <unordered_map>
-#include <unordered_set>
+
+#include <boost/optional.hpp>
 
 #include <algorithm>
 #include <cassert>
-
 #include <cstdio>
 #include <fstream>
+#include <iostream>
 #include <queue>
 #include <stack>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "ExpressionGenerator.hpp"
 

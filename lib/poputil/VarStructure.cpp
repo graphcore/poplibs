@@ -1,13 +1,14 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poputil/VarStructure.hpp"
 
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 
 #include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <algorithm>
 
@@ -170,7 +171,7 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
   std::vector<std::vector<std::size_t>> varDimSizes(shape.size());
   std::vector<std::vector<std::size_t>> varElemsPerSplit(shape.size());
   for (std::size_t d = 0; d < shape.size(); ++d) {
-    const auto elemsPerSplit = ceildiv(shape[d], nPartitions[d]);
+    const auto elemsPerSplit = gccs::ceildiv(shape[d], nPartitions[d]);
     const auto rem = shape[d] % elemsPerSplit;
     varDimSizes[d].push_back(shape[d] - rem);
     varElemsPerSplit[d].push_back(elemsPerSplit);
@@ -281,7 +282,7 @@ void iterateTensorPartitions(
   do {
     Tensor slice = t;
     for (std::size_t d = 0; d < shape.size(); ++d) {
-      const auto ceil = ceildiv(shape[d], nPartitions[d]);
+      const auto ceil = gccs::ceildiv(shape[d], nPartitions[d]);
       slice = slice.slice(std::min(i[d] * ceil, shape[d]),
                           std::min((i[d] + 1) * ceil, shape[d]), d);
     }

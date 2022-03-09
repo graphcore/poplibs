@@ -11,7 +11,6 @@
 
 #include "poplibs_test/TempDir.hpp"
 #include "poputil/exceptions.hpp"
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/SparseMatrix.hpp>
 #include <poplibs_test/Util.hpp>
@@ -23,6 +22,8 @@
 #include "popsparse/MatMul.hpp"
 #include "popsparse/SparsePartitioner.hpp"
 #include "popsparse/codelets.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <fstream>
 
@@ -147,10 +148,12 @@ int main(int argc, char **argv) try {
   }
 
   // align weighted area to a block size grid
-  weightedAreaBegin.val[0] = roundDown(weightedAreaBegin.val[0], blockRows);
-  weightedAreaBegin.val[1] = roundDown(weightedAreaBegin.val[1], blockCols);
-  weightedAreaEnd.val[0] = roundDown(weightedAreaEnd.val[0], blockRows);
-  weightedAreaEnd.val[1] = roundDown(weightedAreaEnd.val[1], blockCols);
+  weightedAreaBegin.val[0] =
+      gccs::alignPrev(weightedAreaBegin.val[0], blockRows);
+  weightedAreaBegin.val[1] =
+      gccs::alignPrev(weightedAreaBegin.val[1], blockCols);
+  weightedAreaEnd.val[0] = gccs::alignPrev(weightedAreaEnd.val[0], blockRows);
+  weightedAreaEnd.val[1] = gccs::alignPrev(weightedAreaEnd.val[1], blockCols);
 
   PlanningCache cache;
 
@@ -263,8 +266,8 @@ int main(int argc, char **argv) try {
                        (params.getK() - numWeightedK) * remainingThreshold;
     std::size_t maxM = numWeightedM * weightedThreshold +
                        (params.getM() - numWeightedM) * remainingThreshold;
-    maxM = roundDown(maxM, blockRows);
-    maxK = roundDown(maxK, blockCols);
+    maxM = gccs::alignPrev(maxM, blockRows);
+    maxK = gccs::alignPrev(maxK, blockCols);
     const auto getOpsPerOutputElementEstimate =
         [&](const bool lhsTransposed) -> int {
       const auto numAccumulations = lhsTransposed ? maxM : maxK;

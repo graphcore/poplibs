@@ -29,10 +29,11 @@
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -693,7 +694,7 @@ static void iteratePartitions(const Vector<unsigned> &shape_,
                               const Vector<unsigned> &partition_,
                               const Vector<unsigned> &grouping_, const F &f) {
   const auto ceildivPred = [](const auto a, const auto b) {
-    return ceildiv(a, b);
+    return gccs::ceildiv(a, b);
   };
   const auto minPred = [](const auto a, const auto b) {
     return std::min(a, b);
@@ -937,7 +938,7 @@ static std::vector<Tensor> rearrangePartitions(
       graph.setInitialValue(v["numZ"], s.dim(0));
       graph.setInitialValue(
           v["maxXOrYBlocksPerWorker"],
-          ceildiv(numBlocks, graph.getTarget().getNumWorkerContexts()));
+          gccs::ceildiv(numBlocks, graph.getTarget().getNumWorkerContexts()));
       // assume whole tensor lives on the tile
       const auto sliceTileMap = graph.getTileMapping(d.slice(0, 1, 0));
       auto it = std::find_if(sliceTileMap.begin(), sliceTileMap.end(),
@@ -2478,7 +2479,7 @@ static void mapInput(Graph &graph, const unsigned &tilesPerIPU,
   // Reduce exchange code especially for smaller fc layers by mapping inputs
   // to fewer tiles when there aren't enough elements to go around.
   const unsigned minBytesPerTile = 128;
-  const unsigned minElemsPerTile = ceildiv(
+  const unsigned minElemsPerTile = gccs::ceildiv(
       minBytesPerTile, graph.getTarget().getTypeSize(input.elementType()));
   usage.mapTensorsByUse(graph, grainSize, minElemsPerTile, true);
 }

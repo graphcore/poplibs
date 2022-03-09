@@ -11,7 +11,6 @@
 
 #include "poplibs_test/TempDir.hpp"
 #include "poputil/exceptions.hpp"
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_test/Embedding.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/SparseMatrix.hpp>
@@ -25,6 +24,8 @@
 #include "popsparse/MatMul.hpp"
 #include "popsparse/SparsePartitioner.hpp"
 #include "popsparse/codelets.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <fstream>
 
@@ -208,10 +209,12 @@ int main(int argc, char **argv) try {
   }
 
   // align weighted area to a block size grid
-  weightedAreaBegin.val[0] = roundDown(weightedAreaBegin.val[0], blockRows);
-  weightedAreaBegin.val[1] = roundDown(weightedAreaBegin.val[1], blockCols);
-  weightedAreaEnd.val[0] = roundDown(weightedAreaEnd.val[0], blockRows);
-  weightedAreaEnd.val[1] = roundDown(weightedAreaEnd.val[1], blockCols);
+  weightedAreaBegin.val[0] =
+      gccs::alignPrev(weightedAreaBegin.val[0], blockRows);
+  weightedAreaBegin.val[1] =
+      gccs::alignPrev(weightedAreaBegin.val[1], blockCols);
+  weightedAreaEnd.val[0] = gccs::alignPrev(weightedAreaEnd.val[0], blockRows);
+  weightedAreaEnd.val[1] = gccs::alignPrev(weightedAreaEnd.val[1], blockCols);
 
   PlanningCache cache;
 
@@ -367,8 +370,8 @@ int main(int argc, char **argv) try {
     std::size_t maxEntries =
         numWeightedEntries * weightedThreshold +
         (numEntries - numWeightedEntries) * remainingThreshold;
-    maxEntries = roundDown(maxEntries, blockRows);
-    maxEmbeddingSize = roundDown(maxEmbeddingSize, blockCols);
+    maxEntries = gccs::alignPrev(maxEntries, blockRows);
+    maxEmbeddingSize = gccs::alignPrev(maxEmbeddingSize, blockCols);
     const auto getOpsPerOutputElementEstimate = [&](const Pass &pass) -> int {
       // TODO: number of accumulations in weight update should be
       // given by the likely maximum number of indices that will be

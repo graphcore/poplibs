@@ -10,8 +10,9 @@
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/logging.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poputil;
@@ -84,7 +85,7 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
   auto checkRptBounds = [&](std::size_t numElements, const Type &partialsType) {
     const auto num64BitValues = 8 / target.getTypeSize(partialsType);
     const auto numElemsPerWorker =
-        poplibs_support::ceildiv(num64BitValues, target.getNumWorkerContexts());
+        gccs::ceildiv(num64BitValues, target.getNumWorkerContexts());
     if (numElemsPerWorker > target.getRptCountMax()) {
       throw poputil::poplibs_error("Number of elements to zero "
                                    "exceeds rpt count bound");

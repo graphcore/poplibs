@@ -6,7 +6,6 @@
 #include <boost/optional.hpp>
 #include <cassert>
 #include <cstdint>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/Rnn.hpp>
@@ -14,6 +13,8 @@
 #include <popops/Encoding.hpp>
 #include <popops/Loop.hpp>
 #include <poputil/GraphFunction.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/functional/hash.hpp>
 
@@ -72,7 +73,7 @@ static std::size_t calculatedBytesPerTile(unsigned numTiles,
                                           std::size_t typeSize) {
   auto [grainSize, numGrains] = getNumGrains(size);
   numGrains *= batchSize;
-  auto grainsPerTile = ceildiv(numGrains, numTiles);
+  auto grainsPerTile = gccs::ceildiv(numGrains, numTiles);
   return grainsPerTile * grainSize * typeSize;
 }
 
@@ -83,8 +84,8 @@ calculateTileUsage(bool output, unsigned numTiles, const std::size_t batchSize,
   auto [grainSize, numGrains] = getNumGrains(size);
   (void)grainSize;
   numGrains *= batchSize;
-  auto grainsPerTile = ceildiv(numGrains, numTiles);
-  auto usedTiles = ceildiv(numGrains, grainsPerTile);
+  auto grainsPerTile = gccs::ceildiv(numGrains, numTiles);
+  auto usedTiles = gccs::ceildiv(numGrains, grainsPerTile);
   return usedTiles;
 }
 
@@ -108,15 +109,15 @@ static poplar::Tensor createMultiDynamicSliceTensor(
     boost::optional<unsigned> sequenceMultiple,
     boost::optional<unsigned> shardOffset, unsigned numGrains,
     unsigned grainSize, unsigned seed, const poplar::DebugNameAndId &dnai) {
-  const auto grainsPerTile = ceildiv(numGrains, numTiles);
-  const auto numUsedTiles = ceildiv(numGrains, grainsPerTile);
+  const auto grainsPerTile = gccs::ceildiv(numGrains, numTiles);
+  const auto numUsedTiles = gccs::ceildiv(numGrains, grainsPerTile);
   auto totalNumTiles = graph.getTarget().getNumTiles();
   const auto maxShards = totalNumTiles / numUsedTiles;
   const auto grainsOnLastTile = numGrains - (numUsedTiles - 1) * grainsPerTile;
   auto sOffset = shardOffset ? *shardOffset : 0;
   auto numTensorShards = shardOffset ? 1 : numShards;
   auto seqLengthExceptLastTile =
-      sequencesPerShard.value_or(ceildiv(sequenceLength, numShards));
+      sequencesPerShard.value_or(gccs::ceildiv(sequenceLength, numShards));
   auto seqLengthLastTile = sequencesPerShard.value_or(
       sequenceLength - seqLengthExceptLastTile * (numShards - 1));
   if (sequenceMultiple) {
@@ -436,7 +437,7 @@ RnnState::RnnState(Graph &graph, unsigned seqLen, unsigned numShards,
   minusOne = graph.addConstant(UNSIGNED_INT, {1}, -1, {dnai, "minusOne"});
   graph.setTileMapping(minusOne, 0);
 
-  seqLengthExclLast = ceildiv(seqLen, numShards);
+  seqLengthExclLast = gccs::ceildiv(seqLen, numShards);
   for (unsigned i = 0; i < numShards; ++i) {
     timeStepBegin[i] =
         graph.addConstant(UNSIGNED_INT, {1}, (i * seqLengthExclLast),
@@ -459,8 +460,8 @@ std::size_t RnnParams::getMaxShards(const poplar::Graph &graph) const {
   auto numTiles = graph.getTarget().getNumTiles();
   auto tilesPerShard = getTilesPerShard(graph, *this);
   auto maxShards = numTiles / tilesPerShard;
-  auto nTimeStepsPerShard = ceildiv(maxTimeSteps, maxShards);
-  return ceildiv(maxTimeSteps, nTimeStepsPerShard);
+  auto nTimeStepsPerShard = gccs::ceildiv(maxTimeSteps, maxShards);
+  return gccs::ceildiv(maxTimeSteps, nTimeStepsPerShard);
 }
 
 std::size_t RnnParams::getInputBytesPerTile(const Graph &graph) const {
@@ -920,7 +921,7 @@ Tensor shiftRnnTensor(Graph &graph, const RnnParams &params,
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(params, tBase, tSingle, prog, numShards));
   unsigned multiple = tBase.dim(0) / params.maxTimeSteps;
-  auto timeStepsPerShard = ceildiv(params.maxTimeSteps, numShards);
+  auto timeStepsPerShard = gccs::ceildiv(params.maxTimeSteps, numShards);
   std::vector<Tensor> sequence;
   Tensor tLast = tSingle;
   for (unsigned shardOffset = 0; shardOffset < numShards; ++shardOffset) {

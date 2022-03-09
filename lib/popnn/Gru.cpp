@@ -1,5 +1,4 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#include <poplibs_support/Algorithm.hpp>
 #include <popnn/Gru.hpp>
 #include <popnn/NonLinearityDef.hpp>
 #include <popops/Cast.hpp>
@@ -8,6 +7,8 @@
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poputil/DebugInfo.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;

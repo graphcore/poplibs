@@ -254,11 +254,11 @@ static popsolver::Variable addPartialCalcCycleEstimate(
           assert(convGroupsPerGroup == 1);
 
           const auto tileNumInGroups =
-              ceildiv(convSize.inChanSize, inChansPerGroup);
+              gccs::ceildiv(convSize.inChanSize, inChansPerGroup);
           const auto tileNumOutGroups =
-              ceildiv(convSize.outChanSize, outChansPerGroup);
+              gccs::ceildiv(convSize.outChanSize, outChansPerGroup);
           const auto tileNumConvGroups =
-              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
+              gccs::ceildiv(convSize.convGroupSize, convGroupsPerGroup);
 
           const auto floatPartials = partialType == poplar::FLOAT;
           if (canUseConvPartial1x1Vertex(
@@ -331,13 +331,13 @@ static popsolver::Variable addPartialCalcCycleEstimate(
           assert(inChansPerGroup == outChansPerGroup);
           assert(!((convGroupsPerGroup * inChansPerGroup) % 4));
 
-          if (ceildiv(convSize.inChanSize, inChansPerGroup) != 1 ||
-              ceildiv(convSize.outChanSize, outChansPerGroup) != 1) {
+          if (gccs::ceildiv(convSize.inChanSize, inChansPerGroup) != 1 ||
+              gccs::ceildiv(convSize.outChanSize, outChansPerGroup) != 1) {
             return boost::none;
           }
 
           const auto tileNumConvGroups =
-              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
+              gccs::ceildiv(convSize.convGroupSize, convGroupsPerGroup);
 
           // we process kernel width in 1x4 blocks (rounding up to the nearest
           // multiple of the SLIC kernel width) and then do this for each other
@@ -349,7 +349,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
             const unsigned widthDim = convSize.kernelSize.size() - 1;
             const unsigned otherDims =
                 product(convSize.kernelSize) / convSize.kernelSize[widthDim];
-            return ceildiv(convSize.kernelSize[widthDim], slicWindowWidth) *
+            return gccs::ceildiv(convSize.kernelSize[widthDim],
+                                 slicWindowWidth) *
                    otherDims;
           }();
 
@@ -398,11 +399,11 @@ static popsolver::Variable addPartialCalcCycleEstimate(
           assert(convGroupsPerGroup == 1);
 
           const auto tileNumInGroups =
-              ceildiv(convSize.inChanSize, inChansPerGroup);
+              gccs::ceildiv(convSize.inChanSize, inChansPerGroup);
           const auto tileNumOutGroups =
-              ceildiv(convSize.outChanSize, outChansPerGroup);
+              gccs::ceildiv(convSize.outChanSize, outChansPerGroup);
           const auto tileNumConvGroups =
-              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
+              gccs::ceildiv(convSize.convGroupSize, convGroupsPerGroup);
           const auto tileKernelElements = product(convSize.kernelSize);
 
           unsigned numActiveOutRows = convSize.batchSize;
@@ -451,9 +452,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
             return boost::none;
           }
           const auto tileNumInGroups =
-              ceildiv(convSize.inChanSize, inChansPerGroup);
+              gccs::ceildiv(convSize.inChanSize, inChansPerGroup);
           const auto tileNumConvGroups =
-              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
+              gccs::ceildiv(convSize.convGroupSize, convGroupsPerGroup);
           const auto tileKernelElements = product(convSize.kernelSize);
           const auto tileKernelWidth = convSize.kernelSize.back();
           const auto tileOutFieldSize = product(convSize.fieldSize);
@@ -511,9 +512,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
           }
 
           const auto tileNumConvGroups =
-              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
+              gccs::ceildiv(convSize.convGroupSize, convGroupsPerGroup);
           const auto tileOutWidth = convSize.fieldSize.back();
-          const auto workerOutWidth = ceildiv(tileOutWidth, numContexts);
+          const auto workerOutWidth = gccs::ceildiv(tileOutWidth, numContexts);
           const auto vertexRuntime = getOuterProductCycleEstimate(
               floatActivations || outputIsFloat, workerOutWidth,
               convSize.outChanSize * tileNumConvGroups, outChansPerGroup,
@@ -1047,9 +1048,10 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
               cycles += popsolver::DataType{
                   exchangeEstimator.getCycles(outputSizeThisStage, resultType)};
             }
-            const auto depthThisStage = ceildiv(remainingDepth, d);
-            outputSizeThisStage = ceildiv(outputSizeThisStage, depthThisStage);
-            remainingDepth = ceildiv(remainingDepth, depthThisStage);
+            const auto depthThisStage = gccs::ceildiv(remainingDepth, d);
+            outputSizeThisStage =
+                gccs::ceildiv(outputSizeThisStage, depthThisStage);
+            remainingDepth = gccs::ceildiv(remainingDepth, depthThisStage);
             firstStage = false;
           }
           // Final reduction
@@ -1136,12 +1138,13 @@ addReduceCycleEstimate(popsolver::Model &m,
           unsigned numOutputsThisStage = numOutputs * reductionDepth;
           popsolver::DataType maxTempBytes{0};
           for (const auto d : reducePlan) {
-            const auto depthThisStage = ceildiv(remainingDepth, d);
+            const auto depthThisStage = gccs::ceildiv(remainingDepth, d);
             const auto tempBytesThisStage = numOutputsThisStage * elementBytes;
             maxTempBytes = std::max<popsolver::DataType>(
                 maxTempBytes, popsolver::DataType{tempBytesThisStage});
-            numOutputsThisStage = ceildiv(numOutputsThisStage, depthThisStage);
-            remainingDepth = ceildiv(remainingDepth, depthThisStage);
+            numOutputsThisStage =
+                gccs::ceildiv(numOutputsThisStage, depthThisStage);
+            remainingDepth = gccs::ceildiv(remainingDepth, depthThisStage);
           }
 
           return maxTempBytes;
@@ -1724,7 +1727,7 @@ addRearrangeBeforeSliceEstimate(popsolver::Model &m,
   // the product of parallel splits, and exchanging all-to-all. We should be
   // able to achieve cycles:
   //
-  // ceildiv(bytes, tilesUsed) / exchangeBytesPerCycle
+  // gccs::ceildiv(bytes, tilesUsed) / exchangeBytesPerCycle
   //
   // No super-tile send as we can't rely on sending+receiving tiles allowing
   // super-tile send/receive concurrently.
@@ -2544,7 +2547,7 @@ unsigned convGroupCombineFactor(const unsigned factor,
 
 void combineConvGroups(const unsigned factor, ConvParams &params) {
   // divide the number of conv groups by the factor, rounding up in the process
-  params.numConvGroups = ceildiv(params.numConvGroups, factor);
+  params.numConvGroups = gccs::ceildiv(params.numConvGroups, factor);
 
   // increase the number of input and output channels by the factor.
   params.inputChannelsPerConvGroup *= factor;
@@ -2564,14 +2567,15 @@ static ConvParams calculatePaddedParams(const ConvParams &params,
   auto paddedParams = params;
 
   const auto convGroups = params.getNumConvGroups();
-  paddedParams.numConvGroups = roundUp(convGroups, convGroupsGrainSize);
+  paddedParams.numConvGroups = gccs::alignNext(convGroups, convGroupsGrainSize);
 
   const auto inChans = params.getNumInputChansPerConvGroup();
-  paddedParams.inputChannelsPerConvGroup = roundUp(inChans, inChanGrainSize);
+  paddedParams.inputChannelsPerConvGroup =
+      gccs::alignNext(inChans, inChanGrainSize);
 
   const auto partialChans = params.getNumOutputChansPerConvGroup();
   paddedParams.outputChannelsPerConvGroup =
-      roundUp(partialChans, partialChanGrainSize);
+      gccs::alignNext(partialChans, partialChanGrainSize);
 
   return paddedParams;
 }
@@ -2899,7 +2903,6 @@ Estimates<popsolver::Variable> constructModel(
     popsolver::Model &m, std::vector<PartitionVariables> &partitionVars,
     popsolver::Variable &broadcastInputBeforeLoop) {
   using namespace popsolver;
-  using poplibs_support::ceildiv;
 
   const auto convGroupsPerGroup = convVertexType.convGroupsPerGroup;
   const auto inChansPerGroup = convVertexType.inChansPerGroup;
@@ -2952,7 +2955,7 @@ Estimates<popsolver::Variable> constructModel(
 
   const auto getNumGrains = [](const std::size_t total,
                                const std::size_t grainSize) {
-    return total ? ceildiv(total, grainSize) : 1;
+    return total ? gccs::ceildiv(total, grainSize) : 1;
   };
 
   const auto convGroupGrains = getNumGrains(
@@ -2976,8 +2979,8 @@ Estimates<popsolver::Variable> constructModel(
   convSize.back().kernelSize.reserve(numFieldDims);
 
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    const auto numGrains =
-        ceildiv(transformedOnceParams.getOutputSize(dim), fieldGrainSize[dim]);
+    const auto numGrains = gccs::ceildiv(
+        transformedOnceParams.getOutputSize(dim), fieldGrainSize[dim]);
 
     convSize.back().numFieldGrains.push_back(
         m.addConstant(std::max(numGrains, 1UL),

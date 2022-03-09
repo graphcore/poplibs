@@ -14,7 +14,6 @@
 #include "ConvolutionInternal.hpp"
 #include "PerformanceEstimation.hpp"
 #include "poplar/CycleCount.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Tracepoint.hpp"
@@ -37,9 +36,13 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
-#include <algorithm>
+
+#include <gccs/Algorithm.hpp>
+
 #include <boost/optional.hpp>
 #include <boost/range/adaptor/reversed.hpp>
+
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -261,7 +264,7 @@ getTileOutRange(const CanonicalConvParams &params, const Partition &partition,
                 unsigned tileIndex, unsigned dim) {
   const auto outSize = params->getOutputSize(dim);
   const auto grainSize = partition.fieldAxisGrainSize[dim];
-  const auto numGrains = ceildiv(outSize, grainSize);
+  const auto numGrains = gccs::ceildiv(outSize, grainSize);
   const auto split = partition.fieldSplit[dim];
 
   const auto outGrainBegin = (tileIndex * numGrains) / split;
@@ -426,7 +429,7 @@ void iteratePartitionParallel(
 
   const unsigned numOutChans = params->getNumOutputChansPerConvGroup();
   const auto outChanGrainSize = partition.outChanGrainSize;
-  const auto outChanNumGrains = ceildiv(numOutChans, outChanGrainSize);
+  const auto outChanNumGrains = gccs::ceildiv(numOutChans, outChanGrainSize);
   const auto outChanSplit = partition.outChanSplit;
 
   const auto batchSplit = partition.batchSplit;
@@ -434,12 +437,13 @@ void iteratePartitionParallel(
 
   const unsigned numInChans = params->getNumInputChansPerConvGroup();
   const auto inChanGrainSize = partition.inChanGrainSize;
-  const auto inChanNumGrains = ceildiv(numInChans, inChanGrainSize);
+  const auto inChanNumGrains = gccs::ceildiv(numInChans, inChanGrainSize);
   const auto inChanSplit = partition.inChanSplit;
 
   const unsigned numConvGroups = params->getNumConvGroups();
   const auto convGroupGrainSize = partition.convGroupGrainSize;
-  const auto convGroupNumGrains = ceildiv(numConvGroups, convGroupGrainSize);
+  const auto convGroupNumGrains =
+      gccs::ceildiv(numConvGroups, convGroupGrainSize);
   const auto convGroupSplit = partition.convGroupSplit;
 
   const auto totalFieldSplit = product(partition.fieldSplit);
@@ -725,7 +729,7 @@ static CanonicalConvParams convolutionPreprocess(
       const auto factor = transform.combineConvGroupsFactor;
       const auto numConvGroups = params.numConvGroups;
       const auto paddedNumConvGroups =
-          roundUp(params.numConvGroups, std::size_t(factor));
+          gccs::alignNext(params.numConvGroups, std::size_t(factor));
       const auto extraConvGroups = paddedNumConvGroups - numConvGroups;
 
       // pad conv groups if necessary.
@@ -819,11 +823,11 @@ static CanonicalConvParams convolutionPreprocess(
 
     // Zero pad the input / weights.
     const auto paddedConvGroups =
-        roundUp(params.getNumConvGroups(), convGroupGrainSize);
+        gccs::alignNext(params.getNumConvGroups(), convGroupGrainSize);
     const auto paddedInChans =
-        roundUp(params.getNumInputChansPerConvGroup(), inChanGrainSize);
-    const auto paddedOutChans =
-        roundUp(params.getNumOutputChansPerConvGroup(), outChanGrainSize);
+        gccs::alignNext(params.getNumInputChansPerConvGroup(), inChanGrainSize);
+    const auto paddedOutChans = gccs::alignNext(
+        params.getNumOutputChansPerConvGroup(), outChanGrainSize);
 
     if (acts) {
       const unsigned gDim = 0;
@@ -3270,7 +3274,7 @@ static std::vector<unsigned> commonDivisors(const unsigned A,
   // of A and B are factors of GCD
   std::vector<unsigned> result(1, GCD);
   // populated divisors ordered with largest first
-  for (unsigned i = ceildiv(GCD, 2U); i > 0; --i) {
+  for (unsigned i = gccs::ceildiv(GCD, 2U); i > 0; --i) {
     if (GCD % i == 0) {
       result.push_back(i);
     }

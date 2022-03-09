@@ -1,6 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 #include "poplin/Cholesky.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplin/MatMul.hpp"
 #include "popops/ElementWise.hpp"
@@ -17,6 +16,9 @@
 #include "poputil/TileMapping.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <sstream>
 
 namespace pe = popops::expr;
@@ -383,7 +385,7 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
   CholeskyOptions choleskyOptions(options, n);
   auto blockSize = choleskyOptions.blockSize;
 
-  const auto nb = poplibs_support::ceildiv(n, blockSize);
+  const auto nb = gccs::ceildiv(n, blockSize);
 
   const std::vector<std::size_t> blockShape = {g, nb, nb, blockSize, blockSize};
   auto tensor = graph.addVariable(type, blockShape, debugContext);

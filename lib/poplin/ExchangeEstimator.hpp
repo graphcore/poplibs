@@ -4,10 +4,12 @@
 
 #include "ConvPlan.hpp"
 #include "ConvPlanTypes.hpp"
-#include "poplibs_support/Algorithm.hpp"
-#include <cmath>
 #include <poplar/Target.hpp>
 #include <popsolver/Model.hpp>
+
+#include <gccs/Algorithm.hpp>
+
+#include <cmath>
 
 namespace poplin {
 
@@ -99,8 +101,7 @@ public:
     const unsigned scaledSize =
         target.getTypeSize(elementType) * exchangeBytesScalingFactor;
     const auto scaledElementBytes = numElements * scaledSize;
-    return poplibs_support::ceildiv(scaledElementBytes,
-                                    scaledExchangeBytesPerCycle);
+    return gccs::ceildiv(scaledElementBytes, scaledExchangeBytesPerCycle);
   }
 
 private:

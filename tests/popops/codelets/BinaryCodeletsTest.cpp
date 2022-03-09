@@ -303,7 +303,7 @@ struct TensorSizes {
       unsigned atomSize =
           (vertex.dataType == HALF) ? HALF_VECTOR_ELEMS : FLOAT_VECTOR_ELEMS;
       if (vertex.allowMisaligned == false && (columns % atomSize) != 0) {
-        columns = roundUp(columns, atomSize);
+        columns = gccs::alignNext(columns, atomSize);
       }
       nElems1 = rows * columns;
       rowSizes.resize(1, nElems1);
@@ -785,7 +785,7 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
     assert((ALIGN % dataTypeSize) == 0);
     const unsigned nBytes1 =
         test.in1.totalElems * dataTypeSize; // Operand1 size bytes
-    const unsigned nBytes1Aligned = roundUp(nBytes1, ALIGN);
+    const unsigned nBytes1Aligned = gccs::alignNext(nBytes1, ALIGN);
 
     unsigned offs = *test.operandOffset;
     if ((offs % ALIGN) != 0) {

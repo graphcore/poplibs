@@ -1,9 +1,10 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE VarStructureTest
 #include <boost/test/unit_test.hpp>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poputil/VarStructure.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -52,7 +53,7 @@ BOOST_AUTO_TEST_CASE(CreatePartitionableTensorEvenSplit) {
 static Tensor getPartitionSlice(const Tensor &t, unsigned d, unsigned dim,
                                 unsigned i) {
   const auto dimElems = t.dim(dim);
-  const auto ceil = ceildiv(dimElems, d);
+  const auto ceil = gccs::ceildiv(dimElems, d);
   return t.slice(std::min(i * ceil, dimElems),
                  std::min((i + 1) * ceil, dimElems), dim);
 }

@@ -2,6 +2,10 @@
 #ifndef _performance_estimation_h_
 #define _performance_estimation_h_
 
+#include "poplibs_support/logging.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -10,11 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include "poplibs_support/Algorithm.hpp"
-#include "poplibs_support/logging.hpp"
-
-using namespace poplibs_support;
-
 static inline std::uint64_t getBlockTransposeGradWCycles(bool floatInput,
                                                          unsigned blockSizeXY,
                                                          unsigned numBlocks,
@@ -22,7 +21,7 @@ static inline std::uint64_t getBlockTransposeGradWCycles(bool floatInput,
                                                          unsigned numWorkers) {
   const auto blockSizeZ = floatInput ? 8 : 16;
   assert(numZ % blockSizeZ == 0);
-  const auto blocksPerWorker = ceildiv(numBlocks, numWorkers);
+  const auto blocksPerWorker = gccs::ceildiv(numBlocks, numWorkers);
   std::uint64_t supervisorCycles = 18;
   std::uint64_t workerOverhead = 34;
   std::uint64_t workerLoopCycles;
@@ -510,7 +509,7 @@ static inline std::uint64_t sparseDenseBlockMultiplyGradWAmp(
 
   for (const auto &y : numYBlocks) {
     supervisorLoopCycles += sYOverheadFirst + (y - 1) * sYOverheadOther;
-    const auto numBlocks = ceildiv(numZ, floatInput ? 8U : 16U);
+    const auto numBlocks = gccs::ceildiv(numZ, floatInput ? 8U : 16U);
     supervisorLoopCycles +=
         (sZOverheadFirst + (numBlocks - 1) * sZOverheadOther +
          numBlocks * (sRunCycles + sWeightLoad)) *
@@ -893,7 +892,7 @@ getTransposeCycleEstimate(unsigned numTransposes, unsigned numSrcRows,
   const auto numSrcRowGrains = numSrcRows / grainSize;
   const auto numSrcColumnGrains = numSrcColumns / grainSize;
   const std::uint64_t maxTransposesPerWorker =
-      ceildiv(numTransposes, numWorkers);
+      gccs::ceildiv(numTransposes, numWorkers);
   if (numSrcRowGrains == 1 && numSrcColumnGrains == 1) {
     if (maxTransposesPerWorker == 1) {
       maxWorkerCycles = 17 + 12;

@@ -1,7 +1,6 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/Tracepoint.hpp"
 #include <cmath>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/PlanConstraints.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/Lstm.hpp>
@@ -12,6 +11,8 @@
 #include "MatMulInternal.hpp"
 #include "RnnUtil.hpp"
 #include "poplin/FullyConnected.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -1506,7 +1507,7 @@ interleaveWUCadence(const Graph &graph, const LstmParams &params,
 
   // Round the time steps to the data type size in order to minimise
   // rearrangement costs.
-  auto numSteps = roundDown(maxSteps, dataPathWidth);
+  auto numSteps = gccs::alignPrev(maxSteps, dataPathWidth);
 
   // Get planConstraints
   planConstraints.emplace(poplin::matMulPlanConstraints(
@@ -1531,7 +1532,7 @@ interleaveWUCadence(const Graph &graph, const LstmParams &params,
     stepsPerWU = numSteps / inputChanSerialSplit;
 
     // Round the steps per WU to a multiple of the data type size.
-    stepsPerWU = roundDown(stepsPerWU, dataPathWidth);
+    stepsPerWU = gccs::alignPrev(stepsPerWU, dataPathWidth);
   } else {
     planConstraints = boost::none;
     stepsPerWU = 1;

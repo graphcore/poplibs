@@ -3,10 +3,13 @@
 #ifndef _popsparse_SparseDenseUtils_hpp
 #define _popsparse_SparseDenseUtils_hpp
 
-#include "poplibs_support/Algorithm.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <boost/random.hpp>
 #include <boost/range/algorithm/random_shuffle.hpp>
+
 #include <iostream>
 #include <random>
 #include <vector>
@@ -75,15 +78,14 @@ partitionSubGroupElems(RandomEngine &randomEngine, std::size_t numIndices,
     boost::random::uniform_int_distribution<unsigned> dist(0, max - 1);
     return dist(randomEngine);
   };
-  const auto maxIndicesPerBucket =
-      poplibs_support::ceildiv(numIndices, numBuckets);
+  const auto maxIndicesPerBucket = gccs::ceildiv(numIndices, numBuckets);
   for (std::size_t bucket = 0; bucket < numBuckets; ++bucket) {
     numElems[bucket].resize(numSplitsPerBucket + numOtherSubGroups);
     const auto bucketStartIndex = bucket * maxIndicesPerBucket;
     const auto bucketEndIndex =
         std::min((bucket + 1) * maxIndicesPerBucket, numIndices);
-    const auto maxIndicesPerSplit = poplibs_support::ceildiv(
-        bucketEndIndex - bucketStartIndex, numSplitsPerBucket);
+    const auto maxIndicesPerSplit =
+        gccs::ceildiv(bucketEndIndex - bucketStartIndex, numSplitsPerBucket);
     std::vector<unsigned> indices(numOtherSubGroups + numSplitsPerBucket);
     std::iota(indices.begin(), indices.end(), 0);
     boost::range::random_shuffle(indices, randomGenForShuffle);

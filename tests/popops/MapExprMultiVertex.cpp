@@ -3,7 +3,6 @@
 #include <boost/program_options.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/OptionFlags.hpp>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
@@ -13,6 +12,8 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 #include <sstream>
 #include <utility>
@@ -39,7 +40,8 @@ executeExpr(const DeviceType &deviceType, const Expr &expression,
   // slices. Padding will result in later slices being aligned to 4 element
   // (At least 8 byte) boundaries to avoid copies and leave in place ops where
   // they are allocated
-  const auto paddingSize = (1 << ceilLog2(std::max(length + 1, 3u))) - length;
+  const auto paddingSize =
+      (1 << gccs::ceilLog2(std::max(length + 1, 3u))) - length;
   const auto dataLength = (length + paddingSize) * slices;
   std::vector<double> hostInA(dataLength);
   std::vector<double> hostInC(dataLength);

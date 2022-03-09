@@ -1,11 +1,12 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "ConvTransforms.hpp"
 #include "ConvUtilInternal.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "popops/Pad.hpp"
 #include "popops/Rearrange.hpp"
 #include <poplin/ConvUtil.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -206,7 +207,7 @@ static void expandSpatialDimMultiStageImpl(ConvParams &params, unsigned dim,
   // factor.
   bool emptyWeights = weightsSize == 0;
   const auto paddedKernelSize =
-      emptyWeights ? 0 : roundUp(weightsSize, kernelFactor);
+      emptyWeights ? 0 : gccs::alignNext(weightsSize, kernelFactor);
   const auto kernelPadding = paddedKernelSize - weightsSize;
   const auto actsPaddedSize =
       actsSize + getDilatedSize(paddedKernelSize, weightsDilation) -

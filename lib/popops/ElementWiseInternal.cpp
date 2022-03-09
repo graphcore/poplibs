@@ -3,11 +3,12 @@
 #include "ElementWiseInternal.hpp"
 
 #include "ExprOpUtil.hpp"
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popops/Expr.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poputil;
@@ -367,7 +368,7 @@ static ExprAndType optimiseBinary(const expr::BinaryOp *b,
                   infoLhs.type};
 
         } else {
-          const unsigned log2Val = ceilLog2(value);
+          const unsigned log2Val = gccs::ceilLog2(value);
           logging::popops::debug(
               "DIVIDE op optimised to an SHR for type {} with shift "
               "value {}",

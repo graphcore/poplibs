@@ -14,6 +14,9 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/VertexTemplates.hpp>
+
+#include <gccs/Algorithm.hpp>
+
 #include <pva/pva.hpp>
 
 #include <boost/algorithm/string.hpp>
@@ -414,11 +417,6 @@ unsigned findDivisor(unsigned n) {
     }
     return 1;
   }
-}
-
-// Round 'n' to the next multiple of 'align'. For instance: roundUp(21, 8) => 24
-unsigned roundUp(unsigned n, unsigned align) {
-  return ((n + align - 1) / align) * align;
 }
 
 // Used to pass the appropriate streams for upload/download between the setup
@@ -1061,7 +1059,7 @@ struct TestOperand {
     for (unsigned i = 0; i < numRows; i++) {
       // Compute aligned/padded size of row (and offset of next row)
       unsigned nBytes = rowSizes[i] * typeSize;
-      nBytes = roundUp(nBytes + FILL, ALIGN);
+      nBytes = gccs::alignNext(nBytes + FILL, ALIGN);
       unsigned sizePadded = nBytes / typeSize;
       totalElems += sizePadded;
       offsets[i + 1] = offsets[i] + sizePadded;

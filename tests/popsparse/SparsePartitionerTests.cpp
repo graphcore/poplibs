@@ -3,10 +3,12 @@
 #include "../lib/popsparse/SparsePartitionerImpl.hpp"
 #include "../lib/popsparse/SparseStorageInternal.hpp"
 #include "poplar/Type.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_test/Util.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <boost/random.hpp>
@@ -364,9 +366,9 @@ int main(int argc, char **argv) {
 
   auto createSplit = [](unsigned size, unsigned partitionSize,
                         unsigned grainSize) {
-    auto grains = poplibs_support::ceildiv(size, grainSize);
+    auto grains = gccs::ceildiv(size, grainSize);
     std::vector<std::size_t> split;
-    const auto grainsPerPartition = ceildiv(grains, partitionSize);
+    const auto grainsPerPartition = gccs::ceildiv(grains, partitionSize);
     for (unsigned i = 0; i != partitionSize; ++i) {
       const auto tileBegin = i * grainsPerPartition * grainSize;
       split.push_back(tileBegin);

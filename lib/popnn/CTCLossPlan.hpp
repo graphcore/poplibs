@@ -6,7 +6,8 @@
 #include <popnn/CTCLoss.hpp>
 
 #include <poplar/Interval.hpp>
-#include <poplibs_support/Algorithm.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 namespace popnn {
 namespace ctc {
@@ -226,7 +227,7 @@ template <typename T> struct SerialPartition {
 class LossPlan {
   poplar::Interval partition(unsigned fullSize, unsigned partitions,
                              unsigned index) const {
-    const auto partitionSize = poplibs_support::ceildiv(fullSize, partitions);
+    const auto partitionSize = gccs::ceildiv(fullSize, partitions);
     const auto begin = std::min(partitionSize * index, fullSize);
     const auto end = std::min(partitionSize * (index + 1), fullSize);
     return {begin, end};

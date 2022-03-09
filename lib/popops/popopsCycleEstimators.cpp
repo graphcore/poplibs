@@ -2,7 +2,6 @@
 #include "popopsCycleEstimators.hpp"
 #include "ExprOpUtil.hpp"
 #include "HistogramPerformanceEstimation.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/FlopEstimation.hpp"
 #include "poplibs_support/forceInterleavedEstimates.hpp"
 #include "poplibs_support/gcd.hpp"
@@ -11,6 +10,9 @@
 #include "popops/OperationDefUtil.hpp"
 #include "popops/PerformanceEstimation.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <cassert>
 #include <cmath>
 #include <iostream>
@@ -754,7 +756,7 @@ std::uint64_t vectorInnerAddCoreCycles_half_multiple_of_8(unsigned vectorWidth,
   unsigned grainSize = vectorWidth * 2;
   unsigned addendLoops = addendLen / grainSize;
   const unsigned remainder = addendLen % grainSize;
-  for (unsigned i = ceilLog2(8); i < ceilLog2(grainSize); ++i) {
+  for (unsigned i = gccs::ceilLog2(8); i < gccs::ceilLog2(grainSize); ++i) {
     if (remainder & (1u << i)) {
       ++addendLoops;
     }
@@ -779,7 +781,7 @@ std::uint64_t vectorInnerAddCoreCycles_half_multiple_of_4(unsigned vectorWidth,
 
   unsigned addendLoops = addendLen / vectorWidth;
   const unsigned remainder = addendLen % vectorWidth;
-  for (unsigned i = ceilLog2(4); i < ceilLog2(vectorWidth); ++i) {
+  for (unsigned i = gccs::ceilLog2(4); i < gccs::ceilLog2(vectorWidth); ++i) {
     if (remainder & (1u << i)) {
       ++addendLoops;
     }
@@ -1077,7 +1079,7 @@ std::uint64_t vectorInnerMulCoreCycles_half_multiple_of_4(unsigned vectorWidth,
   std::uint64_t cycles = 3; // pre-loop
   unsigned scaleLoops = scaleLen / vectorWidth;
   unsigned remainder = scaleLen % vectorWidth;
-  for (unsigned i = ceilLog2(4); i < ceilLog2(vectorWidth); ++i) {
+  for (unsigned i = gccs::ceilLog2(4); i < gccs::ceilLog2(vectorWidth); ++i) {
     if (remainder & (1u << i)) {
       ++scaleLoops;
     }
@@ -1095,7 +1097,7 @@ std::uint64_t vectorInnerMulCoreCycles_half_multiple_of_4_pipeline(
 
   unsigned scaleLoops = scaleLen / vectorWidth;
   unsigned remainder = scaleLen % vectorWidth;
-  for (unsigned i = ceilLog2(4); i < ceilLog2(vectorWidth); ++i) {
+  for (unsigned i = gccs::ceilLog2(4); i < gccs::ceilLog2(vectorWidth); ++i) {
     if (remainder & (1u << i)) {
       ++scaleLoops;
     }
@@ -2636,7 +2638,7 @@ static VertexPerfEstimate CompareAndSwapKeyValueCycleEstimate(
       // Total number of elements
       const auto numInnerLoops = numElems;
       const auto numOuterLoops =
-          1 + (ceildiv(numElems - innerElemCount, distance));
+          1 + (gccs::ceildiv(numElems - innerElemCount, distance));
       const auto numChangesOfOrder =
           numElems >= changeOrderCounter
               ? (1 + (numElems - changeOrderCounter) / distanceToChangeOrder)

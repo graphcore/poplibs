@@ -243,7 +243,7 @@ CycleEstimate estimateCycles(const LossPlan &plan, const poplar::Target &target,
                              EstimateCache &cache) {
   auto timePartitionCount = plan.parallel.time;
   auto maxTimeStepsPerPartition =
-      poplibs_support::ceildiv(plan.params.maxTime, plan.parallel.time);
+      gccs::ceildiv(plan.params.maxTime, plan.parallel.time);
   auto partitionSteps = timePartitionCount;
   if (plan.parallel.time & 1) {
     // When we have an odd number of time partitions, to avoid a clash in the
@@ -257,21 +257,21 @@ CycleEstimate estimateCycles(const LossPlan &plan, const poplar::Target &target,
   assert((partitionSteps & 1) == 0); // Implicit from above logic
 
   auto maxBatchPerTile =
-      poplibs_support::ceildiv(plan.params.batchSize, plan.parallel.batch);
+      gccs::ceildiv(plan.params.batchSize, plan.parallel.batch);
 
   // Currently we use 1 worker per batch, noting this is only valid while using
   // worker and not supervisor vertices.  A "serial vertex execution" accounts
   // for all workers even if only 1 is active, all the rest are burning cycles.
   const auto numWorkers = target.getNumWorkerContexts();
   auto serialVertexExecutionsPerStep =
-      poplibs_support::ceildiv(maxBatchPerTile, numWorkers);
+      gccs::ceildiv(maxBatchPerTile, numWorkers);
 
   const auto alphaOrBetaSteps = (maxTimeStepsPerPartition * partitionSteps) / 2;
   const auto gradGivenAlphaOrBetaSteps =
       (maxTimeStepsPerPartition * partitionSteps) / 2;
 
   auto maxLabelElementsPerPartition =
-      poplibs_support::ceildiv(plan.params.maxLabelLength, plan.parallel.label);
+      gccs::ceildiv(plan.params.maxLabelLength, plan.parallel.label);
 
   auto balancedLabelPartitions =
       maxLabelElementsPerPartition ==
@@ -383,11 +383,11 @@ MemoryEstimate estimateMaxTileTempMemory(const LossPlan &plan,
   // memory than the part before where we are calculating just alpha or beta.
 
   const uint64_t batchPerPartition =
-      poplibs_support::ceildiv(plan.params.batchSize, plan.parallel.batch);
+      gccs::ceildiv(plan.params.batchSize, plan.parallel.batch);
   const uint64_t timePerPartition =
-      poplibs_support::ceildiv(plan.params.maxTime, plan.parallel.time);
+      gccs::ceildiv(plan.params.maxTime, plan.parallel.time);
   const uint64_t maxLabelLengthPerPartition =
-      poplibs_support::ceildiv(plan.params.maxLabelLength, plan.parallel.label);
+      gccs::ceildiv(plan.params.maxLabelLength, plan.parallel.label);
   uint64_t maxExtendedLabelLengthPerPartition = maxLabelLengthPerPartition * 2;
   if (maxLabelLengthPerPartition * plan.parallel.label ==
       plan.params.maxLabelLength) {
@@ -395,7 +395,7 @@ MemoryEstimate estimateMaxTileTempMemory(const LossPlan &plan,
     maxExtendedLabelLengthPerPartition += 1;
   }
   const uint64_t alphabetPerPartition =
-      poplibs_support::ceildiv(plan.params.numClasses, plan.parallel.alphabet);
+      gccs::ceildiv(plan.params.numClasses, plan.parallel.alphabet);
   assert(plan.parallel.alphabet == 1); // Not yet accounted for
 
   const uint64_t dataPerTileBytes = [&]() {
@@ -466,12 +466,12 @@ MemoryEstimate estimateMaxTileTempMemory(const LossPlan &plan,
 // this is going to always be the case.
 bool checkForEmptyPartitions(const LossPlan &plan) {
   const auto timePartitionSize =
-      poplibs_support::ceildiv(plan.params.maxTime, plan.parallel.time);
+      gccs::ceildiv(plan.params.maxTime, plan.parallel.time);
   const bool lastTimePartitionEmpty =
       plan.params.maxTime <= (timePartitionSize * (plan.parallel.time - 1));
 
   const auto labelPartitionSize =
-      poplibs_support::ceildiv(plan.params.maxLabelLength, plan.parallel.label);
+      gccs::ceildiv(plan.params.maxLabelLength, plan.parallel.label);
   const bool lastLabelPartitionEmpty =
       plan.params.maxLabelLength <=
       (labelPartitionSize * (plan.parallel.label - 1));

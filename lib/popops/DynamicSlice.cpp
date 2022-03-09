@@ -11,7 +11,6 @@
 #include "poplar/Interval.hpp"
 #include "poplar/Program.hpp"
 #include "poplar/Tensor.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
@@ -36,6 +35,8 @@
 #include "poputil/VarStructure.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/optional.hpp>
 
@@ -520,8 +521,8 @@ static void generateVertices(std::string vertexName, Graph &graph,
 
 static inline unsigned getMultiSliceUpdateOpMaxElemsPerWorker(
     unsigned numWorkerContexts, unsigned numElems, unsigned grainSize = 1) {
-  const auto numGrains = ceildiv(numElems, grainSize);
-  return ceildiv(numGrains, numWorkerContexts) * grainSize;
+  const auto numGrains = gccs::ceildiv(numElems, grainSize);
+  return gccs::ceildiv(numGrains, numWorkerContexts) * grainSize;
 }
 
 // Generate vertices on a specified tile to perform a multi-slice
@@ -697,7 +698,8 @@ static void generateMultiSliceVertices(
       return maxElems;
     }();
 
-    const auto balancedUnslicedElemsPerTile = ceildiv(base.dim(1), numTiles);
+    const auto balancedUnslicedElemsPerTile =
+        gccs::ceildiv(base.dim(1), numTiles);
 
     // If we are already as well balanced as we can be then we can't do
     // anything about this without a planned multi-stage or even a serialized
@@ -924,8 +926,9 @@ static void generatePlannedMultiUpdateOp(
   // vertices on tiles in those splits.
   const auto subSlicedDim = 1;
   const auto endSubIndex = slices.dim(subSlicedDim);
-  const auto subIndicesPerSplit = ceildiv(endSubIndex, p.lookupSplit);
-  const auto nonEmptyLookupSplits = ceildiv(endSubIndex, subIndicesPerSplit);
+  const auto subIndicesPerSplit = gccs::ceildiv(endSubIndex, p.lookupSplit);
+  const auto nonEmptyLookupSplits =
+      gccs::ceildiv(endSubIndex, subIndicesPerSplit);
   assert(nonEmptyLookupSplits <= p.lookupSplit);
 
   const unsigned numUsedTiles =
@@ -937,9 +940,9 @@ static void generatePlannedMultiUpdateOp(
 
   const auto unslicedSize = base.dim(unslicedDim);
   const auto endBaseIndex = base.dim(slicedDim);
-  const auto groupsPerSplit = ceildiv(groupSize, groupSplit);
-  const auto baseIndicesPerSplit = ceildiv(endBaseIndex, slicedSplit);
-  const auto elemsPerUSplit = ceildiv(unslicedSize, unslicedSplit);
+  const auto groupsPerSplit = gccs::ceildiv(groupSize, groupSplit);
+  const auto baseIndicesPerSplit = gccs::ceildiv(endBaseIndex, slicedSplit);
+  const auto elemsPerUSplit = gccs::ceildiv(unslicedSize, unslicedSplit);
 
   logging::popops::debug(
       "PlannedMUOp: activeTiles={}, split {}/{}/{}/{}, shapes {} {}",
@@ -1549,7 +1552,7 @@ static Tensor createSliceableTensorGivenOrder(
   // fewer than unslicedElemsPerSplit elements mapped to them.
   const auto numTiles = graph.getTarget().getNumTiles();
   auto unslicedElemsPerSplit =
-      std::max(ceildiv(numUnslicedElems, numTiles), minGrainSize);
+      std::max(gccs::ceildiv(numUnslicedElems, numTiles), minGrainSize);
 
   if (createShape.size() == 2 && minGrainSize > 1) {
     // If we're slicing individaul elements coerce the slices to be atomic write
@@ -1571,7 +1574,7 @@ static Tensor createSliceableTensorGivenOrder(
     }
   }
 
-  const auto tilesUsed = ceildiv(numUnslicedElems, unslicedElemsPerSplit);
+  const auto tilesUsed = gccs::ceildiv(numUnslicedElems, unslicedElemsPerSplit);
   std::vector<std::size_t> nPartitions(createShape.size(), 1);
   nPartitions.back() = tilesUsed;
 
@@ -1587,19 +1590,19 @@ static Tensor createSliceableTensorGivenOrder(
   t = t.reshapePartial(t.rank() - 1, t.rank(), unslicedShape)
           .dimShuffle(inversePermutation);
 
-  logging::popops::debug("createSliceableTensor {}, minGrainSize {}, dims {}, "
-                         "used tiles {}, "
-                         "elem size {}, "
-                         "{} tiles with {} elems, "
-                         "{} tiles with {} elems",
-                         t.shape(), minGrainSize, dims, tilesUsed,
-                         graph.getTarget().getTypeSize(type),
-                         // Tiles with ceildiv(numElems, numSplits) elements
-                         numUnslicedElems / unslicedElemsPerSplit,
-                         unslicedElemsPerSplit,
-                         // Any remainder
-                         numUnslicedElems % unslicedElemsPerSplit ? 1 : 0,
-                         numUnslicedElems % unslicedElemsPerSplit);
+  logging::popops::debug(
+      "createSliceableTensor {}, minGrainSize {}, dims {}, "
+      "used tiles {}, "
+      "elem size {}, "
+      "{} tiles with {} elems, "
+      "{} tiles with {} elems",
+      t.shape(), minGrainSize, dims, tilesUsed,
+      graph.getTarget().getTypeSize(type),
+      // Tiles with gccs::ceildiv(numElems, numSplits) elements
+      numUnslicedElems / unslicedElemsPerSplit, unslicedElemsPerSplit,
+      // Any remainder
+      numUnslicedElems % unslicedElemsPerSplit ? 1 : 0,
+      numUnslicedElems % unslicedElemsPerSplit);
   return t;
 }
 
@@ -1670,8 +1673,9 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
         const auto flattenedSlice = tSlice.flatten(1, tSlice.rank());
 
         const auto sliceNumElems = flattenedSlice.numElements() / tSlice.dim(0);
-        const auto sliceNumGrains = ceildiv(sliceNumElems, extraGrainSize);
-        const auto grainsPerSplit = ceildiv(sliceNumGrains, extraSplit);
+        const auto sliceNumGrains =
+            gccs::ceildiv(sliceNumElems, extraGrainSize);
+        const auto grainsPerSplit = gccs::ceildiv(sliceNumGrains, extraSplit);
         const auto elemsPerSplit = grainsPerSplit * extraGrainSize;
 
         assert(i.size() == 3);
@@ -1875,11 +1879,11 @@ createSliceTensor(Graph &graph, const Type &type, const std::size_t groupSize,
       createPartitionableTensor(graph, type, createShape, createSplits, {dnai});
 
   const auto iElemsPerPartition =
-      ceildiv(numIndices, plan.partition.lookupSplit);
+      gccs::ceildiv(numIndices, plan.partition.lookupSplit);
   const auto iElemsPerPartitionStage1 =
-      ceildiv(iElemsPerPartition, plan.partition.slicedDimSplit);
+      gccs::ceildiv(iElemsPerPartition, plan.partition.slicedDimSplit);
   const auto iSplitStage1 =
-      ceildiv(iElemsPerPartition, iElemsPerPartitionStage1);
+      gccs::ceildiv(iElemsPerPartition, iElemsPerPartitionStage1);
 
   iterateTensorPartitions(
       t, createSplits,
@@ -2336,13 +2340,13 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
   const auto options = parseSliceOptions(optionFlags);
 
   const auto gTotalElems = offset.dim(0);
-  const auto gElemsPerPartition = ceildiv(gTotalElems, gSplit);
+  const auto gElemsPerPartition = gccs::ceildiv(gTotalElems, gSplit);
   const auto iTotalElems = offset.dim(1);
-  const auto iElemsPerPartition = ceildiv(iTotalElems, iSplit);
+  const auto iElemsPerPartition = gccs::ceildiv(iTotalElems, iSplit);
   const auto sTotalElems = t.dim(slicedDim);
-  const auto sElemsPerPartition = ceildiv(sTotalElems, sSplit);
+  const auto sElemsPerPartition = gccs::ceildiv(sTotalElems, sSplit);
   const auto hTotalElems = t.dim(unslicedDim);
-  const auto hElemsPerPartition = ceildiv(hTotalElems, hSplit);
+  const auto hElemsPerPartition = gccs::ceildiv(hTotalElems, hSplit);
 
   // If this is multi-stage create a new tensor laid out appropriately
   // for stage 0 to output to. Otherwise we output directly to the
@@ -2441,7 +2445,7 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
     // sliced dimension no longer exists to spread over tiles).
     //
     // Each partition in the second stage has some number
-    // ceildiv(iTotalElems, iSplit) of slices that we further split
+    // gccs::ceildiv(iTotalElems, iSplit) of slices that we further split
     // using sSplit.
     //
     // This means each tile has a piece of the output of stage 0
@@ -2462,9 +2466,10 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
     //   stage1Indices[i] += sPartitionWithCorrectAnswer * iElemsThisPartition.
     // }
     //
-    const auto iElemsPerPartitionStage1 = ceildiv(iElemsPerPartition, sSplit);
+    const auto iElemsPerPartitionStage1 =
+        gccs::ceildiv(iElemsPerPartition, sSplit);
     const auto iSplitStage1 =
-        ceildiv(iElemsPerPartition, iElemsPerPartitionStage1);
+        gccs::ceildiv(iElemsPerPartition, iElemsPerPartitionStage1);
 
     const Tensor transformedOffset = [&] {
       // innerIdx represents the offset into the indices in the partition
@@ -2511,16 +2516,16 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
       //                    sSplit=2                               sSplit=2
 
       const Tensor innerElems = [&] {
-        const auto ceil0 = ceildiv(iTotalElems, iSplit);
+        const auto ceil0 = gccs::ceildiv(iTotalElems, iSplit);
         const auto rem0 = iTotalElems % ceil0;
-        const auto ceil0And1 = ceildiv(ceil0, sSplit);
+        const auto ceil0And1 = gccs::ceildiv(ceil0, sSplit);
         const auto ceil0AndRem1 = ceil0 % ceil0And1;
         const auto rem0And1 = rem0 % ceil0And1;
 
-        const auto nCeil0And1 = roundDown(ceil0, ceil0And1);
+        const auto nCeil0And1 = gccs::alignPrev(ceil0, ceil0And1);
         const auto nCeil0AndRem1 = ceil0 - nCeil0And1;
-        const auto nCeil0 = floordiv(iTotalElems, ceil0);
-        const auto nRem0AndCeil1 = roundDown(rem0, ceil0And1);
+        const auto nCeil0 = gccs::floordiv(iTotalElems, ceil0);
+        const auto nRem0AndCeil1 = gccs::alignPrev(rem0, ceil0And1);
         const auto nRem0And1 = rem0 - nRem0AndCeil1;
 
         const auto tCeil0And1 =
@@ -3570,8 +3575,8 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   // derived from it
   std::size_t unslicedGrainSize =
       options.planConstraints.get_optional<std::size_t>("unslicedGrainSize")
-          .value_or(ceildiv(lcm(minGrainSizeBytes, dataElementSize),
-                            dataElementSize));
+          .value_or(gccs::ceildiv(lcm(minGrainSizeBytes, dataElementSize),
+                                  dataElementSize));
 
   // If the output size is less than the grain size, we could either pad, which
   // actually increases the base memory requirement, or we allocate as much
@@ -3608,7 +3613,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   // Splits leaving less than 2 entries per tile will have more unmeasured
   // overhead than is saved in base memory so are prohibited.
   partition.slicedDimSplit =
-      m.addVariable(1, ceildiv(numEntries, 2u), "entriesSplit");
+      m.addVariable(1, gccs::ceildiv(numEntries, 2u), "entriesSplit");
   const auto mDictIsSplit = m.reifiedLess(m.one(), partition.slicedDimSplit);
 
   // When there are many lookups we can split the lookups between multiple
@@ -3744,7 +3749,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           const double proportionIndicesInRange =
               double(maxDictEntriesPerTile) / double(numDictEntries);
           const auto maxOffsetsPerWorker =
-              ceildiv(numOffsets, numWorkerContexts);
+              gccs::ceildiv(numOffsets, numWorkerContexts);
           unsigned offsetsInRangePerWorker =
               options.indicesDistribution == IndicesDistribution::ONE_POINT
                   ? maxOffsetsPerWorker
@@ -3790,7 +3795,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           const double proportionIndicesInRange =
               double(maxDictEntriesPerTile) / double(numDictEntries);
           const auto maxOffsetsPerWorker =
-              ceildiv(numOffsets, numWorkerContexts);
+              gccs::ceildiv(numOffsets, numWorkerContexts);
           unsigned offsetsInRangePerWorker =
               options.indicesDistribution == IndicesDistribution::ONE_POINT
                   ? maxOffsetsPerWorker

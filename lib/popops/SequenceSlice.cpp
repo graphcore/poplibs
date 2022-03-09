@@ -3,7 +3,6 @@
 #include "poplar/Interval.hpp"
 #include "poplar/Program.hpp"
 #include "poplar/Tensor.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
@@ -17,6 +16,8 @@
 #include "poputil/VarStructure.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/optional.hpp>
 
@@ -202,7 +203,8 @@ static void generateSequenceSliceVertices(
                             maxTUnslicedElemsPerTile);
     }
 
-    const auto balancedUnslicedElemsPerTile = ceildiv(base.dim(1), numTiles);
+    const auto balancedUnslicedElemsPerTile =
+        gccs::ceildiv(base.dim(1), numTiles);
 
     // If we are already as well balanced as we can be then we can't do
     // anything about this without a planned multi-stage or even a serialized

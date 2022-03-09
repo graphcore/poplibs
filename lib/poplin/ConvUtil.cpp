@@ -14,6 +14,8 @@
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
+#include <gccs/Algorithm.hpp>
+
 using namespace popops;
 using namespace poputil;
 using namespace poplibs_support;
@@ -191,14 +193,14 @@ static ConvRange reverseTruncateDilatePadAndFlip(
   if (range.empty())
     return range;
   if (dilation > 1) {
-    auto roundUp = [](unsigned a, unsigned b) { return ((a + b - 1) / b) * b; };
-    auto roundDown = [](unsigned a, unsigned b) { return (a / b) * b; };
-    range.refineBegin(codomain.begin() +
-                      roundUp(range.begin() - codomain.begin(), dilation));
+    range.refineBegin(
+        codomain.begin() +
+        gccs::alignNext(range.begin() - codomain.begin(), dilation));
     if (range.empty())
       return range;
     range.refineEnd(codomain.begin() +
-                    roundDown(range.last() - codomain.begin(), dilation) + 1);
+                    gccs::alignPrev(range.last() - codomain.begin(), dilation) +
+                    1);
     if (range.empty())
       return range;
   }

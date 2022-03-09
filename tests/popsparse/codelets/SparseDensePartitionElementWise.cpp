@@ -8,19 +8,19 @@
 
 #include <poplar/Graph.hpp>
 
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 
 #include "SparseDensePartitionElementWise.hpp"
 #include <popsolver/Model.hpp>
 #include <poputil/Util.hpp>
 
+#include <gccs/Algorithm.hpp>
+
 // Test functions to generate sparse tensor data and metadata for codelet
 // testing
 
 using namespace poplar;
 using namespace poputil;
-using namespace poplibs_support;
 
 template <typename RandomEngine>
 std::vector<std::array<unsigned, 2>>
@@ -61,7 +61,7 @@ getForwardWorkerPartition(const Target &target, const Type &inputType,
   // heavy encoding to allow interleaved columns to be selected for
   // workers but it's more memory to encode.
   const auto bColumnGrainSize = target.getVectorWidth(inputType);
-  const auto bColumnGrains = ceildiv(bColumns, bColumnGrainSize);
+  const auto bColumnGrains = gccs::ceildiv(bColumns, bColumnGrainSize);
 
   popsolver::Model m;
   const auto mWorkerARowsPartition = m.addVariable(1, aRows);
@@ -122,8 +122,8 @@ getGradWWorkerPartition(const Target &target, const Type &inputType,
   // Grain size of columns of b is the same as for forward for GradW codelet.
   const auto bColumnGrainSize = target.getVectorWidth(inputType);
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto aElemsPerWorker = ceildiv(totalAElems, numWorkers);
-  const auto numAPartitions = ceildiv(totalAElems, aElemsPerWorker);
+  const auto aElemsPerWorker = gccs::ceildiv(totalAElems, numWorkers);
+  const auto numAPartitions = gccs::ceildiv(totalAElems, aElemsPerWorker);
 
   return std::make_tuple(bColumnGrainSize, numAPartitions);
 }
@@ -179,12 +179,13 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
             getForwardWorkerPartition(target, inputType, bColumns, rows.size(),
                                       rowColumnCounts);
 
-        const auto fwdBColumnGrains = ceildiv(bColumns, fwdBColumnGrainSize);
+        const auto fwdBColumnGrains =
+            gccs::ceildiv(bColumns, fwdBColumnGrainSize);
         const auto fwdNumUsedWorkers = fwdNumAPartitions * fwdNumBPartitions;
         const auto fwdMaxPartitionARows =
-            ceildiv(rows.size(), fwdNumAPartitions);
+            gccs::ceildiv(rows.size(), fwdNumAPartitions);
         const auto fwdMaxPartitionBColumnGrains =
-            ceildiv(fwdBColumnGrains, fwdNumBPartitions);
+            gccs::ceildiv(fwdBColumnGrains, fwdNumBPartitions);
 
         std::vector<unsigned> fwdPartitionAElemOffsets(fwdNumAPartitions, 0);
         for (unsigned partition = 1; partition < fwdNumAPartitions;
@@ -306,7 +307,7 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
           const auto totalAElems = std::accumulate(
               rowColumnCounts.begin(), rowColumnCounts.end(), std::size_t(0));
           const auto numAElemsPerPartition =
-              ceildiv(totalAElems, gradWNumAPartitions);
+              gccs::ceildiv(totalAElems, gradWNumAPartitions);
           unsigned currRowIndex = 0;
           unsigned currRowColumnIndex = 0;
           for (unsigned worker = 0; worker < gradWNumUsedWorkers; ++worker) {

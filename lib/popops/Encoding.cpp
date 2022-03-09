@@ -1,6 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "popops/Encoding.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Rearrange.hpp"
@@ -9,6 +8,9 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <cassert>
 
 using namespace poplar;
@@ -73,15 +75,15 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
   std::size_t grainSize = target.getVectorWidth(encoded.elementType());
 
   // number of grains of indices
-  const auto numIndicesGrains = ceildiv(numIndices, grainSize);
+  const auto numIndicesGrains = gccs::ceildiv(numIndices, grainSize);
 
   // Form groups containing grains of indices. Spread these over as many
   // tiles as possible.
-  const auto indicesGrainsPerGroup = ceildiv(numIndicesGrains, numTiles);
+  const auto indicesGrainsPerGroup = gccs::ceildiv(numIndicesGrains, numTiles);
 
   // Number of indices groups that can be formed given the grain size
   const auto numIndicesGroups =
-      ceildiv(numIndicesGrains, indicesGrainsPerGroup);
+      gccs::ceildiv(numIndicesGrains, indicesGrainsPerGroup);
 
   // Use the unused tile factor to allocate per batch groups. We do a factored
   // allocation to keep the vertex simple as otherwise we would have to provide
@@ -89,9 +91,9 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
   const auto numPerBatchGroups = std::max(numTiles / numIndicesGroups, 1UL);
 
   // Number of per batch grains that can be formed
-  const auto numPerBatchGrains = ceildiv(elemsPerBatch, grainSize);
-  const auto perBatchGrainsPerGroup =
-      std::max(ceildiv(numPerBatchGrains, numPerBatchGroups), minGrainsPerTile);
+  const auto numPerBatchGrains = gccs::ceildiv(elemsPerBatch, grainSize);
+  const auto perBatchGrainsPerGroup = std::max(
+      gccs::ceildiv(numPerBatchGrains, numPerBatchGroups), minGrainsPerTile);
 
   auto cs = graph.addComputeSet({dnai, layerPrefix + "/OneHotEncode"});
   const bool nonCustomValues = !on || !off;

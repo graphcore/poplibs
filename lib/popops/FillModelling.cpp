@@ -2,11 +2,11 @@
 
 #include "FillModelling.hpp"
 
-#include <poplibs_support/Algorithm.hpp>
 #include <popops/PerformanceEstimation.hpp>
 
+#include <gccs/Algorithm.hpp>
+
 using namespace poplar;
-using namespace poplibs_support;
 
 namespace popops {
 
@@ -28,9 +28,9 @@ FillEstimates modelContiguousFill(const Target &target, const Type &type,
       [targetParams, numWorkerContexts, vectorWidth,
        type](const std::vector<unsigned> &values) {
         const unsigned numElems = values[0];
-        const auto numGrains = ceildiv(numElems, vectorWidth);
+        const auto numGrains = gccs::ceildiv(numElems, vectorWidth);
         const auto maxGrainsPerWorker =
-            std::max(ceildiv(numGrains, numWorkerContexts), 2u);
+            std::max(gccs::ceildiv(numGrains, numWorkerContexts), 2u);
         const auto maxElemsPerWorker =
             std::min(numElems, maxGrainsPerWorker * vectorWidth);
         const auto cycles =

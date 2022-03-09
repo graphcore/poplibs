@@ -8,7 +8,6 @@
 
 #include <poplar/Graph.hpp>
 
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 
 #include "../lib/popsparse/SparseMetaInfo.hpp"
@@ -16,12 +15,13 @@
 #include <popsolver/Model.hpp>
 #include <poputil/Util.hpp>
 
+#include <gccs/Algorithm.hpp>
+
 // Test functions to generate sparse tensor data and metadata for codelet
 // testing
 
 using namespace poplar;
 using namespace poputil;
-using namespace poplibs_support;
 
 bool isGradWVertex(VertexType vt) {
   return vt == VertexType::GradW || vt == VertexType::GradWAmp;
@@ -64,8 +64,8 @@ getGradWWorkerPartition(const Target &target,
       aRowColumnCounts.begin(), aRowColumnCounts.end(), std::size_t(0));
 
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto aElemsPerWorker = ceildiv(totalAElems, numWorkers);
-  const auto numAPartitions = ceildiv(totalAElems, aElemsPerWorker);
+  const auto aElemsPerWorker = gccs::ceildiv(totalAElems, numWorkers);
+  const auto numAPartitions = gccs::ceildiv(totalAElems, aElemsPerWorker);
 
   return numAPartitions;
 }
@@ -187,7 +187,7 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
           const auto totalAElems = std::accumulate(
               rowColumnCounts.begin(), rowColumnCounts.end(), std::size_t(0));
           const auto numAElemsPerPartition =
-              ceildiv(totalAElems, gradWNumUsedWorkers);
+              gccs::ceildiv(totalAElems, gradWNumUsedWorkers);
           unsigned currRowIndex = 0;
           unsigned currRowColumnIndex = 0;
           for (unsigned worker = 0; worker < gradWNumUsedWorkers; ++worker) {

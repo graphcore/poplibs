@@ -1,12 +1,13 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #include "poplar/Graph.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/TestDevice.hpp"
 #include "popsparse/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
 #include <poplibs_test/Util.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
@@ -147,8 +148,9 @@ int main(int argc, char **argv) {
   graph.setInitialValue(v["blockSizeXOrY"], blockSize);
   graph.setInitialValue(v["numXOrYBlocks"], numXOrYBlocks);
   graph.setInitialValue(v["numZ"], numZ);
-  graph.setInitialValue(v["maxXOrYBlocksPerWorker"],
-                        ceildiv(numXOrYBlocks, target.getNumWorkerContexts()));
+  graph.setInitialValue(
+      v["maxXOrYBlocksPerWorker"],
+      gccs::ceildiv(numXOrYBlocks, target.getNumWorkerContexts()));
   graph.setTileMapping(v, 0);
 
   Sequence prog;

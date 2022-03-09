@@ -4,7 +4,6 @@
 #define BOOST_TEST_MODULE MultiSliceCodeletTest
 #include "poputil/VertexTemplates.hpp"
 #include <poplar/Engine.hpp>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/Operation.hpp>
@@ -12,6 +11,9 @@
 #include <popops/Zero.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+
+#include <gccs/Algorithm.hpp>
+
 #include <vector>
 
 using namespace poplar;
@@ -306,9 +308,9 @@ void MultiSliceCodeletTest(const Type &dataType) {
     }
     singleRegionSplitUsed.at(tests) = splitSingleRegion;
 
-    unsigned numGrains = ceildiv(elemsToSplit, grainSize);
+    unsigned numGrains = gccs::ceildiv(elemsToSplit, grainSize);
     unsigned grainsPerWorker =
-        ceildiv(numGrains, target.getNumWorkerContexts());
+        gccs::ceildiv(numGrains, target.getNumWorkerContexts());
 
     // This is not exactly how elements are split in graph construction but
     // we just want to get some work division that doesn't cause write hazards.

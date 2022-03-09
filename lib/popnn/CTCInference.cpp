@@ -77,7 +77,7 @@ void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
   const auto timePartitionSize = [&]() {
     // Minimum result to map all the time slices onto the tiles within the plan
     // without splitting the innermost dimension
-    auto minTimePartitionSize = ceildiv(timeSize, remappedTimePartitions);
+    auto minTimePartitionSize = gccs::ceildiv(timeSize, remappedTimePartitions);
     // Ensure that there are always a multiple of 4 bytes per tile to avoid
     // costly exchange.
     // Trialling timePartitionSize+0, +1, +2, +3 must produce a result divisible
@@ -738,7 +738,7 @@ sortCandidates(Graph &graph, const popnn::ctc::InferencePlan &plan,
   // on the number of workers available
   const auto stageGroups = plan.parallel.sort[stage].groups;
   const unsigned candidatesToCompare = sortTensors.inCandidatesPb.dim(1);
-  const unsigned perGroup = ceildiv(candidatesToCompare, stageGroups);
+  const unsigned perGroup = gccs::ceildiv(candidatesToCompare, stageGroups);
 
   logging::popnn::debug(
       "CTCInference Sort stage {}, sorting {} candidates in {} group(s) of {}"
@@ -765,8 +765,8 @@ sortCandidates(Graph &graph, const popnn::ctc::InferencePlan &plan,
         const unsigned tile =
             plan.getTile(b.partitionIdx, 0, stage, group, ranking);
         const auto perPartition =
-            ceildiv(static_cast<unsigned>(groupRange.size()),
-                    plan.parallel.sort[stage].rankPartitions);
+            gccs::ceildiv(static_cast<unsigned>(groupRange.size()),
+                          plan.parallel.sort[stage].rankPartitions);
 
         const auto firstToRank = perPartition * ranking + groupRange.begin();
         if (firstToRank >= candidatesToCompare) {

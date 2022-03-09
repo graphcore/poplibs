@@ -3,10 +3,11 @@
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
 
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popnn/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/program_options.hpp>
 #include <boost/random.hpp>
@@ -54,7 +55,7 @@ static bool doTest(const DeviceType &deviceType, const Type &dataType,
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
 
-  const short unsigned int divisorLog2 = poplibs_support::ceilLog2(divisor);
+  const short unsigned int divisorLog2 = gccs::ceilLog2(divisor);
   divisor = (1u << divisorLog2);
 
   const auto nOutputs = (size + divisor - 1) / divisor;

@@ -1,6 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ElementWiseUtilTest
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "popops/ElementWiseUtilInternal.hpp"
 #include <boost/test/unit_test.hpp>
@@ -9,6 +8,8 @@
 #include <poplar/Engine.hpp>
 
 #include <poplibs_support/TestDevice.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -77,15 +78,15 @@ BOOST_AUTO_TEST_CASE(CreateOutputTensorSpreadOverMoreTiles) {
   const auto in1 = graph.addVariable(FLOAT, {numElems});
   const auto in2 = graph.addVariable(FLOAT, {numElems});
   {
-    const auto ceil = ceildiv(numElems, numTiles);
+    const auto ceil = gccs::ceildiv(numElems, numTiles);
 
     // A necessary condition for this test to be valid is
     // that the balanced partition spreads over more tiles
     // than the other.
-    BOOST_CHECK_LT(ceildiv(numElems, ceil), numTiles);
+    BOOST_CHECK_LT(gccs::ceildiv(numElems, ceil), numTiles);
 
-    const auto floor = floordiv(numElems, numTiles);
-    const auto p = balancedPartition(numElems, numTiles);
+    const auto floor = gccs::floordiv(numElems, numTiles);
+    const auto p = gccs::balancedPartition(numElems, numTiles);
     for (unsigned tile = 0; tile < numTiles; ++tile) {
       const auto begin1 = std::min(numElems, tile * ceil);
       const auto end1 = std::min(numElems, (tile + 1) * ceil);

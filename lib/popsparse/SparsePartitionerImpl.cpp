@@ -5,10 +5,12 @@
 #include "SparseMetaInfo.hpp"
 #include "SparsePartitionerImpl.hpp"
 #include "SparseStorageInternal.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popsparse/SparsePartitioner.hpp"
 #include "poputil/Util.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <limits>
@@ -1002,7 +1004,7 @@ findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
   logging::popsparse::debug(" ORG connectivity {}", orgConnectivity);
   logging::popsparse::debug(" SORG connectivity {}", sorgConnectivity);
   const auto connectivityElems =
-      ceildiv(orgConnectivity.size(), sizeof(MetaInfoType));
+      gccs::ceildiv(orgConnectivity.size(), sizeof(MetaInfoType));
   std::vector<std::size_t> orgConnectivityBitset(connectivityElems);
   for (std::size_t org = 0; org < orgConnectivity.size(); ++org) {
     orgConnectivityBitset[org / sizeof(MetaInfoType)] |=

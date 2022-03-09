@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <boost/container/flat_map.hpp>
 #include <poplar/Graph.hpp>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popops/HostSliceTensor.hpp>
 #include <poputil/DebugInfo.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <gccs/Algorithm.hpp>
+
 #include <unordered_map>
 
 using namespace poplibs_support;
@@ -128,7 +130,7 @@ static PacketsAndIndices splitIntoPackets(poplar::Tensor &t,
     // as elements from a different out dimension
     const auto row = t[i];
     assert(row.rank() == 1);
-    for (unsigned p = 0; p < ceildiv(row.dim(0), packetSize); ++p) {
+    for (unsigned p = 0; p < gccs::ceildiv(row.dim(0), packetSize); ++p) {
       const auto start = p * packetSize;
       const auto end = std::min((p + 1) * packetSize, (unsigned)row.dim(0));
       result.indices.push_back(i);

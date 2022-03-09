@@ -2,8 +2,10 @@
 
 #include "FullyConnectedUtils.hpp"
 
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/VectorUtils.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -162,7 +164,7 @@ unpackWeights(const SparseTensor &weights, std::size_t overflowInfoElems,
 std::size_t getNumOverflowInfoElems(std::size_t metaInfoTypeBits,
                                     std::size_t xSplits, std::size_t ySplits,
                                     std::size_t zSplits) {
-  return 3 + poplibs_support::ceildiv(xSplits, metaInfoTypeBits);
+  return 3 + gccs::ceildiv(xSplits, metaInfoTypeBits);
 }
 
 std::vector<Tile>
@@ -183,8 +185,7 @@ splitTileBetweenWorkers(std::size_t numRows, std::size_t numColumns,
     std::partial_sum(rowWeights.begin(), rowWeights.end(), partialSums.begin());
 
     // find average cost per worker
-    std::size_t averageCost =
-        poplibs_support::ceildiv(partialSums.back(), numWorkers);
+    std::size_t averageCost = gccs::ceildiv(partialSums.back(), numWorkers);
 
     std::size_t begin = 0;
     for (std::size_t w = 0; w != numWorkers; ++w) {

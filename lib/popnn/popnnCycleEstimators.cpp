@@ -7,7 +7,8 @@
 #include "popnn/NonLinearity.hpp"
 #include "popnn/NonLinearityDefUtil.hpp"
 #include "popnn/PoolingDef.hpp"
-#include <poplibs_support/Algorithm.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/max_element.hpp>
@@ -771,8 +772,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCRankCandidates)(
 
   const auto numToRank = lastCandidateToRank - firstCandidateToRank;
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto maxToRankPerWorker =
-      poplibs_support::ceildiv(numToRank, numWorkers);
+  const auto maxToRankPerWorker = gccs::ceildiv(numToRank, numWorkers);
 
   std::size_t workerCycles = 13;           // Non loop
   workerCycles += maxToRankPerWorker * 28; // Outer loop body, including odd one

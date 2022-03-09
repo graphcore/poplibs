@@ -7,14 +7,13 @@
 #include "CycleEstimationFunctions.hpp"
 #include "ReductionVertexDefs.hpp"
 
-#include <poplibs_support/Algorithm.hpp>
-
 #include <poplar/Target.hpp>
 #include <poplar/Type.hpp>
 
+#include <gccs/Algorithm.hpp>
+
 using namespace poplar;
 using namespace popops::modelling;
-using namespace poplibs_support;
 
 namespace popops {
 namespace modelling {
@@ -67,9 +66,10 @@ ReduceEstimates modelBalancedIntertileReduction(
            [=](const std::vector<unsigned> &values) {
              const auto reductionFactor = values[0];
              const auto outputsPerTile = values[1];
-             const auto outputVectors = ceildiv(outputsPerTile, vectorWidth);
+             const auto outputVectors =
+                 gccs::ceildiv(outputsPerTile, vectorWidth);
              const auto outputVectorsPerWorker =
-                 ceildiv(outputVectors, numWorkerContexts);
+                 gccs::ceildiv(outputVectors, numWorkerContexts);
              const auto outputsPerWorker =
                  std::min(outputsPerTile, outputVectorsPerWorker * vectorWidth);
              const auto inputsPerWorker = outputsPerWorker * reductionFactor;

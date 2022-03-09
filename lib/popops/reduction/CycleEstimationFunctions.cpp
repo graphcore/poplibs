@@ -3,12 +3,13 @@
 
 #include "ReductionConnection.hpp"
 #include "poputil/exceptions.hpp"
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/FlopEstimation.hpp>
 #include <poplibs_support/forceInterleavedEstimates.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/cyclesTables.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplibs_support;
 
@@ -122,7 +123,7 @@ static poplar::VertexPerfEstimate getCyclesEstimateForReduce(
       const unsigned vectorOuterLoops = outSizes[r] / opVectorWidth;
       const auto remaining = outSizes[r] % opVectorWidth;
       // The number of checks left to do
-      const auto remainingChecks = ceilLog2(opVectorWidth);
+      const auto remainingChecks = gccs::ceilLog2(opVectorWidth);
 
       // Cycles for _Reduce_zero_and_load excluding call
       constexpr unsigned reduceZeroAndLoadCycles = 3;
@@ -278,7 +279,7 @@ static poplar::VertexPerfEstimate getCyclesEstimateForStridedReduce(
 
   // Estimate the number of outer loops. If elemsPerLoop is equivalent to
   // 64-bits of input data per cycle this is exact.
-  const auto numOuterLoops = ceildiv(numOutputs, elemsPerLoop);
+  const auto numOuterLoops = gccs::ceildiv(numOutputs, elemsPerLoop);
   cycles += cyclesOuter * numOuterLoops;
 
   std::uint64_t flops = static_cast<std::uint64_t>(numOutputs) *

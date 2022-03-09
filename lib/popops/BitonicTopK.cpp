@@ -10,11 +10,12 @@
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
 #include <poplibs_support/print.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 #include <type_traits>
 #include <unordered_map>
@@ -62,7 +63,7 @@ namespace bitonic {
  */
 template <typename T>
 static inline T numComparisonsAtDistance(T n, T distance) {
-  const auto q = floordiv(n, distance * 2);
+  const auto q = gccs::floordiv(n, distance * 2);
   const auto r = n % (distance * 2);
   const auto comparisons = q * distance + r - std::min(r, distance);
   return comparisons;
@@ -118,15 +119,16 @@ static Tensor allocate(Graph &graph, const Type &type, std::size_t n,
   const auto comparisons = numComparisonsAtDistance(nActive, distance);
   // Allocation in each stage is done by first allocating to tiles elements
   // that are 'active' i.e. take part in a comparison at the given distance.
-  const auto maxComparisonsPerTile = ceildiv(comparisons, numTiles);
-  const auto activeTiles = ceildiv0(comparisons, maxComparisonsPerTile);
+  const auto maxComparisonsPerTile = gccs::ceildiv(comparisons, numTiles);
+  const auto activeTiles = gccs::ceildiv0(comparisons, maxComparisonsPerTile);
 
   // We know from the total number of elements n what the layout will be for
   // a tensor with distance equal to 1, which we use to determine how to
   // spread inactive elements over tiles.
-  const auto maxActivePairs = floordiv(n, 2u);
-  const auto maxAllocatedPairsPerTile = ceildiv(maxActivePairs, numTiles);
-  const auto maxUsedTiles = ceildiv0(maxActivePairs, maxAllocatedPairsPerTile);
+  const auto maxActivePairs = gccs::floordiv(n, 2u);
+  const auto maxAllocatedPairsPerTile = gccs::ceildiv(maxActivePairs, numTiles);
+  const auto maxUsedTiles =
+      gccs::ceildiv0(maxActivePairs, maxAllocatedPairsPerTile);
 
   // First allocate first comparisons * 2 elements to tiles according to
   // which will process those comparisons.
@@ -223,7 +225,7 @@ getInversePermutation(const std::vector<Interval> &is) {
  */
 template <typename T>
 static inline T comparisonToElemOffset(T offset, T distance) {
-  return roundDown(offset, distance) * 2 + offset % distance;
+  return gccs::alignPrev(offset, distance) * 2 + offset % distance;
 }
 
 /** Given a tensor which was allocated with the given parameters, reorder
@@ -247,8 +249,8 @@ static Tensor toCanonicalOrder(const Graph &graph, const Tensor &t,
   const auto numTiles = graph.getTarget().getNumTiles();
 
   const auto comparisons = numComparisonsAtDistance(nActive, distance);
-  const auto maxComparisonsPerTile = ceildiv(comparisons, numTiles);
-  const auto activeTiles = ceildiv0(comparisons, maxComparisonsPerTile);
+  const auto maxComparisonsPerTile = gccs::ceildiv(comparisons, numTiles);
+  const auto activeTiles = gccs::ceildiv0(comparisons, maxComparisonsPerTile);
 
   // This function just combines slices that are actually continuous.
   std::vector<Interval> slices;
@@ -280,7 +282,7 @@ static Tensor toCanonicalOrder(const Graph &graph, const Tensor &t,
     }
     // Add multiples of 2 * distance chunks of elements.
     if (const auto multipleOfDistanceComparisons =
-            roundDown(end - begin, distance)) {
+            gccs::alignPrev(end - begin, distance)) {
       appendSlice(begin * 2, (begin + multipleOfDistanceComparisons) * 2);
       begin += multipleOfDistanceComparisons;
     }
@@ -531,8 +533,8 @@ compareAndSwapAtDistance(Graph &graph, Sequence &prog, const Tensor &keys,
   const auto numWorkers = target.getNumWorkerContexts();
 
   const auto comparisons = numComparisonsAtDistance(nActive, distance);
-  const auto maxComparisonsPerTile = ceildiv(comparisons, numTiles);
-  const auto activeTiles = ceildiv0(comparisons, maxComparisonsPerTile);
+  const auto maxComparisonsPerTile = gccs::ceildiv(comparisons, numTiles);
+  const auto activeTiles = gccs::ceildiv0(comparisons, maxComparisonsPerTile);
 
   const auto cs = graph.addComputeSet({dnai, "CompareAndSwap"});
   for (unsigned tile = 0; tile < activeTiles; ++tile) {
@@ -553,7 +555,8 @@ compareAndSwapAtDistance(Graph &graph, Sequence &prog, const Tensor &keys,
     // We just flatten all the comparisons to be done and evenly spread
     // them amongst workers for now without consideration of how the split
     // might introduce uneven overheads between workers.
-    const auto comparisonsPerWorker = ceildiv(comparisonsThisTile, numWorkers);
+    const auto comparisonsPerWorker =
+        gccs::ceildiv(comparisonsThisTile, numWorkers);
     WorklistBuilder builder(numWorkers, comparisonsPerWorker, initialOrder,
                             distanceToChangeOrder, begin);
 
@@ -562,7 +565,7 @@ compareAndSwapAtDistance(Graph &graph, Sequence &prog, const Tensor &keys,
       begin += pre;
     }
     if (const auto multipleOfDistanceComparisons =
-            floordiv(end - begin, distance)) {
+            gccs::floordiv(end - begin, distance)) {
       builder.addWork(distance, multipleOfDistanceComparisons);
       begin += multipleOfDistanceComparisons * distance;
     }
@@ -747,12 +750,12 @@ topKImpl(Graph &graph, Sequence &prog, const Tensor &t_,
         std::to_string(n) + ")");
   }
 
-  const auto logK = ceilLog2(k);
-  const auto logN = ceilLog2(n);
+  const auto logK = gccs::ceilLog2(k);
+  const auto logN = gccs::ceilLog2(n);
   // We define k' as the next power of 2 greater or equal than k.
   const auto kDash = (1u << logK);
-  const auto stepsToSortK = nthTriangular(logK);
-  const auto totalSteps = nthTriangular(logN);
+  const auto stepsToSortK = gccs::nthTriangular(logK);
+  const auto totalSteps = gccs::nthTriangular(logN);
 
   logging::popops::debug(
       "bitonicTopKImpl: Calculated no. of steps: total={}, k={}", totalSteps,
@@ -884,7 +887,7 @@ topKImpl(Graph &graph, Sequence &prog, const Tensor &t_,
     // pair of k' sized sequences as by this point we have imposed an
     // ordering between them.
     if (logMergeDistance >= logK && n > kDash) {
-      const auto kDashMultiples = floordiv(n, 2 * kDash);
+      const auto kDashMultiples = gccs::floordiv(n, 2 * kDash);
       const auto remainder = n - kDashMultiples * 2 * kDash;
       const auto t2d = t.reshape({n, b});
       const auto evenPart =

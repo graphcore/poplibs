@@ -5,11 +5,13 @@
 #include "ConvModel.hpp"
 #include "ConvOptions.hpp"
 #include "PerformanceEstimation.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvParams.hpp"
 #include "popsolver/Model.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <vector>
 
 using namespace poplibs_support;
@@ -120,7 +122,7 @@ static void getConvVertexHMACCandidates(
   // activations over the exchange.
   auto grainSize = floatActivations ? 1u : 2u;
   const auto roundedNumInChans =
-      roundUp(params.getNumInputChansPerConvGroup(), grainSize);
+      gccs::alignNext(params.getNumInputChansPerConvGroup(), grainSize);
 
   const unsigned convGroupsPerGroup = 1;
   // This is the only supported convGroupsPerGroup for this method.
@@ -374,12 +376,13 @@ static void getConvVertexAMPCandidates(
     getConvVertexAMPCandidates(target, inputType, outputType, options,
                                isJointPlan, candidates);
     candidates.erase(
-        std::remove_if(
-            candidates.begin() + numCandidatesBefore, candidates.end(),
-            [&](const ConvVertexType &type) {
-              return roundUp(params.inputChannelsPerConvGroup,
-                             type.inChansPerGroup) != weightsPerConvUnit;
-            }),
+        std::remove_if(candidates.begin() + numCandidatesBefore,
+                       candidates.end(),
+                       [&](const ConvVertexType &type) {
+                         return gccs::alignNext(
+                                    params.inputChannelsPerConvGroup,
+                                    type.inChansPerGroup) != weightsPerConvUnit;
+                       }),
         candidates.end());
   }
   getConvVertexAMPCandidates(target, inputType, partialType, options,
@@ -581,9 +584,10 @@ static void sortConvVertexTypeCandidates(
     auto &candidateInfo = candidatesInfo[i];
     auto maxMACsPerCycle = getMaxMACsPerCyclePerTile(target, candidate);
     auto inChans = params.inputChannelsPerConvGroup;
-    auto paddedInChans = roundUp(inChans, candidate.inChansPerGroup);
+    auto paddedInChans = gccs::alignNext(inChans, candidate.inChansPerGroup);
     auto outChans = params.outputChannelsPerConvGroup;
-    auto paddedOutChans = roundUp(outChans, candidate.partialChansPerGroup);
+    auto paddedOutChans =
+        gccs::alignNext(outChans, candidate.partialChansPerGroup);
     auto size = inChans * outChans;
     auto paddedSize = paddedInChans * paddedOutChans;
     candidateInfo.index = i;

@@ -4,18 +4,20 @@
 
 #include "ConvReducePlan.hpp"
 #include "ConvUtilInternal.hpp"
-#include <algorithm>
-#include <cassert>
-#include <cstdint>
-#include <limits>
-#include <numeric>
 #include <poplar/Target.hpp>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poplin/ConvParams.hpp>
 #include <poplin/ConvUtil.hpp>
+
+#include <gccs/Algorithm.hpp>
+
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <limits>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -78,8 +80,7 @@ inline std::uint64_t getDenseDotProductCycles(unsigned activationsVectorWidth,
   // half -> float
   // half -> half
   assert(!floatActivations || floatPartials);
-  for (unsigned i = poplibs_support::ceilLog2(activationsVectorWidth); i >= 0;
-       --i) {
+  for (unsigned i = gccs::ceilLog2(activationsVectorWidth); i >= 0; --i) {
     const unsigned currWidth = (1u << i);
     if ((size % currWidth) == 0) {
       // Limitation currently due to instruction set is that if we have
@@ -312,7 +313,7 @@ inline std::uint64_t
 getConvPartialVerticalMacSupervisorZeroInnerLoopCycleEstimate(
     unsigned numOutElems, bool floatPartials) {
   unsigned elemsPerCycle = floatPartials ? 2 : 4;
-  return 4 + ceildiv(numOutElems, elemsPerCycle);
+  return 4 + gccs::ceildiv(numOutElems, elemsPerCycle);
 }
 
 inline std::uint64_t
@@ -1639,7 +1640,7 @@ inline uint64_t getReduceCycleEstimate(unsigned outSize, unsigned partialsSize,
   const auto cyclesPerLoop =
       (accVectorWidth / std::min(accVectorWidth, partialsInDataPathWidth)) + 1;
   auto loops = outSize / accVectorWidth;
-  for (unsigned i = 0; i < ceilLog2(accVectorWidth); ++i) {
+  for (unsigned i = 0; i < gccs::ceilLog2(accVectorWidth); ++i) {
     if (outSize & (1u << i)) {
       loops++;
     }
@@ -1729,7 +1730,7 @@ inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
       inputDilation, stride);
 
   // use conv nx1 vertex
-  const unsigned positionsOuter = ceildiv(kernelShape[0], filterHeight);
+  const unsigned positionsOuter = gccs::ceildiv(kernelShape[0], filterHeight);
   const unsigned numKernelPositions =
       (positionsOuter * kernelElements / kernelShape[0]);
   const auto outStrideX =
@@ -1744,7 +1745,7 @@ inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
     workList.back().reserve(partition[context].size());
     for (const auto &partialRow : partition[context]) {
       const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
-      const auto numFieldPos = ceildiv(workerOutWidth, outStrideX);
+      const auto numFieldPos = gccs::ceildiv(workerOutWidth, outStrideX);
       if (numFieldPos) {
         workList.back().emplace_back(numFieldPos);
       }
@@ -1896,11 +1897,11 @@ estimateConvReduceCycles(unsigned outputSize, unsigned reductionDepth,
   const unsigned widthForFastReduce = floatPartials ? 4 : 8;
 
   for (auto d : reductionPlan) {
-    const auto depthThisStage = ceildiv(remainingDepth, d);
-    remainingDepth = ceildiv(remainingDepth, depthThisStage);
+    const auto depthThisStage = gccs::ceildiv(remainingDepth, d);
+    remainingDepth = gccs::ceildiv(remainingDepth, depthThisStage);
     const auto stageOutputIsFloat =
         remainingDepth == 1 ? floatOutput : floatPartials;
-    outputSizeThisStage = ceildiv(outputSizeThisStage, depthThisStage);
+    outputSizeThisStage = gccs::ceildiv(outputSizeThisStage, depthThisStage);
 
     const auto exchangedPartialsBytes =
         (depthThisStage - 1) * outputSizeThisStage * bytesPerPartialsElement;

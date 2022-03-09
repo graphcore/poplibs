@@ -7,7 +7,6 @@
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplar/Type.hpp>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/CTCInferenceDefs.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
@@ -19,6 +18,8 @@
 #include <popnn/codelets.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
@@ -445,7 +446,7 @@ int main(int argc, char **argv) {
   }
   po::notify(vm);
   if (!baseSequenceLength) {
-    baseSequenceLength = ceildiv(maxT, 2u);
+    baseSequenceLength = gccs::ceildiv(maxT, 2u);
   }
   if (addendClass && (mergeCopyBeam || mergeExtendBeam)) {
     std::cerr << "Specifying addend-class and merge-beam(s) -"

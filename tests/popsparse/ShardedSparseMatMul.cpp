@@ -14,7 +14,6 @@
 
 #include "poplibs_test/TempDir.hpp"
 #include "poputil/exceptions.hpp"
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/SparseMatrix.hpp>
 #include <poplibs_test/Util.hpp>
@@ -26,6 +25,8 @@
 #include "popsparse/MatMul.hpp"
 #include "popsparse/SparsePartitioner.hpp"
 #include "popsparse/codelets.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <fstream>
 

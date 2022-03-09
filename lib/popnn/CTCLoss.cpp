@@ -121,7 +121,7 @@ TempTensors extractVertexSlices(const TempTensors &input, unsigned batch,
   // attach a,b,c,...next
   unsigned startOffset = isAlpha ? 0 : 1;
   unsigned endOffset = isAlpha ? 1 : 0;
-  unsigned tileLabelSize = 2 + ceildiv(exLabelPartition.size() - 1, 2u);
+  unsigned tileLabelSize = 2 + gccs::ceildiv(exLabelPartition.size() - 1, 2u);
 
   output.label = input.label.slice(
       {batch, time, label, startOffset},
@@ -292,7 +292,7 @@ void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
   const auto timePartitionSize = [&]() {
     // Minimum result to map all the time slices onto the tiles within the plan
     // without splitting the innermost dimension
-    auto minTimePartitionSize = ceildiv(timeSize, remappedTimePartitions);
+    auto minTimePartitionSize = gccs::ceildiv(timeSize, remappedTimePartitions);
     // Ensure that there are always a multiple of 4 bytes per tile to avoid
     // costly exchange.
     // Trialling timePartitionSize+0, +1, +2, +3 must produce a result divisible
@@ -520,7 +520,7 @@ void initialiseCounters(Graph &graph, const Tensor &input, unsigned lowerT,
                         const poplar::DebugContext &di) {
 
   const auto timePartitions = input.dim(1);
-  auto midPointTile = ceildiv(timePartitions, 2u);
+  auto midPointTile = gccs::ceildiv(timePartitions, 2u);
 
   auto initialiserZero =
       graph.addConstant<unsigned>(input.elementType(), {1}, lowerT, di);
@@ -737,7 +737,7 @@ Sequence createAlphaBetaProg(Graph &graph, const popnn::ctc::LossPlan &plan,
   // Partitions in the time dimension calculate either alpha or beta.
   // The time partitions that are less than this value calculate alpha.
   // The remaining partitions calculate beta.
-  const auto alphaTimePartitions = ceildiv(plan.parallel.time, 2u);
+  const auto alphaTimePartitions = gccs::ceildiv(plan.parallel.time, 2u);
 
   for (unsigned time = 0; time < plan.parallel.time; time++) {
     const auto vertexCalculatesAlpha = time < alphaTimePartitions;
@@ -856,7 +856,7 @@ Sequence createAlphaBetaGradProg(Graph &graph, const popnn::ctc::LossPlan &plan,
   // calculating beta (running a gradGivenAlpha vertex).  They are the time
   // partitions that are less than this value.  The remaining partitions
   // calculate alpha (running a gradGivenBeta vertex).
-  const auto betaTimePartitions = ceildiv(plan.parallel.time, 2u);
+  const auto betaTimePartitions = gccs::ceildiv(plan.parallel.time, 2u);
 
   // We don't (can't) copy into the first partition from the one before it,
   // or into the last from the one after it. Therefore those partition's
@@ -1215,7 +1215,7 @@ calcLossAndGradientLogProbabilitiesImpl(
 
   // Initialise the beta time partitions first timestep as this can be the
   // initial beta when number of timesteps < maxT
-  const auto alphaTimePartitions = ceildiv(plan.parallel.time, 2u);
+  const auto alphaTimePartitions = gccs::ceildiv(plan.parallel.time, 2u);
   for (unsigned time = alphaTimePartitions; time < plan.parallel.time; time++) {
     auto timePartition = plan.partitionTime(maxT, time);
     initialise(

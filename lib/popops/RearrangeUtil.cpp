@@ -2,9 +2,11 @@
 #ifndef popops_RearrangeInternal_hpp
 #define popops_RearrangeInternal_hpp
 
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/logging.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <gccs/Algorithm.hpp>
+
 #include <vector>
 
 using namespace poplibs_support;
@@ -37,11 +39,11 @@ createSplitTranspose1DWorkList(unsigned rows, unsigned cols, unsigned matrices,
   // split rows first as the vertices are faster if split along that dimension.
   // split along column dimension once rows are split. We could use costs based
   // on actual transpose estimates to do the splitting.
-  auto rowsPerWorker = ceildiv(rowsDbs, workersPerMatrix);
-  auto workersUsed = ceildiv(rowsDbs, rowsPerWorker);
+  auto rowsPerWorker = gccs::ceildiv(rowsDbs, workersPerMatrix);
+  auto workersUsed = gccs::ceildiv(rowsDbs, rowsPerWorker);
 
   auto workersPerCols = workersPerMatrix / workersUsed;
-  auto colsPerWorker = ceildiv(colsDbs, workersPerCols);
+  auto colsPerWorker = gccs::ceildiv(colsDbs, workersPerCols);
   std::vector<unsigned> workList;
   workList.reserve(4 * numWorkers);
 

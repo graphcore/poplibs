@@ -5,7 +5,6 @@
 
 #include "popsparse/FullyConnectedParams.hpp"
 
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
@@ -18,6 +17,8 @@
 #include "FullyConnectedUtils.hpp"
 #include "PlanningCacheImpl.hpp"
 #include "popsparse/FullyConnected.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <map>
 #include <utility>
@@ -146,7 +147,7 @@ public:
   unsigned operator()(unsigned numBytes) const {
     const unsigned scalingFactor = exchangeBytesScalingFactor;
     const auto scaledElementBytes = numBytes * scalingFactor;
-    return ceildiv(scaledElementBytes, scaledExchangeBytesPerCycle);
+    return gccs::ceildiv(scaledElementBytes, scaledExchangeBytesPerCycle);
   }
 
 private:
@@ -595,7 +596,8 @@ static std::tuple<unsigned, unsigned> getNumGroupsGivenUniformSparsityPattern(
   const double pXGroupHasNonZeroGroup = 1.0 - pXGroupHasAllZeroGroups;
   const unsigned totalNonZeroGroups = std::ceil(xGroups * yGroups * nzRatio);
   const unsigned xNonZeroGroups = std::ceil(xGroups * pXGroupHasNonZeroGroup);
-  const unsigned yNonZeroGroups = ceildiv(totalNonZeroGroups, xNonZeroGroups);
+  const unsigned yNonZeroGroups =
+      gccs::ceildiv(totalNonZeroGroups, xNonZeroGroups);
   return std::make_tuple(xNonZeroGroups, yNonZeroGroups);
 }
 
@@ -644,7 +646,8 @@ addDistributionComputeCostSparseDense(
         const auto xGrouping = values[5];
         const auto yGrouping = values[6];
         const auto zGrouping = values[7];
-        const auto partialsPerWorker = ceildiv(partialsPerTile, numWorkers);
+        const auto partialsPerWorker =
+            gccs::ceildiv(partialsPerTile, numWorkers);
         std::uint64_t cycles = zeroPartialsCycles(partialsPerWorker, numWorkers,
                                                   options.partialsType == FLOAT,
                                                   xGrouping * yGrouping > 0);
@@ -817,7 +820,8 @@ static popsolver::Variable addDistributionComputeCycleCostDenseDense(
         const auto yGrouping = values[5];
         const auto zGrouping = values[6];
         const auto numZPartitions = values[7];
-        const auto partialsPerWorker = ceildiv(partialsPerTile, numWorkers);
+        const auto partialsPerWorker =
+            gccs::ceildiv(partialsPerTile, numWorkers);
 
         std::uint64_t cycles = zeroPartialsCycles(partialsPerWorker, numWorkers,
                                                   partialsType == FLOAT,
@@ -826,16 +830,16 @@ static popsolver::Variable addDistributionComputeCycleCostDenseDense(
         unsigned xNonZeroGroups, yNonZeroGroups;
         // Divide the number of xGroups by Z partition as we always split
         // rows first.
-        const auto xGroupsPerZSplit = ceildiv(xGroups, numZPartitions);
+        const auto xGroupsPerZSplit = gccs::ceildiv(xGroups, numZPartitions);
         std::tie(xNonZeroGroups, yNonZeroGroups) =
             getNumGroupsGivenUniformSparsityPattern(nzRatio, xGroupsPerZSplit,
                                                     yGroups);
         unsigned nonZeroGroups = xNonZeroGroups * yNonZeroGroups;
-        const auto groupsPerWorker = ceildiv(nonZeroGroups, numWorkers);
+        const auto groupsPerWorker = gccs::ceildiv(nonZeroGroups, numWorkers);
         const auto numUsedWorkers =
             method == OnTileMethod::GradWAMPBlock
                 ? 1
-                : ceildiv(nonZeroGroups, groupsPerWorker);
+                : gccs::ceildiv(nonZeroGroups, groupsPerWorker);
 
         const auto numZ = zGroups * zGrouping;
         std::uint64_t maxMulCycles = 0;
@@ -849,8 +853,8 @@ static popsolver::Variable addDistributionComputeCycleCostDenseDense(
             auto startGroup = worker * groupsPerWorker;
             auto endGroup =
                 std::min(nonZeroGroups, (worker + 1) * groupsPerWorker);
-            numXGroupsThisWorker = ceildiv(endGroup, yNonZeroGroups) -
-                                   floordiv(startGroup, yNonZeroGroups);
+            numXGroupsThisWorker = gccs::ceildiv(endGroup, yNonZeroGroups) -
+                                   gccs::floordiv(startGroup, yNonZeroGroups);
             numYThisWorker.reserve(numXGroupsThisWorker);
             while (startGroup != endGroup) {
               const auto numYGroupsForXGroup =
@@ -894,7 +898,7 @@ static popsolver::Variable addDistributionComputeCycleCostDenseDense(
           // Average over different values of Y. TODO: The Y provided aren't
           // statistically significant, they just assume a rectangle and
           // divide between workers so there is some accounting for overheads.
-          mulCycles = ceildiv(mulCycles, numYThisWorker.size());
+          mulCycles = gccs::ceildiv(mulCycles, numYThisWorker.size());
           maxMulCycles = std::max(maxMulCycles, mulCycles);
         }
         cycles += maxMulCycles * numZPartitions;
@@ -1307,7 +1311,7 @@ static popsolver::Variable addNumNonZeroGroupsPerBucket(
         // factor given as an option to allow room for imbalance.
         const unsigned groups = std::round(
             values[0] * (1.0 + options.metaInfoBucketOversizeProportion));
-        return popsolver::DataType{roundUp(groups, grainSizeInGroups)};
+        return popsolver::DataType{gccs::alignNext(groups, grainSizeInGroups)};
       });
 }
 
@@ -1356,7 +1360,7 @@ static popsolver::Variable addMetaInfoElemsPerBucket(
             numSubgroupsPerBucket +
         std::ceil(numElemsPerfectlyUniform *
                   (1.0 + options.metaInfoBucketOversizeProportion));
-    return popsolver::DataType{roundUp(elems, atomSizeInMetaInfoElems)};
+    return popsolver::DataType{gccs::alignNext(elems, atomSizeInMetaInfoElems)};
   };
 
   const auto calcFwdBucketSizeAMPBlock =
@@ -1386,7 +1390,7 @@ static popsolver::Variable addMetaInfoElemsPerBucket(
              numSubgroupsPerBucket +
          std::ceil(numElemsPerfectlyUniform *
                    (1.0 + options.metaInfoBucketOversizeProportion)));
-    return popsolver::DataType{roundUp(elems, atomSizeInMetaInfoElems)};
+    return popsolver::DataType{gccs::alignNext(elems, atomSizeInMetaInfoElems)};
   };
 
   switch (method) {
@@ -1423,7 +1427,8 @@ static popsolver::Variable addMetaInfoElemsPerBucket(
               numSubgroupsPerBucket +
           std::ceil(numElemsPerfectlyUniform *
                     (1.0 + options.metaInfoBucketOversizeProportion));
-      return popsolver::DataType{roundUp(elems, atomSizeInMetaInfoElems)};
+      return popsolver::DataType{
+          gccs::alignNext(elems, atomSizeInMetaInfoElems)};
     };
     return m.call<unsigned>({mGroupsPerTile.x, mGroupsPerTile.y},
                             calcGradABucketSizeElemwise);
@@ -1532,7 +1537,7 @@ createPlan(const PlanningObjective &objective, const Target &target,
   };
   Vector<unsigned> groups =
       size.binaryOp(method.grouping, [&](const auto size, const auto grouping) {
-        return ceildiv(size, grouping);
+        return gccs::ceildiv(size, grouping);
       });
 
   popsolver::Model m;
@@ -1722,9 +1727,9 @@ createPlan(const PlanningObjective &objective, const Target &target,
   assert(8 % target.getTypeSize(options.partialsType) == 0);
   const auto nzElemGrainSize =
       options.doGradWPass ? 8 / target.getTypeSize(options.partialsType) : 1;
-  plan.nzElemsPerBucket =
-      roundUp(solution[mRGroupsPerBucket].getAs<unsigned>() * rElemsPerGroup,
-              nzElemGrainSize);
+  plan.nzElemsPerBucket = gccs::alignNext(
+      solution[mRGroupsPerBucket].getAs<unsigned>() * rElemsPerGroup,
+      nzElemGrainSize);
   plan.fwdMetaInfoElemsPerBucket =
       solution[mRFwdMetaInfoElemsPerBucket].getAs<unsigned>();
   plan.gradAMetaInfoElemsPerBucket =
@@ -2047,9 +2052,9 @@ getPartitionStartIndices(const popsparse::dynamic::FullyConnectedParams &params,
                          const Plan &plan) {
   auto createSplit = [](unsigned size, unsigned partitionSize,
                         unsigned grainSize) {
-    auto grains = poplibs_support::ceildiv(size, grainSize);
+    auto grains = gccs::ceildiv(size, grainSize);
     std::vector<std::size_t> split;
-    const auto grainsPerPartition = ceildiv(grains, partitionSize);
+    const auto grainsPerPartition = gccs::ceildiv(grains, partitionSize);
     for (unsigned i = 0; i != partitionSize; ++i) {
       const auto tileBegin = i * grainsPerPartition * grainSize;
       split.push_back(tileBegin);

@@ -5,7 +5,6 @@
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
 #include <limits>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
 #include <poputil/DebugInfo.hpp>
@@ -13,6 +12,8 @@
 #include <poputil/VarStructure.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -385,8 +386,8 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
   // splitting groups may increase exchange code and we only want to allow that
   // to choose faster vertices.
   const auto maxTranspositionsAllowedFactor =
-      std::min(ceildiv(negativeStride(std::max(to.second, from.second)),
-                       maxStride(graph.getTarget())),
+      std::min(gccs::ceildiv(negativeStride(std::max(to.second, from.second)),
+                             maxStride(graph.getTarget())),
                numWorkers);
 
   // This limits the number of transpositions allowed on the IPU
@@ -431,8 +432,9 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
       // transposition by that factor. As additionalFactor is an integer
       // multiple of x, we can divide it with no loss of information.
       auto cost = (additionalFactor / x) *
-                  ceildiv(ceildiv(transpositionsOnIpuEstimate * x, tilesPerIPU),
-                          numWorkers);
+                  gccs::ceildiv(gccs::ceildiv(transpositionsOnIpuEstimate * x,
+                                              tilesPerIPU),
+                                numWorkers);
       if (cost < bestCost) {
         bestCost = cost;
         transposeFactor = x;

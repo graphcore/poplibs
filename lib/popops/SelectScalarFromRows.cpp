@@ -12,6 +12,8 @@
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 
+#include <gccs/Algorithm.hpp>
+
 #include <vector>
 
 using namespace poplar;

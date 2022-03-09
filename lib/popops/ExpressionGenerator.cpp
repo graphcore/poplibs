@@ -1,7 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "ExpressionGenerator.hpp"
 #include "ExprOpUtil.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "popops/ElementWise.hpp"
@@ -11,6 +10,8 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/optional.hpp>
 
@@ -330,7 +331,7 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
       estimate += inRegions[i].numElements() % vectorWidth * numFusedOps;
     }
     if (isMultiVertex) {
-      estimate = ceildiv(estimate, numWorkers) * numWorkers;
+      estimate = gccs::ceildiv(estimate, numWorkers) * numWorkers;
     }
     graph.setPerfEstimate(v, estimate);
 
@@ -797,7 +798,7 @@ void GenerateCodeletFromMapExpr::addFooter(std::stringstream &stream) {
 std::string loopCountString(const std::string &sizeStr,
                             unsigned vectorizationWidth, unsigned numWorkers,
                             bool isMultiVertex) {
-  auto log2VectorWidth = ceilLog2(vectorizationWidth);
+  auto log2VectorWidth = gccs::ceilLog2(vectorizationWidth);
   if (!isMultiVertex) {
     return "unsigned loopCount = " + sizeStr + ".size() >>" +
            std::to_string(log2VectorWidth) + ";";

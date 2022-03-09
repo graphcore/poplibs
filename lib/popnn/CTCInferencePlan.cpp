@@ -156,13 +156,13 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   // partitions. Ideally spread as much as possible for speed, but otherwise
   // fewer partitions so that things will fit at the cost of speed.
   auto findMaxPartitions = [](unsigned size, unsigned divisor) {
-    auto perPartition = ceildiv(size, divisor);
-    return ceildiv(size, perPartition);
+    auto perPartition = gccs::ceildiv(size, divisor);
+    return gccs::ceildiv(size, perPartition);
   };
 
   auto findMaxBatchPartitions = [](unsigned size, unsigned divisor) {
-    auto perPartition = std::max(ceildiv(size, divisor), 1u);
-    return ceildiv(size, perPartition);
+    auto perPartition = std::max(gccs::ceildiv(size, divisor), 1u);
+    return gccs::ceildiv(size, perPartition);
   };
 
   // Each batch entry occupies a separate set of tiles if possible but does
@@ -237,7 +237,7 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
       const auto toSort = beamwidth * numClasses;
       // Form 2 equally balanced stages
       unsigned numGroups = std::sqrt(numClasses);
-      auto candidatesPerGroup = ceildiv(toSort, numGroups);
+      auto candidatesPerGroup = gccs::ceildiv(toSort, numGroups);
 
       // We need to ensure that every group contains at least beamwidth
       // candidates otherwise the method of rank, reduce will fail (Reduce will
@@ -248,7 +248,7 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
       // Check the size of the last group - and make sure it is >= beamwidth
       while (toSort - (numGroups - 1) * candidatesPerGroup < beamwidth) {
         numGroups--;
-        candidatesPerGroup = ceildiv(toSort, numGroups);
+        candidatesPerGroup = gccs::ceildiv(toSort, numGroups);
       }
 
       plan.parallel.sort.push_back({numGroups});
@@ -266,7 +266,7 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   const auto stages = plan.parallel.sort.size();
 
   auto candidatesToRankPerGroup =
-      ceildiv(beamwidth * numClasses, plan.parallel.sort[0].groups);
+      gccs::ceildiv(beamwidth * numClasses, plan.parallel.sort[0].groups);
   for (unsigned stage = 0; stage < stages; stage++) {
     // A group has this many tiles available to divide work over
     const auto tilesPerGroup =
@@ -274,22 +274,22 @@ ctc::Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
 
     // There is no speed cost in having upto numWorkers candidates ranked
     // in any partition so choose at least that many to reduce the complexity
-    const auto rankingsPerPartition =
-        std::max(numWorkers, ceildiv(candidatesToRankPerGroup, tilesPerGroup));
+    const auto rankingsPerPartition = std::max(
+        numWorkers, gccs::ceildiv(candidatesToRankPerGroup, tilesPerGroup));
     plan.parallel.sort[stage].rankPartitions =
-        ceildiv(candidatesToRankPerGroup, rankingsPerPartition);
+        gccs::ceildiv(candidatesToRankPerGroup, rankingsPerPartition);
     plan.parallel.sort[stage].reducePartitions =
         findMaxPartitions(beamwidth, tilesPerGroup);
 
     plan.parallel.sort[stage].groupsPerTile =
-        ceildiv(plan.parallel.sort[stage].groups, tilesPerBatchEntry);
+        gccs::ceildiv(plan.parallel.sort[stage].groups, tilesPerBatchEntry);
 
     if (stage != stages - 1) {
       // For the next loop, how many candidates will there be after this
       // stage?
       candidatesToRankPerGroup =
-          ceildiv(beamwidth * plan.parallel.sort[stage].groups,
-                  plan.parallel.sort[stage + 1].groups);
+          gccs::ceildiv(beamwidth * plan.parallel.sort[stage].groups,
+                        plan.parallel.sort[stage + 1].groups);
     }
   }
 

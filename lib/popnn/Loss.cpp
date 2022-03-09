@@ -2,7 +2,6 @@
 #include "popnn/Loss.hpp"
 
 #include "poplar/Graph.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
@@ -18,6 +17,8 @@
 #include "poputil/VarStructure.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/optional.hpp>
 #include <boost/optional/optional_io.hpp>

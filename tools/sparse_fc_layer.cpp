@@ -16,7 +16,6 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/Pass.hpp>
@@ -39,6 +38,8 @@
 #include "poplibs_support/logging.hpp"
 #include "popsparse/FullyConnected.hpp"
 #include "popsparse/FullyConnectedParams.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -247,10 +248,12 @@ int main(int argc, char **argv) try {
   }
 
   // align weighted area to a block size grid
-  weightedAreaBegin.val[0] = roundDown(weightedAreaBegin.val[0], blockRows);
-  weightedAreaBegin.val[1] = roundDown(weightedAreaBegin.val[1], blockCols);
-  weightedAreaEnd.val[0] = roundDown(weightedAreaEnd.val[0], blockRows);
-  weightedAreaEnd.val[1] = roundDown(weightedAreaEnd.val[1], blockCols);
+  weightedAreaBegin.val[0] =
+      gccs::alignPrev(weightedAreaBegin.val[0], blockRows);
+  weightedAreaBegin.val[1] =
+      gccs::alignPrev(weightedAreaBegin.val[1], blockCols);
+  weightedAreaEnd.val[0] = gccs::alignPrev(weightedAreaEnd.val[0], blockRows);
+  weightedAreaEnd.val[1] = gccs::alignPrev(weightedAreaEnd.val[1], blockCols);
 
   PlanningCache cache;
 
@@ -350,8 +353,8 @@ int main(int argc, char **argv) try {
         numWeightedOutputChannels * weightedThreshold +
         (params.getOutputChannelsPerGroup() - numWeightedOutputChannels) *
             remainingThreshold;
-    maxInputChannels = roundDown(maxInputChannels, blockCols);
-    maxOutputChannels = roundDown(maxOutputChannels, blockRows);
+    maxInputChannels = gccs::alignPrev(maxInputChannels, blockCols);
+    maxOutputChannels = gccs::alignPrev(maxOutputChannels, blockRows);
     const auto getOpsPerOutputElementEstimate = [&](const Pass &pass) -> int {
       const auto numAccumulations = pass == Pass::FWD   ? maxInputChannels
                                     : pass == Pass::BWD ? maxOutputChannels

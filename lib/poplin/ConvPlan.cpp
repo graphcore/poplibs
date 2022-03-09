@@ -10,7 +10,6 @@
 #include "PlanningCache.hpp"
 #include "PlanningObjective.hpp"
 #include "poplar/Graph.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
@@ -22,11 +21,16 @@
 #include "popops/PerformanceEstimation.hpp"
 #include "popsolver/Model.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include "tbb/concurrent_unordered_map.h"
 #include "tbb/parallel_for.h"
+
 #include <boost/functional/hash.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/range/adaptor/filtered.hpp>
+
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -323,7 +327,7 @@ getStartTile(const poplar::Target &target,
   const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
 
   const auto numSuperTiles =
-      ceildiv(target.getTilesPerIPU(), tilesPerSuperTile);
+      gccs::ceildiv(target.getTilesPerIPU(), tilesPerSuperTile);
 
   unsigned startTile = (seed % numSuperTiles) * tilesPerSuperTile;
 
@@ -1924,7 +1928,7 @@ getParallelMultiPlan(const poplar::Target &target,
                           integerCycleLimit, startTileIdxForVirtualHierarchy});
     plans[largestPlanIdx] = planAndCost.first;
 
-    startTileIdxForVirtualHierarchy += roundUp(
+    startTileIdxForVirtualHierarchy += gccs::alignNext(
         *planAndCost.second.totalTiles, target.getTilesPerSharedExchangeBus());
     reservedTiles -= perConvReservedTiles;
 
@@ -1963,8 +1967,8 @@ getParallelMultiPlan(const poplar::Target &target,
       assert(reservedTiles >= perConvReservedTiles);
       reservedTiles -= perConvReservedTiles;
       startTileIdxForVirtualHierarchy +=
-          roundUp(*planAndCost.second.totalTiles,
-                  target.getTilesPerSharedExchangeBus());
+          gccs::alignNext(*planAndCost.second.totalTiles,
+                          target.getTilesPerSharedExchangeBus());
 
       // if we weren't able to stay within the reference update it to record
       // where this conv has extended the limits.

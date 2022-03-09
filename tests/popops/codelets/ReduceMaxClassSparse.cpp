@@ -3,10 +3,11 @@
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
 
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popnn/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/program_options.hpp>
 #include <boost/random.hpp>

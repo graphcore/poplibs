@@ -1,6 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "poplin/TriangularSolve.hpp"
-#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplin/MatMul.hpp"
 #include "popops/ElementWise.hpp"
@@ -14,6 +13,9 @@
 #include "poputil/TileMapping.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/Algorithm.hpp>
+
 #include <boost/functional/hash.hpp>
 #include <sstream>
 
@@ -508,8 +510,8 @@ poplar::Tensor createInput(poplar::Graph &graph, poplar::Type type,
     blockSize = 1; // No blocks
   }
 
-  const auto nb = poplibs_support::ceildiv(n, blockSize);
-  const auto mb = poplibs_support::ceildiv(m, blockSize);
+  const auto nb = gccs::ceildiv(n, blockSize);
+  const auto mb = gccs::ceildiv(m, blockSize);
 
   // Allocating "blockwise layout", instead of
   //   B1 B1 B2 B2

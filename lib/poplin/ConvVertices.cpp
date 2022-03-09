@@ -11,7 +11,8 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
-#include <poplibs_support/Algorithm.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -966,7 +967,7 @@ void createConvPartialSlicVertex(
 
   const auto inType = in.elementType();
   const auto partialsType = out.elementType();
-  const unsigned chansPerGroupLog2 = ceilLog2(chansPerGroup);
+  const unsigned chansPerGroupLog2 = gccs::ceilLog2(chansPerGroup);
   const unsigned convGroupsPerGroupVertexType =
       convGroupsPerGroup * chansPerGroup;
 

@@ -697,7 +697,7 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
     assert((ALIGN % dataTypeSize) == 0);
     const unsigned nBytes1 =
         test.A.totalElems * dataTypeSize; // Operand1 size bytes
-    const unsigned nBytes1Aligned = roundUp(nBytes1, ALIGN);
+    const unsigned nBytes1Aligned = gccs::alignNext(nBytes1, ALIGN);
 
     // Offset optional specified, check it's ok (must be aligned and big enough)
     unsigned offs = *test.operandOffset;

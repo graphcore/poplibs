@@ -7,7 +7,6 @@
 #include <iomanip>
 #include <random>
 
-#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/CTCInferenceDefs.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_test/CTCInference.hpp>
@@ -17,6 +16,8 @@
 #include <poplibs_test/MatrixTransforms.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <gccs/Algorithm.hpp>
 
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
@@ -377,7 +378,7 @@ int main(int argc, char **argv) {
   // Needed to set default arguments.
   po::notify(vm);
   if (!baseSequenceLength) {
-    baseSequenceLength = ceildiv(randomTestLength, 2u);
+    baseSequenceLength = gccs::ceildiv(randomTestLength, 2u);
   }
 
   if (useLogArithmetic && !inference) {
