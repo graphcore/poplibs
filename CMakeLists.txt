@@ -155,6 +155,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Enable x86-64-v3 microarchitecture level features when compiling
+include(${GCCS_CMAKE_DIR}/AddMarchExtensions.cmake)
+
+
 set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE} -fno-omit-frame-pointer -g3")
 
 # Add some warning flags. check_cxx_compiler_flag isn't very good at detecting

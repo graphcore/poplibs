@@ -14,6 +14,10 @@ add_library(popfloat SHARED
   ${CMAKE_SOURCE_DIR}/include/popfloat/experimental/CastToHalf.hpp
 )
 
+# Enable auto vectorization and common microarchitecture extensions available
+# in modern x86-64 processors
+TargetAddMarchExtensions(popfloat)
+
 target_link_libraries(popfloat
   PUBLIC
     poplar poputil popops ${CMAKE_DL_LIBS}

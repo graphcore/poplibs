@@ -11,6 +11,10 @@ add_library(popsolver STATIC
   ${CMAKE_SOURCE_DIR}/include/popsolver/Variable.hpp
 )
 
+# Enable auto vectorization and common microarchitecture extensions available
+# in modern x86-64 processors
+TargetAddMarchExtensions(popsolver)
+
 set_property(TARGET popsolver PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_link_libraries(popsolver

@@ -25,6 +25,10 @@ add_library(poputil SHARED
   ${CMAKE_SOURCE_DIR}/include/poputil/Util.hpp
 )
 
+# Enable auto vectorization and common microarchitecture extensions available
+# in modern x86-64 processors
+TargetAddMarchExtensions(poputil)
+
 target_link_libraries(poputil
   PUBLIC
     poplar

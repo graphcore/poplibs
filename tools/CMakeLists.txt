@@ -4,6 +4,7 @@ include(GNUInstallDirs)
 
 function(add_tool name)
   add_executable(${name} ${ARGN})
+  TargetAddMarchExtensions(${name})
   target_link_libraries(${name} poprand popnn poplin popops popfloat poputil Boost::filesystem)
   if(TARGET popsparse)
     target_link_libraries(${name} popsparse)

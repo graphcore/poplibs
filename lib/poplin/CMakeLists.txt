@@ -59,6 +59,10 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/TriangularSolve.hpp
 )
 
+# Enable auto vectorization and common microarchitecture extensions available
+# in modern x86-64 processors
+TargetAddMarchExtensions(poplin)
+
 target_link_libraries(poplin
   PUBLIC
     poplar popops poputil

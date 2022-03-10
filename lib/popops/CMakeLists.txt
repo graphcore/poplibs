@@ -116,6 +116,10 @@ add_library(popops SHARED
   reduction/RegionWrapping.hpp
 )
 
+# Enable auto vectorization and common microarchitecture extensions available
+# in modern x86-64 processors
+TargetAddMarchExtensions(popops)
+
 target_link_libraries(popops
   PUBLIC
     poplar poputil ${CMAKE_DL_LIBS}

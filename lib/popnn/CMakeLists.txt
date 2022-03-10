@@ -64,6 +64,10 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/VectorUtils.hpp
 )
 
+# Enable auto vectorization and common microarchitecture extensions available
+# in modern x86-64 processors
+TargetAddMarchExtensions(popnn)
+
 target_link_libraries(popnn
   PUBLIC
     poplar poplin poputil ${CMAKE_DL_LIBS}

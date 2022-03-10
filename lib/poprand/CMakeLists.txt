@@ -9,6 +9,10 @@ add_library(poprand SHARED
   ${CMAKE_SOURCE_DIR}/include/poprand/RandomGen.hpp
 )
 
+# Enable auto vectorization and common microarchitecture extensions available
+# in modern x86-64 processors
+TargetAddMarchExtensions(poprand)
+
 target_link_libraries(poprand
   PUBLIC
     poplar poputil ${CMAKE_DL_LIBS}

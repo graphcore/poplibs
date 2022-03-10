@@ -73,6 +73,10 @@ add_library(popsparse SHARED
   ${CMAKE_SOURCE_DIR}/include/popsparse/SparsePartitioner.hpp
   )
 
+# Enable auto vectorization and common microarchitecture extensions available
+# in modern x86-64 processors
+TargetAddMarchExtensions(popsparse)
+
 target_link_libraries(popsparse
   PUBLIC
     poplar poputil popops poplin ${CMAKE_DL_LIBS} ZOLTAN::zoltan ZOLTAN::simpi
