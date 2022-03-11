@@ -8,7 +8,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules" )
 
 include(AddGPLibrary)
 
-enable_testing()
+include(CTest)
 
 find_package(pva REQUIRED)
 find_package(libpvti REQUIRED)
@@ -207,7 +207,9 @@ list(APPEND POPC_FLAGS -Werror -Wdouble-promotion)
 add_definitions("-DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS")
 
 add_subdirectory(lib)
-add_subdirectory(tests)
+if (BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
 add_subdirectory(tools)
 
 install(FILES)
