@@ -10,6 +10,7 @@
 #include <boost/functional/hash.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include <spdlog/fmt/fmt.h>
 #include <unordered_map>
 
 namespace poputil {
@@ -169,10 +170,13 @@ ConvParams::ConvParams(poplar::Type inputType_, poplar::Type outputType_,
       kernelTransform(kernelTransform_), outputTransform(outputTransform_) {}
 
 void ConvParams::validate() const {
+  using namespace fmt::literals;
   const auto numFieldDims = inputFieldShape.size();
   if (kernelShape.size() != numFieldDims) {
-    throw poputil::poplibs_error("Number of kernel field dimensions does not "
-                                 "match the number of input field dimensions");
+    throw poputil::poplibs_error(
+        "Number of kernel field dimensions ({}) does "
+        "not match the number of input field "
+        "dimensions ({})"_format(kernelShape.size(), numFieldDims));
   }
   for (const auto stride : outputTransform.stride) {
     if (stride == 0) {
@@ -212,48 +216,51 @@ void ConvParams::validate() const {
   };
   for (const auto &entry : sizes) {
     if (entry.first != numFieldDims) {
-      throw poputil::poplibs_error(std::string("Number of ") + entry.second +
-                                   " dimensions does not match the number of "
-                                   "field dimensions");
+      throw poputil::poplibs_error(
+          "Number of {} dimensions ({}) does not "
+          "match the number of field dimensions ({})"_format(
+              entry.second, entry.first, numFieldDims));
     }
   }
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (inputTransform.truncationLower[dim] +
-            inputTransform.truncationUpper[dim] >
-        inputFieldShape[dim]) {
-      throw poputil::poplibs_error("Truncation for dimension " +
-                                   std::to_string(dim) +
-                                   " truncates by more than the size of the "
-                                   "field");
+    auto totalInputTruncation = inputTransform.truncationLower[dim] +
+                                inputTransform.truncationUpper[dim];
+    if (totalInputTruncation > inputFieldShape[dim]) {
+      throw poputil::poplibs_error(
+          "Truncation for dimension {} ({}) truncates "
+          "by more than the size of the field ({})"_format(
+              dim, totalInputTruncation, inputFieldShape[dim]));
     }
-    if (kernelTransform.truncationLower[dim] +
-            kernelTransform.truncationUpper[dim] >
-        kernelShape[dim]) {
-      throw poputil::poplibs_error("Truncation for dimension " +
-                                   std::to_string(dim) +
-                                   " truncates by more than the size of the "
-                                   "kernel");
+    auto totalKernelTruncation = kernelTransform.truncationLower[dim] +
+                                 kernelTransform.truncationUpper[dim];
+    if (totalKernelTruncation > kernelShape[dim]) {
+      throw poputil::poplibs_error(
+          "Truncation for dimension {} ({}) truncates "
+          "by more than the size of the kernel ({})"_format(
+              dim, totalKernelTruncation, kernelShape[dim]));
     }
     const auto transformedInputSize = getTransformedInputSize(dim);
     const auto transformedKernelSize = getTransformedKernelSize(dim);
     if (transformedKernelSize == 0) {
-      throw poputil::poplibs_error("Transformed kernel for dimension " +
-                                   std::to_string(dim) + " has zero size");
+      throw poputil::poplibs_error("Transformed kernel for dimension {} "
+                                   "has zero size"_format(dim));
     }
 
     if (transformedInputSize < transformedKernelSize) {
-      throw poputil::poplibs_error("Transformed input size for dimension " +
-                                   std::to_string(dim) +
-                                   " is less than the transformed kernel size");
+      throw poputil::poplibs_error(
+          "Transformed input size for dimension {} "
+          "({}) is less than the transformed kernel "
+          "size ({})"_format(dim, transformedInputSize, transformedKernelSize));
     }
     const auto convOutSize = getUntransformedOutputSize(dim);
-    if (outputTransform.truncationLower[dim] +
-            outputTransform.truncationUpper[dim] >
-        convOutSize) {
-      throw poputil::poplibs_error("Output truncation for dimension " +
-                                   std::to_string(dim) +
-                                   " truncates by more than the size of the "
-                                   "convolution output");
+    const auto totalOutputTruncation = outputTransform.truncationLower[dim] +
+                                       outputTransform.truncationUpper[dim];
+    if (totalOutputTruncation > convOutSize) {
+      throw poputil::poplibs_error(
+          "Output truncation for dimension {} ({}) "
+          "truncates by more than the size of the "
+          "convolution output ({})"_format(dim, totalOutputTruncation,
+                                           convOutSize));
     }
   }
 }
