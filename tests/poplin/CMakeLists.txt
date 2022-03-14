@@ -1381,7 +1381,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                 --fwd-plan-constraints={\"method\":\"HMAC\"}
+                 --fwd-plan-constraints={"method":{"type":"HMAC"}}
                  --bias=0)
 endforeach() # IN_CHANS
 
@@ -1396,7 +1396,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                 --fwd-plan-constraints={\"method\":\"HMAC\"}
+                 --fwd-plan-constraints={"method":{"type":"HMAC"}}
                  --bias=0)
 endforeach() # OUT_CHANS
 
@@ -1411,7 +1411,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                 --fwd-plan-constraints={"method":"HMAC","0":{"transform":{"swapOperands":false}}}
+                 --fwd-plan-constraints={"method":{"type":"HMAC"},"0":{"transform":{"swapOperands":false}}}
                  --bias=0
                  --flip-input=${FLIP_INPUT}
                  --in-dilation={1,4}
@@ -1439,7 +1439,7 @@ foreach(CONV_GROUPS_PER_GROUP 4 8 16)
                     --tiles-per-ipu=1
                     --single-phase=wu
                     --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                    --wu-plan-constraints={"method":"VMAC","convGroupsPerGroup":${CONV_GROUPS_PER_GROUP},"0":{"transform":{"swapOperands":false}}}
+                    --wu-plan-constraints={"method":{"type":"VMAC"},"convGroupsPerGroup":${CONV_GROUPS_PER_GROUP},"0":{"transform":{"swapOperands":false}}}
                     --bias=0
                     --flip-input=0
                     --in-dilation={2,1}
@@ -1471,7 +1471,7 @@ foreach(CONV_GROUPS_PER_GROUP 4 8 16)
                         --tiles-per-ipu=1
                         --single-phase=wu
                         --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                        --wu-plan-constraints={"method":"VMAC","convGroupsPerGroup":${CONV_GROUPS_PER_GROUP},"0":{"transform":{"swapOperands":false}}}
+                        --wu-plan-constraints={"method":{"type":"VMAC"},"convGroupsPerGroup":${CONV_GROUPS_PER_GROUP},"0":{"transform":{"swapOperands":false}}}
                         --bias=0
                         --flip-input=${FLIP_INPUT}
                         --in-dilation={2,3}
@@ -1495,7 +1495,7 @@ add_multitarget_test(
                  --output-type=half
                  --convolution-options={"partialsType":"half"}
                  --single-phase=fwd
-                 --fwd-plan-constraints={"method":"HMAC","useLimitedVersion":false}
+                 --fwd-plan-constraints={"method":{"type":"HMAC","useLimitedVersion":false}}
                  --bias=0)
 
 add_multitarget_test(
@@ -1509,7 +1509,7 @@ add_multitarget_test(
                  --output-type=float
                  --convolution-options={"partialsType":"float"}
                  --single-phase=fwd
-                 --fwd-plan-constraints={"method":"HMAC","useLimitedVersion":false}
+                 --fwd-plan-constraints={"method":{"type":"HMAC","useLimitedVersion":false}}
                  --bias=0)
 
 add_multitarget_test(
@@ -1522,7 +1522,7 @@ add_multitarget_test(
                  --data-type=float
                  --convolution-options={"partialsType":"float"}
                  --single-phase=fwd
-                 --fwd-plan-constraints={"method":"HMAC","useLimitedVersion":false}
+                 --fwd-plan-constraints={"method":{"type":"HMAC","useLimitedVersion":false}}
                  --bias=0)
 
 foreach(CHANS 8 16 32 64)
@@ -1536,7 +1536,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --convolution-options={\"partialsType\":\"half\"}
-                 --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                 --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                  VARIANTS "IpuModel2;Sim2")
 endforeach()
 
@@ -1551,7 +1551,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --convolution-options={\"partialsType\":\"half\"}
-                 --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                 --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                  VARIANTS "IpuModel2;Sim2;IpuModel21;Sim21")
 endforeach()
 
@@ -1567,7 +1567,7 @@ add_multitarget_test(
                 --tiles-per-ipu=1
                 --single-phase=fwd
                 --convolution-options={\"partialsType\":\"half\"}
-                --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                 --in-dilation=2
                 --flip-input=0
                 VARIANTS "IpuModel2;Sim2")
@@ -1585,7 +1585,7 @@ add_multitarget_test(
                 --tiles-per-ipu=1
                 --single-phase=fwd
                 --convolution-options={\"partialsType\":\"half\"}
-                --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                 --in-dilation=2
                 --flip-input=0
                 VARIANTS "IpuModel2;Sim2")
@@ -1602,7 +1602,7 @@ add_multitarget_test(
                 --tiles-per-ipu=1
                 --single-phase=fwd
                 --convolution-options={\"partialsType\":\"half\"}
-                --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                 --in-dilation=2
                 --flip-input=0
                 VARIANTS "IpuModel2;Sim2")
@@ -1618,7 +1618,7 @@ add_multitarget_test(
                 --tiles-per-ipu=1
                 --single-phase=fwd
                 --convolution-options={\"partialsType\":\"half\"}
-                --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                 --in-dilation=2
                 --flip-input=1
                 VARIANTS "IpuModel2;Sim2")
@@ -1634,7 +1634,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --data-type=float
-                 --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                 --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                  VARIANTS "IpuModel2;Sim2")
 endforeach()
 
@@ -1649,7 +1649,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --data-type=float
-                 --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                 --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                  VARIANTS "IpuModel2;Sim2")
 endforeach()
 
@@ -1665,7 +1665,7 @@ add_multitarget_test(
                 --tiles-per-ipu=1
                 --single-phase=fwd
                  --data-type=float
-                --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                 --in-dilation=2
                 --flip-input=0
                 VARIANTS "IpuModel2;Sim2")
@@ -1683,7 +1683,7 @@ add_multitarget_test(
                 --tiles-per-ipu=4
                 --single-phase=fwd
                  --data-type=float
-                --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                 --in-dilation=2
                 --flip-input=0
                 VARIANTS "IpuModel2;Sim2")
@@ -1700,7 +1700,7 @@ add_multitarget_test(
                 --tiles-per-ipu=1
                 --single-phase=fwd
                  --data-type=float
-                --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                 --in-dilation=2
                 --flip-input=0
                 VARIANTS "IpuModel2;Sim2")
@@ -1716,7 +1716,7 @@ add_multitarget_test(
                 --tiles-per-ipu=1
                 --single-phase=fwd
                  --data-type=float
-                --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
+                --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
                 --in-dilation=2
                 --flip-input=1
                 VARIANTS "IpuModel2;Sim2")
@@ -2639,7 +2639,7 @@ foreach(GROUPING 4 8 16)
                     --data-type=half
                     --batch-size=2
                     --convolution-options={\"partialsType\":\"half\"}
-                    --fwd-plan-constraints={"method":"SLIC","convGroupsPerGroup":${GROUPING}}
+                    --fwd-plan-constraints={"method":{"type":"SLIC"},"convGroupsPerGroup":${GROUPING}}
                     VARIANTS "IpuModel2;Hw")
   endforeach()
 endforeach()

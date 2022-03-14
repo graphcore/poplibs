@@ -101,9 +101,8 @@ def execute_test(binary, workspace, device_type):
 
     file_path = os.path.join(workspace, 'stall_reg.log')
 
-
     cmd = [binary, "--input-channels=1", "--output-channels=1", "--convolution-options={\"partialsType\":\"half\"}", "--tiles-per-ipu=1", \
-                "--single-phase=fwd", "--fwd-plan-constraints={\"method\":\"SLIC\"}", "--field={4,4}", "--kernel-size={4,4}", \
+                "--single-phase=fwd", "--fwd-plan-constraints={\"method\":{\"type\":\"SLIC\"}}", "--field={4,4}", "--kernel-size={4,4}", \
                 f'--device-type={device_type}', "--conv-groups=16"]
 
     logging.debug('Executing:')

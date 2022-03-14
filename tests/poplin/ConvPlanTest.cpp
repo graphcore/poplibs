@@ -161,7 +161,7 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
   // Constrain this to a plan the planner is extremely unlikely to choose
   // on its own.
   ss << R"delim(
-    {"method": "HMAC",
+    {"method": {"type": "HMAC"},
      "inChansPerGroup": 1,
      "partialChansPerGroup": 1,
      "0":
@@ -244,35 +244,35 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
   // AMP method only supports certain partialChansPerGroup
   testFails(
       R"delim(
-      {"method": "AMP",
+      {"method": {"type": "AMP"},
        "inChansPerGroup": 4,
        "partialChansPerGroup": 15}
     )delim");
   // inChanSplit exceeds number of input channels.
   testFails(
       R"delim(
-      {"method": "HMAC",
+      {"method": {"type": "HMAC"},
        "0": {"partition":{"inChanSplit":{"parallel": 256, "serial": 256}}}
       }
     )delim");
   // Product of outChanSplits exceeds number of output channels.
   testFails(
       R"delim(
-      {"method": "HMAC",
+      {"method": {"type": "HMAC"},
        "0": {"partition":{"outChanSplit":{"parallel": 16, "serial": 16}}}
       }
     )delim");
   // Product of batch splits exceeds number of batches.
   testFails(
       R"delim(
-      {"method": "HMAC",
+      {"method": {"type": "HMAC"},
        "0": {"partition":{"batchSplit": 256}}
       }
     )delim");
   // Total split greater than the number of available tiles.
   testFails(
       R"delim(
-      {"method": "HMAC",
+      {"method": {"type": "HMAC"},
        "0": {"transform":{"swapOperands": false,
                           "expandDims": [],
                           "outChanFlattenDims": []},
@@ -291,7 +291,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct1) {
   std::stringstream ss;
   ss << R"delim(
     {
-       "method": "OUTER_PRODUCT",
+       "method": {"type": "OUTER_PRODUCT"},
        "0": {"transform":{"swapOperands": false}}
     }
   )delim";
@@ -325,7 +325,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct2) {
   std::stringstream ss;
   ss << R"delim(
     {
-       "method": "OUTER_PRODUCT",
+       "method": {"type": "OUTER_PRODUCT"},
        "0": {"transform":{"swapOperands": false}}
     }
   )delim";
@@ -359,7 +359,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct3) {
   std::stringstream ss;
   ss << R"delim(
     {
-       "method": "OUTER_PRODUCT",
+       "method": {"type": "OUTER_PRODUCT"},
        "0": {"transform":{"swapOperands": false}}
     }
   )delim";
@@ -394,7 +394,7 @@ BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
   std::stringstream ss;
   ss << R"delim(
     {
-       "method": "OUTER_PRODUCT",
+       "method": {"type": "OUTER_PRODUCT"},
        "0": {"transform":{"swapOperands": false}}
     }
   )delim";
@@ -517,7 +517,7 @@ BOOST_AUTO_TEST_CASE(GetSLICPlan) {
   std::stringstream ss;
   ss << R"delim(
     {
-       "method": "SLIC"
+       "method": {"type": "SLIC"}
     }
   )delim";
 
@@ -541,8 +541,8 @@ BOOST_AUTO_TEST_CASE(GetSLICPlan) {
                                               options, &cache));
 
   // currently only SLIC 1x4 is supported in the planner.
-  BOOST_CHECK(plan.method == poplin::Plan::Method::SLIC);
-  BOOST_CHECK(plan.slicWindowWidth == 4);
+  BOOST_CHECK(plan.method.type() == typeid(poplin::Plan::Slic));
+  BOOST_CHECK(boost::get<poplin::Plan::Slic>(plan.method).windowWidth == 4);
 
   BOOST_TEST_MESSAGE(plan << "\n");
 }
@@ -569,24 +569,24 @@ BOOST_AUTO_TEST_CASE(GetSLIC16OnlyPlan) {
   optionFlags.set("partialsType", "half");
 
   // Check for SLIC vertex
-  optionFlags.set("planConstraints", "{\"method\": \"SLIC\"}");
+  optionFlags.set("planConstraints", "{\"method\": {\"type\": \"SLIC\"}}");
   poplin::ConvOptions slicOptions(optionFlags);
 
   BOOST_CHECK_NO_THROW(
       plan = poplin::getPlan(target, convParams, slicOptions, &cache));
 
-  BOOST_CHECK(plan.method == poplin::Plan::Method::SLIC);
+  BOOST_CHECK(plan.method.type() == typeid(poplin::Plan::Slic));
   BOOST_CHECK(plan.convGroupsPerGroup == 16);
   BOOST_TEST_MESSAGE(plan << "\n");
 
   // Check for VMAC vertex
-  optionFlags.set("planConstraints", "{\"method\": \"VMAC\"}");
+  optionFlags.set("planConstraints", "{\"method\": {\"type\": \"VMAC\"}}");
   poplin::ConvOptions vmacOptions(optionFlags);
 
   BOOST_CHECK_NO_THROW(
       plan = poplin::getPlan(target, convParams, vmacOptions, &cache));
 
-  BOOST_CHECK(plan.method == poplin::Plan::Method::VMAC);
+  BOOST_CHECK(plan.method.type() == typeid(poplin::Plan::Vmac));
   BOOST_CHECK(plan.convGroupsPerGroup == 16);
   BOOST_TEST_MESSAGE(plan << "\n");
 }

@@ -174,20 +174,62 @@ struct Plan {
   unsigned inChansPerGroup;
   unsigned partialChansPerGroup;
 
-  unsigned slicWindowWidth;
-  unsigned numConvUnitsOrChainsRequired;
-  enum class Method {
-    // Direction convolution using the HMAC instruction.
-    HMAC,
-    // Direction convolution using the VMAC instruction.
-    VMAC,
-    // Direction convolution using the AMP instruction.
-    AMP,
-    // Direction convolution using the SLIC instruction.
-    SLIC,
-    // Outer product of two vectors.
-    OUTER_PRODUCT,
-  } method = Method::HMAC;
+  // Direction convolution using the HMAC instruction.
+  struct Hmac {
+    Hmac() { useLimitedVersion = true; }
+    // If TRUE convolution library will use unsigned short type for vertex
+    // states, otherwise will fallback into unsigned type
+    bool useLimitedVersion;
+    auto operator<(const Hmac &other) const {
+      return useLimitedVersion < other.useLimitedVersion;
+    }
+    auto operator==(const Hmac &other) const {
+      return !(*this < other) && !(other < *this);
+    }
+  };
+  // Direction convolution using the VMAC instruction.
+  struct Vmac {
+    auto operator<(const Vmac &other) const { return false; }
+    auto operator==(const Vmac &other) const {
+      return !(*this < other) && !(other < *this);
+    }
+  };
+  // Direction convolution using the AMP instruction.
+  struct Amp {
+    // Number of conv engines enabled
+    unsigned convUnits;
+    auto operator<(const Amp &other) const {
+      return convUnits < other.convUnits;
+    }
+    auto operator==(const Amp &other) const {
+      return !(*this < other) && !(other < *this);
+    }
+  };
+  // Direction convolution using the SLIC instruction.
+  struct Slic {
+    // Number of chains of conv engines used
+    unsigned convUnitChainsRequired;
+    // The width of the kernel that slides over the input. Only 4 is currently
+    // supported in the software but the SLIC engine also supports 3.
+    unsigned windowWidth;
+    auto operator<(const Slic &other) const {
+      return std::tie(convUnitChainsRequired, windowWidth) <
+             std::tie(other.convUnitChainsRequired, other.windowWidth);
+    }
+    auto operator==(const Slic &other) const {
+      return !(*this < other) && !(other < *this);
+    }
+  };
+  // Outer product of two vectors.
+  struct OuterProduct {
+    auto operator<(const OuterProduct &other) const { return false; }
+    auto operator==(const OuterProduct &other) const {
+      return !(*this < other) && !(other < *this);
+    }
+  };
+
+  using Method = boost::variant<Hmac, Vmac, Amp, Slic, OuterProduct>;
+  Method method = Hmac{};
 
   enum class LinearizeTileOrder {
     STANDARD,
@@ -205,10 +247,6 @@ struct Plan {
   // determined from the plan for one pass.
   bool isJointPlan;
 
-  // If TRUE convolution library will use unsigned short type for vertex
-  // states, otherwise will fallback into unsigned type
-  bool useLimitedVersion;
-
   // Based on a combination of serial splits planner can decide to broadcast
   // input before convolution loop
   bool broadcastInputBeforeLoop;
@@ -216,20 +254,17 @@ struct Plan {
   Plan() = default;
   Plan(std::vector<Partition> partitions_, std::vector<ConvTypes> types_,
        unsigned convGroupsPerGroup_, unsigned inChansPerGroup_,
-       unsigned partialChansPerGroup_, unsigned slicWindowWidth_,
-       unsigned numConvUnitsOrChainsRequired_, Plan::Method method_,
+       unsigned partialChansPerGroup_, Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_, unsigned startTile_,
        Plan::LinearizeTileDirection linearizeTileDirection_, bool isJointPlan,
-       bool useLimitedVersion_, bool broadcastInputBeforeLoop_)
+       bool broadcastInputBeforeLoop_)
       : partitions(std::move(partitions_)), types(std::move(types_)),
         convGroupsPerGroup(convGroupsPerGroup_),
         inChansPerGroup(inChansPerGroup_),
-        partialChansPerGroup(partialChansPerGroup_),
-        slicWindowWidth(slicWindowWidth_),
-        numConvUnitsOrChainsRequired(numConvUnitsOrChainsRequired_),
-        method(method_), linearizeTileOrder(linearizeTileOrder_),
-        startTile(startTile_), linearizeTileDirection(linearizeTileDirection_),
-        isJointPlan(isJointPlan), useLimitedVersion(useLimitedVersion_),
+        partialChansPerGroup(partialChansPerGroup_), method(method_),
+        linearizeTileOrder(linearizeTileOrder_), startTile(startTile_),
+        linearizeTileDirection(linearizeTileDirection_),
+        isJointPlan(isJointPlan),
         broadcastInputBeforeLoop(broadcastInputBeforeLoop_) {}
 
   unsigned numLevels() const {

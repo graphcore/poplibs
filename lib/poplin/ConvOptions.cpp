@@ -269,12 +269,27 @@ void validatePlanConstraintsLevel(const std::string &path, const ptree &t) {
 }
 
 void validatePlanConstraintsMethod(const std::string &path, const ptree &t) {
-  Plan::Method m;
-  try {
-    std::stringstream ss(t.data());
-    ss >> m;
-  } catch (const poputil::poplibs_error &e) {
-    throw poplar::invalid_option("'" + path + "': " + e.what());
+  for (const auto &child : t) {
+    if (child.first == "type") {
+      const auto type = child.second.get_value_optional<std::string>();
+      if (!type) {
+        throw poplar::invalid_option("'" + path + "': Not a valid string");
+      } else {
+        if (*type != "AMP" && *type != "SLIC" && *type != "HMAC" &&
+            *type != "VMAC" && *type != "OUTER_PRODUCT") {
+          throw poplar::invalid_option("'" + path +
+                                       "': Not a valid method type");
+        }
+      }
+    } else if (child.first == "useLimitedVersion") {
+      validatePlanConstraintsBoolean(child.first, child.second);
+    } else if (child.first == "convUnits") {
+      validatePlanConstraintsUnsigned(child.first, child.second);
+    } else if (child.first == "convUnitChainsRequired") {
+      validatePlanConstraintsUnsigned(child.first, child.second);
+    } else if (child.first == "windowWidth") {
+      validatePlanConstraintsUnsigned(child.first, child.second);
+    }
   }
 }
 
@@ -297,12 +312,6 @@ void ValidateConvPlanConstraintsOption::operator()(const ptree &t) const {
       validatePlanConstraintsUnsigned(child.first, child.second);
     } else if (child.first == "partialChansPerGroup") {
       validatePlanConstraintsUnsigned(child.first, child.second);
-    } else if (child.first == "numAmpConvUnits") {
-      validatePlanConstraintsUnsigned(child.first, child.second);
-    } else if (child.first == "slicWindowWidth") {
-      validatePlanConstraintsUnsigned(child.first, child.second);
-    } else if (child.first == "useLimitedVersion") {
-      validatePlanConstraintsBoolean(child.first, child.second);
     } else {
       internal::validatePlanConstraintsIndex(child.first, child.first);
       internal::validatePlanConstraintsLevel(child.first, child.second);

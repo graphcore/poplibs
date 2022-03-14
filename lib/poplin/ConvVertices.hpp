@@ -22,9 +22,8 @@ void calcPartialConvOutput(poplar::Graph &graph, const Plan &plan,
                            const poplar::DebugNameAndId &dnai);
 
 void createConvPartialSlicVertex(
-    poplar::Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,
-    unsigned chansPerGroup, unsigned convUnitsRequired, unsigned tile,
-    ConvParams params, std::vector<poplar::program::Copy> &transformPre,
+    poplar::Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
+    std::vector<poplar::program::Copy> &transformPre,
     std::map<poplar::Type, poplar::Tensor> &copyWritten,
     poplar::ComputeSet fwdCS,
     std::map<poplar::Type, std::pair<std::vector<poplar::Tensor>,

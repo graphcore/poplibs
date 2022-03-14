@@ -1,5 +1,5 @@
 {
-  "method": "SLIC",
+  "method": {"type": "SLIC"},
   "convGroupsPerGroup": 2,
   "inChansPerGroup": 2,
   "partialChansPerGroup": 2

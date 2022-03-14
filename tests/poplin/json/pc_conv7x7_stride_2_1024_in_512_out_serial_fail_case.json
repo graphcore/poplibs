@@ -1,5 +1,5 @@
 {
-  "method": "AMP",
+  "method": {"type": "AMP"},
   "inChansPerGroup": 4,
   "partialChansPerGroup": 8,
   "0": {

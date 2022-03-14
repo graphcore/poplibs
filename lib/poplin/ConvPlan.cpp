@@ -13,6 +13,7 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
+#include "poplibs_support/Visitor.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/print.hpp"
@@ -24,8 +25,8 @@
 
 #include <gccs/Algorithm.hpp>
 
-#include "tbb/concurrent_unordered_map.h"
-#include "tbb/parallel_for.h"
+#include <tbb/concurrent_unordered_map.h>
+#include <tbb/parallel_for.h>
 
 #include <boost/functional/hash.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -44,23 +45,9 @@
 using namespace poplibs_support;
 using namespace popops::internal;
 
-namespace poplin {
+using namespace fmt::literals;
 
-static const char *asString(Plan::Method m) {
-  switch (m) {
-  case Plan::Method::AMP:
-    return "AMP";
-  case Plan::Method::SLIC:
-    return "SLIC";
-  case Plan::Method::HMAC:
-    return "HMAC";
-  case Plan::Method::VMAC:
-    return "VMAC";
-  case Plan::Method::OUTER_PRODUCT:
-    return "OUTER_PRODUCT";
-  }
-  POPLIB_UNREACHABLE();
-}
+namespace poplin {
 
 bool operator<(const Partition &a, const Partition &b) {
   constexpr static auto helper = poplibs_support::makeStructHelper(
@@ -151,27 +138,83 @@ std::ostream &operator<<(std::ostream &os, const ConvTypes &t) {
   return os;
 }
 
-std::ostream &operator<<(std::ostream &os, const Plan::Method &m) {
-  os << asString(m);
-  return os;
+static boost::property_tree::ptree toPTree(const Plan::Method &m) {
+  boost::property_tree::ptree tree;
+
+  const auto visitor = poplibs_support::make_visitor<void>(
+      [&](const Plan::Hmac &m) {
+        tree.put("type", "HMAC");
+        tree.put("useLimitedVersion", m.useLimitedVersion);
+      },
+      [&](const Plan::Vmac &) { tree.put("type", "VMAC"); },
+      [&](const Plan::Amp &m) {
+        tree.put("type", "AMP");
+        tree.put("convUnits", m.convUnits);
+      },
+      [&](const Plan::Slic &m) {
+        tree.put("type", "SLIC");
+        tree.put("convUnitChainsRequired", m.convUnitChainsRequired);
+        tree.put("windowWidth", m.windowWidth);
+      },
+      [&](const Plan::OuterProduct &) { tree.put("type", "OUTER_PRODUCT"); });
+  boost::apply_visitor(visitor, m);
+
+  return tree;
 }
 
-std::istream &operator>>(std::istream &is, Plan::Method &m) {
-  std::string token;
-  is >> token;
-  if (token == "HMAC") {
-    m = Plan::Method::HMAC;
-  } else if (token == "VMAC") {
-    m = Plan::Method::VMAC;
-  } else if (token == "AMP") {
-    m = Plan::Method::AMP;
-  } else if (token == "SLIC") {
-    m = Plan::Method::SLIC;
-  } else if (token == "OUTER_PRODUCT") {
-    m = Plan::Method::OUTER_PRODUCT;
+std::ostream &operator<<(std::ostream &os, const Plan::Method &m) {
+  auto tree = toPTree(m);
+  // Write JSON appends a pesky newline character which creates invalid JSON
+  std::stringstream ss;
+  boost::property_tree::json_parser::write_json(ss, tree, false);
+  std::string out;
+  std::getline(ss, out);
+  return os << out;
+}
+
+std::istream &operator>>(std::istream &is, Plan::Method &planMethod) {
+  boost::property_tree::ptree t;
+  boost::property_tree::json_parser::read_json(is, t);
+
+  if (t.empty() && !t.data().empty()) {
+    throw poplar::invalid_option("Plan method must be an object");
+  }
+  const auto type = t.get<std::string>("type");
+  if (type == "HMAC") {
+    Plan::Hmac m{};
+    auto useLimitedVersion = t.get_optional<bool>("useLimitedVersion");
+    if (useLimitedVersion.has_value()) {
+      m.useLimitedVersion = *useLimitedVersion;
+    }
+    planMethod = m;
+  } else if (type == "VMAC") {
+    Plan::Vmac m{};
+    planMethod = m;
+  } else if (type == "AMP") {
+    Plan::Amp m{};
+    auto convUnits = t.get_optional<unsigned>("convUnits");
+    if (convUnits.has_value()) {
+      m.convUnits = *convUnits;
+    }
+    planMethod = m;
+  } else if (type == "SLIC") {
+    Plan::Slic m{};
+    auto convUnitChainsRequired =
+        t.get_optional<unsigned>("convUnitChainsRequired");
+    if (convUnitChainsRequired.has_value()) {
+      m.convUnitChainsRequired = *convUnitChainsRequired;
+    }
+    auto windowWidth = t.get_optional<unsigned>("windowWidth");
+    if (windowWidth.has_value()) {
+      m.windowWidth = *windowWidth;
+    }
+    planMethod = m;
+  } else if (type == "OUTER_PRODUCT") {
+    Plan::OuterProduct m{};
+    planMethod = m;
   } else {
-    throw poputil::poplibs_error("Unrecognised convolution method '" + token +
-                                 "'");
+    throw poputil::poplibs_error(
+        "Unrecognised convolution method '{}'"_format(type));
   }
   return is;
 }
@@ -193,10 +236,8 @@ bool operator<(const Plan &a, const Plan &b) {
   constexpr static auto helper = poplibs_support::makeStructHelper(
       &Plan::transforms, &Plan::partitions, &Plan::types,
       &Plan::convGroupsPerGroup, &Plan::inChansPerGroup,
-      &Plan::partialChansPerGroup, &Plan::slicWindowWidth,
-      &Plan::numConvUnitsOrChainsRequired, &Plan::method,
-      &Plan::linearizeTileOrder, &Plan::startTile,
-      &Plan::linearizeTileDirection, &Plan::isJointPlan);
+      &Plan::partialChansPerGroup, &Plan::method, &Plan::linearizeTileOrder,
+      &Plan::startTile, &Plan::linearizeTileDirection, &Plan::isJointPlan);
 
   return helper.lt(a, b);
 }
@@ -501,11 +542,9 @@ choosePlan(const poplar::Target &target,
 
   Plan plan(std::move(partitions), std::move(types),
             convVertexType.convGroupsPerGroup, convVertexType.inChansPerGroup,
-            convVertexType.partialChansPerGroup, convVertexType.slicWindowWidth,
-            convVertexType.numConvUnitsOrChainsRequired, convVertexType.method,
+            convVertexType.partialChansPerGroup, convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD, startTile.first,
-            startTile.second, isJointPlan, convVertexType.useLimitedVersion,
-            allowBroadcastInputBeforeLoop);
+            startTile.second, isJointPlan, allowBroadcastInputBeforeLoop);
   plan.transforms = transforms;
 
   Cost cost = getCostOfSolution(s, e);
@@ -1496,7 +1535,7 @@ static PlanConstraints getPlanConstraints(const Plan &plan) {
   }
 
   // Other
-  constraints.add("method", plan.method);
+  constraints.put_child("method", toPTree(plan.method));
   constraints.add("convGroupsPerGroup", plan.convGroupsPerGroup);
   constraints.add("inChansPerGroup", plan.inChansPerGroup);
   constraints.add("partialChansPerGroup", plan.partialChansPerGroup);
@@ -1674,12 +1713,17 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   plan.partitions.back().inChanGrainSize = wuConvVertexType.inChansPerGroup;
   plan.partitions.back().outChanGrainSize =
       wuConvVertexType.partialChansPerGroup;
-  if (plan.method == Plan::Method::OUTER_PRODUCT) {
-    // outer product method supports only conv groups per group of 1.
-    // T34320 is required to support conv group grouping in OUTER_PRODUCT
-    // vertex.
-    plan.convGroupsPerGroup = 1;
-  }
+
+  auto visitor = poplibs_support::make_visitor<void>(
+      [&](const Plan::OuterProduct &) {
+        // outer product method supports only conv groups per group of 1.
+        // T34320 is required to support conv group grouping in OUTER_PRODUCT
+        // vertex.
+        plan.convGroupsPerGroup = 1;
+      },
+      [&](const auto &) {});
+  boost::apply_visitor(visitor, plan.method);
+
   plan.types =
       getConvTypes(target, wuConvVertexType.partialType, fwdParams->outputType,
                    getWeightUpdateOptions(fwdOptions));
@@ -2084,9 +2128,7 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
   auto objective = PlanningObjective::minimizeCycles();
   ConvVertexType convVertexType(
       plan.method, params.inputType, plan.types.back().partialType,
-      plan.convGroupsPerGroup, plan.inChansPerGroup, plan.partialChansPerGroup,
-      plan.slicWindowWidth, plan.numConvUnitsOrChainsRequired,
-      plan.useLimitedVersion);
+      plan.convGroupsPerGroup, plan.inChansPerGroup, plan.partialChansPerGroup);
   const auto fieldGrainSize = plan.partitions.back().fieldAxisGrainSize;
   // Check grain size is the same at each level.
 #ifndef NDEBUG

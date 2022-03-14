@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ConvPartial1xNSLIC
+#include "ConvPlan.hpp"
 #include "ConvVertices.hpp"
 #include "popops/Cast.hpp"
 #include "popops/codelets.hpp"
@@ -310,10 +311,13 @@ int main(int argc, char **argv) try {
       postProg;
   auto vertexIn = isFp8 ? inGroupedFp8 : inGrouped;
   auto vertexWeights = isFp8 ? weightsGroupedFp8 : weightsGrouped;
-  createConvPartialSlicVertex(graph, windowWidth, convGroupsPerGroup,
-                              chansPerGroup, convChainsRequired, 0, params,
-                              transformPre, copyWritten, fwdCS, postProg,
-                              vertexIn, vertexWeights, outGrouped, "vertex");
+  poplin::Plan plan;
+  plan.method = poplin::Plan::Slic{convChainsRequired, windowWidth};
+  plan.convGroupsPerGroup = convGroupsPerGroup;
+  plan.partialChansPerGroup = chansPerGroup;
+  createConvPartialSlicVertex(graph, plan, 0, params, transformPre, copyWritten,
+                              fwdCS, postProg, vertexIn, vertexWeights,
+                              outGrouped, "vertex");
   if (isFp8) {
     prog.add(castProg);
   }

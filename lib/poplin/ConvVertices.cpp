@@ -11,6 +11,7 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+#include <poplibs_support/Visitor.hpp>
 
 #include <gccs/Algorithm.hpp>
 
@@ -418,7 +419,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                                        const DebugNameAndId &dnai) {
   // AMP vertices only support having a single conv group per grouping.
   assert(plan.convGroupsPerGroup == 1);
-
+  const auto &method = boost::get<Plan::Amp>(plan.method);
   const auto &target = graph.getTarget();
   const auto convUnitWeightHeight =
       target.getWeightsPerConvUnit(in.elementType()) / plan.inChansPerGroup;
@@ -606,10 +607,9 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       getTransformedInStride(convUnitWeightHeight, inStrideX, inRowStride,
                              convInputLoadElems, inChansPerGroup);
 
-  const auto numConvUnitsRequired = plan.numConvUnitsOrChainsRequired;
   unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
   int transformedOutStride = getTransformedOutStride(
-      outStrideToUse, outChansPerGroup, numConvUnitsRequired,
+      outStrideToUse, outChansPerGroup, method.convUnits,
       plan.types.back().partialType == poplar::FLOAT, flipOut);
 
   int transformedInRowStride = getTransformedInRowStride(
@@ -680,11 +680,10 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   auto codeletName = useConvPartial1x1OutVertex ? "poplin::ConvPartial1x1Out"
                                                 : "poplin::ConvPartialnx1";
   auto v = graph.addVertex(
-      fwdCS, templateVertex(codeletName, in.elementType(),
-                            plan.types.back().partialType,
-                            useLimitedVer ? "true" : "false",
-                            use128BitConvUnitLoad ? "true" : "false",
-                            numConvUnitsRequired));
+      fwdCS, templateVertex(
+                 codeletName, in.elementType(), plan.types.back().partialType,
+                 useLimitedVer ? "true" : "false",
+                 use128BitConvUnitLoad ? "true" : "false", method.convUnits));
 
   // The parameters are modified to what the vertex uses
   graph.connect(v["in"], inWindow);
@@ -765,14 +764,14 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
 
     // Some workers require diffrent strides to load/store partials
     // due to unique load/store patterns constrained by load/store bandwidth
-    if ((numConvUnitsRequired == 8) && (in.elementType() == HALF) &&
+    if ((method.convUnits == 8) && (in.elementType() == HALF) &&
         (out.elementType() == HALF)) {
       stepOverSecondPtr = 1;
       outStridePlusX = transformedOutStride + stepOverSecondPtr;
       outStride = transformedOutStride + stepOverSecondPtr;
       outStrideStep = 0;
 
-    } else if ((numConvUnitsRequired == 16) && (in.elementType() == FLOAT)) {
+    } else if ((method.convUnits == 16) && (in.elementType() == FLOAT)) {
       stepOverSecondPtr = 4;
       outStridePlusX = transformedOutStride + stepOverSecondPtr;
       outStrideStep = 1 + stepOverSecondPtr;
@@ -908,12 +907,14 @@ static void createConvPartialAmpVertices(
 //  out: [G1][CO1]...[G2][CO2]
 //  weights: [G1][CO1][CI1]...[G2][CO2][CI2]
 void createConvPartialSlicVertex(
-    Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,
-    unsigned chansPerGroup, unsigned convChainsRequired, unsigned tile,
-    ConvParams params, std::vector<Copy> &transformPre,
-    std::map<Type, Tensor> &copyWritten, ComputeSet fwdCS,
-    ConvProgramTree::PostProg &postConvProg, Tensor in, Tensor weights,
-    Tensor out, const DebugNameAndId &dnai) {
+    Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
+    std::vector<Copy> &transformPre, std::map<Type, Tensor> &copyWritten,
+    ComputeSet fwdCS, ConvProgramTree::PostProg &postConvProg, Tensor in,
+    Tensor weights, Tensor out, const DebugNameAndId &dnai) {
+  const auto &method = boost::get<Plan::Slic>(plan.method);
+  const auto convGroupsPerGroup = plan.convGroupsPerGroup;
+  const auto chansPerGroup = plan.partialChansPerGroup;
+
   // We don't handle multiple input channel/output channel groups.
   assert(params.getNumInputChansPerConvGroup() == chansPerGroup &&
          params.getNumOutputChansPerConvGroup() == chansPerGroup);
@@ -926,7 +927,7 @@ void createConvPartialSlicVertex(
   // TODO: Figure out how to specify this stuff in terms of
   // load elems per cycle etc. to deal with float/float and
   // half/half versions.
-  assert(slicWindowWidth == 4u);
+  assert(method.windowWidth == 4u);
 
 #ifndef NDEBUG
   const auto isAll = [](const auto k, const auto &c) {
@@ -957,7 +958,7 @@ void createConvPartialSlicVertex(
     // not already.
     const auto kernelWidthDim = params.kernelShape.size() - 1;
     weights = padKernelSpatialDim(graph, params, weights, kernelWidthDim,
-                                  slicWindowWidth, padder);
+                                  method.windowWidth, padder);
 
     // Explicitly apply input transforms.
     for (unsigned d = 0; d < numFieldDims; ++d) {
@@ -981,8 +982,8 @@ void createConvPartialSlicVertex(
   assert(chansPerGroup == 1 || convGroupsPerGroup <= 4);
 
   auto kernelGroups = params.kernelShape;
-  assert(kernelGroups.back() % slicWindowWidth == 0);
-  kernelGroups.back() /= slicWindowWidth;
+  assert(kernelGroups.back() % method.windowWidth == 0);
+  kernelGroups.back() /= method.windowWidth;
 
   const auto paddedOutputSpatialShape = [&] {
     std::vector<unsigned> r;
@@ -999,11 +1000,11 @@ void createConvPartialSlicVertex(
   bool useShortTypes = true;
   const auto shortTypesVertexClass = templateVertex(
       "poplin::ConvPartial1xNSLIC", inType, partialsType, outputStride,
-      /* useShortTypes */ true, slicWindowWidth, convChainsRequired,
-      convGroupsPerGroupVertexType);
+      /* useShortTypes */ true, method.windowWidth,
+      method.convUnitChainsRequired, convGroupsPerGroupVertexType);
   const auto slicWindowHeight = 1u;
-  auto partitions = createPartitions(params, slicWindowHeight, slicWindowWidth,
-                                     numWorkerContexts);
+  auto partitions = createPartitions(params, slicWindowHeight,
+                                     method.windowWidth, numWorkerContexts);
 
   std::vector<std::size_t> inputBatchAndFieldShape = {params.getBatchSize()};
   std::vector<std::size_t> outputBatchAndFieldShape = {params.getBatchSize()};
@@ -1055,8 +1056,8 @@ void createConvPartialSlicVertex(
         s += 1;
       }
 
-      kernelStart.back() *= slicWindowWidth;
-      kernelEnd.back() *= slicWindowWidth;
+      kernelStart.back() *= method.windowWidth;
+      kernelEnd.back() *= method.windowWidth;
 
       const auto window =
           weights[cg][0][0].slice(kernelStart, kernelEnd).flatten();
@@ -1137,10 +1138,10 @@ void createConvPartialSlicVertex(
       {dnai, "outFieldBuffer"});
   graph.setTileMapping(outFieldBuffer, tile);
 
-  const auto vertexClass =
-      templateVertex("poplin::ConvPartial1xNSLIC", inType, partialsType,
-                     outputStride, useShortTypes, slicWindowWidth,
-                     convChainsRequired, convGroupsPerGroupVertexType);
+  const auto vertexClass = templateVertex(
+      "poplin::ConvPartial1xNSLIC", inType, partialsType, outputStride,
+      useShortTypes, method.windowWidth, method.convUnitChainsRequired,
+      convGroupsPerGroupVertexType);
   auto v = graph.addVertex(fwdCS, vertexClass);
   graph.setTileMapping(v, tile);
 
@@ -1175,6 +1176,7 @@ static void createConvPartialHorizontalMacVertex(
   const unsigned numInChanGroups = in.dim(1);
   const unsigned inChansPerGroup = plan.inChansPerGroup;
   const unsigned outChansPerGroup = plan.partialChansPerGroup;
+  const auto &method = boost::get<Plan::Hmac>(plan.method);
 
   // HMAC vertices only support having a single conv group per grouping.
   assert(plan.convGroupsPerGroup == 1);
@@ -1340,7 +1342,7 @@ static void createConvPartialHorizontalMacVertex(
 
   // Limits for field and worklist elements
   const auto unsignedMax = std::numeric_limits<unsigned short>::max();
-  bool useLimitedVer = plan.useLimitedVersion;
+  bool useLimitedVer = method.useLimitedVersion;
   const auto zerosInfo = outWindow[0].numElements();
 
   const auto doubleWordWrites =
@@ -1762,48 +1764,45 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
     zero(graph, out, tile, convolveCS.convolveCS);
     return;
   }
-  switch (plan.method) {
-  case Plan::Method::AMP:
-    createConvPartialAmpVertices(graph, plan, tile, params, transformPre,
-                                 copyWritten, convolveCS.convolveCS, in,
-                                 weights, out, use128BitConvUnitLoad, {dnai});
-    break;
-  case Plan::Method::HMAC:
-    createConvPartialHorizontalMacVertex(graph, plan, tile, params,
-                                         convolveCS.convolveCS, in, weights,
-                                         out, {dnai});
-    break;
-  case Plan::Method::VMAC:
-    createConvPartialVerticalMacVertex(graph, plan, tile, params,
-                                       convolveCS.convolveCS, in, weights, out,
-                                       {dnai});
-    break;
-  case Plan::Method::SLIC:
-    assert(plan.inChansPerGroup == plan.partialChansPerGroup);
-    createConvPartialSlicVertex(
-        graph, plan.slicWindowWidth, plan.convGroupsPerGroup,
-        plan.partialChansPerGroup, plan.numConvUnitsOrChainsRequired, tile,
-        params, transformPre, copyWritten, convolveCS.convolveCS,
-        convolveCS.postProg, in, weights, out, {dnai});
-    break;
-  case Plan::Method::OUTER_PRODUCT: {
-    const auto &target = graph.getTarget();
-    const auto outputLength =
-        params.getOutputSize(params.getNumFieldDims() - 1);
-    const auto perWorkerRegions =
-        splitRegionsBetweenWorkers(target, {{0, outputLength}}, 1);
-    for (const auto &entry : perWorkerRegions) {
-      assert(entry.size() == 1);
-      createOuterProductVertex(graph, tile, entry[0].begin(), entry[0].end(),
-                               params, convolveCS, in, weights, out, {dnai});
-    }
-  } break;
-  default: {
-    std::stringstream ss;
-    ss << "Unexpected convolution method <" << plan.method << ">";
-    throw poputil::poplibs_error(ss.str());
-  }
-  }
+
+  auto visitor = poplibs_support::make_visitor<void>(
+      [&](const Plan::Amp &method) {
+        createConvPartialAmpVertices(graph, plan, tile, params, transformPre,
+                                     copyWritten, convolveCS.convolveCS, in,
+                                     weights, out, use128BitConvUnitLoad,
+                                     {dnai});
+      },
+      [&](const Plan::Slic &method) {
+        assert(plan.inChansPerGroup == plan.partialChansPerGroup);
+        createConvPartialSlicVertex(graph, plan, tile, params, transformPre,
+                                    copyWritten, convolveCS.convolveCS,
+                                    convolveCS.postProg, in, weights, out,
+                                    {dnai});
+      },
+      [&](const Plan::Hmac &method) {
+        createConvPartialHorizontalMacVertex(graph, plan, tile, params,
+                                             convolveCS.convolveCS, in, weights,
+                                             out, {dnai});
+      },
+      [&](const Plan::Vmac &method) {
+        createConvPartialVerticalMacVertex(graph, plan, tile, params,
+                                           convolveCS.convolveCS, in, weights,
+                                           out, {dnai});
+      },
+      [&](const Plan::OuterProduct &method) {
+        const auto &target = graph.getTarget();
+        const auto outputLength =
+            params.getOutputSize(params.getNumFieldDims() - 1);
+        const auto perWorkerRegions =
+            splitRegionsBetweenWorkers(target, {{0, outputLength}}, 1);
+        for (const auto &entry : perWorkerRegions) {
+          assert(entry.size() == 1);
+          createOuterProductVertex(graph, tile, entry[0].begin(),
+                                   entry[0].end(), params, convolveCS, in,
+                                   weights, out, {dnai});
+        }
+      });
+  boost::apply_visitor(visitor, plan.method);
 }
 
 } // namespace poplin

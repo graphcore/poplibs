@@ -22,7 +22,7 @@ group_to_analyse = ['single_conv_layer']
 phases_dict = {'fwd':0, 'bwd':1, 'wu':2}
 
 # Monsto regex to capture planner output:
-# 16:52:46.800 55378 PL [W] Found best plan using AMP: Cost{cycles=30748, memory=51072, tiles=1120}.
+# 16:52:46.800 55378 PL [W] Found best plan using {"type":"AMP"}: Cost{cycles=30748, memory=51072, tiles=1120}.
 # 16:52:46.800 55378 PL [D]   for input {14,14}x(256x1x4), kernel {14,14}, output = {3,3}x(256x1x256), pass=TRAINING_WU
 # 16:52:46.800 55378 PL [D]   breakdown of memory and cycle estimates:
 # 16:52:46.800 55378 PL [D]    - total parallel split: 1120
@@ -39,7 +39,7 @@ phases_dict = {'fwd':0, 'bwd':1, 'wu':2}
 # 16:52:46.800 55378 PL [D]    - add in-place: 0 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - cast: 0 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - total: 30748 cycles, 51072 bytes
-re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+_?[A-Z]+?): Cost\{cycles=(\d+), memory=(\d+), tiles=(\d+)\}." + NEW_LINE_CHAR +
+re_planner_info = re.compile(r'^.+Found best plan using {"type":"([A-Z]+_?[A-Z]+?)".*}: Cost\{cycles=(\d+), memory=(\d+), tiles=(\d+)\}.' + NEW_LINE_CHAR +
                            ".+pass=([A-Z]+)_([A-Z]+)"  + NEW_LINE_CHAR +
                           ".+" + NEW_LINE_CHAR +
                           ".+total parallel split:\s(\d+)" + NEW_LINE_CHAR +
@@ -134,7 +134,7 @@ PartitionInfoFields = collections.namedtuple(
 #        convGroupsPerGroup      1
 #        inChansPerGroup         16
 #        partialChansPerGroup    8
-#        method                  AMP
+#        method                  {"type":"AMP"}
 #        isJointPlan             0
 #        startTile               0
 #        linearizeTileDirection  ASCENDING
@@ -142,7 +142,7 @@ PartitionInfoFields = collections.namedtuple(
 re_plan_info = re.compile(r'^\s+convGroupsPerGroup\s+(\d+)' + NEW_LINE_CHAR +
                           '\s+inChansPerGroup\s+(\d+)' + NEW_LINE_CHAR +
                            '\s+partialChansPerGroup\s+(\d+)' + NEW_LINE_CHAR +
-                           '\s+method\s+([A-Z]+)' + NEW_LINE_CHAR +
+                           '\s+method\s+{"type":\s*"([A-Z]+)".*' + NEW_LINE_CHAR +
                            '\s+isJointPlan\s+(\d+)' + NEW_LINE_CHAR +
                            '\s+startTile\s+(\d+)' + NEW_LINE_CHAR +
                            '\s+linearizeTileDirection\s+([A-Z]+)' + NEW_LINE_CHAR +

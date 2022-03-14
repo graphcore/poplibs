@@ -5,6 +5,7 @@
 #include "ConvModel.hpp"
 #include "ConvOptions.hpp"
 #include "PerformanceEstimation.hpp"
+#include "poplibs_support/Visitor.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvParams.hpp"
 #include "popsolver/Model.hpp"
@@ -102,19 +103,18 @@ static void getConvVertexHMACCandidates(
   const auto constrainedPartialChansPerGroup =
       planConstraints.get_optional<popsolver::DataType>("partialChansPerGroup");
   const auto constrainedUseLimitedVersion =
-      planConstraints.get_optional<bool>("useLimitedVersion");
+      planConstraints.get_optional<bool>("method.useLimitedVersion");
 
   bool floatActivations = inputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
   bool ampFloatPartials = floatPartials;
   auto numConvUnits =
       getNumConvUnits(floatActivations, ampFloatPartials, target);
-  bool useLimitedVersion = true;
-
+  Plan::Hmac method{};
   // For the test purposes constrain vertex to use unsigned type for
   // vertex states
   if (constrainedUseLimitedVersion) {
-    useLimitedVersion = *constrainedUseLimitedVersion;
+    method.useLimitedVersion = *constrainedUseLimitedVersion;
   }
 
   // Constrain the input channel grouping to a multiple of two if the activation
@@ -182,10 +182,8 @@ static void getConvVertexHMACCandidates(
     // The HMAC vertex does not require a grouping of the conv groups.
     const unsigned convGroupsPerGroup = 1;
 
-    candidates.emplace_back(Plan::Method::HMAC, inputType, partialType,
-                            convGroupsPerGroup, inChansPerGroup,
-                            partialChansPerGroup, numConvUnits, numConvUnits,
-                            useLimitedVersion);
+    candidates.emplace_back(method, inputType, partialType, convGroupsPerGroup,
+                            inChansPerGroup, partialChansPerGroup);
     previousInChanGroups = inChanGroups;
   }
 }
@@ -247,9 +245,9 @@ static void getConvVertexVMACCandidates(
       continue;
     }
 
-    candidates.emplace_back(Plan::Method::VMAC, inputType, partialType,
+    candidates.emplace_back(Plan::Vmac{}, inputType, partialType,
                             convGroupsPerGroup, inChansPerGroup,
-                            partialChansPerGroup, 0, 0, false);
+                            partialChansPerGroup);
   }
 }
 
@@ -263,7 +261,7 @@ static void getConvVertexAMPCandidates(
   const auto constrainedPartialChansPerGroup =
       planConstraints.get_optional<popsolver::DataType>("partialChansPerGroup");
   const auto constrainedNumConvUnits =
-      planConstraints.get_optional<popsolver::DataType>("numAmpConvUnits");
+      planConstraints.get_optional<popsolver::DataType>("method.convUnits");
 
   bool quarterActivations = inputType == poplar::QUARTER;
   bool floatActivations = inputType == poplar::FLOAT;
@@ -352,9 +350,10 @@ static void getConvVertexAMPCandidates(
           // AMP only supports a conv group grouping of 1.
           const unsigned convGroupsPerGroup = 1;
 
-          candidates.emplace_back(Plan::Method::AMP, inputType, ampPartialType,
-                                  convGroupsPerGroup, inputs, partials, 0,
-                                  convUnits, true);
+          Plan::Amp method{};
+          method.convUnits = convUnits;
+          candidates.emplace_back(method, inputType, ampPartialType,
+                                  convGroupsPerGroup, inputs, partials);
         }
       }
     }
@@ -407,7 +406,7 @@ static void getConvVertexSLICCandidates(
   const auto constrainedConvGroupsPerGroup =
       planConstraints.get_optional<popsolver::DataType>("convGroupsPerGroup");
   const auto constrainedSlicWindowWidth =
-      planConstraints.get_optional<popsolver::DataType>("slicWindowWidth");
+      planConstraints.get_optional<popsolver::DataType>("method.windowWidth");
 
   const auto constrainedChansPerGroup =
       [&]() -> boost::optional<popsolver::DataType> {
@@ -510,15 +509,15 @@ static void getConvVertexSLICCandidates(
           *constrainedChansPerGroup != popsolver::DataType{grouping.channels}) {
         continue;
       }
-
       if (options.experimentalSlicVmac16 && grouping.groups != 16) {
         continue;
       }
-
-      candidates.emplace_back(Plan::Method::SLIC, inputType, ampPartialType,
+      Plan::Slic method{};
+      method.windowWidth = slicWindowWidth;
+      method.convUnitChainsRequired = convChains;
+      candidates.emplace_back(method, inputType, ampPartialType,
                               grouping.groups, grouping.channels,
-                              grouping.channels, slicWindowWidth, convChains,
-                              true);
+                              grouping.channels);
     }
   }
 }
@@ -567,9 +566,9 @@ static void getConvVertexOuterProductCandidates(
   // The OuterProduct vertex does not require a grouping of the conv groups.
   const unsigned convGroupsPerGroup = 1;
 
-  candidates.emplace_back(Plan::Method::OUTER_PRODUCT, inputType, inputType,
+  candidates.emplace_back(Plan::OuterProduct{}, inputType, inputType,
                           convGroupsPerGroup, inChansPerGroup,
-                          partialChansPerGroup, 0, 0, true);
+                          partialChansPerGroup);
 }
 
 // Order the candidates from most promising to least.
@@ -645,18 +644,28 @@ getConvVertexTypeCandidates(const poplar::Target &target,
                             poplar::Type partialType, const ConvParams &params,
                             const ConvOptions &options, bool isJointPlan) {
   const auto &planConstraints = options.planConstraints;
-  const auto constrainedMethod = [&]() -> boost::optional<Plan::Method> {
-    const auto constraint = planConstraints.get_optional<std::string>("method");
+
+  enum class Method { AMP, SLIC, HMAC, VMAC, OUTER_PRODUCT };
+
+  const auto constrainedMethod = [&]() -> boost::optional<Method> {
+    const auto constraint = planConstraints.get_child_optional("method");
     if (constraint) {
+      std::stringstream ss;
+      boost::property_tree::json_parser::write_json(ss, *constraint, false);
       Plan::Method m;
-      std::stringstream ss(*constraint);
-      ss >> m;
-      return m;
+      ss >> m; // Reuse the plan serialiser
+      auto visitor = poplibs_support::make_visitor<Method>(
+          [&](const Plan::Amp &) { return Method::AMP; },
+          [&](const Plan::Slic &) { return Method::SLIC; },
+          [&](const Plan::Hmac &) { return Method::HMAC; },
+          [&](const Plan::Vmac &) { return Method::VMAC; },
+          [&](const Plan::OuterProduct &) { return Method::OUTER_PRODUCT; });
+      return boost::apply_visitor(visitor, m);
     }
     return boost::none;
   }();
 
-  std::vector<Plan::Method> methodCandidates;
+  std::vector<Method> methodCandidates;
   if (constrainedMethod) {
     methodCandidates.push_back(*constrainedMethod);
   } else {
@@ -671,11 +680,11 @@ getConvVertexTypeCandidates(const poplar::Target &target,
     // because the planner constrains future models against the current best.
     // clang-format off
     methodCandidates = {
-        Plan::Method::AMP,
-        Plan::Method::SLIC,
-        Plan::Method::HMAC,
-        Plan::Method::VMAC,
-        Plan::Method::OUTER_PRODUCT
+        Method::AMP,
+        Method::SLIC,
+        Method::HMAC,
+        Method::VMAC,
+        Method::OUTER_PRODUCT
     };
     // clang-format on
 
@@ -694,38 +703,38 @@ getConvVertexTypeCandidates(const poplar::Target &target,
   std::vector<ConvVertexType> convVertexTypeCandidates;
   for (const auto &method : methodCandidates) {
     switch (method) {
-    case Plan::Method::HMAC: {
+    case Method::HMAC: {
       getConvVertexHMACCandidates(target, inputType, outputType, partialType,
                                   params, options, isJointPlan,
                                   convVertexTypeCandidates);
       break;
     }
-    case Plan::Method::VMAC: {
+    case Method::VMAC: {
       getConvVertexVMACCandidates(target, inputType, outputType, partialType,
                                   params, options, isJointPlan,
                                   convVertexTypeCandidates);
       break;
     }
-    case Plan::Method::AMP: {
+    case Method::AMP: {
       getConvVertexAMPCandidates(target, inputType, outputType, partialType,
                                  params, options, isJointPlan,
                                  convVertexTypeCandidates);
       break;
     }
-    case Plan::Method::SLIC: {
+    case Method::SLIC: {
       getConvVertexSLICCandidates(target, inputType, outputType, partialType,
                                   params, options, isJointPlan,
                                   convVertexTypeCandidates);
       break;
     }
-    case Plan::Method::OUTER_PRODUCT: {
+    case Method::OUTER_PRODUCT: {
       getConvVertexOuterProductCandidates(
           target, inputType, outputType, partialType, params, options,
           isJointPlan, convVertexTypeCandidates);
       break;
     }
     default: {
-      throw poputil::poplibs_error("Unknown Plan::Method");
+      throw poputil::poplibs_error("Unknown Conv vertex type method");
     }
     }
   }
@@ -742,10 +751,7 @@ getConvVertexTypeCandidates(const poplar::Target &target,
 static constexpr StructHelper vertexTypeHelper(
     &ConvVertexType::method, &ConvVertexType::inputType,
     &ConvVertexType::partialType, &ConvVertexType::convGroupsPerGroup,
-    &ConvVertexType::inChansPerGroup, &ConvVertexType::partialChansPerGroup,
-    &ConvVertexType::slicWindowWidth,
-    &ConvVertexType::numConvUnitsOrChainsRequired,
-    &ConvVertexType::useLimitedVersion);
+    &ConvVertexType::inChansPerGroup, &ConvVertexType::partialChansPerGroup);
 
 bool operator<(const ConvVertexType &a, const ConvVertexType &b) {
   return vertexTypeHelper.lt(a, b);
@@ -761,10 +767,7 @@ std::ostream &operator<<(std::ostream &os, const ConvVertexType &cvt) {
      << ", partialType=" << cvt.partialType
      << ", convGroupsPerGroup=" << cvt.convGroupsPerGroup
      << ", inChansPerGroup=" << cvt.inChansPerGroup
-     << ", partialChansPerGroup=" << cvt.partialChansPerGroup
-     << ", slicWindowWidth=" << cvt.slicWindowWidth
-     << ", numConvUnitsOrChainsRequired=" << cvt.numConvUnitsOrChainsRequired
-     << ", useLimitedVersion=" << cvt.useLimitedVersion << "}";
+     << ", partialChansPerGroup=" << cvt.partialChansPerGroup << "}";
   return os;
 }
 
