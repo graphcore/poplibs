@@ -243,6 +243,10 @@ static void getConvVertexVMACCandidates(
       continue;
     }
 
+    if (options.experimentalSlicVmac16 && convGroupsPerGroup != 16) {
+      continue;
+    }
+
     candidates.emplace_back(Plan::Method::VMAC, inputType, partialType,
                             convGroupsPerGroup, inChansPerGroup,
                             partialChansPerGroup, 0, 0, false);
@@ -504,6 +508,10 @@ static void getConvVertexSLICCandidates(
 
       if (constrainedChansPerGroup &&
           *constrainedChansPerGroup != popsolver::DataType{grouping.channels}) {
+        continue;
+      }
+
+      if (options.experimentalSlicVmac16 && grouping.groups != 16) {
         continue;
       }
 

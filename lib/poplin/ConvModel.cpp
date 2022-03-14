@@ -1494,7 +1494,7 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
   // We don't have a regression analysis for the fully_connected_layer
   // benchmarks hence allowing to fallback into an old way of getting estimates
   if (transforms[systemLevel].extraFieldDims == 0 &&
-      options.enableTransformsConvTable == true) {
+      options.experimentalConvTransformsEstimates == true) {
 
     const auto ipuTransforms = transforms[systemLevel];
 

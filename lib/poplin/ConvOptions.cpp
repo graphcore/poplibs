@@ -59,38 +59,40 @@ std::ostream &operator<<(std::ostream &os, const Pass p) {
 
 std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << "\nOptions:\n";
-  os << "        availableMemoryProportion       ";
+  os << "        availableMemoryProportion            ";
   os << opts.availableMemoryProportion << "\n";
-  os << "        pass                            ";
+  os << "        pass                                 ";
   os << opts.pass << "\n";
-  os << "        partialsType                    ";
+  os << "        partialsType                         ";
   os << opts.partialsType << "\n";
-  os << "        interTilePartialsType           ";
+  os << "        interTilePartialsType                ";
   os << opts.interTilePartialsType << "\n";
-  os << "        interIpuPartialsType            ";
+  os << "        interIpuPartialsType                 ";
   os << opts.interIpuPartialsType << "\n";
-  os << "        use128BitConvUnitLoad           ";
+  os << "        use128BitConvUnitLoad                ";
   os << opts.use128BitConvUnitLoad << "\n";
-  os << "        planConstraints                 ";
+  os << "        planConstraints                      ";
   os << opts.planConstraints; // No newline needed
-  os << "        planConstraintsOutputFilename   ";
+  os << "        planConstraintsOutputFilename        ";
   os << opts.planConstraintsOutputFilename << "\n";
-  os << "        enableMultiStageReduce          ";
+  os << "        enableMultiStageReduce               ";
   os << opts.enableMultiStageReduce << "\n";
-  os << "        enableFastReduce                ";
+  os << "        enableFastReduce                     ";
   os << opts.enableFastReduce << "\n";
-  os << "        remapOutputTensor               ";
+  os << "        remapOutputTensor                    ";
   os << opts.remapOutputTensor << "\n";
-  os << "        enableConvDithering             ";
+  os << "        enableConvDithering                  ";
   os << opts.enableConvDithering << "\n";
-  os << "        disableTransformations          ";
+  os << "        disableTransformations               ";
   os << opts.disableTransformations << "\n";
-  os << "        insertTransformsCycleCountProgs ";
+  os << "        insertTransformsCycleCountProgs      ";
   os << opts.insertTransformsCycleCountProgs << "\n";
-  os << "        enableTransformsConvTable       ";
-  os << opts.enableTransformsConvTable << "\n";
-  os << "        gatherConvOutput                ";
-  os << opts.gatherConvOutput;
+  os << "        experimental.convTransformsEstimates ";
+  os << opts.experimentalConvTransformsEstimates << "\n";
+  os << "        gatherConvOutput                     ";
+  os << opts.gatherConvOutput << "\n";
+  os << "        experimental.slicVmac16              ";
+  os << opts.experimentalSlicVmac16;
   return os;
 }
 
@@ -130,10 +132,11 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithBool(disableTransformations)},
       {"insertTransformsCycleCountProgs",
        OptionHandler::createWithBool(insertTransformsCycleCountProgs)},
-      {"enableTransformsConvTable",
-       OptionHandler::createWithBool(enableTransformsConvTable)},
+      {"experimental.convTransformsEstimates",
+       OptionHandler::createWithBool(experimentalConvTransformsEstimates)},
       {"gatherConvOutput", OptionHandler::createWithBool(gatherConvOutput)},
-  };
+      {"experimental.slicVmac16",
+       OptionHandler::createWithBool(experimentalSlicVmac16)}};
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
   }

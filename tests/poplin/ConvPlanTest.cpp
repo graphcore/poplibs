@@ -547,3 +547,46 @@ BOOST_AUTO_TEST_CASE(GetSLICPlan) {
   BOOST_TEST_MESSAGE(plan << "\n");
 }
 
+BOOST_AUTO_TEST_CASE(GetSLIC16OnlyPlan) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
+  poplin::PlanningCache cache;
+  poplin::Plan plan;
+
+  poplin::ConvParams convParams = {
+      poplar::HALF, // Data type
+      1,            // batch size
+      {1, 1},       // input field shape
+      {1, 1},       // kernel shape
+      1,            // input channels
+      1,            // output channels
+      1             // conv groups
+  };
+
+  poplar::OptionFlags optionFlags;
+  optionFlags.set("experimental.slicVmac16", "true");
+  optionFlags.set("partialsType", "half");
+
+  // Check for SLIC vertex
+  optionFlags.set("planConstraints", "{\"method\": \"SLIC\"}");
+  poplin::ConvOptions slicOptions(optionFlags);
+
+  BOOST_CHECK_NO_THROW(
+      plan = poplin::getPlan(target, convParams, slicOptions, &cache));
+
+  BOOST_CHECK(plan.method == poplin::Plan::Method::SLIC);
+  BOOST_CHECK(plan.convGroupsPerGroup == 16);
+  BOOST_TEST_MESSAGE(plan << "\n");
+
+  // Check for VMAC vertex
+  optionFlags.set("planConstraints", "{\"method\": \"VMAC\"}");
+  poplin::ConvOptions vmacOptions(optionFlags);
+
+  BOOST_CHECK_NO_THROW(
+      plan = poplin::getPlan(target, convParams, vmacOptions, &cache));
+
+  BOOST_CHECK(plan.method == poplin::Plan::Method::VMAC);
+  BOOST_CHECK(plan.convGroupsPerGroup == 16);
+  BOOST_TEST_MESSAGE(plan << "\n");
+}

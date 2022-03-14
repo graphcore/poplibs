@@ -60,10 +60,13 @@ public:
   bool disableTransformations = false;
   // Enables insertion of cycle counts progs around convolution sequences
   bool insertTransformsCycleCountProgs = false;
-  // Enables conversion table for transforms estimates
-  bool enableTransformsConvTable = false;
+  // Uses a formula to obtain the cycle estimates rather than the tensor sizes
+  bool experimentalConvTransformsEstimates = false;
   // Gather convolution output to a single variable
   bool gatherConvOutput = false;
+  // Restricts convolution planner to use SLIC/VMAC vertices with
+  // grouping of 16
+  bool experimentalSlicVmac16 = false;
   void parseConvOptions(const poplar::OptionFlags &options);
 
 private:
@@ -77,7 +80,8 @@ private:
       &ConvOptions::remapOutputTensor, &ConvOptions::enableConvDithering,
       &ConvOptions::disableTransformations,
       &ConvOptions::insertTransformsCycleCountProgs,
-      &ConvOptions::enableTransformsConvTable, &ConvOptions::gatherConvOutput);
+      &ConvOptions::experimentalConvTransformsEstimates,
+      &ConvOptions::gatherConvOutput, &ConvOptions::experimentalSlicVmac16);
 
 public:
   bool operator<(const ConvOptions &other) const {
