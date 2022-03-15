@@ -2212,12 +2212,15 @@ static Tensor dynamicSliceImpl(Graph &graph, const Tensor &t,
         graph, out, checkOffset ? offset.get()[i] : offset, dims[i], sizes[i],
         prog, {dnai, std::string("dynamicSlice_d") + std::to_string(dims[i])});
   }
-  if (t.elementType() == QUARTER && t.getMetadata().valid()) {
-    // Where the input tensor has valid metadata, copy to the out tensor.
-    // An empty tensor will not have valid metadata, so avoid copying in that
-    // case.
-    out.associateMetadata(t.getMetadata());
-  }
+  // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
+  // order for the poplar change to pass CI, the following code is disabled
+  // temporarily. This should have no effect on the existing tests.
+  // if (t.elementType() == QUARTER && t.getMetadata().valid()) {
+  //   // Where the input tensor has valid metadata, copy to the out tensor.
+  //   // An empty tensor will not have valid metadata, so avoid copying in that
+  //   // case.
+  //   out.associateMetadata(t.getMetadata());
+  // }
   return out;
 }
 
@@ -2736,12 +2739,16 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
         offset_.dim(1), plan, optionFlags, {dnai});
   }
   if (t_.elementType() == QUARTER) {
-    if (t_.getMetadata().valid()) {
-      // Where the input tensor has valid metadata, copy to the out tensor.
-      // An empty tensor will not have valid metadata, so avoid copying in that
-      // case.
-      sMulti.associateMetadata(t_.getMetadata());
-    }
+    // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
+    // order for the poplar change to pass CI, the following code is disabled
+    // temporarily. This should have no effect on the existing tests.
+    // if (t_.getMetadata().valid()) {
+    //   // Where the input tensor has valid metadata, copy to the out tensor.
+    //   // An empty tensor will not have valid metadata, so avoid copying in
+    //   that
+    //   // case.
+    //   sMulti.associateMetadata(t_.getMetadata());
+    // }
     sMultiInternal = sMulti.reinterpret(UNSIGNED_CHAR);
     t = t_.reinterpret(UNSIGNED_CHAR);
   } else {

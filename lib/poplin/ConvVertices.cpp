@@ -276,9 +276,12 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
   auto paddingTensor =
       graph.addVariable(t.elementType(), paddingShape, {dnai, "zeroPadding"});
 
-  if (t.elementType() == QUARTER && t.getMetadata().valid()) {
-    paddingTensor.associateMetadata(t.getMetadata());
-  }
+  // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
+  // order for the poplar change to pass CI, the following code is disabled
+  // temporarily. This should have no effect on the existing tests.
+  // if (t.elementType() == QUARTER && t.getMetadata().valid()) {
+  //   paddingTensor.associateMetadata(t.getMetadata());
+  // }
   auto paddingLowerTensor = paddingTensor.slice(0, paddingLower, dim);
   auto paddingUpperTensor = paddingTensor.slice(paddingLower, paddingSize, dim);
   padding = concat(padding, paddingTensor.flatten());

@@ -186,7 +186,10 @@ Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
                                  " tensor of type quarter and casting to it");
   }
   auto dst = graph.clone(dstType, src, {di, "cast"});
-  prog.add(Copy(metadata, dst.getMetadata()));
+  // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
+  // order for the poplar change to pass CI, the following code is disabled
+  // temporarily. This should have no effect on the existing tests.
+  // prog.add(Copy(metadata, dst.getMetadata()));
 
   prog.add(cast(graph, src, dst, {di}));
   di.addOutput(dst);

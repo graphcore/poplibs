@@ -81,9 +81,12 @@ poplar::Tensor Padder::getPartPaddedTensor(const poplar::Tensor &tIn,
                                            unsigned d, ptrdiff_t pLow,
                                            ptrdiff_t pUpp) {
   poplar::Tensor tInMetadata;
-  if (tIn.elementType() == poplar::QUARTER) {
-    tInMetadata = tIn.getMetadata();
-  }
+  // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
+  // order for the poplar change to pass CI, the following code is disabled
+  // temporarily. This should have no effect on the existing tests.
+  // if (tIn.elementType() == poplar::QUARTER) {
+  //   tInMetadata = tIn.getMetadata();
+  // }
   poplar::Tensor t = tIn;
 
   validatePadArgs(t, d, pLow, pUpp);

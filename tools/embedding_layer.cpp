@@ -366,14 +366,19 @@ int main(int argc, char **argv) {
                              {1}, prog, plan, sliceOptions, handle);
       perIndexSet[i].rawOut = allocateHostMemoryForTensor(
           extractedData, handle, graph, uploadProg, downloadProg, tmap);
-      if (extractedData.elementType() == QUARTER) {
-        rawExtractedDataMetadata = allocateHostMemoryForTensor(
-            extractedData.getMetadata().reinterpret(UNSIGNED_CHAR),
-            "extractedMetadata", graph, boost::none, downloadProg, tmap);
-        rawEmbeddingMatrixMetadata = allocateHostMemoryForTensor(
-            embeddingMatrix.getMetadata().reinterpret(UNSIGNED_CHAR),
-            "embeddingMetadata", graph, boost::none, downloadProg, tmap);
-      }
+
+      // T58445: The `poplar::Tensor::getMetadata()` method is being modified.
+      // In order for the poplar change to pass CI, the following code is
+      // disabled temporarily. This should have no effect on the existing
+      // tests.
+      // if (extractedData.elementType() == QUARTER) {
+      //   rawExtractedDataMetadata = allocateHostMemoryForTensor(
+      //       extractedData.getMetadata().reinterpret(UNSIGNED_CHAR),
+      //       "extractedMetadata", graph, boost::none, downloadProg, tmap);
+      //   rawEmbeddingMatrixMetadata = allocateHostMemoryForTensor(
+      //       embeddingMatrix.getMetadata().reinterpret(UNSIGNED_CHAR),
+      //       "embeddingMetadata", graph, boost::none, downloadProg, tmap);
+      // }
     }
   }
 
