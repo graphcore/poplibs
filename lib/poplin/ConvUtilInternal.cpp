@@ -3,7 +3,6 @@
 
 #include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/VectorUtils.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "popops/Rearrange.hpp"
@@ -84,7 +83,7 @@ std::vector<std::vector<PartialRow>> partitionConvPartialByWorker(
   assert(stride.size() == numFieldDims);
   std::vector<unsigned> outputStride = inputDilation;
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    outputStride[dim] /= gcd(outputStride[dim], stride[dim]);
+    outputStride[dim] /= std::gcd(outputStride[dim], stride[dim]);
   }
   std::vector<std::vector<PartialRow>> partitionByWorker;
   partitionByWorker.reserve(numContexts);

@@ -3,7 +3,6 @@
 #include "ConvUtilInternal.hpp"
 
 #include "CanonicalConvParams.hpp"
-#include "poplibs_support/gcd.hpp"
 #include <boost/optional.hpp>
 #include <boost/range/irange.hpp>
 #include <cassert>

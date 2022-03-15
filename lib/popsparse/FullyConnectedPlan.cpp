@@ -7,7 +7,6 @@
 
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/VectorUtils.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poputil/exceptions.hpp"
 
@@ -1303,7 +1302,7 @@ static popsolver::Variable addNumNonZeroGroupsPerBucket(
   const auto bytesPerGroup = nonZeroElemsPerGroup * bytesPerNonZeroElem;
   const unsigned exchangeAtomSize = target.getExchangeBytesPerCycle();
   const auto grainSizeInGroups =
-      lcm(bytesPerGroup, exchangeAtomSize) / bytesPerGroup;
+      std::lcm(bytesPerGroup, exchangeAtomSize) / bytesPerGroup;
   return m.call<unsigned>(
       {mPerfectlyUniformGroupsPerBucket},
       [=](const std::vector<unsigned> &values) -> popsolver::DataType {
@@ -1324,7 +1323,7 @@ static popsolver::Variable addMetaInfoElemsPerBucket(
   const unsigned bytesPerMetaInfoElem = target.getTypeSize(deviceMetaInfoType);
   const unsigned exchangeAtomSize = target.getExchangeBytesPerCycle();
   const auto atomSizeInMetaInfoElems =
-      lcm(bytesPerMetaInfoElem, exchangeAtomSize);
+      std::lcm(bytesPerMetaInfoElem, exchangeAtomSize);
 
   // A chosen number of sub-groups per bucket just for memory planning.
   constexpr unsigned numSubgroupsPerBucket = 2U;

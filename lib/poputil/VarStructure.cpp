@@ -2,7 +2,6 @@
 #include "poputil/VarStructure.hpp"
 
 #include "poplibs_support/Tracepoint.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 
 #include "poputil/DebugInfo.hpp"
@@ -334,7 +333,7 @@ unsigned detectInnermostGrouping(const Graph &graph, const Tensor &t0) {
   // Use the greatest common divisor between channel grouping detected on a tile
   // and contiguous regions of the tensor. Note that in the case when a group
   // is partially mapped to a tile, GCD doesn't  give the correct result.
-  auto grouping = gcd(maxRegionSize, upper);
+  auto grouping = std::gcd(maxRegionSize, upper);
 
   // The channel grouping must divide the number of channels
   if (t.numElements() % grouping != 0)
@@ -366,7 +365,7 @@ std::vector<GroupingInfo> detectDimGroupings(const Graph &graph,
       // there is a grouping in a weirdly sized combination of dimensions
       // so bottom out at 1 so that the gcd below gives the desired result.
       auto thisGrouping = g % totalGrouping ? 1u : g / totalGrouping;
-      thisGrouping = gcd<unsigned>(thisGrouping, groupedT.dim(d));
+      thisGrouping = std::gcd<unsigned>(thisGrouping, groupedT.dim(d));
       if (thisGrouping > grouping) {
         groupedDim = d;
         grouping = thisGrouping;

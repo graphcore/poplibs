@@ -1,7 +1,6 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "Winograd.hpp"
 #include "PerformanceEstimation.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poplin/Convolution.hpp"
 #include "poputil/TileMapping.hpp"

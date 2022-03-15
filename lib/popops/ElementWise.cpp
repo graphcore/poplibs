@@ -6,7 +6,6 @@
 #include "ScalarMultiply.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Tracepoint.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWiseUtil.hpp"
@@ -1415,7 +1414,7 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
     // we copy to a better laid out tensor of the same (unbroadcasted) shape
     // for the upcoming broadcast operation.
     const auto vectorWidth = target.getVectorWidth(dType);
-    if (gcd(outGrouping[0].second, operandGrouping) % vectorWidth != 0) {
+    if (std::gcd(outGrouping[0].second, operandGrouping) % vectorWidth != 0) {
       // Factor unbroadcasted dimensions out of output
       const auto unbroadcastShape = unbroadcastOperand.shape();
       auto outFactored = factorDims(out, unbroadcastShape);

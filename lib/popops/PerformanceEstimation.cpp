@@ -2,7 +2,6 @@
 #include "popops/PerformanceEstimation.hpp"
 
 #include "poplibs_support/forceInterleavedEstimates.hpp"
-#include "poplibs_support/gcd.hpp"
 
 #include <poputil/cyclesTables.hpp>
 #include <poputil/exceptions.hpp>
@@ -169,7 +168,8 @@ std::uint64_t getMultiUpdateOpCycleEstimate(
 
   // inner loop cost.
   // Note gcd is used here for e.g. CPU where the atomic write size is 1.
-  const unsigned bytesPerAtom = lcm(targetParams.atomicWriteSize, bytesPerElem);
+  const unsigned bytesPerAtom =
+      std::lcm(targetParams.atomicWriteSize, bytesPerElem);
   const unsigned elemsPerAtom = bytesPerAtom / bytesPerElem;
   // for the assembly implementation elemsPerSlice % vectorWidth == 0 must be
   // zero.

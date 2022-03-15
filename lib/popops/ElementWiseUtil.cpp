@@ -1,7 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "popops/ElementWiseUtil.hpp"
 #include "poplibs_support/Tracepoint.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"

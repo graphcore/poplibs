@@ -16,7 +16,6 @@
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "poplibs_support/PlanConstraints.hpp"
 #include "poplibs_support/Tracepoint.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
@@ -778,8 +777,8 @@ static void generateMultiSliceVertices(
         // for subword writes.
         //
         // Note gcd is used here for e.g. CPU where the atomic write size is 1.
-        const unsigned bytesPerAtom =
-            lcm(target.getAtomicStoreGranularity(), target.getTypeSize(type));
+        const unsigned bytesPerAtom = std::lcm(
+            target.getAtomicStoreGranularity(), target.getTypeSize(type));
         const unsigned elemsPerAtom = bytesPerAtom / target.getTypeSize(type);
         bool needSubwordWrites = regionSize % elemsPerAtom != 0;
 
@@ -1663,7 +1662,7 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
   assert(exchangeBusShareAtomBytes % bytesPerElem == 0);
   const auto elemsPerExchangeBusShareAtom =
       exchangeBusShareAtomBytes / bytesPerElem;
-  const auto extraGrainSize = lcm(grainSize, elemsPerExchangeBusShareAtom);
+  const auto extraGrainSize = std::lcm(grainSize, elemsPerExchangeBusShareAtom);
   iterateTensorPartitions(
       t, createSplits,
       [&](const std::vector<std::size_t> &i, const Tensor &tSlice) {
@@ -3575,7 +3574,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   // derived from it
   std::size_t unslicedGrainSize =
       options.planConstraints.get_optional<std::size_t>("unslicedGrainSize")
-          .value_or(gccs::ceildiv(lcm(minGrainSizeBytes, dataElementSize),
+          .value_or(gccs::ceildiv(std::lcm(minGrainSizeBytes, dataElementSize),
                                   dataElementSize));
 
   // If the output size is less than the grain size, we could either pad, which

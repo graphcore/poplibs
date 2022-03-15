@@ -7,7 +7,6 @@
 #include <cassert>
 #include <cstdint>
 #include <poplibs_support/Compiler.hpp>
-#include <poplibs_support/gcd.hpp>
 #include <poplin/ConvUtil.hpp>
 #include <poplin/Convolution.hpp>
 #include <poplin/MatMul.hpp>
@@ -57,7 +56,7 @@ inline poplar::Tensor tryGroupedPartialTranspose(
   unsigned outerSize = t.dim(0);
   unsigned innerSize = t.dim(1);
   if (innerSize % desiredGrouping) {
-    desiredGrouping = gcd(innerSize, desiredGrouping);
+    desiredGrouping = std::gcd(innerSize, desiredGrouping);
   }
   if (desiredGrouping == 1) {
     return t;

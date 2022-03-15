@@ -1,7 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "ConvTransforms.hpp"
 #include "ConvUtilInternal.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "popops/Pad.hpp"
 #include "popops/Rearrange.hpp"
 #include <poplin/ConvUtil.hpp>
@@ -444,7 +443,7 @@ static ExpandDimsPlan getExpandDimsPlan(/*TODO: const*/ Graph &graph,
     auto grainSize =
         popops::rearrange::getMinimumRegroupGrainSize(params.inputType);
     unsigned dimElems = in.dim(destGrouping[0].first);
-    auto maxGroupSize = gcd(dimElems, destGrouping[0].second);
+    auto maxGroupSize = std::gcd(dimElems, destGrouping[0].second);
     auto nextGrouping = destGrouping[0];
     nextGrouping.second = maxGroupSize;
 
@@ -459,7 +458,7 @@ static ExpandDimsPlan getExpandDimsPlan(/*TODO: const*/ Graph &graph,
         (maxGroupSize % grainSize) != 0) {
       unsigned expandedDimElems = dimElems;
       for (unsigned i = 0; i != expandDimsSpatial.size(); ++i) {
-        const unsigned roundedElems = lcm(expandedDimElems, grainSize);
+        const unsigned roundedElems = std::lcm(expandedDimElems, grainSize);
         const unsigned factor = roundedElems / expandedDimElems;
         const auto dim = expandDimsSpatial[i];
         const auto truncatedKernelSize = params.getTruncatedKernelSize(dim);
@@ -516,7 +515,7 @@ static ExpandDimsPlan getExpandDimsPlan(/*TODO: const*/ Graph &graph,
             (truncatedKernelSize > 1 && i == expandDimsSpatial.size() - 1)) {
           plan.partialExpansion.first = dim;
           plan.partialExpansion.second = factor;
-          maxGroupSize = gcd(roundedElems, destGrouping[0].second);
+          maxGroupSize = std::gcd(roundedElems, destGrouping[0].second);
           nextGrouping.second = maxGroupSize;
           plan.regroupPost[isActs] = false;
           break;

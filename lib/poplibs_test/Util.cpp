@@ -2,7 +2,6 @@
 #include "poplibs_test/Util.hpp"
 
 #include <poplibs_support/Compiler.hpp>
-#include <poplibs_support/gcd.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
@@ -399,8 +398,7 @@ Tensor createGenericConvInput(Graph &graph, const Type &type,
   } else {
     convGroupsPerGroup = 1;
     auto weightsPerConvUnit = graph.getTarget().getWeightsPerConvUnit(type);
-    chansPerGroup =
-        gcd(static_cast<std::size_t>(weightsPerConvUnit), chansPerConvGroup);
+    chansPerGroup = std::gcd(weightsPerConvUnit, chansPerConvGroup);
   }
   std::vector<std::size_t> tensorShape = {numConvGroups / convGroupsPerGroup,
                                           chansPerConvGroup / chansPerGroup,
@@ -410,8 +408,8 @@ Tensor createGenericConvInput(Graph &graph, const Type &type,
   tensorShape.push_back(chansPerGroup);
   auto t = graph.addVariable(type, tensorShape, name);
   const auto vectorWidth = graph.getTarget().getVectorWidth(type);
-  const auto grainSize = lcm(
-      static_cast<unsigned>(chansPerGroup * convGroupsPerGroup), vectorWidth);
+  const auto grainSize =
+      std::lcm(chansPerGroup * convGroupsPerGroup, vectorWidth);
   poputil::mapTensorLinearly(graph, t, 0, grainSize);
   return t.dimShufflePartial({2, t.rank() - 2, t.rank() - 1}, {0, 2, 4})
       .reshapePartial(1, 5, {numConvGroups * chansPerConvGroup});

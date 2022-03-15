@@ -5,7 +5,6 @@
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
 #include <limits>
-#include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
 #include <poputil/DebugInfo.hpp>
 #include <poputil/Util.hpp>
@@ -448,9 +447,9 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
   if (transposeFactor != 1) {
     // TODO: T12893 Optimise split once the cost of using a 1D MultiVertex
     // is known.
-    auto factorFrom = gcd(transposeFactor, from.second / minGroupsSize);
+    auto factorFrom = std::gcd(transposeFactor, from.second / minGroupsSize);
     transposeFactor /= factorFrom;
-    auto factorTo = gcd(transposeFactor, to.second / minGroupsSize);
+    auto factorTo = std::gcd(transposeFactor, to.second / minGroupsSize);
     updatedFrom.second /= factorFrom;
     updatedTo.second /= factorTo;
   }

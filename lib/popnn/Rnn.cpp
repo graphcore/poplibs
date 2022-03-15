@@ -6,7 +6,6 @@
 #include <boost/optional.hpp>
 #include <cassert>
 #include <cstdint>
-#include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/Rnn.hpp>
 #include <popops/Cast.hpp>
@@ -62,7 +61,7 @@ static RnnOpts parseOptions(const OptionFlags &options) {
 }
 
 static std::pair<std::size_t, std::size_t> getNumGrains(std::size_t size) {
-  auto grainSize = gcd(16UL, size);
+  auto grainSize = std::gcd(16UL, size);
   auto numGrains = size / grainSize;
   return {grainSize, numGrains};
 }

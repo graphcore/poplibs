@@ -4,7 +4,6 @@
 #include "ConvTransforms.hpp"
 #include "ConvUtilInternal.hpp"
 #include "poplibs_support/VectorUtils.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "popops/Cast.hpp"
 #include "popops/Pad.hpp"
 #include "popops/Zero.hpp"
@@ -127,7 +126,7 @@ partitionConvOutputBetweenWorkers(const Graph &graph, unsigned batchBegin,
   }
   const auto numRows = product(rowIterationSpace);
   const auto numWorkers = target.getNumWorkerContexts();
-  unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numRows);
+  unsigned rowSplitFactor = numWorkers / std::gcd(numWorkers, numRows);
   rowIterationSpace.push_back(rowSplitFactor);
   const auto numPartRows = numRows * rowSplitFactor;
   perWorkerConvOutputSlices.reserve(numWorkers);
@@ -501,7 +500,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       product(numSubKernelSlices) / numSubKernelSlices[0];
   auto inStrideX = params->outputTransform.stride.back();
   auto outStrideX = params->inputTransform.dilation.back();
-  const auto strideDivisor = gcd(inStrideX, outStrideX);
+  const auto strideDivisor = std::gcd(inStrideX, outStrideX);
   inStrideX /= strideDivisor;
   outStrideX /= strideDivisor;
 
@@ -847,7 +846,7 @@ static void createConvPartialAmpVertices(
 
   auto inStrideX = params.outputTransform.stride.back();
   auto outStrideX = params.inputTransform.dilation.back();
-  const auto strideDivisor = gcd(inStrideX, outStrideX);
+  const auto strideDivisor = std::gcd(inStrideX, outStrideX);
   inStrideX /= strideDivisor;
 
   const auto inRowStrideBeforeSplit = getInRowStride(
@@ -1227,7 +1226,7 @@ static void createConvPartialHorizontalMacVertex(
 
   auto inStrideX = params.outputTransform.stride.back();
   auto outStrideX = params.inputTransform.dilation.back();
-  const auto strideDivisor = gcd(inStrideX, outStrideX);
+  const auto strideDivisor = std::gcd(inStrideX, outStrideX);
   inStrideX /= strideDivisor;
   outStrideX /= strideDivisor;
 
@@ -1465,7 +1464,7 @@ static void createConvPartialVerticalMacVertex(
   flipWeights ^= params.kernelTransform.flip[xDimIndex];
   signed short inStrideX = params.kernelTransform.dilation.back();
   signed short weightStrideX = params.inputTransform.dilation.back();
-  const auto strideDivisor = gcd(inStrideX, weightStrideX);
+  const auto strideDivisor = std::gcd(inStrideX, weightStrideX);
   if (flipWeights) {
     weightStrideX *= -1;
   }

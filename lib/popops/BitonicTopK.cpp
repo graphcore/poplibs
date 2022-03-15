@@ -11,7 +11,6 @@
 #include <poputil/exceptions.hpp>
 
 #include <poplibs_support/VectorUtils.hpp>
-#include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
 #include <poplibs_support/print.hpp>
 

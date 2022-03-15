@@ -4,7 +4,6 @@
 #include "HistogramPerformanceEstimation.hpp"
 #include "poplibs_support/FlopEstimation.hpp"
 #include "poplibs_support/forceInterleavedEstimates.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Expr.hpp"
 #include "popops/OperationDefUtil.hpp"

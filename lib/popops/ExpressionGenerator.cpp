@@ -2,7 +2,6 @@
 #include "ExpressionGenerator.hpp"
 #include "ExprOpUtil.hpp"
 #include "poplibs_support/Compiler.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/ElementWiseUtil.hpp"
 #include "poputil/Broadcast.hpp"

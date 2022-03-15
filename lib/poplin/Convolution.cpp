@@ -18,7 +18,6 @@
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/VectorUtils.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvParams.hpp"
 #include "poplin/ConvUtil.hpp"
@@ -155,15 +154,15 @@ static void verifyInputShapes(const CanonicalConvParams &params,
 
 static unsigned getConvGroupsPerGroup(const Plan &plan,
                                       unsigned numConvGroups) {
-  return gcd(plan.convGroupsPerGroup, numConvGroups);
+  return std::gcd(plan.convGroupsPerGroup, numConvGroups);
 }
 
 static unsigned getInChansPerGroup(const Plan &plan, unsigned numInChans) {
-  return gcd(plan.inChansPerGroup, numInChans);
+  return std::gcd(plan.inChansPerGroup, numInChans);
 }
 
 static unsigned getOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
-  return gcd(plan.partialChansPerGroup, numOutChans);
+  return std::gcd(plan.partialChansPerGroup, numOutChans);
 }
 
 static unsigned linearizeConvIndices(const std::vector<unsigned> &outIndices,
@@ -3269,7 +3268,7 @@ struct FCWTGroupSizes {
 
 static std::vector<unsigned> commonDivisors(const unsigned A,
                                             const unsigned B) {
-  const unsigned GCD = gcd(A, B);
+  const unsigned GCD = std::gcd(A, B);
   // All factors of GCD are common factors of A and B, and all common divisors
   // of A and B are factors of GCD
   std::vector<unsigned> result(1, GCD);

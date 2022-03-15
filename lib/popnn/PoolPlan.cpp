@@ -5,7 +5,6 @@
 #include "PerformanceEstimation.hpp"
 #include "PoolVertices.hpp"
 #include "poplibs_support/VectorUtils.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/print.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poputil/VarStructure.hpp"
@@ -94,7 +93,7 @@ static Transform getTransform(const poplar::Graph &graph,
   const std::size_t numChans = params.getNumInputChans();
   if (numChans < chanGrainSize) {
     std::size_t currentFactor = 1;
-    const auto desiredFactor = lcm(numChans, chanGrainSize) / numChans;
+    const auto desiredFactor = std::lcm(numChans, chanGrainSize) / numChans;
 
     auto groupings = detectDimGroupings(graph, in);
 
@@ -107,8 +106,8 @@ static Transform getTransform(const poplar::Graph &graph,
       const std::size_t grouping = entry.second;
       if (canFlattenDim(params, d) && transformedDims.count(d) == 0 &&
           currentFactor < desiredFactor) {
-        const auto f =
-            gcd(desiredFactor / currentFactor, gcd(in.dim(d), grouping));
+        const auto f = std::gcd(desiredFactor / currentFactor,
+                                std::gcd(in.dim(d), grouping));
         transform.flattenDims.push_back(std::make_pair(d, f));
         transformedDims.emplace(d);
         currentFactor *= f;
@@ -118,7 +117,7 @@ static Transform getTransform(const poplar::Graph &graph,
     for (int d = params.getNumFieldDims(); d >= 0; --d) {
       if (canFlattenDim(params, d) && transformedDims.count(d) == 0 &&
           currentFactor < desiredFactor) {
-        const auto f = gcd(desiredFactor / currentFactor, in.dim(d));
+        const auto f = std::gcd(desiredFactor / currentFactor, in.dim(d));
         transform.flattenDims.push_back(std::make_pair(d, f));
         transformedDims.emplace(d);
         currentFactor *= f;

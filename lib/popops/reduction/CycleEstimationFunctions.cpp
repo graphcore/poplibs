@@ -5,7 +5,6 @@
 #include "poputil/exceptions.hpp"
 #include <poplibs_support/FlopEstimation.hpp>
 #include <poplibs_support/forceInterleavedEstimates.hpp>
-#include <poplibs_support/gcd.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/cyclesTables.hpp>
 
@@ -274,8 +273,8 @@ static poplar::VertexPerfEstimate getCyclesEstimateForStridedReduce(
   // each loop we need the stride to be compatible with the number of
   // elements processed per cycle or else we won't be aligned on the
   // second (or more) iteration(s) hence we take a gcd.
-  const auto elemsPerLoop =
-      gcd(std::min(opVectorWidth, dataPathWidth * interleaveFactor), stride);
+  const auto elemsPerLoop = std::gcd(
+      std::min(opVectorWidth, dataPathWidth * interleaveFactor), stride);
 
   // Estimate the number of outer loops. If elemsPerLoop is equivalent to
   // 64-bits of input data per cycle this is exact.

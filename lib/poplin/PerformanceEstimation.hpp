@@ -7,7 +7,6 @@
 #include <poplar/Target.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/VectorUtils.hpp>
-#include <poplibs_support/gcd.hpp>
 #include <poplin/ConvParams.hpp>
 #include <poplin/ConvUtil.hpp>
 
@@ -1684,7 +1683,7 @@ inline std::uint64_t getNumberOfMACs(const poplin::ConvParams &params) {
     auto inputDilation = params.inputTransform.dilation[dim];
     // For a fixed kernel index the distance between elements in the output
     // whose calculation involves that kernel index.
-    auto MACStride = lcm(outputStride, inputDilation) / outputStride;
+    auto MACStride = std::lcm(outputStride, inputDilation) / outputStride;
     for (unsigned k = kernelTruncationLower;
          k != kernelSize - kernelTruncationUpper; ++k) {
       auto outRange =
@@ -1734,7 +1733,7 @@ inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
   const unsigned numKernelPositions =
       (positionsOuter * kernelElements / kernelShape[0]);
   const auto outStrideX =
-      inputDilation.back() / gcd(inputDilation.back(), stride.back());
+      inputDilation.back() / std::gcd(inputDilation.back(), stride.back());
 
   // workList is indexed by [context][numPartitions]
   // worklist for each kernel position is assumed to be the same.
@@ -1966,7 +1965,7 @@ inline std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
     unsigned activationsVectorWidth, bool floatActivations, bool floatPartials,
     unsigned inChansPerGroup, unsigned outChansPerGroup,
     unsigned dataPathWidth) {
-  unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numOutRows);
+  unsigned rowSplitFactor = numWorkers / std::gcd(numWorkers, numOutRows);
   unsigned numPartRows = numOutRows * rowSplitFactor;
   const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
   const auto workerWholeRows = maxPartRows / rowSplitFactor;
@@ -2001,7 +2000,7 @@ inline std::uint64_t estimateConvPartialVerticalMacInnerLoopCycles(
     bool floatActivations, bool floatPartials, unsigned inChansPerGroup,
     unsigned outChansPerGroup, unsigned convGroupsPerGroup) {
   unsigned numRows = tileOutHeight * tileOutWidth * batchSize;
-  unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numRows);
+  unsigned rowSplitFactor = numWorkers / std::gcd(numWorkers, numRows);
   unsigned numPartRows = numRows * rowSplitFactor;
   const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
   const auto workerWholeRows = maxPartRows / rowSplitFactor;

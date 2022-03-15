@@ -60,7 +60,6 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/SpatialSoftMax.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/experimental/ROIAlign.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/Compiler.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/gcd.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/VectorUtils.hpp
 )
 

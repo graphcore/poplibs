@@ -1535,9 +1535,9 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
           const auto numGroups = unsigned(transformedViewParams.numConvGroups);
           const unsigned numInChanPerSplit = numInChans / inChanSerialSplit;
           const auto inChanShape =
-              gcd(convVertexType.inChansPerGroup, numInChanPerSplit);
+              std::gcd(convVertexType.inChansPerGroup, numInChanPerSplit);
           const auto groupsShape =
-              gcd(convVertexType.convGroupsPerGroup, numGroups);
+              std::gcd(convVertexType.convGroupsPerGroup, numGroups);
           unsigned inputsAtomSize =
               groupsShape * inChanShape * inputBytesPerElement;
 
@@ -1565,11 +1565,11 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
           const unsigned numInChanPerSplit = numInChans / inChanSerialSplit;
           const unsigned numOutChanPerSplit = numOutChans / outChanSerialSplit;
           const auto inChanShape =
-              gcd(convVertexType.inChansPerGroup, numInChanPerSplit);
+              std::gcd(convVertexType.inChansPerGroup, numInChanPerSplit);
           const auto outChanShape =
-              gcd(convVertexType.partialChansPerGroup, numOutChanPerSplit);
+              std::gcd(convVertexType.partialChansPerGroup, numOutChanPerSplit);
           const auto groupsShape =
-              gcd(convVertexType.convGroupsPerGroup, numGroups);
+              std::gcd(convVertexType.convGroupsPerGroup, numGroups);
           unsigned weightsAtomSize =
               groupsShape * outChanShape * inChanShape * inputBytesPerElement;
 
