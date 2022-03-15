@@ -185,25 +185,6 @@ void testScaledAdd2D(const char *vertex, const Type &type,
   });
 }
 
-BOOST_AUTO_TEST_SUITE(ScaledAdd2DIntConst)
-
-BOOST_AUTO_TEST_CASE(ScaledAdd2DIntConst) {
-  testScaledAdd2D<int>("popops::ScaledAdd2D<int,int,int,true,false>", INT, true,
-                       false);
-}
-
-BOOST_AUTO_TEST_SUITE_END()
-
-BOOST_AUTO_TEST_SUITE(ScaledAdd2DUnsignedIntConst)
-
-BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntConst) {
-  testScaledAdd2D<unsigned>(
-      "popops::ScaledAdd2D<unsigned int,unsigned int,unsigned int,true,false>",
-      UNSIGNED_INT, true, false);
-}
-
-BOOST_AUTO_TEST_SUITE_END()
-
 BOOST_AUTO_TEST_SUITE(ScaledAdd2DIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DIntTensor) {

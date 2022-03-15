@@ -295,46 +295,43 @@ add_multitarget_test(NAME "ScaledAddCodeletsTests_high_tolerance"
 
 add_unit_test(ScaledAdd2D_fp
               ScaledAdd2D_fp.cpp
-              SUITES ScaledAdd2DHalfConst ScaledAdd2DHalfTensor ScaledSubtract2DHalfTensor
-                     ScaledAdd2DFloatConst ScaledAdd2DFloatTensor ScaledAdd2DHalfHalfFloatConst
+              SUITES  ScaledAdd2DHalfTensor ScaledSubtract2DHalfTensor
+                      ScaledAdd2DFloatTensor
                      ScaledAdd2DFloatHalfHalf ScaledAdd2DFloatHalfFloat
-                     ScaledAdd2DHalfFloatConst ScaledAdd2DHalfFloatTensor
-                     ScaledAdd2DHalfFloatFloatConst ScaledAdd2DHalfFloatFloatTensor
+                      ScaledAdd2DHalfFloatTensor
+                      ScaledAdd2DHalfFloatFloatTensor
                      ScaledAdd2DHalfHalfFloatTensorHighTol ScaledAdd2DHalfHalfFloatTensorLowTol
-                     ScaledSubtract2DFloatTensor aXPlusbYHalfConst aXPlusbYHalfTensor
+                     ScaledSubtract2DFloatTensor  aXPlusbYHalfTensor
 										 ScaledSubtract2DHalfHalfFloatTensorHighTol ScaledSubract2DHalfHalfFloatTensorLowTol
-                     aXPlusbYMixedConst aXPlusbYMixedTensor
-                     XMinusaXPlusbYHalfConst XMinusaXPlusbYHalfTensor aXMinusbYHalfTensor
+                      aXPlusbYMixedTensor
+                      XMinusaXPlusbYHalfTensor aXMinusbYHalfTensor
 										 aXMinusbYMixedTensor
               LABELS codelet
               VARIANTS ${SIM_VARIANTS})
 add_unit_test(ScaledAdd2D_integral
               ScaledAdd2D_integral.cpp
-              SUITES ScaledAdd2DIntConst ScaledAdd2DUnsignedIntConst ScaledAdd2DIntTensor
+              SUITES ScaledAdd2DIntTensor
                      ScaledAdd2DUnsignedIntTensor ScaledSubtract2DIntTensor ScaledSubtract2DUnsignedIntTensor
               LABELS codelet
               VARIANTS ${SIM_VARIANTS})
 add_unit_test(ScaledAddSupervisor_fp
               ScaledAddSupervisor_fp.cpp
-              SUITES ScaledAddSupervisorHalfConst ScaledAddSupervisorFloatConst
-                     ScaledAddSupervisorFloatHalfHalf ScaledAddSupervisorFloatHalfFloat
-                     ScaledAddSupervisorHalfFloatHalfConst ScaledAddSupervisorHalfHalfFloatConst
+              SUITES  ScaledAddSupervisorFloatHalfHalf ScaledAddSupervisorFloatHalfFloat
                      ScaledAddSupervisorHalfHalfFloatTensorHighTol ScaledAddSupervisorHalfHalfFloatTensorLowTol
                      ScaledAddSupervisorHalfTensor ScaledAddSupervisorFloatTensor
                      ScaledAddSupervisorHalfFloatHalfTensor ScaledSubtractSupervisorHalfTensor
                      ScaledAddSupervisorHalfFloatFloat
                      ScaledSubtractSupervisorFloatTensor ScaledSubtractSupervisorFloatHalfTensor
 										 ScaledSubtractSupervisorHalfHalfFloatTensorHighTol ScaledSubtractSupervisorHalfHalfFloatTensorLowTol
-                     aXPlusbYSupervisorHalfConst aXPlusbYSupervisorHalfTensor
-                     aXPlusbYSupervisorMixedConst aXPlusbYSupervisorMixedTensor
-                     XMinusaXPlusbYSupervisorHalfConst XMinusaXPlusbYSupervisorHalfTensor
+                     aXPlusbYSupervisorHalfTensor
+                     aXPlusbYSupervisorMixedTensor
+                     XMinusaXPlusbYSupervisorHalfTensor
 										 aXMinusbYSupervisorHalfTensor aXMinusbYSupervisorMixedTensor
               LABELS codelet
               VARIANTS ${SIM_VARIANTS})
 add_unit_test(ScaledAddSupervisor_integral
               ScaledAddSupervisor_integral.cpp
-              SUITES ScaledAddSupervisorIntConstant ScaledAddSupervisorUnsignedIntConstant
-                     ScaledAddSupervisorIntTensor ScaledAddSupervisorUnsignedIntTensor
+              SUITES ScaledAddSupervisorIntTensor ScaledAddSupervisorUnsignedIntTensor
                      ScaledSubtractSupervisorIntTensor ScaledSubtractSupervisorUnsignedIntTensor
               LABELS codelet
               VARIANTS ${SIM_VARIANTS})

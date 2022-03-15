@@ -2930,8 +2930,6 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
       CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::MULTIPLY, HALF)
 
 #define SCALED_ADD_CYCLE_ESTIM_ENTRIES(NAME, TYPE1, TYPE2, TYPE3)              \
-  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, true, true),        \
-      CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, true, false),   \
       CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, true),   \
       CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, false)
 
@@ -2997,18 +2995,9 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, ScalarMultiply2D, HALF, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, ScalarMultiply2DInplace, HALF, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, HALF, HALF,
-                            true, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, HALF, HALF,
                             false, false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, HALF, FLOAT,
-                            true, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, HALF, FLOAT,
                             false, false),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT,
-                            UNSIGNED_INT, UNSIGNED_INT, true, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, INT, INT, true,
-                            false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT,
                             UNSIGNED_INT, UNSIGNED_INT, false, false),
@@ -3019,35 +3008,19 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAdd2D, HALF, HALF, HALF),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAdd2D, HALF, HALF, FLOAT),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, HALF, true,
-                            false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, HALF, false,
-                            false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, FLOAT, true,
                             false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, FLOAT, false,
                             false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, HALF,
-                            true, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, HALF,
                             false, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, FLOAT,
-                            true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, FLOAT,
                             false, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, HALF, HALF, true,
-                            false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, HALF, HALF, false,
-                            false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, HALF, FLOAT, true,
                             false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, HALF, FLOAT, false,
                             false),
-
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, UNSIGNED_INT,
-                            UNSIGNED_INT, true, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, INT, INT, true, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, UNSIGNED_INT,
                             UNSIGNED_INT, false, false),
@@ -3085,34 +3058,23 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             UNSIGNED_INT, false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, INT, INT, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, true, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, false,
                             true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, true,
-                            false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, false,
                             false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, FLOAT, true,
-                            false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, FLOAT, false,
                             true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, FLOAT, false,
-                            false),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, FLOAT, FLOAT, true,
                             false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, FLOAT, FLOAT, false,
                             false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, true, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, false, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, false, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, FLOAT, FLOAT, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, FLOAT, FLOAT, false, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, HALF, false,
@@ -3132,15 +3094,10 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, FLOAT, FLOAT, false, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true,
-                            false),
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, false,
                             true),
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, false,
                             false),
-      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, true, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, true, false),
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, false, true),
       CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, false, false),
 

@@ -146,26 +146,6 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
   }
 }
 
-BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorIntConstant)
-
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorIntConstant) {
-  testScaledAddSupervisor<int>(
-      "popops::ScaledAddSupervisor<int,int,int,true,false>", INT, true, false);
-}
-
-BOOST_AUTO_TEST_SUITE_END()
-
-BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorUnsignedIntConstant)
-
-BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntConstant) {
-  testScaledAddSupervisor<unsigned>(
-      "popops::ScaledAddSupervisor<unsigned int,unsigned int,"
-      "unsigned int,true,false>",
-      UNSIGNED_INT, true, false);
-}
-
-BOOST_AUTO_TEST_SUITE_END()
-
 BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorIntTensor) {

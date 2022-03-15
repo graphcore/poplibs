@@ -108,3 +108,92 @@ BOOST_AUTO_TEST_CASE(ScaledAddTestCheckEquivalenceHalf) {
   BOOST_CHECK_EQUAL_COLLECTIONS(hostOutAdd.begin(), hostOutAdd.end(),
                                 hostOutSub.begin(), hostOutSub.end());
 }
+
+void callScaledAddConst(poplar::Graph &g, poplar::Type aType,
+                        poplar::Type bType, float scale, float aScale,
+                        bool subtract, bool is2D, bool testSpeciality,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugName) {
+  auto A = g.addVariable(aType, {12}, "A");
+  auto B = g.addVariable(bType, {12}, "B");
+  g.setTileMapping(A, 0);
+  g.setTileMapping(B, 0);
+  auto ASlice = is2D ? concat(A.slice(0, 4), A.slice(8, 12)) : A;
+  auto BSlice = is2D ? concat(B.slice(0, 4), B.slice(8, 12)) : B;
+  if (aScale == 1.0f) {
+    if (subtract) {
+      popops::scaledSubtractFrom(g, ASlice, BSlice, scale, prog, debugName);
+    } else {
+      popops::scaledAddTo(g, ASlice, BSlice, scale, prog, debugName);
+    }
+  } else {
+    if (testSpeciality) {
+      popops::scaledAddTo(g, ASlice, aScale, BSlice, scale, prog,
+                          popops::ScaledAddSpecialisation::X_MINUS_AX_PLUS_BY,
+                          debugName);
+    } else if (subtract) {
+      popops::scaledSubtractFrom(g, ASlice, aScale, BSlice, scale, prog,
+                                 debugName);
+    } else {
+      popops::scaledAddTo(g, ASlice, aScale, BSlice, scale, prog, debugName);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(ScaledAddGeneration) {
+  // Verify that all cases of scaled add, subtract etc with const scale can be
+  // created using vertices with a tensor scale
+  auto device = createTestDevice(TEST_TARGET);
+  const auto target = device.getTarget();
+  poplar::Graph g(target);
+  popops::addCodelets(g);
+
+  poplar::program::Sequence prog;
+  std::vector<poplar::Type> types = {poplar::FLOAT, poplar::HALF};
+  std::vector<float> scales = {1.0, 2.0, 1.0e-6};
+
+  // Basic scaled add and subtract support all combinations of types
+  for (const auto &aType : types) {
+    for (const auto &bType : types) {
+      for (const auto &scale : scales) {
+        callScaledAddConst(g, aType, bType, scale, 1.0f, false, false, false,
+                           prog, "scaledAdd");
+        callScaledAddConst(g, aType, bType, scale, 1.0f, true, false, false,
+                           prog, "scaledSubtract");
+
+        callScaledAddConst(g, aType, bType, scale, 1.0f, false, true, false,
+                           prog, "scaledAdd_2D");
+        callScaledAddConst(g, aType, bType, scale, 1.0f, true, true, false,
+                           prog, "scaledSubtract_2D");
+      }
+    }
+  }
+
+  // aX + bY support all half, or all float tensors
+  for (const auto &type : types) {
+    for (const auto &scale : scales) {
+      callScaledAddConst(g, type, type, scale, 2.0f, false, false, false, prog,
+                         "aX+bY");
+      callScaledAddConst(g, type, type, scale, 2.0f, true, false, false, prog,
+                         "aX-bY");
+      callScaledAddConst(g, type, type, scale, 2.0f, false, true, false, prog,
+                         "aX+bY_2D");
+      callScaledAddConst(g, type, type, scale, 2.0f, true, true, false, prog,
+                         "aX-bY_2D");
+    }
+  }
+
+  // The speciality X - aX + bY supports half only
+  for (const auto &scale : scales) {
+    callScaledAddConst(g, poplar::HALF, poplar::HALF, scale, 2.0f, false, false,
+                       true, prog, "X-aX+bY");
+    callScaledAddConst(g, poplar::HALF, poplar::HALF, scale, 2.0f, false, true,
+                       true, prog, "X-aX+bY_2D");
+  }
+
+  poplar::Engine e(g, prog);
+  device.bind([&](const poplar::Device &d) {
+    e.load(d);
+    e.run();
+  });
+}

@@ -933,10 +933,6 @@ int main(int argc, char **argv) {
     ("scale-type",
      po::value<std::vector<Type>>(&scaleTypes)->multitoken(),
      "Data type for the scale values: one or more of half, float, int, uint")
-    ("constant-scale",
-     po::value<std::vector<std::string>>(&scaleIsConstant_)->multitoken(),
-     "Vertex template flag: are the scale value(s) constant value instead of "
-     "tensors?")
     ("constrainedAB",
      po::value<std::vector<bool>>(&constrainedAB)->multitoken(),
      "Vertex template flag: are the two operands constrained to be in dfferent "
@@ -984,7 +980,7 @@ int main(int argc, char **argv) {
 
   // === If the flags are not specified, test both
   if (scaleIsConstant_.empty()) {
-    scaleIsConstant = {std::nullopt, false, true};
+    scaleIsConstant = {std::nullopt, false};
   } else {
     convertToOptBool(scaleIsConstant_, scaleIsConstant);
   }
