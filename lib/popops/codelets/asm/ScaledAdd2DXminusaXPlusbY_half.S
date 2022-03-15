@@ -62,10 +62,6 @@
 #define SHORT_SPAN_LENGTH_SIZE 12
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-#define SCALED_PTR64_SHIFTS 3
-#endif
-
 .macro CHOOSE_FAST_OR_SLOW_PATH FAST_PATH_LABEL
   // The fast path is always OK if constraints were applied
   brnz $memConstraints, \FAST_PATH_LABEL
@@ -168,15 +164,10 @@ xminusaxplusby_continue:
   ld32step $origDataSize, $mzero, $outData+=, 1
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  ldz16step $dataB, $mzero, $outDataB+=, 1
-  shl $dataB, $dataB, SCALED_PTR64_SHIFTS
-#else
   {
     ld32step $dataB, $mzero, $outDataB+=, 1
     fnop
   }
-#endif
 
   // process 4 at a time first as this is the optimal scenario
   {

@@ -53,10 +53,6 @@
 #define SHORT_SPAN_LENGTH_SIZE 12
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-#define SCALED_PTR64_SHIFTS 3
-#endif
-
 FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_FLOAT_SCALE
   // load vertex state specific to this version of the vertex : Tensor(float): via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
@@ -77,9 +73,6 @@ FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_HALF_SCALE 8
   ldb16  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
   {bri VERTEX_COMMON
    f16tof32 $ascratch, $ascratch}
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  nop //rpt align
-#endif
 
 FN_EXPORT VERTEX_ADD_CONST_FLOAT_SCALE
   // load vertex state specific to this version of the vertex : k, constant(float)
@@ -107,12 +100,7 @@ VERTEX_COMMON:
   ld32step $origDataSize, $mzero, $outData+=, 1
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  ldz16step $dataB, $mzero, $outDataB+=, 1
-  shl $dataB, $dataB, SCALED_PTR64_SHIFTS
-#else
   ld32step $dataB, $mzero, $outDataB+=, 1
-#endif
 
   // process 2 at a time first as this is the optimal scenario
   shr $dataSizeD2, $origDataSize, 1

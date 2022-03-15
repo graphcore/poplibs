@@ -145,10 +145,9 @@ std::istream &operator>>(std::istream &is, DeviceType &type) {
   else if (token == "Hw")
     type = DeviceType::Hw;
   else
-    throw std::logic_error(
-        "Unsupported device type <" + token +
-        ">; must be one of "
-        R"XX("Cpu", "IpuModel2", "Sim2" or "Hw")XX");
+    throw std::logic_error("Unsupported device type <" + token +
+                           ">; must be one of "
+                           R"XX("Cpu", "IpuModel2", "Sim2" or "Hw")XX");
   return is;
 }
 

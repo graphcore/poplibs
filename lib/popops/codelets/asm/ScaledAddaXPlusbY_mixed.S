@@ -54,10 +54,7 @@
 #define VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS __runCodelet_popops__aXMinusbY2D___half_float_false_false
 #define VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXMinusbY2D___half_float_false_true
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  #define SCALED_PTR64_SHIFTS       3
-#endif
-  #define SCALED_PTR128_SHIFTS       4
+#define SCALED_PTR128_SHIFTS       4
 
 #if defined(VECTOR_AVAIL_SHORT_SPAN)
   #define SHORT_SPAN_PTR_SIZE      20
@@ -114,15 +111,6 @@ format (where M = N/2):
   +---------------------------------------+              /
 
 
-       ================= SCALED_PTR_64 available =================
-
-'Y' row PTR points to an array with 'Num Rows'/2 words, each having the
-format (where M = 2*N):
-  /----- 16 bits -----\
-  +-------------------+-------------------+
-  |  Row M+1 data PTR |   Row M data PTR  | 4xN      N
-  +-------------------+-------------------+
-
        ============== SCALED_PTR_64 *NOT* available ==============
 
 'Y' row PTR points to an array with 'Num Rows' words, each having the format:
@@ -135,37 +123,6 @@ format (where M = 2*N):
                           +-------------------+
                           | Supervisor vertex |
                           +-------------------+
-
-       ================= SCALED_PTR_64 available =================
-
-scaleA & scaleB values are constant:
-                      /----- 16 bits -----\ byte   word
-                                            offs   offs
-  +-------------------+-------------------+
-  | 'B' ('Y') data PTR| 'A' ('X') data PTR|   0      0   SCALED_PTR64
-  +-------------------+-------------------+
-  |           Scale A float value         |   4      1   float
-  +---------------------------------------+
-  | . . . . . . . . . | Count             |   8      2   unsigned short
-  +-------------------+-------------------+
-  |           Scale B float value         |  12      3   float
-  +---------------------------------------+
-
-
-scaleA & scaleB values are contained in a 1-value Tensor:
-
-                      /----- 16 bits -----\ byte   word
-                                            offs   offs
-  +-------------------+-------------------+
-  | 'B' ('Y') data PTR| 'A' ('X') data PTR|   0      0   SCALED_PTR64
-  +-------------------+-------------------+
-  |    Count          |    scale A PTR    |   4      1   SCALED_PTR128
-  +-------------------+-------------------+
-  | . . . . . . . . . |    scale B PTR    |   8      2   SCALED_PTR128
-  +-------------------+-------------------+
-  |               tolerance               |  12      3   float
-  +---------------------------------------+
-
 
        ============== SCALED_PTR_64 *NOT* available ==============
 
@@ -212,33 +169,16 @@ scaleA & scaleB values are contained in a 1-value Tensor:
 #define VERTEX_2D_TOLERANCE_OFFSET  20
 
 // Offsets in bytes for the supervisor vertex state (as described above) ...
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  // ======== Short pointers =======
-  #define VERTEX_SV_DATA_A_OFFSET           0
-  #define VERTEX_SV_DATA_B_OFFSET           2
-  #define VERTEX_SV_SCALE_A_OFFSET          4
+#define VERTEX_SV_DATA_A_OFFSET     0
+#define VERTEX_SV_DATA_B_OFFSET     4
+#define VERTEX_SV_SCALE_A_OFFSET    8
 
-  // ... constant scale coefficients
-  #define VERTEX_SV_COUNT_CONST_OFFSET      8
-  #define VERTEX_SV_SCALE_B_CONST_OFFSET    12
+#define VERTEX_SV_COUNT_CONST_OFFSET      12
+#define VERTEX_SV_SCALE_B_CONST_OFFSET    16
 
-  // ... or tensor scale coefficients
-  #define VERTEX_SV_COUNT_OFFSET            6
-  #define VERTEX_SV_SCALE_B_TENS_OFFSET     8
-  #define VERTEX_SV_TOLERANCE_OFFSET       12
-#else
-  // ======== No short pointers =======
-  #define VERTEX_SV_DATA_A_OFFSET     0
-  #define VERTEX_SV_DATA_B_OFFSET     4
-  #define VERTEX_SV_SCALE_A_OFFSET    8
-
-  #define VERTEX_SV_COUNT_CONST_OFFSET      12
-  #define VERTEX_SV_SCALE_B_CONST_OFFSET    16
-
-  #define VERTEX_SV_COUNT_OFFSET      10
-  #define VERTEX_SV_SCALE_B_OFFSET    12
-  #define VERTEX_SV_TOLERANCE_OFFSET  16
-#endif
+#define VERTEX_SV_COUNT_OFFSET      10
+#define VERTEX_SV_SCALE_B_OFFSET    12
+#define VERTEX_SV_TOLERANCE_OFFSET  16
 
 
 // --------------------------------------------------------------------
@@ -284,15 +224,9 @@ scaleA & scaleB values are contained in a 1-value Tensor:
 // Supervisor entry point (constant scale values).
 // Load parameters and jumps to the worker partitioning function
 FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST 4 "" STACK_SIZE
- #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
   ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_CONST_OFFSET/4
   ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_CONST_OFFSET/2
-#else
-  ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
-  ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_CONST_OFFSET/4
-  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_CONST_OFFSET/2
-#endif
   add     $sp, $sp, -STACK_SIZE
   setzi   $sv_log2AtomSize, 1
   setzi   $sv_atomSizeMask, 1
@@ -307,21 +241,13 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 // ---------------------------------------------------------------
 // Common setup code used by both the AXMinusBY and AXPlusBY supervisors.
 .macro AXBY_MIXED_SUPERVISOR_SETUP
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ldz16   $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/2
-  ldz16   $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_TENS_OFFSET/2
-  ld32    $tolerance, $vertexPtr, $mzero, VERTEX_SV_TOLERANCE_OFFSET/4
-  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
-  add     $sp, $sp, -STACK_SIZE
-  setzi   $memBase, TMEM_REGION0_BASE_ADDR
-#else
   ldz16   $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/2
   ldz16   $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_OFFSET/2
   ld32    $tolerance, $vertexPtr, $mzero, VERTEX_SV_TOLERANCE_OFFSET/4
   add     $sp, $sp, -STACK_SIZE
   ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
   setzi   $memBase, TMEM_REGION0_BASE_ADDR
-#endif
+
   shl     $sv_scale, $sv_scale, SCALED_PTR128_SHIFTS
   shl     $scaleB, $scaleB, SCALED_PTR128_SHIFTS
 .endm
@@ -730,12 +656,7 @@ FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
     ld32step      $size, $mzero, $Xrow+=, 1
   #endif
   // Get Y data pointer for this row based on ptr availiability
-  #if defined(VECTOR_AVAIL_SCALED_PTR64)
-    ldz16step     $Yptr, $mzero, $Yrow+=, 1
-    shl           $Yptr, $Yptr, SCALED_PTR64_SHIFTS
-  #else
     ld32step      $Yptr, $mzero, $Yrow+=, 1
-  #endif
 
   call          $lr, aXplusbY_half_float_kernel
   brnzdec       $numRows, .Lrow_loop

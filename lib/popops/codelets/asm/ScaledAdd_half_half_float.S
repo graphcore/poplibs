@@ -41,9 +41,6 @@
 #define SHORT_SPAN_LENGTH_SIZE 12
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-#define SCALED_PTR64_SHL_BITS 3
-#endif
 #define SCALED_PTR128_SHL_BITS 4
 
 // Integer variables
@@ -361,12 +358,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
   ld32step $origDataSize, $mzero, $outData+=, 1
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  ldz16step $dataBPtr, $mzero, $outDataB+=, 1
-  shl $dataBPtr, $dataBPtr, SCALED_PTR64_SHL_BITS
-#else
   ld32step $dataBPtr, $mzero, $outDataB+=, 1
-#endif
 
   // process 2 at a time
   {
@@ -419,17 +411,6 @@ FN_SIZE VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
 #undef VERTEX_DATA_B_OFFSET
 
 // Variable offsets (in bytes)
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-// Data pointers are 16 bits
-#define VERTEX_DATA_A_OFFSET 0
-#define VERTEX_DATA_B_OFFSET 2
-#define VERTEX_SCALE_OFFSET 4
-
-#define VERTEX_PACKED_COUNT_OFFSET 6
-#define VERTEX_PACKED_COUNT_CONST_OFFSET 8
-
-#define VERTEX_TOLERANCE_OFFSET_SV 8
-#else
 // Data pointers are 32 bits
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_B_OFFSET 4
@@ -439,7 +420,6 @@ FN_SIZE VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
 #define VERTEX_PACKED_COUNT_CONST_OFFSET 12
 
 #define VERTEX_TOLERANCE_OFFSET_SV 12
-#endif
 
 
 // Integer variables.

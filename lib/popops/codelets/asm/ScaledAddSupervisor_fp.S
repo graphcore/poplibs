@@ -15,54 +15,28 @@
 
 
 // vertex state (offsets in bytes)
+//
+// Vertex state where Scale type is half or Scale pointer and occupies 16 bits
+//
+#define VERTEX_DATA_A_OFFSET 0
+#define VERTEX_DATA_B_OFFSET 4
+#define VERTEX_SCALE_OFFSET 8
+#define VERTEX_PACKED_COUNT_OFFSET 10
+#define VERTEX_SCALE_B_OFFSET 12
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  //
-  // Vertex state where Scale type is half or Scale pointer (which occupies 16 bits)
-  //
-  #define VERTEX_DATA_A_OFFSET 0
-  #define VERTEX_DATA_B_OFFSET 2
-  #define VERTEX_SCALE_OFFSET 4
-  #define VERTEX_PACKED_COUNT_OFFSET 6
-  #define VERTEX_SCALE_B_OFFSET 8
-
-  //
-  // Vertex state where Scale type is float
-  //
-  #define VERTEX_DATA_A_OFFSET 0
-  #define VERTEX_DATA_B_OFFSET 2
-  #define VERTEX_SCALE_OFFSET 4
-  // scale variable offset (float) option.
-  #define VERTEX_PACKED_COUNT_CONST_OFFSET 8
-  #define VERTEX_SCALE_B_CONST_OFFSET 12
-#else
-  //
-  // Vertex state where Scale type is half or Scale pointer and occupies 16 bits
-  //
-  #define VERTEX_DATA_A_OFFSET 0
-  #define VERTEX_DATA_B_OFFSET 4
-  #define VERTEX_SCALE_OFFSET 8
-  #define VERTEX_PACKED_COUNT_OFFSET 10
-  #define VERTEX_SCALE_B_OFFSET 12
-
-  //
-  // Vertex state where Scale type is float and occupies 32 bits
-  //
-  #define VERTEX_DATA_A_OFFSET 0
-  #define VERTEX_DATA_B_OFFSET 4
-  #define VERTEX_SCALE_OFFSET 8
-  // scale variable offset (float) option.
-  #define VERTEX_PACKED_COUNT_CONST_OFFSET 12
-  #define VERTEX_SCALE_B_CONST_OFFSET 16
-#endif
+//
+// Vertex state where Scale type is float and occupies 32 bits
+//
+#define VERTEX_DATA_A_OFFSET 0
+#define VERTEX_DATA_B_OFFSET 4
+#define VERTEX_SCALE_OFFSET 8
+// scale variable offset (float) option.
+#define VERTEX_PACKED_COUNT_CONST_OFFSET 12
+#define VERTEX_SCALE_B_CONST_OFFSET 16
 
 
 // constants
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-#define SCALED_PTR64_SHL_BITS 3
-#endif
 #define SCALED_PTR128_SHL_BITS 4
-
 
 // supervisor variables
 #define vertexPtr m0
@@ -614,13 +588,8 @@ FN_SIZE SUBTRACT_VERTEX(half_float_half_false)
 
 DEF_STACK_SIZE_OWN  0  VERTEX(supervisor)
 FN_SUPERVISOR_ENTRY_POINT VERTEX(supervisor) 4 "" NONE
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_A_OFFSET/2
-  ldz16  $remM1, $vertexPtr, $mzero, VERTEX_DATA_B_OFFSET/2
-#else
   ld32  $mscratch2, $vertexPtr, $mzero, VERTEX_DATA_A_OFFSET/4
   ld32  $remM1, $vertexPtr, $mzero, VERTEX_DATA_B_OFFSET/4
-#endif
 
   st32 $sv_memConstraints, $sp, $mzero, SV_STATE_MEM_CONSTRAINTS/4
   st32 $sv_scale, $sp, $mzero, SV_STATE_SCALES_OFFSET/4
@@ -641,11 +610,6 @@ FN_SUPERVISOR_ENTRY_POINT VERTEX(supervisor) 4 "" NONE
   // final = count % atomSize
   and   $final, $sv_count, $sv_atomSizeMask
   shr $sv_count, $sv_count, $sv_log2AtomSize
-
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  shl    $mscratch2, $mscratch2, SCALED_PTR64_SHL_BITS
-  shl    $remM1, $remM1, SCALED_PTR64_SHL_BITS
-#endif
 
   // mscratch = n/6
   mul $mscratch, $sv_count, $mscratch // 6 cycles

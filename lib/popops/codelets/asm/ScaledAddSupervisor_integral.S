@@ -9,18 +9,6 @@
 #define VERTEX_SUBTRACT(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
 
 // constants
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-#define VERTEX_DATA_A_START_OFFSET 0
-#define VERTEX_DATA_B_OFFSET 2
-#define VERTEX_SCALE_B_OFFSET 4
-
-//Constant (k) and non-constant (ptr to factor) versions
-#define VERTEX_DATA_A_SIZE_OFFSET 6
-#define VERTEX_DATA_A_SIZE_CONST_OFFSET 8
-// Const - in 32 bit
-
-#define SCALED_PTR64_SHL_BITS 3
-#else
 #define VERTEX_DATA_A_START_OFFSET 0
 #define VERTEX_DATA_B_OFFSET 4
 #define VERTEX_SCALE_B_OFFSET 8
@@ -29,7 +17,6 @@
 #define VERTEX_DATA_A_SIZE_OFFSET 10
 #define VERTEX_DATA_A_SIZE_CONST_OFFSET 12
 // Const - in 32 bit
-#endif
 
 #define SCALED_PTR128_SHL_BITS 4
 
@@ -99,13 +86,8 @@ VERTEX_SUBTRACT(int_common):
   mul  $k, $k, -1
 VERTEX(int_common):
   // Ordered to avoid pipe hits
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ldz16 $dataBPtr, $m0, $mzero, VERTEX_DATA_B_OFFSET/2
-  ldz16 $dataPtr, $m0, $mzero, VERTEX_DATA_A_START_OFFSET/2
-#else
   ld32 $dataBPtr, $m0, $mzero, VERTEX_DATA_B_OFFSET/4
   ld32 $dataPtr, $m0, $mzero, VERTEX_DATA_A_START_OFFSET/4
-#endif
   // NOTE: this trashes the vertex state pointer because $dataBPtr is mapped to $m0.
 
   setzi $sizeD3, 0xAAAB
@@ -118,12 +100,6 @@ VERTEX(int_common):
   // see recipe #1 for how these constants were derived:
   //   https://embeddedgurus.com/stack-overflow/2009/06/division-of-integers-by-constants/
   mul $sizeD3, $dataSize, $sizeD3 // 6 cycles
-
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  // Inserted here to avoid pipe hits
-  shl $dataBPtr, $dataBPtr, SCALED_PTR64_SHL_BITS
-  shl $dataPtr, $dataPtr, SCALED_PTR64_SHL_BITS
-#endif
 
   shr $sizeD3, $sizeD3, 17 // 6 cycles
 

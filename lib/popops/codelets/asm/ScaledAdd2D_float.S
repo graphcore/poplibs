@@ -69,10 +69,6 @@
 #define SHORT_SPAN_LENGTH_SIZE 12
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-#define SCALED_PTR64_SHIFTS 3
-#endif
-
 .macro CHOOSE_FAST_OR_SLOW_PATH FAST_PATH_LABEL
   // The fast path is always OK if constraints were applied
   brnz $memConstraints, \FAST_PATH_LABEL
@@ -116,9 +112,7 @@ FN_SIZE VERTEX_SUBTRACT_SLOW
 FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_SLOW 8
   setzi $memConstraints, 0
   bri 1f
-#ifndef VECTOR_AVAIL_SCALED_PTR64
   nop //rpt align
-#endif
 
 FN_EXPORT VERTEX_ADD_CONST_FAST
   setzi $memConstraints, 1
@@ -148,12 +142,7 @@ VERTEX_COMMON:
   ld32step $origDataSize, $mzero, $outData+=, 1
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  ldz16step $dataB, $mzero, $outDataB+=, 1
-  shl $dataB, $dataB, SCALED_PTR64_SHIFTS
-#else
   ld32step $dataB, $mzero, $outDataB+=, 1
-#endif
 
   // process 2 at a time first as this is the optimal scenario
   shr $dataSizeD2, $origDataSize, 1
@@ -272,9 +261,7 @@ FN_SIZE VERTEX_AXPBY_TENSOR
 
 
 FN_WORKER_ENTRY_POINT VERTEX_AXPBY_CONST 8
-#ifndef VECTOR_AVAIL_SCALED_PTR64
   nop //rpt align
-#endif
   // load vertex state specific to this version of the vertex : k, constant
   ld32  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ld32  $ascaleB, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
@@ -298,12 +285,7 @@ VERTEX_AXPBY_COMMON:
   ld32step $origDataSize, $mzero, $outData+=, 1
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  ldz16step $dataB, $mzero, $outDataB+=, 1
-  shl $dataB, $dataB, SCALED_PTR64_SHIFTS
-#else
   ld32step $dataB, $mzero, $outDataB+=, 1
-#endif
   // process 2 at a time first as this is the optimal scenario
   shr $dataSizeD2, $origDataSize, 1
   brz $dataSizeD2, .Lvector2_loop_end_axpby

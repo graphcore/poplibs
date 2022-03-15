@@ -72,10 +72,6 @@
 #define SHORT_SPAN_LENGTH_SIZE 12
 #endif
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-#define SCALED_PTR64_SHIFTS 3
-#endif
-
 .macro CHOOSE_FAST_OR_SLOW_PATH FAST_PATH_LABEL
   // The fast path is always OK if constraints were applied
   brnz $memConstraints, \FAST_PATH_LABEL
@@ -171,9 +167,7 @@ FN_SIZE VERTEX_AXPBY_TENSOR_SLOW
 FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_SLOW 8
   setzi $memConstraints, 0
   bri 1f
-#ifndef VECTOR_AVAIL_SCALED_PTR64
   nop //rpt align
-#endif
 
 FN_EXPORT VERTEX_ADD_CONST_FAST
   setzi $memConstraints, 1
@@ -217,12 +211,7 @@ FN_EXPORT axplusby_half_half_common  // This is called from ScaledAddaXPlusbY_mi
   ld32step $origDataSize, $mzero, $outData+=, 1
 #endif
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ldz16step $dataB, $mzero, $outDataB+=, 1
-  shl $dataB, $dataB, SCALED_PTR64_SHIFTS
-#else
   ld32step $dataB, $mzero, $outDataB+=, 1
-#endif
 
   // process 4 at a time first as this is the optimal scenario
   {
