@@ -23,6 +23,11 @@ public:
                const std::vector<::poplar::Tensor> &,
                ::poplar::program::Sequence &, const ::poplar::DebugContext &,
                const ::poplar::OptionFlags &));
+  MOCK_METHOD(void, mapWithOutput,
+              (::poplar::Graph &, const ::popops::expr::Expr &,
+               const std::vector<::poplar::Tensor> &, const ::poplar::Tensor &,
+               ::poplar::program::Sequence &, const ::poplar::DebugContext &,
+               const ::poplar::OptionFlags &));
 
   // codelets.hpp
 

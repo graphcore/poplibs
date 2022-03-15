@@ -25,4 +25,13 @@ poplar::Tensor map(poplar::Graph &graph, const expr::Expr &expr,
                                        options);
 }
 
+void mapWithOutput(poplar::Graph &graph, const expr::Expr &expr,
+                   const std::vector<poplar::Tensor> &ts,
+                   const poplar::Tensor &out, poplar::program::Sequence &prog,
+                   const poplar::DebugContext &debugContext,
+                   const poplar::OptionFlags &options) {
+  popops_mock::mockPopops_->mapWithOutput(graph, expr, ts, out, prog,
+                                          debugContext, options);
+}
+
 } // namespace popops

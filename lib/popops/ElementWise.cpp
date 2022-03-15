@@ -2381,6 +2381,35 @@ static std::vector<Type> getTypesFromTensors(const std::vector<Tensor> &ts) {
   return types;
 }
 
+template <typename F>
+static std::unique_ptr<expr::Expr>
+mapPlaceholdersInExpression(const expr::Expr &e, const F &f) {
+  if (const auto *c = e.getAs<expr::Const>()) {
+    return c->clone();
+  } else if (const auto *c = e.getAs<expr::Cast>()) {
+    auto a = mapPlaceholdersInExpression(c->getLHS(), f);
+    return std::make_unique<expr::Cast>(*a, c->getRHSType());
+  } else if (const auto *u = e.getAs<expr::UnaryOp>()) {
+    auto a = mapPlaceholdersInExpression(u->getArg(), f);
+    return std::make_unique<expr::UnaryOp>(u->getOpType(), *a);
+  } else if (const auto *bo = e.getAs<expr::BinaryOp>()) {
+    auto a = mapPlaceholdersInExpression(bo->getLHS(), f);
+    auto b = mapPlaceholdersInExpression(bo->getRHS(), f);
+    return std::make_unique<expr::BinaryOp>(bo->getOpType(), *a, *b);
+  } else if (const auto *t = e.getAs<expr::TernaryOp>()) {
+    auto a = mapPlaceholdersInExpression(t->getArg0(), f);
+    auto b = mapPlaceholdersInExpression(t->getArg1(), f);
+    auto c = mapPlaceholdersInExpression(t->getArg2(), f);
+    return std::make_unique<expr::TernaryOp>(t->getOpType(), *a, *b, *c);
+  } else if (const auto *p = e.getAs<expr::PlaceHolder>()) {
+    return std::make_unique<expr::PlaceHolder>(f(p->getIndex()));
+  } else {
+    throw poplibs_error(
+        "Unrecognised Expr type in mapPlaceholdersInExpression");
+  }
+  POPLIB_UNREACHABLE();
+}
+
 Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
            program::Sequence &prog, const poplar::DebugContext &debugContext,
            const OptionFlags &options) {
@@ -2485,6 +2514,28 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   if (!t.second) {
     prog.add(Copy(t.first, ts[0], false, {di}));
   }
+}
+
+void mapWithOutput(Graph &graph, const expr::Expr &expr_,
+                   const std::vector<Tensor> &ts_, const Tensor &out,
+                   poplar::program::Sequence &prog,
+                   const poplar::DebugContext &debugContext,
+                   const poplar::OptionFlags &options) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(ts_, out, expr_, options));
+
+  // We can implement 'WithOutput' by using mapInPlace, where the first tensor
+  // given is not referenced in the expression.
+  std::vector<Tensor> ts;
+  ts.reserve(ts_.size() + 1);
+  ts.emplace_back(out);
+  ts.insert(ts.end(), ts_.begin(), ts_.end());
+
+  // Bump index of all PlaceHolder expressions
+  auto expr = mapPlaceholdersInExpression(
+      expr_, [](unsigned index) { return index + 1; });
+  mapInPlace(graph, *expr, ts, prog, {di}, options);
 }
 
 } // namespace popops

@@ -21,6 +21,7 @@
 #include <random>
 
 #include <popops/ElementWise.hpp>
+#include <popops/ElementWiseUtil.hpp>
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
@@ -56,8 +57,24 @@ template <> struct abs_helper<double> {
 
 template <int Size, typename InType = float, typename OutType = InType,
           typename InTypeArg3 = InType>
-static bool mapTest(const pe::Expr &expr, bool inPlace = true,
-                    bool checkReport = true) {
+static bool mapTest(const pe::Expr &expr, bool checkReport, bool inPlace,
+                    bool withOutput) {
+  // Skip in-place tests where the output type is different to the input type
+  // as these don't exist.
+  if (!std::is_same_v<InType, OutType> && inPlace) {
+    std::cout << "Skipping in-place mapTest with expression:\n"
+              << expr
+              << "\nbecause the output type is different from the in-place "
+                 "input's type\n";
+    return true;
+  }
+  if (checkReport && std::is_same_v<OutType, bool>) {
+    std::cout << "Skipping report check for mapTest with expression:\n"
+              << expr
+              << "\nbecause the output type is bool and this can introduce "
+                 "memcopies which break the report parsing\n";
+    checkReport = false;
+  }
   auto device = createTestDevice(deviceType, 1, 4);
   auto target = device.getTarget();
   poplar::Graph graph(target);
@@ -65,6 +82,7 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
   popnn::addCodelets(graph);
 
   poplar::Type inType = poplar::equivalent_device_type<InType>{}.value;
+  poplar::Type outType = poplar::equivalent_device_type<OutType>().value;
 
   poplar::Type inTypeArg3 = poplar::equivalent_device_type<InTypeArg3>{}.value;
 
@@ -93,6 +111,12 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
     if (inPlace) {
       popops::mapInPlace(graph, expr, {in1_gen, in2, in3}, prog, "",
                          generatedOptions);
+    } else if (withOutput) {
+      poplar::Tensor testRead = popops::createOutputForElementWiseOp(
+          graph, {in1_gen, in2, in3}, outType, "out");
+      graph.createHostRead("testRead", testRead);
+      popops::mapWithOutput(graph, expr, {in1, in2, in3}, testRead, prog, "",
+                            generatedOptions);
     } else {
       poplar::Tensor testRead =
           popops::map(graph, expr, {in1, in2, in3}, prog, "", generatedOptions);
@@ -249,6 +273,17 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
     popops::mapInPlace(graph, expr, {in1_gen, in2, in3}, prog, "",
                        generatedOptions);
     popops::mapInPlace(graph, expr, {in1, in2, in3}, prog, "", originalOptions);
+  } else if (withOutput) {
+    generatedOut = popops::createOutputForElementWiseOp(
+        graph, {in1, in2, in3}, outType, "generatedOut");
+    originalOut = popops::createOutputForElementWiseOp(graph, {in1, in2, in3},
+                                                       outType, "originalOut");
+    popops::mapWithOutput(graph, expr, {in1, in2, in3}, generatedOut, prog, "",
+                          generatedOptions);
+    popops::mapWithOutput(graph, expr, {in1, in2, in3}, originalOut, prog, "",
+                          originalOptions);
+    graph.createHostRead("originalOut", originalOut);
+    graph.createHostRead("generatedOut", generatedOut);
   } else {
     generatedOut =
         popops::map(graph, expr, {in1, in2, in3}, prog, "", generatedOptions);
@@ -311,13 +346,31 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
     matchesModel &= match;
   }
 
-  if (inPlace) {
-    return mapTest<Size, InType, OutType, InTypeArg3>(expr, false, checkReport);
-  }
-
   if (!matchesModel) {
     return false;
   }
+  return true;
+}
+
+template <int Size, typename InType = float, typename OutType = InType,
+          typename InTypeArg3 = InType>
+static bool mapTest(const pe::Expr &expr, bool checkReport = true) {
+#define CHECK_ONE(test)                                                        \
+  do {                                                                         \
+    if (!(test)) {                                                             \
+      std::cerr << "test \"" #test "\" failed." << std::endl;                  \
+      return false;                                                            \
+    }                                                                          \
+  } while (false)
+  // Out-place
+  CHECK_ONE((mapTest<Size, InType, OutType, InTypeArg3>(expr, checkReport,
+                                                        false, false)));
+  // In-place
+  CHECK_ONE((mapTest<Size, InType, OutType, InTypeArg3>(expr, checkReport, true,
+                                                        false)));
+  // Out-place with user-provided output
+  CHECK_ONE((mapTest<Size, InType, OutType, InTypeArg3>(expr, checkReport,
+                                                        false, true)));
   return true;
 }
 
@@ -326,7 +379,6 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
 #define CHECK(test)                                                            \
   do {                                                                         \
     if (!test) {                                                               \
-      std::cerr << "test \"" #test "\" failed." << std::endl;                  \
       std::exit(1);                                                            \
     }                                                                          \
   } while (false)
@@ -389,9 +441,9 @@ int main(int argc, char **argv) {
   else if (test == "IsFinite") {
     // Is finite can generate memcopies as it uses booleans so we skip the
     // report stage of this.
-    CHECK((mapTest<10, float, bool>(pe::IsFinite(pe::Cast(pe::_1, HALF)), false,
-                                    false)));
-    CHECK((mapTest<10, float, bool>(pe::IsFinite(pe::_1), false, false)));
+    CHECK((
+        mapTest<10, float, bool>(pe::IsFinite(pe::Cast(pe::_1, HALF)), false)));
+    CHECK((mapTest<10, float, bool>(pe::IsFinite(pe::_1), false)));
   }
 
   // FLOAT only
@@ -432,7 +484,7 @@ int main(int argc, char **argv) {
   } else if (test == "Not") {
     // Not can generate memcopies as it uses booleans so we skip the report
     // stage of this.
-    CHECK((mapTest<10, bool>(pe::Not(pe::_1), true, false)));
+    CHECK((mapTest<10, bool>(pe::Not(pe::_1), false)));
   }
 
   //
@@ -456,56 +508,49 @@ int main(int argc, char **argv) {
   // All boolean operations can generate memcopies so will mess up the report
   // reading stage of the test, hence why we skip it.
   else if (test == "Equal") {
-    CHECK((mapTest<10, float, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, int, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
-    CHECK(
-        (mapTest<10, unsigned, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, float, bool>(pe::Equal(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, int, bool>(pe::Equal(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::Equal(pe::_1, pe::_2), false)));
     CHECK((mapTest<12, unsigned long long, bool>(pe::Equal(pe::_1, pe::_2),
-                                                 false, false)));
-    CHECK((
-        mapTest<12, long long, bool>(pe::Equal(pe::_1, pe::_2), false, false)));
+                                                 false)));
+    CHECK((mapTest<12, long long, bool>(pe::Equal(pe::_1, pe::_2), false)));
   } else if (test == "Gte") {
-    CHECK((mapTest<10, float, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, int, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, unsigned, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<12, unsigned long long, bool>(pe::Gte(pe::_1, pe::_2), false,
-                                                 false)));
-    CHECK((mapTest<12, unsigned long long, bool>(pe::Gte(pe::_1, pe::_2), false,
-                                                 false)));
-    CHECK(
-        (mapTest<12, long long, bool>(pe::Gte(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, float, bool>(pe::Gte(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, int, bool>(pe::Gte(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::Gte(pe::_1, pe::_2), false)));
+    CHECK((
+        mapTest<12, unsigned long long, bool>(pe::Gte(pe::_1, pe::_2), false)));
+    CHECK((
+        mapTest<12, unsigned long long, bool>(pe::Gte(pe::_1, pe::_2), false)));
+    CHECK((mapTest<12, long long, bool>(pe::Gte(pe::_1, pe::_2), false)));
   } else if (test == "Gt") {
-    CHECK((mapTest<10, float, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, int, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, unsigned, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<12, unsigned long long, bool>(pe::Gt(pe::_1, pe::_2), false,
-                                                 false)));
-    CHECK((mapTest<12, long long, bool>(pe::Gt(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, float, bool>(pe::Gt(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, int, bool>(pe::Gt(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::Gt(pe::_1, pe::_2), false)));
+    CHECK(
+        (mapTest<12, unsigned long long, bool>(pe::Gt(pe::_1, pe::_2), false)));
+    CHECK((mapTest<12, long long, bool>(pe::Gt(pe::_1, pe::_2), false)));
   } else if (test == "Lte") {
-    CHECK((mapTest<10, float, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, int, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, unsigned, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<12, unsigned long long, bool>(pe::Lte(pe::_1, pe::_2), false,
-                                                 false)));
-    CHECK(
-        (mapTest<12, long long, bool>(pe::Lte(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<10, float, bool>(pe::Lte(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, int, bool>(pe::Lte(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::Lte(pe::_1, pe::_2), false)));
+    CHECK((
+        mapTest<12, unsigned long long, bool>(pe::Lte(pe::_1, pe::_2), false)));
+    CHECK((mapTest<12, long long, bool>(pe::Lte(pe::_1, pe::_2), false)));
   } else if (test == "NotEqual") {
-    CHECK(
-        (mapTest<10, float, bool>(pe::NotEqual(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, int, bool>(pe::NotEqual(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, unsigned, bool>(pe::NotEqual(pe::_1, pe::_2), false,
-                                       false)));
+    CHECK((mapTest<10, float, bool>(pe::NotEqual(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, int, bool>(pe::NotEqual(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::NotEqual(pe::_1, pe::_2), false)));
     CHECK((mapTest<12, unsigned long long, bool>(pe::NotEqual(pe::_1, pe::_2),
-                                                 false, false)));
-    CHECK((mapTest<12, long long, bool>(pe::NotEqual(pe::_1, pe::_2), false,
-                                        false)));
-  } else if (test == "Lt") {
-    CHECK((mapTest<10, float, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, int, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<10, unsigned, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
-    CHECK((mapTest<12, unsigned long long, bool>(pe::Lt(pe::_1, pe::_2), false,
                                                  false)));
-    CHECK((mapTest<12, long long, bool>(pe::Lt(pe::_1, pe::_2), false, false)));
+    CHECK((mapTest<12, long long, bool>(pe::NotEqual(pe::_1, pe::_2), false)));
+  } else if (test == "Lt") {
+    CHECK((mapTest<10, float, bool>(pe::Lt(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, int, bool>(pe::Lt(pe::_1, pe::_2), false)));
+    CHECK((mapTest<10, unsigned, bool>(pe::Lt(pe::_1, pe::_2), false)));
+    CHECK(
+        (mapTest<12, unsigned long long, bool>(pe::Lt(pe::_1, pe::_2), false)));
+    CHECK((mapTest<12, long long, bool>(pe::Lt(pe::_1, pe::_2), false)));
   } else if (test == "Sub") {
     CHECK((mapTest<10, float>(pe::Sub(pe::_1, pe::_2))));
     CHECK((mapTest<10, int>(pe::Sub(pe::_1, pe::_2))));
@@ -573,9 +618,9 @@ int main(int argc, char **argv) {
   // And and OR can generate memcopies so will mess up the report reading stage
   // of the test.
   else if (test == "And") {
-    CHECK((mapTest<10, bool>(pe::And(pe::_1, pe::_2), true, false)));
+    CHECK((mapTest<10, bool>(pe::And(pe::_1, pe::_2), false)));
   } else if (test == "Or") {
-    CHECK((mapTest<10, bool>(pe::Or(pe::_1, pe::_2), true, false)));
+    CHECK((mapTest<10, bool>(pe::Or(pe::_1, pe::_2), false)));
   }
 
   //
@@ -589,24 +634,20 @@ int main(int argc, char **argv) {
   }
 
   else if (test == "Fusion") {
-    CHECK((mapTest<10, float>(
-        pe::Square(pe::Divide(
-            pe::Log(pe::Pow(pe::Mul(pe::Sub(pe::Add(pe::_1, pe::Const(5.0f)),
-                                            pe::Const(3.0f)),
-                                    pe::_2),
-                            pe::Const(2.0f))),
-            pe::_2)),
-        true, true)));
-    CHECK((mapTest<12, unsigned long long>(
-        pe::BitwiseAnd(
-            pe::Divide(pe::BitwiseNot(pe::Add(
-                           pe::Mul(pe::Sub(pe::Add(pe::_1, pe::Const(5)),
-                                           pe::Const(3)),
-                                   pe::_2),
-                           pe::Const(2))),
-                       pe::Const(4)),
-            pe::_2),
-        true, true)));
+    CHECK((mapTest<10, float>(pe::Square(pe::Divide(
+        pe::Log(pe::Pow(
+            pe::Mul(pe::Sub(pe::Add(pe::_1, pe::Const(5.0f)), pe::Const(3.0f)),
+                    pe::_2),
+            pe::Const(2.0f))),
+        pe::_2)))));
+    CHECK((mapTest<12, unsigned long long>(pe::BitwiseAnd(
+        pe::Divide(
+            pe::BitwiseNot(pe::Add(
+                pe::Mul(pe::Sub(pe::Add(pe::_1, pe::Const(5)), pe::Const(3)),
+                        pe::_2),
+                pe::Const(2))),
+            pe::Const(4)),
+        pe::_2))));
   } else if (test == "MissingPlaceholder") {
     // Add an unused int argument.
     CHECK((mapTest<10, float, float, int>(pe::Add(pe::_1, pe::_2))));

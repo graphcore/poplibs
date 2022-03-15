@@ -1635,3 +1635,5 @@ foreach(DATA_TYPE half float unsigned int)
 endforeach()
 
 add_unit_test(LoopTest LoopTest.cpp)
+
+add_unit_test(MapWithOutputTest MapWithOutputTest.cpp)
