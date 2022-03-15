@@ -158,6 +158,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Enable x86-64-v3 microarchitecture level features when compiling
 include(${GCCS_CMAKE_DIR}/AddMarchExtensions.cmake)
 
+# Enable Coverage when the ENABLE_COVERAGE option is ON.
+include(${GCCS_CMAKE_DIR}/EnableCoverage.cmake)
 
 set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE} -fno-omit-frame-pointer -g3")
 
