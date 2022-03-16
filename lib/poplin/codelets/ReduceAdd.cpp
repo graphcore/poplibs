@@ -18,7 +18,7 @@ namespace poplin {
 
 template <typename OutType, typename PartialsType, bool singleInput,
           bool partialsMemConstraints>
-class ReduceAdd : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+class ReduceAdd : public MultiVertex {
 private:
   constexpr static unsigned partialsAlign = partialsMemConstraints ? 16 : 8;
 
@@ -37,13 +37,15 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
-    for (unsigned i = 0; i < numElems; ++i) {
-      float sum = 0;
-      for (unsigned j = 0; j < numPartials; ++j) {
-        sum += float(partials[j][i]);
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      for (unsigned i = 0; i < numElems; ++i) {
+        float sum = 0;
+        for (unsigned j = 0; j < numPartials; ++j) {
+          sum += float(partials[j][i]);
+        }
+        out[i] = sum;
       }
-      out[i] = sum;
     }
     return true;
   }
@@ -51,7 +53,7 @@ public:
 
 template <typename OutType, typename PartialsType, bool partialsMemConstraints>
 class ReduceAdd<OutType, PartialsType, true, partialsMemConstraints>
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+    : public MultiVertex {
 private:
   constexpr static unsigned partialsAlign = partialsMemConstraints ? 16 : 8;
 
@@ -75,13 +77,15 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
-    for (unsigned i = 0; i < numElems; ++i) {
-      float sum = float(initialPartial[i]);
-      for (unsigned j = 0; j != numPartials; ++j) {
-        sum += float(partials[j * numElems + i]);
+  bool compute(unsigned wid) {
+    if (wid == 0) {
+      for (unsigned i = 0; i < numElems; ++i) {
+        float sum = float(initialPartial[i]);
+        for (unsigned j = 0; j != numPartials; ++j) {
+          sum += float(partials[j * numElems + i]);
+        }
+        out[i] = sum;
       }
-      out[i] = sum;
     }
     return true;
   }

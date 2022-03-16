@@ -128,7 +128,6 @@
 //****************************************************************************
 
 .macro WORKER_PREAMBLE
-  .worker
   ldz16 $NUM_ELEMS, $mzero, $mvertex_base, VOFF_NUM_ELEMS/2
   ldz16 $NUM_PARTIALS, $mzero, $mvertex_base, VOFF_NUM_PARTIALS/2
 
@@ -154,6 +153,8 @@
   // (init accumulators)
 .endm
 
+.worker
+
 //****************************************************************************
 // Reduce add float_half. ( Partials = half Output = float )
 //****************************************************************************
@@ -165,18 +166,8 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Half
 .globl ReduceAdd_Float_Half
 .type ReduceAdd_Float_Half, @function
 .align 8
-.supervisor
-
-ReduceAdd_Float_Half:
-  setzi        $S_WORKER_ENTRY, reduce_add_worker_fh
-  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-
-//****************************************************************************
-.worker
   fnop        //For repeat alignment below
-reduce_add_worker_fh:
+ReduceAdd_Float_Half:
   WORKER_PREAMBLE
 
   // Each worker will start writing strided 8 floats (32 bytes) apart
@@ -185,7 +176,7 @@ reduce_add_worker_fh:
   add   $OUT_PTR, $OUT_PTR, $BASE
   shl   $BASE, $WKR_ID, 4
 
- DIVIDE_BY_WORKER $NUM_ELEMS $WKR_ID $SCRATCH $ELEMS_LOOPS LOG2_24_OVER_3
+  DIVIDE_BY_WORKER $NUM_ELEMS $WKR_ID $SCRATCH $ELEMS_LOOPS LOG2_24_OVER_3
 
   // Decrement loop count as we use brnzdec, and skip loop if this worker
   // has no groups of 8 to process
@@ -354,18 +345,9 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Half
 .globl ReduceAdd_Half_Half
 .type ReduceAdd_Half_Half, @function
 .align 8
-.supervisor
 
-ReduceAdd_Half_Half:
-  setzi        $S_WORKER_ENTRY, reduce_add_worker_hh
-  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-
-//****************************************************************************
-  .worker
   nop          // For repeat alignment
-reduce_add_worker_hh:
+ReduceAdd_Half_Half:
   WORKER_PREAMBLE
   // Each worker will start writing strided 8 halves (16 bytes) apart
   // Each worker will start calculating strided 8 halves (16 bytes) apart
@@ -544,15 +526,9 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Float
 .globl ReduceAdd_Half_Float
 .type ReduceAdd_Half_Float, @function
 .align 8
-.supervisor
-ReduceAdd_Half_Float:
-  setzi        $S_WORKER_ENTRY, reduce_add_worker_hf
-  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
 
 //****************************************************************************
-reduce_add_worker_hf:
+ReduceAdd_Half_Float:
   WORKER_PREAMBLE
 
   // Each worker will start writing strided 4 halves (8 bytes) apart
@@ -561,7 +537,7 @@ reduce_add_worker_hf:
   add   $OUT_PTR, $OUT_PTR, $BASE
   shl   $BASE, $WKR_ID, 4
 
- DIVIDE_BY_WORKER $NUM_ELEMS $WKR_ID $SCRATCH $ELEMS_LOOPS LOG2_12_OVER_3
+  DIVIDE_BY_WORKER $NUM_ELEMS $WKR_ID $SCRATCH $ELEMS_LOOPS LOG2_12_OVER_3
 
   // Decrement loop count as we use brnzdec, and skip loop if this worker
   // has no groups of 4 to copy
@@ -687,14 +663,8 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Float
 .globl ReduceAdd_Float_Float
 .type ReduceAdd_Float_Float, @function
 .align 8
-.supervisor
+
 ReduceAdd_Float_Float:
-  setzi        $S_WORKER_ENTRY, reduce_add_worker_ff
-  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-//****************************************************************************
-reduce_add_worker_ff:
   WORKER_PREAMBLE
 
   // Each worker will start writing strided 4 floats (16 bytes) apart

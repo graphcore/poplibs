@@ -129,7 +129,6 @@
 //****************************************************************************
 
 .macro WORKER_PREAMBLE
-  .worker
   ldz16 $NUM_ELEMS, $mzero, $mvertex_base, VOFF_NUM_ELEMS/2
   ldz16 $NUM_PARTIALS, $mzero, $mvertex_base, VOFF_NUM_PARTIALS/2
 
@@ -153,6 +152,8 @@
   // (init accumulators)
 .endm
 
+.worker
+
 //****************************************************************************
 // Reduce add float_half. ( Partials = half Output = float )
 //****************************************************************************
@@ -166,17 +167,8 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Half(true_\partialsMemConstraints)
 .globl ReduceAdd_Float_Half(true_\partialsMemConstraints)
 .type ReduceAdd_Float_Half(true_\partialsMemConstraints), @function
 .align 4
-.supervisor
 
 ReduceAdd_Float_Half(true_\partialsMemConstraints):
-  setzi        $S_WORKER_ENTRY, reduce_add_worker_fh\@
-  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-
-//****************************************************************************
-.worker
-reduce_add_worker_fh\@:
   WORKER_PREAMBLE
 
   // Each worker will start writing strided 8 floats (32 bytes) apart
@@ -257,18 +249,9 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Half(true_\partialsMemConstraints)
 .section .text.Reduce_Half_Half(true_\partialsMemConstraints), "ax"
 .globl ReduceAdd_Half_Half(true_\partialsMemConstraints)
 .type ReduceAdd_Half_Half(true_\partialsMemConstraints), @function
-.align 4
-.supervisor
 
-ReduceAdd_Half_Half(true_\partialsMemConstraints):
-  setzi        $S_WORKER_ENTRY, reduce_add_worker_hh\@
-  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-//****************************************************************************
-  .worker
   .align 8
-reduce_add_worker_hh\@:
+ReduceAdd_Half_Half(true_\partialsMemConstraints):
   WORKER_PREAMBLE
   // Each worker will start writing strided 8 halves (16 bytes) apart
   // Each worker will start calculating strided 8 halves (16 bytes) apart
@@ -350,15 +333,8 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Float(true_\partialsMemConstraints)
 .globl ReduceAdd_Half_Float(true_\partialsMemConstraints)
 .type ReduceAdd_Half_Float(true_\partialsMemConstraints), @function
 .align 4
-.supervisor
-ReduceAdd_Half_Float(true_\partialsMemConstraints):
-  setzi        $S_WORKER_ENTRY, reduce_add_worker_hf\@
-  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
 
-//****************************************************************************
-reduce_add_worker_hf\@:
+ReduceAdd_Half_Float(true_\partialsMemConstraints):
   WORKER_PREAMBLE
 
   // Each worker will start writing strided 4 halves (8 bytes) apart
@@ -436,14 +412,8 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Float(true_\partialsMemConstraints
 .globl ReduceAdd_Float_Float(true_\partialsMemConstraints)
 .type ReduceAdd_Float_Float(true_\partialsMemConstraints), @function
 .align 4
-.supervisor
+
 ReduceAdd_Float_Float(true_\partialsMemConstraints):
-  setzi        $S_WORKER_ENTRY, reduce_add_worker_ff\@
-  runall       $S_WORKER_ENTRY, $S_VERTEX_BASE, 0
-  sync         TEXCH_SYNCZONE_LOCAL
-  br           $lr
-//****************************************************************************
-reduce_add_worker_ff\@:
   WORKER_PREAMBLE
 
   // Each worker will start writing strided 4 floats (16 bytes) apart
