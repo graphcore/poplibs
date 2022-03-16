@@ -17,7 +17,6 @@ public:
                const std::vector<::poplar::Tensor> &,
                ::poplar::program::Sequence &, const ::poplar::DebugContext &,
                const ::poplar::OptionFlags &));
-
   MOCK_METHOD(poplar::Tensor, map,
               (::poplar::Graph &, const ::popops::expr::Expr &,
                const std::vector<::poplar::Tensor> &,
