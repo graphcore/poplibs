@@ -1301,17 +1301,28 @@ foreach(DATA_TYPE half float)
                        --tiles-per-ipu=4)
 endforeach()
 
-foreach(useFloat true false)
+foreach(useFloatWithUnsignedOutput true false)
   foreach(update true false)
-    foreach(withOutput true false)
-      add_multitarget_test(NAME HistogramTest_${withOutput}_${update}_${useFloat}
+    foreach(useFloat true false)
+      add_multitarget_test(NAME HistogramTest_noOutProvided_${update}_${useFloat}_${useFloatWithUnsignedOutput}
+          COMMAND HistogramTest
+          --type float
+          --inner-dim-size=200
+          --limits-size=8
+          --update=${update}
+          --use-float-arithmetic=${useFloat}
+          --use-float-arithmetic-with-unsigned-int-output=${useFloatWithUnsignedOutput})
+    endforeach()
+
+    foreach(outputType float unsigned)
+      add_multitarget_test(NAME HistogramTest_${outputType}_${update}_${useFloatWithUnsignedOutput}
         COMMAND HistogramTest
         --type float
         --inner-dim-size=200
         --limits-size=8
-        --with-output=${withOutput}
+        --output-type=${outputType}
         --update=${update}
-        --use-float-arithmetic=${useFloat})
+        --use-float-arithmetic-with-unsigned-int-output=${useFloatWithUnsignedOutput})
     endforeach()
   endforeach()
 endforeach()
@@ -1319,17 +1330,30 @@ endforeach()
 # Note that useFloat works here despite counting 20,000,000 elements -
 # with 7 limits = 8 histogram entries and random data there are few enough
 # values counted in each to be represented in float as an exact integer
-foreach(useFloat true false)
+foreach(useFloatWithUnsignedOutput true false)
   foreach(update true false)
-    foreach(withOutput true false)
-      add_multitarget_test(NAME HistogramTest_large_${withOutput}_${update}_${useFloat}
+    foreach(useFloat true false)
+      add_multitarget_test(NAME HistogramTest_large_noOutProvided_${update}_${useFloat}_${useFloatWithUnsignedOutput}
+          COMMAND HistogramTest
+          --type half
+          --inner-dim-size=20000000
+          --limits-size=7
+          --update=${update}
+          --use-float-arithmetic=${useFloat}
+          --use-float-arithmetic-with-unsigned-int-output=${useFloatWithUnsignedOutput}
+          --tiles-per-ipu=1024
+          VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
+
+    foreach(outputType float unsigned)
+      add_multitarget_test(NAME HistogramTest_large_${outputType}_${update}_${useFloatWithUnsignedOutput}
         COMMAND HistogramTest
         --type half
         --inner-dim-size=20000000
         --limits-size=7
-        --with-output=${withOutput}
+        --output-type=${outputType}
         --update=${update}
-        --use-float-arithmetic=${useFloat}
+        --use-float-arithmetic-with-unsigned-int-output=${useFloatWithUnsignedOutput}
         --tiles-per-ipu=1024
         VARIANTS ${IPUMODEL_VARIANTS})
     endforeach()
@@ -1532,7 +1556,7 @@ foreach(DATA_TYPE half float unsigned int)
               --sort-order=${SORT_ORDER}
               --tiles-per-ipu=4)
 
-          if (INDICES) 
+          if (INDICES)
             add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1000_k100_largest${LARGEST}_${SORT_ORDER}_stableSort
               COMMAND topk
                 --n 1000

@@ -9,11 +9,14 @@
 #include "poputil/OptionParsing.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
+#include <poplibs_support/logging.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
+using namespace poplibs_support;
 
 namespace popops {
 
@@ -21,17 +24,44 @@ namespace {
 
 struct HistogramOptions {
   bool useFloatArithmetic = false;
+  bool useFloatArithmeticWithUnsignedIntOutput = false;
 };
 
-HistogramOptions parseOptionFlags(const OptionFlags &options) {
+static void validateOptions(const HistogramOptions &opts,
+                            bool useFloatSupported) {
+  if (opts.useFloatArithmetic) {
+    if (!useFloatSupported) {
+      throw poplar::invalid_option(
+          "Option `useFloatArithmetic` is not supported for this function,"
+          " but option `useFloatArithmeticWithUnsignedIntOutput` is"
+          " supported");
+    } else if (opts.useFloatArithmeticWithUnsignedIntOutput) {
+      throw poplar::invalid_option(
+          "Both options `useFloatArithmetic`"
+          " and `useFloatArithmeticWithUnsignedIntOutput` must not be switched"
+          " ON at the same time");
+    }
+    logging::popops::warn(
+        "The `useFloatArithmetic` option is deprecated."
+        " Consider using the `useFloatArithmeticWithUnsignedIntOutput` option"
+        " to use float arithmetic internally.");
+  }
+}
+
+HistogramOptions parseOptionFlags(const OptionFlags &options,
+                                  bool useFloatSupported) {
   HistogramOptions histogramOpts;
   const poplibs::OptionSpec histogramSpec{
       {"useFloatArithmetic", poplibs::OptionHandler::createWithBool(
                                  histogramOpts.useFloatArithmetic)},
+      {"useFloatArithmeticWithUnsignedIntOutput",
+       poplibs::OptionHandler::createWithBool(
+           histogramOpts.useFloatArithmeticWithUnsignedIntOutput)},
   };
   for (const auto &entry : options) {
     histogramSpec.parse(entry.first, entry.second);
   }
+  validateOptions(histogramOpts, useFloatSupported);
   return histogramOpts;
 }
 
@@ -209,17 +239,21 @@ poplar::Tensor histogram(poplar::Graph &graph, const poplar::Tensor &input,
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(input, levels, absoluteOfInput, options));
 
-  const auto opts = parseOptionFlags(options);
+  const auto opts = parseOptionFlags(options, true);
   auto histogramResult =
       histogramImpl(graph, input, levels, absoluteOfInput, prog, {di});
 
-  if (opts.useFloatArithmetic) {
+  if (opts.useFloatArithmeticWithUnsignedIntOutput || opts.useFloatArithmetic) {
     // Override all concerns over inaccurate integer representation as float,
     // but tolerate possible inaccurate results
     auto output = reduce(graph, histogramResult, FLOAT, {0},
                          popops::Operation::ADD, prog, {di});
-    di.addOutput(output);
-    return output;
+    auto output_ = output;
+    if (opts.useFloatArithmeticWithUnsignedIntOutput) {
+      output_ = cast(graph, output, UNSIGNED_INT, prog, {di});
+    }
+    di.addOutput(output_);
+    return output_;
   }
   // See the above explanation on numeric limits for exact integer
   // representation using float vs unsigned
@@ -240,23 +274,54 @@ void histogram(poplar::Graph &graph, const poplar::Tensor &input,
                poplar::Tensor &output, bool updateOutput,
                const poplar::Tensor &levels, bool absoluteOfInput,
                poplar::program::Sequence &prog,
-               const poplar::DebugContext &debugContext) {
+               const poplar::DebugContext &debugContext,
+               const poplar::OptionFlags &options) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(input, output, levels, updateOutput, absoluteOfInput));
+      DI_ARGS(input, output, levels, updateOutput, absoluteOfInput, options));
 
-  const auto useFloatArithmetic = (output.elementType() == FLOAT);
+  const auto opts = parseOptionFlags(options, false);
+  if (opts.useFloatArithmeticWithUnsignedIntOutput &&
+      output.elementType() != poplar::UNSIGNED_INT) {
+    throw poputil::poplibs_error(
+        "histogram output tensor is expected to be of type"
+        " UNSIGNED_INT but " +
+        output.elementType().toString() + " found");
+  }
+
   auto histogramResult =
       histogramImpl(graph, input, levels, absoluteOfInput, prog, {di});
 
-  if (useFloatArithmetic) {
+  // This output type checking condition is deprecated in favour of determining
+  // the arithmetic based on the option
+  // `useFloatArithmeticWithUnsignedIntOutput`.
+  if (output.elementType() == FLOAT) {
     // Override all concerns over inaccurate integer representation as float,
     // but tolerate possible inaccurate results
+    logging::popops::warn(
+        "Passing an output tensor of type FLOAT to the"
+        " histogram function is deprecated! Consider using the"
+        " `useFloatArithmeticWithUnsignedIntOutput` option to use float"
+        " arithmetic internally.");
     reduceWithOutput(graph, histogramResult, output, {0},
                      {popops::Operation::ADD, updateOutput}, prog, {di});
     return;
+  } else if (opts.useFloatArithmeticWithUnsignedIntOutput) {
+    if (updateOutput) {
+      auto outFloat = graph.clone(FLOAT, output);
+      reduceWithOutput(graph, histogramResult, outFloat, {0},
+                       popops::Operation::ADD, prog, {di});
+      mapInPlace(graph, expr::Cast(expr::_2, UNSIGNED_INT) + expr::_1,
+                 {output, outFloat}, prog, {di});
+    } else {
+      auto output_ = reduce(graph, histogramResult, FLOAT, {0},
+                            popops::Operation::ADD, prog, {di});
+      output = cast(graph, output_, UNSIGNED_INT, prog, {di});
+    }
+    return;
   }
+
   // See the above explanation on numeric limits for exact integer
   // representation using float vs unsigned
   if (input.numElements() > maxElementsForFloatReduction) {

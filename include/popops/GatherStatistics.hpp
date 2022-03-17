@@ -26,12 +26,23 @@ namespace popops {
  *
  * **Histogram options**
  *
+ *   * `useFloatArithmeticWithUnsignedIntOutput` (true, false) [=false]
+ *
+ *     If true, use float arithmetic internally and reduce the result to
+ *     unsigned int. This has the benefit of simplicity and speed,
+ *     but integer accuracy limited by the 32-bit float data format
+ *     (integers > 16,777,216 are not all exactly represented).
+ *
  *   * `useFloatArithmetic` (true, false) [=false]
+ *     \deprecated use `useFloatArithmeticWithUnsignedIntOutput` instead.
  *
  *     If true, use float arithmetic internally and return a float result
  *     rather than an unsigned int result.  This has the benefit of
  *     simplicity and speed, but integer accuracy limited by the 32-bit float
  *     data format (integers > 16,777,216 are not all exactly represented).
+ *
+ *     The options `useFloatArithmeticWithUnsignedIntOutput` and
+ *     `useFloatArithmetic` must not both be true.
  *
  * \param graph           The Poplar graph.
  * \param input           The input tensor on which to gather histogram
@@ -50,6 +61,9 @@ namespace popops {
  *                        levels + 1 histogram results. If the option
  *                        `useFloatArithmetic` is "true" the returned tensor
  *                        will have type float.
+ * \throw poplar::invalid_option If options `useFloatArithmetic` and
+ *                        `useFloatArithmeticWithUnsignedIntOutput` are
+ *                        both true.
  */
 
 poplar::Tensor histogram(poplar::Graph &graph, const poplar::Tensor &input,
@@ -63,17 +77,31 @@ poplar::Tensor histogram(poplar::Graph &graph, const poplar::Tensor &input,
  *
  *  Performs the same function as histogram() but writes the output to
  *  \p output. This must be one element larger than the \p levels tensor and
- *  have elements of type float or unsigned integer. The type of the output
- *  tensor will determine the type of arithmetic used internally, as described
- *  above.
+ *  have elements of type float or unsigned integer. This function allows
+ *  histogram results to be accumulated over a number of calls using the
+ *  \p updateOutput parameter.
  *
- *  This function allows histogram results to be accumulated over a number of
- *  calls using the \p updateOutput parameter.
+ * **Deprecated Behaviour**
+ *  The determination of the internally used arithmetic based on the type of
+ *  the output tensor is deprecated.
+ *
+ *  The usage of `output` tensor argument of type `FLOAT` is deprecated.
+ *
+ * **Histogram options**
+ *
+ *   * `useFloatArithmeticWithUnsignedIntOutput` (true, false) [=false]
+ *
+ *     If true, use float arithmetic internally and reduce the result to
+ *     unsigned int. This has the benefit of simplicity and speed,
+ *     but integer accuracy limited by the 32-bit float data format
+ *     (integers > 16,777,216 are not all exactly represented).
+ *
+ *   The `useFloatArithmetic` option must be false.
  *
  * \param graph           The Poplar graph.
  * \param input           The input tensor on which to gather histogram
  *                        statistics.
- * \param input           The output tensor which will store the histogram
+ * \param output          The output tensor which will store the histogram
  *                        results.
  * \param updateOutput    If true, the histogram counts will be added to the
  *                        values already in \p output.
@@ -84,12 +112,19 @@ poplar::Tensor histogram(poplar::Graph &graph, const poplar::Tensor &input,
  * \param prog            A sequence program to which the code performing the
  *                        histogram will be appended.
  * \param debugContext    Optional debug information.
+ * \param options         A list of options to control the operation of the
+ *                        histogram function.
+ * \throw poputil::poplibs_error If option
+ *                        `useFloatArithmeticWithUnsignedIntOutput` is true and
+ *                        output does not have UNSIGNED_INT type.
+ * \throw poplar::invalid_option If option `useFloatArithmetic` is true.
  */
 void histogram(poplar::Graph &graph, const poplar::Tensor &input,
                poplar::Tensor &output, bool updateOutput,
                const poplar::Tensor &levels, bool absoluteOfInput,
                poplar::program::Sequence &prog,
-               const poplar::DebugContext &debugContext = {});
+               const poplar::DebugContext &debugContext = {},
+               const poplar::OptionFlags &options = {});
 } // namespace popops
 
 #endif // popops_GatherStatistics_hpp

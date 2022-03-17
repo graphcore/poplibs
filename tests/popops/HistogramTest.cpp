@@ -4,11 +4,14 @@
 #include "poplibs_test/Util.hpp"
 #include "popops/GatherStatistics.hpp"
 #include "popops/codelets.hpp"
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/TempDir.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 #include <stdexcept>
 #include <string.h>
 #include <utility>
@@ -57,9 +60,12 @@ template <typename HistType>
 bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
             const std::vector<double> &data, const std::vector<float> &limits,
             const std::vector<HistType> &initialHistogram,
-            bool useFloatArithmetic, bool withOutput, bool update,
+            bool useFloatArithmetic,
+            bool useFloatArithmeticWithUnsignedIntOutput,
+            const boost::optional<poplar::Type> &outputType, bool update,
             const poplar::Type &dataType, bool isAbsolute,
             bool twoDInputTensor) {
+  bool withOutput = outputType ? true : false;
   auto &target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -82,21 +88,51 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
   mapTensorLinearly(graph, twoDInputTensor ? ipuData.transpose() : ipuData);
   graph.setTileMapping(ipuLimits, 0);
 
+  bool success = true;
   auto prog = Sequence();
   poplar::OptionFlags options = {
-      {"useFloatArithmetic", useFloatArithmetic ? "true" : "false"}};
+      {"useFloatArithmetic", useFloatArithmetic ? "true" : "false"},
+      {"useFloatArithmeticWithUnsignedIntOutput",
+       useFloatArithmeticWithUnsignedIntOutput ? "true" : "false"}};
   Tensor ipuHistogram;
-  if (withOutput) {
-    ipuHistogram = graph.addVariable(useFloatArithmetic ? FLOAT : UNSIGNED_INT,
-                                     {limits.size() + 1});
-    mapTensorLinearly(graph, ipuHistogram);
-    graph.createHostWrite("histogram", ipuHistogram);
-
-    popops::histogram(graph, ipuData, ipuHistogram, update, ipuLimits,
-                      isAbsolute, prog, "Test Histogram");
-  } else {
-    ipuHistogram = popops::histogram(graph, ipuData, ipuLimits, isAbsolute,
-                                     prog, "Test Histogram", options);
+  try {
+    if (withOutput) {
+      ipuHistogram = graph.addVariable(*outputType, {limits.size() + 1});
+      mapTensorLinearly(graph, ipuHistogram);
+      graph.createHostWrite("histogram", ipuHistogram);
+      popops::histogram(graph, ipuData, ipuHistogram, update, ipuLimits,
+                        isAbsolute, prog, "Test Histogram", options);
+    } else {
+      ipuHistogram = popops::histogram(graph, ipuData, ipuLimits, isAbsolute,
+                                       prog, "Test Histogram", options);
+    }
+  } catch (poputil::poplibs_error &) {
+    if (!(withOutput && useFloatArithmeticWithUnsignedIntOutput &&
+          *outputType != UNSIGNED_INT)) {
+      // Declare error if the expected error condition is not true for the
+      // histogram API that takes an output tensor argument.
+      success = false;
+    }
+    std::cerr << "Exiting test due to " << (success ? "expected" : "unexpected")
+              << " poputil::poplibs_error exception" << std::endl;
+    return success;
+  } catch (poplar::invalid_option &) {
+    if (withOutput) {
+      // Declare error if the expected error condition is not true for the
+      // histogram API that takes an output tensor argument.
+      if (!(useFloatArithmetic)) {
+        success = false;
+      }
+    } else {
+      // Declare error if the expected error condition is not true for the
+      // histogram API that creates the output tensor.
+      if (!(useFloatArithmetic && useFloatArithmeticWithUnsignedIntOutput)) {
+        success = false;
+      }
+    }
+    std::cerr << "Exiting test due to " << (success ? "expected" : "unexpected")
+              << " poplar::invalid_option exception" << std::endl;
+    return success;
   }
   graph.createHostRead("histogram", ipuHistogram);
   graph.createHostWrite("data", ipuData);
@@ -137,7 +173,6 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
   copy(target, dataType, rawLimits.data(), limitsConvert.data(),
        limitsConvert.size());
 
-  bool success = true;
   // Generate host result, compare
   auto hostResult = histogram<HistType>(dataConvert, limitsConvert,
                                         initialHistogram, isAbsolute);
@@ -167,7 +202,8 @@ int main(int argc, char **argv) {
   Type dataType = FLOAT;
   bool isAbsolute = false;
   bool useFloatArithmetic = false;
-  bool withOutput = false;
+  bool useFloatArithmeticWithUnsignedIntOutput = false;
+  boost::optional<poplar::Type> outputType;
   bool update = false;
   bool twoD = false;
   unsigned innermostDimSize;
@@ -212,8 +248,10 @@ int main(int argc, char **argv) {
       "Use absolute values of the data")
     ("use-float-arithmetic", po::value(&useFloatArithmetic)->default_value(useFloatArithmetic),
       "Use float arithmetic, producing a float result for speed")
-    ("with-output", po::value(&withOutput)->default_value(withOutput),
-      "Provide an output external to the histogram function")
+    ("use-float-arithmetic-with-unsigned-int-output", po::value(&useFloatArithmeticWithUnsignedIntOutput)->default_value(useFloatArithmeticWithUnsignedIntOutput),
+      "Use float arithmetic, producing an unsigned int result for speed")
+    ("output-type", po::value<decltype(outputType)>(&outputType)->default_value(boost::none)->implicit_value(boost::none),
+      "Provide an output external to the histogram function with specified type")
     ("update", po::value(&update)->default_value(update),
       "Update (continue to gather) histogram results, implies with-output=true")
     ;
@@ -236,7 +274,15 @@ int main(int argc, char **argv) {
   }
 
   if (update) {
-    withOutput = true;
+    auto requiredType = useFloatArithmetic ? FLOAT : UNSIGNED_INT;
+    if (!outputType) {
+      std::cerr << "Using " << requiredType
+                << " output type because the"
+                   " `update` option has been used and the output type was not"
+                   " specified"
+                << std::endl;
+      outputType = requiredType;
+    }
   }
 
   const auto dataSize = innermostDimSize * (1 + twoD);
@@ -260,13 +306,14 @@ int main(int argc, char **argv) {
     limits[i] = limitsMin + static_cast<float>(i) * limitsStep;
   }
   bool success;
-  if (useFloatArithmetic) {
+  if (useFloatArithmetic || outputType == FLOAT) {
     std::vector<float> initialHistogram(limitSize + 1);
     for (unsigned i = 0; i < limitSize + 1; i++) {
       initialHistogram[i] = update ? i + 1 : 0;
     }
     success = doTest<float>(device, deviceType, profile, data, limits,
-                            initialHistogram, useFloatArithmetic, withOutput,
+                            initialHistogram, useFloatArithmetic,
+                            useFloatArithmeticWithUnsignedIntOutput, outputType,
                             update, dataType, isAbsolute, twoD);
   } else {
     std::vector<unsigned> initialHistogram(limitSize + 1);
@@ -274,8 +321,9 @@ int main(int argc, char **argv) {
       initialHistogram[i] = update ? i + 1 : 0;
     }
     success = doTest<unsigned>(device, deviceType, profile, data, limits,
-                               initialHistogram, useFloatArithmetic, withOutput,
-                               update, dataType, isAbsolute, twoD);
+                               initialHistogram, useFloatArithmetic,
+                               useFloatArithmeticWithUnsignedIntOutput,
+                               outputType, update, dataType, isAbsolute, twoD);
   }
   if (!success) {
     std::cerr << "Failure\n";
