@@ -92,7 +92,9 @@ std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << "        gatherConvOutput                     ";
   os << opts.gatherConvOutput << "\n";
   os << "        experimental.slicVmac16              ";
-  os << opts.experimentalSlicVmac16;
+  os << opts.experimentalSlicVmac16 << "\n";
+  os << "        disableSRForAMPVertices";
+  os << opts.disableSRForAMPVertices;
   return os;
 }
 
@@ -136,7 +138,10 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithBool(experimentalConvTransformsEstimates)},
       {"gatherConvOutput", OptionHandler::createWithBool(gatherConvOutput)},
       {"experimental.slicVmac16",
-       OptionHandler::createWithBool(experimentalSlicVmac16)}};
+       OptionHandler::createWithBool(experimentalSlicVmac16)},
+      {"disableSRForAMPVertices",
+       OptionHandler::createWithBool(disableSRForAMPVertices)},
+  };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
   }

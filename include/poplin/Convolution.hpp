@@ -214,11 +214,6 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *
  *      Number of tiles per IPU to be used.
  *
- *    * `useAggressiveRegrouping` (true, false) [=false]
- *
- *      If true, an attempt will always be made to regroup activations and
- *      weights before the convolution.
- *
  *   * `gatherConvOutput` (true, false) [=false]
  *
  *     Gather output of the matrix multipy into a single variable
@@ -227,6 +222,11 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *
  *     Restricts convolution planner to use SLIC/VMAC vertices with
  *     grouping of 16
+ *
+ *   * 'disableSRForAMPVertices' (true, false) [=false]
+ *
+ *     Disable stochastic rounding for vertices that use AMP
+ *
  */
 /**
  * \param graph   The graph that the tensor will be added to.

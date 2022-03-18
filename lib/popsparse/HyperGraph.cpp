@@ -89,9 +89,9 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
   out.push_back(output);
 
   poplar::VertexRef v = graph.addVertex(
-      mulCS,
-      poputil::templateVertex("poplin::ConvPartial1x1Out", inDataType,
-                              partialDataType, "true", "false", convUnits));
+      mulCS, poputil::templateVertex("poplin::ConvPartial1x1Out", inDataType,
+                                     partialDataType, "true", "false",
+                                     convUnits, false));
 
   graph.connect(v["in"], inputA);
   graph.connect(v["out"], out);

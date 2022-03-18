@@ -8,9 +8,10 @@
 
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "conv_sr_ctrl.h.S"
 
-#define CODELET_SYMBOL_ENTRY(partials_type, stride, conv_chains, cgpg) \
-        __runCodelet_poplin__ConvPartial1xNSLIC___half_ ## partials_type ##_## stride ## _true_4_ ## conv_chains ##_## cgpg
+#define CODELET_SYMBOL_ENTRY(partials_type, stride, conv_chains, cgpg, disable_sr) \
+        __runCodelet_poplin__ConvPartial1xNSLIC___half_ ## partials_type ##_## stride ## _true_4_ ## conv_chains ##_## cgpg ##_## disable_sr
 
 #define CODELET_SYMBOL(suffix) __runCodelet_poplin__ConvPartial1x4SLIC___half_ ## suffix
 
@@ -106,7 +107,9 @@
 #define SUPERVISOR_STACK_OFFSET_num_sub_kernels_m1 (SUPERVISOR_STACK_BASE_OFFSET + 12)
 #define SUPERVISOR_STACK_OFFSET_swap_out_ptrs_on_load (SUPERVISOR_STACK_BASE_OFFSET + 16)
 #define SUPERVISOR_STACK_OFFSET_worker_fn_ptr (SUPERVISOR_STACK_BASE_OFFSET + 20)
-#define SUPERVISOR_STACK_SIZE (24) // (aligns to 8 byte boundary)
+#define SUPERVISOR_STACK_OFFSET_fpictl (SUPERVISOR_STACK_BASE_OFFSET + 24)
+
+#define SUPERVISOR_STACK_SIZE (32) // (aligns to 8 byte boundary)
 //=============
 
 //=============
@@ -117,7 +120,9 @@
 #define msupervisor_vertex_base m0
 #define s_worklists_base_ptr m1
 #define s_mode m4
+#define s_fpictl m4
 #define s_weights_ptr_iterator m5
+#define s_mask m5
 #define s_worker_function m6
 #define s_worklists_deltan_ptr m7
 #define s_out_field_buffer_ptr m8
@@ -134,17 +139,17 @@ CODELET_SYMBOL(worker_load_weights_jump_table):
 
 ////////////////////////////////////////////////////////////////////////////////
 // Supervisor function, entry point macro definition
-.macro supervisor_fn PARTIALS_TYPE CONV_CHAINS CONV_GROUPS_PER_GROUP
+.macro supervisor_fn PARTIALS_TYPE CONV_CHAINS CONV_GROUPS_PER_GROUP DISABLE_SR
 
 // Supervisor uses MAX_STACK_SIZE, workers  don't use any stack
-DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP)
-DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP)
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP\(), \DISABLE_SR\())
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP\(), \DISABLE_SR\())
 
-.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP)
-.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP), @function
+.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP\(),\DISABLE_SR\())
+.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP\(),\DISABLE_SR\()), @function
 
-.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP)
-.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP), @function
+.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP\(),\DISABLE_SR\())
+.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP\(),\DISABLE_SR\()), @function
 
 // Parameters we can deduce directly from the macro params
 .ifc "\PARTIALS_TYPE", "float"
@@ -159,11 +164,11 @@ DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV
   .equ  STRIDE2_BUFFER_OFFSET, BUFFER_ALIGNED_OFFSET
 .endif
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_entry_stride2), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()__\DISABLE_SR\()_entry_stride2), "ax"
 .align 4
 .supervisor
 
-CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP):
+CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP\(),\DISABLE_SR\()):
   // The only differences in codelet execution come in the worker function body,
   // much much later on.  So put a pointer to the required function onto the stack
   // to pick up later.  This will mean that we will link just the functions(s)
@@ -172,28 +177,28 @@ CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP)
 #define s_out_field_buffer_offset m2
 #define s_worker_fn_ptr m3
 //=============
-  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride2_\CONV_GROUPS_PER_GROUP)
+  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride2_\CONV_GROUPS_PER_GROUP\())
 .ifc "\PARTIALS_TYPE", "half"
   setzi  $s_out_field_buffer_offset, STRIDE2_BUFFER_OFFSET
 .endif
-  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_common_entry)
+  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_\DISABLE_SR\()_common_entry)
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_\CONV_GROUPS_PER_GROUP\()_entry_stride1), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_\CONV_GROUPS_PER_GROUP\()_\DISABLE_SR\()_entry_stride1), "ax"
 .align 4
 .supervisor
 
-CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP):
+CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS\(),\CONV_GROUPS_PER_GROUP\(),\DISABLE_SR\()):
 
-  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride1_\CONV_GROUPS_PER_GROUP)
+  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride1_\CONV_GROUPS_PER_GROUP\())
 .ifc "\PARTIALS_TYPE", "half"
   setzi  $s_out_field_buffer_offset, STRIDE1_BUFFER_OFFSET
 .endif
-  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_common_entry)
+  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_\DISABLE_SR\()_common_entry)
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_\DISABLE_SR\()), "ax"
 .align 4
 .supervisor
-CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_common_entry):
+CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_\DISABLE_SR\()_common_entry):
   // Calculation of $s_worklists_base_ptr is essentially the critical path as
   // it requires 4 instructions to load, mask and store it for a total of 19 cycles minimum
   // (6 cycles * 3 instructions for load, shl, shr + 1 cycle to issue the store)
@@ -201,6 +206,10 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_common
   ld32 $s_worklists_deltan_ptr, $msupervisor_vertex_base, $mzero, (SUPERVISOR_STATE_OFFSET_worklists + 4)/4
   // Setup space on the stack to store m9/m10 and worker state.
   add $sp, $sp, -MAX_STACK_SIZE
+
+.ifc \DISABLE_SR, true
+  SAVE_FPICTL_AND_DISABLE_SR  SUPERVISOR_STACK_OFFSET_fpictl/4 s_fpictl s_mask
+.endif
 
   setzi $s_worker_function, CODELET_SYMBOL(worker_load_weights_jump_table)
   ldz8 $s_mode, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_mode/1
@@ -365,6 +374,11 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_common
 #undef s_weights_ptr
 //=============
   brnzdec $s_num_conv_group_groups_m1, .LConvGroupGroupsLoop\@
+
+.ifc \DISABLE_SR, true
+  RESTORE_FPICTL SUPERVISOR_STACK_OFFSET_fpictl/4 s_fpictl
+.endif
+
   ld32 $m9, $sp, $mzero, SUPERVISOR_STACK_OFFSET_m9/4
   ld32 $m10, $sp, $mzero, SUPERVISOR_STACK_OFFSET_m10/4
   add $sp, $sp, MAX_STACK_SIZE
@@ -383,10 +397,12 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_\CONV_GROUPS_PER_GROUP\()_common
 .endm
 ////////////////////////////////////////////////////////////////////////////////
 // Instantiate supervisor entry
-  supervisor_fn float 2 4
+  supervisor_fn float 2 4 true
+  supervisor_fn float 2 4 false
 
 #if (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
-  supervisor_fn half 4 4
+  supervisor_fn half 4 4 true
+  supervisor_fn half 4 4 false
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////

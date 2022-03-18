@@ -156,6 +156,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerSLIC.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerSLICStride2.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_common.h.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_sr_ctrl.h.S    
 )
 
 install(TARGETS poplin

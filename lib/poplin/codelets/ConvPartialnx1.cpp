@@ -43,7 +43,7 @@ constexpr bool hasAssembly() {
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
 template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad,
-          unsigned numConvUnits>
+          unsigned numConvUnits, bool disableSR>
 class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartialnx1
     : public SupervisorVertexIf<
           hasAssembly<FPType, AccumType, useLimitedVer, numConvUnits>() &&
@@ -317,9 +317,10 @@ public:
   }
 };
 
-template <bool useLimitedVer, bool use128BitLoad, unsigned numConvUnits>
+template <bool useLimitedVer, bool use128BitLoad, unsigned numConvUnits,
+          bool disableSR>
 class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartialnx1<
-    quarter, half, useLimitedVer, use128BitLoad, numConvUnits>
+    quarter, half, useLimitedVer, use128BitLoad, numConvUnits, disableSR>
     : public SupervisorVertex {
   static const bool needsAlignWorkers = false;
 
@@ -447,33 +448,43 @@ public:
 #endif // __IPU_ARCH_VERSION__
 #endif // __IPU__
 
-template class ConvPartialnx1<float, float, true, false, 8>;
-template class ConvPartialnx1<half, half, true, false, 8>;
-template class ConvPartialnx1<half, float, true, false, 8>;
-template class ConvPartialnx1<float, float, false, false, 8>;
-template class ConvPartialnx1<half, half, false, false, 8>;
-template class ConvPartialnx1<half, float, false, false, 8>;
+#define INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(LIMITED, LOAD128, DISABLE_SR) \
+  template class ConvPartialnx1<float, float, LIMITED, LOAD128, 8,             \
+                                DISABLE_SR>;                                   \
+  template class ConvPartialnx1<half, half, LIMITED, LOAD128, 8, DISABLE_SR>;  \
+  template class ConvPartialnx1<half, float, LIMITED, LOAD128, 8, DISABLE_SR>;
 
-template class ConvPartialnx1<float, float, true, true, 8>;
-template class ConvPartialnx1<half, half, true, true, 8>;
-template class ConvPartialnx1<half, float, true, true, 8>;
-template class ConvPartialnx1<float, float, false, true, 8>;
-template class ConvPartialnx1<half, half, false, true, 8>;
-template class ConvPartialnx1<half, float, false, true, 8>;
+INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(true, false, false)
+INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(false, false, false)
+INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(true, true, false)
+INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(false, true, false)
+INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(true, false, true)
+INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(false, false, true)
+INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(true, true, true)
+INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(false, true, true)
 
-template class ConvPartialnx1<float, float, true, false, 16>;
-template class ConvPartialnx1<half, half, true, false, 16>;
-template class ConvPartialnx1<float, float, false, false, 16>;
-template class ConvPartialnx1<half, half, false, false, 16>;
+#define INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(LIMITED, LOAD128,            \
+                                                  DISABLE_SR)                  \
+  template class ConvPartialnx1<float, float, LIMITED, LOAD128, 16,            \
+                                DISABLE_SR>;                                   \
+  template class ConvPartialnx1<half, half, LIMITED, LOAD128, 16, DISABLE_SR>;
 
-template class ConvPartialnx1<float, float, true, true, 16>;
-template class ConvPartialnx1<half, half, true, true, 16>;
-template class ConvPartialnx1<float, float, false, true, 16>;
-template class ConvPartialnx1<half, half, false, true, 16>;
+INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(true, false, false)
+INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(false, false, false)
+INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(true, true, false)
+INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(false, true, false)
+INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(true, false, true)
+INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(false, false, true)
+INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(true, true, true)
+INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(false, true, true)
 
-template class ConvPartialnx1<quarter, half, false, false, 16>;
-template class ConvPartialnx1<quarter, half, false, true, 16>;
-template class ConvPartialnx1<quarter, half, true, false, 16>;
-template class ConvPartialnx1<quarter, half, true, true, 16>;
+template class ConvPartialnx1<quarter, half, false, false, 16, false>;
+template class ConvPartialnx1<quarter, half, false, true, 16, false>;
+template class ConvPartialnx1<quarter, half, true, false, 16, false>;
+template class ConvPartialnx1<quarter, half, true, true, 16, false>;
+template class ConvPartialnx1<quarter, half, false, false, 16, true>;
+template class ConvPartialnx1<quarter, half, false, true, 16, true>;
+template class ConvPartialnx1<quarter, half, true, false, 16, true>;
+template class ConvPartialnx1<quarter, half, true, true, 16, true>;
 
 } // end namespace poplin

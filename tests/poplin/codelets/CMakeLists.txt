@@ -136,6 +136,37 @@ foreach(MODE 0 1 2)
   endforeach() # OUT_STRIDE
 endforeach() # MODE
 
+
+add_multitarget_test(NAME "ConvPartial1xNSLIC_disable_sr"
+COMMAND ConvPartial1xNSLIC
+  --input-type=half
+  --partials-type=half
+  --conv-chains=2
+  --conv-groups-per-group=4
+  --chans-per-group=1
+  --in-field-size={4,4}
+  --kernel-size={1,4}
+  --output-stride={1,2}
+  --disable-sr-template-arg=true
+  LABELS codelet
+VARIANTS "Sim2;IpuModel2")
+
+
+add_multitarget_test(NAME "ConvPartial1xNSLIC_disable_sr_cgg4_x20_y4_kx4_ky4"
+COMMAND ConvPartial1xNSLIC
+  --input-type=half
+  --partials-type=float
+  --conv-chains=2
+  --conv-groups-per-group=4
+  --chans-per-group=1
+  --conv-group-groups=4
+  --in-field-size={4,20}
+  --kernel-size={4,4}
+  --output-stride={1,1}
+  --disable-sr-template-arg=true
+  LABELS codelet
+  VARIANTS "Sim2;IpuModel2")
+
 foreach(OUT_STRIDE 2 3 4)
   add_multitarget_test(NAME "ConvPartial1x4SLIC_stride_1_${OUT_STRIDE}_1"
     COMMAND ConvPartial1xNSLIC

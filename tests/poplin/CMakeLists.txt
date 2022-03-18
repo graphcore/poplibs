@@ -2725,6 +2725,32 @@ add_multitarget_test(
                  --tiles-per-ipu=16)
 
 add_multitarget_test(
+         NAME conv_1d_disable_sr
+         COMMAND single_conv_layer
+                 --field={45}
+                 --batch-size=4
+                 --input-channels=4
+                 --output-channels=63
+                 --convolution-options={\"disableSRForAMPVertices\":\"true\"}
+                 --tiles-per-ipu=8
+                 VARIANTS "Sim2;IpuModel2")
+
+# for nx1
+add_multitarget_test(
+         NAME conv_2d_disable_sr
+         COMMAND single_conv_layer
+                 --field={11,11}
+                 --kernel-size={3,3}
+                 --batch-size=4
+                 --input-channels=4
+                 --output-channels=63
+                 --convolution-options={\"disableSRForAMPVertices\":\"true\"}
+                 --tiles-per-ipu=8
+                 VARIANTS "Sim2;IpuModel2")
+
+                 
+
+add_multitarget_test(
          NAME conv1d_simple
          COMMAND single_conv_layer
                   --field={40}
@@ -3219,6 +3245,18 @@ add_multitarget_test(
                 --tiles-per-ipu 16
                 --data-type=half
                 --matmul-options={\"gatherOutput\":\"true\"})
+
+add_multitarget_test(
+        NAME fully_connected_half_fwd_disable_sr
+        COMMAND fully_connected_layer
+                --single-phase=fwd
+                --input-size 300
+                --output-size 100
+                --tiles-per-ipu 8
+                --batch-size 16
+                --data-type=half
+                --matmul-options={\"disableSRForAMPVertices\":\"true\"}
+                VARIANTS "Sim2;IpuModel2")
 
 add_test(
          NAME fully_connected_half_two_ipu

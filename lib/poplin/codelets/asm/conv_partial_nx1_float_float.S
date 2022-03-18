@@ -504,8 +504,11 @@ bri           StoreFinalAmpOutputs2
 // =============================================================================
 // Instantiate codelets
 
-CONV_Nx1_SUPERVISOR float float false 8 f32sisoamp
-CONV_Nx1_SUPERVISOR float float true  8 f32sisoamp
+CONV_Nx1_SUPERVISOR float float false 8 false f32sisoamp
+CONV_Nx1_SUPERVISOR float float true  8 false f32sisoamp
+CONV_Nx1_SUPERVISOR float float false 8 true f32sisoamp
+CONV_Nx1_SUPERVISOR float float true  8 true f32sisoamp
+
 
 // =============================================================================
 #endif

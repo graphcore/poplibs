@@ -12,10 +12,13 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "conv_partial_zero_output_stack.h"
+#include "conv_sr_ctrl.h.S"
 
 // =============================================================================
 
-#define CODELET_NAME __runCodelet_poplin__ConvPartialnx1___\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()
+#define CODELET_NAME __runCodelet_poplin__ConvPartialnx1___\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
+
+#define SYMBOL_SUFFIX \ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 
 // =============================================================================
 
@@ -109,7 +112,8 @@
 #define STACK_NUM_KERNEL_X_M1           40
 #define STACK_NUM_KERNEL_Y_M1           44
 #define STACK_WKR_FUNCTION              48
-#define STACK_SIZE                      (STACK_WKR_FUNCTION + 4) // bytes
+#define STACK_FPICTL                    52
+#define STACK_SIZE                      (STACK_FPICTL + 4) // bytes
 
 #define TOT_STACK_SIZE                  (WKR_STATE_SIZE + 8 + STACK_SIZE)
 
@@ -117,6 +121,7 @@
 #define sup_base                        m0
 #define kx_count_s                      m0
 
+#define fpictl_s                        m1
 #define weights_ptr_h_incr              m1
 #define temp_5_s                        m1
 #define convgroup_count_s               m1
@@ -167,7 +172,7 @@
 
 #define wkr_base                        sp
 
-.macro CONV_Nx1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS COMMAND
+.macro CONV_Nx1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS DISABLE_SR COMMAND
 
 .ifc \ACTIVATIONS_TYPE, half
     .equ SIZEOF_IN_ATOM,             2
@@ -216,6 +221,14 @@ ld32          $outstride_s, $sup_base, SUP_OUTSTRIDE/4
 ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4
 // space for worker vertex state, supervisor state and callee-save registers
 add           $sp, $sp, -TOT_STACK_SIZE
+
+// We don't care about the cost when SR is disabled or where SR doesn't matter 
+// (for example in the case of float data) as it is only provisioned for
+// testing. Hence the code is bunched up for easy maintenance.
+.ifc \DISABLE_SR, true
+  SAVE_FPICTL_AND_DISABLE_SR  (STACK_BASE + STACK_FPICTL)/4  fpictl_s temp_3_s
+.endif
+
 lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
 
@@ -301,9 +314,9 @@ shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 
 
 
-ZeroConvGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+ZeroConvGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
   ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
-ZeroOutChanGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+ZeroOutChanGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     // expand scaled pointer
     shl           $outchan_ptr_z_s, $outchan_ptr_z_s, 3
@@ -317,8 +330,8 @@ ZeroOutChanGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\(
 #endif
     runall        $wkr_function_s_z, $wkr_base, 0
     setzi         $wkr_function_s_z, convNx1ZeroOutFieldReentry_\PARTIALS_TYPE\()
-    brnzdec       $outchan_count_z_s, ZeroOutChanGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
-  brnzdec       $convgroup_count_s_z, ZeroConvGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+    brnzdec       $outchan_count_z_s, ZeroOutChanGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
+  brnzdec       $convgroup_count_s_z, ZeroConvGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 
 mul           $temp_2_s, $temp_6_s, $outchans_per_group_s
 st32          $temp_4_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
@@ -326,15 +339,15 @@ st32          $partition_ptr_b_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
 // Jump address for amp height == 1 is set to 0 to take the fast path
 setzi         $jmp_addr_s, 0
 
-brz           $amp_kernel_height_s, JmpAddrSelEnd_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+brz           $amp_kernel_height_s, JmpAddrSelEnd_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 mul           $temp_6_s, $temp_2_s, AMP_INPUTS / 2 * SIZEOF_WEIGHTS_ATOM
-setzi         $jmp_addr_s, AmpHeightEq2_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+setzi         $jmp_addr_s, AmpHeightEq2_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 // a bubble here instead of using 3 nop instructions
 add           $amp_kernel_height_s, $amp_kernel_height_s, -1
-brz           $amp_kernel_height_s, JmpAddrSelEnd_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
-setzi         $jmp_addr_s, AmpHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+brz           $amp_kernel_height_s, JmpAddrSelEnd_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
+setzi         $jmp_addr_s, AmpHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 mul           $temp_6_s, $temp_2_s, AMP_INPUTS / 4 * SIZEOF_WEIGHTS_ATOM
-JmpAddrSelEnd_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+JmpAddrSelEnd_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
 
 // The only call to this function may be zero out partials
 ldz16         $inchan_count_s, $mzero, $sup_base, SUP_NUM_INCHAN/2
@@ -351,14 +364,14 @@ st32          $temp_6_s, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR) / 4
 ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
 st32          $inchan_count_s, $sp, (STACK_BASE + STACK_NUM_INCHAN)/4
 
-brz           $inchan_count_s,  L_sup_conv_end_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+brz           $inchan_count_s,  L_sup_conv_end_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 add           $inchan_count_s, $inchan_count_s, -1
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
 ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
 #endif
 
-ConvGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+ConvGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
   // Output channel vectors are increased by numOutChanGroups for each
   // convolution group. The increment at the start is 0. The increment
   // of numOutChanGroups is done before branching here for each conv group.
@@ -370,14 +383,14 @@ ConvGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
   ld32          $outchan_count_s, $sp, (STACK_BASE +  STACK_NUM_OUTCHAN_M1)/4
   st32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4
 
-InChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+InChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
     st32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     shl           $inchan_ptr_s, $inchan_ptr_s, 3
 #else
     ld32step      $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
 #endif
-OutChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+OutChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
       shl           $weights_ptr_s, $weights_ptr_s, 3
       nop
@@ -391,10 +404,10 @@ OutChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
       ld32          $ky_count_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_Y_M1)/4
       put           $CCCSLOAD, $weights_ptr_s
 
-KyLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+KyLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
         st32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4
         ld32          $kx_count_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_X_M1)/4
-KxLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+KxLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
           // expand scaled pointer
           ldz16         $outchan_ptr_s, $mzero, $outchan_vectors_s, $outchan_count_s
@@ -404,7 +417,7 @@ KxLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
 #endif
           ld32          $amp_out_subgroup_count_s, $sp, (STACK_BASE + STACK_AMP_OUTSUBGROUP)/4
           ld32          $weights_ptr_h_incr, $sp, (STACK_BASE + STACK_WEIGHTS_PTR_INCR)/4
-AmpOutGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+AmpOutGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
             // registers $m1 and $m8 are free to use in this function as long
             // as wkr_function_s is set before the run
             ld32          $amp_height_jump_s, $sp, (STACK_BASE + STACK_INNER_LOOP_ADDR)/4
@@ -418,37 +431,37 @@ AmpOutGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
             // address as a register rather than immediate, for the fallthrough
             // case we could have set the condition to check fail (eg using
             // brnz would become brnz $amp_height_jump_s, $amp_height_jump_s)
-            brnz          $amp_height_jump_s, AmpHeightJumpToNeq1_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+            brnz          $amp_height_jump_s, AmpHeightJumpToNeq1_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 
-AmpHeightEq1_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+AmpHeightEq1_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
             LOAD_WEIGHTS_NX1_AMP_HEIGHT_1 LDTYPE \AMP_OUTPUTS \COMMAND
 
-AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
             runall        $wkr_function_s, $wkr_base, 0
 
             // wind pointer to point to next amp subgroup
             add           $outchan_ptr_s, $outchan_ptr_s, SIZEOF_OUT_ATOM * \AMP_OUTPUTS
-            brnzdec       $amp_out_subgroup_count_s, AmpOutGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+            brnzdec       $amp_out_subgroup_count_s, AmpOutGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 
           add           $partition_ptr_s, $partition_ptr_s, 6 * 4
           ld32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
-          brnzdec       $kx_count_s, KxLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+          brnzdec       $kx_count_s, KxLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 
         get           $weights_ptr_s, $CCCSLOAD
         ld32          $ky_count_s, $sp, (STACK_BASE + STACK_KY_COUNT)/4
-        brnzdec       $ky_count_s, KyLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+        brnzdec       $ky_count_s, KyLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
       ldz16step     $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
 #else
       ld32step      $weights_ptr_s, $mzero, $weights_vectors_s+=, 1
 #endif
-      brnzdec       $outchan_count_s, OutChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+      brnzdec       $outchan_count_s, OutChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
     ld32          $outchan_count_s, $sp, (STACK_BASE + STACK_NUM_OUTCHAN_M1)/4
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16step     $inchan_ptr_s, $mzero, $inchan_vectors_s+=, 1
 #endif
     ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_INCHAN_COUNT)/4
-    brnzdec       $inchan_count_s, InChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+    brnzdec       $inchan_count_s, InChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
   ld32          $inchan_count_s, $sp, (STACK_BASE + STACK_NUM_INCHAN)/4
   ld32          $convgroup_count_s, $sp, (STACK_BASE + STACK_CONV_GROUP_COUNT)/4
   // cannot use delay instruction here because workers may be active
@@ -457,10 +470,16 @@ AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
   nop
   add           $outchan_count_s, $outchan_count_s, 1
   add           $inchan_count_s, $inchan_count_s, -1
-  brnzdec       $convgroup_count_s, ConvGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+  brnzdec       $convgroup_count_s, ConvGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 
-L_sup_conv_end_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+L_sup_conv_end_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
+
 // Restore saved registers
+
+.ifc \DISABLE_SR, true
+  RESTORE_FPICTL  (STACK_BASE + STACK_FPICTL)/4 fpictl_s 
+.endif
+
 ld32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 ld32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
 add           $sp, $sp, TOT_STACK_SIZE
@@ -468,14 +487,14 @@ sync          TEXCH_SYNCZONE_LOCAL
 br            $lr
 
 // Jump to code fragment to handle kernel heights = 2 and 4
-AmpHeightJumpToNeq1_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+AmpHeightJumpToNeq1_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
 br            $amp_height_jump_s
 
 // =============================================================================
 
 // Code fragement to load CWEI with coefficients when the weights tensor
 // innermost dimensions are [AMP_OUTPUTS * m][AMP_INPUTS/2]
-AmpHeightEq2_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+AmpHeightEq2_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
 put           $CCCSLOAD, $weights_ptr_s
 add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr
 
@@ -483,13 +502,13 @@ LOAD_WEIGHTS_NX1_AMP_HEIGHT_2 LDTYPE \AMP_OUTPUTS \COMMAND
 
 // update weight pointer by the amount of coefficient
 add           $weights_ptr_s, $weights_ptr_s, \AMP_OUTPUTS * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS / 2
-bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 
 // =============================================================================
 
 // Code fragement to load CWEI with coefficients when the weights tensor
 // innermost dimensions are [AMP_OUTPUTS * m][AMP_INPUTS/4]
-AmpHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+AmpHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
 // we reuse $inchan_ptr_s as it has already been saved to vertex
 // state
 
@@ -627,7 +646,7 @@ ld64putcs     63
 .endif
 // update weight pointer by the number of coefficients used up as the next time
 add           $weights_ptr_s, $weights_ptr_s, \AMP_OUTPUTS\() * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS / 4
-bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 
 .size CODELET_NAME, . - CODELET_NAME
 .endm

@@ -2390,7 +2390,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
                           cpt.transformPre[level].postTransposeWeights,
                           cpt.copyWritten, cpt.convolveCSGroup, tileLevelActs,
                           weightsSlice, partials, options.use128BitConvUnitLoad,
-                          {dnai});
+                          options.disableSRForAMPVertices, {dnai});
     out = partials;
 
     if (level == createPartialsLevel) {

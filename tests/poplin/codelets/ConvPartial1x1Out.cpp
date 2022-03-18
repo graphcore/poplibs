@@ -335,7 +335,7 @@ void runTest(const struct testParams &t) {
 
   const std::string vertexName =
       templateVertex("poplin::ConvPartial1x1Out", t.inType, t.accumType, true,
-                     t.use128BitLoad, t.numConvUnits);
+                     t.use128BitLoad, t.numConvUnits, false);
   std::cout << "========= " << vertexName << "\n";
 
   auto v = graph.addVertex(cs, vertexName);

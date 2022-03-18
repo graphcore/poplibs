@@ -67,6 +67,8 @@ public:
   // Restricts convolution planner to use SLIC/VMAC vertices with
   // grouping of 16
   bool experimentalSlicVmac16 = false;
+  // disable Stochastic Rounding for AMP vertices
+  bool disableSRForAMPVertices = false;
   void parseConvOptions(const poplar::OptionFlags &options);
 
 private:
@@ -81,7 +83,8 @@ private:
       &ConvOptions::disableTransformations,
       &ConvOptions::insertTransformsCycleCountProgs,
       &ConvOptions::experimentalConvTransformsEstimates,
-      &ConvOptions::gatherConvOutput, &ConvOptions::experimentalSlicVmac16);
+      &ConvOptions::gatherConvOutput, &ConvOptions::experimentalSlicVmac16,
+      &ConvOptions::disableSRForAMPVertices);
 
 public:
   bool operator<(const ConvOptions &other) const {

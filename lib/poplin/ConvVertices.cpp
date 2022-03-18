@@ -3,6 +3,7 @@
 #include "ConvPartialsStridesPacking.hpp"
 #include "ConvTransforms.hpp"
 #include "ConvUtilInternal.hpp"
+#include "poplar/CSRFunctions.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "popops/Cast.hpp"
 #include "popops/Pad.hpp"
@@ -412,13 +413,11 @@ static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
   return in;
 }
 
-static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
-                                       unsigned tile,
-                                       const CanonicalConvParams &params,
-                                       ComputeSet fwdCS, Tensor in,
-                                       Tensor weights, Tensor out,
-                                       bool use128BitConvUnitLoad,
-                                       const DebugNameAndId &dnai) {
+static void createConvPartialAmpVertex(
+    Graph &graph, const Plan &plan, unsigned tile,
+    const CanonicalConvParams &params, ComputeSet fwdCS, Tensor in,
+    Tensor weights, Tensor out, bool use128BitConvUnitLoad,
+    bool disableSRForAMPVertices, const DebugNameAndId &dnai) {
   // AMP vertices only support having a single conv group per grouping.
   assert(plan.convGroupsPerGroup == 1);
   const auto &method = boost::get<Plan::Amp>(plan.method);
@@ -685,7 +684,8 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       fwdCS, templateVertex(
                  codeletName, in.elementType(), plan.types.back().partialType,
                  useLimitedVer ? "true" : "false",
-                 use128BitConvUnitLoad ? "true" : "false", method.convUnits));
+                 use128BitConvUnitLoad ? "true" : "false", method.convUnits,
+                 disableSRForAMPVertices ? "true" : "false"));
 
   // The parameters are modified to what the vertex uses
   graph.connect(v["in"], inWindow);
@@ -814,7 +814,8 @@ static void createConvPartialAmpVertices(
     Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
     std::vector<Copy> &transformPre, std::map<Type, Tensor> &copyWritten,
     ComputeSet fwdCS, Tensor in, Tensor weights, Tensor out,
-    bool use128BitConvUnitLoad, const DebugNameAndId &dnai) {
+    bool use128BitConvUnitLoad, bool disableSRForAMPVertices,
+    const DebugNameAndId &dnai) {
   assert(params == params.canonicalize());
   const auto &target = graph.getTarget();
   auto weightsPerConvUnit = target.getWeightsPerConvUnit(in.elementType());
@@ -899,7 +900,7 @@ static void createConvPartialAmpVertices(
         } else {
           createConvPartialAmpVertex(graph, plan, tile, subParams, fwdCS, subIn,
                                      subWeights, subOut, use128BitConvUnitLoad,
-                                     {dnai});
+                                     disableSRForAMPVertices, {dnai});
         }
       });
 }
@@ -912,11 +913,11 @@ void createConvPartialSlicVertex(
     Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
     std::vector<Copy> &transformPre, std::map<Type, Tensor> &copyWritten,
     ComputeSet fwdCS, ConvProgramTree::PostProg &postConvProg, Tensor in,
-    Tensor weights, Tensor out, const DebugNameAndId &dnai) {
+    Tensor weights, Tensor out, bool disableSRForAMPVertices,
+    const DebugNameAndId &dnai) {
   const auto &method = boost::get<Plan::Slic>(plan.method);
   const auto convGroupsPerGroup = plan.convGroupsPerGroup;
   const auto chansPerGroup = plan.partialChansPerGroup;
-
   // We don't handle multiple input channel/output channel groups.
   assert(params.getNumInputChansPerConvGroup() == chansPerGroup &&
          params.getNumOutputChansPerConvGroup() == chansPerGroup);
@@ -1003,7 +1004,8 @@ void createConvPartialSlicVertex(
   const auto shortTypesVertexClass = templateVertex(
       "poplin::ConvPartial1xNSLIC", inType, partialsType, outputStride,
       /* useShortTypes */ true, method.windowWidth,
-      method.convUnitChainsRequired, convGroupsPerGroupVertexType);
+      method.convUnitChainsRequired, convGroupsPerGroupVertexType,
+      disableSRForAMPVertices);
   const auto slicWindowHeight = 1u;
   auto partitions = createPartitions(params, slicWindowHeight,
                                      method.windowWidth, numWorkerContexts);
@@ -1143,7 +1145,7 @@ void createConvPartialSlicVertex(
   const auto vertexClass = templateVertex(
       "poplin::ConvPartial1xNSLIC", inType, partialsType, outputStride,
       useShortTypes, method.windowWidth, method.convUnitChainsRequired,
-      convGroupsPerGroupVertexType);
+      convGroupsPerGroupVertexType, disableSRForAMPVertices);
   auto v = graph.addVertex(fwdCS, vertexClass);
   graph.setTileMapping(v, tile);
 
@@ -1750,6 +1752,7 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
                            ConvProgramTree::ComputeSetsGroup &convolveCS,
                            Tensor in, Tensor weights, Tensor out,
                            bool use128BitConvUnitLoad,
+                           bool disableSRForAMPVertices,
                            const poplar::DebugNameAndId &dnai) {
   assert(params.getNumConvGroups() % plan.convGroupsPerGroup == 0);
   assert(params.getNumOutputChansPerConvGroup() % plan.partialChansPerGroup ==
@@ -1772,14 +1775,14 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
         createConvPartialAmpVertices(graph, plan, tile, params, transformPre,
                                      copyWritten, convolveCS.convolveCS, in,
                                      weights, out, use128BitConvUnitLoad,
-                                     {dnai});
+                                     disableSRForAMPVertices, {dnai});
       },
       [&](const Plan::Slic &method) {
         assert(plan.inChansPerGroup == plan.partialChansPerGroup);
         createConvPartialSlicVertex(graph, plan, tile, params, transformPre,
                                     copyWritten, convolveCS.convolveCS,
                                     convolveCS.postProg, in, weights, out,
-                                    {dnai});
+                                    disableSRForAMPVertices, {dnai});
       },
       [&](const Plan::Hmac &method) {
         createConvPartialHorizontalMacVertex(graph, plan, tile, params,

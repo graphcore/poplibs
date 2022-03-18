@@ -37,7 +37,7 @@ constexpr bool hasAssemblyVersion() {
 
 template <typename FPType, typename AccumType, unsigned outStride,
           bool useShortTypes, unsigned windowWidth, unsigned numConvChains,
-          unsigned convGroupsPerGroupVertexType>
+          unsigned convGroupsPerGroupVertexType, bool disableSR>
 class [[poplar::constraint(
     "elem(**in) != elem(**out)",
     "elem(**in) != elem(*outFieldBuffer)")]] ConvPartial1xNSLIC
@@ -284,7 +284,8 @@ template class WorkerClass1xN<unsigned short, 2, 16>;
 template class WorkerClass1xN<unsigned, 2, 16>;
 
 template <unsigned outStride, bool useShortTypes, unsigned windowWidth,
-          unsigned numConvChains, unsigned convGroupsPerGroupVertexType>
+          unsigned numConvChains, unsigned convGroupsPerGroupVertexType,
+          bool disableSR>
 class [[poplar::constraint(
     "elem(**in) != elem(**out)",
     "elem(**in) != "
@@ -292,7 +293,7 @@ class [[poplar::constraint(
     "outFieldBuffer"
     ")")]] ConvPartial1xNSLIC<quarter, half, outStride, useShortTypes,
                               windowWidth, numConvChains,
-                              convGroupsPerGroupVertexType>
+                              convGroupsPerGroupVertexType, disableSR>
     : public SupervisorVertex {
   static const bool needsAlignWorkers = false;
 
@@ -392,34 +393,64 @@ public:
 
 #endif
 
-template class ConvPartial1xNSLIC<half, float, 1, false, 4, 2, 4>;
-template class ConvPartial1xNSLIC<half, float, 1, true, 4, 2, 4>;
-template class ConvPartial1xNSLIC<half, float, 2, false, 4, 2, 4>;
-template class ConvPartial1xNSLIC<half, float, 2, true, 4, 2, 4>;
+template class ConvPartial1xNSLIC<half, float, 1, false, 4, 2, 4, false>;
+template class ConvPartial1xNSLIC<half, float, 1, true, 4, 2, 4, false>;
+template class ConvPartial1xNSLIC<half, float, 1, false, 4, 2, 4, true>;
+template class ConvPartial1xNSLIC<half, float, 1, true, 4, 2, 4, true>;
 
-template class ConvPartial1xNSLIC<half, half, 1, false, 4, 2, 4>;
-template class ConvPartial1xNSLIC<half, half, 1, true, 4, 2, 4>;
-template class ConvPartial1xNSLIC<half, half, 2, false, 4, 2, 4>;
-template class ConvPartial1xNSLIC<half, half, 2, true, 4, 2, 4>;
+template class ConvPartial1xNSLIC<half, float, 2, false, 4, 2, 4, false>;
+template class ConvPartial1xNSLIC<half, float, 2, true, 4, 2, 4, false>;
+template class ConvPartial1xNSLIC<half, float, 2, false, 4, 2, 4, true>;
+template class ConvPartial1xNSLIC<half, float, 2, true, 4, 2, 4, true>;
 
-template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 4>;
-template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 4>;
-template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 4>;
-template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 4>;
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 2, 4, false>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 2, 4, false>;
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 2, 4, true>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 2, 4, true>;
 
-template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 8>;
-template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 8>;
-template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 8>;
-template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 8>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 2, 4, false>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 2, 4, false>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 2, 4, true>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 2, 4, true>;
 
-template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 16>;
-template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 16>;
-template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 16>;
-template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 16>;
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 4, false>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 4, false>;
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 4, true>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 4, true>;
 
-template class ConvPartial1xNSLIC<quarter, half, 1, false, 4, 4, 8>;
-template class ConvPartial1xNSLIC<quarter, half, 1, true, 4, 4, 8>;
-template class ConvPartial1xNSLIC<quarter, half, 2, false, 4, 4, 8>;
-template class ConvPartial1xNSLIC<quarter, half, 2, true, 4, 4, 8>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 4, false>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 4, false>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 4, true>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 4, true>;
+
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 8, false>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 8, false>;
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 8, true>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 8, true>;
+
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 8, false>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 8, false>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 8, true>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 8, true>;
+
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 16, false>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 16, false>;
+template class ConvPartial1xNSLIC<half, half, 1, false, 4, 4, 16, true>;
+template class ConvPartial1xNSLIC<half, half, 1, true, 4, 4, 16, true>;
+
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 16, false>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 16, false>;
+template class ConvPartial1xNSLIC<half, half, 2, false, 4, 4, 16, true>;
+template class ConvPartial1xNSLIC<half, half, 2, true, 4, 4, 16, true>;
+
+template class ConvPartial1xNSLIC<quarter, half, 1, false, 4, 4, 8, false>;
+template class ConvPartial1xNSLIC<quarter, half, 1, true, 4, 4, 8, false>;
+template class ConvPartial1xNSLIC<quarter, half, 1, false, 4, 4, 8, true>;
+template class ConvPartial1xNSLIC<quarter, half, 1, true, 4, 4, 8, true>;
+
+template class ConvPartial1xNSLIC<quarter, half, 2, false, 4, 4, 8, false>;
+template class ConvPartial1xNSLIC<quarter, half, 2, true, 4, 4, 8, false>;
+template class ConvPartial1xNSLIC<quarter, half, 2, false, 4, 4, 8, true>;
+template class ConvPartial1xNSLIC<quarter, half, 2, true, 4, 4, 8, true>;
 
 } // end namespace poplin

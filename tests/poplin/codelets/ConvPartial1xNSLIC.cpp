@@ -80,7 +80,7 @@ int main(int argc, char **argv) try {
 
   Type inputType = HALF;
   Type partialsType = FLOAT;
-
+  bool disableSRTemplateArg = false;
   int weightFp8Scale = 0;
   int inputFp8Scale = 0;
   Fp8Format weightFp8Format = Fp8Format::QUART143;
@@ -142,6 +142,10 @@ int main(int argc, char **argv) try {
     ("output-truncation-upper",
      po::value<ShapeOption<unsigned>>(&outputTruncationUpper),
      "Output truncation upper")
+    ("disable-sr-template-arg",
+     po::value<bool>(&disableSRTemplateArg)->default_value(disableSRTemplateArg),
+     "Disable stochastic rounding in vertex template argument. Added to "
+     "emulate behaviour where SR is not present for AMP instructions")
     ("conv-chains",
      po::value<unsigned>(&convChainsRequired)->default_value(convChainsRequired),
      "Conv chains to use.  If partials are float(=2), if half (=2 or 4),"
@@ -317,7 +321,7 @@ int main(int argc, char **argv) try {
   plan.partialChansPerGroup = chansPerGroup;
   createConvPartialSlicVertex(graph, plan, 0, params, transformPre, copyWritten,
                               fwdCS, postProg, vertexIn, vertexWeights,
-                              outGrouped, "vertex");
+                              outGrouped, disableSRTemplateArg, "vertex");
   if (isFp8) {
     prog.add(castProg);
   }

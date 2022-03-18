@@ -398,8 +398,11 @@ bri           LNumElemsEq1
 // =============================================================================
 // Instantiate codelets
 
-CONV_1x1_SUPERVISOR float float false 8 f32sisoamp false
-CONV_1x1_SUPERVISOR float float true  8 f32sisoamp false
+CONV_1x1_SUPERVISOR float float false 8 f32sisoamp false false
+CONV_1x1_SUPERVISOR float float true  8 f32sisoamp false false
+CONV_1x1_SUPERVISOR float float false 8 f32sisoamp false true
+CONV_1x1_SUPERVISOR float float true  8 f32sisoamp false true
+
 
 // =============================================================================
 #endif // #ifdef __IPU__

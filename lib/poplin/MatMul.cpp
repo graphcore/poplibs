@@ -80,6 +80,7 @@ struct MatMulOptions {
   bool enableFastReduce = false;
   bool remapOutputTensor = true;
   bool gatherOutput = false;
+  bool disableSRForAMPVertices = false;
   bool operator<(const MatMulOptions &other) const {
     using poplibs_support::makeStructHelper;
 
@@ -91,7 +92,7 @@ struct MatMulOptions {
         &MatMulOptions::use128BitConvUnitLoad,
         &MatMulOptions::enableMultiStageReduce,
         &MatMulOptions::enableFastReduce, &MatMulOptions::remapOutputTensor,
-        &MatMulOptions::gatherOutput);
+        &MatMulOptions::gatherOutput, &MatMulOptions::disableSRForAMPVertices);
 
     return helper.lt(*this, other);
   }
@@ -153,6 +154,8 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithString(matMulOptions.planConstraints)},
       {"gatherOutput",
        OptionHandler::createWithBool(matMulOptions.gatherOutput)},
+      {"disableSRForAMPVertices",
+       OptionHandler::createWithBool(matMulOptions.disableSRForAMPVertices)},
   };
   for (const auto &entry : options) {
     matMulSpec.parse(entry.first, entry.second);
@@ -174,6 +177,9 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   convOptions.set("remapOutputTensor",
                   options.remapOutputTensor ? "true" : "false");
   convOptions.set("gatherConvOutput", options.gatherOutput ? "true" : "false");
+  convOptions.set("disableSRForAMPVertices",
+                  options.disableSRForAMPVertices ? "true" : "false");
+
   convOptions.set("planConstraints", options.planConstraints);
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:

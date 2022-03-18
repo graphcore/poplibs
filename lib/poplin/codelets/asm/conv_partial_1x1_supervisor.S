@@ -16,9 +16,10 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "conv_sr_ctrl.h.S"
 
 // =============================================================================
-#define CODELET_NAME __runCodelet_poplin__ConvPartial1x1Out___\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()
+#define CODELET_NAME __runCodelet_poplin__ConvPartial1x1Out___\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR
 
 // =============================================================================
 
@@ -74,7 +75,7 @@
 #define outvec_s                  m2
 #define inchan_group_s            m3
 #define partition_s               m3
-#define tmem_base                 m4
+#define fpictl_s                  m4
 #define wkr_function              m4
 #define wkr_function_post         m5
 #define amp_group_s               m5
@@ -96,12 +97,13 @@
 // of channels the AMP processes. The actual value kept is one less.
 #define SUP_STACK_AMP_GROUPS      12 //(word)
 #define SUP_WKR_FUNCTION          16 //(word)
-#define SUP_STACK_SIZE            (SUP_WKR_FUNCTION + 4)
+#define SUP_FPICTL                20 //(word)
+#define SUP_STACK_SIZE            (SUP_FPICTL + 4)
 #define TOT_STACK_SIZE            (WKR_VERTEX_SIZE + SUP_STACK_SIZE)
 
 // ZERO_PARTIALS_PATH : set to true if zero path exists in the worker function
 
-.macro CONV_1x1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS COMMAND ZERO_PARTIALS_PATH
+.macro CONV_1x1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS COMMAND ZERO_PARTIALS_PATH DISABLE_SR
 
 .ifc \ACTIVATIONS_TYPE, half
     .equ SIZE_OF_ACTIVATIONS,        2
@@ -162,13 +164,20 @@ CODELET_NAME:
 //                = 1 if worker state is retained
 // ----------------------------------------------------------------------------
   ld32          $partition_s, $sup_base, SUP_PARTITION/4
-  setzi         $tmem_base, TMEM_REGION0_BASE_ADDR / 4
   add           $sp, $sp, -TOT_STACK_SIZE
+
+// We don't care about the cost when SR is disabled or where SR doesn't matter 
+// (for example in the case of float data) as it is only provisioned for
+// testing. Hence the code is bunched up for easy maintenance.
+.ifc \DISABLE_SR, true
+  SAVE_FPICTL_AND_DISABLE_SR (WKR_VERTEX_SIZE/4 + SUP_FPICTL/4) fpictl_s temp_s
+.endif
+
   lds16         $stride_s, $sup_base, SUP_INPUT_STRIDE/2
   ldz16         $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/2
   lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
 // ----------------------------------------------------------------------------
-  nop           // keep nop for 6 instructions pipeline
+  nop
   ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
   st32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
   st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
@@ -219,21 +228,21 @@ CODELET_NAME:
 .endif
 // ----------------------------------------------------------------------------
 
-convGroupsLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+convGroupsLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
 .ifc \ZERO_PARTIALS_PATH, true
   st32          $wkr_function_post, $sp, WKR_VERTEX_SIZE/4 + SUP_WKR_FUNCTION/4     
 .endif
   add           $inchan_group_s, $inchan_group_s, -1
 
-inChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+inChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
     st32          $invec_s, $wkr_vertex,  WKR_INCHAN_PTR/4
 
-outChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+outChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
       ld32step     $weight_vec_s, $mzero, $weights_vectors_s+=, 1
       ld32         $outvec_s, $mzero, $outchan_vectors_s, $outchan_group_s
       ld32         $amp_group_s, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_AMP_GROUPS/4
 
-AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
         // must wait for all workers to load CWEI as it is shared
         sync          TEXCH_SYNCZONE_LOCAL
 
@@ -248,12 +257,12 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
         setzi         $wkr_function, convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()
 .endif
         // increment output vector pointer for the AMP loop
-        brnzdec $amp_group_s, AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+        brnzdec $amp_group_s, AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 .ifc \ZERO_PARTIALS_PATH, false
       ld32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
 .endif
       put           $CCCSLOAD, $weight_vec_s
-      brnzdec       $outchan_group_s, outChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+      brnzdec       $outchan_group_s, outChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 .ifc \ZERO_PARTIALS_PATH, true            
     setzi         $wkr_function_post, convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()
 .else
@@ -275,7 +284,7 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
     nop
     st32          $wkr_function_post, $sp, WKR_VERTEX_SIZE/4 + SUP_WKR_FUNCTION/4
 .endif
-    brnzdec       $inchan_group_s, inChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+    brnzdec       $inchan_group_s, inChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 .ifc \ZERO_PARTIALS_PATH, false
   // This should clear the msb
   xor           $add_zero_in_stride_s, $add_zero_in_stride_s, $const0x80000000
@@ -289,7 +298,11 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
 .else
   st32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
 .endif  
-  brnzdec       $conv_group_s, convGroupsLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+  brnzdec       $conv_group_s, convGroupsLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
+
+.ifc \DISABLE_SR, true
+  RESTORE_FPICTL (WKR_VERTEX_SIZE/4 + SUP_FPICTL/4) fpictl_s
+.endif
 
 // restore stack
 ld32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
