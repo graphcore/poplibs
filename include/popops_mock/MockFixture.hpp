@@ -2,7 +2,6 @@
 #ifndef popops_Mock_Fixture_hpp
 #define popops_Mock_Fixture_hpp
 
-#include <gmock/gmock.h>
 #include <popops_mock/Mock.hpp>
 
 namespace popops_mock {
