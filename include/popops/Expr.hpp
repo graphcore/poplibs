@@ -116,12 +116,23 @@ protected:
   }
 
 public:
-  template <typename T> Const(T x) : Const(x, false) {}
+  template <typename T, typename = typename std::enable_if<
+                            poplar::TypeTraits::isSimpleType<T>(), T>::type>
+  Const(T x) : Const(x, false) {}
 
   Const(poplar::TypeTraits typeTraits_, poplar::Type type_, const char *data_)
       : typeTraits(std::move(typeTraits_)), type(type_) {
     data.reset(new char[typeTraits.size]);
     std::copy(data_, data_ + typeTraits.size, data.get());
+  }
+  Const(Const &&) = default;
+  Const &operator=(Const &&) = default;
+  Const(const Const &other)
+      : Const(other.typeTraits, other.type, other.data.get()) {}
+  Const &operator=(const Const &other) {
+    Const tmp{other};
+    std::swap(*this, tmp);
+    return *this;
   }
 
   char *getData() const { return data.get(); }
@@ -151,6 +162,14 @@ public:
 class ConstHalf : public Const {
 public:
   ConstHalf(float x) : Const(x, true) {}
+  ConstHalf(ConstHalf &&) = default;
+  ConstHalf &operator=(ConstHalf &&) = default;
+  ConstHalf(const ConstHalf &other) : Const(other) {}
+  ConstHalf &operator=(const ConstHalf &other) {
+    ConstHalf tmp{other};
+    std::swap(*this, tmp);
+    return *this;
+  }
 };
 
 inline ConstHalf operator"" _half(long double x) {
@@ -166,6 +185,14 @@ class Cast : public ExprType<Cast> {
 public:
   Cast(const Expr &a_, const poplar::Type bType_)
       : a(a_.clone()), bType(bType_) {}
+  Cast(Cast &&other) = default;
+  Cast &operator=(Cast &&other) = default;
+  Cast(const Cast &other) : Cast(*other.a, other.bType) {}
+  Cast &operator==(const Cast &other) {
+    Cast tmp{other};
+    std::swap(*this, tmp);
+    return *this;
+  }
 
   const Expr &getLHS() const { return *a; }
   const poplar::Type &getRHSType() const { return bType; }
@@ -186,6 +213,14 @@ class PlaceHolder : public ExprType<PlaceHolder> {
 
 public:
   PlaceHolder(unsigned index) : index(index) {}
+  PlaceHolder(PlaceHolder &&) = default;
+  PlaceHolder &operator=(PlaceHolder &&) = default;
+  PlaceHolder(const PlaceHolder &other) : PlaceHolder(other.index) {}
+  PlaceHolder &operator=(const PlaceHolder &other) {
+    PlaceHolder tmp{other};
+    std::swap(*this, tmp);
+    return *this;
+  }
 
   unsigned getIndex() const { return index; }
 
@@ -228,6 +263,14 @@ class UnaryOp : public ExprType<UnaryOp> {
 
 public:
   UnaryOp(UnaryOpType type, const Expr &a) : type(type), a(a.clone()) {}
+  UnaryOp(UnaryOp &&) = default;
+  UnaryOp &operator=(UnaryOp &&) = default;
+  UnaryOp(const UnaryOp &other) : UnaryOp(other.type, *other.a) {}
+  UnaryOp &operator=(const UnaryOp &other) {
+    UnaryOp tmp(other);
+    std::swap(*this, tmp);
+    return *this;
+  }
 
   UnaryOpType getOpType() const { return type; }
 
@@ -294,6 +337,14 @@ class BinaryOp : public ExprType<BinaryOp> {
 public:
   BinaryOp(BinaryOpType type, const Expr &a, const Expr &b)
       : type(type), a(a.clone()), b(b.clone()) {}
+  BinaryOp(BinaryOp &&) = default;
+  BinaryOp &operator=(BinaryOp &&) = default;
+  BinaryOp(const BinaryOp &other) : BinaryOp(other.type, *other.a, *other.b) {}
+  BinaryOp &operator=(const BinaryOp &other) {
+    BinaryOp tmp{other};
+    std::swap(*this, tmp);
+    return *this;
+  }
 
   BinaryOpType getOpType() const { return type; }
 
@@ -373,6 +424,15 @@ class TernaryOp : public ExprType<TernaryOp> {
 public:
   TernaryOp(TernaryOpType type, const Expr &a, const Expr &b, const Expr &c)
       : type(type), a(a.clone()), b(b.clone()), c(c.clone()) {}
+  TernaryOp(TernaryOp &&) = default;
+  TernaryOp &operator=(TernaryOp &&) = default;
+  TernaryOp(const TernaryOp &other)
+      : TernaryOp(other.type, *other.a, *other.b, *other.c) {}
+  TernaryOp &operator=(const TernaryOp &other) {
+    TernaryOp tmp{other};
+    std::swap(*this, tmp);
+    return *this;
+  }
 
   TernaryOpType getOpType() const { return type; }
 

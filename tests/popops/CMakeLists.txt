@@ -1637,3 +1637,5 @@ endforeach()
 add_unit_test(LoopTest LoopTest.cpp)
 
 add_unit_test(MapWithOutputTest MapWithOutputTest.cpp)
+
+add_unit_test(ExprAPI ExprAPI.cpp VARIANTS NoTarget)
