@@ -810,6 +810,10 @@ int main(int argc, char **argv) try {
       absoluteTolerance = 0;
     }
   }
+  // Always generate the fwd program as it maps the weights and biases. Only
+  // actually create the engine if the fwd pass is to be run
+  auto fwdProg = Sequence();
+  auto revProg = Sequence();
 
   // Create tensors if not loaded from a file
   if (!fwdInFile) {
@@ -819,9 +823,25 @@ int main(int argc, char **argv) try {
     } else {
       prevAct = createGenericConvInput(graph, params, "prevAct");
     }
+    if (testingQuarter) {
+      auto metadata =
+          createFp8MetadataTensor(graph, fp8FormatFwdIn, fp8ScaleFwdIn);
+      fwdProg.add(Copy(metadata, prevAct.getMetadata()));
+    }
   }
   Tensor weights =
       poplin::createWeights(graph, params, "weights", fwdOptions, &cache);
+
+  if (testingQuarter) {
+    auto metadata =
+        createFp8MetadataTensor(graph, fp8FormatWeights, fp8ScaleWeights);
+    if (doFwdPass) {
+      fwdProg.add(Copy(metadata, weights.getMetadata()));
+    }
+    if (doBwdPass) {
+      revProg.add(Copy(metadata, weights.getMetadata()));
+    }
+  }
 
   if (!bwdInFile && (doBwdPass || doWuPass)) {
     if (useCreateInput) {
@@ -830,12 +850,12 @@ int main(int argc, char **argv) try {
     } else {
       zDeltas = createGenericConvInput(graph, bwdParams, "zDeltas");
     }
+    if (testingQuarter) {
+      auto metadata = createFp8MetadataTensor(graph, fp8FormatBwdIn,
+                                              fp8scaleBwdIn, revProg);
+      revProg.add(Copy(metadata, zDeltas.getMetadata()));
+    }
   }
-
-  // Always generate the fwd program as it maps the weights and biases. Only
-  // actually create the engine if the fwd pass is to be run
-  auto fwdProg = Sequence();
-  auto revProg = Sequence();
 
   const auto inputTypeHost = testingQuarter ? HALF : inputType;
 
@@ -844,20 +864,12 @@ int main(int argc, char **argv) try {
   if (testingQuarter) {
     prevActToCopy = graph.clone(inputTypeHost, prevAct, "prevActCopy");
     weightsToCopy = graph.clone(inputTypeHost, weights, "weightsCopy");
-    prevAct.associateMetadata(
-        createFp8MetadataTensor(graph, fp8FormatFwdIn, fp8ScaleFwdIn));
-    weights.associateMetadata(
-        createFp8MetadataTensor(graph, fp8FormatWeights, fp8ScaleWeights));
 
     // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
     fwdProg.add(popops::cast(graph, prevActToCopy, prevAct, "CastPrevAct"));
     fwdProg.add(popops::cast(graph, weightsToCopy, weights, "CastFwdWeights"));
     if (doBwdPass) {
       zDeltasToCopy = graph.clone(inputTypeHost, zDeltas, "zDeltasCopy");
-      zDeltas.associateMetadata(
-          createFp8MetadataTensor(graph, fp8FormatBwdIn, fp8scaleBwdIn));
-      weights.associateMetadata(
-          createFp8MetadataTensor(graph, fp8FormatWeights, fp8ScaleWeights));
       revProg.add(popops::cast(graph, zDeltasToCopy, zDeltas, "CastZDeltas"));
       revProg.add(
           popops::cast(graph, weightsToCopy, weights, "CastBwdWeights"));
@@ -867,12 +879,10 @@ int main(int argc, char **argv) try {
   // reuse it for the backwards pass.
   auto fwdConv = [&]() -> graphfn::TensorFunction {
     using graphfn::input;
-
     const auto conv = [&](std::vector<Tensor> &args, Sequence &prog) {
       return poplin::convolution(graph, args[0], args[1], params, false, prog,
                                  "fwd", fwdOptions, &cache);
     };
-
     return {graph, {input(prevAct, "in"), input(weights, "weights")}, conv};
   }();
 
@@ -938,6 +948,16 @@ int main(int argc, char **argv) try {
   auto rawHostWeights = allocateHostMemoryForTensor(
       testingQuarter ? weightsToCopy : weights, "weights", graph, uploadProg,
       downloadProg, tmap);
+
+  std::unique_ptr<char[]> rawPrevActsMetadata, rawWeightsMetadata;
+  if (testingQuarter) {
+    rawPrevActsMetadata =
+        allocateHostMemoryForTensor(prevAct.getMetadata(), "prevActMetadata",
+                                    graph, boost::none, downloadProg, tmap);
+    rawWeightsMetadata =
+        allocateHostMemoryForTensor(weights.getMetadata(), "weightsMetadata",
+                                    graph, boost::none, downloadProg, tmap);
+  }
   Tensor parentBiases;
   std::unique_ptr<char[]> rawHostBiases;
   if (bias) {
@@ -948,6 +968,7 @@ int main(int argc, char **argv) try {
       nextAct, "nextAct", graph, uploadProg, downloadProg, tmap);
   std::unique_ptr<char[]> rawHostZDeltas;
   std::unique_ptr<char[]> rawHostPrevDeltas;
+  std::unique_ptr<char[]> rawHostZDeltasMetadata;
   if (doBwdPass || doWuPass) {
     rawHostZDeltas = allocateHostMemoryForTensor(
         testingQuarter ? zDeltasToCopy : zDeltas, "zDeltas", graph, uploadProg,
@@ -956,6 +977,11 @@ int main(int argc, char **argv) try {
   if (doBwdPass) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(
         prevDeltas, "prevDeltas", graph, uploadProg, downloadProg, tmap);
+    if (testingQuarter) {
+      rawHostZDeltasMetadata =
+          allocateHostMemoryForTensor(zDeltas.getMetadata(), "zDeltasMetadata",
+                                      graph, boost::none, downloadProg, tmap);
+    }
   }
   std::vector<Program> programs;
   const auto fwdProgIndex = programs.size(); // 0
@@ -1137,12 +1163,33 @@ int main(int argc, char **argv) try {
     bool weightsFailed = false;
     bool biasesFailed = false;
 
+    auto checkMetadata = [&](const std::unique_ptr<char[]> &src,
+                             Fp8Format format, int scale,
+                             const std::string &message) {
+      boost::multi_array<double, 1> hostMetadata(boost::extents[1]);
+      copy(target, UNSIGNED_CHAR, src.get(), hostMetadata);
+      auto expectedMetadata = packFp8Metadata(format, scale);
+      if (static_cast<unsigned>(hostMetadata[0]) != expectedMetadata) {
+        std::cerr << message << " metadata incorrect: " << hostMetadata[0]
+                  << " expected " << expectedMetadata << "\n";
+        return true;
+      }
+      return false;
+    };
+
     if (doFwdPass) {
       copy(target, outputType, rawHostNextAct.get(), hostNextAct);
       if (validationMethod == DataValidation::AgainstModel) {
         fwdFailed = !checkIsClose(
             "fwd", hostNextAct, fwdModel(hostPrevAct, hostWeights, hostBiases),
             relativeTolerance, absoluteTolerance);
+      }
+      if (testingQuarter) {
+        checkMetadata(rawPrevActsMetadata, fp8FormatFwdIn, fp8ScaleFwdIn,
+                      "fwdActs");
+        checkMetadata(rawWeightsMetadata, fp8FormatWeights, fp8ScaleWeights,
+                      "weights");
+        // Note: No metadata check for output as it is of type half
       }
       if (fwdOutFile) {
         std::ofstream out(fwdOutFile.get());
@@ -1163,6 +1210,12 @@ int main(int argc, char **argv) try {
           bwdFailed = !checkIsClose("bwd", hostPrevDeltas,
                                     bwdModel(hostZDeltas, hostWeights),
                                     relativeTolerance, absoluteTolerance);
+        }
+        if (testingQuarter) {
+          checkMetadata(rawHostZDeltasMetadata, fp8FormatBwdIn, fp8scaleBwdIn,
+                        "zDeltas");
+          checkMetadata(rawWeightsMetadata, fp8FormatWeights, fp8ScaleWeights,
+                        "weights");
         }
         if (bwdOutFile) {
           std::ofstream out(bwdOutFile.get());

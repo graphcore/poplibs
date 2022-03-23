@@ -5,6 +5,7 @@
 
 #include "poplin/MultiConvolution.hpp"
 #include "poplin/codelets.hpp"
+#include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
@@ -21,11 +22,13 @@ using namespace poputil;
 BOOST_AUTO_TEST_CASE(DifferentDataTypes) {
   ConvParams convA(HALF, 4, {8, 8}, {4, 4}, 1, 1, 10);
   ConvParams convB(FLOAT, 4, {5, 5}, {1, 1}, 11, 5, 1);
+  ConvParams convC(QUARTER, HALF, 4, {8, 8}, {4, 4}, 1, 1, 10);
 
   auto args = [&](const std::string &suffix) {
     return std::vector<multiconv::CreateTensorArgs>{
         {convA, {}, "convA_" + suffix},
         {convB, {}, "convB_" + suffix},
+        {convC, {}, "convC_" + suffix},
     };
   };
 
@@ -57,6 +60,7 @@ BOOST_AUTO_TEST_CASE(DifferentDataTypes) {
   const std::vector<multiconv::ConvolutionArgs> convArgs{
       {is[0], ws[0], convA, {}},
       {is[1], ws[1], convB, {}},
+      {is[2], ws[2], convC, {}},
   };
 
   Sequence prog;

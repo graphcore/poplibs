@@ -1093,10 +1093,6 @@ BOOST_AUTO_TEST_CASE(StdCast,
   }
 }
 
-// T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
-// order for the poplar change to pass CI, the following code is disabled
-// temporarily. This should have no effect on the existing tests.
-#if 0
 BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
                      *boost::unit_test::precondition(enableIfIpu21Sim())) {
   auto device = createTestDevice(TEST_TARGET);
@@ -1115,7 +1111,10 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
   // TODO - T57103 won't need an intermediate cast once we can copy data to the
   // IPU, or is this a useful test anyhow?
   auto in = graph.addVariable(HALF, {DIM_SIZE}, "in");
-  auto inter = graph.addVariable(QUARTER, {DIM_SIZE}, "inter");
+
+  auto metadata =
+      createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 0);
+  auto inter = graph.addVariable(QUARTER, &metadata, {DIM_SIZE}, "inter");
   auto out = graph.addVariable(HALF, {DIM_SIZE}, "out");
   mapTensorLinearly(graph, in);
   mapTensorLinearly(graph, inter);
@@ -1124,8 +1123,6 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
 
   auto prog = Sequence();
 
-  graph.setInitialValue(inter.getMetadata(),
-                        packFp8Metadata(poputil::Fp8Format::QUART143, 0));
   prog.add(cast(graph, in, inter, "castToFP8"));
 
   auto cs = graph.addComputeSet("castToHalf");
@@ -1261,18 +1258,16 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
     hIn[i] = (float)(i % modulo);
   }
   // Manipulate the input to result in 2D vertex being called
-  auto toSlice = graph.addVariable(QUARTER, {DIM_SIZE + 16}, "toSlice");
+  auto metadata0 =
+      createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 2);
+  auto toSlice =
+      graph.addVariable(QUARTER, &metadata0, {DIM_SIZE + 16}, "toSlice");
   mapTensorLinearly(graph, toSlice);
   auto in = concat(toSlice.slice(0, DIM_SIZE / 2),
                    toSlice.slice(16, 16 + DIM_SIZE - (DIM_SIZE / 2)), 0);
   graph.createHostWrite("in", in);
 
   auto prog = Sequence();
-
-  auto metadata0 =
-      createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 2);
-  graph.setInitialValue(in.getMetadata(),
-                        packFp8Metadata(poputil::Fp8Format::QUART143, 2));
   // TODO - T57103 won't need an intermediate cast once we can copy data to the
   // IPU, or is this a useful test anyhow?
   auto metadata1 =
@@ -1295,7 +1290,6 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
     BOOST_TEST(hOut[i] == i % modulo);
   }
 }
-#endif
 
 BOOST_AUTO_TEST_CASE(
     StdaXMinusbY_float_tensor_and_const,

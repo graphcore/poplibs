@@ -24,8 +24,8 @@ CastEstimates modelContiguousCast(const poplar::Target &target,
   CastEstimates e(m.zero());
 
   // Modelling for non-floating point cast not currently handled.
-  assert((inType == FLOAT || inType == HALF) &&
-         (outType == FLOAT || outType == HALF));
+  assert((inType == FLOAT || inType == HALF || inType == QUARTER) &&
+         (outType == FLOAT || outType == HALF || outType == QUARTER));
 
   if (inType != outType) {
     const CastTargetParameters targetParams{target, inType, outType};

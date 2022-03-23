@@ -132,7 +132,7 @@ struct ConvProgramTree {
   // once T5913 is resolved this can be removed.
   // TODO: T12874 Specialise std::hash for poplar::Type and use an unordered
   // container here.
-  std::map<poplar::Type, poplar::Tensor> copyWritten;
+  std::vector<poplar::Tensor> copyWritten;
 };
 
 } // namespace poplin

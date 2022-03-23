@@ -88,18 +88,11 @@ static inline void permute(const std::vector<std::vector<std::size_t>> &params,
   } while (!genI.complete());
 }
 
-Tensor createPartitionableTensor(Graph &graph, const Type &type,
-                                 const std::vector<std::size_t> &shape,
-                                 const std::vector<std::size_t> &nPartitions,
-                                 const poplar::DebugContext &debugContext) {
-  POPUTIL_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext,
-                                 DI_ARGS(type, shape, nPartitions));
-
-  logging::poputil::debug("createPartitionableTensor '{}' with shape={} and "
-                          "nPartitions={}",
-                          debugContext.getPathName(), shape, nPartitions);
-
+static Tensor
+createPartitionableTensorInternal(Graph &graph, const Type &type,
+                                  const std::vector<std::size_t> &shape,
+                                  const std::vector<std::size_t> &nPartitions,
+                                  poputil::PoplibsOpDebugInfo &di) {
   if (shape.size() != nPartitions.size()) {
     throw poplibs_error("createPartitionableTensor: shape.size() (" +
                         std::to_string(shape.size()) +
@@ -107,12 +100,17 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
                         "nPartitions.size() (" +
                         std::to_string(nPartitions.size()) + ")");
   }
-
+  Tensor metadata, *metadataPtr = nullptr;
+  if (type.requiresMetadata()) {
+    metadata = graph.addVariable(QUARTER_METADATA, {}, {di, "metadata"});
+    graph.setTileMapping(metadata, 0);
+    metadataPtr = &metadata;
+  }
   // If any dimension is 0 the resulting tensor has no elements anyway
   // so just return an appropriately shaped tensor.
   if (std::any_of(shape.begin(), shape.end(),
                   [](std::size_t n) { return n == 0; })) {
-    return graph.addVariable(type, shape, {di});
+    return graph.addVariable(type, metadataPtr, shape, {di});
   }
 
   // The problem we want to solve is that we want the slice of the returned
@@ -216,9 +214,10 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
             // Shuffle then flatten the number of partitions in each dimension
             // together with the shape of the partition in that dimension
             // (through a reshape to the permuted shape).
-            vars.push_back(graph.addVariable(type, splitPermutedShape, {di})
-                               .dimShuffle(inversePermutation)
-                               .reshape(permutedShape));
+            vars.push_back(
+                graph.addVariable(type, metadataPtr, splitPermutedShape, {di})
+                    .dimShuffle(inversePermutation)
+                    .reshape(permutedShape));
           });
 
   // Finally, stitch the variables created back together to form the full
@@ -261,6 +260,20 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
 
   di.addOutput(result);
   return result;
+}
+
+Tensor createPartitionableTensor(Graph &graph, const Type &type,
+                                 const std::vector<std::size_t> &shape,
+                                 const std::vector<std::size_t> &nPartitions,
+                                 const poplar::DebugContext &debugContext) {
+  POPUTIL_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(type, shape, nPartitions));
+
+  logging::poputil::debug("createPartitionableTensor '{}' with shape={} and "
+                          "nPartitions={}",
+                          debugContext.getPathName(), shape, nPartitions);
+  return createPartitionableTensorInternal(graph, type, shape, nPartitions, di);
 }
 
 void iterateTensorPartitions(

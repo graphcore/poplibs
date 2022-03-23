@@ -86,6 +86,10 @@ multiSlice(const DeviceType &deviceType, const unsigned numIPUs,
                                          sliceSizes, plan, sliceOptions, "t");
 
   Sequence prog;
+  if (dataType.requiresMetadata()) {
+    auto metadata = createFp8MetadataTensor(graph, Fp8Format::QUART152, 1);
+    prog.add(Copy(metadata, t.getMetadata()));
+  }
 
   std::mt19937 randomEngine;
   auto indices =
@@ -216,6 +220,10 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
   auto indices =
       createHostIndices(target, randomEngine, numIndices, D, groupSize);
   Sequence prog;
+  if (dataType.requiresMetadata()) {
+    auto metadata = createFp8MetadataTensor(graph, Fp8Format::QUART152, 1);
+    prog.add(Copy(metadata, t.getMetadata()));
+  }
   Tensor offset =
       grouped
           ? createGroupedIndicesTensor(graph, groupSize, sliceDims, numIndices,
@@ -260,7 +268,7 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
 
   const MultiArrayShape hOutShape = {groupSize, D, E};
   MultiArray<double> hIn{groupSize, numIndices, E};
-  ;
+
   MultiArray<double> hOut{hOutShape};
   MultiArray<double> expected{hOutShape};
 

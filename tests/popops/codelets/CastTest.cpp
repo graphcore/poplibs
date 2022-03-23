@@ -81,7 +81,15 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   popops::addCodelets(graph);
 
   // Input data
-  Tensor in = graph.addVariable(dataTypeIn, {rows, columns}, "Input Data");
+  Tensor in;
+  if (dataTypeIn.requiresMetadata()) {
+    auto metadata = createFp8MetadataTensor(graph, fp8Format, fp8Scale);
+    graph.setTileMapping(metadata, 0);
+    in =
+        graph.addVariable(dataTypeIn, &metadata, {rows, columns}, "Input Data");
+  } else {
+    in = graph.addVariable(dataTypeIn, {rows, columns}, "Input Data");
+  }
   graph.setTileMapping(in, 0);
 
   // Intermediate data - we can check the following without extra support
@@ -97,6 +105,8 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
     std::cout << "WARNING: Codelets will be run for quarter->" << dataTypeOut
               << " but result checking is incomplete\n";
   }
+  // Make a sequence to zero output memory and run cast
+  Sequence sequence;
 
   // TODO - T57103 shouldn't need an intermediate step once we can copy data to
   // the IPU
@@ -106,15 +116,27 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
               << dataTypeIn
               << " to check casting to/from "
                  "fp8 data\n";
-    inter =
-        graph.addVariable(dataTypeOut, {rows, columns}, "Intermediate Data");
+    auto metadata =
+        createFp8MetadataTensor(graph, fp8Format, fp8Scale, sequence);
+    inter = graph.addVariable(dataTypeOut, &metadata, {rows, columns},
+                              "Intermediate Data");
     graph.setTileMapping(inter, 0);
   }
 
   // Result data
   auto resultDataType = inTypeToFp8ToinType ? dataTypeIn : dataTypeOut;
-  Tensor out =
-      graph.addVariable(resultDataType, {rows, columns + offsetOut}, "Output");
+  Tensor out;
+  if (resultDataType.requiresMetadata()) {
+    auto metadata = fp8ToFp8 ? createFp8MetadataTensor(graph, fp8FormatOut,
+                                                       fp8ScaleOut, sequence)
+                             : createFp8MetadataTensor(graph, fp8Format,
+                                                       fp8Scale, sequence);
+    out = graph.addVariable(resultDataType, &metadata,
+                            {rows, columns + offsetOut}, "Output");
+  } else {
+    out = graph.addVariable(resultDataType, {rows, columns + offsetOut},
+                            "Output");
+  }
   graph.setTileMapping(out, 0);
 
   // allocateHostMemoryForTensor
@@ -126,9 +148,6 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   auto output = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
                                             downloadProg, tmap);
 
-  // Make a sequence to zero output memory and run cast
-  Sequence sequence;
-
   ComputeSet testComputeSet = graph.addComputeSet("computeCast");
 
   std::string vertexName;
@@ -139,30 +158,6 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   } else {
     vertexName = "popops::Cast2D";
   }
-
-  // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
-  // order for the poplar change to pass CI, the following code is disabled
-  // temporarily. This should have no effect on the existing tests.
-  // if (in.elementType() == QUARTER) {
-  //   graph.setInitialValue(in.getMetadata(),
-  //                         packFp8Metadata(fp8Format, fp8Scale));
-  // }
-  //
-  // if (inTypeToFp8ToinType && inter.elementType() == QUARTER) {
-  //   graph.setInitialValue(inter.getMetadata(),
-  //                         packFp8Metadata(fp8Format, fp8Scale));
-  // }
-  //
-  // if (out.elementType() == QUARTER) {
-  //   if (fp8ToFp8) {
-  //     graph.setInitialValue(out.getMetadata(),
-  //                           packFp8Metadata(fp8FormatOut, fp8ScaleOut));
-  //   } else {
-  //     graph.setInitialValue(out.getMetadata(),
-  //                           packFp8Metadata(fp8Format, fp8Scale));
-  //   }
-  // }
-
   auto castVertex = graph.addVertex(
       testComputeSet, templateVertex(vertexName, dataTypeIn, dataTypeOut));
   graph.setTileMapping(castVertex, 0);

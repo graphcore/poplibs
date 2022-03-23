@@ -1794,10 +1794,6 @@ BOOST_AUTO_TEST_CASE(SliceIndexChecks) { indexChecks(false); }
 BOOST_AUTO_TEST_CASE(UpdateIndexChecks) { indexChecks(true); }
 BOOST_AUTO_TEST_SUITE_END()
 
-// T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
-// order for the poplar change to pass CI, the following code is disabled
-// temporarily. This should have no effect on the existing tests.
-#if 0
 BOOST_AUTO_TEST_SUITE(CheckQuarterMetadata)
 
 void checkQuarterMetadata(void) {
@@ -1819,12 +1815,12 @@ void checkQuarterMetadata(void) {
   graph.createHostWrite("ids", ids);
 
   // Create an input tensor with an associated metadata value to check
+  auto embeddingMetadata =
+      createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 1);
   auto embedding = popops::createSliceableTensor(graph, QUARTER, tShape, {0},
                                                  {1}, plan, {}, "embedding");
-  graph.setInitialValue(embedding.getMetadata(),
-                        packFp8Metadata(poputil::Fp8Format::QUART143, 1));
-
   Sequence sequence;
+  sequence.add(Copy(embeddingMetadata, embedding.getMetadata()));
   // The resulting multiSliced result should have the same metadata
   auto subT = popops::multiSlice(graph, embedding, ids, {0}, {1}, sequence,
                                  plan, optionFlags, "slice");
@@ -1835,10 +1831,11 @@ void checkQuarterMetadata(void) {
   // A multiupdate should not affect the metadata of the embedding
   auto dummy = popops::multiSlice(graph, embedding, ids, {0}, {1}, sequence,
                                   plan, optionFlags, "slice");
-  // associate metadata here, so as to leave the original value of metadata in
+  // copy new metadata here, so as to leave the original value of metadata in
   // embedding intact for test.
-  dummy.associateMetadata(
-      poputil::createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 3));
+  sequence.add(Copy(
+      poputil::createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 3),
+      dummy.getMetadata()));
   popops::multiUpdate(graph, embedding, dummy, ids, {0}, {1}, sequence, plan,
                       optionFlags, "slice");
 
@@ -1914,4 +1911,3 @@ void checkQuarterMetadata(void) {
 
 BOOST_AUTO_TEST_CASE(CheckQuarter) { checkQuarterMetadata(); }
 BOOST_AUTO_TEST_SUITE_END()
-#endif

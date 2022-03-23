@@ -149,9 +149,7 @@ Tensor cast(Graph &graph, Tensor src, const Type &dstType,
     throw poputil::poplibs_error("Metadata only required when creating a"
                                  " tensor of type quarter and casting to it");
   }
-  auto dst = graph.clone(dstType, src, {di, "cast"});
-  dst.associateMetadata(metadata);
-
+  auto dst = graph.clone(dstType, &metadata, src, {di, "cast"});
   castImpl(graph, src, dst, cs);
   di.addOutput(dst);
   return dst;
@@ -185,12 +183,7 @@ Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
     throw poputil::poplibs_error("Metadata only required when creating a "
                                  " tensor of type quarter and casting to it");
   }
-  auto dst = graph.clone(dstType, src, {di, "cast"});
-  // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
-  // order for the poplar change to pass CI, the following code is disabled
-  // temporarily. This should have no effect on the existing tests.
-  // prog.add(Copy(metadata, dst.getMetadata()));
-
+  auto dst = graph.clone(dstType, &metadata, src, {di, "cast"});
   prog.add(cast(graph, src, dst, {di}));
   di.addOutput(dst);
   return dst;

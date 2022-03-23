@@ -309,10 +309,14 @@ Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
   const auto dType = in.elementType();
   auto outShape = in.shape();
   std::swap(outShape[rank - 2], outShape[rank - 1]);
-  auto out = graph.addVariable(dType, outShape, {di, "partialTranspose"});
-  if (out.elementType() == QUARTER) {
-    out.associateMetadata(in.getMetadata());
+  Tensor metadata, *metadataPtr = nullptr;
+  if (in.hasMetadata()) {
+    metadata = graph.addVariable(QUARTER_METADATA, {}, {di, "metadata"});
+    graph.setTileMapping(metadata, 0);
+    metadataPtr = &metadata;
   }
+  auto out =
+      graph.addVariable(dType, metadataPtr, outShape, {di, "partialTranspose"});
   auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
                             numSrcRows * numSrcColumns});
   auto outFlat = out.reshape(inFlat.shape());
@@ -468,11 +472,10 @@ std::pair<GroupingInfo, GroupingInfo> updateGrouping(const Graph &graph,
   return std::make_pair(std::get<0>(result), std::get<1>(result));
 }
 
-Tensor regroupTensorInternal(Graph &graph, const Tensor &t,
-                             std::vector<Copy> &copies,
-                             const ComputeSet &transposeCS,
-                             const GroupingInfo &from_, const GroupingInfo &to_,
-                             const DebugNameAndId &dnai) {
+static Tensor
+regroupTensorInternal(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
+                      const ComputeSet &transposeCS, const GroupingInfo &from_,
+                      const GroupingInfo &to_, const DebugNameAndId &dnai) {
   const std::string fnStr = "internal";
   logging::popops::debug("Regroup: debugstr={}, tensor name={}",
                          dnai.getPathName(), t.getDebugStr());
@@ -531,8 +534,14 @@ Tensor regroupTensorInternal(Graph &graph, const Tensor &t,
   // regions to be contiguous. Performing a transpose alone
   // may leave multiple regions per-tile, one for each edge to a
   // transpose vertex.
-  auto preRegroup =
-      graph.addVariable(t.elementType(), grouped.shape(), {dnai, "preRegroup"});
+  Tensor metadata, *metadataPtr = nullptr;
+  if (t.hasMetadata()) {
+    metadata = t.getMetadata();
+    metadataPtr = &metadata;
+  }
+
+  auto preRegroup = graph.addVariable(t.elementType(), metadataPtr,
+                                      grouped.shape(), {dnai, "preRegroup"});
   auto preRegroupTranspose = preRegroup.flatten(0, preRegroup.rank() - 2);
   auto preRegroupFlat =
       preRegroup.flatten(0, preRegroup.rank() - 2).flatten(1, 3);
@@ -629,6 +638,10 @@ Tensor regroupTensorInternal(Graph &graph, const Tensor &t,
       graph, preRegroup, transposeCS, {dnai, fnStr});
 
   auto output = ungroupTensor(partiallyTransposed, from, to);
+  if (t.hasMetadata()) {
+    copies.emplace_back(t.getMetadata(), output.getMetadata(), false,
+                        DebugContext(dnai, fnStr));
+  }
   return output;
 }
 

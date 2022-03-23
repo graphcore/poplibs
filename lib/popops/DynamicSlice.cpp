@@ -1266,9 +1266,17 @@ static Tensor slice(Graph &graph, const Tensor &t,
   assert(dim < t.rank());
   assert(numOutIndices <= t.dim(dim));
 
-  Tensor s = graph.clone(t.slice(0, numOutIndices, dim),
-                         {dnai, std::string("sliced_") + std::to_string(dim)});
+  Tensor s;
+  if (t.hasMetadata()) {
+    auto metadata = graph.addVariable(poplar::QUARTER_METADATA, {});
+    graph.setTileMapping(metadata, 0);
+    s = graph.clone(&metadata, t.slice(0, numOutIndices, dim),
+                    {dnai, std::string("sliced_") + std::to_string(dim)});
 
+  } else {
+    s = graph.clone(t.slice(0, numOutIndices, dim),
+                    {dnai, std::string("sliced_") + std::to_string(dim)});
+  }
   if (prog && offset) {
     sliceWithOutput(graph, s, t, offset.get(), dim, numOutIndices, prog.get(),
                     dnai);
@@ -1502,7 +1510,13 @@ static Tensor createSliceableTensorGivenOrder(
   bool noOutputElements = std::any_of(shape.begin(), shape.end(),
                                       [](std::size_t n) { return n == 0; });
   if (dims.size() == 0 || noOutputElements) {
-    auto t = graph.addVariable(type, shape, {dnai});
+    poplar::Tensor metadata, *metadataPtr = nullptr;
+    if (type.requiresMetadata()) {
+      metadata = graph.addVariable(QUARTER_METADATA, {}, dnai);
+      graph.setTileMapping(metadata, 0);
+      metadataPtr = &metadata;
+    }
+    auto t = graph.addVariable(type, metadataPtr, shape, {dnai});
     mapTensorLinearly(graph, t);
     return t;
   }
@@ -2212,15 +2226,15 @@ static Tensor dynamicSliceImpl(Graph &graph, const Tensor &t,
         graph, out, checkOffset ? offset.get()[i] : offset, dims[i], sizes[i],
         prog, {dnai, std::string("dynamicSlice_d") + std::to_string(dims[i])});
   }
-  // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
-  // order for the poplar change to pass CI, the following code is disabled
-  // temporarily. This should have no effect on the existing tests.
-  // if (t.elementType() == QUARTER && t.getMetadata().valid()) {
-  //   // Where the input tensor has valid metadata, copy to the out tensor.
-  //   // An empty tensor will not have valid metadata, so avoid copying in that
-  //   // case.
-  //   out.associateMetadata(t.getMetadata());
-  // }
+  if (t.hasMetadata()) {
+    // Where the input tensor has valid metadata, copy to the out tensor.
+    if (prog) {
+      prog.get().add(Copy(t.getMetadata(), out.getMetadata()));
+    } else {
+      // No program, so no ability to copy.  But in that case this function
+      // is only used to get the tile mapping of the slice, so that's OK.
+    }
+  }
   return out;
 }
 
@@ -2739,18 +2753,11 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
         offset_.dim(1), plan, optionFlags, {dnai});
   }
   if (t_.elementType() == QUARTER) {
-    // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
-    // order for the poplar change to pass CI, the following code is disabled
-    // temporarily. This should have no effect on the existing tests.
-    // if (t_.getMetadata().valid()) {
-    //   // Where the input tensor has valid metadata, copy to the out tensor.
-    //   // An empty tensor will not have valid metadata, so avoid copying in
-    //   that
-    //   // case.
-    //   sMulti.associateMetadata(t_.getMetadata());
-    // }
     sMultiInternal = sMulti.reinterpret(UNSIGNED_CHAR);
     t = t_.reinterpret(UNSIGNED_CHAR);
+    if (t_.hasMetadata()) {
+      prog.add(Copy(t_.getMetadata(), sMulti.getMetadata()));
+    }
   } else {
     t = t_;
     sMultiInternal = sMulti;
@@ -3053,6 +3060,16 @@ void multiUpdateInternal(Graph &graph, const Tensor &t_, const Tensor &sMulti_,
   std::string dName = grouped ? "groupedMultiUpdate" : "multiUpdate";
   logging::popops::info(dName + " {} into {}, name={}", sMulti_.shape(),
                         t_.shape(), dnai.getPathName());
+
+  Tensor t, sMulti;
+  if (t_.hasMetadata()) {
+    sMulti = sMulti_.reinterpret(UNSIGNED_CHAR);
+    t = t_.reinterpret(UNSIGNED_CHAR);
+  } else {
+    t = t_;
+    sMulti = sMulti_;
+  }
+
   // small number of slices are updated individually
   // large number of slices are updated by a specialisation or in a loop
   std::string offsetRankStr = std::to_string(offset_.rank() - !grouped);
@@ -3081,14 +3098,14 @@ void multiUpdateInternal(Graph &graph, const Tensor &t_, const Tensor &sMulti_,
                           "the correct options (operationForUpdate possibly "
                           "set incorrectly");
     }
-    multiUpdateOp(graph, t_, sMulti_, offset_, boost::none, dims, sizes, prog,
+    multiUpdateOp(graph, t, sMulti, offset_, boost::none, dims, sizes, prog,
                   plan, boost::none, grouped, options, {dnai});
     return;
   }
 
-  auto t = t_.squeeze({0});
+  t = t.squeeze({0});
   auto offset = offset_.squeeze({0});
-  auto sMulti = sMulti_.squeeze({0});
+  sMulti = sMulti.squeeze({0});
 
   validateParams("multiUpdate", plan, options, t.shape(), offset[0], dims,
                  sizes);
@@ -3182,6 +3199,10 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
       debugContext,
       DI_ARGS(t, sMulti, offset, scale, dims, sizes, plan, options));
 
+  if (t.elementType() == QUARTER) {
+    throw poplibs_error("multiUpdateAdd does not support data of type "
+                        "quarter");
+  }
   if (t.elementType() != HALF && scale.elementType() != t.elementType()) {
     throw poplibs_error("Scale type can be different from data type only for "
                         "multiUpdateAdd of type half");
@@ -3203,7 +3224,10 @@ void groupedMultiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(t, sMulti, offset, scale, dims, sizes, plan, options));
-
+  if (t.elementType() == QUARTER) {
+    throw poplibs_error("groupedMultiUpdateAdd does not support data of type "
+                        "quarter");
+  }
   if (t.elementType() != HALF && scale.elementType() != t.elementType()) {
     throw poplibs_error("Scale type can be different from data type only for "
                         "groupedMultiUpdateAdd of type half");
@@ -3338,6 +3362,10 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &s,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, s, offsets, scale, dim));
+  if (t.elementType() == QUARTER) {
+    throw poplibs_error("multiUpdateAdd does not support data of type "
+                        "quarter");
+  }
 
   if (offsets.size() != s.dim(0)) {
     throw poplibs_error(fmt::format(
@@ -3417,6 +3445,10 @@ void multiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
+  if (t.elementType() == QUARTER) {
+    throw poplibs_error("multiUpdateMax does not support data of type "
+                        "quarter");
+  }
   multiUpdateOp(graph, t.expand({0}), sMulti.expand({0}), offset.expand({0}),
                 boost::none, dims, sizes, prog, plan, Operation::MAX, false,
                 options, {di});
@@ -3434,6 +3466,10 @@ void groupedMultiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
+  if (t.elementType() == QUARTER) {
+    throw poplibs_error("groupedMultiUpdateMax does not support data of type "
+                        "quarter");
+  }
   if (plan.getImpl().isNull) {
     throw poplibs_error(debugContext.getPathName() + ": groupedMultiUpdateMax "
                                                      "must have a valid plan");

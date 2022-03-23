@@ -61,12 +61,14 @@ poplar::ProfileValue toProfileValue(const poplin::PlanningCache &t) {
 namespace poplin {
 
 static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
-                              unsigned level, bool serial,
+                              const Tensor *metadata, unsigned level,
+                              bool serial,
                               const std::vector<Split<ConvIndices>> &indices,
                               const DebugNameAndId &dnai, const Plan &plan,
                               const ConvOptions &options);
 static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
-                                unsigned level, bool serial,
+                                const Tensor *metadata, unsigned level,
+                                bool serial,
                                 const std::vector<Split<ConvIndices>> &indices,
                                 const DebugNameAndId &dnai, const Plan &plan,
                                 const ConvOptions &options);
@@ -585,9 +587,8 @@ static CanonicalConvParams convolutionPreprocess(
     unsigned level, const std::vector<Split<ConvIndices>> &indices,
     boost::optional<Tensor> &acts, boost::optional<Tensor> &weights,
     bool serial, ConvProgramTree::TransformPreProgram *rearrangeProg = nullptr,
-    std::map<Type, Tensor> *rearrangeWritten = nullptr,
-    bool rearrangeActs = false, bool rearrangeWeights = false,
-    const DebugNameAndId &dnai = {}) {
+    std::vector<Tensor> *rearrangeWritten = nullptr, bool rearrangeActs = false,
+    bool rearrangeWeights = false, const DebugNameAndId &dnai = {}) {
   if (rearrangeActs) {
     logging::poplin::debug("'{}': forcing rearrangement of activations",
                            dnai.getPathName());
@@ -863,40 +864,39 @@ static CanonicalConvParams convolutionPreprocess(
   if (acts && rearrangeActs) {
     regroupIfBeneficialForPlan(graph, params, plan, level, *acts, true,
                                rearrangeProg, {dnai});
+
+    Tensor metadata, *metadataPtr = nullptr;
+    if (acts.get().hasMetadata()) {
+      metadata = acts.get().getMetadata();
+      metadataPtr = &metadata;
+    }
     auto actsRearranged =
-        createInputImpl(graph, params, level, serial, indices,
+        createInputImpl(graph, params, metadataPtr, level, serial, indices,
                         {dnai, "actsRearranged"}, plan, options);
 
     assert(rearrangeProg);
     rearrangeProg->postTransposeActs.emplace_back(*acts, actsRearranged, false,
                                                   dnai);
-    auto actsType = actsRearranged.elementType();
-    if (rearrangeWritten->count(actsType) == 0) {
-      rearrangeWritten->insert(
-          std::make_pair(actsType, graph.addVariable(actsType, {0}, {dnai})));
-    }
-    (*rearrangeWritten)[actsType] =
-        concat((*rearrangeWritten)[actsType], actsRearranged.flatten());
+    rearrangeWritten->emplace_back(actsRearranged);
     *acts = actsRearranged;
   }
 
   if (weights && rearrangeWeights) {
     regroupIfBeneficialForPlan(graph, params, plan, level, *weights, false,
                                rearrangeProg, {dnai});
+    Tensor metadata, *metadataPtr = nullptr;
+    if (weights.get().hasMetadata()) {
+      metadata = weights.get().getMetadata();
+      metadataPtr = &metadata;
+    }
     auto weightsRearranged =
-        createWeightsImpl(graph, params, level, serial, indices,
+        createWeightsImpl(graph, params, metadataPtr, level, serial, indices,
                           {dnai, "weightsRearranged"}, plan, options);
 
     assert(rearrangeProg);
     rearrangeProg->postTransposeWeights.emplace_back(
         *weights, weightsRearranged, false, dnai);
-    auto weightsType = weightsRearranged.elementType();
-    if (rearrangeWritten->count(weightsType) == 0) {
-      rearrangeWritten->insert(std::make_pair(
-          weightsType, graph.addVariable(weightsType, {0}, {dnai})));
-    }
-    (*rearrangeWritten)[weightsType] =
-        concat((*rearrangeWritten)[weightsType], weightsRearranged.flatten());
+    rearrangeWritten->emplace_back(weightsRearranged);
     *weights = weightsRearranged;
   }
 
@@ -908,9 +908,8 @@ static CanonicalConvParams convolutionPreprocess(
     Plan &plan, unsigned level, const std::vector<Split<ConvIndices>> &indices,
     Tensor &acts, Tensor &weights, bool serial,
     ConvProgramTree::TransformPreProgram *rearrangeProg = nullptr,
-    std::map<Type, Tensor> *rearrangeWritten = nullptr,
-    bool rearrangeActs = false, bool rearrangeWeights = false,
-    const DebugNameAndId &dnai = {}) {
+    std::vector<Tensor> *rearrangeWritten = nullptr, bool rearrangeActs = false,
+    bool rearrangeWeights = false, const DebugNameAndId &dnai = {}) {
   auto actsOptional = boost::make_optional(acts);
   auto weightsOptional = boost::make_optional(weights);
   const auto newParams = convolutionPreprocess(
@@ -1370,7 +1369,8 @@ static void mapWeights(Graph &graph, const CanonicalConvParams &params,
 }
 
 static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
-                              unsigned level, bool serial,
+                              const Tensor *metadata, unsigned level,
+                              bool serial,
                               const std::vector<Split<ConvIndices>> &indices,
                               const DebugNameAndId &dnai, const Plan &plan,
                               const ConvOptions &options) {
@@ -1383,8 +1383,8 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
     auto newPlan = plan;
     auto newParams = convolutionPreprocess(graph, params.getParams(), options,
                                            newPlan, level, indices, serial);
-    auto t = createWeightsImpl(graph, newParams, level, serial, indices, {dnai},
-                               newPlan, options);
+    auto t = createWeightsImpl(graph, newParams, metadata, level, serial,
+                               indices, {dnai}, newPlan, options);
     return convolutionPreprocessInverse(graph, originalParams, options, plan,
                                         level, indices, t, true /* isActs */,
                                         serial);
@@ -1399,8 +1399,8 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
     auto newPlan = plan;
     auto newParams = convolutionPreprocess(graph, params.getParams(), options,
                                            newPlan, level, indices, serial);
-    auto t = createInputImpl(graph, newParams, level, serial, indices, {dnai},
-                             newPlan, options);
+    auto t = createInputImpl(graph, newParams, metadata, level, serial, indices,
+                             {dnai}, newPlan, options);
     return convolutionPreprocessInverse(graph, originalParams, options, plan,
                                         level, indices, t, true /* isActs */,
                                         serial);
@@ -1429,7 +1429,7 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
                      params->inputFieldShape.end());
   tensorShape.push_back(convGroupsPerGroup);
   tensorShape.push_back(inChansPerGroup);
-  auto t = graph.addVariable(params->inputType, tensorShape, {dnai});
+  auto t = graph.addVariable(params->inputType, metadata, tensorShape, {dnai});
   t = unsplitActivationFromGroups(t.dimRoll(0, 1).flatten(1, 3));
   mapActivations(graph, params, plan, level, serial, indices, t, options);
 
@@ -1445,13 +1445,13 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
 }
 
 Tensor createInput(Graph &graph, const Plan &plan,
-                   const CanonicalConvParams &params,
+                   const CanonicalConvParams &params, const Tensor *metadata,
                    const DebugNameAndId &dnai, const ConvOptions &options) {
   const unsigned level = 0;
   bool serial = true;
   const std::vector<Split<ConvIndices>> indices;
-  auto input = createInputImpl(graph, params, level, serial, indices, {dnai},
-                               plan, options);
+  auto input = createInputImpl(graph, params, metadata, level, serial, indices,
+                               {dnai}, plan, options);
   input = actsToExternalShape(input);
   return input;
 }
@@ -1467,13 +1467,20 @@ Tensor createInput(Graph &graph, const ConvParams &params_,
   const ConvOptions options(options_);
 
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
-  auto output = createInput(graph, plan, params, {di}, options);
+  Tensor metadata, *metadataPtr = nullptr;
+  if (params_.inputType.requiresMetadata()) {
+    metadata = graph.addVariable(QUARTER_METADATA, {}, {di, "metadata"});
+    graph.setTileMapping(metadata, 0);
+    metadataPtr = &metadata;
+  }
+  auto output = createInput(graph, plan, params, metadataPtr, {di}, options);
   di.addOutput(output);
   return output;
 }
 
 static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
-                                unsigned level, bool serial,
+                                const Tensor *metadata, unsigned level,
+                                bool serial,
                                 const std::vector<Split<ConvIndices>> &indices,
                                 const DebugNameAndId &dnai, const Plan &plan,
                                 const ConvOptions &options) {
@@ -1486,8 +1493,8 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
     auto newPlan = plan;
     auto newParams = convolutionPreprocess(graph, params.getParams(), options,
                                            newPlan, level, indices, serial);
-    auto t = createInputImpl(graph, newParams, level, serial, indices, {dnai},
-                             newPlan, options);
+    auto t = createInputImpl(graph, newParams, metadata, level, serial, indices,
+                             {dnai}, newPlan, options);
     return convolutionPreprocessInverse(graph, originalParams, options, plan,
                                         level, indices, t, false /* isActs */,
                                         serial);
@@ -1502,8 +1509,8 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
     auto newPlan = plan;
     auto newParams = convolutionPreprocess(graph, params.getParams(), options,
                                            newPlan, level, indices, serial);
-    auto t = createWeightsImpl(graph, newParams, level, serial, indices, {dnai},
-                               newPlan, options);
+    auto t = createWeightsImpl(graph, newParams, metadata, level, serial,
+                               indices, {dnai}, newPlan, options);
     return convolutionPreprocessInverse(graph, originalParams, options, plan,
                                         level, indices, t, false /* isActs */,
                                         serial);
@@ -1552,7 +1559,8 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   weightsShape.push_back(weightConvGroupsPerGroup);
   weightsShape.push_back(weightOutChansPerGroup);
   weightsShape.push_back(weightInChansPerGroup);
-  auto weights = graph.addVariable(params->inputType, weightsShape, {dnai});
+  auto weights =
+      graph.addVariable(params->inputType, metadata, weightsShape, {dnai});
   weights = unsplitWeightsFromGroups(
       weights.dimRoll(0, serialSplitIndex)
           .flatten(serialSplitIndex, serialSplitIndex + 2));
@@ -1570,13 +1578,13 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
 }
 
 Tensor createWeights(Graph &graph, const Plan &plan,
-                     const CanonicalConvParams &params,
+                     const CanonicalConvParams &params, const Tensor *metadata,
                      const DebugNameAndId &dnai, const ConvOptions &options) {
   const unsigned level = 0;
   bool serial = true;
   const std::vector<Split<ConvIndices>> indices;
-  auto weights = createWeightsImpl(graph, params, level, serial, indices,
-                                   {dnai}, plan, options);
+  auto weights = createWeightsImpl(graph, params, metadata, level, serial,
+                                   indices, {dnai}, plan, options);
   return weightsToExternalShape(weights);
 }
 
@@ -1592,7 +1600,13 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
   const ConvOptions options(options_);
 
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
-  auto output = createWeights(graph, plan, params, {di}, options);
+  Tensor metadata, *metadataPtr = nullptr;
+  if (params_.inputType.requiresMetadata()) {
+    metadata = graph.addVariable(QUARTER_METADATA, {}, {di, "metadata"});
+    graph.setTileMapping(metadata, 0);
+    metadataPtr = &metadata;
+  }
+  auto output = createWeights(graph, plan, params, metadataPtr, {di}, options);
   di.addOutput(output);
   return output;
 }
@@ -2089,7 +2103,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
                             const bool insertCycleCount,
                             const poplar::DebugNameAndId &dnai) {
   for (const auto &c : copyWritten) {
-    prog.add(WriteUndef(c.second, {dnai}));
+    prog.add(WriteUndef(c, {dnai}));
   }
 
   // weightsTranspose
@@ -2206,11 +2220,15 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
         logging::poplin::debug("'{}': forcing rearrangement of {} before slice "
                                "because sliced dimension is split over tiles",
                                dnai.getPathName(), sliceKind);
-
         auto createSliceMethod = isActs ? createInputImpl : createWeightsImpl;
-        auto sliceRearranged =
-            createSliceMethod(graph, serialParams, level, true, indices,
-                              {dnai, sliceKind + "Rearranged"}, plan, options);
+        Tensor metadata, *metadataPtr = nullptr;
+        if (in.hasMetadata() && weights.hasMetadata()) {
+          metadata = isActs ? in.getMetadata() : weights.getMetadata();
+          metadataPtr = &metadata;
+        }
+        auto sliceRearranged = createSliceMethod(
+            graph, serialParams, metadataPtr, level, true, indices,
+            {dnai, sliceKind + "Rearranged"}, plan, options);
         // WriteUndef sliceRearranged as it may be partially written. See
         // T36794.
         cpt.transformPreSerial.writeUndef.push_back(sliceRearranged);
@@ -2375,9 +2393,14 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     Tensor tileLevelActs = inSlice;
     if (plan.broadcastInputBeforeLoop) {
       auto &params = parallelParams.getParams();
+      Tensor metadata, *metadataPtr = nullptr;
+      if (in.hasMetadata()) {
+        metadata = in.getMetadata();
+        metadataPtr = &metadata;
+      }
 
       tileLevelActs =
-          createInputImpl(graph, params, tileLevel, false, indices,
+          createInputImpl(graph, params, metadataPtr, tileLevel, false, indices,
                           {dnai, "tileLevelActsRearranged"}, plan, options);
 
       const poplar::DebugContext debugContext = {dnai, "tileLevelActsCopy"};
@@ -2707,13 +2730,15 @@ convolutionInternal(Graph &graph, const poplar::Tensor &in_,
   }
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
+    Tensor metadata, *metadataPtr = nullptr;
+    if (weights.hasMetadata()) {
+      metadata = weights.getMetadata();
+      metadataPtr = &metadata;
+    }
     auto bwdWeights = createWeights(graph, plan, params.getParams(),
-                                    {dnai, "bwdWeights"}, options);
+                                    metadataPtr, {dnai, "bwdWeights"}, options);
     if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
       weightsTransposeChansFlipXY(graph, weights, bwdWeights, cpt, {dnai});
-    }
-    if (weights.elementType() == QUARTER) {
-      bwdWeights.associateMetadata(weights.getMetadata());
     }
     weights = bwdWeights;
   }
@@ -2903,8 +2928,14 @@ void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
 
     // [GC1][O/G1][I/G2]...[GC2][G1/G5][G5][G2]
     //    -> [GC1][O/G1][I/G2]...[GC2][G1/G5][G2][G5]
+    auto preTrans = partiallyTransposed;
     partiallyTransposed = popops::rearrange::partialTranspose(
         graph, partiallyTransposed, transposeCS, {dnai});
+    if (partiallyTransposed.hasMetadata()) {
+      preTranspose.emplace_back(preTrans.getMetadata(),
+                                partiallyTransposed.getMetadata(), false,
+                                DebugContext(dnai, "metadata"));
+    }
   }
 
   auto flipped = partiallyTransposed;
@@ -3443,11 +3474,13 @@ static Tensor fullyConnectedWeightTranspose(
   auto bwdPlan = getPlan(graph.getTarget(), bwdParams, bwdOptions, cache);
   auto fwdOptions = getFullyConnectedFwdOptionsFromBwdOptions(bwdOptions);
   auto fwdPlan = getPlan(graph.getTarget(), fwdParams, fwdOptions, cache);
-  Tensor transposed = createWeights(graph, bwdPlan, bwdParams,
-                                    {dnai, "transposed"}, bwdOptions);
-  if (transposed.elementType() == QUARTER) {
-    transposed.associateMetadata(weights.getMetadata());
+  Tensor metadata, *metadataPtr = nullptr;
+  if (weights.hasMetadata()) {
+    metadata = weights.getMetadata();
+    metadataPtr = &metadata;
   }
+  Tensor transposed = createWeights(graph, bwdPlan, bwdParams, metadataPtr,
+                                    {dnai, "transposed"}, bwdOptions);
   auto splitTransposed = weightsToInternalShape(transposed);
 
   const auto groupSizes =

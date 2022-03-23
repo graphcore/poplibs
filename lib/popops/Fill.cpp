@@ -95,8 +95,13 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
   // Note that the method of broadcasting a scalar here would increase compile
   // time for large tensors where the broadcast factor is large.  Instead we
   // copy a large constant which becomes optimised to efficient memset vertices.
+  Tensor metadata, *metadataPtr = nullptr;
+  if (t.hasMetadata()) {
+    metadata = t.getMetadata();
+    metadataPtr = &metadata;
+  }
   auto valueTensor = graph.addConstant<FillValueType>(
-      t.elementType(), tFlat.shape(), fillValue, "fillValue");
+      t.elementType(), metadataPtr, tFlat.shape(), fillValue, "fillValue");
   graph.setTileMapping(valueTensor, graph.getTileMapping(tFlat));
   prog.add(Copy(valueTensor, tFlat));
 }

@@ -274,15 +274,14 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
   auto paddingSize = paddingLower + paddingUpper;
   auto paddingShape = t.shape();
   paddingShape[dim] = paddingSize;
-  auto paddingTensor =
-      graph.addVariable(t.elementType(), paddingShape, {dnai, "zeroPadding"});
 
-  // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
-  // order for the poplar change to pass CI, the following code is disabled
-  // temporarily. This should have no effect on the existing tests.
-  // if (t.elementType() == QUARTER && t.getMetadata().valid()) {
-  //   paddingTensor.associateMetadata(t.getMetadata());
-  // }
+  Tensor metadata, *metadataPtr = nullptr;
+  if (t.hasMetadata()) {
+    metadata = t.getMetadata();
+    metadataPtr = &metadata;
+  }
+  auto paddingTensor = graph.addVariable(t.elementType(), metadataPtr,
+                                         paddingShape, {dnai, "zeroPadding"});
   auto paddingLowerTensor = paddingTensor.slice(0, paddingLower, dim);
   auto paddingUpperTensor = paddingTensor.slice(paddingLower, paddingSize, dim);
   padding = concat(padding, paddingTensor.flatten());
@@ -298,28 +297,34 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
 // TODO: fixing T5913 means we should be able to remove this.
 struct Padder {
   Padder(Graph &graph, const unsigned tile, std::vector<Copy> &transformPre,
-         std::map<Type, Tensor> &copyWritten, const Type &type,
+         std::vector<Tensor> &copyWritten, const Tensor &t,
          const DebugNameAndId &dnai)
-      : graph(graph), tile(tile), transformPre(transformPre), type(type),
-        copyWritten(copyWritten), dnai(dnai) {
-    paddingTensor = graph.addConstant(type, {0}, 0, {dnai, "paddingTensor"});
+      : graph(graph), tile(tile), transformPre(transformPre),
+        type(t.elementType()), copyWritten(copyWritten), dnai(dnai) {
+    Tensor metadata, *metadataPtr = nullptr;
+    if (t.hasMetadata()) {
+      metadata = t.getMetadata();
+      metadataPtr = &metadata;
+    }
+    paddingTensor =
+        graph.addConstant(type, metadataPtr, {0}, 0, {dnai, "paddingTensor"});
     graph.setTileMapping(paddingTensor, 0);
   }
 
   ~Padder() {
     if (paddingTensor.numElements() != 0) {
+      Tensor metadata, *metadataPtr = nullptr;
+      if (paddingTensor.hasMetadata()) {
+        metadata = paddingTensor.getMetadata();
+        metadataPtr = &metadata;
+      }
       auto c =
-          graph.addConstant(paddingTensor.elementType(), paddingTensor.shape(),
-                            0, {dnai, "paddingTensor"});
+          graph.addConstant(paddingTensor.elementType(), metadataPtr,
+                            paddingTensor.shape(), 0, {dnai, "paddingTensor"});
       graph.setTileMapping(c, 0);
       graph.setTileMapping(paddingTensor, tile);
       transformPre.emplace_back(c, paddingTensor, false, dnai);
-
-      if (copyWritten.count(type) == 0) {
-        copyWritten.insert(
-            std::make_pair(type, graph.addVariable(type, {0}, {dnai})));
-      }
-      copyWritten[type] = concat(copyWritten[type], paddingTensor.flatten());
+      copyWritten.emplace_back(paddingTensor);
     }
   }
 
@@ -335,7 +340,7 @@ private:
   unsigned tile;
   std::vector<Copy> &transformPre;
   Type type;
-  std::map<Type, Tensor> &copyWritten;
+  std::vector<Tensor> &copyWritten;
   const DebugNameAndId &dnai;
 
   Tensor paddingTensor;
@@ -603,7 +608,7 @@ static void createConvPartialAmpVertex(
       useConvPartial1x1OutVertex, convUnitWeightHeight);
 
   const auto convInputLoadElems =
-      target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
+      target.getConvUnitInputLoadElemsPerCycle(in.elementType());
   int transformedInStride =
       getTransformedInStride(convUnitWeightHeight, inStrideX, inRowStride,
                              convInputLoadElems, inChansPerGroup);
@@ -812,7 +817,7 @@ static void createConvPartialAmpVertex(
 
 static void createConvPartialAmpVertices(
     Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
-    std::vector<Copy> &transformPre, std::map<Type, Tensor> &copyWritten,
+    std::vector<Copy> &transformPre, std::vector<Tensor> &copyWritten,
     ComputeSet fwdCS, Tensor in, Tensor weights, Tensor out,
     bool use128BitConvUnitLoad, bool disableSRForAMPVertices,
     const DebugNameAndId &dnai) {
@@ -823,8 +828,7 @@ static void createConvPartialAmpVertices(
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
     assert(weights.elementType() == in.elementType());
-    Padder padder(graph, tile, transformPre, copyWritten, weights.elementType(),
-                  {dnai});
+    Padder padder(graph, tile, transformPre, copyWritten, weights, {dnai});
 
     // If we are doing an nx1 convolution we need to pad the weights to a
     // multiple of n.
@@ -911,7 +915,7 @@ static void createConvPartialAmpVertices(
 //  weights: [G1][CO1][CI1]...[G2][CO2][CI2]
 void createConvPartialSlicVertex(
     Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
-    std::vector<Copy> &transformPre, std::map<Type, Tensor> &copyWritten,
+    std::vector<Copy> &transformPre, std::vector<Tensor> &copyWritten,
     ComputeSet fwdCS, ConvProgramTree::PostProg &postConvProg, Tensor in,
     Tensor weights, Tensor out, bool disableSRForAMPVertices,
     const DebugNameAndId &dnai) {
@@ -954,18 +958,19 @@ void createConvPartialSlicVertex(
 
   // apply transformations (output padding is applied further down).
   {
-    Padder padder(graph, tile, transformPre, copyWritten, weights.elementType(),
-                  {dnai});
+    Padder weightsPadder(graph, tile, transformPre, copyWritten, weights,
+                         {dnai});
 
     // pad kernel width (aka the innermost dim) up to a multiple of 1xN if it is
     // not already.
     const auto kernelWidthDim = params.kernelShape.size() - 1;
     weights = padKernelSpatialDim(graph, params, weights, kernelWidthDim,
-                                  method.windowWidth, padder);
+                                  method.windowWidth, weightsPadder);
 
     // Explicitly apply input transforms.
+    Padder inputPadder(graph, tile, transformPre, copyWritten, in, {dnai});
     for (unsigned d = 0; d < numFieldDims; ++d) {
-      in = truncateDilateAndPadInput(graph, params, in, d, padder, {dnai});
+      in = truncateDilateAndPadInput(graph, params, in, d, inputPadder, {dnai});
     }
   }
 
@@ -976,7 +981,7 @@ void createConvPartialSlicVertex(
       convGroupsPerGroup * chansPerGroup;
 
   const auto isPowerOf2 = [](const unsigned n) { return (n & (n - 1)) == 0; };
-  assert(isPowerOf2(chansPerGroup) && chansPerGroup <= 4);
+  assert(isPowerOf2(chansPerGroup) && chansPerGroup <= 8);
   assert(isPowerOf2(convGroupsPerGroup) && convGroupsPerGroup <= 16);
   // Cast to void to avoid compiler warning as it's only used on a debug build.
   (void)isPowerOf2;
@@ -1748,7 +1753,7 @@ static void createOuterProductVertex(
 
 void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
                            ConvParams params, std::vector<Copy> &transformPre,
-                           std::map<Type, Tensor> &copyWritten,
+                           std::vector<Tensor> &copyWritten,
                            ConvProgramTree::ComputeSetsGroup &convolveCS,
                            Tensor in, Tensor weights, Tensor out,
                            bool use128BitConvUnitLoad,

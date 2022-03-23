@@ -25,7 +25,13 @@ VoidFunction::VoidFunction(
       params.push_back(Tensor());
       continue;
     }
-    auto t = graph.clone(s.similarTensor, {di, s.debugName});
+    Tensor metadata, *metadataPtr = nullptr;
+    if (s.similarTensor.hasMetadata()) {
+      metadata = graph.addVariable(QUARTER_METADATA, {});
+      graph.setTileMapping(metadata, 0);
+      metadataPtr = &metadata;
+    }
+    auto t = graph.clone(metadataPtr, s.similarTensor, {di, s.debugName});
     params.push_back(std::move(t));
   }
   f(params, prog);
@@ -50,7 +56,14 @@ VoidFunction::VoidFunction(Graph &graph, Signature sig_,
       params.push_back(Tensor());
       continue;
     }
-    auto t = graph.clone(s.similarTensor, {di, s.debugName});
+    Tensor metadata, *metadataPtr = nullptr;
+    if (s.similarTensor.hasMetadata()) {
+      metadata = graph.addVariable(QUARTER_METADATA, {});
+      graph.setTileMapping(metadata, 0);
+      metadataPtr = &metadata;
+    }
+
+    auto t = graph.clone(metadataPtr, s.similarTensor, {di, s.debugName});
     params.push_back(std::move(t));
   }
   f(params, prog, {di});
@@ -65,7 +78,6 @@ void VoidFunction::operator()(std::vector<poplar::Tensor> &args,
 
   POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args));
-
   for (unsigned i = 0; i < sig.size(); ++i) {
     if (sig[i].type == InputArg || sig[i].type == InOutArg) {
       seq.add(Copy(args[i], params[i], false, {di}));
@@ -78,7 +90,13 @@ void VoidFunction::operator()(std::vector<poplar::Tensor> &args,
   }
   for (unsigned i = 0; i < sig.size(); ++i) {
     if (sig[i].type == CreatedArg) {
-      args[i] = graph.clone(params[i], {di, sig[i].debugName});
+      Tensor metadata, *metadataPtr = nullptr;
+      if (params[i].hasMetadata()) {
+        metadata = graph.addVariable(QUARTER_METADATA, {});
+        graph.setTileMapping(metadata, 0);
+        metadataPtr = &metadata;
+      }
+      args[i] = graph.clone(metadataPtr, params[i], {di, sig[i].debugName});
     }
     if (sig[i].type == OutputArg || sig[i].type == InOutArg ||
         sig[i].type == CreatedArg) {

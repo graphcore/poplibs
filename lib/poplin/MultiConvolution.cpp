@@ -186,9 +186,15 @@ poplar::Tensor createWeights(poplar::Graph &graph,
   using ResultType = poplar::Tensor;
   const auto visitor =
       poplibs_support::make_visitor<ResultType>([&](const auto &plan) {
+        poplar::Tensor metadata, *metadataPtr = nullptr;
+        if (args_[weightsIndex].params.inputType == poplar::QUARTER) {
+          metadata = graph.addVariable(poplar::QUARTER_METADATA, {});
+          graph.setTileMapping(metadata, 0);
+          metadataPtr = &metadata;
+        }
         return poplin::createWeights(
             graph, plan.plans[weightsIndex], args[weightsIndex].params,
-            args[weightsIndex].name, args[weightsIndex].options);
+            metadataPtr, args[weightsIndex].name, args[weightsIndex].options);
       });
 
   const auto &target = graph.getTarget();
@@ -207,8 +213,14 @@ poplar::Tensor createInput(poplar::Graph &graph,
   using ResultType = poplar::Tensor;
   const auto visitor =
       poplibs_support::make_visitor<ResultType>([&](const auto &plan) {
+        poplar::Tensor metadata, *metadataPtr = nullptr;
+        if (args_[inputIndex].params.inputType == poplar::QUARTER) {
+          metadata = graph.addVariable(poplar::QUARTER_METADATA, {});
+          graph.setTileMapping(metadata, 0);
+          metadataPtr = &metadata;
+        }
         return poplin::createInput(
-            graph, plan.plans[inputIndex], args[inputIndex].params,
+            graph, plan.plans[inputIndex], args[inputIndex].params, metadataPtr,
             args[inputIndex].name, args[inputIndex].options);
       });
 

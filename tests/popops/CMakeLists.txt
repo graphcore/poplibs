@@ -236,7 +236,7 @@ add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
 # Grouped and un-grouped planned MultiSlice/MultiUpdate tests
 add_multi_target_test_executable(PlannedMultiSliceUpdateTest PlannedMultiSliceUpdateTest.cpp)
 
-foreach(dtype half float)
+foreach(dtype half float quarter)
   foreach(dictSize 16 1024)
     foreach(numIndices 1024 2)
       foreach(groupSize 1 3)
@@ -262,20 +262,22 @@ foreach(dtype half float)
             --group-size=${groupSize}
             VARIANTS ${IPUMODEL_VARIANTS};Sim2)
 
-        foreach(OPERATION MAX ADD)
+        if(NOT(dtype STREQUAL quarter))
+          foreach(OPERATION MAX ADD)
 
-          add_multitarget_test(
-          NAME PlannedGroupedMultiUpdateOpTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}_${OPERATION}
-            COMMAND PlannedMultiSliceUpdateTest
-              --num-indices=${numIndices}
-              --data-type=${dtype}
-              --update=true
-              --shape={${dictSize},16}
-              --tiles-per-ipu=16
-              --group-size=${groupSize}
-              --operation=${OPERATION}
-              VARIANTS ${IPUMODEL_VARIANTS};Sim2)
-        endforeach()
+            add_multitarget_test(
+            NAME PlannedGroupedMultiUpdateOpTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}_${OPERATION}
+              COMMAND PlannedMultiSliceUpdateTest
+                --num-indices=${numIndices}
+                --data-type=${dtype}
+                --update=true
+                --shape={${dictSize},16}
+                --tiles-per-ipu=16
+                --group-size=${groupSize}
+                --operation=${OPERATION}
+                VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+          endforeach()
+        endif()
       endforeach()
     endforeach()
   endforeach()

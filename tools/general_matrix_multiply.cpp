@@ -312,22 +312,26 @@ int main(int argc, char **argv) {
   auto matB =
       createMatMulGroupedInputRHS(graph, inputType, outputType, {g, m, k},
                                   {g, k, n}, "matB", mmOpt, &cache);
+
+  auto prog = Sequence();
+  if (inputType == QUARTER) {
+    auto metaA = createFp8MetadataTensor(graph, fp8FormatA, fp8ScaleA);
+    auto metaB = createFp8MetadataTensor(graph, fp8FormatB, fp8ScaleB);
+    prog.add(Copy(metaA, matA.getMetadata()));
+    prog.add(Copy(metaB, matB.getMetadata()));
+  }
+
   if (transposeB) {
     matB = matB.dimShufflePartial({1, 2}, {2, 1});
   }
 
   auto outerProg = Sequence();
-  auto prog = Sequence();
 
   const auto inputTypeHost = inputType == QUARTER ? HALF : inputType;
   auto matAToCopy = graph.clone(inputTypeHost, matA);
   auto matBToCopy = graph.clone(inputTypeHost, matB);
 
   if (inputType == QUARTER) {
-    matA.associateMetadata(
-        createFp8MetadataTensor(graph, fp8FormatA, fp8ScaleA));
-    matB.associateMetadata(
-        createFp8MetadataTensor(graph, fp8FormatB, fp8ScaleB));
     // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
     prog.add(cast(graph, matAToCopy, matA, "CastIn"));
     prog.add(cast(graph, matBToCopy, matB, "CastWeights"));

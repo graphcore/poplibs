@@ -80,13 +80,6 @@ void Padder::validatePadArgs(const poplar::Tensor &in, unsigned d,
 poplar::Tensor Padder::getPartPaddedTensor(const poplar::Tensor &tIn,
                                            unsigned d, ptrdiff_t pLow,
                                            ptrdiff_t pUpp) {
-  poplar::Tensor tInMetadata;
-  // T58445: The `poplar::Tensor::getMetadata()` method is being modified. In
-  // order for the poplar change to pass CI, the following code is disabled
-  // temporarily. This should have no effect on the existing tests.
-  // if (tIn.elementType() == poplar::QUARTER) {
-  //   tInMetadata = tIn.getMetadata();
-  // }
   poplar::Tensor t = tIn;
 
   validatePadArgs(t, d, pLow, pUpp);
@@ -104,9 +97,6 @@ poplar::Tensor Padder::getPartPaddedTensor(const poplar::Tensor &tIn,
     // we have confirmed that t.dim(d) + pUpp >= 0 in validatePadArgs,
     // so the static_cast below is safe.
     t = t.slice(0, static_cast<size_t>(until), d);
-  }
-  if (tInMetadata.valid()) {
-    t.associateMetadata(tInMetadata);
   }
   return t;
 }

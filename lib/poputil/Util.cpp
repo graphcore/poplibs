@@ -324,7 +324,14 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
   POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, method));
 
-  poplar::Tensor copy = graph.clone(src, {di}, method);
+  poplar::Tensor copy;
+  if (src.hasMetadata()) {
+    const auto metadata = graph.addVariable(poplar::QUARTER_METADATA, {});
+    graph.setTileMapping(metadata, 0);
+    copy = graph.clone(&metadata, src, {di}, method);
+  } else {
+    copy = graph.clone(src, {di}, method);
+  }
   poplar::Tensor copyDst = copy;
   poplar::Tensor copySrc = src;
   if (preservesAliasing(method) && src.containsAliases()) {

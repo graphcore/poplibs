@@ -277,9 +277,6 @@ int main(int argc, char **argv) try {
                               "enableAllFpExceptions");
   }
 
-  std::map<Type, Tensor> copyWritten{
-      {inputType, graph.addVariable(inputType, {0})}};
-
   // fill the output and input overread detection space with (signalling) NaNs
   auto fillWithNaNs = [&](const Tensor &t) {
     const auto nan =
@@ -291,13 +288,12 @@ int main(int argc, char **argv) try {
   fillWithNaNs(outGrouped);
   fillWithNaNs(inOverreadMemory);
 
-  Tensor inGroupedFp8, weightsGroupedFp8;
+  Tensor inGroupedFp8, weightsGroupedFp8, inMetadata;
   Sequence castProg;
   if (isFp8) {
     auto weightsMetadata =
         createFp8MetadataTensor(graph, weightFp8Format, weightFp8Scale);
-    auto inMetadata =
-        createFp8MetadataTensor(graph, inputFp8Format, inputFp8Scale);
+    inMetadata = createFp8MetadataTensor(graph, inputFp8Format, inputFp8Scale);
 
     // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
     inGroupedFp8 =
@@ -305,6 +301,8 @@ int main(int argc, char **argv) try {
     weightsGroupedFp8 = popops::cast(graph, weightsGrouped, QUARTER,
                                      weightsMetadata, castProg, "CastWeights");
   }
+  std::vector<Tensor> copyWritten{
+      {graph.addVariable(inputType, isFp8 ? &inMetadata : nullptr, {0})}};
 
   // create the vertex
   auto fwdCS = graph.addComputeSet("fwdCS");
