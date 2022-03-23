@@ -42,17 +42,15 @@
 #include "ScaledAddSupervisor.inc"
 #include "CommonPoplibsMacros.h.S"
 
-#define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS __runCodelet_popops__aXPlusbYSupervisor___half_float_false_false
-#define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXPlusbYSupervisor___half_float_false_true
-#define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST __runCodelet_popops__aXPlusbYSupervisor___half_float_true_false
-#define VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS __runCodelet_popops__aXPlusbY2D___half_float_false_false
-#define VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXPlusbY2D___half_float_false_true
-#define VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST __runCodelet_popops__aXPlusbY2D___half_float_true_false
+#define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT __runCodelet_popops__aXPlusbYSupervisor___half_float_false_false
+#define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXPlusbYSupervisor___half_float_false_true
+#define VERTEX_AXPLUSBY_2D_HALF_FLOAT __runCodelet_popops__aXPlusbY2D___half_float_false_false
+#define VERTEX_AXPLUSBY_2D_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXPlusbY2D___half_float_false_true
 
-#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS __runCodelet_popops__aXMinusbYSupervisor___half_float_false_false
-#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXMinusbYSupervisor___half_float_false_true
-#define VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS __runCodelet_popops__aXMinusbY2D___half_float_false_false
-#define VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXMinusbY2D___half_float_false_true
+#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT __runCodelet_popops__aXMinusbYSupervisor___half_float_false_false
+#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXMinusbYSupervisor___half_float_false_true
+#define VERTEX_AXMINUSBY_2D_HALF_FLOAT __runCodelet_popops__aXMinusbY2D___half_float_false_false
+#define VERTEX_AXMINUSBY_2D_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXMinusbY2D___half_float_false_true
 
 #define SCALED_PTR128_SHIFTS       4
 
@@ -85,9 +83,9 @@
   +---------------------------------------+              /
   |           'B' ('Y') row PTR           |   8      2   ONE_PTR type
   +---------------------------------------+
-  |        Scale A float [value/PTR]      |  12      3   \   float value or
-  +---------------------------------------+              |-- PTR depending
-  |        Scale B float [value/PTR]      |  16      4   /   if CONSTANT/TENSOR
+  |        Scale A float [value/PTR]      |  12      3   \
+  +---------------------------------------+              |-- PTR
+  |        Scale B float [value/PTR]      |  16      4   /
   +---------------------------------------+
   |               tolerance               |  20      5   float value (TENS only)
   +---------------------------------------+
@@ -111,8 +109,6 @@ format (where M = N/2):
   +---------------------------------------+              /
 
 
-       ============== SCALED_PTR_64 *NOT* available ==============
-
 'Y' row PTR points to an array with 'Num Rows' words, each having the format:
   +---------------------------------------+
   |             Row N data PTR            | 4xN      N   ONE_PTR type
@@ -123,25 +119,6 @@ format (where M = N/2):
                           +-------------------+
                           | Supervisor vertex |
                           +-------------------+
-
-       ============== SCALED_PTR_64 *NOT* available ==============
-
-scaleA & scaleB values are constant:
-
-  +---------------------------------------+
-  |          'A' ('X') data PTR           |   0      0   ONE_PTR type
-  +-------------------+-------------------+
-  |          'B' ('Y') data PTR           |   4      1   ONE_PTR type
-  +---------------------------------------+
-  |        Scale A float value            |   8      2   float
-  +---------------------------------------+
-  | . . . . . . . . . |       Count       |  12      3   unsigned short
-  +-------------------+-------------------+
-  |        Scale B float value            |  16      4   float
-  +---------------------------------------+
-  |               tolerance               |  20      5   float
-  +---------------------------------------+
-
 
 scaleA & scaleB values are contained in a 1-value Tensor:
 
@@ -172,9 +149,6 @@ scaleA & scaleB values are contained in a 1-value Tensor:
 #define VERTEX_SV_DATA_A_OFFSET     0
 #define VERTEX_SV_DATA_B_OFFSET     4
 #define VERTEX_SV_SCALE_A_OFFSET    8
-
-#define VERTEX_SV_COUNT_CONST_OFFSET      12
-#define VERTEX_SV_SCALE_B_CONST_OFFSET    16
 
 #define VERTEX_SV_COUNT_OFFSET      10
 #define VERTEX_SV_SCALE_B_OFFSET    12
@@ -221,24 +195,6 @@ scaleA & scaleB values are contained in a 1-value Tensor:
 
 
 // ---------------------------------------------------------------
-// Supervisor entry point (constant scale values).
-// Load parameters and jumps to the worker partitioning function
-FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST 4 "" STACK_SIZE
-  ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
-  ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_CONST_OFFSET/4
-  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_CONST_OFFSET/2
-  add     $sp, $sp, -STACK_SIZE
-  setzi   $sv_log2AtomSize, 1
-  setzi   $sv_atomSizeMask, 1
-  setzi   $sv_workerFunction, aXplusbY_half_float_worker
-  // Store the scaleB value, which is not handled by VERTEX(supervisor), in the
-  // record on the stack for the worker
-  st32    $scaleB, $sp, $mzero, SV_STATE_SCALEB_OFFSET/4
-  bri     VERTEX(supervisor)
-
-FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
-
-// ---------------------------------------------------------------
 // Common setup code used by both the AXMinusBY and AXPlusBY supervisors.
 .macro AXBY_MIXED_SUPERVISOR_SETUP
   ldz16   $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/2
@@ -256,12 +212,12 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 // aXMinusbY Supervisor entry point (tensor scale values) with and without
 // memory constraints. These just negate the scaleB value and then lets the
 // aXPlusbY Supervisor do the rest.
-FN_SUPERVISOR_ENTRY_POINT VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR 4 "" STACK_SIZE
+FN_SUPERVISOR_ENTRY_POINT VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR 4 "" STACK_SIZE
   setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
   bri     1f
-FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
 
-FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS 4 "" STACK_SIZE
+FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT 4 "" STACK_SIZE
   setzi   $sv_memConstraints, 0
 1:
   AXBY_MIXED_SUPERVISOR_SETUP
@@ -285,20 +241,20 @@ FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS 4 "" STACK_S
   nop
   st32    $scaleB, $sp, $mzero, CHECK_ACCURACY_SCALE_B_OFFSET/4
 
-  bri     VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_RUN_WORKERS
-FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_TENS
+  bri     VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_RUN_WORKERS
+FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT
 
 // ---------------------------------------------------------------
 // Supervisor entry point (tensor scale values) with and without
 // memory constraints.
 // Load parameters and jumps to the worker partitioning function.
 // Instructions are moved around and nops added to avoid pipeline stalls
-FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR 4 "" STACK_SIZE
+FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR 4 "" STACK_SIZE
   setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
   bri     1f
-FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
+FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
 
-FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS 4 "" STACK_SIZE
+FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT 4 "" STACK_SIZE
   setzi   $sv_memConstraints, 0
 1:
   AXBY_MIXED_SUPERVISOR_SETUP
@@ -314,7 +270,7 @@ FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS 4 "" STACK_SIZE
   st32    $sv_scale, $sp, $mzero, CHECK_ACCURACY_SCALE_A_OFFSET/4
   st32    $scaleB, $sp, $mzero, CHECK_ACCURACY_SCALE_B_OFFSET/4
 
-VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_RUN_WORKERS:
+VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_RUN_WORKERS:
   // Store the scaleB value for the structure on stack used by the worker
   // called by VERTEX(supervisor); VERTEX(supervisor) itself is not aware of it.
   st32    $scaleB, $sp, $mzero, SV_STATE_SCALEB_OFFSET/4
@@ -345,7 +301,7 @@ VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_RUN_WORKERS:
   setzi   $sv_workerFunction, VERTEX(axplusby_half).kernel
   bri     VERTEX(supervisor)
 
-FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
+FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT
 
 #undef vertexPtr
 #undef scaleB
@@ -536,7 +492,7 @@ FN_SIZE aXplusbY_half_float_worker
 // Common worker code used by both AXPlusBy2D and AXMinusBy2D. The optional
 // argument is intended to allow the scale B factor to be negated when called by
 // AXMinusBy2D
-.macro VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON OPTIONAL_SCALEB_MODIFIER
+.macro VERTEX_AXBY_2D_HALF_FLOAT_COMMON OPTIONAL_SCALEB_MODIFIER
   ld32          $tolerance, $mvertex_base, $mzero, VERTEX_2D_TOLERANCE_OFFSET/4
 
   // The 'a' scale will go in the special $TAS register, for the f32v2axpy instr
@@ -581,10 +537,10 @@ FN_SIZE aXplusbY_half_float_worker
 
 // ---------------------------------------------------------------
 // 2D scaled minus (worker) entry point: tensor scale values, WITH memory constraints
-FN_WORKER_ENTRY_POINT   VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
+FN_WORKER_ENTRY_POINT   VERTEX_AXMINUSBY_2D_HALF_FLOAT_MEMCONSTR
   setzi         $memConstraints, 1
   bri           1f
-FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
+FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_MEMCONSTR
 
 // ---------------------------------------------------------------
 // For the 'Minus' vertex we need to invert the 'b' scale both in $b (in case we
@@ -598,39 +554,33 @@ FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
 
 // ---------------------------------------------------------------
 // 2D scaled minus (worker) entry point: tensor scale values, NO memory constraints
-FN_WORKER_ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
+FN_WORKER_ENTRY_POINT  VERTEX_AXMINUSBY_2D_HALF_FLOAT
   setzi   $memConstraints,0
 1:
-  VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON INVERT_SCALE_B
+  VERTEX_AXBY_2D_HALF_FLOAT_COMMON INVERT_SCALE_B
 
-FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT_TENS
+FN_SIZE VERTEX_AXMINUSBY_2D_HALF_FLOAT
 
 // ---------------------------------------------------------------
 // 2D (worker) entry point: tensor scale values, WITH memory constraints
 // Note that memory constraints are not relevant to the code in this file
 // but need to be passed on if the code in ScaledAdd2D_half.S is called
-FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
+FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_MEMCONSTR
   setzi         $memConstraints, 1
   bri           1f
-FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_MEMCONSTR
+FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_MEMCONSTR
 
 // ---------------------------------------------------------------
 // 2D (worker) entry point: tensor scale values, NO memory constraints
-FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS
+FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT
   setzi         $memConstraints,0
 1:
-  VERTEX_AXBY_2D_HALF_FLOAT_TENS_COMMON
+  VERTEX_AXBY_2D_HALF_FLOAT_COMMON
 
-FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_TENS_FAST
+FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_FAST
 
 // ---------------------------------------------------------------
-// 2D (worker) entry point (constant scale values).
-FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
-
-  // The 'a' scale will go in the special $TAS register, for the f32v2axpy instr
-  ld32          $a, $mvertex_base, $mzero, VERTEX_2D_SCALE_A_OFFSET/4
-  // The 'b' scale.
-  ld32          $b, $mvertex_base, $mzero, VERTEX_2D_SCALE_B_OFFSET/4
+FN_SECTION continueScaledAddMixedCode
 .LcontinueMixedCode:
   ld32          $numRows,  $mvertex_base, $mzero, VERTEX_2D_NUM_ROWS_OFFSET/4
   brz           $numRows, .Lend
@@ -663,7 +613,7 @@ FN_WORKER_ENTRY_POINT  VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
 .Lend:
   exitz         $mzero
 
-FN_SIZE VERTEX_AXPLUSBY_2D_HALF_FLOAT_CONST
+FN_SIZE continueScaledAddMixedCode
 
 // *********************************************************************
 // Main worker computation code for all the vertices. Processes one

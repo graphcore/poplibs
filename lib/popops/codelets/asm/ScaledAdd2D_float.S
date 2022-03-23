@@ -7,17 +7,14 @@
 #include "MathConstants.S"
 #include "CommonPoplibsMacros.h.S"
 
-#define VERTEX_ADD_CONST_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_true_true
-#define VERTEX_ADD_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_false_true
+#define VERTEX_ADD_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_false_true
 #define VERTEX_SUBTRACT_FAST __runCodelet_popops__ScaledSubtract2D___float_float_true
 
-#define VERTEX_ADD_CONST_SLOW __runCodelet_popops__ScaledAdd2D___float_float_float_true_false
-#define VERTEX_ADD_TENSOR_SLOW __runCodelet_popops__ScaledAdd2D___float_float_float_false_false
+#define VERTEX_ADD_SLOW __runCodelet_popops__ScaledAdd2D___float_float_float_false_false
 #define VERTEX_SUBTRACT_SLOW __runCodelet_popops__ScaledSubtract2D___float_float_false
 
-#define VERTEX_AXPBY_CONST __runCodelet_popops__aXPlusbY2D___float_float_true_false
-#define VERTEX_AXPBY_TENSOR __runCodelet_popops__aXPlusbY2D___float_float_false_false
-#define VERTEX_AX_MINUS_BY_TENSOR __runCodelet_popops__aXMinusbY2D___float_float_false_false
+#define VERTEX_AXPBY __runCodelet_popops__aXPlusbY2D___float_float_false_false
+#define VERTEX_AX_MINUS_BY __runCodelet_popops__aXMinusbY2D___float_float_false_false
 
 #define VERTEX_COMMON __ScaledAdd2D___float_common
 #define VERTEX_AXPBY_COMMON __aXPlusbY2D___float_common
@@ -26,8 +23,6 @@
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_A_SIZE_OFFSET 1
 #define VERTEX_DATA_B_OFFSET 2
-// 2 versions: one has a constant, which is a float
-// the other a pointer to a tensor float
 #define VERTEX_SCALE_OFFSET 3
 // For ax+by we have a second scale value
 #define VERTEX_SCALE_B_OFFSET 4
@@ -83,17 +78,17 @@
 .endm
 
 
-FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_SLOW
+FN_WORKER_ENTRY_POINT VERTEX_ADD_SLOW
   setzi $memConstraints, 0
   bri 1f
-FN_EXPORT VERTEX_ADD_TENSOR_FAST
+FN_EXPORT VERTEX_ADD_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ld32  $ascratch, $mzero, $data, 0
   bri   VERTEX_COMMON
-FN_SIZE VERTEX_ADD_TENSOR_SLOW
+FN_SIZE VERTEX_ADD_SLOW
 
 FN_WORKER_ENTRY_POINT VERTEX_SUBTRACT_SLOW
   setzi $memConstraints, 0
@@ -109,17 +104,7 @@ FN_EXPORT VERTEX_SUBTRACT_FAST
    f32mul $ascratch, $ascratch, $data1i0}
 FN_SIZE VERTEX_SUBTRACT_SLOW
 
-FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_SLOW 8
-  setzi $memConstraints, 0
-  bri 1f
-  nop //rpt align
-
-FN_EXPORT VERTEX_ADD_CONST_FAST
-  setzi $memConstraints, 1
-1:
-  // load vertex state specific to this version of the vertex : k, constant
-  ld32  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
-
+FN_SECTION VERTEX_COMMON 8 nop
 VERTEX_COMMON:
   // load vertex state
   ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
@@ -235,10 +220,10 @@ VERTEX_COMMON:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-FN_SIZE VERTEX_ADD_CONST_SLOW
+FN_SIZE VERTEX_COMMON
 
 //------------------------------------------------------------------------------
-FN_WORKER_ENTRY_POINT VERTEX_AX_MINUS_BY_TENSOR
+FN_WORKER_ENTRY_POINT VERTEX_AX_MINUS_BY
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ld32  $ascratch, $mzero, $data, 0
@@ -247,25 +232,20 @@ FN_WORKER_ENTRY_POINT VERTEX_AX_MINUS_BY_TENSOR
   or $data0i0, $azero, FLOAT_NEG_1_0}
   {bri   VERTEX_AXPBY_COMMON
   f32mul $ascaleB, $ascaleB, $data0i0}
-FN_SIZE VERTEX_AX_MINUS_BY_TENSOR
+FN_SIZE VERTEX_AX_MINUS_BY
 
 
-FN_WORKER_ENTRY_POINT VERTEX_AXPBY_TENSOR
+FN_WORKER_ENTRY_POINT VERTEX_AXPBY
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
   ld32  $ascratch, $mzero, $data, 0
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   ld32  $ascaleB, $mzero, $data, 0
   bri   VERTEX_AXPBY_COMMON
-FN_SIZE VERTEX_AXPBY_TENSOR
+FN_SIZE VERTEX_AXPBY
 
 
-FN_WORKER_ENTRY_POINT VERTEX_AXPBY_CONST 8
-  nop //rpt align
-  // load vertex state specific to this version of the vertex : k, constant
-  ld32  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET
-  ld32  $ascaleB, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
-
+FN_SECTION VERTEX_AXPBY_COMMON 8 nop
 VERTEX_AXPBY_COMMON:
   // load vertex state
   ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
@@ -327,6 +307,6 @@ VERTEX_AXPBY_COMMON:
 
   exitz $mzero
 
-FN_SIZE VERTEX_AXPBY_CONST
+FN_SIZE VERTEX_AXPBY_COMMON
 
 #endif // __IPU__

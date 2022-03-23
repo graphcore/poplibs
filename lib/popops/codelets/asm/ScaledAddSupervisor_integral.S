@@ -12,11 +12,7 @@
 #define VERTEX_DATA_A_START_OFFSET 0
 #define VERTEX_DATA_B_OFFSET 4
 #define VERTEX_SCALE_B_OFFSET 8
-
-//Constant (k) and non-constant (ptr to factor) versions
 #define VERTEX_DATA_A_SIZE_OFFSET 10
-#define VERTEX_DATA_A_SIZE_CONST_OFFSET 12
-// Const - in 32 bit
 
 #define SCALED_PTR128_SHL_BITS 4
 
@@ -55,18 +51,6 @@ FN_EXPORT VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false)
   ld32 $k, $mzero, $k, 0 // 6 cycles
   bri  VERTEX(int_common)// 6 cycles
 FN_SIZE VERTEX(int_int_int_false_false)
-
-
-FN_SUPERVISOR_ENTRY_POINT VERTEX(int_int_int_true_false) 4 "" STACK_SIZE
-FN_EXPORT VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false)
- // keeping this before the branch means it doesn't cause a stall later
-  add $sp, $sp, -STACK_SIZE
-
-  ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET/4
-  ldz16 $dataSize, $m0, $mzero, VERTEX_DATA_A_SIZE_CONST_OFFSET/2
-  bri  VERTEX(int_common) //6 cycles
-FN_SIZE VERTEX(int_int_int_true_false)
-
 
 FN_SUPERVISOR_ENTRY_POINT VERTEX_SUBTRACT(int_int_int_false) 4 "" STACK_SIZE
 FN_EXPORT VERTEX_SUBTRACT(unsigned_int_unsigned_int_unsigned_int_false)

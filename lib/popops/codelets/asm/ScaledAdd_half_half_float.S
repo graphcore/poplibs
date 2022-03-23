@@ -7,23 +7,19 @@
 #include "ScaledAddSupervisor.inc"
 #include "CommonPoplibsMacros.h.S"
 
-#define VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_true_true
-#define VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
-#define VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW __runCodelet_popops__ScaledAdd2D___half_half_float_true_false
-#define VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW __runCodelet_popops__ScaledAdd2D___half_half_float_false_false
+#define VERTEX_2D_ADD_SCALE_FLOAT_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
+#define VERTEX_2D_ADD_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledAdd2D___half_half_float_false_false
 #define VERTEX_2D_SCALE_FLOAT_COMMON __ScaledAdd2D___half_half_float_common
 
-#define VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST __runCodelet_popops__ScaledAddSupervisor___half_half_float_true_true
-#define VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledAddSupervisor___half_half_float_false_true
-#define VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW __runCodelet_popops__ScaledAddSupervisor___half_half_float_true_false
-#define VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW __runCodelet_popops__ScaledAddSupervisor___half_half_float_false_false
+#define VERTEX_SV_ADD_SCALE_FLOAT_FAST __runCodelet_popops__ScaledAddSupervisor___half_half_float_false_true
+#define VERTEX_SV_ADD_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledAddSupervisor___half_half_float_false_false
 #define VERTEX_SV_SCALE_FLOAT_COMMON __ScaledAddSupervisor___half_half_float_common
 #define VERTEX_SV_SCALE_FLOAT_COMMON_CONST __ScaledAddSupervisor___half_half_float_common_const
 
-#define VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledSubtract2D___half_float_true
-#define VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW __runCodelet_popops__ScaledSubtract2D___half_float_false
-#define VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledSubtractSupervisor___half_half_float_true
-#define VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW __runCodelet_popops__ScaledSubtractSupervisor___half_half_float_false
+#define VERTEX_2D_SUBTRACT_SCALE_FLOAT_FAST __runCodelet_popops__ScaledSubtract2D___half_float_true
+#define VERTEX_2D_SUBTRACT_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledSubtract2D___half_float_false
+#define VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST __runCodelet_popops__ScaledSubtractSupervisor___half_half_float_true
+#define VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledSubtractSupervisor___half_half_float_false
 
 // The bulk of the Supervisor task processing which is common to all scaled-add
 // variants has been implemented in a different file: ScaledAddSupervisor_fp.S.
@@ -272,7 +268,7 @@ FN_SIZE scaled_add_data_half_factor_float_scalar
 // Common code used by both the plus/subtract workers. The optional argument
 // is intended to allow the scale factor argument to be negated by the subtract
 // worker.
-.macro PERFORM_VERTEX_2D_SCALE_FLOAT_TENSOR OPTIONAL_SCALE_FACTOR_MODIFIER:vararg
+.macro PERFORM_VERTEX_2D_SCALE_FLOAT OPTIONAL_SCALE_FACTOR_MODIFIER:vararg
   ld32  $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
   ld32  $factor, $mzero, $dataPtr, 0
   \OPTIONAL_SCALE_FACTOR_MODIFIER
@@ -284,52 +280,48 @@ FN_SIZE scaled_add_data_half_factor_float_scalar
     roll16 $factor, $factorTmp, $factorTmp}
 .endm
 
-DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
-FN_WORKER_ENTRY_POINT VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW 4 "" NONE
+DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_ADD_SCALE_FLOAT_SLOW
+FN_WORKER_ENTRY_POINT VERTEX_2D_ADD_SCALE_FLOAT_SLOW 4 "" NONE
   // Do this first as we don't need to worry as much about the calling convention
   CALL_CHECK_ACCURACY_WHEN_CAST_2D
   // For use when we enter the half, half, half version
   setzi $memConstraints, 0
   bri   1f
-FN_EXPORT VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST
+FN_EXPORT VERTEX_2D_ADD_SCALE_FLOAT_FAST
   // Do this first as we don't need to worry as much about the calling convention
   CALL_CHECK_ACCURACY_WHEN_CAST_2D
 
   setzi $memConstraints, 1
 1:
-  PERFORM_VERTEX_2D_SCALE_FLOAT_TENSOR
+  PERFORM_VERTEX_2D_SCALE_FLOAT
 
-FN_SIZE VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
+FN_SIZE VERTEX_2D_ADD_SCALE_FLOAT_SLOW
 
 
-DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
-FN_WORKER_ENTRY_POINT VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW 4 "" NONE
+DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_SUBTRACT_SCALE_FLOAT_SLOW
+FN_WORKER_ENTRY_POINT VERTEX_2D_SUBTRACT_SCALE_FLOAT_SLOW 4 "" NONE
   // Do this first as we don't need to worry as much about the calling convention
   CALL_CHECK_ACCURACY_WHEN_CAST_2D
   // For use when we enter the half, half, half version
   setzi $memConstraints, 0
   bri   1f
 
-FN_EXPORT VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_FAST
+FN_EXPORT VERTEX_2D_SUBTRACT_SCALE_FLOAT_FAST
   // Do this first as we don't need to worry as much about the calling convention
   CALL_CHECK_ACCURACY_WHEN_CAST_2D
 
   setzi $memConstraints, 1
 1:
-  PERFORM_VERTEX_2D_SCALE_FLOAT_TENSOR f32sub $factor, $azero, $factor
+  PERFORM_VERTEX_2D_SCALE_FLOAT f32sub $factor, $azero, $factor
   
-FN_SIZE VERTEX_2D_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+FN_SIZE VERTEX_2D_SUBTRACT_SCALE_FLOAT_SLOW
 
 // The fastest implementation happens to use more Aux instructions than Main
 // instructions. Since memory access instructions use the Main path, the
 // efficiency of these instructions in a memory-constrained scenario do not lead
 // to a speed up of the loop kernel. Hence, this variant of ScaledAdd has only
 // a single implementation regardless of the placement of the inputs in memory.
-FN_WORKER_ENTRY_POINT VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
-FN_EXPORT VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST
-  // load vertex state specific to this version of the vertex : k, constant
-  ld32 $factor, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
-
+FN_SECTION VERTEX_2D_SCALE_FLOAT_COMMON
 VERTEX_2D_SCALE_FLOAT_COMMON:
   // load common vertex state
  ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
@@ -392,7 +384,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
   brnzdec $outDataSize, .Lscale_float_outer_loop
   exitz $mzero
 
-FN_SIZE VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
+FN_SIZE VERTEX_2D_SCALE_FLOAT_COMMON
 
 // Undefine 2D register definitions
 #undef VERTEX_SCALE_OFFSET
@@ -443,21 +435,15 @@ FN_SIZE VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
 #define SSR_REGISTER 1
 #define CR_REGISTER 2
 
-
-.globl VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
-.type VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW, @function
-.globl VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST
-.type VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST, @function
-
 // ScaledSubtract Supervisor entry point. Just negates the scale value
 // and lets the ScaledAdd Supervisor do the rest.
-DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
-FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW 4 "" NONE
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW
+FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW 4 "" NONE
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, 0
   bri   1f
 
-FN_EXPORT VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST
+FN_EXPORT VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
@@ -466,25 +452,25 @@ FN_EXPORT VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_FAST
   or   $tmp_countD2, $mzero, NEGATE_FLOAT_BY_XOR
   xor  $sv_scale, $sv_scale, $tmp_countD2
  
-  bri VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW_RUN_WORKERS
-FN_SIZE VERTEX_SV_SUBTRACT_SCALE_FLOAT_TENSOR_SLOW
+  bri VERTEX_SV_ADD_SCALE_FLOAT_SLOW_RUN_WORKERS
+FN_SIZE VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW
 
 
 
-DEF_STACK_SIZE_OWN  STACK_SIZE  .text.VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
-FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW 4 "" NONE
+DEF_STACK_SIZE_OWN  STACK_SIZE  .text.VERTEX_SV_ADD_SCALE_FLOAT_SLOW
+FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_ADD_SCALE_FLOAT_SLOW 4 "" NONE
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, 0
   bri   1f
 
-FN_EXPORT VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST
+FN_EXPORT VERTEX_SV_ADD_SCALE_FLOAT_FAST
   ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   shl   $factorPtr, $factorPtr, SCALED_PTR128_SHL_BITS
   ld32  $sv_scale, $mzero, $factorPtr, 0
 
-VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW_RUN_WORKERS:
+VERTEX_SV_ADD_SCALE_FLOAT_SLOW_RUN_WORKERS:
   // Use a worker to test if the float scale is accurate enough to use when cast
   // to a half. Don't stress too much about pipe hits as we would only pad it with
   // code from after the `run` which runs for free while the worker runs anyhow.
@@ -533,22 +519,7 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW_RUN_WORKERS:
   // pointer to the worker code to run
   setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON
   bri   VERTEX(supervisor) // 6 cycles
-FN_SIZE VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
-
-DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
-FN_WORKER_ENTRY_POINT VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW 4 "" NONE
-FN_EXPORT VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST
-  ld32  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
-
-  add   $sp, $sp, -STACK_SIZE
-  setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-  setzi $sv_atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
-
-  // pointer to the worker code to run
-  setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON_CONST
-  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_CONST_OFFSET/2
-  bri   VERTEX(supervisor) // 6 cycles
-FN_SIZE VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
+FN_SIZE VERTEX_SV_ADD_SCALE_FLOAT_SLOW
 
 //******************************************************************************
 

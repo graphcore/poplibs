@@ -12,7 +12,6 @@
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_A_SIZE_OFFSET 1
 #define VERTEX_DATA_B_OFFSET 2
-// 2 versions - one with scale as a constant, the other using a tensor scale
 #define VERTEX_SCALE_B_OFFSET 3
 
 // integer variables
@@ -25,14 +24,6 @@
 #define dataBPtr m6
 #define data m7
 #define dataB m8
-
-
-FN_WORKER_ENTRY_POINT VERTEX(int_int_int_true_false)
-FN_EXPORT VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false)
-  // load vertex state specific to the case where we multiply by a constant, k
-  ld32 $k, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
-  bri  VERTEX_COMMON
-FN_SIZE VERTEX(int_int_int_true_false)
 
 
 FN_WORKER_ENTRY_POINT VERTEX_SUBTRACT(int_int_false)

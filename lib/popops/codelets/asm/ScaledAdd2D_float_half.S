@@ -6,9 +6,6 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "CommonPoplibsMacros.h.S"
 
-#define VERTEX_ADD_CONST_HALF_SCALE __runCodelet_popops__ScaledAdd2D___float_half_half_true_false
-#define VERTEX_ADD_CONST_FLOAT_SCALE __runCodelet_popops__ScaledAdd2D___float_half_float_true_false
-
 #define VERTEX_ADD_TENSOR_HALF_SCALE __runCodelet_popops__ScaledAdd2D___float_half_half_false_false
 #define VERTEX_ADD_TENSOR_FLOAT_SCALE __runCodelet_popops__ScaledAdd2D___float_half_float_false_false
 
@@ -20,8 +17,6 @@
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_A_SIZE_OFFSET 4
 #define VERTEX_DATA_B_OFFSET 8
-// 2 versions: one has a constant, which is a float
-// the other a pointer to a tensor float
 #define VERTEX_SCALE_OFFSET 12
 
 // integer variables
@@ -60,23 +55,11 @@ FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_FLOAT_SCALE
   bri   VERTEX_COMMON
 FN_SIZE VERTEX_ADD_TENSOR_FLOAT_SCALE
 
-FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_HALF_SCALE
+FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_HALF_SCALE 8 nop
   // load vertex state specific to this version of the vertex : Tensor(half): via a pointer
   ld32  $data, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
   ldb16  $ascratch, $mzero, $data, 0
-  {bri   VERTEX_COMMON
-   f16tof32 $ascratch, $ascratch}
-FN_SIZE VERTEX_ADD_TENSOR_HALF_SCALE
-
-FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_HALF_SCALE 8
-  // load vertex state specific to this version of the vertex : k, constant(half)
-  ldb16  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  {bri VERTEX_COMMON
-   f16tof32 $ascratch, $ascratch}
-
-FN_EXPORT VERTEX_ADD_CONST_FLOAT_SCALE
-  // load vertex state specific to this version of the vertex : k, constant(float)
-  ld32  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
+  f16tof32 $ascratch, $ascratch
 
 VERTEX_COMMON:
   // load vertex state
@@ -153,6 +136,6 @@ VERTEX_COMMON:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-FN_SIZE VERTEX_ADD_CONST_HALF_SCALE
+FN_SIZE VERTEX_ADD_TENSOR_HALF_SCALE
 
 #endif // __IPU__

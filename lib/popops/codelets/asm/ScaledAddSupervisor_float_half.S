@@ -6,28 +6,19 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "ScaledAddSupervisor.inc"
 #include "CommonPoplibsMacros.h.S"
+#include "workDivision.h.S"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
 // vertex state (offsets in bytes)
 
 //
-// Vertex state where Scale type is half and occupies 16 bits
+// Vertex state
 //
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_B_OFFSET 4
 #define VERTEX_SCALE_OFFSET 8
 #define VERTEX_PACKED_COUNT_OFFSET 10
-
-//
-// Vertex state where Scale type is float and occupies 32 bits
-//
-#define VERTEX_DATA_A_OFFSET 0
-#define VERTEX_DATA_B_OFFSET 4
-#define VERTEX_SCALE_OFFSET 8
-
-#define VERTEX_PACKED_COUNT_FLOAT_CONST_OFFSET 12
-#define VERTEX_PACKED_COUNT_HALF_CONST_OFFSET 10
 
 // constants
 #define SCALED_PTR128_SHL_BITS 4
@@ -35,68 +26,31 @@
 // supervisor variables
 #define vertexPtr m0
 
-#define mscratch m4
-
 
 //******************************************************************************
 // Float entry points - macro
 //******************************************************************************
 
-.macro SUPERVISOR_ENTRY LABEL FLOAT_SCALE TENSOR WORKER_FUNCTION
+.macro SUPERVISOR_ENTRY LABEL WORKER_FUNCTION
 
-DEF_STACK_SIZE_OWN STACK_SIZE VERTEX(\LABEL)
-FN_SUPERVISOR_ENTRY_POINT VERTEX(\LABEL) 4 "" NONE
-.if \TENSOR
-  ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
-
-.else
-.if \FLOAT_SCALE
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
-.else
-  ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-.endif
-.endif
-  // keeping this before the branch means it doesn't cause a stall later
-  add   $sp, $sp, -STACK_SIZE
-  setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-  setzi $sv_atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
-
-  // pointer to the worker code to run
+FN_SUPERVISOR_ENTRY_POINT VERTEX(\LABEL) 4 ""
   setzi $sv_workerFunction, VERTEX(\WORKER_FUNCTION\()).kernel
-.if \TENSOR
-  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
-  // load factor using its pointer - here to avoid pipeline hit
-.if \FLOAT_SCALE
-  ld32  $sv_scale, $mzero, $mscratch, 0
-.else
-  ldz16 $sv_scale, $mzero, $mscratch, 0
-.endif
-.else
-.if \FLOAT_SCALE
-  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_FLOAT_CONST_OFFSET/2
-.else
-  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_HALF_CONST_OFFSET/2
-.endif
-.endif
-  // Branch, divide work, store vertex state for the worker and then call the workers
-  // workers - entering the code below
-  bri   VERTEX(supervisor)
+  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
+  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
+
+  br $lr // 6 cycles
 FN_SIZE VERTEX(\LABEL)
 .endm
 
 // Create the entry points
 
-SUPERVISOR_ENTRY float_half_half_false_false 0 1 half_scale
-SUPERVISOR_ENTRY float_half_half_true_false 0 0 half_scale
+SUPERVISOR_ENTRY float_half_half_false_false half_scale
 
-SUPERVISOR_ENTRY float_half_float_false_false 1 1 float_scale
-SUPERVISOR_ENTRY float_half_float_true_false 1 0 float_scale
+SUPERVISOR_ENTRY float_half_float_false_false float_scale
 
 
 // clear supervisor variables
 #undef vertexPtr
-#undef mscratch
 
 //******************************************************************************
 // worker variables
@@ -125,25 +79,27 @@ SUPERVISOR_ENTRY float_half_float_true_false 1 0 float_scale
 #define mscratch m10
 #define ascratch a7
 
-FN_SECTION VERTEX(float_half).kernel 8 nop
+FN_SECTION VERTEX(float_half).kernel 8
 VERTEX(float_half).kernel:
 VERTEX(half_scale).kernel:
-  ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
-  {bri 1f
+  ldz16 $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
+  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHL_BITS
+  ldb16 $k, $mzero, $dataPtr, 0
+  {bri  1f
    f16tof32 $k,$k}
 VERTEX(float_scale).kernel:
-  ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
+  ldz16 $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
+  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHL_BITS
+  ld32  $k, $mzero, $dataPtr, 0
 1:
   // load vertex state
-  ld32 $countD2, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET/4
-  ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET/4
-  ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET/4
+  ldz16 $remM1, $mvertex_base, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   {
-    ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET/4
+    ld32 $dataPtr, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
     setzi $ascratch, ZAACC_BITMASK
   }
   {
-    ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET/4
+    ld32 $dataBPtr, $mvertex_base, $mzero, VERTEX_DATA_B_OFFSET/4
     uput $FP_CLR, $ascratch
   }
 
@@ -153,13 +109,7 @@ VERTEX(float_scale).kernel:
     uput $TAS, $k
   }
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
-
-  // process 2 at a time first as this is the optimal scenario
-  shr $countD2, $countD2, 1
-
-  // if worker id is less than the remainder this worker can process an extra 2.
-  cmpslt $mscratch, $workerIdM1, $remM1
-  add $countD2, $countD2, $mscratch
+  DIVIDE_BY_WORKER $remM1, $workerIdM1, $mscratch, $countD2, LOG2_FLOAT_ATOM_SIZE
 
   // offset each worker's pointer into the data to interleave them.
   ld64step $azeros, $mzero, $dataPtr+=, $workerIdM1
@@ -189,13 +139,18 @@ VERTEX(float_scale).kernel:
   st64step $result, $mzero, $dataStore+=, CTXT_WORKERS
 
 .Lloop_epilogue:
-  // at most one of our workers will have to do the remaining element. this
-  // worker id is equal to the $rem value in the vertex state. the amount
-  // of elements remaining is the $final value. $final will be 1 at most.
-  cmpeq $mscratch, $workerIdM1, $remM1
+  // Exit if no remainder
+  and $mscratch, $remM1, 1
   brz $mscratch, .Lepilogue
-  {brz $final, .Lepilogue
-  zero $datai1}
+  // There is a remainder to process if we get here.
+  // Use the worker which has already got the same address as the remainder
+  // to process it
+  ld32 $mscratch, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
+  andc $remM1, $remM1, 1
+  ld32step $azero, $mzero, $mscratch+=, $remM1
+  cmpeq $mscratch, $mscratch, $dataPtr
+  {brz   $mscratch, .Lepilogue
+   zero $datai1}
 
   // scalar.
   // zero the top half of data and dataB so we can safely accumulate them

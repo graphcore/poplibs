@@ -6,11 +6,9 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "CommonPoplibsMacros.h.S"
 
-#define VERTEX_XMINUSAXPLUSBY_CONST_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_true_true
-#define VERTEX_XMINUSAXPLUSBY_TENSOR_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_false_true
+#define VERTEX_XMINUSAXPLUSBY_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_false_true
 
-#define VERTEX_XMINUSAXPLUSBY_CONST_SLOW __runCodelet_popops__XMinusaXPlusbY2D___half_true_false
-#define VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW __runCodelet_popops__XMinusaXPlusbY2D___half_false_false
+#define VERTEX_XMINUSAXPLUSBY_SLOW __runCodelet_popops__XMinusaXPlusbY2D___half_false_false
 
 // This is used as an entry point from the half, half, float version, when it
 // is decided that the float scale is OK when cast to half
@@ -74,50 +72,15 @@
   brz $mscratch, \FAST_PATH_LABEL
 .endm
 
-FN_WORKER_ENTRY_POINT VERTEX_XMINUSAXPLUSBY_CONST_SLOW 
-  setzi $memConstraints, 0
-  bri 1f
-FN_EXPORT VERTEX_XMINUSAXPLUSBY_CONST_FAST 
-  setzi $memConstraints, 1
-1:
   // Implement (1 - a) X + b * Y as follows:
   //     -aX + bY + X
   //
   // The implementation is to be performed in 32-bit precision in the
   // accumulators.
-
-  // load vertex state specific to this version of the vertex :
-  // constant A,B pair of halves.  32 bit aligned
-  //
-  //negate scale_a
-  {
-    ld32  $ascratch3, $mvertex_base, $mzero, VERTEX_SCALE_AB_OFFSET
-    setzi $ascratch, -1.0h
-  }
-  {
-    ld32  $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
-    f16v2exp  $ascratch2, $azero
-  }
-  {
-    ld32  $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_A_SIZE_OFFSET
-    sort4x16lo $ascratch, $ascratch, $ascratch2
-  }
-  {
-    bri   xminusaxplusby_continue
-    f16v2mul $ascratch, $ascratch, $ascratch3
-  }
-FN_SIZE VERTEX_XMINUSAXPLUSBY_CONST_SLOW
-
-
-  // Implement (1 - a) X + b * Y as follows:
-  //     -aX + bY + X
-  //
-  // The implementation is to be performed in 32-bit precision in the
-  // accumulators.
-FN_WORKER_ENTRY_POINT VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW
+FN_WORKER_ENTRY_POINT VERTEX_XMINUSAXPLUSBY_SLOW
   setzi $memConstraints, 0
   bri 1f
-FN_EXPORT VERTEX_XMINUSAXPLUSBY_TENSOR_FAST
+FN_EXPORT VERTEX_XMINUSAXPLUSBY_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensors A,B

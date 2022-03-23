@@ -6,18 +6,14 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "CommonPoplibsMacros.h.S"
 
-#define VERTEX_AXPBY_CONST_FAST __runCodelet_popops__aXPlusbY2D___half_half_true_true
-#define VERTEX_AXPBY_TENSOR_FAST __runCodelet_popops__aXPlusbY2D___half_half_false_true
-#define VERTEX_AX_MINUS_BY_TENSOR_FAST __runCodelet_popops__aXMinusbY2D___half_half_false_true
-#define VERTEX_ADD_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_half_true_true
-#define VERTEX_ADD_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_half_false_true
+#define VERTEX_AXPBY_FAST __runCodelet_popops__aXPlusbY2D___half_half_false_true
+#define VERTEX_AX_MINUS_BY_FAST __runCodelet_popops__aXMinusbY2D___half_half_false_true
+#define VERTEX_ADD_FAST __runCodelet_popops__ScaledAdd2D___half_half_half_false_true
 #define VERTEX_SUBTRACT_FAST __runCodelet_popops__ScaledSubtract2D___half_half_true
 
-#define VERTEX_AXPBY_CONST_SLOW __runCodelet_popops__aXPlusbY2D___half_half_true_false
-#define VERTEX_AXPBY_TENSOR_SLOW __runCodelet_popops__aXPlusbY2D___half_half_false_false
-#define VERTEX_AX_MINUS_BY_TENSOR_SLOW __runCodelet_popops__aXMinusbY2D___half_half_false_false
-#define VERTEX_ADD_CONST_SLOW __runCodelet_popops__ScaledAdd2D___half_half_half_true_false
-#define VERTEX_ADD_TENSOR_SLOW __runCodelet_popops__ScaledAdd2D___half_half_half_false_false
+#define VERTEX_AXPBY_SLOW __runCodelet_popops__aXPlusbY2D___half_half_false_false
+#define VERTEX_AX_MINUS_BY_SLOW __runCodelet_popops__aXMinusbY2D___half_half_false_false
+#define VERTEX_ADD_SLOW __runCodelet_popops__ScaledAdd2D___half_half_half_false_false
 #define VERTEX_SUBTRACT_SLOW __runCodelet_popops__ScaledSubtract2D___half_half_false
 
 // This is used as an entry point from the half, half, float version, when it
@@ -28,14 +24,8 @@
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_A_SIZE_OFFSET 1
 #define VERTEX_DATA_B_OFFSET 2
-// 2 versions: one has a constant, which is a half
-// the other a pointer to a tensor half
-#define VERTEX_SCALE_CONST_OFFSET 6
 #define VERTEX_SCALE_OFFSET 3
 #define VERTEX_SCALE_B_OFFSET 4
-// The AXPBY variants have 2 16-bit constants stored at VERTEX_SCALE_AB_OFFSET
-// which can be accessed as one 32 bit word
-#define VERTEX_SCALE_AB_OFFSET 3
 
 // integer variables
 #define outData m0
@@ -86,11 +76,11 @@
 .endm
 
 
-FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_SLOW
+FN_WORKER_ENTRY_POINT VERTEX_ADD_SLOW
   setzi $memConstraints, 0
   bri 1f
 
-FN_EXPORT VERTEX_ADD_TENSOR_FAST
+FN_EXPORT VERTEX_ADD_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensor: via a pointer
@@ -98,7 +88,7 @@ FN_EXPORT VERTEX_ADD_TENSOR_FAST
 
   ldb16 $ascratch2, $mzero, $data, 0
   bri   VERTEX_COMMON
-FN_SIZE VERTEX_ADD_TENSOR_SLOW
+FN_SIZE VERTEX_ADD_SLOW
 
 FN_WORKER_ENTRY_POINT VERTEX_SUBTRACT_SLOW
   setzi $memConstraints, 0
@@ -116,25 +106,11 @@ FN_EXPORT VERTEX_SUBTRACT_FAST
   }
 FN_SIZE VERTEX_SUBTRACT_SLOW
 
-FN_WORKER_ENTRY_POINT VERTEX_AXPBY_CONST_SLOW
+
+FN_WORKER_ENTRY_POINT VERTEX_AX_MINUS_BY_SLOW
   setzi $memConstraints, 0
   bri 1f
-FN_EXPORT VERTEX_AXPBY_CONST_FAST
-  setzi $memConstraints, 1
-1:
-  // load vertex state specific to this version of the vertex :
-  // constant A,B pair of halves.  32 bit aligned
-  ld32  $ascratch, $mvertex_base, $mzero, VERTEX_SCALE_AB_OFFSET
-  ld32  $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
-  ld32  $outDataSize, $mvertex_base, $mzero, VERTEX_DATA_A_SIZE_OFFSET
-  bri   axplusby_true_continue
-FN_SIZE VERTEX_AXPBY_CONST_SLOW
-
-
-FN_WORKER_ENTRY_POINT VERTEX_AX_MINUS_BY_TENSOR_SLOW
-  setzi $memConstraints, 0
-  bri 1f
-FN_EXPORT VERTEX_AX_MINUS_BY_TENSOR_FAST
+FN_EXPORT VERTEX_AX_MINUS_BY_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensors B
@@ -145,13 +121,13 @@ FN_EXPORT VERTEX_AX_MINUS_BY_TENSOR_FAST
 
   {bri ax_plus_minus_by_common
   f16v2mul $ascratch2, $ascratch, $ascratch2}
-FN_SIZE VERTEX_AX_MINUS_BY_TENSOR_SLOW
+FN_SIZE VERTEX_AX_MINUS_BY_SLOW
 
 
-FN_WORKER_ENTRY_POINT VERTEX_AXPBY_TENSOR_SLOW
+FN_WORKER_ENTRY_POINT VERTEX_AXPBY_SLOW
   setzi $memConstraints, 0
   bri 1f
-FN_EXPORT VERTEX_AXPBY_TENSOR_FAST
+FN_EXPORT VERTEX_AXPBY_FAST
   setzi $memConstraints, 1
 1:
   // load vertex state specific to this version of the vertex : Tensors A,B
@@ -162,20 +138,9 @@ ax_plus_minus_by_common:
   ldb16 $ascratch, $mzero, $data, 0
   ld32  $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET
   bri   axplusby_false_continue
-FN_SIZE VERTEX_AXPBY_TENSOR_SLOW
+FN_SIZE VERTEX_AXPBY_SLOW
 
-FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_SLOW 8
-  setzi $memConstraints, 0
-  bri 1f
-  nop //rpt align
-
-FN_EXPORT VERTEX_ADD_CONST_FAST
-  setzi $memConstraints, 1
-1:
-  // load vertex state specific to this version of the vertex : k, constant
-  // set ascratch2 to {k, k}
-  ldb16 $ascratch2, $mvertex_base, $mzero, VERTEX_SCALE_CONST_OFFSET
-
+FN_SECTION VERTEX_COMMON 8 nop
 FN_EXPORT VERTEX_COMMON
   // load common vertex state
   {
@@ -331,6 +296,6 @@ FN_EXPORT axplusby_half_half_common  // This is called from ScaledAddaXPlusbY_mi
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-FN_SIZE VERTEX_ADD_CONST_SLOW
+FN_SIZE VERTEX_COMMON
 
 #endif // __IPU__

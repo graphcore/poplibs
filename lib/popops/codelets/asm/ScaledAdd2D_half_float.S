@@ -7,11 +7,8 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "CommonPoplibsMacros.h.S"
 
-#define VERTEX_ADD_CONST_HALF_SCALE __runCodelet_popops__ScaledAdd2D___half_float_half_true_false
-#define VERTEX_ADD_CONST_FLOAT_SCALE __runCodelet_popops__ScaledAdd2D___half_float_float_true_false
-
-#define VERTEX_ADD_TENSOR_HALF_SCALE __runCodelet_popops__ScaledAdd2D___half_float_half_false_false
-#define VERTEX_ADD_TENSOR_FLOAT_SCALE __runCodelet_popops__ScaledAdd2D___half_float_float_false_false
+#define VERTEX_ADD_HALF_SCALE __runCodelet_popops__ScaledAdd2D___half_float_half_false_false
+#define VERTEX_ADD_FLOAT_SCALE __runCodelet_popops__ScaledAdd2D___half_float_float_false_false
 
 #define VERTEX_COMMON __ScaledAdd2D___half_float_common
 
@@ -21,8 +18,6 @@
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_A_SIZE_OFFSET 4
 #define VERTEX_DATA_B_OFFSET 8
-// 2 versions: one has a constant, which is a float
-// the other a pointer to a tensor float
 #define VERTEX_SCALE_OFFSET 12
 
 // integer variables
@@ -53,31 +48,22 @@
 #endif
 
 
-FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_FLOAT_SCALE
+FN_WORKER_ENTRY_POINT VERTEX_ADD_FLOAT_SCALE
   // load vertex state specific to this version of the vertex : Tensor(float): via a pointer
   ld32  $m0, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
   ld32  $aBScale, $mzero, $m0, 0
   bri   VERTEX_COMMON
-FN_SIZE VERTEX_ADD_TENSOR_FLOAT_SCALE
+FN_SIZE VERTEX_ADD_FLOAT_SCALE
 
-FN_WORKER_ENTRY_POINT VERTEX_ADD_TENSOR_HALF_SCALE
+FN_WORKER_ENTRY_POINT VERTEX_ADD_HALF_SCALE
   // load vertex state specific to this version of the vertex : Tensor(half): via a pointer
   ld32  $dataA, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
   ldb16  $aBScale, $mzero, $dataA, 0
   {bri   VERTEX_COMMON
    f16tof32 $aBScale, $aBScale}
-FN_SIZE VERTEX_ADD_TENSOR_HALF_SCALE
+FN_SIZE VERTEX_ADD_HALF_SCALE
 
-FN_WORKER_ENTRY_POINT VERTEX_ADD_CONST_HALF_SCALE 8
-  // load vertex state specific to this version of the vertex : k, constant(half)
-  ldb16  $aBScale, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  {bri VERTEX_COMMON
-   f16tof32 $aBScale, $aBScale}
-
-FN_EXPORT VERTEX_ADD_CONST_FLOAT_SCALE
-  // load vertex state specific to this version of the vertex : k, constant(float)
-  ld32  $aBScale, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
-
+FN_SECTION VERTEX_COMMON 8
 VERTEX_COMMON:
   // load vertex state
   ld32 $outData, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
@@ -163,6 +149,6 @@ VERTEX_COMMON:
   brnzdec $outDataSize, .Louter_loop
   exitz $mzero
 
-FN_SIZE VERTEX_ADD_CONST_HALF_SCALE
+FN_SIZE VERTEX_COMMON
 
 #endif // __IPU__
