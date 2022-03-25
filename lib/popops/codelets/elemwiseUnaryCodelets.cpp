@@ -697,22 +697,13 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
           inlineAssemblerUnaryOp<op, half, 1>::loopBody(size / 4, h4In, h4Out);
     } else {
       if (size >= 4) {
-
-        // LLVM currently chooses to rotate the loop in a way that is not
-        // optimal for our hardware. The inline asm blocks this. The loop is
-        // pipelined sufficiently to overlap load with calculation. This was
-        // used a it seems a reasonable compromise over zero overlap and
-        // unrolling far enough to overlap the store with calculation.
-
         half4 load = *h4In++;
         const rptsize_t loopCount = (size / 4u) - 1u;
-        asm volatile("# Thwart loop rotation (start)" ::: "memory");
         for (unsigned i = 0; i < loopCount; ++i) {
           half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
           load = ipu::load_postinc(&h4In, 1);
           *h4Out++ = calc;
         }
-        asm volatile("# Thwart loop rotation (end)" ::: "memory");
         *h4Out++ = UnaryOpFn<op, half4, arch>::fn(load);
       }
     }
@@ -750,13 +741,11 @@ public:
         const rptsize_t loopCount = (size / 2u) - 1;
 
         float2 load = *f2In++;
-        asm volatile("# Thwart loop rotation (start)" ::: "memory");
         for (unsigned j = 0; j < loopCount; j++) {
           float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
           load = ipu::load_postinc(&f2In, 1);
           *f2Out++ = calc;
         }
-        asm volatile("# Thwart loop rotation (end)" ::: "memory");
         *f2Out++ = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
       }
     }
@@ -787,13 +776,11 @@ static void unaryShort2Bulk(unsigned loopCount,
                             __attribute__((align_value(4))) T *out) {
   const short2 *s2In = reinterpret_cast<const short2 *>(in);
   short2 *s2Out = reinterpret_cast<short2 *>(out);
-  asm volatile("# Thwart loop rotation (start)" ::: "memory");
   for (unsigned j = 0; j < loopCount; j++) {
     *s2Out = UnaryOpFn<op, short2, architecture::active>::fn(*s2In);
     s2In += stride;
     s2Out += stride;
   }
-  asm volatile("# Thwart loop rotation (end)" ::: "memory");
 }
 
 /// Processes the 'trailing' 1-3 elements (if present) for any operation that
@@ -1099,13 +1086,11 @@ public:
           inlineAssemblerUnaryOp<op, half, CTXT_WORKERS>::loopBody(loopCount,
                                                                    h4In, h4Out);
     } else {
-      asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
         *h4Out = UnaryOpFn<op, half4, architecture::ipu>::fn(*h4In);
         h4In += CTXT_WORKERS;
         h4Out += CTXT_WORKERS;
       }
-      asm volatile("# Thwart loop rotation (end)" ::: "memory");
     }
     if (remainder) {
       const half2 *h2In = reinterpret_cast<const half2 *>(h4In);

@@ -278,14 +278,12 @@ static void broadcastShort2Bulk(unsigned loopCount,
                 std::is_same<T, unsigned short>::value);
   const short2 K2 = {static_cast<short>(K), static_cast<short>(K)};
 
-  asm volatile("# Thwart loop rotation (start)" ::: "memory");
   for (unsigned j = 0; j < loopCount; j++) {
     short2 calc = BinaryOpFn<op, short2, architecture::active>::fn(*s2In, K2);
     s2In += stride;
     *s2Out = calc;
     s2Out += stride;
   }
-  asm volatile("# Thwart loop rotation (end)" ::: "memory");
 }
 
 /// Processes the 'trailing' 1-3 elements (if present) for any operation that
@@ -421,13 +419,11 @@ struct BroadcastOpDispatch<op, half, half, allowUnaligned, allowRemainder> {
 
       half4 load = ipu::load_postinc(&h4In, 1);
       const rptsize_t loopCount = (size / 4u) - 1u;
-      asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
         half4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
         load = ipu::load_postinc(&h4In, 1);
         *h4Out++ = calc;
       }
-      asm volatile("# Thwart loop rotation (end)" ::: "memory");
       *h4Out++ = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
       if (allowRemainder) {
         in = reinterpret_cast<const half *>(h4In);
@@ -479,14 +475,12 @@ struct BroadcastOpDispatch<op, float, float, allowUnaligned, allowRemainder> {
       float2 *f2Out = reinterpret_cast<float2 *>(out);
       float2 load = *f2In++;
       const rptsize_t loopCount = (size / 2u) - 1;
-      asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
         float2 calc =
             BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
         load = ipu::load_postinc(&f2In, 1);
         *f2Out++ = calc;
       }
-      asm volatile("# Thwart loop rotation (end)" ::: "memory");
       *f2Out++ = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
       if (allowRemainder) {
         in = reinterpret_cast<const float *>(f2In);
@@ -652,14 +646,12 @@ public:
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
     half4 K4 = {K, K, K, K};
 
-    asm volatile("# Thwart loop rotation (start)" ::: "memory");
     const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned j = 0; j < loopCount; j++) {
       *h4Out = BinaryOpFn<op, half4, architecture::active>::fn(*h4In, K4);
       h4In += CTXT_WORKERS;
       h4Out += CTXT_WORKERS;
     }
-    asm volatile("# Thwart loop rotation (end)" ::: "memory");
     // Use the same worker to deal with the leading elements as deals with
     // the trailing elements to avoid read-modify-write conflicts in
     // dealing with the odd single element
