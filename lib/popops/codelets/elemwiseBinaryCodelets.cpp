@@ -187,8 +187,10 @@ static void binaryShort2Bulk(unsigned loopCount,
 
   asm volatile("# Thwart loop rotation (start)" ::: "memory");
   for (unsigned j = 0; j < loopCount; j++) {
-    short2 load1 = ipu::load_postinc(&s2In1, stride);
-    short2 load2 = ipu::load_postinc(&s2In2, stride);
+    short2 load1 = *s2In1;
+    s2In1 += stride;
+    short2 load2 = *s2In2;
+    s2In2 += stride;
     short2 calc =
         BinaryOpFn<op, short2, architecture::active>::fn(load1, load2);
     *s2Out = calc;
@@ -313,13 +315,10 @@ struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
       int *iOut = reinterpret_cast<int *>(out);
       const rptsize_t loopCount = size / 4u;
       for (unsigned i = 0; i < loopCount; ++i) {
-        float2 load1 = ipu::load_postinc(&f2In1, 1);
-        float2 load2 = ipu::load_postinc(&f2In2, 1);
-        long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
-
-        load1 = ipu::load_postinc(&f2In1, 1);
-        load2 = ipu::load_postinc(&f2In2, 1);
-        long2 calc_hi = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
+        long2 calc_lo =
+            static_cast<long2>(FuncTy<float2>::fn(*f2In1++, *f2In2++));
+        long2 calc_hi =
+            static_cast<long2>(FuncTy<float2>::fn(*f2In1++, *f2In2++));
 
         char4 result = tochar4(calc_lo, calc_hi);
         int ires = copy_cast<int>(result) & 0x01010101;
@@ -332,9 +331,7 @@ struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
     // process any remainder, up to 3 of
     size = size & 3;
     for (unsigned j = 0; j != size; ++j) {
-      float load1 = ipu::load_postinc(&in1, 1);
-      float load2 = ipu::load_postinc(&in2, 1);
-      *out++ = FuncTy<float>::fn(load1, load2);
+      *out++ = FuncTy<float>::fn(*in1++, *in2++);
     }
   }
 };
@@ -359,9 +356,8 @@ struct BinaryOpDispatch<op, half, bool, architecture::ipu> {
 
       const rptsize_t loopCount = size / 4u;
       for (unsigned i = 0; i < loopCount; ++i) {
-        half4 load1 = ipu::load_postinc(&h4In1, 1);
-        half4 load2 = ipu::load_postinc(&h4In2, 1);
-        short4 calc = static_cast<short4>(FuncTy<half4>::fn(load1, load2));
+        short4 calc =
+            static_cast<short4>(FuncTy<half4>::fn(*h4In1++, *h4In2++));
         char4 result = tochar4(calc);
         int ires = copy_cast<int>(result) & 0x01010101;
         *iOut++ = ires;
@@ -373,9 +369,7 @@ struct BinaryOpDispatch<op, half, bool, architecture::ipu> {
     // process any remainder, up to 3 of
     size = size & 3;
     for (unsigned j = 0; j != size; ++j) {
-      half load1 = ipu::load_postinc(&in1, 1);
-      half load2 = ipu::load_postinc(&in2, 1);
-      *out++ = FuncTy<half>::fn(load1, load2);
+      *out++ = FuncTy<half>::fn(*in1++, *in2++);
     }
   }
 };
@@ -403,14 +397,14 @@ struct BinaryOpDispatch<op, half, half, architecture::ipu> {
       // a reasonable compromise over zero overlap and unrolling far enough to
       // overlap the store with calculation.
 
-      half4 load1 = ipu::load_postinc(&h4In1, 1);
-      half4 load2 = ipu::load_postinc(&h4In2, 1);
+      half4 load1 = *h4In1++;
+      half4 load2 = *h4In2++;
       const rptsize_t loopCount = (size / 4u) - 1u;
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; ++i) {
         half4 calc = BinaryOpFn<op, half4, arch>::fn(load1, load2);
-        load1 = ipu::load_postinc(&h4In1, 1);
-        load2 = ipu::load_postinc(&h4In2, 1);
+        load1 = *h4In1++;
+        load2 = *h4In2++;
         *h4Out++ = calc;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
@@ -428,8 +422,7 @@ struct BinaryOpDispatch<op, half, half, architecture::ipu> {
     half2 *h2Out = reinterpret_cast<half2 *>(out);
 
     if (size >= 2) {
-      *h2Out++ = BinaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In1, 1),
-                                                 ipu::load_postinc(&h2In2, 1));
+      *h2Out++ = BinaryOpFn<op, half2, arch>::fn(*h2In1++, *h2In2++);
       size -= 2;
     }
 
@@ -458,12 +451,12 @@ struct BinaryOpDispatch<op, float, float, architecture::ipu> {
       const float2 *f2In2 = reinterpret_cast<const float2 *>(in2);
       float2 *f2Out = reinterpret_cast<float2 *>(out);
 
-      float2 load1 = ipu::load_postinc(&f2In1, 1);
-      float2 load2 = ipu::load_postinc(&f2In2, 1);
+      float2 load1 = *f2In1++;
+      float2 load2 = *f2In2++;
       const rptsize_t loopCount = (size / 2u) - 1u;
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; ++i) {
-        float2 calc = BinaryOpFn<op, float2, arch>::fn(load1, load2);
+        auto calc = BinaryOpFn<op, float2, arch>::fn(load1, load2);
         load1 = ipu::load_postinc(&f2In1, 1);
         load2 = ipu::load_postinc(&f2In2, 1);
         *f2Out++ = calc;
@@ -621,9 +614,9 @@ struct BinaryOpDispatchMultiVertex<op, half, bool, architecture::ipu> {
 
     const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned j = 0; j < loopCount; j++) {
-      half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
-      half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
-      short4 calc = static_cast<short4>(FuncTy<half4>::fn(load1, load2));
+      short4 calc = static_cast<short4>(FuncTy<half4>::fn(*h4In1, *h4In2));
+      h4In1 += CTXT_WORKERS;
+      h4In2 += CTXT_WORKERS;
       char4 result = tochar4(calc);
       int ires = copy_cast<int>(result) & 0x01010101;
       *iOut = ires;
@@ -638,9 +631,7 @@ struct BinaryOpDispatchMultiVertex<op, half, bool, architecture::ipu> {
       in2 = &in2[size - remainder];
       out = &out[size - remainder];
       for (unsigned j = 0; j != remainder; ++j) {
-        half load1 = ipu::load_postinc(&in1, 1);
-        half load2 = ipu::load_postinc(&in2, 1);
-        *out++ = FuncTy<half>::fn(load1, load2);
+        *out++ = FuncTy<half>::fn(*in1++, *in2++);
       }
     }
   }
@@ -665,13 +656,12 @@ struct BinaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
 
     const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned j = 0; j < loopCount; j++) {
-      float2 load1 = ipu::load_postinc(&f2In1, 1);
-      float2 load2 = ipu::load_postinc(&f2In2, 1);
-      long2 calc_lo = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
+      long2 calc_lo =
+          static_cast<long2>(FuncTy<float2>::fn(*f2In1++, *f2In2++));
 
-      load1 = ipu::load_postinc(&f2In1, 2 * CTXT_WORKERS - 1);
-      load2 = ipu::load_postinc(&f2In2, 2 * CTXT_WORKERS - 1);
-      long2 calc_hi = static_cast<long2>(FuncTy<float2>::fn(load1, load2));
+      long2 calc_hi = static_cast<long2>(FuncTy<float2>::fn(*f2In1, *f2In2));
+      f2In1 += 2 * CTXT_WORKERS - 1;
+      f2In2 += 2 * CTXT_WORKERS - 1;
 
       char4 result = tochar4(calc_lo, calc_hi);
       int ires = copy_cast<int>(result) & 0x01010101;
@@ -687,9 +677,7 @@ struct BinaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
       in2 = &in2[size - remainder];
       out = &out[size - remainder];
       for (unsigned j = 0; j != remainder; ++j) {
-        float load1 = ipu::load_postinc(&in1, 1);
-        float load2 = ipu::load_postinc(&in2, 1);
-        *out++ = FuncTy<float>::fn(load1, load2);
+        *out++ = FuncTy<float>::fn(*in1++, *in2++);
       }
     }
   }
@@ -709,10 +697,9 @@ public:
     asm volatile("# Thwart loop rotation (start)" ::: "memory");
     const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned i = 0; i < loopCount; i++) {
-      half4 load1 = ipu::load_postinc(&h4In1, CTXT_WORKERS);
-      half4 load2 = ipu::load_postinc(&h4In2, CTXT_WORKERS);
-      half4 calc = BinaryOpFn<op, half4, architecture::ipu>::fn(load1, load2);
-      *h4Out = calc;
+      *h4Out = BinaryOpFn<op, half4, architecture::ipu>::fn(*h4In1, *h4In2);
+      h4In1 += CTXT_WORKERS;
+      h4In2 += CTXT_WORKERS;
       h4Out += CTXT_WORKERS;
     }
     asm volatile("# Thwart loop rotation (end)" ::: "memory");
@@ -722,8 +709,8 @@ public:
       half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
       if (size & 2) {
         if (h4Out == (half4 *)&out[size & (~3)]) {
-          *h2Out++ = BinaryOpFn<op, half2, architecture::ipu>::fn(
-              ipu::load_postinc(&h2In1, 1), ipu::load_postinc(&h2In2, 1));
+          *h2Out++ =
+              BinaryOpFn<op, half2, architecture::ipu>::fn(*h2In1++, *h2In2++);
         }
       }
       assert(size != 0);
@@ -749,10 +736,9 @@ public:
 
     const rptsize_t loopCount = divideWork(size, 1, worker);
     for (unsigned j = 0; j < loopCount; j++) {
-      float2 load1 = ipu::load_postinc(&f2In1, CTXT_WORKERS);
-      float2 load2 = ipu::load_postinc(&f2In2, CTXT_WORKERS);
-      float2 calc = BinaryOpFn<op, float2, architecture::ipu>::fn(load1, load2);
-      *f2Out = calc;
+      *f2Out = BinaryOpFn<op, float2, architecture::ipu>::fn(*f2In1, *f2In2);
+      f2In1 += CTXT_WORKERS;
+      f2In2 += CTXT_WORKERS;
       f2Out += CTXT_WORKERS;
     }
     // The higher number worker is likely to have the least work in the

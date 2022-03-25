@@ -168,12 +168,11 @@ struct broadcastBoolOpBulk<op, float, stride> {
     const float2 *in2 = reinterpret_cast<const float2 *>(in);
     const float2 K2 = {K, K};
     for (unsigned j = 0; j < loopCount; j++) {
-      float2 load = ipu::load_postinc(&in2, 1);
       long2 calc_lo =
-          BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
-      load = ipu::load_postinc(&in2, 2 * stride - 1);
+          BinaryOpFn<op, float2, architecture::active>::fn(*in2++, K2);
       long2 calc_hi =
-          BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
+          BinaryOpFn<op, float2, architecture::active>::fn(*in2, K2);
+      in2 += 2 * stride - 1;
 
       // Pack the two pair of results as 4 bytes in a 32 bit word and keep
       // only the least significant bit of each bytes
@@ -192,8 +191,8 @@ struct broadcastBoolOpBulk<op, half, stride> {
     const half4 *in4 = reinterpret_cast<const half4 *>(in);
     const half4 K4 = {K, K, K, K};
     for (unsigned j = 0; j < loopCount; j++) {
-      half4 load = ipu::load_postinc(&in4, stride);
-      short4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
+      short4 calc = BinaryOpFn<op, half4, architecture::active>::fn(*in4, K4);
+      in4 += stride;
 
       // Pack the four results as 4 bytes in a 32 bit word and keep only the
       // least significant bit of each bytes
@@ -281,8 +280,8 @@ static void broadcastShort2Bulk(unsigned loopCount,
 
   asm volatile("# Thwart loop rotation (start)" ::: "memory");
   for (unsigned j = 0; j < loopCount; j++) {
-    short2 load = ipu::load_postinc(&s2In, stride);
-    short2 calc = BinaryOpFn<op, short2, architecture::active>::fn(load, K2);
+    short2 calc = BinaryOpFn<op, short2, architecture::active>::fn(*s2In, K2);
+    s2In += stride;
     *s2Out = calc;
     s2Out += stride;
   }
@@ -396,9 +395,9 @@ struct BroadcastOpDispatch<op, half, half, allowUnaligned, allowRemainder> {
             reinterpret_cast<std::uintptr_t>(in) & ~std::uintptr_t(3));
         half2 *h2Out = reinterpret_cast<half2 *>(
             reinterpret_cast<std::uintptr_t>(out) & ~std::uintptr_t(3));
-        half2 res = {(*h2Out)[0],
-                     BinaryOpFn<op, half, architecture::active>::fn(
-                         ipu::load_postinc(&h2In, 1)[1], K)};
+        half2 res = {
+            (*h2Out)[0],
+            BinaryOpFn<op, half, architecture::active>::fn((*h2In++)[1], K)};
         *h2Out++ = res;
         size -= 1;
         in = reinterpret_cast<const half *>(h2In);
@@ -408,8 +407,7 @@ struct BroadcastOpDispatch<op, half, half, allowUnaligned, allowRemainder> {
         half2 K2 = {K, K};
         const half2 *h2In = reinterpret_cast<const half2 *>(in);
         half2 *h2Out = reinterpret_cast<half2 *>(out);
-        *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(
-            ipu::load_postinc(&h2In, 1), K2);
+        *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(*h2In++, K2);
         size -= 2;
         in = reinterpret_cast<const half *>(h2In);
         out = reinterpret_cast<half *>(h2Out);
@@ -444,8 +442,7 @@ struct BroadcastOpDispatch<op, half, half, allowUnaligned, allowRemainder> {
 
       if (size >= 2) {
         half2 K2 = {K, K};
-        *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(
-            ipu::load_postinc(&h2In, 1), K2);
+        *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(*h2In++, K2);
         size -= 2;
       }
 
@@ -472,8 +469,7 @@ struct BroadcastOpDispatch<op, float, float, allowUnaligned, allowRemainder> {
                       const float K) {
     if (allowUnaligned) {
       if (reinterpret_cast<std::uintptr_t>(in) & 0x7) {
-        *out++ = BinaryOpFn<op, float, architecture::active>::fn(
-            ipu::load_postinc(&in, 1), K);
+        *out++ = BinaryOpFn<op, float, architecture::active>::fn(*in++, K);
         size -= 1;
       }
     }
@@ -481,7 +477,7 @@ struct BroadcastOpDispatch<op, float, float, allowUnaligned, allowRemainder> {
       float2 K2 = {K, K};
       const float2 *f2In = reinterpret_cast<const float2 *>(in);
       float2 *f2Out = reinterpret_cast<float2 *>(out);
-      float2 load = ipu::load_postinc(&f2In, 1);
+      float2 load = *f2In++;
       const rptsize_t loopCount = (size / 2u) - 1;
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
@@ -499,8 +495,7 @@ struct BroadcastOpDispatch<op, float, float, allowUnaligned, allowRemainder> {
     }
     if (allowRemainder) {
       if (size & 1) {
-        float load = ipu::load_postinc(&in, 1);
-        *out = BinaryOpFn<op, float, architecture::active>::fn(load, K);
+        *out = BinaryOpFn<op, float, architecture::active>::fn(*in++, K);
       }
     }
   }
@@ -571,8 +566,7 @@ public:
       // different workers for trailing and leading elements.
       if (reinterpret_cast<std::uintptr_t>(in) & 0x7) {
         if (worker == 0) {
-          auto val = ipu::load_postinc(&in, 1);
-          *out++ = BinaryOpFn<op, float, architecture::active>::fn(val, K);
+          *out++ = BinaryOpFn<op, float, architecture::active>::fn(*in++, K);
         } else {
           ++in;
           ++out;
@@ -585,9 +579,8 @@ public:
     float2 K2 = {K, K};
     const rptsize_t loopCount = divideWork(size, 1, worker);
     for (unsigned j = 0; j < loopCount; j++) {
-      float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
-      float2 calc = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
-      *f2Out = calc;
+      *f2Out = BinaryOpFn<op, float2, architecture::active>::fn(*f2In, K2);
+      f2In += CTXT_WORKERS;
       f2Out += CTXT_WORKERS;
     }
     // The higher number worker is likely to have the least work in the
@@ -626,9 +619,9 @@ public:
               reinterpret_cast<std::uintptr_t>(in) & ~std::uintptr_t(0x3));
           half2 *h2Out = reinterpret_cast<half2 *>(
               reinterpret_cast<std::uintptr_t>(out) & ~std::uintptr_t(0x3));
-          half2 res = {(*h2Out)[0],
-                       BinaryOpFn<op, half, architecture::active>::fn(
-                           ipu::load_postinc(&h2In, 1)[1], K)};
+          half2 res = {
+              (*h2Out)[0],
+              BinaryOpFn<op, half, architecture::active>::fn((*h2In++)[1], K)};
           *h2Out++ = res;
           in = reinterpret_cast<const half *>(h2In);
           out = reinterpret_cast<half *>(h2Out);
@@ -643,8 +636,8 @@ public:
           half2 K2 = {K, K};
           const half2 *h2In = reinterpret_cast<const half2 *>(in);
           half2 *h2Out = reinterpret_cast<half2 *>(out);
-          *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(
-              ipu::load_postinc(&h2In, 1), K2);
+          *h2Out++ =
+              BinaryOpFn<op, half2, architecture::active>::fn(*h2In++, K2);
           in = reinterpret_cast<const half *>(h2In);
           out = reinterpret_cast<half *>(h2Out);
         } else {
@@ -662,9 +655,8 @@ public:
     asm volatile("# Thwart loop rotation (start)" ::: "memory");
     const rptsize_t loopCount = divideWork(size, 2, worker);
     for (unsigned j = 0; j < loopCount; j++) {
-      half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
-      half4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
-      *h4Out = calc;
+      *h4Out = BinaryOpFn<op, half4, architecture::active>::fn(*h4In, K4);
+      h4In += CTXT_WORKERS;
       h4Out += CTXT_WORKERS;
     }
     asm volatile("# Thwart loop rotation (end)" ::: "memory");
@@ -678,8 +670,8 @@ public:
         half2 *h2Out = reinterpret_cast<half2 *>(&out[size & ~unsigned(3)]);
         if (size & 2) {
           half2 K2 = {K, K};
-          *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(
-              ipu::load_postinc(&h2In, 1), K2);
+          *h2Out++ =
+              BinaryOpFn<op, half2, architecture::active>::fn(*h2In++, K2);
         }
         if (size & 1) {
           h2Out = reinterpret_cast<half2 *>(&out[size - 1]);

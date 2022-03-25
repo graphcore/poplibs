@@ -630,11 +630,9 @@ struct UnaryOpDispatch<op, half, bool, architecture::ipu> {
       int *iOut = reinterpret_cast<int *>(out);
       const rptsize_t loopCount = size / 4u;
       for (unsigned i = 0; i < loopCount; ++i) {
-        half4 load = ipu::load_postinc(&h4In, 1);
-        short4 calc = static_cast<short4>(FuncTy<half4>::fn(load));
+        short4 calc = static_cast<short4>(FuncTy<half4>::fn(*h4In++));
         char4 result = tochar4(calc);
-        int ires = copy_cast<int>(result) & 0x01010101;
-        ipu::store_postinc(&iOut, ires, 1);
+        *iOut++ = copy_cast<int>(result) & 0x01010101;
       }
       in = reinterpret_cast<const half *>(h4In);
       out = reinterpret_cast<bool *>(iOut);
@@ -642,8 +640,7 @@ struct UnaryOpDispatch<op, half, bool, architecture::ipu> {
     // process any remainder, up to 3 of
     size = size & 3;
     for (unsigned j = 0; j != size; ++j) {
-      half load = ipu::load_postinc(&in, 1);
-      *out++ = FuncTy<half>::fn(load);
+      *out++ = FuncTy<half>::fn(*in++);
     }
   }
 };
@@ -666,15 +663,11 @@ struct UnaryOpDispatch<op, float, bool, architecture::ipu> {
 
       const rptsize_t loopCount = size / 4u;
       for (unsigned i = 0; i < loopCount; ++i) {
-        float2 load = ipu::load_postinc(&f2In, 1);
-        int2 calc_lo = static_cast<int2>(FuncTy<float2>::fn(load));
-
-        load = ipu::load_postinc(&f2In, 1);
-        int2 calc_hi = static_cast<int2>(FuncTy<float2>::fn(load));
+        int2 calc_lo = static_cast<int2>(FuncTy<float2>::fn(*f2In++));
+        int2 calc_hi = static_cast<int2>(FuncTy<float2>::fn(*f2In++));
 
         char4 result = tochar4(calc_lo, calc_hi);
-        int ires = copy_cast<int>(result) & 0x01010101;
-        ipu::store_postinc(&iOut, ires, 1);
+        *iOut++ = copy_cast<int>(result) & 0x01010101;
       }
       in = reinterpret_cast<const float *>(f2In);
       out = reinterpret_cast<bool *>(iOut);
@@ -682,8 +675,7 @@ struct UnaryOpDispatch<op, float, bool, architecture::ipu> {
     // process any remainder, up to 3 of
     size = size & 3;
     for (unsigned j = 0; j != size; ++j) {
-      float load = ipu::load_postinc(&in, 1);
-      *out++ = FuncTy<float>::fn(load);
+      *out++ = FuncTy<float>::fn(*in++);
     }
   }
 };
@@ -712,7 +704,7 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
         // used a it seems a reasonable compromise over zero overlap and
         // unrolling far enough to overlap the store with calculation.
 
-        half4 load = ipu::load_postinc(&h4In, 1);
+        half4 load = *h4In++;
         const rptsize_t loopCount = (size / 4u) - 1u;
         asm volatile("# Thwart loop rotation (start)" ::: "memory");
         for (unsigned i = 0; i < loopCount; ++i) {
@@ -733,7 +725,7 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
     half2 *h2Out = reinterpret_cast<half2 *>(out);
 
     if (size >= 2) {
-      *h2Out++ = UnaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In, 1));
+      *h2Out++ = UnaryOpFn<op, half2, arch>::fn(*h2In++);
       size -= 2;
     }
 
@@ -757,7 +749,7 @@ public:
       if (size >= 2) {
         const rptsize_t loopCount = (size / 2u) - 1;
 
-        float2 load = ipu::load_postinc(&f2In, 1);
+        float2 load = *f2In++;
         asm volatile("# Thwart loop rotation (start)" ::: "memory");
         for (unsigned j = 0; j < loopCount; j++) {
           float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
@@ -797,9 +789,8 @@ static void unaryShort2Bulk(unsigned loopCount,
   short2 *s2Out = reinterpret_cast<short2 *>(out);
   asm volatile("# Thwart loop rotation (start)" ::: "memory");
   for (unsigned j = 0; j < loopCount; j++) {
-    short2 load = ipu::load_postinc(&s2In, stride);
-    short2 calc = UnaryOpFn<op, short2, architecture::active>::fn(load);
-    *s2Out = calc;
+    *s2Out = UnaryOpFn<op, short2, architecture::active>::fn(*s2In);
+    s2In += stride;
     s2Out += stride;
   }
   asm volatile("# Thwart loop rotation (end)" ::: "memory");
@@ -1035,8 +1026,8 @@ struct UnaryOpDispatchMultiVertex<op, half, bool, architecture::ipu> {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
       short4 calc = static_cast<short4>(FuncTy<half4>::fn(load));
       char4 result = tochar4(calc);
-      int ires = copy_cast<int>(result) & 0x01010101;
-      ipu::store_postinc(&iOut, ires, CTXT_WORKERS);
+      *iOut = copy_cast<int>(result) & 0x01010101;
+      iOut += CTXT_WORKERS;
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
@@ -1046,8 +1037,7 @@ struct UnaryOpDispatchMultiVertex<op, half, bool, architecture::ipu> {
       in = &in[size - remainder];
       out = &out[size - remainder];
       for (unsigned j = 0; j != remainder; ++j) {
-        half load = ipu::load_postinc(&in, 1);
-        *out++ = FuncTy<half>::fn(load);
+        *out++ = FuncTy<half>::fn(*in++);
       }
     }
   }
@@ -1072,13 +1062,12 @@ struct UnaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
     for (unsigned j = 0; j < loopCount; j++) {
       float2 load = ipu::load_postinc(&f2In, 1);
       int2 calc_lo = static_cast<int2>(FuncTy<float2>::fn(load));
-
       load = ipu::load_postinc(&f2In, 2 * CTXT_WORKERS - 1);
       int2 calc_hi = static_cast<int2>(FuncTy<float2>::fn(load));
 
       char4 result = tochar4(calc_lo, calc_hi);
-      int ires = copy_cast<int>(result) & 0x01010101;
-      ipu::store_postinc(&iOut, ires, CTXT_WORKERS);
+      *iOut = copy_cast<int>(result) & 0x01010101;
+      iOut += CTXT_WORKERS;
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
@@ -1088,8 +1077,7 @@ struct UnaryOpDispatchMultiVertex<op, float, bool, architecture::ipu> {
       in = &in[size - remainder];
       out = &out[size - remainder];
       for (unsigned j = 0; j != remainder; ++j) {
-        float load = ipu::load_postinc(&in, 1);
-        *out++ = FuncTy<float>::fn(load);
+        *out++ = FuncTy<float>::fn(*in++);
       }
     }
   }
@@ -1113,9 +1101,8 @@ public:
     } else {
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
-        half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
-        half4 calc = UnaryOpFn<op, half4, architecture::ipu>::fn(load);
-        *h4Out = calc;
+        *h4Out = UnaryOpFn<op, half4, architecture::ipu>::fn(*h4In);
+        h4In += CTXT_WORKERS;
         h4Out += CTXT_WORKERS;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
@@ -1125,8 +1112,7 @@ public:
       half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
       if (size & 2) {
         if (h4Out == (half4 *)&out[size & (~3)]) {
-          *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(
-              ipu::load_postinc(&h2In, 1));
+          *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(*h2In++);
         }
       }
       assert(size != 0);
@@ -1157,9 +1143,8 @@ public:
       // outside the memory bounds (and throw an exception) due to the striding
       // of the workers.
       for (unsigned j = 0; j < loopCount; j++) {
-        float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
-        float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
-        *f2Out = calc;
+        *f2Out = UnaryOpFn<op, float2, architecture::ipu>::fn(*f2In);
+        f2In += CTXT_WORKERS;
         f2Out += CTXT_WORKERS;
       }
     }
