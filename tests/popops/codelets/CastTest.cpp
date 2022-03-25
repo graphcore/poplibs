@@ -80,10 +80,14 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   Graph graph(target);
   popops::addCodelets(graph);
 
+  // Make a sequence to zero output memory and run cast
+  Sequence sequence;
+
   // Input data
   Tensor in;
   if (dataTypeIn.requiresMetadata()) {
-    auto metadata = createFp8MetadataTensor(graph, fp8Format, fp8Scale);
+    auto metadata =
+        createFp8MetadataTensor(graph, fp8Format, fp8Scale, sequence);
     graph.setTileMapping(metadata, 0);
     in =
         graph.addVariable(dataTypeIn, &metadata, {rows, columns}, "Input Data");
@@ -105,8 +109,6 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
     std::cout << "WARNING: Codelets will be run for quarter->" << dataTypeOut
               << " but result checking is incomplete\n";
   }
-  // Make a sequence to zero output memory and run cast
-  Sequence sequence;
 
   // TODO - T57103 shouldn't need an intermediate step once we can copy data to
   // the IPU
