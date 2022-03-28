@@ -2112,10 +2112,9 @@ static bool isStridedReduction(const poplar::Graph &graph,
     for (unsigned i = 1; i < r.size(); i++) {
       if (!r[i].regularPartials() || r[i].getStride() != r0.getStride() ||
           r[i].getOffset() != referenceOffset || r[i].innerFactor != 1 ||
-          r[i].getPartials() != r0.getPartials()) {
-        return false;
-      }
-      if (r[i].outerFactor != r0.outerFactor) {
+          r[i].getPartials() != r0.getPartials() ||
+          r[i].outerFactor != r0.outerFactor ||
+          r[i].getOuterStride() != r0.getOuterStride()) {
         return false;
       }
       referenceOffset += r[i].output.numElements();

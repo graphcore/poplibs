@@ -935,6 +935,16 @@ foreach(withOutput true false)
        VARIANTS "${IPUMODEL_VARIANTS}")
 endforeach()
 
+# A specific test case with input pattern which suits strided reduce except
+# for an inconsistent outer stride. Captured the tensor used to bias update
+# using the command in T59445
+add_multitarget_test(
+    NAME reduce_op_T59445
+      COMMAND $<TARGET_FILE:reduce_op>
+      "--dims=0,2,3,4"
+      "--file=${CMAKE_CURRENT_SOURCE_DIR}/infiles/reduceInT59445.tensor"
+      VARIANTS "${IPUMODEL_VARIANTS}")
+
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
