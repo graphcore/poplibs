@@ -19,8 +19,7 @@ namespace popops {
 namespace {
 
 const unsigned numXBs = 32;
-const unsigned writePacketSizeInBytes = 256;
-const unsigned readPacketSizeInBytes = 1024;
+const unsigned packetSizeInBytes = 1024;
 
 struct XBs {
   struct XBValue {
@@ -114,11 +113,11 @@ static XBs findAvailableXBs(const poplar::Graph &graph) {
   return result;
 }
 
+// We don't have asymmetry anymore with read/write packet size, but it's likely
+// we will again, so we leave `isRead` plumbed into this function
 static PacketsAndIndices splitIntoPackets(poplar::Tensor &t,
                                           const poplar::Graph &graph,
                                           const bool isRead) {
-  const unsigned packetSizeInBytes =
-      isRead ? readPacketSizeInBytes : writePacketSizeInBytes;
   const unsigned packetSize =
       packetSizeInBytes / graph.getTarget().getTypeSize(t.elementType());
   PacketsAndIndices result;
