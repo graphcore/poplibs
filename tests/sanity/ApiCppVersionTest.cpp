@@ -49,7 +49,6 @@
 #include <popops/AllTrue.hpp>
 #include <popops/Cast.hpp>
 #include <popops/CircBuf.hpp>
-#include <popops/CollectiveTypes.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/ElementWiseUtil.hpp>

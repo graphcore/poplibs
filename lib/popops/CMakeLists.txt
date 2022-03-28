@@ -11,7 +11,6 @@ add_library(popops SHARED
   CastModelling.cpp
   CastModelling.hpp
   CircBuf.cpp
-  CollectiveTypes.cpp
   codelets.cpp
   DynamicSlice.cpp
   DynamicSliceInternal.hpp
