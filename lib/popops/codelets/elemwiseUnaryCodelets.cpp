@@ -697,6 +697,8 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
           inlineAssemblerUnaryOp<op, half, 1>::loopBody(size / 4, h4In, h4Out);
     } else {
       if (size >= 4) {
+        // Partially unroll the loop
+        // Can this be done automatically? See T59317
         half4 load = *h4In++;
         const rptsize_t loopCount = (size / 4u) - 1u;
         for (unsigned i = 0; i < loopCount; ++i) {
@@ -740,6 +742,8 @@ public:
       if (size >= 2) {
         const rptsize_t loopCount = (size / 2u) - 1;
 
+        // Partially unroll the loop
+        // Can this be done automatically? See T59317
         float2 load = *f2In++;
         for (unsigned j = 0; j < loopCount; j++) {
           float2 calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
@@ -1124,13 +1128,20 @@ public:
       inlineAssemblerUnaryOp<op, float, CTXT_WORKERS>::loopBody(loopCount, f2In,
                                                                 f2Out);
     } else {
-      // We could pipeline this, but we want to avoid an overread which could be
-      // outside the memory bounds (and throw an exception) due to the striding
-      // of the workers.
-      for (unsigned j = 0; j < loopCount; j++) {
-        *f2Out = UnaryOpFn<op, float2, architecture::ipu>::fn(*f2In);
+      if (loopCount) {
+        // Partially unroll the loop, carefully avoiding overreads (which will
+        // be strided).
+        // Can this be done automatically? See T59317
+        auto load = *f2In;
         f2In += CTXT_WORKERS;
-        f2Out += CTXT_WORKERS;
+        for (unsigned j = 0; j < rptsize_t(loopCount - 1); j++) {
+          auto calc = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
+          load = *f2In;
+          f2In += CTXT_WORKERS;
+          *f2Out = calc;
+          f2Out += CTXT_WORKERS;
+        }
+        *f2Out = UnaryOpFn<op, float2, architecture::ipu>::fn(load);
       }
     }
     // The higher number worker is likely to have the least work in the

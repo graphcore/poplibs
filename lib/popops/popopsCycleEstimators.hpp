@@ -338,14 +338,14 @@ inline const BinaryOpPerfTable binaryOpPerfInfo = {
 
     {{BinaryOpType::LOGICAL_AND, BOOL}, {5, false, 4}},
     {{BinaryOpType::LOGICAL_OR, BOOL}, {5, false, 4}},
-    {{BinaryOpType::MAXIMUM, FLOAT}, {4, false, 2}},
+    {{BinaryOpType::MAXIMUM, FLOAT}, {3, false, 2}},
     {{BinaryOpType::MAXIMUM, HALF}, {4, false, 4}},
     {{BinaryOpType::MAXIMUM, INT}, {7, false, 1}},
     {{BinaryOpType::MAXIMUM, UNSIGNED_INT}, {8, false, 1}},
     {{BinaryOpType::MAXIMUM, UNSIGNED_LONGLONG}, {13, false, 1}},
     {{BinaryOpType::MAXIMUM, LONGLONG}, {15, false, 1}},
 
-    {{BinaryOpType::MINIMUM, FLOAT}, {4, false, 2}},
+    {{BinaryOpType::MINIMUM, FLOAT}, {3, false, 2}},
     {{BinaryOpType::MINIMUM, HALF}, {4, false, 4}},
     {{BinaryOpType::MINIMUM, INT}, {7, false, 1}},
     {{BinaryOpType::MINIMUM, UNSIGNED_INT}, {8, false, 1}},

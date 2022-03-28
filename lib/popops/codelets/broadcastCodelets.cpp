@@ -473,6 +473,8 @@ struct BroadcastOpDispatch<op, float, float, allowUnaligned, allowRemainder> {
       float2 K2 = {K, K};
       const float2 *f2In = reinterpret_cast<const float2 *>(in);
       float2 *f2Out = reinterpret_cast<float2 *>(out);
+      // Partially unroll the loop
+      // Can this be done automatically? See T59317
       float2 load = *f2In++;
       const rptsize_t loopCount = (size / 2u) - 1;
       for (unsigned i = 0; i < loopCount; i++) {
@@ -572,10 +574,20 @@ public:
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
     float2 K2 = {K, K};
     const rptsize_t loopCount = divideWork(size, 1, worker);
-    for (unsigned j = 0; j < loopCount; j++) {
-      *f2Out = BinaryOpFn<op, float2, architecture::active>::fn(*f2In, K2);
+    if (loopCount) {
+      // Partially unroll the loop, carefully avoiding overreads (which will
+      // be strided).
+      // Can this be done automatically? See T59317
+      auto load = *f2In;
       f2In += CTXT_WORKERS;
-      f2Out += CTXT_WORKERS;
+      for (unsigned j = 0; j < rptsize_t(loopCount - 1); j++) {
+        auto calc = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
+        load = *f2In;
+        f2In += CTXT_WORKERS;
+        *f2Out = calc;
+        f2Out += CTXT_WORKERS;
+      }
+      *f2Out = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder

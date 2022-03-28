@@ -447,6 +447,8 @@ struct BinaryOpDispatch<op, float, float, architecture::ipu> {
       const float2 *f2In2 = reinterpret_cast<const float2 *>(in2);
       float2 *f2Out = reinterpret_cast<float2 *>(out);
 
+      // Partially unroll the loop
+      // Can this be done automatically? See T59317
       float2 load1 = *f2In1++;
       float2 load2 = *f2In2++;
       const rptsize_t loopCount = (size / 2u) - 1u;
@@ -727,11 +729,25 @@ public:
     float2 *f2Out = reinterpret_cast<float2 *>(out) + worker;
 
     const rptsize_t loopCount = divideWork(size, 1, worker);
-    for (unsigned j = 0; j < loopCount; j++) {
-      *f2Out = BinaryOpFn<op, float2, architecture::ipu>::fn(*f2In1, *f2In2);
+    if (loopCount) {
+      // Partially unroll the loop, carefully avoiding overreads (which will
+      // be strided).
+      // Can this be done automatically? See T59317
+      auto load1 = *f2In1;
+      auto load2 = *f2In2;
       f2In1 += CTXT_WORKERS;
       f2In2 += CTXT_WORKERS;
-      f2Out += CTXT_WORKERS;
+
+      for (unsigned j = 0; j < rptsize_t(loopCount - 1); j++) {
+        auto calc = BinaryOpFn<op, float2, architecture::ipu>::fn(load1, load2);
+        load1 = *f2In1;
+        load2 = *f2In2;
+        f2In1 += CTXT_WORKERS;
+        f2In2 += CTXT_WORKERS;
+        *f2Out = calc;
+        f2Out += CTXT_WORKERS;
+      }
+      *f2Out = BinaryOpFn<op, float2, architecture::ipu>::fn(load1, load2);
     }
     // The higher number worker is likely to have the least work in the
     // loop so allow it to process the remainder
