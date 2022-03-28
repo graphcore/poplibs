@@ -868,7 +868,6 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
   stream << loopCountString(outString, vectorizationWidth, numWorkers,
                             isMultiVertex);
   stream << R"l(
-      asm volatile ("# Thwart loop rotation (start)" ::: "memory");
             while (loopCount) {
               loopCount--;
               )l";
@@ -893,10 +892,8 @@ void GenerateCodeletFromMapExpr::addVectorizedSection(
   assert(!data.empty() && "Attempting to read data stack which is empty");
   // Add: "ipu::store_postinc(&Out, {result}, stride);"
   stream << "ipu::store_postinc(&Out," << data.top().first << ",stride);\n";
-
   stream << R"l(
         } // End loop
-        asm volatile ("# Thwart loop rotation (end)" ::: "memory");
         } // End vectorized section.
         #endif)l";
 }
