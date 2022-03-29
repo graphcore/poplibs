@@ -530,6 +530,7 @@ choosePlan(const poplar::Target &target,
   }
 
   std::vector<Partition> partitions;
+  partitions.reserve(partitionVars.size());
   for (const auto &p : partitionVars) {
     partitions.push_back(makePartition(s, p));
   }
