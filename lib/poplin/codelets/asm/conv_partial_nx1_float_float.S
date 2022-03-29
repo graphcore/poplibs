@@ -60,7 +60,7 @@ convPartialNx1Flattened_f32sisoamp:
 #define partition_v                    m1
 #define num_partitions_v               m2
 #define num_fp_v                       m3
-#define partition_base_v               m3
+#define par_addr_v                     m3
 #define inoutstrides1_v                m4   // retained
 #define inoutstrides2_v                m5   // retained
 #define tripacked_addr2                m6:7
@@ -69,11 +69,10 @@ convPartialNx1Flattened_f32sisoamp:
 #define tripacked_addr1                m8:9 
 #define in_offset_v                    m8
 #define out_offset_v                   m9
-#define inchan_ptr_v                   m10
-#define inoutstrides3_v                m10
-#define second_ptr_offset_v            m10     
-#define par_addr_v                     m10          
-#define outchan_ptr_v                  m11
+#define inoutstrides3_v                m10 // retained
+#define second_ptr_offset_v            m11 
+#define partition_base_v               m11 // retained
+
 
 #define X_IN_0                         $a0
 #define X_IN_1                         $a1
@@ -93,6 +92,17 @@ ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
 // inoutstrides2_v = [0][in-row-stride][out-stride]
 ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
 
+ld32          $second_ptr_offset_v, $mvertex_base, WKR_SECOND_PTR_OFFSET/4
+
+// Special stride for initial preloads and wind downs. Form 3 strides in 
+// a register: [second_ptr_offset_v | 0x0 | inoutstrides3_v]
+and           $inoutstrides3_v, $inoutstrides1_v, 0x3FF
+shl           $second_ptr_offset_v, $second_ptr_offset_v, 20
+or            $inoutstrides3_v, $inoutstrides3_v, $second_ptr_offset_v
+
+ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
+
+
 convPartialNx1FlattenedStateRetained_f32sisoamp:
 ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
 ld32          $partition_struct_v, $partition_table_v, $wkr_id_v
@@ -106,10 +116,6 @@ shl           $partition_v, $partition_struct_v, DELTAN_COUNT_BITS
 // Offset needs to be converted from elements to bytes.
 // Hence shift right is less by ELEM_TO_BYTES_CONV
 shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
-ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
-add           $partition_v, $partition_v, $partition_base_v
-
-ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
 
 // This following approximates num_partitions/3 - 1 for values
 // [3:3:2^14-1]. The case of zero is handled above
@@ -129,29 +135,21 @@ ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
 // require a lot more stride registers and selective setting of them depending
 // on number of field samples.
 PartitionLoop:
-  lds16         $num_fp_v, $partition_v, PARTITION_NUM_ELEMS/2
+  ldz16step     $out_offset_v, $partition_base_v, $partition_v+=, 2
 
   // form input address
-  ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
-  ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
-  shl           $in_offset_v, $in_offset_v, 3
-  add           $in_addr_v, $inchan_ptr_v, $in_offset_v
+  ld32          $in_addr_v, $mvertex_base, WKR_INCHAN_PTR/4
+  ldz16step     $in_offset_v, $partition_base_v, $partition_v+=, -1
+
+  // dummy load to do in_addr_v = in_addr_v + in_offset_v*8
+  ld64step      $azeros, $mzero,  $in_addr_v+=, $in_offset_v
 
   // form output address
-  // Note this relies on the fact that out offset is the first entry in the
-  // partition. This allows us to wind the pointer to the next partition
-  ldz16step     $out_offset_v, $mzero, $partition_v+=, 3
-
-  shl           $out_offset_v, $out_offset_v, 3
-  add           $out_addr_v, $outchan_ptr_v, $out_offset_v
+  ld32          $out_addr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
+  ld64step      $azeros, $mzero,  $out_addr_v+=, $out_offset_v
 
   // Form packed address
   tapack        $tripacked_addr1, $in_addr_v, $out_addr_v, $out_addr_v
-
-   // Form the second address pair 
-  // Load second pointer offset and update in-ptr-2
-  ld32          $second_ptr_offset_v, $mvertex_base, WKR_SECOND_PTR_OFFSET/4
-  ld64step      $azeros, $mzero, $in_addr_v+=, $second_ptr_offset_v
 
   // Move partials-in by 2 reads because worker calls for twice for
   // tripacked_addr1 and then twice for tripacked_addr2
@@ -161,8 +159,7 @@ PartitionLoop:
   add           $out_addr_v, $out_addr_v, 0x8
   tapack        $tripacked_addr2, $in_addr_v, $par_addr_v, $out_addr_v
 
-  // Special stride for initial preloads and wind downds
-  and           $inoutstrides3_v, $inoutstrides1_v, 0x3FF    
+  lds16step     $num_fp_v, $partition_base_v, $partition_v+=, 2
 
   // jump to specialisation for number of field samples equal to 1
   // Note: when num_fpv = 0, 3 partials will be loaded but with an post
@@ -178,18 +175,18 @@ PartitionLoop:
 
   {
     // *input-ptr += 0; *partials-ptr += out-stride-p2
-    ld2x64pace    NULL, P_IN, $tripacked_addr1+=, $inoutstrides3_v, 0b0111
+    ld2x64pace    NULL, P_IN, $tripacked_addr1+=, $inoutstrides3_v, 0b0110
     f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P0
   }
   {
-    // *input-ptr += 0; 
+    // *input-ptr +=  $second_ptr_offset_v; 
     // *partials-ptr += 1
-    ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $mzero, 0b0011
+    ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $inoutstrides3_v, 0b0011
     f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P2
   }
   {
     // *input-ptr += 0; *partials-ptr += out-stride-p2
-    ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $inoutstrides3_v, 0b0111
+    ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $inoutstrides3_v, 0b0110
     f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P4
   }
   {
@@ -386,9 +383,9 @@ ld2x64pace    NULL, P_IN, $tripacked_addr1+=, $mzero, 0b0011
   f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P0
 }
 {
-  // *input-ptr += 0; 
+  // *input-ptr += $second_ptr_offset_v; 
   // *partials-ptr += 1
-  ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $mzero, 0b0011
+  ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $inoutstrides3_v, 0b0011
   f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P2
 }
 {
@@ -441,18 +438,18 @@ ld2x64pace    NULL, P_IN, $tripacked_addr1+=, $mzero, 0b0011
 
 {
   // *input-ptr += 0; *partials-ptr += out-stride-p2
-  ld2x64pace    NULL, P_IN, $tripacked_addr1+=, $inoutstrides3_v, 0b0111
+  ld2x64pace    NULL, P_IN, $tripacked_addr1+=, $inoutstrides3_v, 0b0110
   f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P0
 }
 {
-  // *input-ptr += 0; 
+  // *input-ptr +=  $second_ptr_offset_v; ; 
   // *partials-ptr += 1
-  ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $mzero, 0b0011
+  ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $inoutstrides3_v, 0b0011
   f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P2
 }
 {
   // *input-ptr += 0; *partials-ptr += out-stride-p2
-  ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $inoutstrides3_v, 0b0111
+  ld2x64pace    NULL, P_IN, $tripacked_addr2+=, $inoutstrides3_v, 0b0110
   f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P4
 }
 {

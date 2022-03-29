@@ -63,7 +63,7 @@ nop // rpt alignment
 #define partition_v                    m1
 #define num_partitions_v               m2
 #define num_fp_v                       m3
-#define partition_base_v               m3
+#define par_addr_v                     m3
 #define inoutstrides1_v                m4   // retained
 #define inoutstrides2_v                m5   // retained
 #define tripacked_addr2                m6:7
@@ -74,11 +74,10 @@ nop // rpt alignment
 #define in_offset_v                    m8
 #define out_addr_adj_v                 m8
 #define out_offset_v                   m9
-#define inchan_ptr_v                   m10
-#define inoutstrides3_v                m10
-#define second_ptr_offset_v            m10     
-#define par_addr_v                     m10          
-#define outchan_ptr_v                  m11
+#define inoutstrides3_v                m10 // retained
+#define second_ptr_offset_v            m11 
+#define partition_base_v               m11 // retained
+
 
 get           $wkr_id_v, $WSR
 and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
@@ -91,6 +90,15 @@ ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
 // inoutstrides2_v = [0][in-row-stride][out-stride]
 ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
 
+ld32          $second_ptr_offset_v, $mvertex_base, WKR_SECOND_PTR_OFFSET/4
+
+// Special stride for initial preloads and wind downs. Form 3 strides in 
+// a register: [second_ptr_offset_v | 0x0 | inoutstrides3_v]
+and           $inoutstrides3_v, $inoutstrides1_v, 0x3FF
+shl           $second_ptr_offset_v, $second_ptr_offset_v, 20
+or            $inoutstrides3_v, $inoutstrides3_v, $second_ptr_offset_v
+
+ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
 
 convPartialNx1FlattenedStateRetained_f16v4hihoamp:
 ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
@@ -104,11 +112,7 @@ brz           $num_partitions_v, L_Conv_end
 shl           $partition_v, $partition_struct_v, DELTAN_COUNT_BITS
 // Offset needs to be converted from elements to bytes.
 // Hence shift right is less by ELEM_TO_BYTES_CONV
-ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
 shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
-add           $partition_v, $partition_v, $partition_base_v
-
-ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
 
 // This following approximates num_partitions/3 - 1 for values
 // [3:3:2^14-1]. The case of zero is handled above
@@ -127,21 +131,17 @@ ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
 // require a lot more stride registers and selective setting of them depending
 // on number of field samples.
 PartitionLoop:
-  lds16         $num_fp_v, $partition_v, PARTITION_NUM_ELEMS/2
+  ldz16step     $out_offset_v, $partition_base_v, $partition_v+=, 2
 
   // form input address
-  ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
-  ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
-  shl           $in_offset_v, $in_offset_v, 3
-  add           $in_addr_v, $inchan_ptr_v, $in_offset_v
+  ld32          $in_addr_v, $mvertex_base, WKR_INCHAN_PTR/4
+  ldz16step     $in_offset_v, $partition_base_v, $partition_v+=, -1
+  // dummy load to do in_addr_v = in_addr_v + in_offset_v*8
+  ld64step      $azeros, $mzero,  $in_addr_v+=, $in_offset_v
 
   // form output address
-  // Note this relies on the fact that out offset is the first entry in the
-  // partition. This allows us to wind the pointer to the next partition
-  ldz16step     $out_offset_v, $mzero, $partition_v+=, 3
-
-  shl           $out_offset_v, $out_offset_v, 3
-  add           $out_addr_v, $outchan_ptr_v, $out_offset_v
+  ld32          $out_addr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
+  ld64step      $azeros, $mzero, $out_addr_v+=, $out_offset_v 
 
   // Move partials-out1 pointer by one write (16v4) to get correct 
   // store alignment
@@ -150,25 +150,19 @@ PartitionLoop:
   // Form packed address
   tapack        $tripacked_addr1, $in_addr_v, $out_addr_v, $out_addr_adj_v
 
-  // Form the second address pair 
-  // Load second pointer offset and update in-ptr-2
-  ld32          $second_ptr_offset_v, $mvertex_base, WKR_SECOND_PTR_OFFSET/4
-  ld64step      $azeros, $mzero, $in_addr_v+=, $second_ptr_offset_v
-
   // Move partials-in2 pointer by one read (16v4) to get correct 
   // load alignment
   add           $par_addr_v, $out_addr_v, 0x8
   tapack        $tripacked_addr2, $in_addr_v, $par_addr_v, $out_addr_v
 
-  // Special stride for initial preloads and offloads at the end
-  and           $inoutstrides3_v, $inoutstrides1_v, 0x3FF     
+  lds16step     $num_fp_v, $partition_base_v, $partition_v+=, 2
 
   // *input-ptr += 0; *partials-ptr += out-stride (4 partials)
-  ld2x64pace    $azeros, $a2:3, $tripacked_addr1+=, $inoutstrides3_v, 0b0111
+  ld2x64pace    $azeros, $a2:3, $tripacked_addr1+=, $inoutstrides3_v, 0b0110
   f16v4hihoamp  $a6, $azeros, $a2, TAMP_F16V4_E4_P0
 
   {
-    // *input-ptr += 0; *partials-ptr += out-stride (4 partials)
+    // *input-ptr += $second_ptr_offset_v; *partials-ptr += out-stride (4 partials)
     ld2x64pace    $azeros, $a2:3, $tripacked_addr2+=, $inoutstrides3_v, 0b0111
     f16v4hihoamp  $a7, $azeros, $a3, TAMP_F16V4_E4_P1
   }
