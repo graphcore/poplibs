@@ -11,6 +11,8 @@
 #include "poplin/ConvParams.hpp"
 #include "popnn/PoolingDef.hpp"
 
+#include <boost/optional.hpp>
+
 #include <vector>
 
 namespace popnn {
@@ -70,11 +72,11 @@ void tilePartitions(poplar::Graph &graph, const PoolConfig &poolConfig,
 
 // Retrieve the cycle estimate for the pooling vertex based on the parameters
 // and partition of the input to be processed on a single tile
-std::size_t poolVertexCycleEstimate(const Partition &tilePartition,
-                                    const PoolConfig &poolCfg, unsigned strideX,
-                                    unsigned numKernelPositions,
-                                    unsigned inputVectorWidth,
-                                    unsigned numContexts);
+boost::optional<std::size_t>
+poolVertexCycleEstimate(const Partition &tilePartition,
+                        const PoolConfig &poolCfg, unsigned strideX,
+                        unsigned numKernelPositions, unsigned inputVectorWidth,
+                        unsigned numContexts);
 
 } // namespace pooling
 } // namespace popnn

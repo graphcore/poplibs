@@ -319,8 +319,12 @@ static popsolver::Variable constructModel(
         if (detChansPerGroup != perTile.chansPerGroup) {
           rearrangementCost += bytesPerTile / 4;
         }
-        return popsolver::DataType{computeCost + exchangeCost +
-                                   rearrangementCost};
+        boost::optional<popsolver::DataType> result;
+        if (computeCost) {
+          result = popsolver::DataType{computeCost.get() + exchangeCost +
+                                       rearrangementCost};
+        }
+        return result;
       });
 
   // Constrain so that the min cycles estimate per tile is < cycles

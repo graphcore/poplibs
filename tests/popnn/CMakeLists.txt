@@ -594,6 +594,15 @@ foreach(OPTIMIZE_FOR_SPEED true false)
                   VARIANTS ${IPUMODEL_VARIANTS})
 endforeach() # OPTIMISE_FOR_SPEED
 
+add_multitarget_test(NAME pool_large_field_T54726
+        COMMAND pooling_layer
+                --channels=2
+                --field={256,256,4}
+                --batch-size=1
+                --pooling-type=avg
+                --data-type=float
+                VARIANTS ${IPUMODEL_VARIANTS})
+
 add_multitarget_test(
          NAME rnn_3x2x38_no_feedfwd
          COMMAND rnn_layer

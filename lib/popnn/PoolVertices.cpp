@@ -934,11 +934,11 @@ void createPoolingVertex(Graph &graph, const PoolParams &poolParams,
 }
 
 // Cycle estimator call for use by the planner
-std::size_t poolVertexCycleEstimate(const Partition &tilePartition,
-                                    const PoolConfig &poolCfg, unsigned strideX,
-                                    unsigned numKernelPositions,
-                                    unsigned inputVectorWidth,
-                                    unsigned numContexts) {
+boost::optional<std::size_t>
+poolVertexCycleEstimate(const Partition &tilePartition,
+                        const PoolConfig &poolCfg, unsigned strideX,
+                        unsigned numKernelPositions, unsigned inputVectorWidth,
+                        unsigned numContexts) {
 
   auto contextPartition = partitionPartialByContext(
       tilePartition.batch, tilePartition.field, numContexts);
@@ -976,6 +976,11 @@ std::size_t poolVertexCycleEstimate(const Partition &tilePartition,
       index++;
     }
     startPos.push_back(index);
+  }
+  if (index > std::numeric_limits<unsigned short>::max()) {
+    // Reject creation of this vertex with splits resulting in an index
+    // that is too large.
+    return boost::none;
   }
 
   unsigned outSize = product(tilePartition.field) * tilePartition.batch;
