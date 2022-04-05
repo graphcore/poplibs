@@ -116,8 +116,11 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
     e.readTensor("out", ans_data.data(), ans_data.data() + outSize);
   });
 
-  copy(target, outType, ans_data.data(), answers.data(), outerDim);
-  copy(target, outType, ans_data.data(), int_data.data(), outerDim);
+  if (outType == FLOAT || outType == HALF) {
+    copy(target, outType, ans_data.data(), answers.data(), outerDim);
+  } else if (outType == INT) {
+    copy(target, outType, ans_data.data(), int_data.data(), outerDim);
+  }
 
   bool success = true;
 

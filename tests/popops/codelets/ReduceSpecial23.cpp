@@ -178,8 +178,11 @@ doTest(const DeviceType &deviceType, const Type &partialsType,
 
   copy(target, partialsType, data.data(), nums.data(), innerDim * outerDim);
 
-  copy(target, outType, ans_data.data(), answers.data(), outputDim);
-  copy(target, outType, ans_data.data(), intData.data(), outputDim);
+  if (outType == FLOAT || outType == HALF) {
+    copy(target, outType, ans_data.data(), answers.data(), outputDim);
+  } else if (outType == INT) {
+    copy(target, outType, ans_data.data(), intData.data(), outputDim);
+  }
 
   // Create / reduce the whole result, later we may only check part of it based
   // on outputDim.
