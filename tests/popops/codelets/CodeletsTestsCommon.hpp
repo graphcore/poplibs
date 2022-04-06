@@ -317,7 +317,7 @@ struct SizeDesc {
     }
     return adjusted;
   }
-  std::string toString() const {
+  std::string toString(unsigned minWidth = 0) const {
     std::string s;
     unsigned n = val.size();
     if (isRowsByCols) {
@@ -334,6 +334,9 @@ struct SizeDesc {
         s += to_string(val[n - 1]);
       s += "]";
     }
+    int padLen = minWidth - s.size();
+    if (padLen > 0)
+      s += std::string(padLen, ' ');
     return s;
   }
 };
@@ -1213,6 +1216,16 @@ struct TestOperand {
     return errCount;
   }
 };
+
+//*************************************************************************
+// Converts a vector to a vector of optionals (of the same type)
+template <typename T>
+std::vector<std::optional<T>> convertToOptionalVector(const std::vector<T> &v) {
+  std::vector<std::optional<T>> optVec;
+  for (const T &x : v)
+    optVec.push_back(std::optional<T>(x));
+  return optVec;
+}
 
 // Create the auxiliary vertex to ensure alignment of the tensor 't'
 void createAlignVertex(Graph &graph, ComputeSet &cs, const Tensor &t,

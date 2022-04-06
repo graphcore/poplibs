@@ -1015,16 +1015,6 @@ bool doVerifyTest(const Target &target, bool isIpuModel, TestRecord &test,
 }
 
 //*************************************************************************
-// Converts a vector to a vector of optionals (of the same type)
-template <typename T>
-std::vector<std::optional<T>> convertToOptionalVector(const std::vector<T> &v) {
-  std::vector<std::optional<T>> optVec;
-  for (const T &x : v)
-    optVec.push_back(std::optional<T>(x));
-  return optVec;
-}
-
-//*************************************************************************
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 

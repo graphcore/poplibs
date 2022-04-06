@@ -85,7 +85,7 @@ struct VertexDesc {
   bool constrainedAB;
 
   std::string vClass;    // Full name with template params, for addVertex()
-  std::string vClassFmt; // vClass, formatted for display
+  std::string vClassFmt; // like vClass, but formatted for display
 
   bool is2D;
   bool isSubtract;
@@ -166,8 +166,8 @@ struct TestRecord {
 
   // We have this as floats even for the vertices that use int/unsigned for
   // simplicity.
-  float scaleAValue = 1.0;
-  float scaleBValue = 1.0;
+  float scaleAValue;
+  float scaleBValue;
 
   float tolerance; // Used only in some vertices.
 
@@ -180,8 +180,13 @@ struct TestRecord {
   /// \param[in] v      The vertex (with operation and data type) to test.
   /// \param[in] seq    A sequential index, different for each test
   /// \param[in] sz     Sizes of operands for this test., from cmd line.
+  /// \param[in] tolerance used only for vertices that have that field
+  /// \param[in] scaleAVal used only for vertices that have it. If 'nullopt', a
+  ///                      random value will be generated
+  /// \param[in] scaleBVal If 'nullopt', a random value will be generated
   TestRecord(std::shared_ptr<VertexDesc> v, unsigned seq, const SizeDesc &sz,
-             boost::optional<unsigned> operandOffset, float tolerance)
+             boost::optional<unsigned> operandOffset, float tolerance,
+             std::optional<float> scaleAVal, std::optional<float> scaleBVal)
       : vertex(std::move(v)), operandOffset(operandOffset),
         tolerance(tolerance) {
     writeNameA = "A_" + to_string(seq);
@@ -189,10 +194,77 @@ struct TestRecord {
     readName = "Aout_" + to_string(seq);
     // Adjust size from command line parameters, according to test type.
     size = sz.adjust(vertex->is2D);
+    if (!vertex->hasScaleA) {
+      scaleAValue = 1.0;
+    }
+
+    // If we are generating random values for the scale values, and we have half
+    // values, we want to avoid doing a subtraction, either a 'Subtract/Minus'
+    // vertex or an 'Add/Plus' one with scales of opposite sign.
+    // This is because subtraction can give results very close to zero, that
+    // can be quite different from the float computation on the host (for
+    // verification)
+    float minAScale, maxAScale, minBScale, maxBScale;
+    if (vertex->dataAType == HALF || vertex->dataBType == HALF ||
+        vertex->scaleType == HALF) {
+      if (vertex->isSubtractFromX) {
+        minAScale = 0;
+        maxAScale = 0.5;
+        minBScale = 1;
+        maxBScale = 10;
+      } else if (vertex->isSubtract) {
+        minAScale = 1;
+        maxAScale = 10;
+        minBScale = -10;
+        maxBScale = -1;
+      } else {
+        minAScale = minBScale = 1;
+        maxAScale = maxBScale = 10;
+      }
+    } else {
+      if (vertex->dataAType == UNSIGNED_INT) {
+        minAScale = minBScale = 1;
+      } else {
+        minAScale = minBScale = -10;
+      }
+      maxAScale = maxBScale = 10;
+    }
+    static RandomEngine rndEng = std::minstd_rand(1);
+    std::vector<float> scale(1);
+    if (vertex->hasScaleA && scaleAVal == std::nullopt) {
+      fillBuffer(FLOAT, rndEng, scale, 10, minAScale, maxAScale, true);
+      scaleAValue = scale[0];
+    } else {
+      scaleAValue = *scaleAVal;
+    }
+    if (scaleBVal == std::nullopt) {
+      fillBuffer(FLOAT, rndEng, scale, 10, minBScale, maxBScale, true);
+      scaleBValue = scale[0];
+    } else {
+      scaleBValue = *scaleBVal;
+    }
+
+    // Integer types: round the scales to an integer
+    if (!vertex->scaleType.isFloatingPoint()) {
+      scaleAValue = round(scaleAValue);
+      scaleBValue = round(scaleBValue);
+    }
   };
+
   TestRecord(TestRecord &&) = default;
 
-  std::string toString() { return vertex->vClassFmt + size.toString(); }
+  std::string toString() {
+    std::string scalesStr;
+    if (vertex->hasScaleA) {
+      scalesStr = (format("a:%g b:%g") % scaleAValue % scaleBValue).str();
+    } else {
+      scalesStr = (format("b:%g") % scaleBValue).str();
+    }
+    if (vertex->hasTolerance) {
+      scalesStr += (format(" tol:%g") % tolerance).str();
+    }
+    return vertex->vClassFmt + size.toString(10) + "  " + scalesStr;
+  }
 };
 
 //***************************************************************************
@@ -410,6 +482,8 @@ bool isImplementedCombination(const std::string &name, const Type AType,
 /// For half and float values.
 bool equalValues(const bool isIpuModel, bool dataIsHalf, float expected,
                  float actual) {
+  // This is NOT the tolerance field of the vertex, just used here to compensate
+  // for the differences in the device precision.
   double tolerance = 0.000001;
 
   // Horrible contortions to verify result for halves. We should really
@@ -557,46 +631,15 @@ void fillBuffers(TestRecord &test, unsigned randomSeed,
   const VertexDesc &vertex = *test.vertex;
   const Type &dataAType = vertex.dataAType;
   const Type &dataBType = vertex.dataBType;
-  const Type &scaleType = vertex.scaleType;
   RandomEngine rndEng;
   if (randomSeed != 0)
     rndEng = std::minstd_rand(randomSeed);
 
-  HostType min = 0, max = 300, minAScale, maxAScale, minBScale, maxBScale;
-  if (dataAType == FLOAT || dataAType == HALF) {
-    if (vertex.isSubtractFromX) {
-      minAScale = 0;
-      maxAScale = 0.5;
-      minBScale = 1;
-      maxBScale = 10;
-    } else if (vertex.isSubtract) {
-      minAScale = 1;
-      maxAScale = 10;
-      minBScale = -10;
-      maxBScale = -1;
-    } else {
-      minAScale = minBScale = 1;
-      maxAScale = maxBScale = 10;
-    }
-  } else {
-    if (dataAType == UNSIGNED_INT) {
-      minAScale = minBScale = 0;
-    } else {
-      min = -300;
-      minAScale = minBScale = -10;
-    }
-    maxAScale = maxBScale = 10;
-  }
+  HostType min = (dataAType == INT) ? -300 : 0;
+  HostType max = 300;
+
   fillBuffer(dataAType, rndEng, AHost, 100, min, max, false);
   fillBuffer(dataBType, rndEng, BHost, 200, min, max, false);
-
-  std::vector<HostType> scale(1);
-  if (vertex.hasScaleA) {
-    fillBuffer(scaleType, rndEng, scale, 10, minAScale, maxAScale, true);
-    test.scaleAValue = scale[0];
-  }
-  fillBuffer(scaleType, rndEng, scale, 10, minBScale, maxBScale, true);
-  test.scaleBValue = scale[0];
 }
 
 //*************************************************************************
@@ -881,6 +924,8 @@ int main(int argc, char **argv) {
   std::vector<Type> dataATypes;
   std::vector<Type> dataBTypes;
   std::vector<Type> scaleTypes;
+  std::vector<float> scaleAValues = {};
+  std::vector<float> scaleBValues = {};
 
   std::vector<SizeDesc> sizes = {{false, {25, 12, 21}}};
 
@@ -889,7 +934,7 @@ int main(int argc, char **argv) {
 
   std::vector<bool> constrainedAB;
 
-  float tolerance = 0.001;
+  std::vector<float> tolerances = {0.001};
 
   std::vector<std::string> vertices;
   std::string vertexRE; // regular expression for vertex name
@@ -933,12 +978,18 @@ int main(int argc, char **argv) {
     ("scale-type",
      po::value<std::vector<Type>>(&scaleTypes)->multitoken(),
      "Data type for the scale values: one or more of half, float, int, uint")
+    ("scale-a",
+     po::value<std::vector<float>>(&scaleAValues)->multitoken(),
+     "Value for 'scale a' to use (single or multiple)")
+    ("scale-b",
+     po::value<std::vector<float>>(&scaleBValues)->multitoken(),
+     "Value for 'scale b' to use (single or multiple)")
     ("constrainedAB",
      po::value<std::vector<bool>>(&constrainedAB)->multitoken(),
-     "Vertex template flag: are the two operands constrained to be in dfferent "
-     "memory elements?")
+     "Vertex template flag: are the two operands constrained to be in "
+     "different memory elements?")
     ("tolerance",
-     po::value<float>(&tolerance)->multitoken(),
+     po::value<std::vector<float>>(&tolerances)->multitoken(),
      "Vertex 'tolerance' field used in mixed types vertices")
     ("size",
      po::value<std::vector<SizeDesc>>(&sizes)->multitoken(),
@@ -990,6 +1041,12 @@ int main(int argc, char **argv) {
 
   std::regex vertexRegEx(vertexRE);
 
+  std::vector<std::optional<float>> justOne = {1.0};
+  std::vector<std::optional<float>> justNull = {std::nullopt};
+  std::vector<std::optional<float>> scaleAValues_ =
+      convertToOptionalVector(scaleAValues);
+  std::vector<std::optional<float>> scaleBValues_ =
+      convertToOptionalVector(scaleBValues);
   std::vector<std::shared_ptr<TestRecord>> tests;
   unsigned numTests = 0;
   unsigned errCount = 0;
@@ -1008,12 +1065,30 @@ int main(int argc, char **argv) {
                   auto vertex = std::make_shared<VertexDesc>(
                       vertexName, Atype, Btype, scaleType, constant,
                       constrained);
-                  for (auto sz : sizes) {
-                    numTests++;
-                    auto testRec = std::make_shared<TestRecord>(
-                        vertex, numTests, sz, operandOffset, tolerance);
-                    addOneTest<TestRecord, VertexDesc>(
-                        tests, testRec, deviceType, errCount, options);
+                  // Adjust the vector of scaleA values based on the type of
+                  // vertex (might not have scaleA); if no scale was specified
+                  // use std::nullopt
+                  for (auto &scaleA : vertex->hasScaleA
+                                          ? (scaleAValues_.size() > 0)
+                                                ? scaleAValues_
+                                                : justNull
+                                          : justOne) {
+                    // Adjust the vector of scaleB values ; if no scale was
+                    // specified use std::nullopt
+                    for (auto &scaleB : (scaleBValues_.size() > 0)
+                                            ? scaleBValues_
+                                            : justNull) {
+                      for (auto tolerance : tolerances) {
+                        for (auto sz : sizes) {
+                          numTests++;
+                          auto testRec = std::make_shared<TestRecord>(
+                              vertex, numTests, sz, operandOffset, tolerance,
+                              scaleA, scaleB);
+                          addOneTest<TestRecord, VertexDesc>(
+                              tests, testRec, deviceType, errCount, options);
+                        }
+                      }
+                    }
                   }
                 }
               }
