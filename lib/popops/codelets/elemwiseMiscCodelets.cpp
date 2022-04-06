@@ -1279,6 +1279,7 @@ public:
   InOut<Vector<T, SPAN, ALIGN>> t;
   bool compute() { return true; }
 };
+template class NopAlignVertex<8, quarter>;
 template class NopAlignVertex<8, half>;
 template class NopAlignVertex<8, float>;
 template class NopAlignVertex<8, int>;

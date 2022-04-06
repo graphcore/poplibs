@@ -58,34 +58,37 @@ static const unsigned TARGET_DATAPATH_WIDTH = 64;
 static const unsigned HALF_VECTOR_ELEMS = TARGET_DATAPATH_WIDTH / 16;
 static const unsigned FLOAT_VECTOR_ELEMS = TARGET_DATAPATH_WIDTH / 32;
 
-// All vertices that can be tested by this code
-const std::vector<std::string> verticesNames = {
-    "BinaryOp1D",
-    "BinaryOp1DInPlace",
-    "BinaryOp2D",
-    "BinaryOp2DInPlace",
+// ==== All vertices that can be tested by this code  ===
 
-    "BroadcastScalar1D",
-    "BroadcastScalar1DInPlace",
-    "BroadcastScalar2Types1D",
-    "BroadcastScalar2DData",
-    "BroadcastScalar2DDataInPlace",
-    "BroadcastScalar2Types2DData",
-    "BroadcastScalar2D",
-    "BroadcastScalar2DInPlace",
+// Some vertex names are used in a couple of different placesso we have a macro
+#define dualOutputVertexName "BroadcastScalar1DRelationalOpDualOutput"
+#define vectorOuterVertexNames                                                 \
+  "BroadcastVectorOuterByRow1D", "BroadcastVectorOuterByRow1DInPlace",         \
+      "BroadcastVectorOuterByColumn1D",                                        \
+      "BroadcastVectorOuterByColumn1DInPlace",
 
-    "BroadcastScalar1DRelationalOpDualOutput",
+const std::vector<std::string> verticesNames = {"BinaryOp1D",
+                                                "BinaryOp1DInPlace",
+                                                "BinaryOp2D",
+                                                "BinaryOp2DInPlace",
 
-    "BroadcastVectorInner1D",
-    "BroadcastVectorInner1DInPlace",
-    "BroadcastVectorInner2D",
-    "BroadcastVectorInner2DInPlace",
+                                                "BroadcastScalar1D",
+                                                "BroadcastScalar1DInPlace",
+                                                "BroadcastScalar2Types1D",
+                                                "BroadcastScalar2DData",
+                                                "BroadcastScalar2DDataInPlace",
+                                                "BroadcastScalar2Types2DData",
+                                                "BroadcastScalar2D",
+                                                "BroadcastScalar2DInPlace",
 
-    "BroadcastVectorOuterByRow1D",
-    "BroadcastVectorOuterByRow1DInPlace",
-    "BroadcastVectorOuterByColumn1D",
-    "BroadcastVectorOuterByColumn1DInPlace",
-};
+                                                dualOutputVertexName,
+
+                                                "BroadcastVectorInner1D",
+                                                "BroadcastVectorInner1DInPlace",
+                                                "BroadcastVectorInner2D",
+                                                "BroadcastVectorInner2DInPlace",
+
+                                                vectorOuterVertexNames};
 
 // Maps specifying valid (operation, dataType) pairs for the generic binary
 // and broadcast vertices.
@@ -186,8 +189,8 @@ struct VertexDesc {
   }
 
   VertexDesc(const std::string &vertexName, const BinaryOpType &op,
-             const Type &dataType, std::optional<Type> &outType,
-             std::optional<bool> allowMisaligned)
+             const Type &dataType, const std::optional<Type> &outType,
+             const std::optional<bool> allowMisaligned)
       : name(vertexName), op(op), dataType(dataType),
         allowMisaligned(allowMisaligned) {
 
@@ -418,7 +421,7 @@ struct TensorSizes {
 // Contains information relative to the test for one single vertex
 struct TestRecord {
   TensorSizes sizes;
-  std::unique_ptr<VertexDesc> vertex;
+  std::shared_ptr<VertexDesc> vertex;
 
   // If not empty, offset in bytes in the device memory between the START of 1st
   // and the 2nd operand; if '0', it means place the two operands back-to-back.
@@ -429,6 +432,11 @@ struct TestRecord {
   TestOperand out;
   TestOperand outInv; // "output inverted", valid only for Dual Output vertices
 
+  // For BroadcastVectorInner1D vertices only
+  unsigned bSlices = 1;
+
+  unsigned startPadBytes; // see definition in MiscOptions
+
   // Stream names used to transfer the host data, for the two operands and the
   // output. Must be different for each test that is run in the same graph/CS.
   std::string writeName1;
@@ -438,18 +446,16 @@ struct TestRecord {
 
   // Is the output buffer padding made up of Nan values?
   bool padOutWithNan = false;
-  // For BroadcastVectorInner1D vertices only
-  unsigned bSlices = 1;
 
   /// \param[in] v      The vertex (with operation and data type) to test.
   /// \param[in] seq    A sequential index, different for each test
   /// \param[in] tSizes Describes generically the sizes to use for the test,
   ///                   needs to be adjusted for this specific vertex.
-  TestRecord(std::unique_ptr<VertexDesc> v, unsigned seq,
+  TestRecord(std::shared_ptr<VertexDesc> v, unsigned seq,
              const TensorSizes &tSizes, boost::optional<unsigned> operandOffset,
-             unsigned bSlices)
-      : sizes(tSizes), vertex(std::move(v)), operandOffset(operandOffset),
-        bSlices(bSlices) {
+             unsigned bSlices, unsigned startPadBytes)
+      : sizes(tSizes), vertex(v), operandOffset(operandOffset),
+        bSlices(bSlices), startPadBytes(startPadBytes) {
     writeName1 = vertex->in1Name + "_" + to_string(seq);
     writeName2 = vertex->in2Name + "_" + to_string(seq);
     readName = vertex->outName + "_" + to_string(seq);
@@ -457,7 +463,10 @@ struct TestRecord {
   };
   TestRecord(TestRecord &&) = default;
 
-  std::string toString() { return vertex->vClassFmt + sizes.operandStr; }
+  std::string toString() {
+    return vertex->vClassFmt + sizes.operandStr +
+           formatStartPadBytes(startPadBytes);
+  }
 };
 
 //*************************************************************************
@@ -721,11 +730,11 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   }
 
   // === Setup offsets for padding
-  test.in1.setup(target, dataType, sizes.rowSizes, options.alignStart);
-  test.in2.setup(target, dataType, sizes.op2RowSizes, options.alignStart);
-  test.out.setup(target, outputType, sizes.rowSizes, options.alignStart);
+  test.in1.setup(target, dataType, sizes.rowSizes, test.startPadBytes);
+  test.in2.setup(target, dataType, sizes.op2RowSizes, test.startPadBytes);
+  test.out.setup(target, outputType, sizes.rowSizes, test.startPadBytes);
   if (vertex.isDualOutput) {
-    test.outInv.setup(target, outputType, sizes.rowSizes, options.alignStart);
+    test.outInv.setup(target, outputType, sizes.rowSizes, test.startPadBytes);
   }
 
   // === Allocate and initialise host buffers with appropriate values.
@@ -1160,9 +1169,19 @@ int main(int argc, char **argv) {
         "Cannot specify both --vertexRE and --vertex option");
   }
 
-  // === If no vertices specified, test 'em all
+  // === If no vertices specified, test 'em all ...
   if (vertices.empty()) {
-    vertices = verticesNames;
+    // ... unless we also explicitly specified 'outputTypes' (valid only for
+    // DualOutput) or the 'allowMisaligned' (valid only for 'vectorOuter'), in
+    // which case the vertex types are forced.
+    // if (!outputTypes.empty()) {
+    //  vertices = {dualOutputVertexName};
+    //} else
+    if (!allowMisaligned.empty()) {
+      vertices = {vectorOuterVertexNames};
+    } else {
+      vertices = verticesNames; // test 'em all
+    }
   }
 
   // === If no operators specified, test 'em all
@@ -1175,15 +1194,22 @@ int main(int argc, char **argv) {
       operations.push_back(stringToBinaryOp(opStr));
   }
 
+  const std::vector<Type> allTypes = {
+      HALF,           FLOAT, INT,      UNSIGNED_INT,     SHORT,
+      UNSIGNED_SHORT, BOOL,  LONGLONG, UNSIGNED_LONGLONG};
+
   // === If no data type specified, test 'em all
   if (dataTypes.empty()) {
-    dataTypes = {HALF,           FLOAT, INT,      UNSIGNED_INT,     SHORT,
-                 UNSIGNED_SHORT, BOOL,  LONGLONG, UNSIGNED_LONGLONG};
+    dataTypes = allTypes;
   }
 
   // === If output types not specified, test these (only for DualOutput)
   if (outputTypes.empty()) {
     outputTypes = {HALF, FLOAT};
+  } else {
+    if (dataTypes.empty()) {
+      dataTypes = outputTypes;
+    }
   }
 
   // === If allowMisaligned not specified, test both (only for VectorOuter)
@@ -1222,24 +1248,22 @@ int main(int argc, char **argv) {
             for (auto misalign : VertexDesc::vertexIsVectorOuter(vertexName)
                                      ? convertToOptionalVector(allowMisaligned)
                                      : nulloptBool) {
-              for (unsigned i = 0; i < nSizes; i++) {
-                // Finally do the deed: Create the vertex, Check if valid, Add
-                // the test to the 'to-be-run' list (or run it straight away,
-                // depending on options).
-                auto vertex = std::make_unique<VertexDesc>(
-                    vertexName, operation, dataType, outType, misalign);
-                if (isValidCombination(*vertex)) {
-                  numTests++;
-                  std::optional<SizeDesc> sz2;
-                  if (i < nSizes2) {
-                    sz2 = sizes2[i];
+              auto vertex = std::make_shared<VertexDesc>(
+                  vertexName, operation, dataType, outType, misalign);
+              if (isValidCombination(*vertex)) {
+                for (unsigned i = 0; i < nSizes; i++) {
+                  for (auto startPadBytes : options.startPadBytes) {
+                    numTests++;
+                    std::optional<SizeDesc> sz2;
+                    if (i < nSizes2) {
+                      sz2 = sizes2[i];
+                    }
+                    auto testRec = std::make_shared<TestRecord>(
+                        vertex, numTests, TensorSizes(*vertex, sizes[i], sz2),
+                        operandOffset, bSlices, startPadBytes);
+                    addOneTest<TestRecord, VertexDesc>(
+                        tests, testRec, deviceType, errCount, options);
                   }
-                  auto testRec = std::make_shared<TestRecord>(
-                      std::move(vertex), numTests,
-                      TensorSizes(*vertex, sizes[i], sz2), operandOffset,
-                      bSlices);
-                  addOneTest<TestRecord, VertexDesc>(tests, testRec, deviceType,
-                                                     errCount, options);
                 }
               }
             }

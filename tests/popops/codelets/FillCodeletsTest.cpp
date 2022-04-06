@@ -50,9 +50,10 @@ struct VertexDesc {
 // Return true if the data type is valid for the fill vertices
 bool isValidCombination(const VertexDesc &vertex) {
   const Type &type = vertex.dataType;
-  return type == HALF || type == FLOAT || type == INT || type == UNSIGNED_INT ||
-         type == BOOL || type == CHAR || type == UNSIGNED_CHAR ||
-         type == SIGNED_CHAR || type == UNSIGNED_LONGLONG || type == LONGLONG;
+  return type == QUARTER || type == HALF || type == FLOAT || type == INT ||
+         type == UNSIGNED_INT || type == BOOL || type == CHAR ||
+         type == UNSIGNED_CHAR || type == SIGNED_CHAR ||
+         type == UNSIGNED_LONGLONG || type == LONGLONG;
 }
 
 //*************************************************************************
@@ -64,6 +65,8 @@ struct TestRecord {
   TestOperand out; // Describes the single tensor of the vertex
   float fillValue; // Note: is 'float', but is used for integer types as well
 
+  unsigned startPadBytes; // see definition in MiscOptions
+
   // Stream name used to transfer in and out the tensor data. Must be
   // different for each test that is run in the same graph/compute set.
   std::string streamName;
@@ -73,15 +76,19 @@ struct TestRecord {
   /// \param[in] size The data sizes to use for the test, from command line
   /// \param[in] fillValue The value to fill the tensor with
   TestRecord(std::shared_ptr<VertexDesc> v, unsigned seq, const SizeDesc &sz,
-             float fillValue)
-      : vertex(std::move(v)), fillValue(fillValue) {
+             float fillValue, unsigned startPadBytes)
+      : vertex(std::move(v)), fillValue(fillValue),
+        startPadBytes(startPadBytes) {
     streamName = "out_" + to_string(seq);
     // Adjust size specified on cmd line to vertex type
     size = sz.adjust(vertex->is2D);
   }
   TestRecord(TestRecord &&) = default;
 
-  std::string toString() { return vertex->vClassFmt + size.toString(); }
+  std::string toString() {
+    return vertex->vClassFmt + size.toString() +
+           formatStartPadBytes(startPadBytes);
+  }
 };
 
 //*************************************************************************
@@ -96,7 +103,17 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
 
   // Convert the device data in host format.
   std::vector<HostDataType> outH(test.out.totalElems);
-  copy(target, v.dataType, test.out.rawBuf.get(), outH.data(), outH.size());
+  if constexpr (std::is_floating_point<HostDataType>::value) {
+    if (v.dataType == QUARTER) {
+      QuarterMetadata metadata(options.fp8Format, options.fp8Scale);
+      copy(target, v.dataType, metadata, test.out.rawBuf.get(), outH.data(),
+           outH.size());
+    } else {
+      copy(target, v.dataType, test.out.rawBuf.get(), outH.data(), outH.size());
+    }
+  } else {
+    copy(target, v.dataType, test.out.rawBuf.get(), outH.data(), outH.size());
+  }
   if (options.printBuffers) {
     printBuffer("out", outH, v.dataType, sizes, test.out.offsets);
   }
@@ -133,7 +150,7 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
 //*************************************************************************
 /// Setup one vertex test.
 ///
-/// \tparam HostDataType Type to use on the host for dataType1, datatType2.
+/// \tparam HostDataType Type to use on the host for dataType.
 /// \param[in]    target    Which target.
 /// \param[inout] graph     The graph.
 /// \param[inout] upload    A Sequence where we will add the uploading of the
@@ -163,10 +180,11 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   }
 
   // === Setup offsets for padding in output tensor
-  test.out.setup(target, vertex.dataType, test.size.val, options.alignStart);
+  test.out.setup(target, vertex.dataType, test.size.val, test.startPadBytes);
 
   // === Create output tensor.
-  Tensor out = graph.addVariable(vertex.dataType, {test.out.totalElems}, "out");
+  Tensor out =
+      createTensor(graph, vertex.dataType, options, test.out.totalElems, "out");
   graph.setTileMapping(out, tile);
 
   // === Create the auxiliary vertex required to align the tensor to 8 bytes
@@ -193,6 +211,7 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
 }
 
 #define SELECT_BY_TYPES()                                                      \
+  SELECT_ONE(QUARTER, float)                                                   \
   SELECT_ONE(HALF, float)                                                      \
   SELECT_ONE(FLOAT, float)                                                     \
   SELECT_ONE(INT, int)                                                         \
@@ -249,7 +268,7 @@ int main(int argc, char **argv) {
   std::vector<std::string> vertices; // vertices that will be tested
   MiscOptions options;
   options.randomSeed = 0;
-  float fillValue = 66;
+  float fillValue = 64;
 
   // clang-format off
   const static std::string description =
@@ -278,8 +297,8 @@ int main(int argc, char **argv) {
      "Vertices to test, one or both of: Fill, Fill2d")
     ("data-type",
      po::value<std::vector<Type>>(&dataTypes)->multitoken(),
-     "Data type: one or more of half,float,int,uint,bool,char,schar,uchar, "
-     "ulonglong, longlong")
+     "Data type: one or more of quarter,half,float,int,uint,bool,char,schar,"
+     "uchar,ulonglong,longlong")
     ("fill-value",
      po::value<float>(&fillValue)->default_value(fillValue),
      "fill value to use")
@@ -304,8 +323,9 @@ int main(int argc, char **argv) {
 
   // === If no data type specified, test 'em all
   if (dataTypes.empty()) {
-    dataTypes = {HALF, FLOAT,       INT,           UNSIGNED_INT,      BOOL,
-                 CHAR, SIGNED_CHAR, UNSIGNED_CHAR, UNSIGNED_LONGLONG, LONGLONG};
+    dataTypes = {QUARTER, HALF, FLOAT,       INT,           UNSIGNED_INT,
+                 BOOL,    CHAR, SIGNED_CHAR, UNSIGNED_CHAR, UNSIGNED_LONGLONG,
+                 LONGLONG};
   }
 
   std::vector<std::shared_ptr<TestRecord>> tests;
@@ -315,13 +335,15 @@ int main(int argc, char **argv) {
   for (std::string vertexName : vertices) {
     for (auto type : dataTypes) {
       auto vertex = std::make_shared<VertexDesc>(vertexName, type);
-      for (auto sz : sizes) {
-        if (isValidCombination(*vertex)) {
-          numTests++;
-          auto testRec =
-              std::make_shared<TestRecord>(vertex, numTests, sz, fillValue);
-          addOneTest<TestRecord, VertexDesc>(tests, testRec, deviceType,
-                                             errCount, options);
+      if (isValidCombination(*vertex)) {
+        for (auto sz : sizes) {
+          for (auto startPadBytes : options.startPadBytes) {
+            numTests++;
+            auto testRec = std::make_shared<TestRecord>(
+                vertex, numTests, sz, fillValue, startPadBytes);
+            addOneTest<TestRecord, VertexDesc>(tests, testRec, deviceType,
+                                               errCount, options);
+          }
         }
       }
     }

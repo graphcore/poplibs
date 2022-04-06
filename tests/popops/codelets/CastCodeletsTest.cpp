@@ -18,8 +18,6 @@
 #include <poplar/Engine.hpp>
 #include <popops/Zero.hpp>
 
-#include "poputil/VertexTemplates.hpp"
-
 #include "../lib/popops/ExprOpUtil.hpp"
 #include <poputil/TileMapping.hpp>
 
@@ -104,6 +102,14 @@ bool isValidTypes(const VertexDesc &vertex) {
            src == UNSIGNED_SHORT || src == SHORT || src == BOOL;
   }
 
+  if (src == QUARTER) {
+    return dst == QUARTER || dst == HALF || dst == CHAR || dst == SIGNED_CHAR ||
+           dst == UNSIGNED_CHAR;
+  }
+  if (dst == QUARTER) {
+    return src == HALF || src == CHAR || src == SIGNED_CHAR ||
+           src == UNSIGNED_CHAR;
+  }
   return false;
 }
 
@@ -120,11 +126,32 @@ bool verifyTest(const Target &target, bool isIpuModel,
   // Convert the device data in host format. Also convert back the input data
   // in host format.
   std::vector<HostDataType> inHost(test.in.totalElems);
+  if constexpr (std::is_floating_point<HostDataType>::value) {
+    if (vertex.dataType == QUARTER) {
+      QuarterMetadata metadata(options.fp8Format, options.fp8Scale);
+      copy(target, vertex.dataType, metadata, test.in.rawBuf.get(), inHost);
+    } else {
+      copy(target, vertex.dataType, test.in.rawBuf.get(), inHost.data(),
+           inHost.size());
+    }
+  } else {
+    copy(target, vertex.dataType, test.in.rawBuf.get(), inHost.data(),
+         inHost.size());
+  }
+
   std::vector<HostOutType> outHost(test.out.totalElems);
-  copy(target, vertex.dataType, test.in.rawBuf.get(), inHost.data(),
-       inHost.size());
-  copy(target, vertex.outputType, test.out.rawBuf.get(), outHost.data(),
-       outHost.size());
+  if constexpr (std::is_floating_point<HostOutType>::value) {
+    if (vertex.outputType == QUARTER) {
+      QuarterMetadata metadata(options.fp8Format, options.fp8Scale);
+      copy(target, vertex.outputType, metadata, test.out.rawBuf.get(), outHost);
+    } else {
+      copy(target, vertex.outputType, test.out.rawBuf.get(), outHost.data(),
+           outHost.size());
+    }
+  } else {
+    copy(target, vertex.outputType, test.out.rawBuf.get(), outHost.data(),
+         outHost.size());
+  }
   if (options.printBuffers) {
     printBuffer(vertex.outName, outHost, vertex.outputType, sizes,
                 test.out.offsets);
@@ -134,6 +161,7 @@ bool verifyTest(const Target &target, bool isIpuModel,
   unsigned errCount = 0; // how many mismatched elements we find
   unsigned numRows = sizes.size();
   Operation castOp(vertex.outputType);
+  QuarterMetadata metadata(options.fp8Format, options.fp8Scale);
   for (unsigned row = 0; row < numRows; row++) {
     for (unsigned i = 0; i < sizes[row]; i++) {
       HostDataType val = inHost[test.in.offsets[row] + i]; // operands
@@ -142,8 +170,8 @@ bool verifyTest(const Target &target, bool isIpuModel,
       HostOutType actual = outHost[test.out.offsets[row] + i];
 
       HostOutType expected = 0; // result for verification
-      performCast(isIpuModel, val, expected, vertex.dataType,
-                  vertex.outputType);
+      performCast(isIpuModel, val, expected, vertex.dataType, vertex.outputType,
+                  metadata);
 
       if (!equalValues(isIpuModel, castOp, vertex.dataType, expected, actual)) {
         std::string posStr =
@@ -208,23 +236,28 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   }
 
   // === Setup offsets for padding
-  test.in.setup(target, srcType, sizes, options.alignStart);
-  test.out.setup(target, dstType, sizes, options.alignStart);
+  test.in.setup(target, srcType, sizes, test.startPadBytes);
+  test.out.setup(target, dstType, sizes, test.startPadBytes, false);
 
   // === Allocate and initialise host buffers with appropriate values.
   std::vector<HostDataType> inHost(test.in.totalElems);
   Operation castOp(dstType);
-  fillHostBuffer(castOp, srcType, options.randomSeed, inHost);
+  if (srcType == QUARTER)
+    fillHostBuffer(castOp, srcType, options.randomSeed, inHost,
+                   QuarterMetadata(options.fp8Format, options.fp8Scale));
+  else
+    fillHostBuffer(castOp, srcType, options.randomSeed, inHost);
   if (options.printBuffers) {
     printBuffer(vertex.inName, inHost, srcType, sizes, test.in.offsets);
   }
 
   // === Create graph variables.
-  Tensor in = graph.addVariable(srcType, {test.in.totalElems}, vertex.inName);
+  Tensor in =
+      createTensor(graph, srcType, options, test.in.totalElems, vertex.inName);
   graph.setTileMapping(in, tile);
 
-  Tensor out =
-      graph.addVariable(dstType, {test.out.totalElems}, vertex.outName);
+  Tensor out = createTensor(graph, dstType, options, test.out.totalElems,
+                            vertex.outName);
   graph.setTileMapping(out, tile);
 
   // === Create the auxiliary vertices required to align the tensors to 8 bytes
@@ -239,7 +272,16 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
                                                upload, boost::none, streamMap);
   test.out.rawBuf = allocateHostMemoryForTensor(out, test.readName, graph,
                                                 upload, download, streamMap);
-  copy(target, inHost.data(), inHost.size(), srcType, test.in.rawBuf.get());
+  if constexpr (std::is_floating_point<HostDataType>::value) {
+    if (srcType == QUARTER) {
+      QuarterMetadata metadata(options.fp8Format, options.fp8Scale);
+      copy(target, inHost, srcType, metadata, test.in.rawBuf.get());
+    } else {
+      copy(target, inHost.data(), inHost.size(), srcType, test.in.rawBuf.get());
+    }
+  } else {
+    copy(target, inHost.data(), inHost.size(), srcType, test.in.rawBuf.get());
+  }
 
   // Fill the padding space in the input buffer (with NaNs) for overprocessing
   // detection (only for floating point types). Also fill the output buffer
@@ -348,8 +390,8 @@ int main(int argc, char **argv) {
      "Vertices to test, one or more of: Cast1DSingleWorker, Cast1D, Cast2D")
     ("data-type",
      po::value<std::vector<Type>>(&srcTypes)->multitoken(),
-     "Data type: one or more of half, float, int, uint, short, ushort, bool, "
-     "char, schar, uchar, ulonglong, longlong")
+     "Data type: one or more of quarter, half, float, int, uint, short, "
+     "ushort, bool, char, schar, uchar, ulonglong, longlong")
     ("cast",
      po::value<std::vector<std::string>>(&dstTypeStrs)->multitoken(),
      "Destination type(s) for the cast(s) to perform")
@@ -369,18 +411,11 @@ int main(int argc, char **argv) {
   }
 
   // All types for which at least one cast to or from is defined.
-  const static std::array allTypes = {HALF,
-                                      FLOAT,
-                                      INT,
-                                      UNSIGNED_INT,
-                                      SHORT,
-                                      UNSIGNED_SHORT,
-                                      BOOL,
-                                      CHAR,
-                                      SIGNED_CHAR,
-                                      UNSIGNED_CHAR,
-                                      UNSIGNED_LONGLONG,
-                                      LONGLONG};
+  const static std::array allTypes = {
+      QUARTER,      HALF,        FLOAT,          INT,
+      UNSIGNED_INT, SHORT,       UNSIGNED_SHORT, BOOL,
+      CHAR,         SIGNED_CHAR, UNSIGNED_CHAR,  UNSIGNED_LONGLONG,
+      LONGLONG};
 
   // === If no destination type specified, test 'em all
   std::vector<Type> dstTypes;
@@ -408,15 +443,17 @@ int main(int argc, char **argv) {
   for (std::string vertexName : vertices) {
     for (auto dstType : dstTypes) {
       for (auto srcType : srcTypes) {
-        for (auto sz : sizes) {
-          auto vertex =
-              std::make_unique<VertexDesc>(vertexName, srcType, dstType);
-          if (isValidTypes(*vertex)) {
-            numTests++;
-            auto testRec = std::make_shared<TestRecord<VertexDesc>>(
-                std::move(vertex), numTests, sz);
-            addOneTest<TestRecord<VertexDesc>, VertexDesc>(
-                tests, testRec, deviceType, errCount, options);
+        auto vertex =
+            std::make_shared<VertexDesc>(vertexName, srcType, dstType);
+        if (isValidTypes(*vertex)) {
+          for (auto sz : sizes) {
+            for (auto startPadBytes : options.startPadBytes) {
+              numTests++;
+              auto testRec = std::make_shared<TestRecord<VertexDesc>>(
+                  vertex, numTests, sz, startPadBytes);
+              addOneTest<TestRecord<VertexDesc>, VertexDesc>(
+                  tests, testRec, deviceType, errCount, options);
+            }
           }
         }
       }

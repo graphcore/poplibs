@@ -1,91 +1,75 @@
 #-----------------------------------------------------------------------------
-# Unary/BinaryOp, BroadcastScalar, BroadcastVectorInner, BroadcastVectorOuter:
-
 # Test executables for all UnaryOp, BinaryOp, BroadcastScalar,
 # BroadcastVectorInner and BroadcastVectorOuter vertices.
 add_multi_target_test_executable(UnaryCodeletsTest UnaryCodeletsTest.cpp)
 add_multi_target_test_executable(BinaryCodeletsTest BinaryCodeletsTest.cpp)
 
-# Each of the tests for elementwise operators below test in parallel up to
-# 100 different vertices in a single compute set/graph, to speed up the test,
-# (using the '--group-tests' option.
-# In certain cases (for instance if there is an exception due to
-# overprocessing/overwriting) this makes hard to find which specific vertex is
-# responsible.
-# In this case, you can run exactly the same command, but without the
-# '--group-tests' option. This will run each vertex individually, which is
-# slower but make easier finding the failing vertex.
+# Each of the tests for elementwise operators below runs many sub-tests in
+# parallel in the same graph & compute set, to speed regression test execution.
+# If/when a test fails, this makes it hard to find which specific vertex is
+# responsible for the failure
+# In this case, you can run exactly the same command, but with the added
+# '--group-tests 1' option. This will run each vertex individually, which is
+# very much slower but make easier finding the failing vertex.
+# You can then run the command again, specifying only the single
+# vertex/datatype/operand size that is causing the failure, to speedily debug
+# and fix the problem.
 
-# Basic test to verify that all expected vertices are instantiated, using the
-# smallest possible data sizes. This is done for IpuModelX as well.
-
-# '--disable-fp-exceptions' is set because some unary/binary operations can
-# generate FP exceptions when they are enabled (this currently happens in Debug
-# builds)
-# This should be fixed by removing '--disable-fp-exceptions'
-#   For IS_FINITE, IS_INF, IS_NAN      : see T33934
-#   For SQUARE, INV_STD_DEV_TO_VARIANCE: see T34981, T36789
+# Basic tests to verify that all expected vertices are instantiated, using the
+# smallest possible data sizes.
+# '--disable-fp-exceptions' is set because three unary (IS_INF, IS_NAN,
+# IS_FINITE) and one binary operations (INV_STD_DEV_TO_VARIANCE) can generate
+# FP exceptions (when they are enabled; this currently happens in Debug builds).
 add_multitarget_test(NAME "UnaryOpCodeletsTests_all"
                      COMMAND UnaryCodeletsTest
-                             --group-tests
                              --size 1
                              --disable-fp-exceptions true
                      LABELS codelet
-                     TEST_IPUMODEL
-                     VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+                     VARIANTS ${IPUMODEL_VARIANTS};Hw)
 add_multitarget_test(NAME "BinaryOpCodeletsTests_all"
                      COMMAND BinaryCodeletsTest
-                             --group-tests
                              --size 1
                              --disable-fp-exceptions true
                      LABELS codelet
-                     TEST_IPUMODEL
-                     VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+                     VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
-# Run some tests with big sizes, only on IpuModels
+# Run some tests with big sizes, only on IpuModels and Hw, for speed
 add_multitarget_test(NAME "UnaryOpCodeletsTests_NoSim"
                      COMMAND UnaryCodeletsTest
-                             --group-tests
-                             --size 480 168 24565 8176 8208
-                             --disable-fp-exceptions true
+                             --size 480 168 [4095,666]
                      LABELS codelet
-                     VARIANTS ${IPUMODEL_VARIANTS})
+                     VARIANTS ${IPUMODEL_VARIANTS};Hw)
 add_multitarget_test(NAME "BinaryOpCodeletsTests_NoSim"
                      COMMAND BinaryCodeletsTest
-                             --group-tests
-                             --size 480 168 24565 8176 8192
-                             --size2  8   8     1 2044 2048
-                             --disable-fp-exceptions true
+                             --size 480 168 8176 8192
+                             --size2  8   8 2044 2048
                      LABELS codelet
-                     VARIANTS ${IPUMODEL_VARIANTS})
+                     VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
 # The operations below (trigonometric, power, remainder and integer division),
 # implemented with a software library, are extremely slow on the Sim devices, so
-# we test them separately, with fewer elements.
+# we test them separately, on IpuModel and Hw only.
 # Also, because the vertices themselves are implemented in C++, they should need
 # less testing on various different sizes for the inputs
 add_multitarget_test(NAME "UnaryOpCodeletsTests_slow"
                      COMMAND UnaryCodeletsTest
                              --operation ASIN COS SIN TAN
-                             --size [5,2,25]
-                             --group-tests
+                             --size 1 2 3 4 7 8 9 [5,2,25]
                      LABELS codelet
-                     VARIANTS ${SIM_VARIANTS})
+                     VARIANTS ${IPUMODEL_VARIANTS};Hw)
 add_multitarget_test(NAME "BinaryOpCodeletsTests_slow_floating_point"
                      COMMAND BinaryCodeletsTest
                              --operation ATAN2 POWER REMAINDER
-                             --size [5,2,25]
-                             --group-tests
+                             --size 1 2 3 4 7 8 9 [5,2,25]
                      LABELS codelet
-                     VARIANTS ${SIM_VARIANTS})
+                     VARIANTS ${IPUMODEL_VARIANTS};Hw)
 add_multitarget_test(NAME "BinaryOpCodeletsTests_slow_integer"
                      COMMAND BinaryCodeletsTest
                              --operation DIVIDE
                              --data-type int uint
                              --size [5,2,25]
-                             --group-tests
                      LABELS codelet
-                     VARIANTS ${SIM_VARIANTS})
+                     VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
 # Main function to test the majority of vertices. Called specifying "1D"
 # or "2D" and different sizes for the operands
@@ -105,10 +89,9 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                                            COUNT_LEADING_ZEROS ERF EXPONENT
                                            EXPONENT_MINUS_ONE FLOOR GELU_ERF
                                            INVERSE LOGARITHM LOGARITHM_ONE_PLUS
-                                           LOGICAL_NOT NEGATE POPCOUNT RELU
+                                           LOGICAL_NOT NEGATE POPCOUNT RELU SQUARE
                                            SIGNUM TANH ROUND RSQRT SQRT SIGMOID
                                --size ${SIZE}
-                               --group-tests
                        LABELS codelet
                        VARIANTS ${SIM_VARIANTS})
 
@@ -124,7 +107,6 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                                            SHIFT_RIGHT_SIGN_EXTEND SUBTRACT
                                            VARIANCE_TO_INV_STD_DEV
                                --size ${SIZE}
-                               --group-tests
                        LABELS codelet
                        VARIANTS ${SIM_VARIANTS})
 endfunction()
@@ -144,16 +126,6 @@ test_elementwise(S4  1D   "28;44;50")
 # different sizes.
 test_elementwise(2D_1 2D "[1,2,3,4,8,9,12,22,24]"  1)
 test_elementwise(2D_2 2D "[25,26,27,28]"  1)
-# Test codelets that output two outputs
-add_multitarget_test(NAME "BinaryOpCodeletsTests_rel_op_dual_output"
-                     COMMAND BinaryCodeletsTest
-                             --vertexRE RelationalOpDualOutput
-                             --operation EQUAL GREATER_THAN_EQUAL GREATER_THAN
-                                         LESS_THAN_EQUAL LESS_THAN NOT_EQUAL
-                             --size "1;2;3;4;5;6;7;11;12;13;23;24;25;26;27;45;46;47;48;49"
-                             --group-tests
-                     LABELS codelet
-                     VARIANTS ${SIM_VARIANTS})
 
 # These operations will generate FP exceptions when they are enabled (this
 # currently happens in Debug builds).
@@ -162,10 +134,9 @@ add_multitarget_test(NAME "BinaryOpCodeletsTests_rel_op_dual_output"
 #   For SQUARE, INV_STD_DEV_TO_VARIANCE: see T34981, T36789
 add_multitarget_test(NAME "UnaryOpCodeletsTests_no_fp_except"
                       COMMAND UnaryCodeletsTest
-                              --operation IS_FINITE IS_INF IS_NAN SQUARE
+                              --operation IS_FINITE IS_INF IS_NAN
                               --disable-fp-exceptions true
                               --size "2;3;4;8;12;16;24;25;26;27;28;44;50;[1,2,23,24]"
-                              --group-tests
                       LABELS codelet
                       VARIANTS ${SIM_VARIANTS})
 add_multitarget_test(NAME "BinaryOpCodeletsTests_no_fp_except"
@@ -173,7 +144,6 @@ add_multitarget_test(NAME "BinaryOpCodeletsTests_no_fp_except"
                               --operation INV_STD_DEV_TO_VARIANCE
                               --disable-fp-exceptions true
                               --size "2;3;4;8;12;16;24;25;26;27;28;44;50;[1,2,23,24]"
-                              --group-tests
                       LABELS codelet
                       VARIANTS ${SIM_VARIANTS})
 
@@ -314,107 +284,37 @@ runFastSlowPathBinaryTests(short "BITWISE_AND;BITWISE_OR" "short;ushort")
 # This run tests on all the vertices of the 'ScaledAdd' family, checking for
 # overruns at the end of the data
 add_multi_target_test_executable(ScaledAddCodeletsTest ScaledAddCodeletsTest.cpp)
-add_multitarget_test(NAME "ScaledAddCodeletsTests_low_tolerance"
+add_multitarget_test(NAME "ScaledAddCodeletsTests"
                      COMMAND ScaledAddCodeletsTest
-                             --group-tests
-                             --tolerance 0.00001
-                             --size 1 2 3 4 8 12
-                     TEST_IPUMODEL
-                     VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
-add_multitarget_test(NAME "ScaledAddCodeletsTests_high_tolerance"
-                     COMMAND ScaledAddCodeletsTest
-                             --group-tests
-                             --tolerance 0.001
-                             --size 23 24 25 [47,48,49]
-                     TEST_IPUMODEL
+                             --tolerance 0.00001 0.001
+                             --size 1 2 3 4 8 9 10 11 12 13 14 15 16 23 24 25 [47,48,49]
                      VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
 
-add_unit_test(ScaledAdd2D_fp
-              ScaledAdd2D_fp.cpp
-              SUITES  ScaledAdd2DHalfTensor ScaledSubtract2DHalfTensor
-                      ScaledAdd2DFloatTensor
-                     ScaledAdd2DFloatHalfHalf ScaledAdd2DFloatHalfFloat
-                      ScaledAdd2DHalfFloatTensor
-                      ScaledAdd2DHalfFloatFloatTensor
-                     ScaledAdd2DHalfHalfFloatTensorHighTol ScaledAdd2DHalfHalfFloatTensorLowTol
-                     ScaledSubtract2DFloatTensor  aXPlusbYHalfTensor
-										 ScaledSubtract2DHalfHalfFloatTensorHighTol ScaledSubract2DHalfHalfFloatTensorLowTol
-                      aXPlusbYMixedTensor
-                      XMinusaXPlusbYHalfTensor aXMinusbYHalfTensor
-										 aXMinusbYMixedTensor
-              LABELS codelet
-              VARIANTS ${SIM_VARIANTS})
-add_unit_test(ScaledAdd2D_integral
-              ScaledAdd2D_integral.cpp
-              SUITES ScaledAdd2DIntTensor
-                     ScaledAdd2DUnsignedIntTensor ScaledSubtract2DIntTensor ScaledSubtract2DUnsignedIntTensor
-              LABELS codelet
-              VARIANTS ${SIM_VARIANTS})
-add_unit_test(ScaledAddSupervisor_fp
-              ScaledAddSupervisor_fp.cpp
-              SUITES  ScaledAddSupervisorFloatHalfHalf ScaledAddSupervisorFloatHalfFloat
-                     ScaledAddSupervisorHalfHalfFloatTensorHighTol ScaledAddSupervisorHalfHalfFloatTensorLowTol
-                     ScaledAddSupervisorHalfTensor ScaledAddSupervisorFloatTensor
-                     ScaledAddSupervisorHalfFloatHalfTensor ScaledSubtractSupervisorHalfTensor
-                     ScaledAddSupervisorHalfFloatFloat
-                     ScaledSubtractSupervisorFloatTensor ScaledSubtractSupervisorFloatHalfTensor
-										 ScaledSubtractSupervisorHalfHalfFloatTensorHighTol ScaledSubtractSupervisorHalfHalfFloatTensorLowTol
-                     aXPlusbYSupervisorHalfTensor
-                     aXPlusbYSupervisorMixedTensor
-                     XMinusaXPlusbYSupervisorHalfTensor
-										 aXMinusbYSupervisorHalfTensor aXMinusbYSupervisorMixedTensor
-              LABELS codelet
-              VARIANTS ${SIM_VARIANTS})
-add_unit_test(ScaledAddSupervisor_integral
-              ScaledAddSupervisor_integral.cpp
-              SUITES ScaledAddSupervisorIntTensor ScaledAddSupervisorUnsignedIntTensor
-                     ScaledSubtractSupervisorIntTensor ScaledSubtractSupervisorUnsignedIntTensor
-              LABELS codelet
-              VARIANTS ${SIM_VARIANTS})
+
+add_multi_target_test_executable(FillCodeletsTest FillCodeletsTest.cpp)
+
+add_multitarget_test(NAME "FillCodelets"
+                     COMMAND FillCodeletsTest
+                           --size 1 2 3 4 5 6 7 8 10 [1,1] 2x4 2x7 2x8
+                     VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
 # Fill vertices for 8 bit types need to be tested with a lot of different data
 # lengths and start offsets (from 0 to 7), because the assembly code is quite
 # specialised for the various combinations.
-# They all use the same assembly code (with the different function labels being
-# at the same entry point) so in theory we could just test for a single 8 bit
-# type, but here we exercise them all (bool, char, unsigned char, signed char)
-# to make sure all the C++ decalarations and assembly incantations are correctly
-# spelled.
-add_multi_target_test_executable(FillCodeletsTest FillCodeletsTest.cpp)
-function(test_fill_vertex  TYPE  START_ALIGNMENT)
-  add_multitarget_test(NAME "FillCodelets_8bit_align${START_ALIGNMENT}"
-                      COMMAND FillCodeletsTest --group-test
-                              --size 1 2 3 4 5 6 7 8 9 10 11 12 43
-                                     [44,11,13] [45,12,14] 46 47 48
-                              --data ${TYPE}
-                              --align-start ${START_ALIGNMENT}
-                      LABELS codelet
-                      TEST_IPUMODEL
-                      VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
-endfunction()
-test_fill_vertex(bool 0)
-test_fill_vertex(bool 1)
-test_fill_vertex(char 2)
-test_fill_vertex(char 3)
-test_fill_vertex(uchar 4)
-test_fill_vertex(uchar 5)
-test_fill_vertex(schar 6)
-test_fill_vertex(schar 7)
+# We only test for char, as the code is the same for all the 8 bit types
+add_multitarget_test(NAME "FillCodelets_8bit_align"
+                     COMMAND FillCodeletsTest --group-test
+                             --size 1 2 3 4 5 6 7 8 9 10 11 12 43
+                                    [44,11,13] [45,12,14] 46 47 48
+                             --data-type char
+                             --align-start 0 1 2 3 4 5 6 7
+                     LABELS codelet
+                     TEST_IPUMODEL
+                     VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
-foreach(DATA_TYPE ulonglong longlong)
-  add_multitarget_test(NAME "FillCodelets_${DATA_TYPE}"
-                       COMMAND FillCodeletsTest
-                              --size 1 2 10
-                              --data ${DATA_TYPE}
-                              --vertex Fill Fill2d
-                        VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
-endforeach()
 
-add_unit_test(FillAndZeroTest
-              FillAndZeroTest.cpp
-              LABELS codelet
-              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+
 add_unit_test(DynamicSliceCodeletTest
               DynamicSliceCodeletTest.cpp
               LABELS codelet
@@ -881,49 +781,8 @@ add_multitarget_test(NAME ${VARIANT_NAME}
                       LABELS codelet
                       VARIANTS ${SIM_VARIANTS})
 
-#Cast<InType, OutType>
+
 add_multi_target_test_executable(CastTest CastTest.cpp)
-
-foreach(IN_TYPE half float)
-  if(IN_TYPE STREQUAL half)
-    set(OUT_TYPE float)
-  else()
-    set(OUT_TYPE half)
-  endif()
-  foreach(ROWS 1 2 )
-    foreach(COLUMNS RANGE 1 8)
-      foreach(OFFSET 0 2)
-        set(VARIANT_NAME "CastTest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}")
-        add_multitarget_test(NAME ${VARIANT_NAME}
-                      COMMAND CastTest
-                          --in-type=${IN_TYPE}
-                          --out-type=${OUT_TYPE}
-                          --rows=${ROWS}
-                          --columns=${COLUMNS}
-                          --out-offset=${OFFSET}
-                          LABELS codelet
-                          VARIANTS ${SIM_VARIANTS})
-      endforeach()
-    endforeach()
-  endforeach()
-
-  set(ROWS 1)
-  set(COLUMNS 4300)
-  set(OFFSET 0)
-  foreach(SUPERVISOR 0 1)
-    set(VARIANT_NAME "CastTest_${IN_TYPE}_${OUT_TYPE}_${ROWS}_${COLUMNS}_${OFFSET}_${SUPERVISOR}")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-                    COMMAND CastTest
-                        --in-type=${IN_TYPE}
-                        --out-type=${OUT_TYPE}
-                        --rows=${ROWS}
-                        --columns=${COLUMNS}
-                        --out-offset=${OFFSET}
-                        --supervisor=${SUPERVISOR}
-                        LABELS codelet
-                        VARIANTS ${SIM_VARIANTS})
-  endforeach()
-endforeach()
 
 # Cast half to quarter
 foreach(COLUMNS 1 2 3 4 8 24 48 141)
@@ -1005,74 +864,60 @@ foreach(ROWS 1 2)
 endforeach()
 
 
+#Cast<InType, OutType>
 add_multi_target_test_executable(CastCodeletsTest CastCodeletsTest.cpp)
-add_multitarget_test(NAME CastCodeletsTest_to_char
-              COMMAND CastCodeletsTest
-                  --data-type float half
-                  --cast char schar uchar
-                  --group-tests
-                  --size 1 2 3 4 5 22 23 24 25 26 [8,3,6,120]
-              LABELS codelet
-              TEST_IPUMODEL
-              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
-add_multitarget_test(NAME CastCodeletsTest_to_LongLong
-              COMMAND CastCodeletsTest
-                  --data-type char uchar int uint short ushort bool
-                  --cast ulonglong longlong
-                  --group-tests
-                  --size 1 2 3 [8,3,6,40]
-              LABELS codelet
-              TEST_IPUMODEL
-              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
-
-add_multitarget_test(NAME CastCodeletsTest_from_char
-              COMMAND CastCodeletsTest
-                  --data-type char schar uchar
-                  --cast float half
-                  --group-tests
-                  --size 1 2 3 4 5 22 23 24 25 26 [8,3,6,120]
-              LABELS codelet
-              TEST_IPUMODEL
-              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
-
+# Basic tests to verify that all expected vertices are instantiated, using the
+# smallest possible data sizes.
 add_multitarget_test(NAME CastCodeletsTest_all_exist
               COMMAND CastCodeletsTest
-              --group
-              LABELS codelet)
+                      --size 1
+              LABELS codelet
+              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 
-add_multi_target_test_executable(ScalarMultiplyCodeletTest
-                                 ScalarMultiplyCodeletTest.cpp)
+# Group some cast tests together to run them with various sizes
+function(test_cast TEST_TAG SIZES VARIANTS_TO_USE)
+  # For 8 bit types we check with all the possible --align-start
+  add_multitarget_test(NAME CastCodeletsTest_from_8bit_types_${TEST_TAG}
+                COMMAND CastCodeletsTest
+                        --data-type char schar uchar bool
+                        --size ${SIZES}
+                        --align-start 0 1 2 3 4 5 6 7
+                LABELS codelet
+                VARIANTS ${VARIANTS_TO_USE})
 
-function(add_scalar_multiply_codelet_test a_size inplace n_regions tol)
-  set(test_args --a-size "${a_size}" --inplace ${inplace}
-                --n-regions ${n_regions} --tol ${tol})
+  add_multitarget_test(NAME CastCodeletsTest_from_16bit_types_${TEST_TAG}
+                COMMAND CastCodeletsTest
+                        --data-type half short ushort
+                        --size ${SIZES}
+                        --align-start 0 2
+                LABELS codelet
+                VARIANTS ${VARIANTS_TO_USE})
 
-  add_multitarget_test(
-    ScalarMultiplyCodeletTest_${a_size}_${inplace}_${n_regions}_${tol}
-    COMMAND ScalarMultiplyCodeletTest -- "${test_args}"
-    LABELS codelet
-    VARIANTS ${SIM_VARIANTS})
+  add_multitarget_test(NAME CastCodeletsTest_from_32_64bit_types_${TEST_TAG}
+                COMMAND CastCodeletsTest
+                        --data-type float int uint ulonglong longlong
+                        --size ${SIZES}
+                LABELS codelet
+                VARIANTS ${VARIANTS_TO_USE})
 endfunction()
 
-# Test the ScalarMultiply1D vertex variants.
-foreach(a_size RANGE 1 27)
-  add_scalar_multiply_codelet_test(${a_size} false 1 0)
-  add_scalar_multiply_codelet_test(${a_size} false 1 1)
-endforeach()
+# Note that the strings with semicolons are part of CMake syntax for function
+# parameters; inside the function CMake will expand them to space-separated lists.
+test_cast("small_sizes" "1;2;3;4;5" "${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
+test_cast("more_sizes" "6;7;[8,3,6,120];[9,8];22;23;24;25;26;4300" "${IPUMODEL_VARIANTS};Hw")
 
-foreach(a_size 1 2 3 4 24 25 26 27)
-  add_scalar_multiply_codelet_test(${a_size} true 1 0)
-  add_scalar_multiply_codelet_test(${a_size} true 1 1)
-endforeach()
 
-foreach(a_size RANGE 48 51)
-  add_scalar_multiply_codelet_test(${a_size} false 1 0)
-  add_scalar_multiply_codelet_test(${a_size} false 1 1)
-endforeach()
 
-# Test the ScalarMultiply2D vertex variants.
-add_scalar_multiply_codelet_test(7 false 4 0)
-add_scalar_multiply_codelet_test(7 false 4 1)
-add_scalar_multiply_codelet_test(7 true 4 0)
-add_scalar_multiply_codelet_test(7 true 4 1)
+# Tests all the ScalarMultiply codelets
+add_multi_target_test_executable(ScalarMultiplyCodeletsTest
+                                 ScalarMultiplyCodeletsTest.cpp)
+add_multitarget_test(
+      ScalarMultiplyCodeletsTest
+      COMMAND ScalarMultiplyCodeletsTest --group
+                                         --size 1 2 3 4 5 6 [7,7,7,7] 8 9 10 11
+                                                12 13 14 15 16 17 18 19 20 21 22
+                                                23 24 25 26 27 48 49 50 51
+                                         --tolerance 0 1
+      LABELS codelet
+      VARIANTS ${SIM_VARIANTS})

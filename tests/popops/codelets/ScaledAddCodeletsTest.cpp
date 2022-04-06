@@ -169,6 +169,8 @@ struct TestRecord {
 
   float tolerance; // Used only in some vertices.
 
+  unsigned startPadBytes; // see definition in MiscOptions
+
   // Stream names used to transfer the host data, for the two operands and the
   // output. Must be different for each test that is run in the same graph/CS.
   std::string writeNameA;
@@ -184,9 +186,10 @@ struct TestRecord {
   /// \param[in] scaleBVal If 'nullopt', a random value will be generated
   TestRecord(std::shared_ptr<VertexDesc> v, unsigned seq, const SizeDesc &sz,
              boost::optional<unsigned> operandOffset, float tolerance,
-             std::optional<float> scaleAVal, std::optional<float> scaleBVal)
+             std::optional<float> scaleAVal, std::optional<float> scaleBVal,
+             unsigned startPadBytes)
       : vertex(std::move(v)), operandOffset(operandOffset),
-        tolerance(tolerance) {
+        tolerance(tolerance), startPadBytes(startPadBytes) {
     writeNameA = "A_" + to_string(seq);
     writeNameB = "B_" + to_string(seq);
     readName = "Aout_" + to_string(seq);
@@ -261,10 +264,65 @@ struct TestRecord {
     if (vertex->hasTolerance) {
       scalesStr += (format(" tol:%g") % tolerance).str();
     }
-    return vertex->vClassFmt + size.toString(10) + "  " + scalesStr;
+    return vertex->vClassFmt + size.toString(10) +
+           formatStartPadBytes(startPadBytes) + "  " + scalesStr;
   }
 };
 
+//***************************************************************************
+// Return true if the combination for the vertex (vertex name, data types and
+// [scaleIsConstant, constrainedAB] flag pair) is implemented.
+//
+// |          Vertex          |   Data types:    | toler |        |    total |
+// |                          |  A     B   scale | ance? | constr | variants |
+// +--------------------------+------------------+-------+--------+----------|
+// | ScaledAddSupervisor      |float float float         |  false |          |
+// | ScaledAdd2D              |half  half  half          |  true  | 2x2x2= 8 |
+// |                          +--------------------------+--------+----------+
+// |                          |half  half  float         |  false | 2x1x2= 4 |
+// |                          |                          |  true  |          |
+// |                          +--------------------------+--------+----------+
+// |                          |float half  half          |        |          |
+// |                          |float half  float         |        |          |
+// |                          |half  float half          |  false |          |
+// |                          |half  float float         |        | 2x6x1=12 |
+// |                          |int   int   int           |        |          |
+// |                          |uint  uint  uint          |        |          |
+// +--------------------------+--------------------------+--------+----------+
+// | ScaledSubtractSupervisor |float float float         |        |          |
+// |                          |half  half  half          |  false | 1x4x2= 8 |
+// |                          |half  float half          |  true  |          |
+// |                          |half  half  float - YES   |        |          |
+// |                          +--------------------------+--------+----------+
+// |                          |int   int   int           |  false | 1x2x1= 2 |
+// |                          |uint  uint  uint          |        |          |
+// +--------------------------+--------------------------+--------+----------+
+// | ScaledSubtract2D         |half  -     half          |  false | 1x3x2= 6 |
+// |                          |float -     float         |  true  |          |
+// |                          |half  -     float - YES   |        |          |
+// |                          +--------------------------+--------+----------+
+// |                          |int   -     int           |  false | 1x2x1= 2 |
+// |                          |uint  -     uint          |        |          |
+// +--------------------------+--------------------------+--------+----------+
+// | aXPlusbYSupervisor       |half  -     half          |  false |          |
+// | aXPlusbY2D               |                          |  true  | 2x1x2= 4 |
+// |                          +--------------------------+--------+----------+
+// |                          |float -     float         |  false | 2x1x1= 2 |
+// |                          +--------------------------+--------+----------+
+// |                          |half  -     float - YES   |  false | 2x1x2= 4 |
+// |                          |                          |  true  |          |
+// +--------------------------+--------------------------+--------+----------+
+// | aXMinusbYSupervisor      |half  -     half          |  false | 2x2x2= 8 |
+// | aXMinusbY2D              |half  -     float - YES   |  true  |          |
+// |                          +--------------------------+--------+----------+
+// |                          |float -     float         |  false | 2x1x1= 2 |
+// +--------------------------+--------------------------+--------+----------+
+// | XMinusaXPlusbYSupervisor |                          |  false |          |
+// | XMinusaXPlusbY2D         |half  -     -             |  true  | 2x1x2= 4 |
+// |                          |                          |        |          |
+// +--------------------------+--------------------------+--------+----------+
+//                                                                        66
+//
 bool isImplementedCombination(const std::string &name, const Type AType,
                               const Type BType, const Type scaleType,
                               const std::optional<bool> scaleIsConstant,
@@ -598,9 +656,9 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   }
 
   // === Setup offsets for padding
-  test.A.setup(target, dataAType, test.size.val, options.alignStart);
-  test.B.setup(target, dataBType, test.size.val, options.alignStart);
-  test.out.setup(target, dataAType, test.size.val, options.alignStart);
+  test.A.setup(target, dataAType, test.size.val, test.startPadBytes);
+  test.B.setup(target, dataBType, test.size.val, test.startPadBytes);
+  test.out.setup(target, dataAType, test.size.val, test.startPadBytes);
 
   // === Allocate and initialise host buffers with appropriate values.
   std::vector<HostType> AHost(test.A.totalElems);
@@ -997,12 +1055,14 @@ int main(int argc, char **argv) {
                                             : justNull) {
                       for (auto tolerance : tolerances) {
                         for (auto sz : sizes) {
-                          numTests++;
-                          auto testRec = std::make_shared<TestRecord>(
-                              vertex, numTests, sz, operandOffset, tolerance,
-                              scaleA, scaleB);
-                          addOneTest<TestRecord, VertexDesc>(
-                              tests, testRec, deviceType, errCount, options);
+                          for (auto startPadBytes : options.startPadBytes) {
+                            numTests++;
+                            auto testRec = std::make_shared<TestRecord>(
+                                vertex, numTests, sz, operandOffset, tolerance,
+                                scaleA, scaleB, startPadBytes);
+                            addOneTest<TestRecord, VertexDesc>(
+                                tests, testRec, deviceType, errCount, options);
+                          }
                         }
                       }
                     }

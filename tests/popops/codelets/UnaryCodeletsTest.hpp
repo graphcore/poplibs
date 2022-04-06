@@ -7,7 +7,7 @@
 // operation.
 
 #include "CodeletsTestsCommon.hpp"
-#include <poplibs_test/Util.hpp>
+#include <poplar/Quarter.hpp>
 #include <poputil/exceptions.hpp>
 
 #include <regex>
@@ -301,9 +301,16 @@ template <typename T> void performOp(UnaryOpType op, T a, signed char &result) {
 template <typename HostSrcType, typename HostDstType>
 void performCast(const bool isIpuModel, const HostSrcType a,
                  HostDstType &result, const Type devSrcType,
-                 const Type devDstType) {
+                 const Type devDstType,
+                 std::optional<QuarterMetadata> metadata = std::nullopt) {
   if (devDstType == BOOL) {
     result = (a != 0);
+  } else if (devDstType == QUARTER) {
+    float fResult =
+        Quarter(static_cast<float>(a), *metadata).toFloat(*metadata);
+    if (std::isnan(fResult))
+      fResult = 256;
+    result = fResult;
   } else {
     result = static_cast<HostDstType>(a);
   }
@@ -380,8 +387,10 @@ bool equalValues(const bool isIpuModel, const Operation op,
 /// Fills the host buffer with values appropriate to the data type and the
 /// operation/cast being performed.
 template <typename HostDataType>
-void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
-                    std::vector<HostDataType> &buf) {
+void fillHostBuffer(
+    Operation op, const Type &dataType, unsigned randomSeed,
+    std::vector<HostDataType> &buf,
+    const std::optional<QuarterMetadata> &metadata = std::nullopt) {
   bool nonZero = false;
 
   // Using a specific random generator means that we get the same random values
@@ -460,7 +469,11 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
     }
   } // not a cast
 
-  fillBuffer(dataType, rndEng, buf, 10, min, max, nonZero);
+  if constexpr (std::is_same<HostDataType, float>::value) {
+    fillBuffer(dataType, rndEng, buf, 10, min, max, nonZero, metadata);
+  } else {
+    fillBuffer(dataType, rndEng, buf, 10, min, max, nonZero);
+  }
 
   // If checking for infinities/nans, make sure we do have some infinities/nans
   if constexpr (std::is_floating_point<HostDataType>::value) {
@@ -510,6 +523,7 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
 #define SELECT_BY_SRC_TYPE(IPU_SRC_TYPE, HOST_SRC_TYPE)                        \
   SELECT_ONE(IPU_SRC_TYPE, FLOAT, HOST_SRC_TYPE, float)                        \
   SELECT_ONE(IPU_SRC_TYPE, HALF, HOST_SRC_TYPE, float)                         \
+  SELECT_ONE(IPU_SRC_TYPE, QUARTER, HOST_SRC_TYPE, float)                      \
   SELECT_ONE(IPU_SRC_TYPE, INT, HOST_SRC_TYPE, int)                            \
   SELECT_ONE(IPU_SRC_TYPE, LONGLONG, HOST_SRC_TYPE, long long)                 \
   SELECT_ONE(IPU_SRC_TYPE, UNSIGNED_INT, HOST_SRC_TYPE, unsigned int)          \
@@ -525,6 +539,7 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
 #define SELECT_BY_TYPES()                                                      \
   SELECT_BY_SRC_TYPE(FLOAT, float)                                             \
   SELECT_BY_SRC_TYPE(HALF, float)                                              \
+  SELECT_BY_SRC_TYPE(QUARTER, float)                                           \
   SELECT_BY_SRC_TYPE(INT, int)                                                 \
   SELECT_BY_SRC_TYPE(LONGLONG, long long)                                      \
   SELECT_BY_SRC_TYPE(UNSIGNED_INT, unsigned int)                               \
@@ -541,10 +556,12 @@ void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
 // and one SizeDesc value) for UnaryOp or Cast
 template <typename VertexDesc> struct TestRecord {
   SizeDesc size;
-  std::unique_ptr<VertexDesc> vertex;
+  std::shared_ptr<VertexDesc> vertex;
 
   TestOperand in;
   TestOperand out;
+
+  unsigned startPadBytes; // see definition in MiscOptions
 
   // Stream names used to transfer the host data and the output. Must be
   // different for each test that is run in the same graph/compute set.
@@ -557,15 +574,19 @@ template <typename VertexDesc> struct TestRecord {
   /// \param[in] v      The vertex (with operation and data type) to test.
   /// \param[in] seq    A sequential index, different for each test
   /// \param[in] tSizes The data sizes to use for the test.
-  TestRecord(std::unique_ptr<VertexDesc> v, unsigned seq, const SizeDesc &sz)
-      : vertex(std::move(v)) {
+  TestRecord(std::shared_ptr<VertexDesc> v, unsigned seq, const SizeDesc &sz,
+             unsigned startPadBytes)
+      : vertex(v), startPadBytes(startPadBytes) {
     writeName = vertex->inName + "_" + to_string(seq);
     readName = vertex->outName + "_" + to_string(seq);
     size = sz.adjust(vertex->is2D);
   }
   TestRecord(TestRecord &&) = default;
 
-  std::string toString() { return vertex->vClassFmt + size.toString(); }
+  std::string toString() {
+    return vertex->vClassFmt + size.toString() +
+           formatStartPadBytes(startPadBytes);
+  }
 };
 
 #endif // popops_UnaryCodeletsTest_hpp

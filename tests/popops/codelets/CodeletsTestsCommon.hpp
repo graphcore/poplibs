@@ -13,6 +13,7 @@
 #include <popops/ElementWise.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 
 #include <gccs/Algorithm.hpp>
@@ -252,22 +253,35 @@ void fillBuffer(const Type &dataType, RandomEngine &rndEng,
   }
 }
 
-// Filling one of the operand buffers for FLOAT and HALF data (both use 'float'
-// buffers on the host)
+// Filling one of the operand buffers for FLOAT, HALF or QUARTER data (all use
+// 'float' buffers on the host)
 void fillBuffer(const Type &dataType, RandomEngine &rndEng,
                 std::vector<float> &buf, float i, float min, float max,
-                bool nonZero) {
+                bool nonZero,
+                const std::optional<QuarterMetadata> metadata = std::nullopt) {
   std::uniform_real_distribution<float> d(min, max);
-  for (auto &x : buf) {
-    if (rndEng) {
-      do {
-        x = d(*rndEng);
-      } while (nonZero && x == 0);
-    } else {
-      if (i > max)
-        i = 0;
-      x = i;
-      i += 1.0;
+  if (dataType == QUARTER) {
+    assert(metadata != std::nullopt);
+    // Pick values that are exact for the FP8 format selected.
+    // QUART 143 has 3 mantissa bits + 1 lead bit = 4 bits, supports 0..16
+    // QUART 152 has 2 mantissa bits + 1 lead bit = 3 bits, supports 0..8
+    const unsigned modulo =
+        (metadata->getFormat() == QuarterMetadata::Format ::F143) ? 17 : 9;
+    for (unsigned i = 0; i < buf.size(); i++) {
+      buf[i] = (i + 1) % modulo;
+    }
+  } else {
+    for (auto &x : buf) {
+      if (rndEng) {
+        do {
+          x = d(*rndEng);
+        } while (nonZero && x == 0);
+      } else {
+        if (i > max)
+          i = 0;
+        x = i;
+        i += 1.0;
+      }
     }
   }
 }
@@ -446,11 +460,11 @@ struct MiscOptions {
   unsigned randomSeed = 1;
 
   // How many test to run in a single graph/compute set (one per tile)
-  unsigned groupTests = 1;
+  unsigned groupTests = 0;
 
   // Maximum number of tiles to use for a single graph/run of tests.
   // NOTE: Default was set empirically to reduce test times.
-  unsigned numTiles = 4;
+  unsigned numTiles = 0;
 
   // print the number of cycles used by the vertex.
   bool printCycles = false;
@@ -463,9 +477,41 @@ struct MiscOptions {
   // test will fail (if cycleCompareDevice is not null))
   float cycleCompareThreshold = 10;
 
-  // Align the start of inputs and outputs on this number of bytes
-  unsigned alignStart = 0;
+  // The start of inputs and outputs variables is normally aligned on an 8 byte
+  // boundary (by using the NopAlignVertex). If one or more non-zero values
+  // (1..7) are specified here, we will add this many bytes to the start so
+  // that the alignment will be to 8 byte boundary + N. This value N must be a
+  // multiple of the natural size of the variable (for instance 2 for 'half'),
+  // if not it will be adjusted.
+  // If multiple values are specified, we test them all.
+  std::vector<unsigned> startPadBytes = {0};
+
+  QuarterMetadata::Format fp8Format = QuarterMetadata::Format::F143;
+  int fp8Scale = 0;
 };
+
+//*************************************************************************
+/// Create a tensor in a graph, creatiign also the metadata if necessary,
+/// based on 'options'
+Tensor createTensor(Graph &graph, const Type &dataType,
+                    const MiscOptions &options, unsigned numElems,
+                    const std::string &name) {
+  if (dataType == QUARTER) {
+    auto metadata = poputil::createVariableMetadataTensor(
+        graph, options.fp8Format, options.fp8Scale);
+    return graph.addVariable(dataType, metadata, {numElems}, name);
+  } else {
+    return graph.addVariable(dataType, {numElems}, name);
+  }
+}
+
+std::string formatStartPadBytes(unsigned startPadBytes) {
+  if (startPadBytes == 0) {
+    return "";
+  } else {
+    return (format("  offs:%s") % startPadBytes).str();
+  }
+}
 
 //*************************************************************************
 /// Runs the tests specified by 'tests[offs:offs+numTests]', all in a single
@@ -483,18 +529,17 @@ struct MiscOptions {
 /// \param[out]   cycles     If requested in 'options', will be populated with
 ///                          the cycles spent running the vertex.
 /// \param[out]   estimatedCycles If requested in 'options', will be populated
-///                               with the cycles estimatation for the vertex.
+///                               with the cycles estimation for the vertex.
 /// \return   number of FAILED tests.
 template <typename TestRecord>
 unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
-                  unsigned offs, unsigned numTests, const DeviceType deviceType,
-                  const MiscOptions &options, bool verbose, uint64_t &cycles,
-                  uint64_t &estimatedCycles) {
+                  unsigned offs, unsigned numTests,
+                  const DeviceType &deviceType, TestDevice &device,
+                  const Target &target, const MiscOptions &options,
+                  bool verbose, uint64_t &cycles, uint64_t &estimatedCycles) {
   // The name of the compute set where we run the vertex under test.
   const static std::string computeSetName = "vertexComputeSet";
 
-  TestDevice device = createTestDevice(deviceType, 1, options.numTiles);
-  Target target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
   ComputeSet alignCS = graph.addComputeSet("alignCS");
@@ -582,10 +627,50 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
 }
 
 //*************************************************************************
+// Creates the device, possibly adjusting the number of tiles and group
+// size inside 'options'.
+TestDevice setupDevice(const DeviceType deviceType, MiscOptions &options) {
+  // Default values for Sim and IpuModel
+  const unsigned DEFAULT_TILES = 4;
+  const unsigned DEFAULT_GROUP_SIZE = 400;
+  boost::optional<unsigned> requestedTilesPerIPU;
+  bool readNumTiles = false;
+  bool setGroupFromTiles = false;
+
+  if (isHw(deviceType)) {
+    // If it's an HW device and no specfic number of tiles/group size has
+    // been specified, we want to use all tiles (it's faster)
+    if (options.numTiles == 0) {
+      readNumTiles = true;
+      setGroupFromTiles = (options.groupTests == 0);
+    }
+  } else {
+    if (options.numTiles == 0) {
+      options.numTiles = DEFAULT_TILES;
+    }
+    requestedTilesPerIPU = options.numTiles;
+  }
+  if (!setGroupFromTiles && options.groupTests == 0) {
+    options.groupTests = DEFAULT_GROUP_SIZE;
+  }
+
+  TestDevice device = createTestDevice(deviceType, 1, requestedTilesPerIPU);
+
+  // If needed, now we can find out how many tiles are there on the device
+  if (readNumTiles) {
+    options.numTiles = device.getTarget().getTilesPerIPU();
+  }
+  if (setGroupFromTiles) {
+    options.groupTests = options.numTiles;
+  }
+  return device;
+}
+
+//*************************************************************************
 /// Compare the cycles used when running the vertex with the two specified
 /// devices. Prints result on standard output.
 ///
-/// \param[in] device              The 'main' device for which to run the test
+/// \param[in] deviceType          The 'main' device for which to run the test
 /// \param[in] test                Test record defining the specific vertex and
 ///                                operand(s) size.
 /// \param[in] options             Global options.
@@ -593,8 +678,8 @@ unsigned runTests(std::vector<std::shared_ptr<TestRecord>> &tests,
 /// \return true   if both run returned successfully and the difference is less
 ///                than 'compareThreshold' % of the run with the first device.
 template <typename TestRecord, typename VertexDesc>
-bool compareCycles(DeviceType device, std::shared_ptr<TestRecord> test,
-                   const MiscOptions &options) {
+bool compareCycles(DeviceType deviceType, std::shared_ptr<TestRecord> test,
+                   MiscOptions &options) {
   VertexDesc &vertex = *test->vertex;
 
   std::stringstream devName[2]; // Strings with the name of selected devices
@@ -606,31 +691,35 @@ bool compareCycles(DeviceType device, std::shared_ptr<TestRecord> test,
   std::vector<std::shared_ptr<TestRecord>> testVect = {test};
 
   // If was explicitly requested to compare with the "estimated" cycles, we can
-  // just run the test once, and get the both values.
+  // just run the test once, and get both values.
   if (options.cycleCompareDevice == estimatedStr) {
-    devName[0] << device;
+    devName[0] << deviceType;
     devName[1] << "estimated";
-    ok[0] = ok[1] = (runTests<TestRecord>(testVect, 0, 1, device, options,
-                                          false, cycles[0], cycles[1]) == 0);
+    TestDevice device = setupDevice(deviceType, options);
+    ok[0] = ok[1] = (runTests<TestRecord>(testVect, 0, 1, deviceType, device,
+                                          device.getTarget(), options, false,
+                                          cycles[0], cycles[1]) == 0);
   } else {
     // If an explicit device was specified for the comparison, run with the two
     // devices and get the cycles from both.
-    DeviceType compDevice;
+    DeviceType compDeviceType;
     std::istringstream is(*options.cycleCompareDevice);
-    is >> compDevice;
-    DeviceType devices[2] = {device, compDevice};
+    is >> compDeviceType;
+    DeviceType deviceTypes[2] = {deviceType, compDeviceType};
     for (unsigned i = 0; i < 2; i++) {
-      devName[i] << devices[i];
+      devName[i] << deviceTypes[i];
       uint64_t cyc = 0;
       uint64_t estimatedCyc = 0;
-      ok[i] = runTests<TestRecord>(testVect, 0, 1, devices[i], options, false,
-                                   cyc, estimatedCyc) == 0;
+      TestDevice device = setupDevice(deviceTypes[i], options);
+      ok[i] = runTests<TestRecord>(testVect, 0, 1, deviceTypes[i], device,
+                                   device.getTarget(), options, false, cyc,
+                                   estimatedCyc) == 0;
       if (!ok[i]) {
         std::cout << "Failed on device " << devName[i].str()
                   << " (see stderr)\n";
         return false;
       }
-      cycles[i] = isIpuModel(devices[i]) ? estimatedCyc : cyc;
+      cycles[i] = isIpuModel(deviceTypes[i]) ? estimatedCyc : cyc;
     }
   }
 
@@ -650,14 +739,14 @@ bool compareCycles(DeviceType device, std::shared_ptr<TestRecord> test,
 /// \param[inout] tests      A vector where to add the test. Could be 'nullopt'
 ///                          if we need to run the test straight away
 /// \param[in]    newTest    The new tests to add (or run)
-/// \param[in]    device     Device to run on
-/// \param[inout] errCount   If the test is run immediatley, will be increased
+/// \param[in]    deviceType Device to run on
+/// \param[inout] errCount   If the test is run immediately, will be increased
 ///                          by one if the test fails
 /// \param[in]    options    Global options.
 template <typename TestRecord, typename VertexDesc>
 void addOneTest(std::vector<std::shared_ptr<TestRecord>> &tests,
-                std::shared_ptr<TestRecord> newTest, DeviceType device,
-                unsigned &errCount, const MiscOptions &options) {
+                std::shared_ptr<TestRecord> newTest, DeviceType deviceType,
+                unsigned &errCount, MiscOptions &options) {
   // If:
   //   1. we are running a cycle comparison, or
   //   2. we have specfied to run test individually (groupTests == 1), or
@@ -666,17 +755,20 @@ void addOneTest(std::vector<std::shared_ptr<TestRecord>> &tests,
   // otherwise we add this test record to 'tests[]', to be run afterwards.
   if (options.cycleCompareDevice) {
     errCount +=
-        compareCycles<TestRecord, VertexDesc>(device, newTest, options) ? 0 : 1;
+        compareCycles<TestRecord, VertexDesc>(deviceType, newTest, options) ? 0
+                                                                            : 1;
   } else if (options.groupTests == 1 || options.printCycles) {
     std::vector<std::shared_ptr<TestRecord>> testVect = {newTest};
     uint64_t cycles;
     uint64_t estimatedCycles;
     bool verbose = !options.printCycles;
-    errCount += runTests(testVect, 0, 1, device, options, verbose, cycles,
-                         estimatedCycles);
+    TestDevice device = setupDevice(deviceType, options);
+    errCount += runTests(testVect, 0, 1, deviceType, device, device.getTarget(),
+                         options, verbose, cycles, estimatedCycles);
     if (options.printCycles) {
       std::cout << newTest->toString() << "  cycles:"
-                << (isIpuModel(device) ? estimatedCycles : cycles) << std::endl;
+                << (isIpuModel(deviceType) ? estimatedCycles : cycles)
+                << std::endl;
     }
   } else {
     tests.emplace_back(std::move(newTest));
@@ -696,7 +788,7 @@ void addOneTest(std::vector<std::shared_ptr<TestRecord>> &tests,
 template <typename TestRecord>
 void runAllTests(std::vector<std::shared_ptr<TestRecord>> &tests,
                  unsigned numTests, DeviceType deviceType, unsigned &errCount,
-                 const MiscOptions &options) {
+                 MiscOptions &options) {
   if (numTests == 0) {
     throw std::runtime_error("The specified vertex, operand(s) and data "
                              "type(s) do not match any valid combination");
@@ -707,13 +799,15 @@ void runAllTests(std::vector<std::shared_ptr<TestRecord>> &tests,
     // graph/ single CS, each test on a different tile. We limit grouping tests
     // on multiple tile to 'groupTests' because when running on the simulators,
     // if too many tiles are used, execution is slower.
+    TestDevice device = setupDevice(deviceType, options);
     unsigned offs = 0, n = numTests;
     while (n) {
       uint64_t cycles;
       uint64_t estimatedCycles;
       unsigned l = n > options.groupTests ? options.groupTests : n;
-      errCount += runTests(tests, offs, l, deviceType, options, true, cycles,
-                           estimatedCycles);
+      errCount +=
+          runTests(tests, offs, l, deviceType, device, device.getTarget(),
+                   options, true, cycles, estimatedCycles);
       offs += l;
       n -= l;
     }
@@ -741,14 +835,14 @@ void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
                       MiscOptions &options) {
   // clang-format off
   poDesc.add_options()
+    ("help", "Print help")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(DeviceType::Sim2),
      "Device type")
     ("align-start",
-     po::value<unsigned>(&options.alignStart)->
-                                              default_value(options.alignStart),
-     "Align all inputs and the output on the specified number of bytes. If the "
-     "vertex requires stricter aligment then specified, setting this will "
+     po::value<std::vector<unsigned>>(&options.startPadBytes)->multitoken(),
+     "Align all inputs and the output on a 8+N byte boundary. If the "
+     "vertex requires stricter alignment then specified, setting this will "
      "cause rearrangements, and overwrite detection won't work")
     ("cycles",
      po::value<bool>(&options.printCycles)->implicit_value(true),
@@ -783,16 +877,24 @@ void addCommonOptions(po::options_description &poDesc, DeviceType &deviceType,
      "Do not check correctness of result, useful for benchmarking without "
      "overhead of host-side computation")
     ("group-tests",
-     po::value<unsigned>(&options.groupTests)->implicit_value(400),
-     "Run multiple tests together in a single graph and single compute set to"
-     " decrease test time")
+     po::value<unsigned>(&options.groupTests)->
+                                             implicit_value(options.groupTests),
+     "Multiple tests will be run together to increase speed. Set to 1 to run "
+     "each test individually, to find which specific test is failing. Set to "
+     "0 to automatically select the fastest group size for Hw, Sim, IpuModel")
     ("num-tiles",
      po::value<unsigned>(&options.numTiles)->default_value(options.numTiles),
      "Maximum number of tiles to use for one batch of tests")
     ("print-buffers",
      po::value<bool>(&options.printBuffers)->implicit_value(true),
      "Print the input and output buffers")
-    ("help", "Print help")
+    ("fp8-scale",
+     po::value<int>(&options.fp8Scale)->implicit_value(options.fp8Scale),
+     "Exponent scale for fp8 type conversion")
+    ("fp8-format",
+     po::value<QuarterMetadata::Format >(&options.fp8Format)->
+                                              implicit_value(options.fp8Format),
+     "Format for fp8 type conversion")
     ;
   // clang-format on
 
@@ -1030,7 +1132,7 @@ struct TestOperand {
   Type type;
 
   // Total size (in elements, not bytes) of the rawBuf/tensor, after adding
-  // aligment & padding
+  // alignment & padding
   unsigned totalElems = 0;
 
   // In elements. This can be added at the very start (before the first row) to
@@ -1041,18 +1143,23 @@ struct TestOperand {
   /// Setup the offset and sizes relative to this operand
   ///
   /// \param[in] rowSz
-  /// \param[in] startPadBytes number of bytes to add at the start
+  /// \param[in] startPadBytes Number of bytes to add at the start. Might be
+  ///                          adjusted if is not a multiple of data size
+  /// \param[in] warnOnAdjust  Print/do not print a message if startPad needs
+  ///                          adjusting because of dataType size
   void setup(const Target &target, Type dataType,
-             const std::vector<unsigned> &rowSz, unsigned startPadBytes = 0) {
+             const std::vector<unsigned> &rowSz, unsigned &startPadBytes,
+             bool warnOnAdjust = true) {
     type = dataType;
     const unsigned typeSize = target.getTypeSize(type);
     startPad = startPadBytes / typeSize;
-    if ((startPadBytes % typeSize) != 0) {
+    if ((startPadBytes % typeSize) != 0 && warnOnAdjust) {
       std::cout << "Warning: start alignment of " << startPadBytes << " is not "
                 << "valid for type " << type.toString() << ". Alignment set to "
                 << startPad * typeSize << "\n";
     }
     startPad = startPadBytes / typeSize;
+    startPadBytes = startPad * typeSize;
 
     rowSizes = rowSz;
     unsigned numRows = rowSizes.size();

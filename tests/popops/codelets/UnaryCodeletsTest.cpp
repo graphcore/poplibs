@@ -247,8 +247,8 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   }
 
   // === Setup offsets for padding
-  test.in.setup(target, dataType, sizes, options.alignStart);
-  test.out.setup(target, outputType, sizes, options.alignStart);
+  test.in.setup(target, dataType, sizes, test.startPadBytes);
+  test.out.setup(target, outputType, sizes, test.startPadBytes);
 
   // === Allocate and initialise host buffers with appropriate values.
   std::vector<HostDataType> inHost(test.in.totalElems);
@@ -480,14 +480,16 @@ int main(int argc, char **argv) {
     if (vertexRE.empty() || std::regex_search(vertexName, vertexRegEx)) {
       for (auto op : operations) {
         for (auto type : dataTypes) {
-          for (auto sz : sizes) {
-            auto vertex = std::make_unique<VertexDesc>(vertexName, op, type);
-            if (isValidCombination(*vertex)) {
-              numTests++;
-              auto testRec = std::make_shared<TestRecord<VertexDesc>>(
-                  std::move(vertex), numTests, sz);
-              addOneTest<TestRecord<VertexDesc>, VertexDesc>(
-                  tests, testRec, deviceType, errCount, options);
+          auto vertex = std::make_shared<VertexDesc>(vertexName, op, type);
+          if (isValidCombination(*vertex)) {
+            for (auto sz : sizes) {
+              for (auto startPadBytes : options.startPadBytes) {
+                numTests++;
+                auto testRec = std::make_shared<TestRecord<VertexDesc>>(
+                    vertex, numTests, sz, startPadBytes);
+                addOneTest<TestRecord<VertexDesc>, VertexDesc>(
+                    tests, testRec, deviceType, errCount, options);
+              }
             }
           }
         }
