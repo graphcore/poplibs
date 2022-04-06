@@ -17,8 +17,9 @@ void calcPartialConvOutput(poplar::Graph &graph, const Plan &plan,
                            std::vector<poplar::program::Copy> &transformPre,
                            std::vector<poplar::Tensor> &copyWritten,
                            ConvProgramTree::ComputeSetsGroup &convolveCS,
-                           poplar::Tensor in, poplar::Tensor weights,
-                           poplar::Tensor out, bool use128BitConvUnitLoad,
+                           const poplar::Tensor &in,
+                           const poplar::Tensor &weights, poplar::Tensor out,
+                           bool use128BitConvUnitLoad,
                            bool disableSRForAMPVertices,
                            const poplar::DebugNameAndId &dnai);
 

@@ -1755,14 +1755,37 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
                            ConvParams params, std::vector<Copy> &transformPre,
                            std::vector<Tensor> &copyWritten,
                            ConvProgramTree::ComputeSetsGroup &convolveCS,
-                           Tensor in, Tensor weights, Tensor out,
-                           bool use128BitConvUnitLoad,
+                           const Tensor &in_, const Tensor &weights_,
+                           Tensor out, bool use128BitConvUnitLoad,
                            bool disableSRForAMPVertices,
                            const poplar::DebugNameAndId &dnai) {
   assert(params.getNumConvGroups() % plan.convGroupsPerGroup == 0);
   assert(params.getNumOutputChansPerConvGroup() % plan.partialChansPerGroup ==
          0);
   assert(params.getNumInputChansPerConvGroup() % plan.inChansPerGroup == 0);
+  assert(in_.elementType() != QUARTER ||
+         (in_.elementType() == QUARTER && weights_.elementType() == QUARTER));
+
+  auto castIfRequired = [&](const Tensor &t) {
+    if (t.elementType() == QUARTER &&
+        (plan.method.type() == typeid(poplin::Plan::Hmac) ||
+         plan.method.type() == typeid(poplin::Plan::Vmac))) {
+      if (!convolveCS.pre) {
+        convolveCS.pre = graph.addComputeSet({dnai, "PreMacCast"});
+      }
+      // Enforce mapping of cast result at the destination - on the tile
+      // that the convolution vertex is to be created
+      auto result =
+          graph.addVariable(HALF, t.shape(), {dnai, "castActsWeights"});
+      graph.setTileMapping(result, tile);
+      popops::cast(graph, t, result, convolveCS.pre.get());
+      return result;
+    } else {
+      return t;
+    }
+  };
+  auto in = castIfRequired(in_);
+  auto weights = castIfRequired(weights_);
 
   graph.setTileMapping(out, tile);
   in = splitActivationIntoGroups(in, plan.convGroupsPerGroup,

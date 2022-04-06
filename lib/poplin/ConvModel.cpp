@@ -179,6 +179,66 @@ makeConvSize(const std::vector<unsigned> &values,
   return convSize;
 }
 
+static popsolver::Variable addInputsCastEstimate(
+    popsolver::Model &m, const std::vector<unsigned> &fieldGrainSize,
+    const poplar::Target &target, const ConvVertexType &convVertexType,
+    const ConvSizeVariables &convSizeVars, const ConvParams &params) {
+
+  ConvSizeVariablesVector<popsolver::Variable> convSizeVarsVector(convSizeVars);
+
+  return m.call<unsigned>(
+      convSizeVarsVector,
+
+      [&target, convVertexType, fieldGrainSize,
+       params](const std::vector<unsigned> &values) -> popsolver::DataType {
+        const auto method = convVertexType.method;
+        const auto convGroupsPerGroup = convVertexType.convGroupsPerGroup;
+        const auto inChansPerGroup = convVertexType.inChansPerGroup;
+        const auto outChansPerGroup = convVertexType.partialChansPerGroup;
+
+        const auto convSize =
+            makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
+                         inChansPerGroup, outChansPerGroup);
+
+        const auto tileNumInGroups =
+            gccs::ceildiv(convSize.inChanSize, inChansPerGroup);
+        const auto tileNumConvGroups =
+            gccs::ceildiv(convSize.convGroupSize, convGroupsPerGroup);
+        const auto tileKernelElements = product(convSize.kernelSize);
+        const auto vertexInputType = convVertexType.inputType;
+        unsigned inFieldSize = 1;
+        for (unsigned i = 0; i < convSize.fieldSize.size(); i++) {
+          auto range =
+              getInputRange(i,
+                            {0, std::min(convSize.fieldSize[i],
+                                         unsigned(params.getOutputSize(i)))},
+                            params);
+          inFieldSize *= range.second;
+        }
+
+        auto castEstimate = [&](unsigned fieldSize, unsigned numInGroups,
+                                unsigned numConvGroups,
+                                unsigned inChansPerGroup) {
+          if (params.inputType == vertexInputType) {
+            return std::uint64_t{0};
+          }
+          auto numElements =
+              fieldSize * numInGroups * numConvGroups * inChansPerGroup;
+          return estimateCastCycles(numElements,
+                                    target.getVectorWidth(params.inputType),
+                                    target.getVectorWidth(vertexInputType),
+                                    target.getNumWorkerContexts());
+        };
+        const auto castActsCycles = castEstimate(
+            inFieldSize, tileNumInGroups, tileNumConvGroups, inChansPerGroup);
+        const auto castKernelCycles = castEstimate(
+            tileKernelElements, tileNumInGroups, 1, inChansPerGroup);
+
+        return popsolver::DataType(castActsCycles + castKernelCycles);
+      },
+      "inputsCastCycles");
+}
+
 static popsolver::Variable addPartialCalcCycleEstimate(
     popsolver::Model &m, const std::vector<unsigned> &fieldGrainSize,
     const ConvVertexType &convVertexType, const ConvSizeVariables &convSizeVars,
@@ -1624,11 +1684,11 @@ addDynamicUpdateEstimate(popsolver::Model &m, const poplar::Target &target,
                                  outputsType);
 }
 
-popsolver::Variable addCastEstimate(popsolver::Model &m,
-                                    const poplar::Target &target,
-                                    const popsolver::Variable outputsPerTile,
-                                    const PartitionVariables &tileSplits,
-                                    const std::vector<ConvTypes> &types) {
+popsolver::Variable
+addOutputCastEstimate(popsolver::Model &m, const poplar::Target &target,
+                      const popsolver::Variable outputsPerTile,
+                      const PartitionVariables &tileSplits,
+                      const std::vector<ConvTypes> &types) {
   assert(types.size() > 0);
   const auto numWorkers = target.getNumWorkerContexts();
   const auto partialsType = types.back().resultType;
@@ -1650,7 +1710,7 @@ popsolver::Variable addCastEstimate(popsolver::Model &m,
             estimateCastCycles(outputsPerTile, partialsVectorWidth,
                                resultVectorWidth, numWorkers)};
       },
-      "castCycles");
+      "outputCastCycles");
 }
 
 // estimation function for addInPlace accumulation of input-channel-serially
@@ -1854,6 +1914,10 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
                                      transformedConvSize, partitionVars,
                                      exchangeEstimator, convVertexType);
 
+  e.inputsCastCycles = addInputsCastEstimate(
+      m, intraTileSplits.fieldGrainSize, target, convVertexType,
+      transformedConvSize.back(), transformedOnceParams);
+
   e.partialCalcCycles = addPartialCalcCycleEstimate(
       m, intraTileSplits.fieldGrainSize, convVertexType,
       transformedConvSize.back(), transformedDims.back(), target,
@@ -1910,8 +1974,8 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
 
   // If input channel serial splits are used, casting is deferred until after
   // all serial splits have been processed.
-  e.castCycles =
-      addCastEstimate(m, target, outputsPerTile, intraTileSplits, types);
+  e.outputCastCycles =
+      addOutputCastEstimate(m, target, outputsPerTile, intraTileSplits, types);
 
   // Based on a combination of serial splits planner can decide to broadcast
   // input before convolution loop. Apply broadcastInputsInsideConvLoop and
@@ -1989,15 +2053,15 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
   // copy cycles and (inChanSplit.serial - 1) lots of addInPlaceCycles as
   // this is how we actually implement it. Cycles to Copy and addInPlace
   // should be similar however.
-  e.totalCycles =
-      m.sum({e.dynamicSliceCycles, e.totalTransformCopyCycles,
-             e.totalTransformExchangeCycles, e.totalExchangeCycles,
-             e.tileLevelTransformCycles, e.partialCalcCycles, e.reduceCycles,
-             e.dynamicUpdateCycles, e.addInPlaceCycles});
+  e.totalCycles = m.sum({e.dynamicSliceCycles, e.totalTransformCopyCycles,
+                         e.totalTransformExchangeCycles, e.totalExchangeCycles,
+                         e.tileLevelTransformCycles, e.inputsCastCycles,
+                         e.partialCalcCycles, e.reduceCycles,
+                         e.dynamicUpdateCycles, e.addInPlaceCycles});
   e.totalCycles = m.product({e.totalCycles, serialSplits});
   e.totalCycles = m.sum({e.totalCycles, e.broadcastInputBeforeLoopCopyCycles,
                          e.broadcastInputBeforeLoopExchangeCycles,
-                         e.rearrangeBeforeSliceCycles, e.castCycles});
+                         e.rearrangeBeforeSliceCycles, e.outputCastCycles});
 
   // take the total amount of temp bytes alive at the same time.
   e.totalTempBytes = m.sum(
@@ -2040,7 +2104,7 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
          posDiff(e.reduceCycles, c.reduceCycles),
          posDiff(e.dynamicUpdateCycles, c.dynamicUpdateCycles),
          posDiff(e.addInPlaceCycles, c.addInPlaceCycles),
-         posDiff(e.castCycles, c.castCycles)});
+         posDiff(e.outputCastCycles, c.outputCastCycles)});
   } else {
     e.totalPerStepCycleDiff = m.addConstant(popsolver::DataType::max());
   }

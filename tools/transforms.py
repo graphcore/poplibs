@@ -33,11 +33,12 @@ phases_dict = {'fwd':0, 'bwd':1, 'wu':2}
 # 16:52:46.800 55378 PL [D]    - transform: 33281 copy cycles, 9984 exchange cycles, 54784 bytes
 # 16:52:46.800 55378 PL [D]    - exchange: 8233 cycles, n/a bytes. (Input 4178, Weight 359, Reduce 3696 + 0)
 # 16:52:46.800 55378 PL [D]    - tile level transform: 0 cycles, 0 bytes
+# 16:52:46.800 55378 PL [D]    - inputs cast: 0 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - compute: 17338 cycles, 51072 bytes
 # 16:52:46.800 55378 PL [D]    - reduction: 3756 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - dynamic update: 0 cycles, unknown bytes
 # 16:52:46.800 55378 PL [D]    - add in-place: 0 cycles, 0 bytes
-# 16:52:46.800 55378 PL [D]    - cast: 0 cycles, 0 bytes
+# 16:52:46.800 55378 PL [D]    - output cast: 0 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - total: 30748 cycles, 51072 bytes
 re_planner_info = re.compile(r'^.+Found best plan using {"type":"([A-Z]+_?[A-Z]+?)".*}: Cost\{cycles=(\d+), memory=(\d+), tiles=(\d+)\}.' + NEW_LINE_CHAR +
                            ".+pass=([A-Z]+)_([A-Z]+)"  + NEW_LINE_CHAR +
@@ -50,11 +51,12 @@ re_planner_info = re.compile(r'^.+Found best plan using {"type":"([A-Z]+_?[A-Z]+
                           ".+transform:\s(\d+)\scopy\scycles,\s(\d+)\sexchange\scycles,\s(\d+)\sbytes\s\(input\s(\d+),\sweights\s(\d+).+" + NEW_LINE_CHAR +  #764 bytes (input 360, weights 22)
                           ".+exchange:\s(\d+).+Input\s(\d+),\sWeight\s(\d+),\sReduce\s(\d+)\s\+\s(\d+).+" + NEW_LINE_CHAR +
                           ".+tile level transform:\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+inputs cast:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+compute:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+reduction:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+dynamic update:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+add in-place:\s(\d+).+" + NEW_LINE_CHAR +
-                          ".+cast:\s(\d+).+$",
+                          ".+output cast:\s(\d+).+$",
                           re.MULTILINE)
 
 planner_info_fields_names = ['method', 'cost', 'memory', 'tiles', 'training', 'phase',
@@ -62,8 +64,8 @@ planner_info_fields_names = ['method', 'cost', 'memory', 'tiles', 'training', 'p
                  'broadcastBytes', 'rearrangeBeforeSlice', 'dynamicSlice', 'transformsCopyCycles',
                  'transformsExchangeCycles', 'transformsBytes', 'transformsCopyInputBytes',
                  'transformsCopyWeightsBytes', 'exchange', 'inputExchange', 'weightsExchange',
-                 'reduceExchange', 'reduceExchangePlus', 'tileTransforms', 'compute', 'reduce',
-                 'dynamicUpdate', 'addInPlace', 'cast']
+                 'reduceExchange', 'reduceExchangePlus', 'tileTransforms', 'castIn', 'compute', 'reduce',
+                 'dynamicUpdate', 'addInPlace', 'castOut']
 
 PlannerInfoFields = collections.namedtuple(
     'PlannerInfoFields', planner_info_fields_names

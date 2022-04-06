@@ -91,9 +91,8 @@ static void getConvVertexHMACCandidates(
     const ConvParams &params, const ConvOptions &options, bool isJointPlan,
     std::vector<ConvVertexType> &candidates) {
 
-  if (inputType == poplar::QUARTER) {
-    return;
-  }
+  const auto vertexInputType =
+      inputType == poplar::QUARTER ? poplar::HALF : inputType;
 
   const auto &planConstraints = options.planConstraints;
   const auto constrainedConvGroupsPerGroup =
@@ -105,7 +104,7 @@ static void getConvVertexHMACCandidates(
   const auto constrainedUseLimitedVersion =
       planConstraints.get_optional<bool>("method.useLimitedVersion");
 
-  bool floatActivations = inputType == poplar::FLOAT;
+  bool floatActivations = vertexInputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
   bool ampFloatPartials = floatPartials;
   auto numConvUnits =
@@ -182,8 +181,9 @@ static void getConvVertexHMACCandidates(
     // The HMAC vertex does not require a grouping of the conv groups.
     const unsigned convGroupsPerGroup = 1;
 
-    candidates.emplace_back(method, inputType, partialType, convGroupsPerGroup,
-                            inChansPerGroup, partialChansPerGroup);
+    candidates.emplace_back(method, vertexInputType, partialType,
+                            convGroupsPerGroup, inChansPerGroup,
+                            partialChansPerGroup);
     previousInChanGroups = inChanGroups;
   }
 }
@@ -194,15 +194,13 @@ static void getConvVertexVMACCandidates(
     const ConvParams &params, const ConvOptions &options, bool isJointPlan,
     std::vector<ConvVertexType> &candidates) {
 
-  if (inputType == poplar::QUARTER) {
-    return;
-  }
-
+  const auto vertexInputType =
+      inputType == poplar::QUARTER ? poplar::HALF : inputType;
   const auto &planConstraints = options.planConstraints;
   const auto constrainedConvGroupsPerGroup =
       planConstraints.get_optional<popsolver::DataType>("convGroupsPerGroup");
 
-  bool floatActivations = inputType == poplar::FLOAT;
+  bool floatActivations = vertexInputType == poplar::FLOAT;
 
   // Assembly version only available for half activations and float partials
   if (floatActivations) {
@@ -212,7 +210,7 @@ static void getConvVertexVMACCandidates(
   // Special exception for CPU target, where vector width is identified
   // differently for half types but our vertices assume half is 2 bytes
   // and vector width is 64-bits.
-  if (!floatActivations && target.getTypeSize(inputType) != 2) {
+  if (!floatActivations && target.getTypeSize(vertexInputType) != 2) {
     return;
   }
 
@@ -220,7 +218,7 @@ static void getConvVertexVMACCandidates(
   // channel.
   unsigned inChansPerGroup = 1;
   unsigned partialChansPerGroup = 1;
-  auto vectorWidth = target.getVectorWidth(inputType);
+  auto vectorWidth = target.getVectorWidth(vertexInputType);
   const unsigned actsPer64Bits = floatActivations ? 2u : 4u;
   std::vector<unsigned> convGroupsPerGroupCandidates = {vectorWidth};
   while (vectorWidth > actsPer64Bits) {
@@ -245,7 +243,7 @@ static void getConvVertexVMACCandidates(
       continue;
     }
 
-    candidates.emplace_back(Plan::Vmac{}, inputType, partialType,
+    candidates.emplace_back(Plan::Vmac{}, vertexInputType, partialType,
                             convGroupsPerGroup, inChansPerGroup,
                             partialChansPerGroup);
   }

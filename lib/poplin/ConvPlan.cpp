@@ -451,11 +451,12 @@ getCostOfSolution(const popsolver::Solution &s,
       s[e.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles];
 
   cost.tileLevelTransformCycles = s[e.tileLevelTransformCycles];
+  cost.inputsCastCycles = s[e.inputsCastCycles];
   cost.partialCalcCycles = s[e.partialCalcCycles];
   cost.reduceCycles = s[e.reduceCycles];
   cost.dynamicUpdateCycles = s[e.dynamicUpdateCycles];
   cost.addInPlaceCycles = s[e.addInPlaceCycles];
-  cost.castCycles = s[e.castCycles];
+  cost.outputCastCycles = s[e.outputCastCycles];
 
   cost.broadcastInputBeforeLoopTempBytes =
       s[e.broadcastInputBeforeLoopTempBytes];
@@ -980,6 +981,8 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
     logging::poplin::log(l, "{} - tile level transform: {} cycles, {} bytes",
                          prefix, passCost.tileLevelTransformCycles,
                          passCost.tileLevelTransformTempBytes);
+    logging::poplin::log(l, "{} - inputs cast: {} cycles, 0 bytes", prefix,
+                         passCost.inputsCastCycles, 0);
     logging::poplin::log(l, "{} - compute: {} cycles, {} bytes", prefix,
                          passCost.partialCalcCycles, passCost.convTempBytes);
     logging::poplin::log(l, "{} - reduction: {} cycles, {} bytes", prefix,
@@ -991,8 +994,8 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                          passCost.addInPlaceTempBytes);
     // The tensor generated on the final cast is not considered as part of the
     // temporary memory for the purposes of the Conv Planner.
-    logging::poplin::log(l, "{} - cast: {} cycles, 0 bytes", prefix,
-                         passCost.castCycles, 0);
+    logging::poplin::log(l, "{} - output cast: {} cycles, 0 bytes", prefix,
+                         passCost.outputCastCycles, 0);
     logging::poplin::log(l, "{} - total: {} cycles, {} bytes", prefix,
                          passCost.totalCycles, passCost.totalTempBytes);
   };

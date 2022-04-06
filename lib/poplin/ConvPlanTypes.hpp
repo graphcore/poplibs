@@ -127,11 +127,12 @@ template <typename T> struct SinglePassEstimates {
   ExchangeEstimates<T> itemisedExchangeCycles;
 
   T tileLevelTransformCycles;
+  T inputsCastCycles;
   T partialCalcCycles;
   T reduceCycles;
   T dynamicUpdateCycles;
   T addInPlaceCycles;
-  T castCycles;
+  T outputCastCycles;
 
   T broadcastInputBeforeLoopTempBytes;
   T rearrangeBeforeSliceTempBytes;
@@ -216,7 +217,7 @@ inline SinglePassCost maxPerStepCycles(SinglePassCost a,
   a.dynamicUpdateCycles =
       std::max(a.dynamicUpdateCycles, b.dynamicUpdateCycles);
   a.addInPlaceCycles = std::max(a.addInPlaceCycles, b.addInPlaceCycles);
-  a.castCycles = std::max(a.castCycles, b.castCycles);
+  a.outputCastCycles = std::max(a.outputCastCycles, b.outputCastCycles);
 
   return a;
 }
