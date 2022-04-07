@@ -126,7 +126,13 @@ multiSlice(const DeviceType &deviceType, const unsigned numIPUs,
   std::vector<char> rawHOut(target.getTypeSize(dataType) * hOut.numElements());
 
   copy(target, indices, indicesType, rawOffsets.data());
-  copy(target, hIn, dataType, rawHIn.data());
+
+  // Type QUARTER is copied as UNSIGNED_CHAR because poplar_test copy
+  // functions do not yet support copying data of type QUARTER.
+  // T57103: This work around in poplibs must be removed after QUARTER
+  // support has been added to poplar_test copy functions.
+  Type dataTypeForCopy = (dataType == QUARTER) ? UNSIGNED_CHAR : dataType;
+  copy(target, hIn, dataTypeForCopy, rawHIn.data());
 
   // Engine creation will fail for non-cpu targets if many edge pointers or
   // significant exchange is required; this should not happen if
@@ -146,7 +152,7 @@ multiSlice(const DeviceType &deviceType, const unsigned numIPUs,
     eng.readTensor("out", rawHOut.data(), rawHOut.data() + rawHOut.size());
   });
 
-  copy(target, dataType, rawHOut.data(), hOut);
+  copy(target, dataTypeForCopy, rawHOut.data(), hOut);
   bool matches = true;
   for (unsigned g = 0; g != groupSize; ++g) {
     for (unsigned i = 0; i != numIndices; ++i) {
@@ -292,10 +298,17 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
   MultiArray<float> scalingF{1};
   scalingF[0] = updateScaling;
 
-  copy(target, scalingF, scaleTensorType, rawScaleIn.data());
+  // Type QUARTER is copied as UNSIGNED_CHAR because poplar_test copy
+  // functions do not yet support copying data of type QUARTER.
+  // T57103: This work around in poplibs must be removed after QUARTER
+  // support has been added to poplar_test copy functions.
+  Type dataTypeForCopy = (dataType == QUARTER) ? UNSIGNED_CHAR : dataType;
+  Type scaleTensorTypeForCopy =
+      (scaleTensorType == QUARTER) ? UNSIGNED_CHAR : scaleTensorType;
+  copy(target, scalingF, scaleTensorTypeForCopy, rawScaleIn.data());
   copy(target, indices, indicesType, rawOffsets.data());
-  copy(target, hIn, dataType, rawIn.data());
-  copy(target, hOut, dataType, rawOut.data());
+  copy(target, hIn, dataTypeForCopy, rawIn.data());
+  copy(target, hOut, dataTypeForCopy, rawOut.data());
 
   Engine eng(graph, prog, engineOptions);
   device.bind([&](const Device &d) {
@@ -311,7 +324,7 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
     eng.run();
     eng.readTensor("outT", rawOut.data(), rawOut.data() + rawOut.size());
   });
-  copy(target, dataType, rawOut.data(), hOut);
+  copy(target, dataTypeForCopy, rawOut.data(), hOut);
 
   for (unsigned g = 0; g != groupSize; ++g) {
     for (unsigned i = 0; i != numIndices; ++i) {
@@ -418,7 +431,7 @@ int main(int argc, char **argv) {
     ("partial-type",
      po::value<boost::optional<Type>>(&opts.partialType)
       ->default_value(boost::none),
-     "Partials type (defaults to data type ")     
+     "Partials type (defaults to data type ")
     ("device-type",
      po::value<DeviceType>(&opts.deviceType)->default_value(opts.deviceType),
      deviceTypeHelp)
