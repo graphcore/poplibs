@@ -257,23 +257,22 @@ runFastSlowPathBinaryTests(short "BITWISE_AND;BITWISE_OR" "short;ushort")
 #-----------------------------------------------------------------------------
 
 
-# TODO: This test started failing fix and re-enable (T60270)
-## Test cycle counters for a subset of Unary and Binary operators/types. These
-## combinations are run by C++ vertices, and the compiler generates RPT loops
-## for them. This test verifies if this is the case by checking that the cycles
-## taken when run by Sim are the same as the cycle estimators. For details of
-## the test, see the --compare-cycles option of UnaryCodeletsTest/
-## BinaryCodeletsTest
-#add_multitarget_test(
-#  NAME "RptLoopCycleTest_binary_float_half"
-#  COMMAND BinaryCodeletsTest
-#          --vertex "BinaryOp1D"
-#          --operation "maximum;minimum"
-#          --data-type "float;half"
-#          --size 2500
-#          --compare-cycles
-#          --cycle-threshold 3
-#  VARIANTS ${SIM_VARIANTS})
+# Test cycle counters for a subset of Unary and Binary operators/types. These
+# combinations are run by C++ vertices, and the compiler generates RPT loops
+# for them. This test verifies if this is the case by checking that the cycles
+# taken when run by Sim are the same as the cycle estimators. For details of
+# the test, see the --compare-cycles option of UnaryCodeletsTest/
+# BinaryCodeletsTest
+add_multitarget_test(
+  NAME "RptLoopCycleTest_binary_float_half"
+  COMMAND BinaryCodeletsTest
+          --vertex "BinaryOp1D"
+          --operation "maximum;minimum"
+          --data-type "float;half"
+          --size 2500
+          --compare-cycles
+          --cycle-threshold 3
+  VARIANTS ${SIM_VARIANTS})
 
 # This run tests on all the vertices of the 'ScaledAdd' family, checking for
 # overruns at the end of the data
