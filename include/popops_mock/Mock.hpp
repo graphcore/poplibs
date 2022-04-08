@@ -4,14 +4,13 @@
 
 #include <gmock/gmock.h>
 #include <popops/ElementWise.hpp>
+#include <popops/ElementWiseUtil.hpp>
 #include <popops/codelets.hpp>
 
 namespace popops_mock {
 
 class MockPopops {
 public:
-  // ElementWise.hpp
-
   MOCK_METHOD(void, mapInPlace,
               (::poplar::Graph &, const ::popops::expr::Expr &,
                const std::vector<::poplar::Tensor> &,
@@ -27,9 +26,9 @@ public:
                const std::vector<::poplar::Tensor> &, const ::poplar::Tensor &,
                ::poplar::program::Sequence &, const ::poplar::DebugContext &,
                const ::poplar::OptionFlags &));
-
-  // codelets.hpp
-
+  MOCK_METHOD(::poplar::Tensor, createOutputForElementWiseOp,
+              (::poplar::Graph &, const std::vector<::poplar::Tensor> &,
+               const ::poplar::Type &, const ::poplar::DebugContext &));
   MOCK_METHOD(void, addCodelets, (::poplar::Graph &));
 };
 
