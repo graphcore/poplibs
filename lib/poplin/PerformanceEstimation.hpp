@@ -26,7 +26,7 @@ inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations) {
   return floatActivations ? 58 : 63;
 }
 
-inline static std::uint64_t convNx1Overhead() { return 103; }
+inline static std::uint64_t convNx1Overhead() { return 109; }
 
 // Number of worker cycle savings if state retention is used.
 // The first entry is the total savings and the second is
@@ -50,7 +50,7 @@ conv1x1WorkerRetentionSavings(unsigned numConvUnits) {
 inline static std::uint64_t
 convnx1WorkerRetentionSavings(bool /*floatActivations */,
                               bool /*floatPartials */) {
-  return 9;
+  return 6;
 }
 
 inline static std::uint64_t convnx1WorkerRetentionSavings() { return 0; }
@@ -753,7 +753,7 @@ static std::uint64_t inline getConvPartialnx1WorkerCycles(
   }
 
   // Cycles between worker start and <PartitionLoop> label
-  std::uint64_t cycles = 16 + (floatPartials ? 0 : 1);
+  std::uint64_t cycles = 15 + (floatPartials ? 0 : 1);
   for (auto &numElems : worklist) {
     // cost of construct second tripack pointer and special stride
     cycles += 3;

@@ -22,6 +22,28 @@
 
 // =============================================================================
 
+// Worklist partition fields: must match the order of entries in worklists
+#define PARTITION_ELEM_BYTES            2
+#define PARTITION_OUTOFFSET             0    // short
+#define PARTITION_NUM_ELEMS             2    // short
+#define PARTITION_INOFFSET              4    // short
+#define PARTITION_SIZE                 ((PARTITION_INOFFSET + PARTITION_ELEM_BYTES)/PARTITION_ELEM_BYTES)
+
+
+// DeltaN decoding constants
+#if defined(VECTORLIST_AVAIL_DELTAN)
+#define DELTAN_OFFSET_BITS       18
+#define DELTAN_COUNT_BITS        14
+#define ELEM_TO_BYTES_CONV       0
+#else
+#define DELTAN_OFFSET_BITS       20
+#define DELTAN_COUNT_BITS        (32 - DELTAN_OFFSET_BITS)
+#define ELEM_TO_BYTES_CONV       (21 - DELTAN_OFFSET_BITS)
+#endif
+
+// =============================================================================
+
+
 // Supervisor vertex state: offsets and the number must match vertex field
 // ordering and sizes
 #if defined(VECTORLIST_AVAIL_DELTAN)
@@ -252,6 +274,14 @@ st32          $temp_7_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_Y_M1)/4
 st32          $in_row_stride_s, $wkr_base, WKR_SECOND_PTR_OFFSET/4
 st32          $zero_info_s_z, $wkr_base, WKR_ZERO_INFO/4
 ldz16         $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/2
+
+// move pointer back by 1 partition as we address from the last partition down to
+// the first in the worker. Moving the address down by 1 partition helps in
+// offset addressing and using the partition offset as an effective counter in
+// the partition loop.
+sub           $partition_ptr_b_s, $partition_ptr_b_s, PARTITION_SIZE * PARTITION_ELEM_BYTES
+// We could schedule this to avoid the penalty here but would require a lot
+// of rescheduling
 st32          $partition_ptr_b_s, $wkr_base, WKR_PARTITION_BASE/4
 
 #if defined(VECTORLIST_AVAIL_DELTAN)
