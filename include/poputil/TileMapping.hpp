@@ -83,6 +83,23 @@ calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t,
  * in a graph.
  *
  * The indices of the flattened tensor are mapped from low to high
+ * tile numbers.
+ *
+ * \param graph     The graph to calculate the mapping for.
+ * \param t         The tensor to be mapped.
+ * \param minElementsPerTile
+ *                  The minimum number of tensor elements to be allocated to a
+ *                  tile.
+ * \param grainSize The number of elements mapped to each tile will be an
+ *                  integer multiple of the grain size.
+ */
+void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
+                       unsigned minElementsPerTile, unsigned grainSize);
+
+/** Map the specified tensor, spreading the tensor evenly over the tiles
+ * in a graph.
+ *
+ * The indices of the flattened tensor are mapped from low to high
  * tile numbers, however offset and direction can be specified.
  *
  * \param graph     The graph to calculate the mapping for.
@@ -95,14 +112,11 @@ calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t,
  * \param offset    The offset to the first tile used for mapping
  * \param ascendingOrder
  *                  If true, the first tile used = offset and tiles are
- *                  allocated in increasing order
+ *                  allocated in increasing order.
  *                  If false, the
  *                  first tile used = (number of device tiles -1 - offset) and
- *                  tiles are allocated in decreasing order
+ *                  tiles are allocated in decreasing order.
  */
-void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t,
-                       unsigned minElementsPerTile, unsigned grainSize);
-
 void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
                                  unsigned minElementsPerTile,
                                  unsigned grainSize, unsigned offset,
@@ -112,7 +126,7 @@ void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
  * in a graph.
  *
  * The indices of the flattened tensor are mapped from low to high
- * tile numbers, however offset and direction can be specified.
+ * tile numbers.
  *
  * In this case the elements are distributed so that groups of elements of the
  * device's natural vector width will not be split. It effectively sets the
@@ -129,22 +143,54 @@ void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
  *
  * \param graph     The graph to add the operation to.
  * \param t         The tensor to be mapped.
- * \param offset    The offset to the first tile used for mapping
- * \param ascendingOrder
- *                  If true, the first tile used = offset and tiles are
- *                  allocated in increasing order
- *                  If false, the
- *                  first tile used = (number of device tiles -1 - offset) and
- *                  tiles are allocated in decreasing order
  */
 void mapTensorLinearly(poplar::Graph &graph, const poplar::Tensor &t);
 
+/** Map the specified tensor, spreading the tensor evenly over the tiles
+ * in a graph.
+ *
+ * The indices of the flattened tensor are mapped from low to high
+ * tile numbers, however offset and direction can be specified.
+ * In this case the elements are distributed so that groups of elements of the
+ * device's natural vector width will not be split. It effectively sets the
+ * grain size to the natural vector width for the data type. This means the
+ * number of elements on each tile will be a multiple of the natural vector
+ * width and the index of the first element is aligned to the natural vector
+ * width.
+ *
+ * The natural vector width is the largest vector width supported in hardware
+ * for arithmetic operations on that data type.
+ *
+ * It will also try to keep at least 128 bytes of data on each tile to avoid
+ * high exchange costs.
+ *
+ * \param graph     The graph to calculate the mapping for.
+ * \param t         The tensor to be mapped.
+ * \param offset    The offset to the first tile used for mapping.
+ * \param ascendingOrder
+ *                  If true, the first tile used = offset and tiles are
+ *                  allocated in increasing order.
+ *                  If false, the
+ *                  first tile used = (number of device tiles -1 - offset) and
+ *                  tiles are allocated in decreasing order.
+ */
 void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
-                                 unsigned startTile = 0,
+                                 unsigned offset = 0,
                                  bool ascendingOrder = true);
 
-/** Choose a offset for use with tensor mapping functions using a hash of the
- * shape provided with the seed provided.
+/** Choose an offset for use with tensor mapping functions using a hash of the
+ * shape provided.
+ *
+ *  \param numTiles      The number of tiles of the intended target device.
+ *  \param shape         The shape to produce a hash of.
+ *
+ *  \returns             The selected offset in the range 0 to numTiles - 1
+ **/
+std::size_t chooseMappingOffset(std::size_t numTiles,
+                                const std::vector<std::size_t> &shape);
+
+/** Choose an offset for use with tensor mapping functions using a hash of the
+ * shape, and a seed.
  *
  *  \param numTiles      The number of tiles of the intended target device.
  *  \param shape         The shape to produce a hash of.
@@ -152,9 +198,6 @@ void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
  *
  *  \returns             The selected offset in the range 0 to numTiles - 1
  **/
-std::size_t chooseMappingOffset(std::size_t numTiles,
-                                const std::vector<std::size_t> &shape);
-
 std::size_t chooseMappingOffset(std::size_t numTiles,
                                 const std::vector<std::size_t> &shape,
                                 std::size_t seed);
@@ -208,12 +251,36 @@ class TensorUseTracker {
   std::unique_ptr<TensorUseTrackerState> st;
 
 public:
+  /** Constructor for the TensorUseTracker class.
+   *
+   *  \param numTiles  The number of tiles to track data use of.
+   *  \param startTile The tile to start tracking data use on.
+   *  \param ascendingMappingOrder
+   *                   If true, the first tile used = startTile and tiles are
+   *                   allocated in increasing order.
+   *                   If false, the first tile used = (number of device tiles
+   * -1
+   *                   - startTile) and tiles are allocated in decreasing order.
+   */
   TensorUseTracker(unsigned numTiles, unsigned startTile = 0,
                    bool ascendingMappingOrder = true);
+
+  /** Constructor for the TensorUseTracker class.
+   */
   TensorUseTracker(const TensorUseTracker &other);
+
+  /** Default constructor for the TensorUseTracker class.
+   */
   TensorUseTracker(TensorUseTracker &&other);
+
+  /** Assignment operator for the TensorUseTracker class.
+   */
   TensorUseTracker &operator=(const TensorUseTracker &other);
+
+  /** Default assignment operator for the TensorUseTracker class.
+   */
   TensorUseTracker &operator=(TensorUseTracker &&other);
+
   enum class MappingMethod {
     /// Map "halo regions" to single tiles. These are regions that are used by
     /// multiple tiles but have neighbouring regions used by subsets of those
@@ -228,9 +295,12 @@ public:
     /// No mapping method used.
     None
   };
+
+  /** Destructor for the TensorUserTracker class
+   */
   ~TensorUseTracker();
 
-  /** Add a data use case.
+  /** Add a case of data usage.
    *
    *  \param graph  The Poplar graph being tracked.
    *  \param tile   The tile that the use occurs on.
@@ -238,21 +308,23 @@ public:
    */
   void add(const poplar::Graph &graph, unsigned tile, const poplar::Tensor &t);
 
-  /** Add data use cases from another tracker.
+  /** Add cases of data usage from another tracker.
    *
-   *  \param other The \c TensorUseTracker to merge data use information from.
+   *  \param other The \c TensorUseTracker to merge data usage information from.
    */
   void add(TensorUseTracker other);
 
-  /** Resolve data uses for mapping. Data used on multiple tiles
-   *  will have their uses spread across those tiles.
+  /** Resolve data usage for mapping.
+   *
+   *  Data used on multiple tiles will have their usage spread across those
+   *  tiles.
    *
    *  \param graph                The Poplar graph being tracked.
    *  \param grainSize            The number of elements mapped to each tile
    *                              will be an integer multiple of the grain size.
    *  \param minElementsPerTile   The minimum number of elements that must be
    *                              mapped to a tile.
-   *  \param extendPartialUsage   When set, partial uses of tensors will be
+   *  \param extendPartialUsage   When set, partial usage of tensors will be
    *                              extended to cover the entire tensor, based
    *                              on the usage of neighbouring regions.
    *  \param mappingMethod        Method used for mapping elements.
@@ -265,7 +337,7 @@ public:
   /** Map data according to use.
    *
    *  This function will set the tile mapping of variable regions based on
-   *  tracked data uses. Variable regions with uses on multiple tiles will have
+   *  tracked data use. Variable regions with usage on multiple tiles will have
    *  their elements spread across those tiles.
    *
    *  \param graph                The Poplar graph being tracked.
@@ -273,7 +345,7 @@ public:
    *                              will be an integer multiple of the grain size.
    *  \param minElementsPerTile   The minimum number of elements that must be
    *                              mapped to a tile.
-   *  \param extendPartialUsage   When set, partial uses of tensors will be
+   *  \param extendPartialUsage   When set, partial use of tensors will be
    *                              extended to cover the entire tensor, based
    *                              on the usage of neighbouring regions before
    *                              mapping.
@@ -285,8 +357,10 @@ public:
                        TensorUseTracker::MappingMethod mappingMethod =
                            TensorUseTracker::MappingMethod::None);
 
-  /** Have any use cases been registered.
-   * \return True if no data use cases, false otherwise
+  /** Check if any cases of data usage have been registered.
+  *
+   * \return If true, no cases have been registered. If false,
+             cases have been registered.
    */
   bool empty() const;
 };
@@ -453,12 +527,12 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
  * \param ascendingOrder
  *                  Mapping order before the transform takes place:
  *                  If true, the first tile used = offset and tiles are
- *                  allocated in increasing order
+ *                  allocated in increasing order.
  *                  If false, the
  *                  first tile used = (number of device tiles -1 - offset) and
- *                  tiles are allocated in decreasing order
+ *                  tiles are allocated in decreasing order.
  *
- * \returns Transformed tile number
+ * \returns Transformed tile number.
  */
 
 unsigned transformTileIndex(unsigned tile, unsigned numTiles, unsigned offset,
@@ -474,10 +548,10 @@ unsigned transformTileIndex(unsigned tile, unsigned numTiles, unsigned offset,
  * \param ascendingOrder
  *                  Mapping order after the transform takes place:
  *                  If true, the first tile used = offset and tiles are
- *                  allocated in increasing order
+ *                  allocated in increasing order.
  *                  If false, the
  *                  first tile used = (number of device tiles -1 - offset) and
- *                  tiles are allocated in decreasing order
+ *                  tiles are allocated in decreasing order.
  *
  * \returns Transformed tile number
  */
