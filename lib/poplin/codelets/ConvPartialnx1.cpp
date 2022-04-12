@@ -265,7 +265,7 @@ public:
       auto outPtr = state->outChanPtr + workListPtr[0] * outputVectorWidth;
       auto inPtr = state->inChanPtr + workListPtr[2] * inputVectorWidth;
       workListPtr += 3;
-      convQuarterHalfLoop(inPtr, outPtr, loops, state->strides);
+      convQuarterHalfLoop<false>(inPtr, outPtr, loops, state->strides);
     }
     return true;
   }
@@ -402,6 +402,7 @@ public:
       for (unsigned og = 0; og != numOutGroups; ++og) {
         workerMemZeroState.outPtr = &out[cg * numOutGroups + og][0];
         RUN_ALL("__runCodelet_poplin__WorkerMemZero", &workerMemZeroState);
+        // No need to sync until next time we want to run
       }
     }
 
@@ -413,9 +414,9 @@ public:
       for (unsigned og = 0; og < numOutGroups; ++og) {
         workerState.outChanPtr = &out[cg * numOutGroups + og][0];
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
-          workerState.partitionList = reinterpret_cast<unsigned *>(
-              *(wlStatePtr + 1) & DELTAN_OFFSET_MASK);
-
+          auto partitionList = reinterpret_cast<unsigned *>(*(wlStatePtr + 1) &
+                                                            DELTAN_OFFSET_MASK);
+          workerState.partitionList = partitionList;
           const auto &w = weights[cg * numOutGroups * numInGroups +
                                   ig * numOutGroups + (numOutGroups - 1 - og)];
 
@@ -428,19 +429,22 @@ public:
                                            kernelInnerElements *
                                            outChansPerGroup * inChansPerGroup +
                                        kx * outChansPerGroup * inChansPerGroup;
-
+              // Don't change weights or workerState until synced
+              syncWorkers();
               ampLoadWeights<use128BitLoad, numConvUnits>(&w[weightIndex]);
               workerState.inChanPtr = &in[cg * numInGroups + ig][0];
+              workerState.partitionList = partitionList;
 
               RUN_ALL("__runCodelet_poplin__WorkerClassNx1___unsigned_short_16",
                       &workerState)
               // Advance for the next loop
-              workerState.partitionList += CTXT_WORKERS;
+              partitionList += CTXT_WORKERS;
             }
           }
         }
       }
     }
+    syncWorkers();
     return true;
   }
 };

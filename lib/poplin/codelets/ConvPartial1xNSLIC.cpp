@@ -353,6 +353,7 @@ public:
     const unsigned numConvGroupGroups = numConvGroupGroupsM1 + 1;
 
     for (unsigned cg = 0; cg < numConvGroupGroups; ++cg) {
+      workerState.inChanPtr = &in[cg][0];
       // Partials input read / output write alternate between a buffer and
       // the true output.  Pick the starting state, which will result in the
       // final output being written to the true output
@@ -363,10 +364,12 @@ public:
                                 ? &out[cg][0]
                                 : &outFieldBuffer[outFieldBufferOffset];
       for (unsigned kg = 0; kg < numSubKernels; ++kg) {
+        const auto &w = weights[cg * numSubKernels + kg];
+        // Don't change weights or workerState until synced
+        syncWorkers();
         workerState.noImplicitZero = kg;
         workerState.outChanPtr = currOutBuffer;
         workerState.partialsChanPtr = lastOutBuffer;
-        const auto &w = weights[cg * numSubKernels + kg];
 
         workerState.partitionList =
             reinterpret_cast<unsigned *>(*(wlStatePtr + 1) &
@@ -374,7 +377,6 @@ public:
             kg * CTXT_WORKERS;
 
         slicLoadWeights<false, 16>(&w[0]);
-        workerState.inChanPtr = &in[cg][0];
         if constexpr (outStride == 1) {
           RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_short_1_16",
                   &workerState);
@@ -382,9 +384,14 @@ public:
           RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_short_2_16",
                   &workerState);
         }
-        std::swap(lastOutBuffer, currOutBuffer);
+        // Using swap would result in a function call here which isn't worth
+        // the overhead
+        const auto tempPtr = lastOutBuffer;
+        lastOutBuffer = currOutBuffer;
+        currOutBuffer = tempPtr;
       }
     }
+    syncWorkers();
     return true;
   }
 };

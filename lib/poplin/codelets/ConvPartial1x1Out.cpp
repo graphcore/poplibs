@@ -192,28 +192,10 @@ public:
     auto inPtr = state->inChanPtr +
                  state->partition[partitionOffset + 2] * inputVectorWidth;
     if (state->firstTime) {
-      asm volatile(
-          R"l(
-            .align 8
-            mov $m0, %[wrPtr]
-            rpt %[loops], (2f - 1f) / 8 - 1
-            1:
-              {st64step $azeros, $mzero, $m0+=, 1
-               fnop}
-              {st64step $azeros, $mzero, $m0+=, 1
-               fnop}
-              {st64step $azeros, $mzero, $m0+=, 1
-               fnop}
-              {st64step $azeros, $mzero, $m0+=,%[inOutStrides]
-               fnop}
-            2:
-          )l"
-          :
-          : [wrPtr] "r"(outPtr), [loops] "r"(loops),
-            [inOutStrides] "r"(state->inOutStrides)
-          : "$m0", "memory");
+      convQuarterHalfLoop<true>(inPtr, outPtr, loops, state->strides);
+      return true;
     }
-    convQuarterHalfLoop(inPtr, outPtr, loops, state->strides);
+    convQuarterHalfLoop<false>(inPtr, outPtr, loops, state->strides);
     return true;
   }
 };
@@ -275,27 +257,29 @@ public:
     // Stride for memory initialisation
     workerState.inOutStrides = flipOut ? -1 * (numConvUnits >> 1) + 1 : 1;
 
-    auto inStride = (transformedInStride - 1) *
-                    CONV_UNIT_INPUT_LOAD_ELEMS_HALF / inChansPerGroup;
+    auto inStride = (transformedInStride + 1) / 2;
     // Strides for use with tapack
-    workerState.strides = packStrides(
-        (1 + 4 * inStride), workerState.inOutStrides & NUM_STRIDE_BITS_MASK);
+    workerState.strides =
+        packStrides(inStride, workerState.inOutStrides & NUM_STRIDE_BITS_MASK);
 
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {
         workerState.outChanPtr = &out[cg * numOutGroups + og][0];
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
-          workerState.inChanPtr = &in[cg * numInGroups + ig][0];
           const auto *w =
               &weights[cg * numOutGroups * numInGroups + ig * numOutGroups +
                        (numOutGroups - 1 - og)][0];
+          // Don't change weights or workerState until synced
+          syncWorkers();
           ampLoadWeights<use128BitLoad, numConvUnits>(w);
           workerState.firstTime = (ig == 0);
+          workerState.inChanPtr = &in[cg * numInGroups + ig][0];
           RUN_ALL("__runCodelet_poplin__WorkerClass1x1___unsigned_short_16",
                   &workerState)
         }
       }
     }
+    syncWorkers();
     return true;
   }
 };

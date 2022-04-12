@@ -7,11 +7,9 @@ static __attribute__((always_inline)) void
 slicLoadWeights(const quarter *weights) {}
 
 template <> void slicLoadWeights<false, 16>(const quarter *weights) {
+  __builtin_ipu_put(reinterpret_cast<unsigned>(weights), CSR_S_CCCSLOAD__INDEX);
 
   asm volatile(
-      R"l(
-             put $CCCSLOAD, %[weights]
-      )l"
       // Last processing block (closest to the output)
       // Select using TSLIC_F16V4_1x4_W0
       R"l(
