@@ -8,184 +8,252 @@
 // Flag value for rounding mode
 #define TFPU_ROUND_ZERO 3
 
+enum class TemplateInstructions {
+  f32toi32,
+  f32toui32,
+  f32v4tof16,
+  f16v8tof8,
+  f16v2tof32,
+  f8v4tof16
+};
+
 // Optimized pipelined processing for multiple of 4 elements
 // UNSIGNED_CHAR => HALF
-#define CAST_UCHAR_HALF_LOOP(STRIDE)                                           \
-  asm volatile("brnzdec     %[loopCount], 3f\n"                                \
-               "bri         4f \n"                                             \
-               ".align 8\n"                                                    \
-               " nop\n"                                                        \
-               "3:\n"                                                          \
-               " ldz16step   $m0, $mzero, %[inPtr]+=, 1\n"                     \
-               " shuf8x8lo   $m0, $m0, $mzero\n"                               \
-               " st32        $m0, $mzero, %[outPtr], 0\n"                      \
-               " ld32        $a4, $mzero, %[outPtr], 0\n"                      \
-               " {ldz16step   $m0, $mzero, %[inPtr]+=,2*" STRIDE "-1\n"        \
-               " sort4x16lo  $a0, $a4, $azero }\n"                             \
-               "\n"                                                            \
-               " rpt         %[loopCount],((2f-1f)/8)-1\n"                     \
-               "1:\n"                                                          \
-               "{shuf8x8lo   $m0, $m0, $mzero\n"                               \
-               " sort4x16hi  $a1, $a4, $azero }\n"                             \
-               "{st32        $m0, $mzero, %[outPtr], 0\n"                      \
-               " f32fromui32 $a0, $a0       }\n"                               \
-               "{ld32        $a4, $mzero, %[outPtr], 0\n"                      \
-               " f32fromui32 $a1, $a1       }\n"                               \
-               "{ldz16step   $m0, $mzero, %[inPtr]+=, 1\n"                     \
-               " sort4x16lo  $a2, $a4, $azero }\n"                             \
-               "{shuf8x8lo   $m0, $m0, $mzero\n"                               \
-               " sort4x16hi  $a3, $a4, $azero }\n"                             \
-               "{st32        $m0, $mzero, %[outPtr], 0\n"                      \
-               " f32fromui32 $a2, $a2       }\n"                               \
-               "{ld32        $a4, $mzero, %[outPtr], 0\n"                      \
-               " f32fromui32 $a3, $a3       }\n"                               \
-               "{ldz16step   $m0, $mzero, %[inPtr]+=,2*" STRIDE "-1\n"         \
-               "f32v4tof16  $a0:1, $a0:3   }\n"                                \
-               "{st64step    $a0:1, $mzero, %[outPtr]+=," STRIDE "\n"          \
-               " sort4x16lo  $a0, $a4, $azero }\n"                             \
-               "2:\n"                                                          \
-               " {shuf8x8lo   $m0, $m0, $mzero\n"                              \
-               " sort4x16hi  $a1, $a4, $azero }\n"                             \
-               " {st32        $m0, $mzero, %[outPtr], 0\n"                     \
-               " f32fromui32 $a0, $a0       }\n"                               \
-               "{ld32        $a4, $mzero, %[outPtr], 0\n"                      \
-               " f32fromui32 $a1, $a1       }\n"                               \
-               " sort4x16lo  $a2, $a4, $azero\n"                               \
-               " sort4x16hi  $a3, $a4, $azero\n"                               \
-               " f32fromui32 $a2, $a2\n"                                       \
-               " f32fromui32 $a3, $a3\n"                                       \
-               " f32v4tof16  $a0:1, $a0:3\n"                                   \
-               " st64step    $a0:1, $mzero, %[outPtr]+=," STRIDE "\n"          \
-               "4:\n"                                                          \
-               : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr),             \
-                 [outPtr] "+r"(outPtr)                                         \
-               :                                                               \
-               : "$m0", "$a0:1", "$a2:3", "$a4", "memory");
+template <unsigned stride>
+static __attribute__((always_inline)) void
+castUCharHalfLoop(const unsigned char *inPtr, half *outPtr,
+                  unsigned loopCount) {
+  asm volatile(
+      R"l(
+              brnzdec     %[loopCount], 3f
+              bri         4f
+            .align 8
+              nop
+            3:
+              ldz16step   $m0, $mzero, %[inPtr]+=, 1
+              shuf8x8lo   $m0, $m0, $mzero
+              st32        $m0, $mzero, %[outPtr], 0
+              ld32        $a4, $mzero, %[outPtr], 0
+              {ldz16step   $m0, $mzero, %[inPtr]+=,2* %[STRIDE] -1
+              sort4x16lo  $a0, $a4, $azero }
+
+              rpt         %[loopCount],((2f-1f)/8)-1
+            1:
+              {shuf8x8lo   $m0, $m0, $mzero
+               sort4x16hi  $a1, $a4, $azero }
+              {st32        $m0, $mzero, %[outPtr], 0
+               f32fromui32 $a0, $a0       }
+              {ld32        $a4, $mzero, %[outPtr], 0
+               f32fromui32 $a1, $a1       }
+              {ldz16step   $m0, $mzero, %[inPtr]+=, 1
+               sort4x16lo  $a2, $a4, $azero }
+              {shuf8x8lo   $m0, $m0, $mzero
+               sort4x16hi  $a3, $a4, $azero }
+              {st32        $m0, $mzero, %[outPtr], 0
+               f32fromui32 $a2, $a2       }
+              {ld32        $a4, $mzero, %[outPtr], 0
+               f32fromui32 $a3, $a3       }
+              {ldz16step   $m0, $mzero, %[inPtr]+=,2* %[STRIDE] -1
+              f32v4tof16  $a0:1, $a0:3   }
+              {st64step    $a0:1, $mzero, %[outPtr]+=, %[STRIDE]
+               sort4x16lo  $a0, $a4, $azero }
+            2:
+              {shuf8x8lo   $m0, $m0, $mzero
+               sort4x16hi  $a1, $a4, $azero }
+              {st32        $m0, $mzero, %[outPtr], 0
+               f32fromui32 $a0, $a0       }
+              {ld32        $a4, $mzero, %[outPtr], 0
+               f32fromui32 $a1, $a1       }
+              sort4x16lo  $a2, $a4, $azero
+              sort4x16hi  $a3, $a4, $azero
+              f32fromui32 $a2, $a2
+              f32fromui32 $a3, $a3
+              f32v4tof16  $a0:1, $a0:3
+              st64step    $a0:1, $mzero, %[outPtr]+=, %[STRIDE]
+            4:
+             )l"
+      : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
+      : [STRIDE] "i"(stride)
+      : "$m0", "$a0:1", "$a2:3", "$a4", "memory");
+}
 
 // Optimized pipelined processing for multiple of 4 elements
 // HALF => UCHAR or SCHAR
-#define CAST_HALF_UCHAR_SCHAR_LOOP(STRIDE)                                     \
-  asm volatile("brnzdec     %[loopCount], 3f\n"                                \
-               "bri         4f \n"                                             \
-               ".align 8\n"                                                    \
-               "3:\n"                                                          \
-               " // Prologue (fill)\n"                                         \
-               " ld64step    $a4:5, $mzero, %[inPtr]+=," STRIDE "\n"           \
-               " f16v2tof32  $a0:1, $a4\n"                                     \
-               " f32clamp    $a0, $a0, %[limits]\n"                            \
-               " f32clamp    $a1, $a1, %[limits]\n"                            \
-               " f32int     $a0, $a0, %[ROUNDING_MODE]\n"                      \
-               " f32int     $a1, $a1, %[ROUNDING_MODE]\n"                      \
-               " f32toi32   $a0, $a0\n"                                        \
-               " {add        %[loopCount], %[loopCount], -1\n"                 \
-               " f32toi32   $a1, $a1}\n"                                       \
-               " \n"                                                           \
-               " // Main pipelined loop over blocks of 4 elements\n"           \
-               " {brneg      %[loopCount], 5f\n"                               \
-               " sort4x16lo  $a0, $a0, $a1}\n"                                 \
-               "6:\n"                                                          \
-               " {atom        $m0, $a0\n"                                      \
-               " f16v2tof32  $a2:3, $a5}\n"                                    \
-               " f32clamp    $a2, $a2, %[limits]\n"                            \
-               " f32clamp    $a3, $a3, %[limits]\n"                            \
-               " f32int $a2, $a2, %[ROUNDING_MODE]\n"                          \
-               " f32int $a3, $a3, %[ROUNDING_MODE]\n"                          \
-               " f32toi32   $a2, $a2\n"                                        \
-               " f32toi32   $a3, $a3\n"                                        \
-               " {ld64step    $a4:5, $mzero, %[inPtr]+=," STRIDE "\n"          \
-               " sort4x16lo  $a2, $a2, $a3}\n"                                 \
-               "\n"                                                            \
-               " {atom        $m1, $a2\n"                                      \
-               " f16v2tof32  $a0:1, $a4}\n"                                    \
-               " {sort8x8lo   $m0, $m0, $m1\n"                                 \
-               " f32clamp    $a0, $a0, %[limits]}\n"                           \
-               " {st32step    $m0, $mzero, %[outPtr]+=," STRIDE "\n"           \
-               "  f32clamp    $a1, $a1, %[limits]}\n"                          \
-               "  f32int $a0, $a0, %[ROUNDING_MODE]\n"                         \
-               " f32int $a1, $a1, %[ROUNDING_MODE]\n"                          \
-               " f32toi32  $a0, $a0\n"                                         \
-               " f32toi32   $a1, $a1\n"                                        \
-               " {brnzdec     %[loopCount], 6b\n"                              \
-               " sort4x16lo  $a0, $a0, $a1}\n"                                 \
-               "5:\n"                                                          \
-               "  // Epilogue (drain)\n"                                       \
-               " {atom        $m0, $a0\n"                                      \
-               " f16v2tof32  $a2:3, $a5}\n"                                    \
-               " f32clamp    $a2, $a2, %[limits]\n"                            \
-               " f32clamp    $a3, $a3, %[limits]\n"                            \
-               " f32int $a2, $a2, %[ROUNDING_MODE]\n"                          \
-               " f32int $a3, $a3, %[ROUNDING_MODE]\n"                          \
-               " f32toi32   $a2, $a2\n"                                        \
-               " f32toi32   $a3, $a3\n"                                        \
-               " sort4x16lo  $a2, $a2, $a3\n"                                  \
-               " atom        $m1, $a2\n"                                       \
-               " sort8x8lo   $m0, $m0, $m1\n"                                  \
-               " st32step    $m0, $mzero, %[outPtr]+=," STRIDE "\n"            \
-               "4:\n"                                                          \
-               : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr),             \
-                 [outPtr] "+r"(outPtr)                                         \
-               : [limits] "r"(limits), [ROUNDING_MODE] "i"(TFPU_ROUND_ZERO)    \
-               : "$m0", "$m1", "$a0:1", "$a2:3", "$a4:5", "memory");
+template <typename T, unsigned stride>
+static __attribute__((always_inline)) void
+castHalfUCharSCharLoop(const half *inPtr, T *outPtr, unsigned loopCount,
+                       float2 limits) {
+  asm volatile(
+      R"l(
+               brnzdec     %[loopCount], 3f
+               bri         4f
+               .align 8
+               3:
+                // Prologue (fill)
+                ld64step    $a4:5, $mzero, %[inPtr]+=,  %[STRIDE]
+                f16v2tof32  $a0:1, $a4
+                f32clamp    $a0, $a0, %[limits]
+                f32clamp    $a1, $a1, %[limits]
+                f32int     $a0, $a0, %[ROUNDING_MODE]
+                f32int     $a1, $a1, %[ROUNDING_MODE]
+                f32toi32   $a0, $a0
+                {add        %[loopCount], %[loopCount], -1
+                f32toi32   $a1, $a1}
 
+                // Main pipelined loop over blocks of 4 elements
+                {brneg      %[loopCount], 5f
+                sort4x16lo  $a0, $a0, $a1}
+               6:
+                {atom        $m0, $a0
+                f16v2tof32  $a2:3, $a5}
+                f32clamp    $a2, $a2, %[limits]
+                f32clamp    $a3, $a3, %[limits]
+                f32int $a2, $a2, %[ROUNDING_MODE]
+                f32int $a3, $a3, %[ROUNDING_MODE]
+                f32toi32   $a2, $a2
+                f32toi32   $a3, $a3
+                {ld64step    $a4:5, $mzero, %[inPtr]+=, %[STRIDE]
+                sort4x16lo  $a2, $a2, $a3}
+
+                {atom        $m1, $a2
+                f16v2tof32  $a0:1, $a4}
+                {sort8x8lo   $m0, $m0, $m1
+                f32clamp    $a0, $a0, %[limits]}
+                {st32step    $m0, $mzero, %[outPtr]+=, %[STRIDE]
+                 f32clamp    $a1, $a1, %[limits]}
+                 f32int $a0, $a0, %[ROUNDING_MODE]
+                f32int $a1, $a1, %[ROUNDING_MODE]
+                f32toi32  $a0, $a0
+                f32toi32   $a1, $a1
+                {brnzdec     %[loopCount], 6b
+                sort4x16lo  $a0, $a0, $a1}
+               5:
+                 // Epilogue (drain)
+                {atom        $m0, $a0
+                f16v2tof32  $a2:3, $a5}
+                f32clamp    $a2, $a2, %[limits]
+                f32clamp    $a3, $a3, %[limits]
+                f32int $a2, $a2, %[ROUNDING_MODE]
+                f32int $a3, $a3, %[ROUNDING_MODE]
+                f32toi32   $a2, $a2
+                f32toi32   $a3, $a3
+                sort4x16lo  $a2, $a2, $a3
+                atom        $m1, $a2
+                sort8x8lo   $m0, $m0, $m1
+                st32step    $m0, $mzero, %[outPtr]+=, %[STRIDE]
+               4:
+           )l"
+      : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
+      : [limits] "r"(limits), [ROUNDING_MODE] "i"(TFPU_ROUND_ZERO),
+        [STRIDE] "i"(stride)
+      : "$m0", "$m1", "$a0:1", "$a2:3", "$a4:5", "memory");
+}
 // Optimized pipelined processing for multiple of 4 elements
 // FLOAT => HALF or HALF => QUARTER
-#define CAST_FP_DEMOTE_LOOP(STRIDE, INSTRUCTION)                               \
-  asm volatile("    brnzdec   %[loopCount], 3f\n"                              \
-               "    bri       4f\n"                                            \
-               ".align 8\n"                                                    \
-               "3:\n"                                                          \
-               "  ld64step $a0:1, $mzero, %[inPtr]+=,1\n"                      \
-               "  ld64step $a2:3, $mzero, %[inPtr]+=,2*" STRIDE "-1\n"         \
-               "  tapack $m0:1, %[inPtr], $mzero, %[outPtr]\n"                 \
-               "  ld64step $azeros, $mzero, %[inPtr]+=,1\n"                    \
-               "  mul $m2, %[loopCount], " STRIDE "* 8\n"                      \
-               "  add %[outPtr], %[outPtr], $m2\n"                             \
-               "  setzi $m2, (2*" STRIDE ")<<10 | " STRIDE "\n"                \
-               "  rpt %[loopCount], (2f-1f)/8 -1;"                             \
-               "1:\n"                                                          \
-               "      {ld64step $a2:3, $mzero, %[inPtr]+=,2*" STRIDE "\n"      \
-               "     " INSTRUCTION " $a0:1, $a0:3}\n"                          \
-               "      {ldst64pace $a0:1, $a0:1, $m0:1+=, $m2, 6\n"             \
-               "       fnop}\n"                                                \
-               "2:\n"                                                          \
-               "  " INSTRUCTION " $a2:3, $a0:3\n"                              \
-               "    st64step $a2:3, $mzero, %[outPtr]+=," STRIDE "\n"          \
-               "4:\n"                                                          \
-               : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr),             \
-                 [outPtr] "+r"(outPtr)                                         \
-               :                                                               \
-               : "$m0", "$m1", "$m2", "$a0:1", "$a2:3", "memory");
+template <typename SrcType, typename DstType, TemplateInstructions instruction,
+          unsigned stride>
+static __attribute__((always_inline)) void
+castFpDemoteLoop(const SrcType *inPtr, DstType *outPtr, unsigned loopCount) {
+  if constexpr (instruction == TemplateInstructions::f32v4tof16) {
+    asm volatile(
+        R"l(.macro cast OPERANDS:vararg
+            f32v4tof16 \OPERANDS
+         .endm
+        )l" ::
+            :);
+  } else if constexpr (instruction == TemplateInstructions::f16v8tof8) {
+    asm volatile(
+        R"l(.macro cast OPERANDS:vararg
+            f16v8tof8 \OPERANDS
+         .endm
+        )l" ::
+            :);
+  }
+  asm volatile(
+      R"l(
+          brnzdec   %[loopCount], 3f
+          bri       4f
+        .align 8
+        3:
+          ld64step $a0:1, $mzero, %[inPtr]+=,1
+          ld64step $a2:3, $mzero, %[inPtr]+=,2* %[STRIDE] -1
+          tapack $m0:1, %[inPtr], $mzero, %[outPtr]
+          ld64step $azeros, $mzero, %[inPtr]+=,1
+          mul $m2, %[loopCount], %[STRIDE] * 8
+          add %[outPtr], %[outPtr], $m2
+          setzi $m2, (2*  %[STRIDE])<<10 | %[STRIDE]
+          rpt %[loopCount], (2f-1f)/8 -1
+        1:
+            {ld64step $a2:3, $mzero, %[inPtr]+=,2* %[STRIDE]
+              cast $a0:1, $a0:3}
+            {ldst64pace $a0:1, $a0:1, $m0:1+=, $m2, 6
+              fnop}
+        2:
+          cast $a2:3, $a0:3
+          st64step $a2:3, $mzero, %[outPtr]+=, %[STRIDE]
+        4:
+
+        // Remove the macro so it can be redefined later
+        .purgem cast
+    )l"
+      : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
+      : [STRIDE] "i"(stride)
+      : "$m0", "$m1", "$m2", "$a0:1", "$a2:3", "memory");
+}
 
 // Optimized pipelined processing for multiple of 4 elements
 // HALF => FLOAT or QUARTER => HALF
-#define CAST_FP_PROMOTE_LOOP(STRIDE, INSTRUCTION)                              \
-  asm volatile("    brnzdec   %[loopCount], 3f\n"                              \
-               "    bri       4f\n"                                            \
-               ".align 8\n"                                                    \
-               "3:\n"                                                          \
-               "  ld64step $a0:1, $mzero, %[inPtr]+=," STRIDE "\n"             \
-               "  tapack $m0:1, %[inPtr], $mzero, %[outPtr]\n"                 \
-               "  mul $m2, %[loopCount], 16*" STRIDE "\n"                      \
-               "  add %[inPtr], %[outPtr], $m2\n"                              \
-               "  ld64step $azeros, $mzero, %[outPtr]+=,1\n"                   \
-               "  setzi $m2, 2*" STRIDE " | (" STRIDE "<<10)\n"                \
-               "  {rpt %[loopCount], (2f-1f)/8 -1;"                            \
-               " " INSTRUCTION " $a2:3, $a0}\n"                                \
-               "1:\n"                                                          \
-               "      {ldst64pace $a0:1, $a2:3, $m0:1+=, $m2, 6\n"             \
-               "     " INSTRUCTION " $a2:3, $a1}\n"                            \
-               "      {st64step $a2:3, $mzero, %[outPtr]+=,2*" STRIDE "\n"     \
-               "     " INSTRUCTION " $a2:3, $a0}\n"                            \
-               "2:\n"                                                          \
-               "    {st64step $a2:3, $mzero, %[inPtr]+=,1\n"                   \
-               "   " INSTRUCTION " $a0:1, $a1}\n"                              \
-               "    st64step $a0:1, $mzero, %[inPtr]+=," STRIDE "\n"           \
-               "4:\n"                                                          \
-               : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr),             \
-                 [outPtr] "+r"(outPtr)                                         \
-               :                                                               \
-               : "$m0", "$m1", "$m2", "$a0:1", "$a2:3", "memory");
+template <typename SrcType, typename DstType, TemplateInstructions instruction,
+          unsigned stride>
+static __attribute__((always_inline)) void
+castFpPromoteLoop(const SrcType *inPtr, DstType *outPtr, unsigned loopCount) {
+  if constexpr (instruction == TemplateInstructions::f16v2tof32) {
+    asm volatile(
+        R"l(.macro cast OPERANDS:vararg
+            f16v2tof32 \OPERANDS
+         .endm
+        )l" ::
+            :);
+  } else if constexpr (instruction == TemplateInstructions::f8v4tof16) {
+    asm volatile(
+        R"l(.macro cast OPERANDS:vararg
+            f8v4tof16 \OPERANDS
+         .endm
+        )l" ::
+            :);
+  }
+  asm volatile(
+      R"l(
+        brnzdec   %[loopCount], 3f
+            bri       4f
+        .align 8
+        3:
+          ld64step $a0:1, $mzero, %[inPtr]+=, %[STRIDE]
+          tapack $m0:1, %[inPtr], $mzero, %[outPtr]
+          mul $m2, %[loopCount], 16* %[STRIDE]
+          add %[inPtr], %[outPtr], $m2
+          ld64step $azeros, $mzero, %[outPtr]+=,1
+          setzi $m2, 2* %[STRIDE]  | ( %[STRIDE] <<10)
+          {rpt %[loopCount], (2f-1f)/8 -1;
+           cast $a2:3, $a0}
+        1:
+          {ldst64pace $a0:1, $a2:3, $m0:1+=, $m2, 6
+            cast $a2:3, $a1}
+          {st64step $a2:3, $mzero, %[outPtr]+=,2* %[STRIDE]
+            cast $a2:3, $a0}
+        2:
+          {st64step $a2:3, $mzero, %[inPtr]+=,1
+            cast $a0:1, $a1}
+          st64step $a0:1, $mzero, %[inPtr]+=, %[STRIDE]
+        4:
 
+        // remove the macro so it can be redefined later
+        .purgem cast
+    )l"
+      : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
+      : [STRIDE] "i"(stride)
+      : "$m0", "$m1", "$m2", "$a0:1", "$a2:3", "memory");
+}
 template <typename SrcType, typename DstType, bool charToFPType,
           unsigned stride>
 class inLineAssemblerCast {
@@ -197,39 +265,24 @@ public:
   }
 };
 
-template <> class inLineAssemblerCast<const float *, half *, false, 1> {
+template <unsigned stride>
+class inLineAssemblerCast<const float *, half *, false, stride> {
 public:
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const float *inPtr, half *outPtr) {
-    CAST_FP_DEMOTE_LOOP(STR(1), "f32v4tof16")
+    castFpDemoteLoop<float, half, TemplateInstructions::f32v4tof16, stride>(
+        inPtr, outPtr, loopCount);
     return;
   }
 };
 
-template <> class inLineAssemblerCast<const half *, float *, false, 1> {
+template <unsigned stride>
+class inLineAssemblerCast<const half *, float *, false, stride> {
 public:
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const half *inPtr, float *outPtr) {
-    CAST_FP_PROMOTE_LOOP(STR(1), "f16v2tof32")
-    return;
-  }
-};
-template <>
-class inLineAssemblerCast<const float *, half *, false, CTXT_WORKERS> {
-public:
-  static __attribute__((always_inline)) void
-  loopBody(unsigned loopCount, const float *inPtr, half *outPtr) {
-    CAST_FP_DEMOTE_LOOP(STR(CTXT_WORKERS), "f32v4tof16")
-    return;
-  }
-};
-
-template <>
-class inLineAssemblerCast<const half *, float *, false, CTXT_WORKERS> {
-public:
-  static __attribute__((always_inline)) void
-  loopBody(unsigned loopCount, const half *inPtr, float *outPtr) {
-    CAST_FP_PROMOTE_LOOP(STR(CTXT_WORKERS), "f16v2tof32")
+    castFpPromoteLoop<half, float, TemplateInstructions::f16v2tof32, stride>(
+        inPtr, outPtr, loopCount);
     return;
   }
 };
@@ -298,11 +351,7 @@ public:
                                                       const half *inPtr,
                                                       DstType *outPtr,
                                                       float2 limits) {
-    if constexpr (stride == CTXT_WORKERS) {
-      CAST_HALF_UCHAR_SCHAR_LOOP(STR(CTXT_WORKERS))
-    } else {
-      CAST_HALF_UCHAR_SCHAR_LOOP(STR(1))
-    }
+    castHalfUCharSCharLoop<DstType, stride>(inPtr, outPtr, loopCount, limits);
     return;
   }
 };
@@ -351,11 +400,7 @@ public:
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const unsigned char *inPtr, half *outPtr,
            float2 limits) {
-    if constexpr (stride == CTXT_WORKERS) {
-      CAST_UCHAR_HALF_LOOP(STR(CTXT_WORKERS))
-    } else {
-      CAST_UCHAR_HALF_LOOP(STR(1))
-    }
+    castUCharHalfLoop<stride>(inPtr, outPtr, loopCount);
     return;
   }
 };
@@ -382,11 +427,8 @@ public:
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const half *inPtr, quarter *outPtr,
            float2 metadata0, float2 metadata1) {
-    if constexpr (stride == CTXT_WORKERS) {
-      CAST_FP_DEMOTE_LOOP(STR(CTXT_WORKERS), "f16v8tof8")
-    } else {
-      CAST_FP_DEMOTE_LOOP(STR(1), "f16v8tof8")
-    }
+    castFpDemoteLoop<half, quarter, TemplateInstructions::f16v8tof8, stride>(
+        inPtr, outPtr, loopCount);
     return;
   }
 };
@@ -411,54 +453,97 @@ public:
   static __attribute__((always_inline)) void
   loopBody(unsigned loopCount, const quarter *inPtr, half *outPtr,
            float2 metadata0, float2 metadata1) {
-    if constexpr (stride == CTXT_WORKERS) {
-      CAST_FP_PROMOTE_LOOP(STR(CTXT_WORKERS), "f8v4tof16")
-    } else {
-      CAST_FP_PROMOTE_LOOP(STR(1), "f8v4tof16")
-    }
+    castFpPromoteLoop<quarter, half, TemplateInstructions::f8v4tof16, stride>(
+        inPtr, outPtr, loopCount);
     return;
   }
 };
 
-#define CAST_QUARTER_TO_INT8(INSTRUCTION)                                      \
-  asm volatile("   ldb8 $a0, $mzero, %[in], 0 \n"                              \
-               "   f8v2tof16 $a0, $a0 \n"                                      \
-               "   f16tof32 $a0, $a0 \n"                                       \
-               " " INSTRUCTION " $a0, $a0 \n"                                  \
-               "   atom %[result], $a0 \n"                                     \
-               : [result] "=r"(result)                                         \
-               : [in] "r"(in)                                                  \
-               : "$a0");
+template <TemplateInstructions instruction>
+static __attribute__((always_inline)) unsigned
+castQuarterToInt8(const quarter *in) {
+  unsigned result;
+  if constexpr (instruction == TemplateInstructions::f32toi32) {
+    asm volatile(
+        R"l(.macro cast OPERANDS:vararg
+            f32toi32 \OPERANDS
+         .endm
+        )l" ::
+            :);
+  } else if constexpr (instruction == TemplateInstructions::f32toui32) {
+    asm volatile(
+        R"l(.macro cast OPERANDS:vararg
+            f32toui32 \OPERANDS
+         .endm
+        )l" ::
+            :);
+  }
+  asm volatile(
+      R"l(
+        ldb8 $a0, $mzero, %[in], 0
+        f8v2tof16 $a0, $a0
+        f16tof32 $a0, $a0
+        cast $a0, $a0
+        atom %[result], $a0
 
-#define CAST_QUARTER_TO_INT8_V4(INSTRUCTION)                                   \
-  asm volatile("f8v4tof16  $a0:1, %[in]\n"                                     \
-               "   f16v2tof32 $a2:3, $a0\n"                                    \
-               " " INSTRUCTION " $a2, $a2\n"                                   \
-               " " INSTRUCTION " $a3, $a3\n"                                   \
-               "   f16v2tof32 $a0:1, $a1\n"                                    \
-               " " INSTRUCTION "  $a0, $a0\n"                                  \
-               " " INSTRUCTION "  $a1, $a1\n"                                  \
-               "   sort4x16lo $a0, $a0, $a1\n"                                 \
-               "   sort4x16lo $a2, $a2, $a3\n"                                 \
-               "   sort8x8lo  %[out], $a2, $a0\n"                              \
-               : [out] "=r"(out)                                               \
-               : [in] "r"(in)                                                  \
-               : "$a0:1", "$a2:3");
+        // Remove macro definition to avoid later re-definition
+        .purgem cast
+        )l"
+      : [result] "=r"(result)
+      : [in] "r"(in)
+      : "$a0");
+  return result;
+}
+
+template <TemplateInstructions instruction>
+static __attribute__((always_inline)) float
+castQuarterToInt8V4(const float in) {
+  float out;
+  if constexpr (instruction == TemplateInstructions::f32toi32) {
+    asm volatile(
+        R"l(.macro cast OPERANDS:vararg
+            f32toi32 \OPERANDS
+         .endm
+        )l" ::
+            :);
+  } else if constexpr (instruction == TemplateInstructions::f32toui32) {
+    asm volatile(
+        R"l(.macro cast OPERANDS:vararg
+            f32toui32 \OPERANDS
+         .endm
+        )l" ::
+            :);
+  }
+  asm volatile(
+      R"l(
+         f8v4tof16  $a0:1, %[in]
+         f16v2tof32 $a2:3, $a0
+         cast $a2, $a2
+         cast $a3, $a3
+         f16v2tof32 $a0:1, $a1
+         cast $a0, $a0
+         cast $a1, $a1
+         sort4x16lo $a0, $a0, $a1
+         sort4x16lo $a2, $a2, $a3
+         sort8x8lo  %[out], $a2, $a0
+
+         .purgem cast
+  )l"
+      : [out] "=r"(out)
+      : [in] "r"(in)
+      : "$a0:1", "$a2:3");
+  return out;
+}
 
 template <unsigned stride>
 class inLineAssemblerCast<const quarter *, char *, true, stride> {
 public:
   static __attribute__((always_inline)) char
   singleCast(const quarter *in, float2 metadata0, float2 metadata1) {
-    unsigned result;
-    CAST_QUARTER_TO_INT8("f32toi32")
-    return result;
+    return castQuarterToInt8<TemplateInstructions::f32toi32>(in);
   }
   static __attribute__((always_inline)) float vectorCast4(const float in) {
-    float out;
-    CAST_QUARTER_TO_INT8_V4("f32toi32")
-
-    return out;
+    return castQuarterToInt8V4<TemplateInstructions::f32toi32>(in);
   }
 
   static __attribute__((always_inline)) void
@@ -481,15 +566,10 @@ class inLineAssemblerCast<const quarter *, unsigned char *, true, stride> {
 public:
   static __attribute__((always_inline)) unsigned char
   singleCast(const quarter *in, float2 metadata0, float2 metadata1) {
-    unsigned result;
-    CAST_QUARTER_TO_INT8("f32toui32")
-    return result;
+    return castQuarterToInt8<TemplateInstructions::f32toui32>(in);
   }
   static __attribute__((always_inline)) float vectorCast4(const float in) {
-    float out;
-    CAST_QUARTER_TO_INT8_V4("f32toui32")
-
-    return out;
+    return castQuarterToInt8V4<TemplateInstructions::f32toui32>(in);
   }
 
   static __attribute__((always_inline)) void
