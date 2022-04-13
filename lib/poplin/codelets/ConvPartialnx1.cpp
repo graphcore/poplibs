@@ -89,8 +89,8 @@ public:
   const UnsignedType numConvGroupsM1;
   // The number of kernel elements we accumulate across within the AMP unit
   const UnsignedType ampKernelHeightM1;
-  // The actual coding of this is
-  //  (inRowSride - 1) * inChansPerGroup / convInputLoadElems + 1
+  // transformedInRowStride is given by
+  //  (inRowStride - 1) * inChansPerGroup / convInputLoadElems + 1
   const SignedType transformedInRowStride;
   const UnsignedType outChansPerGroup;
   const UnsignedType inChansPerGroup;
@@ -114,15 +114,17 @@ public:
     const int convOutputStoreElems = std::is_same<AccumType, half>() ? 4 : 2;
     const int packedTransformedInStrideReg = transformedInStride;
     const int packedTransformedOutStrideReg = transformedOutStride;
-    const int secondPtrOffset = transformedInRowStride;
 
     // Unpack registers strides into transformed strides
-    const int unpackedTransformedInRowStride =
-        unpackAmpNx1InRowStride(ampKernelHeight, secondPtrOffset);
     int unpackedTransformedInStride =
         unpackAmpNx1Stride(NUM_STRIDE_BITS, packedTransformedInStrideReg, 1);
     int unpackedTransformedOutStride =
         unpackAmpNx1Stride(NUM_STRIDE_BITS, packedTransformedOutStrideReg, 0);
+    const int secondPtrOffset =
+        unpackAmpNx1Stride(NUM_STRIDE_BITS, packedTransformedOutStrideReg, 1) +
+        transformedInRowStride;
+    const int unpackedTransformedInRowStride =
+        unpackAmpNx1InRowStride(ampKernelHeight, secondPtrOffset);
 
     // Special case for half-half-8
     if ((numConvUnits == 8) && std::is_same<AccumType, half>() &&

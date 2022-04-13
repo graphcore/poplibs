@@ -42,7 +42,7 @@ nop // rpt alignment
 #define partition_v                    m1
 #define num_partitions_v               m2
 #define num_fp_v                       m3
-#define partition_base_v               m3 
+#define second_ptr_offset_v            m3 
 #define inoutstrides1_v                m4   // retained
 #define inoutstrides2_v                m5   // retained
 #define tripacked_addr2                m6:7
@@ -55,7 +55,7 @@ nop // rpt alignment
 #define out_addr_adj_v                 m8
 #define out_offset_v                   m9
 #define inoutstrides3_v                m10 // retained
-#define second_ptr_offset_v            m11 // retained
+#define partition_base_v               m11 // retained
 
 
 get           $wkr_id_v, $WSR
@@ -70,10 +70,14 @@ ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
 ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
 
 // Special stride for initial preloads and wind downs. Form 3 strides in 
-// a register: [0x0 | 0x0 | inoutstrides3_v]
+// a register: [second-offset | 0x0 | inoutstrides3_v]
 and           $inoutstrides3_v, $inoutstrides1_v, 0x3FF
 
 ld32          $second_ptr_offset_v, $mvertex_base, WKR_SECOND_PTR_OFFSET/4
+shl           $second_ptr_offset_v, $second_ptr_offset_v, 20
+or            $inoutstrides3_v, $inoutstrides3_v, $second_ptr_offset_v
+
+ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
 
 convPartialNx1FlattenedStateRetained_f16v4hihoamp:
 ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
@@ -89,10 +93,8 @@ brz           $num_partitions_v, L_Conv_end
 shl           $partition_v, $partition_struct_v, DELTAN_COUNT_BITS
 // Offset needs to be converted from elements to bytes.
 // Hence shift right is less by ELEM_TO_BYTES_CONV
-shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
-
 {
-  ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
+  shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
   setzi         $a0, ZAACC_BITMASK
 }
 {
@@ -128,7 +130,6 @@ PartitionLoop:
   // Form packed address
   tapack        $tripacked_addr1, $in_addr_v, $out_addr_v, $out_addr_adj_v
 
-  ld64step      $azeros, $mzero, $in_addr_v+=, $second_ptr_offset_v
   tapack        $tripacked_addr2, $in_addr_v, $out_addr_v, $out_addr_v
   // Move partials-in2 pointer by one read (16v4) to get correct 
   // load alignment
@@ -138,10 +139,17 @@ PartitionLoop:
 
   // *input-ptr += 0; *partials-ptr += out-stride (4 partials)
   ld2x64pace    $azeros, $a2:3, $tripacked_addr1+=, $inoutstrides3_v, 0b0110
-  f16v4hihoamp  $a6, $azeros, $a2, TAMP_F16V4_E4_P0
 
   {
-    // *input-ptr += 0; *partials-ptr += out-stride (4 partials)
+    // *input-ptr += in-row-stride (first part of second ptr offset)
+    // *partials-ptr += 0
+    ld2x64pace    $azeros, $a4:5, $tripacked_addr2+=, $inoutstrides2_v, 0b1110
+    f16v4hihoamp  $a6, $azeros, $a2, TAMP_F16V4_E4_P0
+  }
+
+  {
+    // *input-ptr += second-offset (second part of second ptr offset) 
+    // *partials-ptr += out-stride (4 partials)
     ld2x64pace    $azeros, $a2:3, $tripacked_addr2+=, $inoutstrides3_v, 0b0111
     f16v4hihoamp  $a7, $azeros, $a3, TAMP_F16V4_E4_P1
   }

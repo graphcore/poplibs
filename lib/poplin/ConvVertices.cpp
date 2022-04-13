@@ -795,11 +795,6 @@ static void createConvPartialAmpVertex(
         packAmpNx1Stride(strideBits, outStrideStep, inStride, outStridePlusX);
     transformedOutStride =
         packAmpNx1Stride(strideBits, 0, inRowStride, outStride);
-
-    // Re-use <transformedInRowStride> state as the transformedInRowStride is
-    // already packed
-    transformedInRowStride =
-        getSecondPtrOffset(convUnitWeightHeight, transformedInRowStride);
   }
 
   graph.setInitialValue(v["transformedInStride"], transformedInStride);
