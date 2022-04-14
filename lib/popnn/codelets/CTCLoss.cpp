@@ -673,4 +673,44 @@ template class CTCGradGivenBeta<float, float, unsigned, false>;
 template class CTCGradGivenBeta<half, half, unsigned, false>;
 template class CTCGradGivenBeta<half, float, unsigned, false>;
 
+template <typename LabelType> class CTCRemapLabels : public Vertex {
+
+public:
+  CTCRemapLabels();
+
+  // The index of the label to be generate.
+  Input<unsigned> labelId; // scalar
+  // The index of the blank class of the origin label.
+  Input<unsigned> blankId; // scalar
+  // One batch slice of origin labels.
+  Input<Vector<LabelType>> labelsSlice; // [maxLabelLength]
+  // The label in position labelId of remapLabels to be generate.
+  Output<Vector<LabelType>> remapLabel; // [1]
+  // The label in position labelId of remapLabelsForPost to be generate.
+  Output<Vector<LabelType>> remapLabelForPost; // [1]
+
+  bool compute() {
+    remapLabel[0] = labelId + 1;
+    remapLabelForPost[0] = labelsSlice[labelId];
+
+    for (auto i = 0u; i < labelsSlice.size(); ++i) {
+      if (labelsSlice[i] == labelsSlice[labelId]) {
+        // For preprocess remapLabel: Keep the duplicate relationship
+        // between elements of origin labels.
+        remapLabel[0] = i + 1;
+
+        // For postprocess remapLabel: Replace the duplicate elements in the
+        // labels with the index of blank class.
+        if (i < labelId) {
+          remapLabelForPost[0] = blankId;
+        }
+        break;
+      }
+    }
+    return true;
+  }
+};
+
+template class CTCRemapLabels<unsigned>;
+
 } // namespace popnn

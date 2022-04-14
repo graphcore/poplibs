@@ -14,8 +14,10 @@
 #include <poplibs_support/logging.hpp>
 #include <popnn/LogSoftmax.hpp>
 #include <popops/Cast.hpp>
+#include <popops/DynamicSlice.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Expr.hpp>
+#include <popops/Gather.hpp>
 #include <popops/Reduce.hpp>
 #include <poputil/OptionParsing.hpp>
 #include <poputil/TileMapping.hpp>
@@ -30,6 +32,7 @@ using namespace poplibs_support;
 using namespace popops;
 using namespace popops::expr;
 using namespace poputil;
+namespace pe = popops::expr;
 
 template <unsigned size> using Slice = std::array<std::size_t, size>;
 namespace {
@@ -1124,23 +1127,283 @@ parseCalcLossAndGradLogProbOptions(const poplar::OptionFlags &options) {
   return opts;
 }
 
+// logProbs and labels are main inputs of
+// calcLossAndGradientLogProbabilitiesImpl(), The shape of logProbs is
+// (maxTime, bachSize, numClasses) and the shape of labels is
+// (batchSize, maxlabelLength). During the computation of
+// calcLossAndGradientLogProbabilitiesImpl(), not all of the elements in
+// numClasses participate in calculations. The function only need the
+// elements which are contained in labels.
+// So when numClasses is much larger than maxLabelLength, we can gather
+// the elements from classes acroding to labels in advance. Then we will get
+// gatheredLogProbs, it's shape is (maxTime, batchSize, gatheredNumClasses).
+// gatheredNumClasses == 1 + maxLabelLength ('1' means the blank class).
+// In the meantime, we need to generate a new labels to coordinate
+// gatheredLogProbs.
+std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor>
+ctcLossPreProcess(poplar::Graph &graph, const poplar::Tensor &logProbs,
+                  const poplar::Tensor &labels, poplar::program::Sequence &prog,
+                  const unsigned blankClass, const LossPlan &lossPlan,
+                  const poplar::DebugContext &debugContext) {
+  const auto numTiles = graph.getTarget().getNumTiles();
+  const unsigned batchDim = 1;
+  const auto maxT = logProbs.dim(0);
+  const auto batchSize = logProbs.dim(batchDim);
+  const auto numClasses = logProbs.dim(2);
+  const auto labelsLength = labels.dim(1);
+  const std::vector<long unsigned> gatheredLogProbsShape = {maxT, batchSize,
+                                                            labelsLength + 1};
+  auto outSliceShape = gatheredLogProbsShape;
+  outSliceShape[batchDim] = 1;
+
+  // Gather the elements from classes acroding to labels. And we move blank
+  // class to the first position.
+  // For example, we set:
+  //   logProbs   = [[[c0, c1, c2, blank, c4, c5, c6, c7]]], shape = (1, 1, 8)
+  //   labels     = [[2, 4, 4, 2, 5]], shape = (1, 5)
+  //   blankClass = 3
+  //
+  //   Step 1. We generate a temporary labels, which is a combination of
+  //   blankClass and labels:
+  //     temLabels = [[blankClass, 2, 4, 4, 2, 5]]
+  //   Step 2. Gather logProbs acroding to temLabels:
+  //     gatheredLogProbs = gather(logProbs, temLabels, axis=2)
+  //                      = [[[blank, c2, c4, c4, c2, c5]]], shape = (1, 1, 6)
+  // Prepare OptionFlags and Plan for groupedMultiSlice.
+  poplar::OptionFlags opts;
+  opts.set("usedForSlice", "true");
+  opts.set("usedForUpdate", "false");
+  auto multiSlicePlan =
+      popops::embedding::plan(graph, logProbs.elementType(), batchSize, maxT,
+                              labelsLength + 1, {labelsLength + 1}, opts);
+  // Prepare the input for groupedMultiSlice.
+  // multiSliceInput shape is: [batchSize][numClasses][maxT].
+  auto multiSliceInput = popops::createGroupedSliceableTensor(
+      graph, logProbs.elementType(), batchSize, {numClasses, maxT}, {0}, {1},
+      multiSlicePlan, {}, debugContext);
+  prog.add(
+      Copy(logProbs.dimShufflePartial({0}, {1}).dimShufflePartial({1}, {2}),
+           multiSliceInput));
+  // Prepare the indices for groupedMultiSlice.
+  // multiSliceIndices shape is: [batchSize][labelsLength + 1][1].
+  auto blankTensor = graph.addConstant(labels.elementType(), {batchSize, 1},
+                                       blankClass, debugContext);
+  mapLabelsAccordingToPlan(graph, blankTensor, lossPlan);
+  auto labelsWithBlank = poplar::concat({blankTensor, labels}, 1);
+  auto multiSliceIndices = popops::createGroupedIndicesTensor(
+      graph, batchSize, {0}, labelsLength + 1, multiSlicePlan, {},
+      debugContext);
+  prog.add(Copy(labelsWithBlank.expand({2}), multiSliceIndices));
+
+  // multiSliceResult shape is: [batchSize][labelsLength + 1][1][maxT].
+  auto multiSliceResult =
+      groupedMultiSlice(graph, multiSliceInput, multiSliceIndices, {0}, {1},
+                        prog, multiSlicePlan, {}, debugContext);
+  multiSliceResult = multiSliceResult.squeeze({2})
+                         .dimShufflePartial({1}, {2})
+                         .dimShufflePartial({0}, {1});
+
+  // Create gatheredLogProbs tensor and mapping data acroding to loss plan.
+  auto gatheredLogProbs = graph.addVariable(
+      logProbs.elementType(), {1, batchSize, maxT, labelsLength + 1},
+      {debugContext, "gatheredLogProbs"});
+  mapDataInputAccordingToPlan(graph, gatheredLogProbs, lossPlan);
+  gatheredLogProbs = gatheredLogProbs.squeeze({0}).dimShufflePartial({0}, {1});
+  prog.add(Copy(multiSliceResult, gatheredLogProbs));
+
+  // Since we have gathered classes and got gatheredLogProbs, we need to
+  // generate a remap labels to coordinate gatheredLogProbs.
+  // For example, we set:
+  //   logProbs   = [[[c0, c1, c2, blank, c4, c5, c6, c7]]], shape = (1, 1, 8)
+  //   labels     = [[2, 4, 4, 2, 7]], shape = (1, 5)
+  //   blankClass = 3
+  //
+  //   We have got gatheredLogProbs above:
+  //     gatheredLogProbs = [[[blank, c2, c4, c4, c2, c7]]], shape = (1, 6)
+  //
+  //   Step 1. Generate a natural number sequence, which has the same shape as
+  //   labels. Since blankClass has been put on position 0, the sequence should
+  //   start from 1:
+  //     remapLabels = [[1, 2, 3, 4, 5]]
+  //   Step 2. We need to keep the duplicate relationship between elements of
+  //   labels(the index of the first duplicate element will be preserved):
+  //     labels      = [[2, 4, 4, 2, 7]]
+  //                      \  \ |  |
+  //                       \  \|  |
+  //                        \__|__|
+  //                           |  |
+  //                   [[1, 2, 3, 4, 5]]
+  //                           |  |
+  //               keep the duplicate relationship
+  //                           |  |
+  //     remapLabels = [[1, 2, 2, 1, 5]]
+  //
+  // In the backward section, we also need to generate a remap labels to
+  // coordinate ctcLossPostProcess(). For example, we set:
+  //   labels     = [[2, 4, 4, 2, 7]], shape = (1, 5)
+  //   blankClass = 3
+  //
+  //   Replace the duplicate elements in the labels with the index of blank
+  //   class:
+  //     labels             = [[2, 4, 4, 2, 7]]
+  //                             \  \ |  |
+  //                              \  \|  |
+  //                               \__|__|
+  //                                  |  |
+  //                  Replace duplicate elements to blankClass
+  //                                  |  |
+  //     remapLabelsForPost = [[2, 4, 3, 3, 7]]
+  std::vector<poplar::Tensor> remapLabelsVector;
+  std::vector<poplar::Tensor> remapLabelsForPostVector;
+  auto remapLabelsCS = graph.addComputeSet({debugContext, "remapLabelsCs"});
+  for (unsigned batch = 0u; batch < batchSize; batch++) {
+    auto labelsSlice = labels.slice(batch, batch + 1, 0);
+    labelsSlice = labelsSlice.flatten();
+    for (unsigned l = 0u; l < labelsLength; l++) {
+      auto tileId = (batch * labelsLength + l) % numTiles;
+      auto remapLabel =
+          graph.addVariable(labels.elementType(), {1}, debugContext);
+      auto remapLabelForPost =
+          graph.addVariable(labels.elementType(), {1}, debugContext);
+
+      graph.setTileMapping(remapLabel, graph.getTileMapping(labelsSlice[0]));
+      graph.setTileMapping(remapLabelForPost,
+                           graph.getTileMapping(labelsSlice[0]));
+
+      poplar::VertexRef remapLabelsVertex = graph.addVertex(
+          remapLabelsCS,
+          templateVertex("popnn::CTCRemapLabels", labels.elementType()),
+          {{"labelId", l},
+           {"blankId", blankClass},
+           {"labelsSlice", labelsSlice},
+           {"remapLabel", remapLabel},
+           {"remapLabelForPost", remapLabelForPost}});
+      graph.setTileMapping(remapLabelsVertex, tileId);
+
+      remapLabelsVector.push_back(remapLabel);
+      remapLabelsForPostVector.push_back(remapLabelForPost);
+    }
+  }
+  prog.add(poplar::program::Execute(remapLabelsCS));
+
+  // Concat slices in batch dimention.
+  auto remapLabelsConcat = poplar::concat(remapLabelsVector, 0);
+  remapLabelsConcat = remapLabelsConcat.reshape(labels.shape());
+  auto remapLabelsForPostConcat = poplar::concat(remapLabelsForPostVector, 0);
+  remapLabelsForPostConcat = remapLabelsForPostConcat.reshape(labels.shape());
+
+  // Create remap labels tensor and mapping data acroding to loss plan.
+  auto remapLabels = graph.addVariable(labels.elementType(), labels.shape(),
+                                       {debugContext, "remapLabels"});
+  mapLabelsAccordingToPlan(graph, remapLabels, lossPlan);
+  prog.add(Copy(remapLabelsConcat, remapLabels, false, debugContext));
+
+  return {gatheredLogProbs, remapLabels, remapLabelsForPostConcat};
+}
+
+// If we use ctcLossPreProcess() to generate gatheredLogProbs and remapLabels
+// as inputs for calcLossAndGradientLogProbabilitiesImpl(), then the results
+// of the function are {loss, gatheredGrad}. We can return loss directly,
+// However, the shape of gatheredGrad doesn't match the grad we want.
+// We need to scatter the gradient of probs acroding to labels like what we
+// do in ctcLossPreProcess().
+// Before we scatter the gradient of probs acroding to labels,
+// we need to prevent valid probs data from being overwritten during the
+// scattering. So we need to replace the duplicate elements in the labels
+// with the index of blank class. And after scattering we need to overwrite the
+// gradient of blank class to the grad tensor.
+poplar::Tensor ctcLossPostProcess(
+    poplar::Graph &graph, const poplar::Tensor &grad,
+    const poplar::Tensor &logProbs, const poplar::Tensor &remapLabels,
+    poplar::program::Sequence &prog, const unsigned blankClass,
+    const LossPlan &lossPlan, const poplar::DebugContext &debugContext) {
+  const auto maxT = logProbs.dim(0);
+  const auto batchSize = logProbs.dim(1);
+  const auto numClasses = logProbs.dim(2);
+  const auto labelsLength = remapLabels.dim(1);
+  const auto gradShape = grad.shape();
+  const auto outShape = logProbs.shape();
+
+  // Prepare OptionFlags and Plan for multiUpdate.
+  poplar::OptionFlags opts;
+  opts.set("usedForSlice", "false");
+  opts.set("usedForUpdate", "true");
+  opts.set("operationForUpdate", "none");
+  auto multiUpdatePlan = popops::embedding::plan(
+      graph, grad.elementType(), batchSize, labelsLength + 1, numClasses,
+      {labelsLength + 1}, opts);
+
+  // Using groupedMultiUpdate to scatter the gradadient elements which are
+  // gathered by ctcLossPreProcess to multiUpdateResult tensor.
+  // Prepare the target Tensor of groupedMultiUpdate.
+  // multiUpdateResult shape is: [batchSize][numClasses][maxT]
+  auto multiUpdateResult = popops::createGroupedSliceableTensor(
+      graph, logProbs.elementType(), batchSize, {numClasses, maxT}, {0}, {1},
+      multiUpdatePlan, {}, debugContext);
+  // The gradient of the elements which are not used by labels is its own
+  // exponential.
+  popops::mapWithOutput(
+      graph, pe::UnaryOpType::EXPONENT,
+      logProbs.dimShufflePartial({0}, {1}).dimShufflePartial({1}, {2}),
+      multiUpdateResult, prog, debugContext, poplar::OptionFlags());
+  // Prepare the source slice Tensor of groupedMultiUpdate.
+  // multiUpdateSource shape is: [batchSize][labelsLength + 1][maxT]
+  auto multiUpdateSource = popops::createGroupedSliceTensor(
+      graph, logProbs.elementType(), batchSize, {labelsLength + 1, maxT}, {0},
+      {1}, labelsLength + 1, multiUpdatePlan, {}, debugContext);
+  prog.add(Copy(grad.dimShufflePartial({0}, {1}).dimShufflePartial({1}, {2}),
+                multiUpdateSource));
+  // Prepare the indices for groupedMultiUpdate.
+  // indices shape is: [batchSize][labelsLength + 1][1]
+  auto blankTensor = graph.addConstant(
+      remapLabels.elementType(), {batchSize, 1}, blankClass, debugContext);
+  mapLabelsAccordingToPlan(graph, blankTensor, lossPlan);
+  auto labelsWithBlank = poplar::concat({blankTensor, remapLabels}, 1);
+  auto multiUpdateIndices = popops::createGroupedIndicesTensor(
+      graph, batchSize, {0}, labelsLength + 1, multiUpdatePlan, {},
+      debugContext);
+  prog.add(Copy(labelsWithBlank.expand({2}), multiUpdateIndices));
+
+  // Use groupedMultiUpdate to scatter gradients from multiUpdateSource
+  // to multiUpdateResult acroding to multiUpdateIndices.
+  popops::groupedMultiUpdate(graph, multiUpdateResult, multiUpdateSource,
+                             multiUpdateIndices, {0}, {1}, prog,
+                             multiUpdatePlan, {}, debugContext);
+  multiUpdateResult =
+      multiUpdateResult.dimShufflePartial({1}, {2}).dimShufflePartial({0}, {1});
+  // Copy blank class gradient to multiUpdateResult.
+  prog.add(Copy(grad.slice(0, 1, 2),
+                multiUpdateResult.slice(blankClass, blankClass + 1, 2), false,
+                debugContext));
+
+  // Create completeGrad tensor and mapping data acroding to loss plan.
+  auto completeGrad = graph.addVariable(logProbs.elementType(),
+                                        {1, batchSize, maxT, numClasses},
+                                        {debugContext, "gatheredLogProbs"});
+  mapDataInputAccordingToPlan(graph, completeGrad, lossPlan);
+  completeGrad = completeGrad.squeeze({0}).dimShufflePartial({0}, {1});
+  prog.add(Copy(multiUpdateResult, completeGrad, false, debugContext));
+
+  return completeGrad;
+}
+
 static std::pair<poplar::Tensor, poplar::Tensor>
 calcLossAndGradientLogProbabilitiesImpl(
     poplar::Graph &graph, const poplar::Type &outType,
-    const poplar::Tensor &data, const poplar::Tensor &labels,
+    const poplar::Tensor &originData, const poplar::Tensor &originLabels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
-    poplar::program::Sequence &prog, const unsigned blankClass,
+    poplar::program::Sequence &prog, const unsigned originBlankClass,
     const LossPlan &plan, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options) {
   const auto opts = parseCalcLossAndGradLogProbOptions(options);
   const auto partialsType = plan.params.partialsType;
-  validateTensorTypes(data, labels, dataLengths, labelLengths, partialsType,
-                      outType);
+  validateTensorTypes(originData, originLabels, dataLengths, labelLengths,
+                      partialsType, outType);
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di({debugContext, "CTCGradient"},
-                                 DI_ARGS(outType, data, labels, dataLengths,
-                                         labelLengths, blankClass, plan,
-                                         options));
+                                 DI_ARGS(outType, originData, originLabels,
+                                         dataLengths, labelLengths,
+                                         originBlankClass, plan, options));
 
   logging::popnn::debug("Disabled NANOO for CTC Loss operation");
   poplar::FloatingPointBehaviour clear{false, false, false, false,
@@ -1150,11 +1413,43 @@ calcLossAndGradientLogProbabilitiesImpl(
       poplar::getAndModifyFloatingPointBehaviour(graph, prog, clear, set, di);
 
   logging::popnn::debug("Creating CTCLoss using\n{}Options: {}", plan, options);
-  const auto maxT = data.dim(0);
-  const auto batchSize = data.dim(1);
-  const auto numClasses = data.dim(2);
-  const auto labelsLength = labels.dim(1);
+  const auto maxT = originData.dim(0);
+  const auto batchSize = originData.dim(1);
+  const auto originNumClasses = originData.dim(2);
+  const auto labelsLength = originLabels.dim(1);
   const auto extendedLabelLength = 2 * labelsLength + 1;
+  auto numClasses = originNumClasses;
+  auto blankClass = originBlankClass;
+
+  poplar::Tensor data;
+  poplar::Tensor labels;
+  poplar::Tensor labelsForPostProcess;
+
+  if (plan.params.enableReducedClassesInLabel) {
+    // By using ctcLossPreProcess() we can transform logProbs, the input of
+    // CTCLoss, from shape(maxTime, batchSize, numClasses) to
+    // shape(maxTime batchSize, maxLabelLength + 1). Which can reduce the data
+    // exchange and memory cost during the computation of CTCLoss.
+    logging::popnn::debug(
+        " Launch ctcLossPreProcess to gather the classes which are used by"
+        " labels. numClasses:{}, maxLabelLength:{}.",
+        originNumClasses, labelsLength);
+    auto [gatheredLogProbs, remapLabels, remapLabelsForPost] =
+        [&]() -> std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor> {
+      return ctcLossPreProcess(graph, originData, originLabels, prog,
+                               blankClass, plan,
+                               {debugContext, "CTCLossPreProcess"});
+    }();
+
+    numClasses = labelsLength + 1;
+    blankClass = 0;
+    data = gatheredLogProbs;
+    labels = remapLabels;
+    labelsForPostProcess = remapLabelsForPost;
+  } else {
+    data = originData;
+    labels = originLabels;
+  }
 
   // Reshape the input, from which the gradient shape will be copied
   auto internalData = toInternalShape(data);
@@ -1324,8 +1619,21 @@ calcLossAndGradientLogProbabilitiesImpl(
     };
   }();
 
+  poplar::Tensor finalGradOut = gradOut;
+  if (plan.params.enableReducedClassesInLabel) {
+    // If we launched ctcLossPreProcess, we need to scatter gradient elements to
+    // new grad output.
+    logging::popnn::debug("Launch ctcLossPostProcess to scatter gradient "
+                          "elements to new grad output");
+    auto completeGrad = ctcLossPostProcess(
+        graph, gradOut, originData, labelsForPostProcess, prog,
+        originBlankClass, plan, {debugContext, "CTCLossPostProcess"});
+
+    finalGradOut = completeGrad;
+  }
+
   di.addOutputs({{"loss", poputil::toProfileValue(lossOut)},
-                 {"grad", poputil::toProfileValue(gradOut)}});
+                 {"grad", poputil::toProfileValue(finalGradOut)}});
 
   if (!opts.includeSoftmaxGradient) {
     // TODO: Remove gradient from LogSoftmax
@@ -1334,7 +1642,7 @@ calcLossAndGradientLogProbabilitiesImpl(
   }
 
   poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, di);
-  return {lossOut, gradOut};
+  return {lossOut, finalGradOut};
 }
 
 void printOp(std::string name, const poplar::Type &partialsType,
@@ -1389,7 +1697,8 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
 
   return calcLossAndGradientLogProbabilitiesImpl(
       graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
-      blankClass, lossPlan, debugContext, options);
+      blankClass, lossPlan, {debugContext, "CTCLossAndGradientLogProbs"},
+      options);
 }
 
 } // end namespace ctc

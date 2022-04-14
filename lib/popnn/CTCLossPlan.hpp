@@ -20,6 +20,7 @@ struct CtcLossPlannerParams {
   unsigned maxTime;
   unsigned maxLabelLength;
   unsigned numClasses;
+  bool enableReducedClassesInLabel;
 };
 
 // An input consists of:

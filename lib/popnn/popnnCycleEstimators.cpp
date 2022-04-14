@@ -824,6 +824,13 @@ MAKE_PERF_ESTIMATOR_NAME(CTCGenerateOutput)(const VertexIntrospector &vertex,
   // TODO: cycle estimator
   return {0, 0};
 }
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(CTCRemapLabels)(const VertexIntrospector &vertex,
+                                         const Target &target,
+                                         const Type &LabelType) {
+  // TODO: cycle estimator
+  return {0, 0};
+}
 
 poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
   return {
@@ -987,6 +994,7 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCUpdate, HALF, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCUpdate, FLOAT, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popnn, CTCGenerateOutput, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCRemapLabels, UNSIGNED_INT),
 
       INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGrad1D),
       INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity1DInPlace),

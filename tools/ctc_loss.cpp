@@ -307,6 +307,7 @@ int main(int argc, char **argv) {
   unsigned batchSize = 1;
   boost::optional<unsigned> tiles = boost::none;
   boost::optional<double> availableMemProportion = boost::none;
+  boost::optional<bool> enableReducedClassesInLabel = boost::none;
   Type inType = FLOAT;
   Type partialsType = FLOAT;
   Type outType = FLOAT;
@@ -325,6 +326,9 @@ int main(int argc, char **argv) {
     ("available-mem-proportion",
       po::value<boost::optional<double>>(&availableMemProportion),
      "Available memory proportion given to the planner")
+    ("enable-reduce-classes-in-label",
+      po::value<boost::optional<bool>>(&enableReducedClassesInLabel),
+     "The choice of whether to reduce classes in label given to the planner")
     ("profile", "Show profile report")
     ("profile-dir",
      po::value<decltype(profileDir)>(&profileDir)
@@ -424,6 +428,11 @@ int main(int argc, char **argv) {
   if (availableMemProportion != boost::none) {
     planOpts.set("availableMemoryProportion",
                  std::to_string(*availableMemProportion));
+  }
+
+  if (enableReducedClassesInLabel != boost::none &&
+      enableReducedClassesInLabel == true) {
+    planOpts.set("enableReducedClassesInLabel", "true");
   }
 
   poplar::OptionFlags debugOpts;

@@ -57,6 +57,8 @@ std::ostream &operator<<(std::ostream &o, const CtcLossPlannerParams &p) {
   o << "  maxTime                      " << p.maxTime << "\n";
   o << "  maxLabelLength               " << p.maxLabelLength << "\n";
   o << "  numClasses                   " << p.numClasses << "\n";
+  o << "  enableReducedClassesInLabel  " << p.enableReducedClassesInLabel
+    << "\n";
   return o;
 }
 
@@ -64,6 +66,7 @@ struct CtcOpts {
   poplibs_support::PlanConstraints planConstraints;
   poplar::Type partialsType = poplar::FLOAT;
   double availableMemoryProportion = 0.6; // Per tile
+  bool enableReducedClassesInLabel = false;
 };
 
 void validatePlanConstraints(const std::string &path,
@@ -126,6 +129,8 @@ static CtcOpts parseOptions(const poplar::OptionFlags &options) {
        makeCtcPlanConstraintsOptionHandler(opts.planConstraints)},
       {"partialsType", poplibs::OptionHandler::createWithEnum(opts.partialsType,
                                                               partialsTypeMap)},
+      {"enableReducedClassesInLabel", poplibs::OptionHandler::createWithBool(
+                                          opts.enableReducedClassesInLabel)},
       {"availableMemoryProportion", poplibs::OptionHandler::createWithDouble(
                                         opts.availableMemoryProportion, 0.)},
   };
@@ -639,8 +644,18 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
           const unsigned maxTime, const unsigned maxLabelLength,
           const unsigned numClasses, const poplar::OptionFlags &options) {
   CtcOpts opts = parseOptions(options);
-  CtcLossPlannerParams params{inType,  opts.partialsType, outType,   batchSize,
-                              maxTime, maxLabelLength,    numClasses};
+  CtcLossPlannerParams params;
+  if (opts.enableReducedClassesInLabel) {
+    // By using ctcLossPreProcess() we can transform logProbs, the input of
+    // CTCLoss, from shape(maxTime, batchSize, numClasses) to
+    // shape(maxTime batchSize, maxLabelLength + 1). Which can reduce the data
+    // exchange and memory cost during the computation of CTCLoss.
+    params = {inType,         opts.partialsType,  outType, batchSize, maxTime,
+              maxLabelLength, maxLabelLength + 1, true};
+  } else {
+    params = {inType,  opts.partialsType, outType,    batchSize,
+              maxTime, maxLabelLength,    numClasses, false};
+  }
   popsolver::Model m;
   PlanVariables vars;
   EstimateCache cache;
@@ -677,6 +692,8 @@ template <> poplar::ProfileValue toProfileValue(const popnn::ctc::LossPlan &p) {
   v.insert({"params.maxTime", toProfileValue(p.params.maxTime)});
   v.insert({"params.maxLabelLength", toProfileValue(p.params.maxLabelLength)});
   v.insert({"params.numClasses", toProfileValue(p.params.numClasses)});
+  v.insert({"params.enableReducedClassesInLabel",
+            toProfileValue(p.params.enableReducedClassesInLabel)});
   v.insert({"serial.batch", toProfileValue(p.serial.batch)});
   v.insert({"serial.time", toProfileValue(p.serial.time)});
   v.insert({"serial.label", toProfileValue(p.serial.label)});
