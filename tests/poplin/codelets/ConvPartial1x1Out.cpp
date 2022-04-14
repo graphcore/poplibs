@@ -65,8 +65,8 @@ struct testParams {
         alignedAllocation(false), inType(FLOAT), accumType(FLOAT),
         fieldWidth(1), numConvGroups(1), numOutGroups(1), numInGroups(1),
         outChansPerGroup(8), flipOut(false), use128BitLoad(false),
-        weightFp8Format(Fp8Format::QUART143), weightFp8Scale(0),
-        inputFp8Format(Fp8Format::QUART143), inputFp8Scale(0) {}
+        weightFp8Format(QuarterMetadata::Format::F143), weightFp8Scale(0),
+        inputFp8Format(QuarterMetadata::Format::F143), inputFp8Scale(0) {}
   double verificationTolerance;
   unsigned numConvUnits;
   int inStride;
@@ -83,9 +83,9 @@ struct testParams {
   bool flipOut;
   bool use128BitLoad;
 
-  Fp8Format weightFp8Format;
+  QuarterMetadata::Format weightFp8Format;
   int weightFp8Scale;
-  Fp8Format inputFp8Format;
+  QuarterMetadata::Format inputFp8Format;
   int inputFp8Scale;
 
   std::vector<worklistElem> worklists;
@@ -324,7 +324,6 @@ void runTest(const struct testParams &t) {
   outHost = outBuf;
 
   const auto hostInType = isFp8 ? HALF : t.inType;
-  const unsigned inTypeSize = target.getTypeSize(hostInType);
   Tensor in = graph.addVariable(hostInType, inShape, "in");
   Tensor out = graph.addVariable(t.accumType, outShape, "out");
   Tensor weights = graph.addVariable(hostInType, wShape, "weights");
@@ -355,9 +354,9 @@ void runTest(const struct testParams &t) {
     // applied so we get the same result.  (Subject to values being
     // representable in each number format)
     auto weightsMetadata =
-        createFp8MetadataTensor(graph, t.weightFp8Format, t.weightFp8Scale);
+        createMetadataTensor(graph, t.weightFp8Format, t.weightFp8Scale);
     auto inMetadata =
-        createFp8MetadataTensor(graph, t.inputFp8Format, t.inputFp8Scale);
+        createMetadataTensor(graph, t.inputFp8Format, t.inputFp8Scale);
 
     // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
     auto inFp8 = popops::cast(graph, in, QUARTER, inMetadata, prog, "CastIn");
@@ -378,6 +377,7 @@ void runTest(const struct testParams &t) {
   prog.add(Execute(cs));
 
   // Populate the 'composite' vertex fields
+  const unsigned inTypeSize = target.getTypeSize(t.inType);
   auto loadElems = LOAD_SIZE / inTypeSize;
   SignedType transformedInStride =
       (t.inStride - 1) * inChansPerGroup / loadElems + 1;
@@ -650,7 +650,7 @@ BOOST_AUTO_TEST_CASE(t4) {
   t.inStride = 1;
   t.weightFp8Scale = -1;
   t.inputFp8Scale = 2;
-  t.weightFp8Format = Fp8Format::QUART152;
+  t.weightFp8Format = QuarterMetadata::Format::F152;
 
   // Worklist 'outOffs' are in units of 4 half values,
   // 'inOffs' are in units of 8 quarter values,

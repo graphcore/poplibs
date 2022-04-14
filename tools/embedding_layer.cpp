@@ -4,6 +4,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplar/Quarter.hpp>
 
 #include <popops/DynamicSlice.hpp>
 #include <popops/codelets.hpp>
@@ -310,17 +311,8 @@ int main(int argc, char **argv) {
         popops::createSliceableTensor(graph, opts.dataType, opts.shape, {0},
                                       {1}, opts.grainSize, "embedding");
   }
-  // For test of transfer of the metadata from src to dst only, set the
-  // metadata to a specific value
-  if (opts.dataType.requiresMetadata()) {
-    auto metadata = poputil::createFp8MetadataTensor(
-        graph, poputil::Fp8Format::QUART143, 1);
-    prog.add(Copy(metadata, embeddingMatrix.getMetadata()));
-  }
-
-  const auto rawEmbeddingMatrix =
-      allocateHostMemoryForTensor(embeddingMatrix, "embeddingMatrix", graph,
-                                  uploadProg, downloadProg, tmap);
+  auto rawEmbeddingMatrix = allocateHostMemoryForTensor(
+      embeddingMatrix, "embeddingMatrix", graph, uploadProg, boost::none, tmap);
 
   struct PerIndexSet {
     // The indices
@@ -336,8 +328,7 @@ int main(int argc, char **argv) {
     std::unique_ptr<char[]> rawDeltas;
 
     // For verification of correct metadata creation and copy
-    boost::multi_array<double, 1> hostDataMetadata;
-    std::unique_ptr<char[]> rawDataMetadata;
+    QuarterMetadata hostDataMetadata;
   };
 
   std::vector<PerIndexSet> perIndexSet(numIndices.size());
@@ -347,7 +338,6 @@ int main(int argc, char **argv) {
         boost::extents[numIndices[i]][opts.shape->at(1)];
     perIndexSet[i].hostOut.resize(activationExtents);
     perIndexSet[i].hostDeltas.resize(activationExtents);
-    perIndexSet[i].hostDataMetadata.resize(boost::extents[1]);
 
     writeRandomValues(target, opts.indicesType, perIndexSet[i].hostIdxs, 0u,
                       static_cast<unsigned>(opts.shape->at(0) - 1),
@@ -379,13 +369,6 @@ int main(int argc, char **argv) {
                              {1}, prog, plan, sliceOptions, handle);
       perIndexSet[i].rawOut = allocateHostMemoryForTensor(
           extractedData, handle, graph, uploadProg, downloadProg, tmap);
-
-      if (opts.dataType.requiresMetadata()) {
-        const std::string handle = "extractedMetadata_" + std::to_string(i);
-        perIndexSet[i].rawDataMetadata = allocateHostMemoryForTensor(
-            extractedData.getMetadata().reinterpret(UNSIGNED_CHAR), handle,
-            graph, boost::none, downloadProg, tmap);
-      }
     }
   }
 
@@ -449,13 +432,19 @@ int main(int argc, char **argv) {
   if (!opts.ignoreData) {
     logging::popops::info("Generating the embedding matrix on the host");
     attachStreams(engine, tmap);
-    // Ensure positive values only for type QUARTER as it is checked as if an
-    // unsigned type
-    // TODO - T57103 Reconsider numeric range once we copy fp8 data to the IPU
-    double lowerBound = opts.dataType == QUARTER ? 0.0 : -10.0;
-    writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, lowerBound,
-                      10., randomEngine);
-    copy(target, hostEmbeddingMatrix, opts.dataType, rawEmbeddingMatrix.get());
+    writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, -10., 10.,
+                      randomEngine);
+    if (opts.dataType.requiresMetadata()) {
+      // For test of transfer of the metadata from src to dst only, set the
+      // metadata to a specific value, although this will determine the
+      // metadata the host uses to cast to the device type
+      copy(target, hostEmbeddingMatrix, opts.dataType,
+           QuarterMetadata(QuarterMetadata::Format::F143, 1),
+           rawEmbeddingMatrix.get());
+    } else {
+      copy(target, hostEmbeddingMatrix, opts.dataType,
+           rawEmbeddingMatrix.get());
+    }
     for (std::size_t i = 0; i < numIndices.size(); ++i) {
       copy(target, perIndexSet[i].hostIdxs.data(),
            perIndexSet[i].hostIdxs.size(), UNSIGNED_INT,
@@ -481,15 +470,21 @@ int main(int argc, char **argv) {
     const double absTol = opts.dataType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
     const double relTol = opts.dataType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
 
-    boost::multi_array<double, 1> hostEmbeddingMetadata(boost::extents[1]);
-    if (passEnabled(opts.pass, Pass::FWD) && opts.dataType.requiresMetadata()) {
-      copy(target, UNSIGNED_CHAR, rawEmbeddingMatrixMetadata.get(),
-           hostEmbeddingMetadata);
+    QuarterMetadata hostEmbeddingMetadata;
+    if (opts.dataType.requiresMetadata()) {
+      copy(target, opts.dataType, hostEmbeddingMetadata,
+           rawEmbeddingMatrix.get(), hostEmbeddingMatrix);
+    } else {
+      copy(target, opts.dataType, rawEmbeddingMatrix.get(),
+           hostEmbeddingMatrix);
     }
 
     boost::multi_array<double, 2> modelEmbeddingMatrix(embeddingMatrixExtents);
     std::copy_n(hostEmbeddingMatrix.data(), hostEmbeddingMatrix.num_elements(),
                 modelEmbeddingMatrix.data());
+    matchesModel &= checkIsClose("multiUpdateAdd", hostEmbeddingMatrix,
+                                 modelEmbeddingMatrix, relTol, absTol);
+
     for (std::size_t i = 0; i < numIndices.size(); ++i) {
       boost::multi_array<double, 2> modelExtractedData(
           boost::extents[numIndices[i]][opts.shape->at(1)]);
@@ -498,20 +493,21 @@ int main(int argc, char **argv) {
         logging::popops::info("Validate gather operation against model");
         poplibs_test::embedding::multiSlice(
             hostEmbeddingMatrix, perIndexSet[i].hostIdxs, modelExtractedData);
-
-        copy(target, opts.dataType, perIndexSet[i].rawOut.get(),
-             perIndexSet[i].hostOut);
+        if (opts.dataType.requiresMetadata()) {
+          copy(target, opts.dataType, perIndexSet[i].hostDataMetadata,
+               perIndexSet[i].rawOut.get(), perIndexSet[i].hostOut);
+        } else {
+          copy(target, opts.dataType, perIndexSet[i].rawOut.get(),
+               perIndexSet[i].hostOut);
+        }
         matchesModel &= checkIsClose("multiSlice_" + std::to_string(i),
                                      perIndexSet[i].hostOut, modelExtractedData,
                                      relTol, absTol);
         if (opts.dataType.requiresMetadata()) {
-          copy(target, UNSIGNED_CHAR, perIndexSet[i].rawDataMetadata.get(),
-               perIndexSet[i].hostDataMetadata);
-          if (hostEmbeddingMetadata[0] != perIndexSet[i].hostDataMetadata[0]) {
+          if (hostEmbeddingMetadata != perIndexSet[i].hostDataMetadata) {
             std::cerr << "Quarter data type, metadata mismatch embedding:"
-                      << hostEmbeddingMetadata[0]
-                      << " Extracted:" << perIndexSet[i].hostDataMetadata[0]
-                      << "\n";
+                      << hostEmbeddingMetadata.toString() << " Extracted:"
+                      << perIndexSet[i].hostDataMetadata.toString() << "\n";
           }
         }
       }
@@ -524,9 +520,6 @@ int main(int argc, char **argv) {
             modelEmbeddingMatrix);
       }
     }
-    copy(target, opts.dataType, rawEmbeddingMatrix.get(), hostEmbeddingMatrix);
-    matchesModel &= checkIsClose("multiUpdateAdd", hostEmbeddingMatrix,
-                                 modelEmbeddingMatrix, relTol, absTol);
   }
 
   if (opts.profile) {

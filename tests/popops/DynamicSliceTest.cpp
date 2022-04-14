@@ -10,6 +10,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/Program.hpp>
+#include <poplar/Quarter.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/print.hpp>
 #include <poplibs_test/TempDir.hpp>
@@ -1816,7 +1817,7 @@ void checkQuarterMetadata(void) {
 
   // Create an input tensor with an associated metadata value to check
   auto embeddingMetadata =
-      createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 1);
+      createMetadataTensor(graph, QuarterMetadata::Format::F143, 1);
   auto embedding = popops::createSliceableTensor(graph, QUARTER, tShape, {0},
                                                  {1}, plan, {}, "embedding");
   Sequence sequence;
@@ -1834,7 +1835,7 @@ void checkQuarterMetadata(void) {
   // copy new metadata here, so as to leave the original value of metadata in
   // embedding intact for test.
   sequence.add(Copy(
-      poputil::createFp8MetadataTensor(graph, poputil::Fp8Format::QUART143, 3),
+      poputil::createMetadataTensor(graph, QuarterMetadata::Format::F143, 3),
       dummy.getMetadata()));
   popops::multiUpdate(graph, embedding, dummy, ids, {0}, {1}, sequence, plan,
                       optionFlags, "slice");
@@ -1848,8 +1849,9 @@ void checkQuarterMetadata(void) {
   // When an input is provided the metadata should be preserved
   auto subTWithOutput = popops::createSliceTensor(
       graph, QUARTER, {1}, {0}, {1}, 1, plan, {}, "subTWithOutput");
-  graph.setInitialValue(subTWithOutput.getMetadata(),
-                        packFp8Metadata(poputil::Fp8Format::QUART143, 1));
+  graph.setInitialValue(
+      subTWithOutput.getMetadata(),
+      QuarterMetadata(QuarterMetadata::Format::F143, 1).getBinary());
   popops::dynamicSliceWithOutput(graph, subTWithOutput, embedding,
                                  idsDynamicSlice, {0}, {1}, sequence);
 
@@ -1863,26 +1865,20 @@ void checkQuarterMetadata(void) {
       "embedding");
   auto groupedIds = popops::createGroupedIndicesTensor(
       graph, groupSize, {0}, numIndices, groupedPlan, {}, "ids");
-  graph.setInitialValue(grouped.getMetadata(),
-                        packFp8Metadata(poputil::Fp8Format::QUART143, 1));
+  graph.setInitialValue(
+      grouped.getMetadata(),
+      QuarterMetadata(QuarterMetadata::Format::F143, 1).getBinary());
   auto subTGrouped =
       popops::groupedMultiSlice(graph, grouped, groupedIds, {0}, {1}, sequence,
                                 groupedPlan, optionFlags, "slice");
 
-  graph.createHostRead("embeddingMeta",
-                       embedding.getMetadata().reinterpret(UNSIGNED_CHAR));
+  graph.createHostRead("embeddingMeta", embedding.getMetadata());
 
-  graph.createHostRead("subTMeta",
-                       subT.getMetadata().reinterpret(UNSIGNED_CHAR));
-  graph.createHostRead("subTMetaConst",
-                       subTConst.getMetadata().reinterpret(UNSIGNED_CHAR));
-  graph.createHostRead(
-      "subTMetaDynamicSlice",
-      subTDynamicSlice.getMetadata().reinterpret(UNSIGNED_CHAR));
-  graph.createHostRead("subTWithOutput",
-                       subTWithOutput.getMetadata().reinterpret(UNSIGNED_CHAR));
-  graph.createHostRead("subTGrouped",
-                       grouped.getMetadata().reinterpret(UNSIGNED_CHAR));
+  graph.createHostRead("subTMeta", subT.getMetadata());
+  graph.createHostRead("subTMetaConst", subTConst.getMetadata());
+  graph.createHostRead("subTMetaDynamicSlice", subTDynamicSlice.getMetadata());
+  graph.createHostRead("subTWithOutput", subTWithOutput.getMetadata());
+  graph.createHostRead("subTGrouped", grouped.getMetadata());
 
   Engine engine(graph, sequence);
   device.bind([&](const Device &d) {
@@ -1892,8 +1888,8 @@ void checkQuarterMetadata(void) {
 
     engine.run(0);
     const auto numTests = 5;
-    std::vector<unsigned char> refMetadata(1);
-    std::vector<unsigned char> hostMetadata(numTests);
+    std::vector<QuarterMetadata> refMetadata(1);
+    std::vector<QuarterMetadata> hostMetadata(numTests);
     engine.readTensor("embeddingMeta", &refMetadata[0], &refMetadata[1]);
 
     engine.readTensor("subTMeta", &hostMetadata[0], &hostMetadata[1]);
@@ -1904,7 +1900,7 @@ void checkQuarterMetadata(void) {
     engine.readTensor("subTGrouped", &hostMetadata[4], &hostMetadata[5]);
 
     for (unsigned i = 0; i < numTests; i++) {
-      BOOST_CHECK_EQUAL(refMetadata[0], hostMetadata[i]);
+      BOOST_CHECK(refMetadata[0] == hostMetadata[i]);
     }
   });
 }

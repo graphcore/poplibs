@@ -257,13 +257,14 @@ public:
     // Stride for memory initialisation
     workerState.inOutStrides = flipOut ? -1 * (numConvUnits >> 1) + 1 : 1;
 
-    auto inStride = (transformedInStride + 1) / 2;
     // Strides for use with tapack
-    workerState.strides =
-        packStrides(inStride, workerState.inOutStrides & NUM_STRIDE_BITS_MASK);
+    workerState.strides = packStrides(
+        transformedInStride, workerState.inOutStrides & NUM_STRIDE_BITS_MASK);
 
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {
+        // Don't change weights or workerState until synced
+        syncWorkers();
         workerState.outChanPtr = &out[cg * numOutGroups + og][0];
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
           const auto *w =

@@ -87,7 +87,9 @@ multiSlice(const DeviceType &deviceType, const unsigned numIPUs,
 
   Sequence prog;
   if (dataType.requiresMetadata()) {
-    auto metadata = createFp8MetadataTensor(graph, Fp8Format::QUART152, 1);
+    // TODO T57103 - Consider write this in with the data rather than this copy
+    auto metadata =
+        createMetadataTensor(graph, QuarterMetadata::Format::F152, 1);
     prog.add(Copy(metadata, t.getMetadata()));
   }
 
@@ -227,7 +229,8 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
       createHostIndices(target, randomEngine, numIndices, D, groupSize);
   Sequence prog;
   if (dataType.requiresMetadata()) {
-    auto metadata = createFp8MetadataTensor(graph, Fp8Format::QUART152, 1);
+    auto metadata =
+        createMetadataTensor(graph, QuarterMetadata::Format::F152, 1);
     prog.add(Copy(metadata, t.getMetadata()));
   }
   Tensor offset =
@@ -287,12 +290,15 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
                  [](double x) { return static_cast<int>(x * 16) % 16; });
 
   // copy base to expected
+  // TODO T57103 eventually we should be able to copy as the QUARTER type
+  const auto copyDataType = dataType == QUARTER ? UNSIGNED_CHAR : dataType;
   std::copy(hOut.data(), hOut.data() + hOut.numElements(), expected.data());
 
   std::vector<char> rawOffsets(target.getTypeSize(indicesType) *
                                indices.numElements());
-  std::vector<char> rawIn(target.getTypeSize(dataType) * hIn.numElements());
-  std::vector<char> rawOut(target.getTypeSize(dataType) * hOut.numElements());
+  std::vector<char> rawIn(target.getTypeSize(copyDataType) * hIn.numElements());
+  std::vector<char> rawOut(target.getTypeSize(copyDataType) *
+                           hOut.numElements());
   std::vector<char> rawScaleIn(target.getTypeSize(scaleTensorType));
 
   MultiArray<float> scalingF{1};

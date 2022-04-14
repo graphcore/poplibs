@@ -14,6 +14,7 @@
 #include <poplar/Device.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
+#include <poplar/Quarter.hpp>
 #include <poplar/Target.hpp>
 #include <poplar/Tensor.hpp>
 #include <string>
@@ -198,16 +199,15 @@ poplar::Tensor unfactorDims(const poplar::Tensor &t, unsigned numDims,
                             unsigned startDim = 0);
 
 // Create metadata for use with FP8 data types
-enum class Fp8Format { QUART152, QUART143 };
+poplar::Tensor createMetadataTensor(poplar::Graph &graph,
+                                    poplar::QuarterMetadata::Format fp8Format,
+                                    int fp8Scale);
 
-unsigned packFp8Metadata(Fp8Format fp8Format, int fp8Scale);
+poplar::Tensor createMetadataTensor(poplar::Graph &graph,
+                                    poplar::QuarterMetadata::Format fp8Format,
+                                    int fp8Scale,
+                                    poplar::program::Sequence &prog);
 
-poplar::Tensor createFp8MetadataTensor(poplar::Graph &graph,
-                                       Fp8Format fp8Format, int fp8Scale);
-
-poplar::Tensor createFp8MetadataTensor(poplar::Graph &graph,
-                                       Fp8Format fp8Format, int fp8Scale,
-                                       poplar::program::Sequence &prog);
 } // end namespace poputil
 
 #endif // poputil_Util_hpp

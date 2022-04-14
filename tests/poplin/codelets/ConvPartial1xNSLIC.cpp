@@ -25,6 +25,7 @@
 #include <poplar/CSRFunctions.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplar/Quarter.hpp>
 
 #include <poputil/Util.hpp>
 #include <poputil/exceptions.hpp>
@@ -81,10 +82,14 @@ int main(int argc, char **argv) try {
   Type inputType = HALF;
   Type partialsType = FLOAT;
   bool disableSRTemplateArg = false;
-  int weightFp8Scale = 0;
-  int inputFp8Scale = 0;
-  Fp8Format weightFp8Format = Fp8Format::QUART143;
-  Fp8Format inputFp8Format = Fp8Format::QUART143;
+
+  // Pick a non-zero scale, and different values for weights, input so that
+  // load and setup of this in the vertex needs to be correct for the result
+  // to be correct.  Just zero values would be a poor test
+  int weightFp8Scale = 1;
+  int inputFp8Scale = 2;
+  QuarterMetadata::Format weightFp8Format = QuarterMetadata::Format::F143;
+  QuarterMetadata::Format inputFp8Format = QuarterMetadata::Format::F152;
 
   po::options_description desc("Options");
   // clang-format off
@@ -221,9 +226,6 @@ int main(int argc, char **argv) try {
   poplin::addCodelets(graph);
   popops::addCodelets(graph);
 
-  const bool isFp8 = inputType == QUARTER;
-  const auto hostInputType = isFp8 ? HALF : inputType;
-
   // Create input, weights, output
   constexpr std::size_t overreadConvGroups = 1;
   std::vector<std::size_t> inShape = {convGroupGroups + overreadConvGroups,
@@ -242,13 +244,28 @@ int main(int argc, char **argv) try {
 
   outputShape.insert(outputShape.end(), {convGroupsPerGroup, chansPerGroup});
 
-  const auto inGroupedWithOverread =
-      graph.addVariable(hostInputType, inShape, "in");
+  Tensor inGroupedWithOverread;
+  if (inputType.requiresMetadata()) {
+    auto metadata = graph.addVariable(QUARTER_METADATA, {}, "inMetadata");
+    graph.setTileMapping(metadata, 0);
+    inGroupedWithOverread =
+        graph.addVariable(inputType, &metadata, inShape, "in");
+  } else {
+    inGroupedWithOverread = graph.addVariable(inputType, inShape, "in");
+  }
   const auto inGrouped = inGroupedWithOverread.slice(0, convGroupGroups, 0);
   const auto inOverreadMemory = inGroupedWithOverread.slice(
       convGroupGroups, convGroupGroups + overreadConvGroups, 0);
-  const auto weightsGrouped =
-      graph.addVariable(hostInputType, weightsShape, "weights");
+
+  Tensor weightsGrouped;
+  if (inputType.requiresMetadata()) {
+    auto metadata = graph.addVariable(QUARTER_METADATA, {}, "weightsMetadata");
+    graph.setTileMapping(metadata, 0);
+    weightsGrouped =
+        graph.addVariable(inputType, &metadata, weightsShape, "weights");
+  } else {
+    weightsGrouped = graph.addVariable(inputType, weightsShape, "weights");
+  }
   const auto outGrouped = graph.addVariable(partialsType, outputShape, "out");
 
   graph.setTileMapping(inGroupedWithOverread, 0);
@@ -279,30 +296,22 @@ int main(int argc, char **argv) try {
 
   // fill the output and input overread detection space with (signalling) NaNs
   auto fillWithNaNs = [&](const Tensor &t) {
-    const auto nan =
-        graph.addConstant(t.elementType(), t.shape(),
-                          std::numeric_limits<float>::signaling_NaN());
+    Tensor nan;
+    if (t.elementType().requiresMetadata()) {
+      Tensor metadata = inGroupedWithOverread.getMetadata();
+      nan = graph.addConstant(t.elementType(), &metadata, t.shape(),
+                              std::numeric_limits<float>::signaling_NaN());
+    } else {
+      nan = graph.addConstant(t.elementType(), t.shape(),
+                              std::numeric_limits<float>::signaling_NaN());
+    }
     graph.setTileMapping(nan, 0);
     prog.add(Copy(nan, t));
   };
   fillWithNaNs(outGrouped);
   fillWithNaNs(inOverreadMemory);
 
-  Tensor inGroupedFp8, weightsGroupedFp8, inMetadata;
-  Sequence castProg;
-  if (isFp8) {
-    auto weightsMetadata =
-        createFp8MetadataTensor(graph, weightFp8Format, weightFp8Scale);
-    inMetadata = createFp8MetadataTensor(graph, inputFp8Format, inputFp8Scale);
-
-    // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
-    inGroupedFp8 =
-        popops::cast(graph, inGrouped, QUARTER, inMetadata, castProg, "CastIn");
-    weightsGroupedFp8 = popops::cast(graph, weightsGrouped, QUARTER,
-                                     weightsMetadata, castProg, "CastWeights");
-  }
-  std::vector<Tensor> copyWritten{
-      {graph.addVariable(inputType, isFp8 ? &inMetadata : nullptr, {0})}};
+  std::vector<Tensor> copyWritten;
 
   // create the vertex
   auto fwdCS = graph.addComputeSet("fwdCS");
@@ -311,18 +320,13 @@ int main(int argc, char **argv) try {
   std::map<poplar::Type,
            std::pair<std::vector<poplar::Tensor>, std::vector<poplar::Tensor>>>
       postProg;
-  auto vertexIn = isFp8 ? inGroupedFp8 : inGrouped;
-  auto vertexWeights = isFp8 ? weightsGroupedFp8 : weightsGrouped;
   poplin::Plan plan;
   plan.method = poplin::Plan::Slic{convChainsRequired, windowWidth};
   plan.convGroupsPerGroup = convGroupsPerGroup;
   plan.partialChansPerGroup = chansPerGroup;
   createConvPartialSlicVertex(graph, plan, 0, params, transformPre, copyWritten,
-                              fwdCS, postProg, vertexIn, vertexWeights,
+                              fwdCS, postProg, inGrouped, weightsGrouped,
                               outGrouped, disableSRTemplateArg, "vertex");
-  if (isFp8) {
-    prog.add(castProg);
-  }
   for (const auto &copy : transformPre) {
     prog.add(copy);
   }
@@ -391,8 +395,16 @@ int main(int argc, char **argv) try {
     std::mt19937 randomEngine;
     writeRandomValues(target, inputType, hostIn, -1.0, +5.0, randomEngine);
     writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
-    copy(target, hostIn, hostInputType, rawHostIn.get());
-    copy(target, hostWeights, hostInputType, rawHostWeights.get());
+    if (inputType.requiresMetadata()) {
+      copy(target, hostIn, inputType,
+           QuarterMetadata(inputFp8Format, inputFp8Scale), rawHostIn.get());
+      copy(target, hostWeights, inputType,
+           QuarterMetadata(weightFp8Format, weightFp8Scale),
+           rawHostWeights.get());
+    } else {
+      copy(target, hostIn, inputType, rawHostIn.get());
+      copy(target, hostWeights, inputType, rawHostWeights.get());
+    }
   }
   device.bind([&](const Device &d) { engine.loadAndRun(d); });
 

@@ -353,6 +353,8 @@ public:
     const unsigned numConvGroupGroups = numConvGroupGroupsM1 + 1;
 
     for (unsigned cg = 0; cg < numConvGroupGroups; ++cg) {
+      // Don't change weights or workerState until synced
+      syncWorkers();
       workerState.inChanPtr = &in[cg][0];
       // Partials input read / output write alternate between a buffer and
       // the true output.  Pick the starting state, which will result in the

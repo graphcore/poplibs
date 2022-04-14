@@ -15,6 +15,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplar/Quarter.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
@@ -98,8 +99,8 @@ int main(int argc, char **argv) {
   bool remapOutputTensor;
   bool enableFastReduce;
 
-  Fp8Format fp8FormatA = Fp8Format::QUART152;
-  Fp8Format fp8FormatB = Fp8Format::QUART152;
+  QuarterMetadata::Format fp8FormatA = QuarterMetadata::Format::F152;
+  QuarterMetadata::Format fp8FormatB = QuarterMetadata::Format::F152;
   int fp8ScaleA = 0, fp8ScaleB = 0;
 
   boost::optional<std::string> profileDir;
@@ -145,10 +146,12 @@ int main(int argc, char **argv) {
     ("fp8-scale-B", po::value<int>(&fp8ScaleB)->default_value(fp8ScaleB),
      "Scaling to apply to matrix B if its type is quarter")
     ("fp8-format-A",
-      po::value<Fp8Format>(&fp8FormatA)->default_value(fp8FormatA),
+      po::value<QuarterMetadata::Format>(&fp8FormatA)->
+      default_value(fp8FormatA),
      "The data format of matrix A if its type is quarter")
     ("fp8-format-B",
-      po::value<Fp8Format>(&fp8FormatB)->default_value(fp8FormatB),
+      po::value<QuarterMetadata::Format>(&fp8FormatB)->
+      default_value(fp8FormatB),
      "The data format of matrix B if its type is quarter")
     ("alpha",
       po::value<float>(&alpha)->default_value(1.0),
@@ -314,28 +317,12 @@ int main(int argc, char **argv) {
                                   {g, k, n}, "matB", mmOpt, &cache);
 
   auto prog = Sequence();
-  if (inputType == QUARTER) {
-    auto metaA = createFp8MetadataTensor(graph, fp8FormatA, fp8ScaleA);
-    auto metaB = createFp8MetadataTensor(graph, fp8FormatB, fp8ScaleB);
-    prog.add(Copy(metaA, matA.getMetadata()));
-    prog.add(Copy(metaB, matB.getMetadata()));
-  }
-
   if (transposeB) {
     matB = matB.dimShufflePartial({1, 2}, {2, 1});
   }
 
   auto outerProg = Sequence();
 
-  const auto inputTypeHost = inputType == QUARTER ? HALF : inputType;
-  auto matAToCopy = graph.clone(inputTypeHost, matA);
-  auto matBToCopy = graph.clone(inputTypeHost, matB);
-
-  if (inputType == QUARTER) {
-    // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
-    prog.add(cast(graph, matAToCopy, matA, "CastIn"));
-    prog.add(cast(graph, matBToCopy, matB, "CastWeights"));
-  }
   auto matLhs = transposeA ? matA.dimShufflePartial({1, 2}, {2, 1}) : matA;
   auto matRhs = transposeB ? matB.dimShufflePartial({1, 2}, {2, 1}) : matB;
 
@@ -364,11 +351,9 @@ int main(int argc, char **argv) {
   std::vector<std::pair<std::string, char *>> tmap;
 
   auto rawHostMatA = allocateHostMemoryForTensor(
-      (inputType == QUARTER) ? matAToCopy : matA, "matA", graph, uploadProg,
-      downloadProg, tmap);
+      matA, "matA", graph, uploadProg, downloadProg, tmap);
   auto rawHostMatB = allocateHostMemoryForTensor(
-      (inputType == QUARTER) ? matBToCopy : matB, "matB", graph, uploadProg,
-      downloadProg, tmap);
+      matB, "matB", graph, uploadProg, downloadProg, tmap);
   auto rawHostMatC = allocateHostMemoryForTensor(
       matC, "matC", graph, uploadProg, downloadProg, tmap);
 
@@ -417,9 +402,15 @@ int main(int argc, char **argv) {
     poplibs_test::gemm::generalGroupedMatrixMultiply(
         hostMatA, hostMatB, hostMatC, refMatC, alpha, beta, transposeA,
         transposeB);
-
-    copy(target, hostMatA, inputTypeHost, rawHostMatA.get());
-    copy(target, hostMatB, inputTypeHost, rawHostMatB.get());
+    if (inputType.requiresMetadata()) {
+      copy(target, hostMatA, inputType, QuarterMetadata(fp8FormatA, fp8ScaleA),
+           rawHostMatA.get());
+      copy(target, hostMatB, inputType, QuarterMetadata(fp8FormatB, fp8ScaleB),
+           rawHostMatB.get());
+    } else {
+      copy(target, hostMatA, inputType, rawHostMatA.get());
+      copy(target, hostMatB, inputType, rawHostMatB.get());
+    }
     copy(target, hostMatC, outputType, rawHostMatC.get());
   }
 

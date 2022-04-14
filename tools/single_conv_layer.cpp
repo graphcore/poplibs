@@ -7,6 +7,7 @@
 #include "popops/Cast.hpp"
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
+#include <poplar/Quarter.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/NonLinearity.hpp>
@@ -117,9 +118,9 @@ int main(int argc, char **argv) try {
   bool remapOutputTensor;
   bool useCreateInput;
   bool preplan;
-  Fp8Format fp8FormatFwdIn = Fp8Format::QUART143;
-  Fp8Format fp8FormatWeights = Fp8Format::QUART143;
-  Fp8Format fp8FormatBwdIn = Fp8Format::QUART143;
+  QuarterMetadata::Format fp8FormatFwdIn = QuarterMetadata::Format::F143;
+  QuarterMetadata::Format fp8FormatWeights = QuarterMetadata::Format::F143;
+  QuarterMetadata::Format fp8FormatBwdIn = QuarterMetadata::Format::F143;
   int fp8ScaleFwdIn = 1, fp8ScaleWeights = 2, fp8scaleBwdIn = 1;
 
   Pass pass = Pass::ALL;
@@ -179,13 +180,16 @@ int main(int argc, char **argv) try {
       po::value<int>(&fp8scaleBwdIn)->default_value(fp8scaleBwdIn),
      "Scaling to apply to the bwd input if its type is quarter")
     ("fp8-format-fwd",
-      po::value<Fp8Format>(&fp8FormatFwdIn)->default_value(fp8FormatFwdIn),
+      po::value<QuarterMetadata::Format>(&fp8FormatFwdIn)->
+      default_value(fp8FormatFwdIn),
      "The data format of the fwd input if its type is quarter")
     ("fp8-format-weights",
-      po::value<Fp8Format>(&fp8FormatWeights)->default_value(fp8FormatWeights),
+      po::value<QuarterMetadata::Format>(&fp8FormatWeights)->
+      default_value(fp8FormatWeights),
      "The data format of the weights input if its type is quarter")
     ("fp8-format-bwd",
-      po::value<Fp8Format>(&fp8FormatBwdIn)->default_value(fp8FormatBwdIn),
+      po::value<QuarterMetadata::Format>(&fp8FormatBwdIn)->
+      default_value(fp8FormatBwdIn),
      "The data format of the bwd input if its type is quarter")
     ("truncation",
      po::value<ShapeOption<unsigned>>(&truncationOption)->default_value(0),
@@ -823,25 +827,9 @@ int main(int argc, char **argv) try {
     } else {
       prevAct = createGenericConvInput(graph, params, "prevAct");
     }
-    if (testingQuarter) {
-      auto metadata =
-          createFp8MetadataTensor(graph, fp8FormatFwdIn, fp8ScaleFwdIn);
-      fwdProg.add(Copy(metadata, prevAct.getMetadata()));
-    }
   }
   Tensor weights =
       poplin::createWeights(graph, params, "weights", fwdOptions, &cache);
-
-  if (testingQuarter) {
-    auto metadata =
-        createFp8MetadataTensor(graph, fp8FormatWeights, fp8ScaleWeights);
-    if (doFwdPass) {
-      fwdProg.add(Copy(metadata, weights.getMetadata()));
-    }
-    if (doBwdPass) {
-      revProg.add(Copy(metadata, weights.getMetadata()));
-    }
-  }
 
   if (!bwdInFile && (doBwdPass || doWuPass)) {
     if (useCreateInput) {
@@ -850,31 +838,8 @@ int main(int argc, char **argv) try {
     } else {
       zDeltas = createGenericConvInput(graph, bwdParams, "zDeltas");
     }
-    if (testingQuarter) {
-      auto metadata = createFp8MetadataTensor(graph, fp8FormatBwdIn,
-                                              fp8scaleBwdIn, revProg);
-      revProg.add(Copy(metadata, zDeltas.getMetadata()));
-    }
   }
 
-  const auto inputTypeHost = testingQuarter ? HALF : inputType;
-
-  Tensor prevActToCopy, weightsToCopy, zDeltasToCopy;
-
-  if (testingQuarter) {
-    prevActToCopy = graph.clone(inputTypeHost, prevAct, "prevActCopy");
-    weightsToCopy = graph.clone(inputTypeHost, weights, "weightsCopy");
-
-    // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
-    fwdProg.add(popops::cast(graph, prevActToCopy, prevAct, "CastPrevAct"));
-    fwdProg.add(popops::cast(graph, weightsToCopy, weights, "CastFwdWeights"));
-    if (doBwdPass) {
-      zDeltasToCopy = graph.clone(inputTypeHost, zDeltas, "zDeltasCopy");
-      revProg.add(popops::cast(graph, zDeltasToCopy, zDeltas, "CastZDeltas"));
-      revProg.add(
-          popops::cast(graph, weightsToCopy, weights, "CastBwdWeights"));
-    }
-  }
   // create the forward convolution as a tensor function as we may be able to
   // reuse it for the backwards pass.
   auto fwdConv = [&]() -> graphfn::TensorFunction {
@@ -907,7 +872,7 @@ int main(int argc, char **argv) try {
     }
   }();
 
-  Tensor prevDeltas, prevDeltasToCopy;
+  Tensor prevDeltas;
   if (doBwdPass) {
     // we may be able to reuse the forward pass convolution if the convolution
     // is symmetrical.
@@ -943,11 +908,9 @@ int main(int argc, char **argv) try {
   std::vector<std::pair<std::string, char *>> tmap;
 
   auto rawHostPrevAct = allocateHostMemoryForTensor(
-      testingQuarter ? prevActToCopy : prevAct, "prevAct", graph, uploadProg,
-      downloadProg, tmap);
+      prevAct, "prevAct", graph, uploadProg, downloadProg, tmap);
   auto rawHostWeights = allocateHostMemoryForTensor(
-      testingQuarter ? weightsToCopy : weights, "weights", graph, uploadProg,
-      downloadProg, tmap);
+      weights, "weights", graph, uploadProg, downloadProg, tmap);
 
   std::unique_ptr<char[]> rawPrevActsMetadata, rawWeightsMetadata;
   if (testingQuarter) {
@@ -971,8 +934,7 @@ int main(int argc, char **argv) try {
   std::unique_ptr<char[]> rawHostZDeltasMetadata;
   if (doBwdPass || doWuPass) {
     rawHostZDeltas = allocateHostMemoryForTensor(
-        testingQuarter ? zDeltasToCopy : zDeltas, "zDeltas", graph, uploadProg,
-        downloadProg, tmap);
+        zDeltas, "zDeltas", graph, uploadProg, downloadProg, tmap);
   }
   if (doBwdPass) {
     rawHostPrevDeltas = allocateHostMemoryForTensor(
@@ -1041,7 +1003,12 @@ int main(int argc, char **argv) try {
     std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
               0.0);
   }
-  copy(target, hostPrevAct, inputTypeHost, rawHostPrevAct.get());
+  if (testingQuarter) {
+    copy(target, hostPrevAct, inputType,
+         QuarterMetadata(fp8FormatFwdIn, fp8ScaleFwdIn), rawHostPrevAct.get());
+  } else {
+    copy(target, hostPrevAct, inputType, rawHostPrevAct.get());
+  }
 
   boost::multi_array<double, 4> duplicatedHostWeights(
       boost::extents[numConvGroups][fwdOutChansPerConvGroup]
@@ -1132,14 +1099,25 @@ int main(int argc, char **argv) try {
     if (bias) {
       duplicatedHostBiases = hostBiases;
     }
-
-    copy(target, duplicatedHostWeights, inputTypeHost, rawHostWeights.get());
+    if (testingQuarter) {
+      copy(target, duplicatedHostWeights, inputType,
+           QuarterMetadata(fp8FormatWeights, fp8ScaleWeights),
+           rawHostWeights.get());
+    } else {
+      copy(target, duplicatedHostWeights, inputType, rawHostWeights.get());
+    }
     if (bias) {
       copy(target, duplicatedHostBiases, outputType, rawHostBiases.get());
     }
 
     if (doBwdPass || doWuPass) {
-      copy(target, hostZDeltas, inputTypeHost, rawHostZDeltas.get());
+      if (testingQuarter) {
+        copy(target, hostZDeltas, inputType,
+             QuarterMetadata(fp8FormatBwdIn, fp8scaleBwdIn),
+             rawHostZDeltas.get());
+      } else {
+        copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+      }
     }
 
     dev.bind([&](const Device &d) {
@@ -1164,11 +1142,11 @@ int main(int argc, char **argv) try {
     bool biasesFailed = false;
 
     auto checkMetadata = [&](const std::unique_ptr<char[]> &src,
-                             Fp8Format format, int scale,
+                             QuarterMetadata::Format format, int scale,
                              const std::string &message) {
       boost::multi_array<double, 1> hostMetadata(boost::extents[1]);
       copy(target, UNSIGNED_CHAR, src.get(), hostMetadata);
-      auto expectedMetadata = packFp8Metadata(format, scale);
+      auto expectedMetadata = QuarterMetadata(format, scale).getBinary();
       if (static_cast<unsigned>(hostMetadata[0]) != expectedMetadata) {
         std::cerr << message << " metadata incorrect: " << hostMetadata[0]
                   << " expected " << expectedMetadata << "\n";

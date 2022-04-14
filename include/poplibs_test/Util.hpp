@@ -7,6 +7,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplar/Program.hpp>
+#include <poplar/Quarter.hpp>
 #include <poplar/Target.hpp>
 #include <poplar/Type.hpp>
 #include <poplar_test/Util.hpp>
@@ -416,30 +417,31 @@ poplar::Tensor createGenericFullyConnectedInput(
 namespace std {
 std::istream &operator>>(std::istream &in, poplar::Type &type);
 
-inline std::istream &operator>>(std::istream &in, poputil::Fp8Format &format) {
+inline std::istream &operator>>(std::istream &in,
+                                poplar::QuarterMetadata::Format &format) {
   std::string token;
   in >> token;
-  if (token == "quart152") {
-    format = poputil::Fp8Format::QUART152;
-  } else if (token == "quart143") {
-    format = poputil::Fp8Format::QUART143;
+  if (token == "F152") {
+    format = poplar::QuarterMetadata::Format::F152;
+  } else if (token == "F143") {
+    format = poplar::QuarterMetadata::Format::F143;
   } else {
-    throw poputil::poplibs_error("Invalid fp8 format <" + token +
-                                 " Must be quart143 or quart 152");
+    throw poplar::poplar_error("Invalid QuarterMetadata Format : " + token +
+                               " Must be F152 or F143");
   }
   return in;
 }
 
 inline std::ostream &operator<<(std::ostream &os,
-                                const poputil::Fp8Format &format) {
-  if (format == poputil::Fp8Format::QUART152) {
-    os << "quart152";
-  } else if (format == poputil::Fp8Format::QUART143) {
-    os << "quart143";
+                                const poplar::QuarterMetadata::Format &format) {
+  switch (format) {
+  case poplar::QuarterMetadata::Format::F143:
+    return os << "F143";
+  case poplar::QuarterMetadata::Format::F152:
+    return os << "F152";
   }
-  return os;
+  throw poputil::poplibs_error("Invalid QuarterMetadata Format");
 }
-
 } // namespace std
 
 #endif // poplibs_test_Util_hpp

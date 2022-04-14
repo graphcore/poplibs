@@ -400,6 +400,8 @@ public:
     workerMemZeroState.zerosInfo = zerosInfo;
     for (unsigned cg = 0; cg != numConvGroups; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {
+        // Sync before changing vertex state
+        syncWorkers();
         workerMemZeroState.outPtr = &out[cg * numOutGroups + og][0];
         RUN_ALL("__runCodelet_poplin__WorkerMemZero", &workerMemZeroState);
         // No need to sync until next time we want to run
@@ -437,10 +439,11 @@ public:
 
               RUN_ALL("__runCodelet_poplin__WorkerClassNx1___unsigned_short_16",
                       &workerState)
-              // Advance for the next loop
               partitionList += CTXT_WORKERS;
             }
           }
+          // Outer loops can change worker state too, so sync
+          syncWorkers();
         }
       }
     }

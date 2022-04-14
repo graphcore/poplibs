@@ -899,9 +899,9 @@ foreach(COLUMNS 1 2 3 4 8 24 48 141)
         --columns=${COLUMNS}
         --supervisor=1
         --out-offset=0
-        --fp8-format=quart152
+        --fp8-format=F152
         --fp8-scale=1
-        --fp8-format-out=quart152
+        --fp8-format-out=F152
         --fp8-scale-out=1
         LABELS codelet
         VARIANTS Sim21)
@@ -919,9 +919,9 @@ foreach(ROWS 1 2)
           --columns=${COLUMNS}
           --supervisor=0
           --out-offset=0
-          --fp8-format=quart143
+          --fp8-format=F143
           --fp8-scale=2
-          --fp8-format-out=quart143
+          --fp8-format-out=F143
           --fp8-scale-out=2
           LABELS codelet
           VARIANTS Sim21)
