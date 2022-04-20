@@ -290,7 +290,6 @@ class WorkerMemZero : public Vertex {
 public:
   static bool compute() {
     auto state = workerState<WorkerMemZeroState>();
-    asm volatile(" mov %[state], $mvertex_base\n" : [state] "=r"(state) : :);
 
     // All workers write the last 2 halves (treated as a float) which won't be
     // covered by the loop.  Only necessary where the number of elements is not
@@ -397,24 +396,25 @@ public:
         packStrides(inStride, transformedOutStride & NUM_STRIDE_BITS_MASK);
     // Zeroing - using a worker function with 64 bit writes, rpt and bundles
     const unsigned numOutGroups = numOutGroupsM1 + 1;
-    const unsigned numConvGroups = numConvGroupsM1 + 1;
+
     WorkerMemZeroState workerMemZeroState;
     workerMemZeroState.zerosInfo = zerosInfo;
-    for (unsigned cg = 0; cg != numConvGroups; ++cg) {
+    unsigned *workerFunction;
+    SET_ADDR(workerFunction, "__runCodelet_poplin__WorkerMemZero");
+    for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
       for (unsigned og = 0; og != numOutGroups; ++og) {
         // Sync before changing vertex state
         syncWorkers();
         workerMemZeroState.outPtr = &out[cg * numOutGroups + og][0];
-        RUN_ALL("__runCodelet_poplin__WorkerMemZero", &workerMemZeroState);
+        runAll(workerFunction, &workerMemZeroState);
         // No need to sync until next time we want to run
       }
     }
 
     const unsigned ampKernelHeight = ampKernelHeightM1 + 1;
-    const unsigned kernelOuterSize = kernelOuterSizeM1 + 1;
     const unsigned kernelInnerElements = kernelInnerElementsM1 + 1;
 
-    for (unsigned cg = 0; cg < numConvGroups; ++cg) {
+    for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {
         workerState.outChanPtr = &out[cg * numOutGroups + og][0];
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
@@ -424,7 +424,7 @@ public:
           const auto &w = weights[cg * numOutGroups * numInGroups +
                                   ig * numOutGroups + (numOutGroups - 1 - og)];
 
-          for (unsigned ky = 0; ky < kernelOuterSize; ++ky) {
+          for (unsigned ky = 0; ky <= kernelOuterSizeM1; ++ky) {
             for (unsigned kx = 0; kx < kernelInnerElements; ++kx) {
 
               // Amp kernel height loop extracted out - supervisor function,
@@ -433,14 +433,16 @@ public:
                                            kernelInnerElements *
                                            outChansPerGroup * inChansPerGroup +
                                        kx * outChansPerGroup * inChansPerGroup;
+              SET_ADDR(
+                  workerFunction,
+                  "__runCodelet_poplin__WorkerClassNx1___unsigned_short_16")
               // Don't change weights or workerState until synced
               syncWorkers();
               ampLoadWeights<use128BitLoad, numConvUnits>(&w[weightIndex]);
               workerState.inChanPtr = &in[cg * numInGroups + ig][0];
               workerState.partitionList = partitionList;
 
-              RUN_ALL("__runCodelet_poplin__WorkerClassNx1___unsigned_short_16",
-                      &workerState)
+              runAll(workerFunction, &workerState);
               partitionList += CTXT_WORKERS;
             }
           }

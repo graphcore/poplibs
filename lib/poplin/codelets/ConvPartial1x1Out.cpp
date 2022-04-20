@@ -170,13 +170,13 @@ public:
 #ifdef __IPU__
 
 #if __IPU_ARCH_VERSION__ >= 21
-template <typename UnsignedType, unsigned numConvUnits>
+template <typename UnsignedType, bool zeroPartials, unsigned numConvUnits>
 class WorkerClass1x1 : public Vertex {
 public:
   static bool compute() { return true; }
 };
 
-template <> class WorkerClass1x1<unsigned short, 16> : public Vertex {
+template <> class WorkerClass1x1<unsigned short, true, 16> : public Vertex {
 public:
   static bool compute() {
     auto partitionOffset = 3 * getWid();
@@ -191,10 +191,26 @@ public:
                   state->partition[partitionOffset] * outputVectorWidth;
     auto inPtr = state->inChanPtr +
                  state->partition[partitionOffset + 2] * inputVectorWidth;
-    if (state->firstTime) {
-      convQuarterHalfLoop<true>(inPtr, outPtr, loops, state->strides);
-      return true;
-    }
+    convQuarterHalfLoop<true>(inPtr, outPtr, loops, state->strides);
+    return true;
+  }
+};
+
+template <> class WorkerClass1x1<unsigned short, false, 16> : public Vertex {
+public:
+  static bool compute() {
+    auto partitionOffset = 3 * getWid();
+    auto state = workerState<WorkerState1x1<unsigned short>>();
+    int loops = *reinterpret_cast<const short *>(state->partition +
+                                                 partitionOffset + 1) +
+                3;
+    constexpr auto outputVectorWidth = 4;
+    constexpr auto inputVectorWidth = 8;
+
+    auto outPtr = state->outChanPtr +
+                  state->partition[partitionOffset] * outputVectorWidth;
+    auto inPtr = state->inChanPtr +
+                 state->partition[partitionOffset + 2] * inputVectorWidth;
     convQuarterHalfLoop<false>(inPtr, outPtr, loops, state->strides);
     return true;
   }
@@ -248,21 +264,23 @@ public:
     setFp8Scale(weightsMetadata, inMetadata);
 
     // modify to set actual values used by vertex
-    const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
 
     // For AMP 1x1 output stride is always 1 unless flipOut = true
     constexpr auto outStrideThresh = -4;
     const auto flipOut = transformedOutStride < outStrideThresh;
     // Stride for memory initialisation
-    workerState.inOutStrides = flipOut ? -1 * (numConvUnits >> 1) + 1 : 1;
+    const auto inOutStrides = flipOut ? -1 * (numConvUnits >> 1) + 1 : 1;
 
     // Strides for use with tapack
-    workerState.strides = packStrides(
-        transformedInStride, workerState.inOutStrides & NUM_STRIDE_BITS_MASK);
+    workerState.strides =
+        packStrides(transformedInStride, inOutStrides & NUM_STRIDE_BITS_MASK);
 
-    for (unsigned cg = 0; cg < numConvGroups; ++cg) {
+    for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {
+        unsigned *workerFunction;
+        SET_ADDR(workerFunction,
+                 "__runCodelet_poplin__WorkerClass1x1___unsigned_short_true_16")
         // Don't change weights or workerState until synced
         syncWorkers();
         workerState.outChanPtr = &out[cg * numOutGroups + og][0];
@@ -273,10 +291,11 @@ public:
           // Don't change weights or workerState until synced
           syncWorkers();
           ampLoadWeights<use128BitLoad, numConvUnits>(w);
-          workerState.firstTime = (ig == 0);
           workerState.inChanPtr = &in[cg * numInGroups + ig][0];
-          RUN_ALL("__runCodelet_poplin__WorkerClass1x1___unsigned_short_16",
-                  &workerState)
+          runAll(workerFunction, &workerState);
+          SET_ADDR(
+              workerFunction,
+              "__runCodelet_poplin__WorkerClass1x1___unsigned_short_false_16")
         }
       }
     }

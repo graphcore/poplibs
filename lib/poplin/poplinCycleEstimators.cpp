@@ -413,11 +413,12 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
       /* implicitZeroing */ false);
   const auto weightLoadCycles =
       getConvPartialSlicSupervisorWeightLoadCycleEstimate(
-          convGroupsPerGroup, chansPerGroup, numWorkerContexts, windowWidth);
+          convGroupsPerGroup, chansPerGroup, numWorkerContexts, windowWidth,
+          actsType);
   const auto cycles = getConvPartialSlicSupervisorOuterLoopCycleEstimate(
       implicitZeroingInnerCycles, innerCycles, weightLoadCycles,
       numConvGroupGroups, numSubKernels, numConvChains, windowWidth,
-      convGroupsPerGroup, actsType, floatPartials);
+      convGroupsPerGroup, actsType, floatPartials, numWorkerContexts);
 
   // total field elements are for a single sub-kernel element
   std::uint64_t flops = static_cast<std::uint64_t>(numConvGroupGroups) *

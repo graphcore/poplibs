@@ -183,65 +183,75 @@ public:
 
 #if __IPU_ARCH_VERSION__ >= 21
 
-template <unsigned stride>
+template <unsigned stride, bool implicitZero>
 static __attribute__((always_inline)) void
 f8v8hihoSLIC(const quarter *inPtr, half *partialsPtr, half *outPtr,
-             unsigned strides, int loops, unsigned noImplicitZero,
-             unsigned outVectorWidth) {
+             unsigned strides, int loops, unsigned outVectorWidth) {
   // Process the first 4 output channels using weights=W0
   auto triAddr = __builtin_ipu_tapack(inPtr, partialsPtr, outPtr);
-  if (noImplicitZero) {
-    if (loops < 0) {
-      F8v8HIHO_SLIC_LESS_THAN_5(TSLIC_F16V4_1x4_W0)
-    } else {
-      F8v8HIHO_SLIC(TSLIC_F16V4_1x4_W0)
-    }
+  if (loops < 0) {
+    f8v8hihoSLICLessThan5<TSLIC_F16V4_1x4_W0>(triAddr, strides, loops);
+    // Process the second 4 output channels using weights=W1
+    triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
+                                   outPtr + outVectorWidth);
+    f8v8hihoSLICLessThan5<TSLIC_F16V4_1x4_W1>(triAddr, strides, loops);
   } else {
-    F8v8HIHO_SLIC_IMPLICIT_ZERO(TSLIC_F16V4_1x4_W0)
-  }
-  // Process the second 4 output channels using weights=W1
-  triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
-                                 outPtr + outVectorWidth);
-  if (noImplicitZero) {
-    if (loops < 0) {
-      F8v8HIHO_SLIC_LESS_THAN_5(TSLIC_F16V4_1x4_W1)
-    } else {
-      F8v8HIHO_SLIC(TSLIC_F16V4_1x4_W1)
-    }
-  } else {
-    F8v8HIHO_SLIC_IMPLICIT_ZERO(TSLIC_F16V4_1x4_W1)
+    f8v8hihoSLICLoop<TSLIC_F16V4_1x4_W0>(triAddr, strides, loops);
+    // Process the second 4 output channels using weights=W1
+    triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
+                                   outPtr + outVectorWidth);
+    f8v8hihoSLICLoop<TSLIC_F16V4_1x4_W1>(triAddr, strides, loops);
   }
 }
 
 template <>
-void f8v8hihoSLIC<2>(const quarter *inPtr, half *partialsPtr, half *outPtr,
-                     unsigned strides, int loops, unsigned noImplicitZero,
-                     unsigned outVectorWidth) {
+void f8v8hihoSLIC<1, true>(const quarter *inPtr, half *partialsPtr,
+                           half *outPtr, unsigned strides, int loops,
+                           unsigned outVectorWidth) {
   // Process the first 4 output channels using weights=W0
   auto triAddr = __builtin_ipu_tapack(inPtr, partialsPtr, outPtr);
-  if (noImplicitZero) {
-    F8v8HIHO_SLIC_STRIDE2(TSLIC_F16V4_1x4_W0)
-  } else {
-    F8v8HIHO_SLIC_IMPLICIT_ZERO_STRIDE2(TSLIC_F16V4_1x4_W0)
-  }
+  f8v8hihoSLICImplicitZero<TSLIC_F16V4_1x4_W0>(triAddr, strides, loops);
   // Process the second 4 output channels using weights=W1
   triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
                                  outPtr + outVectorWidth);
-  if (noImplicitZero) {
-    F8v8HIHO_SLIC_STRIDE2(TSLIC_F16V4_1x4_W1)
-  } else {
-    F8v8HIHO_SLIC_IMPLICIT_ZERO_STRIDE2(TSLIC_F16V4_1x4_W1)
-  }
+  f8v8hihoSLICImplicitZero<TSLIC_F16V4_1x4_W1>(triAddr, strides, loops);
 }
 
-template <typename UnsignedType, unsigned stride, unsigned numConvUnits>
+template <>
+void f8v8hihoSLIC<2, true>(const quarter *inPtr, half *partialsPtr,
+                           half *outPtr, unsigned strides, int loops,
+                           unsigned outVectorWidth) {
+  // Process the first 4 output channels using weights=W0
+  auto triAddr = __builtin_ipu_tapack(inPtr, partialsPtr, outPtr);
+  f8v8hihoSLICImplicitZeroStride2<TSLIC_F16V4_1x4_W0>(triAddr, strides, loops);
+  // Process the second 4 output channels using weights=W1
+  triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
+                                 outPtr + outVectorWidth);
+  f8v8hihoSLICImplicitZeroStride2<TSLIC_F16V4_1x4_W1>(triAddr, strides, loops);
+}
+
+template <>
+void f8v8hihoSLIC<2, false>(const quarter *inPtr, half *partialsPtr,
+                            half *outPtr, unsigned strides, int loops,
+                            unsigned outVectorWidth) {
+  // Process the first 4 output channels using weights=W0
+  auto triAddr = __builtin_ipu_tapack(inPtr, partialsPtr, outPtr);
+  f8v8hihoSLICStride2<TSLIC_F16V4_1x4_W0>(triAddr, strides, loops);
+  // Process the second 4 output channels using weights=W1
+  triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
+                                 outPtr + outVectorWidth);
+  f8v8hihoSLICStride2<TSLIC_F16V4_1x4_W1>(triAddr, strides, loops);
+}
+
+template <typename UnsignedType, unsigned stride, bool implicitZero,
+          unsigned numConvUnits>
 class WorkerClass1xN : public Vertex {
 public:
   static bool compute() { return true; }
 };
 
-template <typename UnsignedType, unsigned stride>
-class WorkerClass1xN<UnsignedType, stride, 16> : public Vertex {
+template <typename UnsignedType, unsigned stride, bool implicitZero>
+class WorkerClass1xN<UnsignedType, stride, implicitZero, 16> : public Vertex {
 public:
   static bool compute() {
     auto state = workerState<WorkerState1xN>();
@@ -252,36 +262,38 @@ public:
         reinterpret_cast<const UnsignedType *>(state->partitionBase);
     workListPtr += offset;
 
-    int strides = (0) |       // 0b01 (0 for no stride to avoid overread)
-                  (0 << 10) | // 0b10 (unused)
-                  (2 << 20);  // 0b11 (out stride over 2nd call)
+    constexpr int strides = (0) | // 0b01 (0 for no stride to avoid overread)
+                            (0 << 10) | // 0b10 (unused)
+                            (2 << 20);  // 0b11 (out stride over 2nd call)
     const UnsignedType *workListEndPtr = workListPtr + workListLength;
     while (workListPtr < workListEndPtr) {
       constexpr unsigned inVectorWidth = 8;
       constexpr unsigned outVectorWidth = 4;
       constexpr unsigned outVectorsPerOuterLoop = 2;
-
-      auto outPtr = state->outChanPtr +
-                    outVectorsPerOuterLoop * outVectorWidth * workListPtr[1];
-      auto partialsPtr = state->partialsChanPtr + outVectorsPerOuterLoop *
-                                                      outVectorWidth *
-                                                      workListPtr[1];
-      auto inPtr = state->inChanPtr + workListPtr[0] * inVectorWidth;
+      auto inPtr = state->inChanPtr + *workListPtr++ * inVectorWidth;
+      const auto offset =
+          outVectorsPerOuterLoop * outVectorWidth * *workListPtr++;
+      auto outPtr = state->outChanPtr + offset;
+      auto partialsPtr = state->partialsChanPtr + offset;
       constexpr int slicPipeLength = stride == 1 ? 5 : 3;
       int loops =
-          (CSR_W_REPEAT_COUNT__VALUE__MASK & workListPtr[2]) - slicPipeLength;
-      f8v8hihoSLIC<stride>(inPtr, partialsPtr, outPtr, strides, loops,
-                           state->noImplicitZero, outVectorWidth);
-      workListPtr += 3;
+          (CSR_W_REPEAT_COUNT__VALUE__MASK & *workListPtr++) - slicPipeLength;
+      f8v8hihoSLIC<stride, implicitZero>(inPtr, partialsPtr, outPtr, strides,
+                                         loops, outVectorWidth);
     }
     return true;
   }
 };
 
-template class WorkerClass1xN<unsigned short, 1, 16>;
-template class WorkerClass1xN<unsigned, 1, 16>;
-template class WorkerClass1xN<unsigned short, 2, 16>;
-template class WorkerClass1xN<unsigned, 2, 16>;
+template class WorkerClass1xN<unsigned short, 1, true, 16>;
+template class WorkerClass1xN<unsigned, 1, true, 16>;
+template class WorkerClass1xN<unsigned short, 2, true, 16>;
+template class WorkerClass1xN<unsigned, 2, true, 16>;
+
+template class WorkerClass1xN<unsigned short, 1, false, 16>;
+template class WorkerClass1xN<unsigned, 1, false, 16>;
+template class WorkerClass1xN<unsigned short, 2, false, 16>;
+template class WorkerClass1xN<unsigned, 2, false, 16>;
 
 template <unsigned outStride, bool useShortTypes, unsigned windowWidth,
           unsigned numConvChains, unsigned convGroupsPerGroupVertexType,
@@ -343,6 +355,7 @@ public:
     auto wlStatePtr = reinterpret_cast<unsigned *>(&worklists);
     workerState.partitionBase =
         reinterpret_cast<unsigned *>(*wlStatePtr & DELTAN_OFFSET_MASK);
+
     const auto weightsMetadata = *weights.getMetadata();
     const auto inMetadata = *in.getMetadata();
     setFp8Format(weightsMetadata, inMetadata);
@@ -350,11 +363,14 @@ public:
 
     constexpr unsigned outFieldBufferOffset = 200u / sizeof(AccumType);
     const unsigned numSubKernels = numSubKernelsM1 + 1;
-    const unsigned numConvGroupGroups = numConvGroupGroupsM1 + 1;
 
-    for (unsigned cg = 0; cg < numConvGroupGroups; ++cg) {
+    for (unsigned cg = 0; cg <= numConvGroupGroupsM1; ++cg) {
       // Don't change weights or workerState until synced
       syncWorkers();
+      workerState.partitionList =
+          reinterpret_cast<unsigned *>(*(wlStatePtr + 1) & DELTAN_OFFSET_MASK) -
+          CTXT_WORKERS;
+
       workerState.inChanPtr = &in[cg][0];
       // Partials input read / output write alternate between a buffer and
       // the true output.  Pick the starting state, which will result in the
@@ -365,26 +381,35 @@ public:
       auto *currOutBuffer = (!outPtrLoadOffset)
                                 ? &out[cg][0]
                                 : &outFieldBuffer[outFieldBufferOffset];
+      unsigned *workerFunction;
+      if constexpr (outStride == 1) {
+        SET_ADDR(workerFunction,
+                 "__runCodelet_poplin__WorkerClass1xN___unsigned_short_1_"
+                 "true_16");
+      } else {
+        SET_ADDR(workerFunction,
+                 "__runCodelet_poplin__WorkerClass1xN___unsigned_short_2_"
+                 "true_16");
+      }
       for (unsigned kg = 0; kg < numSubKernels; ++kg) {
         const auto &w = weights[cg * numSubKernels + kg];
         // Don't change weights or workerState until synced
         syncWorkers();
-        workerState.noImplicitZero = kg;
         workerState.outChanPtr = currOutBuffer;
         workerState.partialsChanPtr = lastOutBuffer;
-
-        workerState.partitionList =
-            reinterpret_cast<unsigned *>(*(wlStatePtr + 1) &
-                                         DELTAN_OFFSET_MASK) +
-            kg * CTXT_WORKERS;
+        workerState.partitionList += CTXT_WORKERS;
 
         slicLoadWeights<false, 16>(&w[0]);
+        runAll(workerFunction, &workerState);
+
         if constexpr (outStride == 1) {
-          RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_short_1_16",
-                  &workerState);
+          SET_ADDR(workerFunction,
+                   "__runCodelet_poplin__WorkerClass1xN___unsigned_short_1_"
+                   "false_16");
         } else {
-          RUN_ALL("__runCodelet_poplin__WorkerClass1xN___unsigned_short_2_16",
-                  &workerState);
+          SET_ADDR(workerFunction,
+                   "__runCodelet_poplin__WorkerClass1xN___unsigned_short_2_"
+                   "false_16");
         }
         // Using swap would result in a function call here which isn't worth
         // the overhead

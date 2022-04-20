@@ -71,7 +71,7 @@ template <> void slicLoadWeights<false, 16>(const quarter *weights) {
              ld64putcs   5+32  // ch=7
       )l"
       :
-      : [weights] "r"(weights)
+      :
       :);
 }
 
@@ -81,12 +81,13 @@ struct WorkerState1xN {
   half *partialsChanPtr;
   const unsigned *partitionList;
   const unsigned *partitionBase;
-  unsigned noImplicitZero;
 };
 
-#define F8v8HIHO_SLIC_IMPLICIT_ZERO(SLIC_WEIGHT_SELECTION)                     \
-  asm volatile( /* Prime with 1st 3 sets of inputs, there are no outputs yet*/ \
-      R"l(
+template <unsigned weightSelection>
+static __attribute__((always_inline)) void
+f8v8hihoSLICImplicitZero(uint2 triAddr, unsigned strides, unsigned loops) {
+  asm volatile(/* Prime with 1st 3 sets of inputs, there are no outputs yet*/
+               R"l(
         ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
 
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1000
@@ -97,28 +98,28 @@ struct WorkerState1xN {
 
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
          f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
-      )l" \
-        /* In each case, subtracting 5 as that's what was subtracted*/ \
-        /* from the count already*/ \
-        /* If >= 5 outputs use the loop*/  \
-      R"l(
+      )l"
+               /* In each case, subtracting 5 as that's what was subtracted*/
+               /* from the count already*/
+               /* If >= 5 outputs use the loop*/
+               R"l(
         cmpslt  $m1, %[loops], 5-5
         brz     $m1, 3f
         cmpeq   $m1, %[loops], 1-5
         brz     $m1, 1f
-      )l" \
-        /* 1 output - no further need to load */ \
-      R"l(
+      )l"
+               /* 1 output - no further need to load */
+               R"l(
         f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]
         {bri      4f
          f8v8hihov4slic $a4:5, $azeros, $azeros, %[SLIC_FLAGS]}
       1:
         cmpeq   $m1, %[loops], 2-5
         brz     $m1, 1f
-      )l" \
-        /* 2 outputs, load once, don't advance the pointer*/ \
-        /* (dummy loads later) */ \
-      R"l(
+      )l"
+               /* 2 outputs, load once, don't advance the pointer*/
+               /* (dummy loads later) */
+               R"l(
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0101
         f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
         {bri      5f
@@ -126,20 +127,20 @@ struct WorkerState1xN {
       1:
         cmpeq   $m1, %[loops], 3-5
         brz     $m1, 1f
-      )l" \
-        /* 3 outputs, load twice, only advance the pointer once */ \
-        /* (dummy loads later) */ \
-      R"l(
+      )l"
+               /* 3 outputs, load twice, only advance the pointer once */
+               /* (dummy loads later) */
+               R"l(
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
          f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
         {ld2x64pace $a0:1, $azeros, %[triAddr]+=, %[strides], 0b0101
          f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
         bri      6f
       1:
-      )l" \
-         /* 4 outputs, load three times, only advance the pointer twice */ \
-         /* (dummy loads later)*/ \
-      R"l(
+      )l"
+               /* 4 outputs, load three times, only advance the pointer twice */
+               /* (dummy loads later)*/
+               R"l(
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
          f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
         {ld2x64pace $a0:1, $azeros, %[triAddr]+=, %[strides], 0b0100
@@ -150,9 +151,9 @@ struct WorkerState1xN {
       3:
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
          f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
-      )l" \
-         /* The first real output is available AFTER this */ \
-      R"l(
+      )l"
+               /* The first real output is available AFTER this */
+               R"l(
         {ld2x64pace $a0:1, $azeros, %[triAddr]+=, %[strides], 0b0100
          f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
 
@@ -165,19 +166,21 @@ struct WorkerState1xN {
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
       7: {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1100
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
-      6: {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1101
+      6: {st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
-      5: {ldst64pace $azeros, $a4:5, %[triAddr]+=, %[strides], 0b1101
+      5: {st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
           f8v8hihov4slic $a4:5, $azeros, $azeros, %[SLIC_FLAGS]}
-      4: ldst64pace $azeros, $a4:5, %[triAddr]+=, %[strides], 0b1101
-      )l"   \
-      : [triAddr] "+r"(triAddr)                                                \
-      : [strides] "r"(strides), [loops] "r"(loops),                            \
-        [SLIC_FLAGS] "i"(SLIC_WEIGHT_SELECTION)                                \
-      : "$a0:1", "$a2:3", "$a4:5", "$m1");
-
-#define F8v8HIHO_SLIC(SLIC_WEIGHT_SELECTION)                                   \
-  asm volatile(/* Prime with 1st 3 sets of inputs, there are no outputs yet*/  \
+      4: st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
+      )l"
+               : [triAddr] "+r"(triAddr)
+               : [strides] "r"(strides), [loops] "r"(loops),
+                 [SLIC_FLAGS] "i"(weightSelection)
+               : "$a0:1", "$a2:3", "$a4:5", "$m1");
+}
+template <unsigned weightSelection>
+static __attribute__((always_inline)) void
+f8v8hihoSLICLoop(uint2 triAddr, unsigned strides, unsigned loops) {
+  asm volatile(/* Prime with 1st 3 sets of inputs, there are no outputs yet*/
                R"l(
           ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1100
           {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides],0b1100
@@ -204,25 +207,27 @@ struct WorkerState1xN {
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
          {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1100
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
-         {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1100
+         {st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
-         {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1101
+         {st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
           f8v8hihov4slic $a4:5, $azeros, $azeros, %[SLIC_FLAGS]}
-         ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1101
-      )l"                                                            \
-               : [triAddr] "+r"(triAddr)                                       \
-               : [strides] "r"(strides), [loops] "r"(loops),                   \
-                 [SLIC_FLAGS] "i"(SLIC_WEIGHT_SELECTION)                       \
+         st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
+      )l"
+               : [triAddr] "+r"(triAddr)
+               : [strides] "r"(strides), [loops] "r"(loops),
+                 [SLIC_FLAGS] "i"(weightSelection)
                : "$a0:1", "$a2:3", "$a4:5");
-
-#define F8v8HIHO_SLIC_LESS_THAN_5(SLIC_WEIGHT_SELECTION)                       \
-  asm volatile(/* In each case, subtracting 5 as that's what was subtracted    \
-                  from the count already*/                                     \
+}
+template <unsigned weightSelection>
+static __attribute__((always_inline)) void
+f8v8hihoSLICLessThan5(uint2 triAddr, unsigned strides, unsigned loops) {
+  asm volatile(/* In each case, subtracting 5 as that's what was subtracted
+                  from the count already*/
                R"l(
         cmpeq $m1, %[loops],1-5
         brz $m1, 1f /* Path for 1 output */
-      )l"      /* Load 1 set of partials, 4 inputs only. No increment to       \
-                  partialsPtr */                                               \
+      )l"      /* Load 1 set of partials, 4 inputs only. No increment to
+                  partialsPtr */
                R"l(
         ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
 
@@ -241,7 +246,7 @@ struct WorkerState1xN {
       1:
         cmpeq $m1, %[loops],2-5
         brz $m1, 1f /* Path for 2 outputs */
-      )l" /* Load 2 set2 of partials, 5 inputs. One increment to partialsPtr*/ \
+      )l" /* Load 2 set2 of partials, 5 inputs. One increment to partialsPtr*/
                R"l(
         ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1100
 
@@ -260,8 +265,8 @@ struct WorkerState1xN {
       1:
         cmpeq $m1, %[loops],3-5
         brz $m1, 1f
-      )l" /* Path for 3 outputs Load 3 sets of partials, 6 inputs. Two         \
-             increments to partialsPtr */                                      \
+      )l" /* Path for 3 outputs Load 3 sets of partials, 6 inputs. Two
+             increments to partialsPtr */
                R"l(
         ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1100
 
@@ -278,8 +283,8 @@ struct WorkerState1xN {
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
           f8v8hihov4slic $a4:5, $a0:1, $a2:3, %[SLIC_FLAGS]}
         bri 5f
-      )l" /* Path for 4 outputs Load 4 sets of partials, 6 inputs. Two         \
-             increments to partialsPtr */                                      \
+      )l" /* Path for 4 outputs Load 4 sets of partials, 6 inputs. Two
+             increments to partialsPtr */
                R"l(
       1:
         ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1100
@@ -296,24 +301,24 @@ struct WorkerState1xN {
           f8v8hihov4slic $azeros, $a0:1, $a2:3, %[SLIC_FLAGS]}
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
           f8v8hihov4slic $a4:5, $a0:1, $a2:3, %[SLIC_FLAGS]}
-      )l" /* Start storing. Fall through for the 4 of case, jump in for        \
-             others*/                                                          \
+      )l" /* Start storing. Fall through for the 4 of case, jump in for
+             others*/
                R"l(
         {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1100
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
       5:
-        {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1100
+        {st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
       4:
-         {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1101
+         {st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
           f8v8hihov4slic $a4:5, $azeros, $azeros, %[SLIC_FLAGS]}
       3:
-        ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1101
-      )l"                                                            \
-               : [triAddr] "+r"(triAddr)                                       \
-               : [strides] "r"(strides), [loops] "r"(loops),                   \
-                 [SLIC_FLAGS] "i"(SLIC_WEIGHT_SELECTION)                       \
-                                                                               \
-               : "$a0:1", "$a2:3", "$a4:5", "$m1");
+        st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
+      )l"
+               : [triAddr] "+r"(triAddr)
+               : [strides] "r"(strides), [loops] "r"(loops),
+                 [SLIC_FLAGS] "i"(weightSelection)
 
+               : "$a0:1", "$a2:3", "$a4:5", "$m1");
+}
 #endif // __IPU__ARCH_VERSION

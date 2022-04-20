@@ -1437,8 +1437,13 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
   // to make sliced regions contiguous on each tile respecting existing
   // grain size etc.
   if (inChanSerialSplit > 1) {
+    Tensor metadata, *metadataPtr = nullptr;
+    if (t.hasMetadata()) {
+      metadata = t.getMetadata();
+      metadataPtr = &metadata;
+    }
     t = graph.clone(
-        t, {dnai},
+        metadataPtr, t, {dnai},
         TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
   }
   return t;
@@ -1570,8 +1575,13 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   // to make sliced regions contiguous on each tile respecting existing
   // grain size etc.
   if (inChanSerialSplit * outChanSerialSplit > 1) {
+    Tensor metadata, *metadataPtr = nullptr;
+    if (weights.hasMetadata()) {
+      metadata = weights.getMetadata();
+      metadataPtr = &metadata;
+    }
     weights = graph.clone(
-        weights, {dnai},
+        metadataPtr, weights, {dnai},
         TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
   }
   return weights;

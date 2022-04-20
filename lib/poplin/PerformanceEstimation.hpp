@@ -469,16 +469,13 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimateQuarter(
   // Core loop cycles for AMP vertex - 32 QUARTER inputs
   auto coreCycles = 4;
 
-  auto retentionSavings = conv1x1WorkerRetentionSavings(numConvUnits);
   unsigned usedContexts = workerPartitions.size();
   uint64_t maxWorkerCycles = 0;
   uint64_t minWorkerCycles = usedContexts < numWorkerContexts
                                  ? 0
                                  : std::numeric_limits<uint64_t>::max();
 
-  const auto zeroCyclesPerLoop = 4u;
-  const auto elemsPerLoop = 32u;
-  const auto overhead = 30;
+  const auto overhead = 20;
   for (const auto &worker : workerPartitions) {
     // 1x1 vertex doesn't support more than one worklist item per worker.
     assert(worker.size() <= 1);
@@ -486,23 +483,20 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimateQuarter(
     uint64_t thisWorkerCycles = overhead;
     if (!worker.empty()) {
       const auto numElems = worker.front();
-      if (outputZeroing) {
-        thisWorkerCycles += zeroCyclesPerLoop * numElems / elemsPerLoop;
-      }
+      const unsigned outputZeroSaving = outputZeroing ? 5 : 0;
       switch (numElems) {
       case 0:
         thisWorkerCycles += 0;
         break;
       case 1:
-        thisWorkerCycles += 2 + 14;
+        thisWorkerCycles += 17 - outputZeroSaving;
         break;
       case 2:
-        thisWorkerCycles += 14;
+        thisWorkerCycles += 22 - outputZeroSaving;
         break;
       default:
-        thisWorkerCycles += 14 + (numElems - 2) * coreCycles;
+        thisWorkerCycles += 29 - outputZeroSaving + (numElems - 3) * coreCycles;
       }
-      thisWorkerCycles -= retentionSavings.first;
     }
 
     maxWorkerCycles =
@@ -598,38 +592,29 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimateQuarter(
     unsigned weightBytesPerConvUnit, unsigned numConvUnits,
     unsigned convUnitCoeffLoadBytesPerCycle, unsigned numWorkerContexts) {
 
-  const auto outputPassesPerGroup =
-      (outChansPerGroup + numConvUnits - 1) / numConvUnits;
-
-  const auto retentionSavings = conv1x1WorkerRetentionSavings(numConvUnits);
-
   // Filter height is not applicable to 1x1 vertex so set it to 1
   const auto numLoads = getConvPartialAmpSupervisorWeightLoadCycleEstimate(
       weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle, 1);
-  // The code paths for half activations, half partials and 16 conv units is
-  // = half activations, float partials and 8 conv units.
-  bool commonHalfAndFloatPartialsCodePath = numConvUnits == 16;
 
-  const uint64_t supervisorNonloopOverhead = 50;
-  const unsigned outPassesOverhead = 7;
-  const unsigned excessInChanOverhead = 1;
+  const uint64_t workerCallOverhead = numWorkerContexts * 6;
+  const uint64_t supervisorNonloopOverhead = 46;
+  const uint64_t cgLoopOverhead = numWorkerContexts * 2 + 9;
+  const uint64_t ogLoopOverhead = numWorkerContexts * 6 + 10;
+  const uint64_t igLoopOverhead =
+      numWorkerContexts * 14 + 11 + workerCallOverhead;
+  const uint64_t igLoopOverheadAfterSync =
+      numWorkerContexts * 11 + 6 + workerCallOverhead;
+
   return supervisorNonloopOverhead +
-         numWorkerContexts *
-             (retentionSavings.first +
-              retentionSavings.second * (numInGroups * numConvGroups - 1)) +
          numConvGroups *
-             (12 + commonHalfAndFloatPartialsCodePath +
-              (numInGroups - 1) *
-                  (15 - commonHalfAndFloatPartialsCodePath +
-                   excessInChanOverhead +
-                   numOutGroups * (19 + outputPassesPerGroup *
-                                            (6 + numLoads +
-                                             innerLoopCyclesWithoutZeroing))) +
-              (10 + excessInChanOverhead +
-               numOutGroups *
-                   (19 - commonHalfAndFloatPartialsCodePath +
-                    outputPassesPerGroup * (outPassesOverhead + numLoads +
-                                            innerLoopCyclesWithZeroing))));
+             (cgLoopOverhead +
+              numOutGroups *
+                  (ogLoopOverhead +
+                   // Zeroing pass
+                   igLoopOverhead + numLoads + innerLoopCyclesWithZeroing +
+                   // Later passes - assuming loop to sync is zero cost
+                   (numInGroups - 1) * (igLoopOverheadAfterSync + numLoads +
+                                        innerLoopCyclesWithoutZeroing)));
 }
 
 inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
@@ -702,19 +687,23 @@ inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimateQuarter(
     std::uint64_t innerLoopCycles, unsigned numConvGroups,
     unsigned numOutGroups, unsigned numInGroups, unsigned outChansPerGroup,
     unsigned numConvUnits, unsigned numWorkerContexts) {
-  uint64_t cycles = innerLoopCycles;
-  return // Other constant supervisor code cycles
-      convNx1Overhead() +
-      // First iteration does not save cycles to calculate state which
-      // will then be retained
-      numWorkerContexts * convnx1WorkerRetentionSavings() +
-      numWorkerContexts * zeroPartialsRetentionSavings() +
-      // Supervisor code loop to zero partials. brnzdec loops mean
-      // 6-cycle stall for all but last iteration.
-      numConvGroups * (numOutGroups * 17 + (numOutGroups - 1) * 6 + 1) +
-      (numConvGroups - 1) * 6 + 1 +
-      // Supervisor code loop over conv/in/out groups
-      numConvGroups * (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
+
+  const uint64_t supervisorNonloopOverhead = 83;
+  const uint64_t cgLoopOverhead = numWorkerContexts * 5 + 7;
+  const uint64_t ogLoopOverhead = numWorkerContexts * 8 + 10;
+  const uint64_t igLoopOverhead = numWorkerContexts * 8 + 13;
+
+  auto result = supervisorNonloopOverhead +
+                numConvGroups *
+                    // cg loop
+                    (cgLoopOverhead +
+                     numOutGroups *
+                         // og loop
+                         (ogLoopOverhead +
+                          numInGroups *
+                              // ig loop + cycles for inner loops and workers
+                              (igLoopOverhead + innerLoopCycles)));
+  return result;
 }
 
 inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimate(
@@ -781,15 +770,16 @@ static std::uint64_t inline getConvPartialnx1WorkerCycles(
 
 // Cycles for a single run of the ConvPartialnx1 vertex worker code
 // with the given worklist and parameters
-static std::uint64_t inline getConvPartialnx1WorkerCycles(
+static std::uint64_t inline getConvPartialnx1WorkerCyclesQuarter(
     const std::vector<unsigned> &worklist, unsigned numConvUnits,
     unsigned retentionSavings) {
 
-  // Core loop cycles for vertex will all engines in use
+  assert(numConvUnits == 16);
+  // Core loop cycles for vertex with all engines in use
   auto coreCycles = 4;
 
-  const auto overhead = 30;
-  const auto worklistLoopOverhead = 8;
+  const auto overhead = 18;
+  const auto worklistLoopOverhead = 22;
   std::uint64_t cycles = overhead;
   for (auto &numElems : worklist) {
     cycles += worklistLoopOverhead;
@@ -798,13 +788,13 @@ static std::uint64_t inline getConvPartialnx1WorkerCycles(
       cycles += 0;
       break;
     case 1:
-      cycles += 2 + 14;
+      cycles += 17;
       break;
     case 2:
-      cycles += 14;
+      cycles += 22;
       break;
     default:
-      cycles += 14 + (numElems - 2) * coreCycles;
+      cycles += 29 + (numElems - 3) * coreCycles;
     }
     cycles -= retentionSavings;
   }
@@ -892,7 +882,7 @@ getConvPartialnx1SupervisorKernelLoopCycleEstimateQuarter(
                                      : std::numeric_limits<uint64_t>::max();
       for (auto context = 0U; context != usedContexts; ++context) {
         const auto k = ky * kernelInnerElems + kx;
-        const auto thisWorkerCycles = getConvPartialnx1WorkerCycles(
+        const auto thisWorkerCycles = getConvPartialnx1WorkerCyclesQuarter(
             workerPartitions[context][k], numConvUnits, retentionSavings);
         maxWorkerCycles =
             std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
@@ -920,7 +910,7 @@ getConvPartialnx1SupervisorKernelLoopCycleEstimateQuarter(
                                  ? 0
                                  : std::numeric_limits<uint64_t>::max();
   for (auto context = 0U; context != usedContexts; ++context) {
-    const auto thisWorkerCycles = getConvPartialnx1WorkerCycles(
+    const auto thisWorkerCycles = getConvPartialnx1WorkerCyclesQuarter(
         workerPartitions[context], numConvUnits, retentionSavings);
     maxWorkerCycles =
         std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
@@ -991,31 +981,34 @@ inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimateQuarter(
     unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts) {
 
-  unsigned numOutChanPasses = outChansPerGroup / numConvUnits;
-
-  // innermostLoopCycles is the cycles in the innermost supervisor loop
-  uint64_t innermostLoopCycles =
+  const uint64_t weightLoadCycles =
       getConvPartialAmpSupervisorWeightLoadCycleEstimate(
           weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle,
           filterHeight);
 
-  // Load cycles dependent on filterHeight
-  innermostLoopCycles += 20 * filterHeight;
-
-  innermostLoopCycles += 3;
+  const uint64_t workerCallOverhead = numWorkerContexts * 6;
+  const uint64_t kyLoopOverhead = numWorkerContexts * 5 + 3;
+  const uint64_t kxLoopOverhead =
+      numWorkerContexts * 9 + 13 + workerCallOverhead;
+  const uint64_t kxLoopOverheadAfterSync =
+      numWorkerContexts * 7 + 8 + workerCallOverhead;
 
   // Supervisor cycles for supervisor overhead on each outer loop as
   // well as loading of weights etc. in the innermost loop.
-  uint64_t innerLoopCycles =
+  const uint64_t innerLoopCycles =
       kernelOuterElems *
-      (14 +
-       kernelInnerElems * (17 - 5 + numOutChanPasses * innermostLoopCycles));
+      (kyLoopOverhead + (
+                            // One pass with this cost
+                            kxLoopOverhead + weightLoadCycles +
+                            // Later passes with this cost
+                            (kernelInnerElems - 1) * kxLoopOverheadAfterSync +
+                            weightLoadCycles));
 
-  innerLoopCycles += getConvPartialnx1SupervisorKernelLoopCycleEstimateQuarter(
-      workerPartitions, kernelInnerElems, kernelOuterElems, numOutChanPasses,
-      numWorkerContexts, numConvUnits);
-
-  return innerLoopCycles;
+  unsigned numOutChanPasses = outChansPerGroup / numConvUnits;
+  return innerLoopCycles +
+         getConvPartialnx1SupervisorKernelLoopCycleEstimateQuarter(
+             workerPartitions, kernelInnerElems, kernelOuterElems,
+             numOutChanPasses, numWorkerContexts, numConvUnits);
 }
 
 template <typename WorkerWorklist>
@@ -1062,9 +1055,14 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleEstimate(
 
 inline std::uint64_t getConvPartialSlicSupervisorWeightLoadCycleEstimate(
     unsigned convGroupsPerGroup, unsigned chansPerGroup,
-    unsigned numWorkerContexts, unsigned slicWindowWidth) {
+    unsigned numWorkerContexts, unsigned slicWindowWidth, poplar::Type inType) {
   assert(slicWindowWidth == 4u);
 
+  if (inType == poplar::QUARTER) {
+    // Quarter code has a different structure
+    // 32 weights load cycles, csr write with stall
+    return 32 + 6;
+  }
   std::uint64_t cycles = 0;
   if (chansPerGroup == 4) {
     assert(convGroupsPerGroup == 1u);
@@ -1183,74 +1181,29 @@ inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimateQuarter(
     std::uint64_t implicitZeroingInnerLoopCycles, std::uint64_t innerLoopCycles,
     std::uint64_t weightLoadCycles, unsigned numConvGroupGroups,
     unsigned numSubKernels, unsigned numConvChains, unsigned slicWindowWidth,
-    unsigned convGroupsPerGroup) {
+    unsigned convGroupsPerGroup, unsigned numWorkerContexts) {
 
-  // TODO: we currently only target a kernel width of 4.
   assert(slicWindowWidth == 4);
   assert(numConvGroupGroups >= 1);
   assert(numSubKernels >= 1);
 
-  const auto brnzdec_cycles = [](const unsigned n) {
-    // 6 cycles brnzdec stall for all but the last one
-    return 6 * (n - 1) + 1;
-  };
+  const uint64_t workerCallOverhead = numWorkerContexts * 6;
+  const uint64_t supervisorNonloopOverhead = 43;
+  const uint64_t cgLoopOverhead = numWorkerContexts * 13 + 15;
+  const uint64_t kgLoopOverhead = numWorkerContexts * 6 + 12;
+  const uint64_t kgLoopOverheadToSync = numWorkerContexts * 5 + 8;
 
-  const std::uint64_t supervisorPreambleCycles = 28;
-  std::uint64_t supervisorConvGroupGroupsBodyCycles = 15;
-  std::uint64_t supervisorSubKernelBodyCycles = 0;
-
-  if (convGroupsPerGroup <= 4) {
-    supervisorSubKernelBodyCycles =
-        weightLoadCycles +
-        3 +     // deal with whether to swap output pointers or not
-        2 +     // store new worklist pointer and increment
-        6 +     // runall
-        1 + 6 + // sync
-        1;      // load new weights pointer
-
-  } else {
-    const unsigned numConvGroupStrides = convGroupsPerGroup / 4;
-    const std::uint64_t convGroupStrideBodyCycles =
-        weightLoadCycles + 6 + // runall
-        1 + 6 +                // sync
-        2 + 6; // update weights pointer (ld + add + register stall)
-    const std::uint64_t convGroupStrideLoopCycles =
-        convGroupStrideBodyCycles * numConvGroupStrides +
-        brnzdec_cycles(numConvGroupStrides);
-
-    supervisorSubKernelBodyCycles =
-        convGroupStrideLoopCycles +
-        2 +     // deal with whether to swap output pointers or not
-        2 + 6 + // store implicit zero/stride + stall
-        3 +     // deal with the weights pointer
-        2;      // store new worklist pointer and increment
-
-    // For 8 and 16 groups codelets store numGroupCounter on the stack
-    // so that brings extra 2 commands (st + ld) and a penalty for
-    // accessing loaded value straignt away
-    supervisorConvGroupGroupsBodyCycles += 2 + 6;
-
-    // Update worker cycles by number of group stides
-    innerLoopCycles *= numConvGroupStrides;
-  }
-
-  const std::uint64_t supervisorSubKernelLoopCycles =
-      supervisorSubKernelBodyCycles * numSubKernels +
-      brnzdec_cycles(numSubKernels);
-
-  const std::uint64_t supervisorConvGroupGroupsLoopCycles =
-      supervisorConvGroupGroupsBodyCycles * numConvGroupGroups +
-      brnzdec_cycles(numConvGroupGroups);
-
-  const std::uint64_t cycles =
-      supervisorPreambleCycles + supervisorConvGroupGroupsLoopCycles +
-      supervisorSubKernelLoopCycles +
-      // Workers make one pass for the first sub-kernel implicitly zeroing
-      // partials, and the remainder of the sub-kernels not implicitly zeroing.
-      (numConvGroupGroups * implicitZeroingInnerLoopCycles +
-       numConvGroupGroups * (numSubKernels - 1) * innerLoopCycles);
-
-  return cycles;
+  return supervisorNonloopOverhead +
+         numConvGroupGroups *
+             (cgLoopOverhead +
+              (
+                  // One pass with this cost
+                  workerCallOverhead + weightLoadCycles + kgLoopOverhead +
+                  implicitZeroingInnerLoopCycles +
+                  // Later passes - assuming loop to sync is zero cost
+                  (numSubKernels - 1) *
+                      (workerCallOverhead + weightLoadCycles +
+                       kgLoopOverheadToSync + innerLoopCycles)));
 }
 
 inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
@@ -1258,12 +1211,12 @@ inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
     std::uint64_t weightLoadCycles, unsigned numConvGroupGroups,
     unsigned numSubKernels, unsigned numConvChains, unsigned slicWindowWidth,
     unsigned convGroupsPerGroup, const poplar::Type &actsType,
-    bool floatPartials) {
+    bool floatPartials, unsigned numWorkerContexts) {
   if (actsType == poplar::QUARTER) {
     return getConvPartialSlicSupervisorOuterLoopCycleEstimateQuarter(
         implicitZeroingInnerLoopCycles, innerLoopCycles, weightLoadCycles,
         numConvGroupGroups, numSubKernels, numConvChains, slicWindowWidth,
-        convGroupsPerGroup);
+        convGroupsPerGroup, numWorkerContexts);
   } else {
     auto floatActivations = actsType == poplar::FLOAT;
     return getConvPartialSlicSupervisorOuterLoopCycleEstimateHalfFloat(
@@ -1389,74 +1342,55 @@ inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimateQuarter(
   // TODO: we currently only target kernel width of 4.
   assert(slicWindowWidth == 4);
 
-  const unsigned inputDataPasses = numConvChains == 2;
+  const unsigned inputDataPasses = 2;
   // A loop or individual treatment for less than this number of outputs
-  const unsigned loopDecisionThreshold = 5;
+  const unsigned loopDecisionThresholdStride1 = 5;
+  const unsigned loopDecisionThresholdStride2 = 3;
 
   std::uint64_t maxWorkerCycles = 0;
 
-  std::uint64_t workerProcessGroupPreambleCycles =
-      2 + // Get worker ID
-      3 + // Load and maybe switch output pointers
-      1 + // Load input pointer
-      2 + // Load worklist DeltaN for worker
-      4 + // Unpack DeltaN
-      2 + // Load base pointer for DeltaN and add to form final worklist pointer
-      2 + // Divide number of work items in the list by 3
-      1 + // Load implicit zero flag + strides from stack
-      1;  // Implicit zero loop decision
+  const std::uint64_t workerProcessGroupPreambleCycles = 20;
+  const std::uint64_t whileLoopOverhead = 24;
+  const std::uint64_t additionalOverheadWithIf = 18;
 
-  if (convGroupsPerGroup > 4) {
-    // 8 and 16 groupings workers uses extra 4 cycles
-    // 1 - load group index
-    // 3 - update 3 pointer by the group index
-    workerProcessGroupPreambleCycles += 4;
-  }
   // worker partitions is indexed by [worker][partitions].
-  std::uint64_t cumulativeFieldElems = 0;
   for (const auto &worker : workerPartitions) {
     std::uint64_t workerCycles = workerProcessGroupPreambleCycles;
 
     for (const auto &numFieldElems : worker) {
-      workerCycles += 10; // Pre-amble, brnzdec
-      if (implicitZeroing) {
-        workerCycles += 1; // Extra branch to exit
-      }
+      workerCycles += whileLoopOverhead;
+
       std::uint64_t rowCycles = 0;
 
-      if (outputStride == 1) {
-        if (numFieldElems < loopDecisionThreshold) {
-          if (implicitZeroing) {
-            rowCycles += 10 + (numFieldElems > 1 ? numFieldElems : 0) + 3;
-          } else {
-            rowCycles += 7;
-            if (numFieldElems == 1) {
-              rowCycles += 6;
-            } else {
-              rowCycles += 1 + (numFieldElems - 1) + 2 + (4 - numFieldElems) +
-                           2 + (3 - (4 - numFieldElems)) + 3;
-            }
-          }
+      if (outputStride == 1 && implicitZeroing) {
+        if (numFieldElems < loopDecisionThresholdStride1) {
+          const std::array<unsigned, loopDecisionThresholdStride1 - 1> cycles =
+              {5, 9, 12, 15};
+          rowCycles += 6 + cycles[numFieldElems];
         } else {
-          rowCycles += 15 + (numFieldElems - 5);
+          rowCycles += 14 + (numFieldElems - loopDecisionThresholdStride1);
+        }
+      } else if (outputStride == 1 && !implicitZeroing) {
+        // C++ if statement and pointer arithmetic
+        rowCycles += additionalOverheadWithIf;
+
+        if (numFieldElems < loopDecisionThresholdStride1) {
+          const std::array<unsigned, loopDecisionThresholdStride1 - 1> cycles =
+              {7, 10, 14, 14};
+          rowCycles += 2 + cycles[numFieldElems];
+        } else {
+          rowCycles += 12 + (numFieldElems - loopDecisionThresholdStride1);
         }
       } else {
         // outputStride == 2
-        if (numFieldElems < 3) {
-          // Cycles for > 3 field elements matches for implicit
-          // zeroing vs. normal
-          rowCycles += 7 + (numFieldElems == 1 ? 3 : 5) + 3;
+        if (numFieldElems < loopDecisionThresholdStride2) {
+          rowCycles += 4 + (numFieldElems == 1 ? 6 : 11);
         } else {
-          // Cycles for < 3 field elements matches for implicit
-          // zeroing vs. normal
-          rowCycles += 15 + 2 * (numFieldElems - 3);
+          rowCycles += 13 + 2 * (numFieldElems - loopDecisionThresholdStride2);
         }
       }
-
-      // Account for the passes over input data
+      // Account for multiple passes per worker call
       workerCycles += rowCycles * inputDataPasses;
-      // Count field elems total so we can account for the merging copy
-      cumulativeFieldElems += numFieldElems;
     }
     maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
   }

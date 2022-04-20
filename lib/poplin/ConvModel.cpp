@@ -426,14 +426,15 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               const auto weightLoadCycles =
                   getConvPartialSlicSupervisorWeightLoadCycleEstimate(
                       convGroupsPerGroup, inChansPerGroup,
-                      target.getNumWorkerContexts(), method.windowWidth);
-
+                      target.getNumWorkerContexts(), method.windowWidth,
+                      params.inputType);
               auto cycles =
                   cache->mGetConvPartialSlicSupervisorOuterLoopCycleEstimate(
                       implicitZeroInnerLoopCycles, innerLoopCycles,
                       weightLoadCycles, tileNumConvGroups, numWeightBlocks,
                       method.convUnitChainsRequired, method.windowWidth,
-                      convGroupsPerGroup, params.inputType, floatPartials);
+                      convGroupsPerGroup, params.inputType, floatPartials,
+                      target.getNumWorkerContexts());
 
               return popsolver::DataType{cycles};
             });
