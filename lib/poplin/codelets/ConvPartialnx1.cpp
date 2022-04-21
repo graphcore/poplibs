@@ -391,7 +391,7 @@ public:
                                       << (unsignedSize - 2 * NUM_STRIDE_BITS);
     int inStride =
         (unpackedTransformedInStride >> (unsignedSize - NUM_STRIDE_BITS)) -
-        transformedInRowStride;
+        (transformedInRowStride * 2);
     workerState.strides =
         packStrides(inStride, transformedOutStride & NUM_STRIDE_BITS_MASK);
     // Zeroing - using a worker function with 64 bit writes, rpt and bundles
