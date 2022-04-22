@@ -1283,17 +1283,17 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAddRegroup) {
 
 BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_SUITE(MultiUpdatePlanLookupSplit)
+BOOST_AUTO_TEST_SUITE(MultiUpdatePlanLookupParallelSplit)
 
 // Test lookup split with ADD
-BOOST_AUTO_TEST_CASE(MultiUpdateAddLookupSplitPlan) {
+BOOST_AUTO_TEST_CASE(MultiUpdateAddLookupParallelSplitPlan) {
   multiupdate({20, 0, 1, 2, 3, 4, 5, 6, 7, 8, 1, 1, 2, 2,  3,
                3,  4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10},
               {30, 1}, true, popops::Operation::ADD, HALF, 0.5, 8, 21);
 }
 
 // Test lookup split with None
-BOOST_AUTO_TEST_CASE(MultiUpdateNoLookupSplitPlan) {
+BOOST_AUTO_TEST_CASE(MultiUpdateNoLookupParallelSplitPlan) {
   multiupdate({20, 0, 1, 2, 3, 4, 5, 6, 7, 7, 1, 1, 2, 2,  3,
                3,  4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10},
               {30, 1}, true, boost::none, HALF, 0.5, 8, 21);
@@ -1573,8 +1573,8 @@ void multiUpdatePoorlyMappedSlices() {
   // (unslicedDimSplit * slicedDimSplit) times in future
   // (i.e. that the optimisation is still in place).
   const OptionFlags &sliceOptions = {
-      {"planConstraints",
-       "{\"unslicedDimSplit\": 6, \"slicedDimSplit\": 2, \"lookupSplit\": 1}"}};
+      {"planConstraints", "{\"unslicedDimSplit\": 6, \"slicedDimSplit\": 2, "
+                          "\"lookupParallelSplit\": 1}"}};
 
   const SlicePlan &plan = embedding::plan(graph, HALF, V, E, {I}, sliceOptions);
 

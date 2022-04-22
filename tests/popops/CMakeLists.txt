@@ -236,52 +236,106 @@ add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
 # Grouped and un-grouped planned MultiSlice/MultiUpdate tests
 add_multi_target_test_executable(PlannedMultiSliceUpdateTest PlannedMultiSliceUpdateTest.cpp)
 
-foreach(dtype half float quarter)
-  foreach(dictSize 16 1024)
-    foreach(numIndices 1024 2)
-      foreach(groupSize 1 3)
-        add_multitarget_test(
-        NAME PlannedGroupedMultiSliceTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}
-          COMMAND PlannedMultiSliceUpdateTest
-            --num-indices=${numIndices}
-            --data-type=${dtype}
-            --update=false
-            --shape={${dictSize},16}
-            --tiles-per-ipu=16
-            --group-size=${groupSize}
-            VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+foreach(serialisation 1 2 3)
+  foreach(dtype half float quarter)
+    foreach(dictSize 16 1024)
+      if (serialisation EQUAL 1)
+        # serialisation isn't worthwhile makes sense when there are are reasonable number of indices
+        set(indicesRange 1024 2)
+      else()
+        set(indicesRange 1024)
+      endif()
+      foreach(numIndices ${indicesRange})
+        foreach(groupSize 1 3)
+          set(commonArgs 
+              --num-indices=${numIndices}
+              --data-type=${dtype}
+              --shape={${dictSize},16}
+              --tiles-per-ipu=16
+              --group-size=${groupSize}
+              --slice-options={"planConstraints":"{\\"lookupSerialSplit\\":\\"${serialisation}\\"}"}
+          )
+          add_multitarget_test(
+          NAME PlannedGroupedMultiSliceTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}_S_${serialisation}
+            COMMAND PlannedMultiSliceUpdateTest
+              ${commonArgs}
+              --update=false
+              VARIANTS ${IPUMODEL_VARIANTS};Sim2)
 
-        add_multitarget_test(
-        NAME PlannedGroupedMultiUpdateTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}
-          COMMAND PlannedMultiSliceUpdateTest
-            --num-indices=${numIndices}
-            --data-type=${dtype}
-            --update=true
-            --shape={${dictSize},16}
-            --tiles-per-ipu=16
-            --group-size=${groupSize}
-            VARIANTS ${IPUMODEL_VARIANTS};Sim2)
-
-        if(NOT(dtype STREQUAL quarter))
-          foreach(OPERATION MAX ADD)
-
+          if(serialisation EQUAL 1)
             add_multitarget_test(
-            NAME PlannedGroupedMultiUpdateOpTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}_${OPERATION}
+            NAME PlannedGroupedMultiUpdateTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}_S_${serialisation}
               COMMAND PlannedMultiSliceUpdateTest
-                --num-indices=${numIndices}
-                --data-type=${dtype}
+                ${commonArgs}
                 --update=true
-                --shape={${dictSize},16}
-                --tiles-per-ipu=16
-                --group-size=${groupSize}
-                --operation=${OPERATION}
                 VARIANTS ${IPUMODEL_VARIANTS};Sim2)
-          endforeach()
-        endif()
+            endif()
+
+          if(NOT(dtype STREQUAL quarter))
+            foreach(OPERATION MAX ADD)
+              add_multitarget_test(
+              NAME PlannedGroupedMultiUpdateOpTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}_S_${serialisation}_${OPERATION}
+                COMMAND PlannedMultiSliceUpdateTest
+                  ${commonArgs}
+                  --update=true
+                  --operation=${OPERATION}
+                  VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+            endforeach()
+          endif()
+        endforeach()
       endforeach()
     endforeach()
   endforeach()
 endforeach()
+
+add_multitarget_test(
+  NAME PlannedGroupedMultiSliceTest_WithPreCopy
+    COMMAND PlannedMultiSliceUpdateTest
+      --num-indices=1024
+      --data-type=float
+      --shape={2048,16}
+      --tiles-per-ipu=16
+      --group-size=1
+      --slice-options={"planConstraints":"{\\"lookupSerialSplit\\":\\"2\\",\\"precopyBaseWhenSerialSlice\\":\\"1\\"}"}
+      --update=false
+      VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+
+add_multitarget_test(
+NAME PlannedGroupedMultiSliceTest_WithoutPreCopy
+  COMMAND PlannedMultiSliceUpdateTest
+    --num-indices=1024
+    --data-type=float
+    --shape={2048,16}
+    --tiles-per-ipu=16
+    --group-size=1
+    --slice-options={"planConstraints":"{\\"lookupSerialSplit\\":\\"2\\",\\"precopyBaseWhenSerialSlice\\":\\"0\\"}"}
+    --update=false
+    VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+
+# Slice that should have splits in many dimensions, including both parallel and serial index splits.
+add_multitarget_test(
+NAME PlannedGroupedMultiSliceTest_ManySplits
+  COMMAND PlannedMultiSliceUpdateTest
+    --num-indices=65535
+    --data-type=float
+    --shape={60000,16}
+    --tiles-per-ipu=64
+    --group-size=1
+    --update=false
+    VARIANTS Hw;${IPUMODEL_VARIANTS})
+
+# Slice that should have splits in many dimensions, including both parallel and serial index splits.
+add_multitarget_test(
+NAME PlannedGroupedMultiUpdateTest_ManySplits
+  COMMAND PlannedMultiSliceUpdateTest
+    --num-indices=65535
+    --data-type=float
+    --shape={60000,16}
+    --tiles-per-ipu=64
+    --group-size=1
+    --update=true
+    --operation=ADD
+    VARIANTS Hw;${IPUMODEL_VARIANTS})
 
 add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
@@ -295,7 +349,7 @@ add_unit_test(MultiUpdateTest DynamicSliceTest.cpp
               SUITES Update MultiUpdate  MultiUpdateSingles MultiUpdateMultiples)
 
 add_unit_test(MultiUpdatePlanTest DynamicSliceTest.cpp
-              SUITES MultiUpdatePlanLookupSplit MultiUpdatePlan VARIANTS IpuModel2)
+              SUITES MultiUpdatePlanLookupParallelSplit MultiUpdatePlan VARIANTS IpuModel2)
 
 add_unit_test(MultiUpdateTestMax DynamicSliceTest.cpp
               SUITES MultiUpdateMaxHalf MultiUpdateMaxFloat VARIANTS Hw;Sim2;IpuModel2)
@@ -1253,7 +1307,7 @@ add_multitarget_test(
                  --use-embedding-plan=1
                  --ignore-data
                  --tiles-per-ipu=30
-                 --plan-constraints={\"lookupSplit\":\"3\"})
+                 --plan-constraints={\"lookupParallelSplit\":\"3\"})
 
 add_multitarget_test(
          NAME embedding_layer_quick_unsliced_split_lookup
@@ -1272,7 +1326,7 @@ add_multitarget_test(
                  --shape {61,6}
                  --num-indices 2010
                  --data-type float
-                 --plan-constraints={\"unslicedDimSplit\":\"3\",\"slicedDimSplit\":\"8\",\"lookupSplit\":\"21\"}
+                 --plan-constraints={\"unslicedDimSplit\":\"3\",\"slicedDimSplit\":\"8\",\"lookupParallelSplit\":\"21\"}
          VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
@@ -1281,7 +1335,7 @@ add_multitarget_test(
                  --shape {12,12}
                  --num-indices 1361
                  --data-type float
-                 --plan-constraints={\"unslicedDimSplit\":\"6\",\"slicedDimSplit\":\"6\",\"lookupSplit\":\"19\"}
+                 --plan-constraints={\"unslicedDimSplit\":\"6\",\"slicedDimSplit\":\"6\",\"lookupParallelSplit\":\"19\"}
          VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(

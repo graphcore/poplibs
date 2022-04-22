@@ -27,7 +27,7 @@ namespace logging = poplibs_support::logging;
 namespace poputil {
 template <> poplar::ProfileValue toProfileValue(const popops::GatherParams &p) {
   poplar::ProfileValue::Map v;
-  v.insert({"lookupSplit", toProfileValue(p.maxElementsPerTile)});
+  v.insert({"lookupParallelSplit", toProfileValue(p.maxElementsPerTile)});
   return v;
 }
 } // namespace poputil

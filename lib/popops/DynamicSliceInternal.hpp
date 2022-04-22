@@ -9,8 +9,13 @@ namespace popops {
 namespace sliceInternal {
 // How to partition work across tiles.
 template <typename T> struct Partition {
+  // When the base tensor should be copied to tiles ahead of a serialised
+  // slicing loop.
+  T precopyBaseWhenSerialSlice;
+  // How much to serialise processing of indices.
+  T lookupSerialSplit;
   // How much to split processing of lookup indices between tiles.
-  T lookupSplit;
+  T lookupParallelSplit;
   // How much to split the sliced/updated dimension of the
   // tensor to be sliced/updated between tiles.
   T slicedDimSplit;
@@ -26,18 +31,18 @@ template <typename T> struct Partition {
 
 template <typename T>
 bool operator<(const Partition<T> &a, const Partition<T> &b) {
-  return std::tie(a.lookupSplit, a.slicedDimSplit, a.unslicedDimSplit,
-                  a.groupSplit, a.unslicedGrainSize) <
-         std::tie(b.lookupSplit, b.slicedDimSplit, b.unslicedDimSplit,
-                  b.groupSplit, b.unslicedGrainSize);
+  return std::tie(a.lookupSerialSplit, a.lookupParallelSplit, a.slicedDimSplit,
+                  a.unslicedDimSplit, a.groupSplit, a.unslicedGrainSize) <
+         std::tie(b.lookupSerialSplit, b.lookupParallelSplit, b.slicedDimSplit,
+                  b.unslicedDimSplit, b.groupSplit, b.unslicedGrainSize);
 }
 
 template <typename T>
 bool operator==(const Partition<T> &a, const Partition<T> &b) {
-  return std::tie(a.lookupSplit, a.slicedDimSplit, a.unslicedDimSplit,
-                  a.groupSplit, a.unslicedGrainSize) ==
-         std::tie(b.lookupSplit, b.slicedDimSplit, b.unslicedDimSplit,
-                  b.groupSplit, b.unslicedGrainSize);
+  return std::tie(a.lookupSerialSplit, a.lookupParallelSplit, a.slicedDimSplit,
+                  a.unslicedDimSplit, a.groupSplit, a.unslicedGrainSize) ==
+         std::tie(b.lookupSerialSplit, b.lookupParallelSplit, b.slicedDimSplit,
+                  b.unslicedDimSplit, b.groupSplit, b.unslicedGrainSize);
 }
 
 } // namespace sliceInternal
