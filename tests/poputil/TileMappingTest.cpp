@@ -3,6 +3,7 @@
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/Util.hpp>
 #include <popops/ElementWiseUtil.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -382,6 +383,76 @@ BOOST_AUTO_TEST_CASE(CloneToGraphBadRange) {
   // vgraph2 doesn't have enough tiles. Expect an exception here.
   BOOST_CHECK_THROW(poputil::cloneToGraph(vgraph1, vgraph2, t1),
                     poputil::poplibs_error);
+}
+
+BOOST_AUTO_TEST_CASE(CalcLinearTileMappingAndNewOffset) {
+  constexpr std::size_t numTiles = 8;
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+
+  const poplar::Interval interval0{0, 32};
+  const poplar::Interval interval1{32, 64};
+  const poplar::Interval interval2{64, 96};
+  const poplar::Interval interval3{96, 128};
+
+  auto src = graph.addVariable(poplar::FLOAT, {128});
+  {
+    const auto [mapping, offset] =
+        calcLinearTileMappingAndNewOffset(graph, src, 2);
+    const poplar::Graph::TileToTensorMapping expectedMapping{
+        {}, {}, {interval0}, {interval1}, {interval2}, {interval3}, {}, {}};
+    BOOST_CHECK(poplibs_test::util::checkEqual(mapping, expectedMapping));
+    BOOST_CHECK_EQUAL(offset, 6);
+  }
+  {
+    const auto [mapping, offset] =
+        calcLinearTileMappingAndNewOffset(graph, src, 6);
+    const poplar::Graph::TileToTensorMapping expectedMapping{
+        {interval2}, {interval3}, {}, {}, {}, {}, {interval0}, {interval1}};
+    BOOST_CHECK(poplibs_test::util::checkEqual(mapping, expectedMapping));
+    BOOST_CHECK_EQUAL(offset, 2);
+  }
+}
+
+static void print(const poplar::Graph::TileToTensorMapping &mapping) {
+  std::cout << "{\n";
+  for (std::size_t i = 0; i < mapping.size(); i++) {
+    if (!mapping[i].empty()) {
+      std::cout << "  i: ";
+      for (const auto &interval : mapping[i]) {
+        std::cout << "[" << interval.lower() << ", " << interval.upper() << ")"
+                  << ", ";
+      }
+      std::cout << "\n";
+    }
+  }
+  std::cout << "}\n";
+}
+
+BOOST_AUTO_TEST_CASE(CloneAndExpandAliasing) {
+  constexpr std::size_t numTiles = 8;
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+
+  auto src = graph.addVariable(poplar::FLOAT, {3});
+  graph.setTileMapping(src, {{{0, 1}}, {{1, 2}}, {{2, 3}}});
+  src = poplar::concat(
+      {src.slice(0, 1), src.slice(1, 2), src.slice(0, 1), src.slice(2, 3)});
+  src = src.reshape({2, 2});
+
+  const auto [dst, offset] = poputil::cloneAndExpandAliasing(graph, src, 3);
+  BOOST_CHECK_EQUAL(dst.containsAliases(), false);
+  BOOST_CHECK_EQUAL(offset, 4);
+
+  const auto actualMapping = graph.getTileMapping(dst);
+  print(actualMapping);
+  poplar::Graph::TileToTensorMapping expectedMapping{
+      {{0, 1}}, {{1, 2}}, {{3, 4}}, {{2, 3}}};
+  expectedMapping.resize(numTiles);
+  BOOST_CHECK(poplibs_test::util::checkEqual(actualMapping, expectedMapping));
+  std::cout << "ncontregs = " << dst.getContiguousRegions().size();
 }
 
 BOOST_AUTO_TEST_CASE(ChooseMappingOffset) {

@@ -23,4 +23,12 @@ unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
       graph, t, minElementsPerTile, grainSize);
 }
 
+std::pair<poplar::Tensor, unsigned>
+cloneAndExpandAliasing(poplar::Graph &graph, const poplar::Tensor &t,
+                       unsigned offset,
+                       const poplar::DebugContext &debugContext) {
+  return poputil_mock::mockPoputil_->cloneAndExpandAliasing(graph, t, offset,
+                                                            debugContext);
+}
+
 } // namespace poputil

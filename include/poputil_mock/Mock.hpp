@@ -19,6 +19,10 @@ public:
   MOCK_METHOD(unsigned, getTileImbalance,
               (const ::poplar::Graph &, const ::poplar::Tensor &, unsigned,
                unsigned));
+
+  MOCK_METHOD((std::pair<::poplar::Tensor, unsigned>), cloneAndExpandAliasing,
+              (poplar::Graph &, const poplar::Tensor &, unsigned,
+               const poplar::DebugContext &));
 };
 
 extern MockPoputil *mockPoputil_;

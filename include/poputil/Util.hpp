@@ -13,6 +13,7 @@
 #include <climits>
 #include <poplar/Device.hpp>
 #include <poplar/Graph.hpp>
+#include <poplar/Interval.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Quarter.hpp>
 #include <poplar/Target.hpp>
@@ -207,6 +208,27 @@ poplar::Tensor createMetadataTensor(poplar::Graph &graph,
                                     poplar::QuarterMetadata::Format fp8Format,
                                     int fp8Scale,
                                     poplar::program::Sequence &prog);
+
+/** Calculate the un-shuffling intervals based on the given intervals.
+ *
+ * Given a vector of intervals, one could use these intervals to shuffle a
+ * tensor. For example:
+ *
+ *   poplar::Tensor shuffled = poplar::concat(tensor.slices(intervals));
+ *
+ * Another vector of intervals exists that can be applied in the same way to the
+ * shuffled tensor to undo the shuffling. This function calculates these
+ * intervals. The time complexity is `nlog(n)` with `n` the number of intervals.
+ *
+ * Note: This function assumes that the intervals are non-overlapping and form
+ *       one contiguous interval.
+ *
+ * \param intervals A vector of intervals that shuffle a tensor.
+ *
+ * \returns         A vector of intervals that unshuffle a tensor.
+ */
+std::vector<poplar::Interval>
+calculateUnshufflingIntervals(const std::vector<poplar::Interval> &intervals);
 
 } // end namespace poputil
 

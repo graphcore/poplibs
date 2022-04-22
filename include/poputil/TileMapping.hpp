@@ -79,6 +79,27 @@ std::vector<std::vector<poplar::Interval>>
 calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t,
                       unsigned offset = 0, bool ascendingOrder = true);
 
+/** Calculate a tile mapping that spreads the tensor evenly over the tiles in a
+ * graph.
+ *
+ * This function is similar to `poputil::calcLinearTileMapping` but with an
+ * additional "new offset" output equal to the last plus one tile used for the
+ * mapping. For example, consider a target with 8 tiles and a resulting mapping
+ * over 4 tiles. The value of the returned offset will be:
+ *   - 6 if `offset = 2`.
+ *   - 2 if `offset = 6`.
+ *
+ * \param graph     The graph to add the operation to.
+ * \param t         The tensor to be mapped
+ * \param offset    The offset to the first tile used for mapping
+ *
+ * \returns         A pair consisting of a vector specifying the mapping and the
+ *                  new advanced offset.
+ */
+std::pair<poplar::Graph::TileToTensorMapping, unsigned>
+calcLinearTileMappingAndNewOffset(const poplar::Graph &graph,
+                                  const poplar::Tensor &t, unsigned offset = 0);
+
 /** Map the specified tensor, spreading the tensor evenly over the tiles
  * in a graph.
  *
@@ -408,6 +429,34 @@ cloneToGraph(poplar::Graph &srcGraph, poplar::Graph &dstGraph,
              const poplar::DebugContext &debugContext = {},
              poplar::TensorCloneMethod method =
                  poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
+
+/** Create a clone of the specified tensor on the specified graph.
+ *
+ * The cloned tensor is mapped to the graph in such a way that the mapping of
+ * tensor elements to tiles is preserved. If the source tensor consists of
+ * aliasing intervals, these will be made non-aliasing in the cloned tensor and
+ * mapped linearly accross the tiles with the specified tile offset. The
+ * remapping is done as a precautionary measure to reduce the chance of getting
+ * out of memory issues on a tile which has many aliasing elements.
+ *
+ * In addition to the cloned tensor, this function returns "new offset" output
+ * equal to the last plus one tile used for the mapping of the expanded aliasing
+ * elements. See `poputil::calcLinearTileMappingAndNewOffset` for more details.
+ *
+ * \param graph        The graph to add the operation to.
+ * \param t            The tensor to clone.
+ * \param offset       The offset to the first tile used for mapping the
+ *                     elements of the resulting tensor corresponding to
+ *                     aliasing elements of the source tensor.
+ * \param debugContext Optional debug information
+ *
+ * \returns            A pair consisting of the cloned tensor and the new
+ *                     advanced offset.
+ */
+std::pair<poplar::Tensor, unsigned>
+cloneAndExpandAliasing(poplar::Graph &graph, const poplar::Tensor &t,
+                       unsigned offset = 0,
+                       const poplar::DebugContext &debugContext = {});
 
 /** Move a tensor from one IPU to another.
  *

@@ -114,6 +114,25 @@ calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t,
                                offset, ascendingOrder);
 }
 
+std::pair<poplar::Graph::TileToTensorMapping, unsigned>
+calcLinearTileMappingAndNewOffset(const poplar::Graph &graph,
+                                  const poplar::Tensor &t, unsigned offset) {
+  auto mapping = poputil::calcLinearTileMapping(graph, t, 0, true);
+
+  const auto tilePerIpu = graph.getTarget().getNumTiles();
+  const auto tilesInMapping = mapping.size();
+  assert(tilePerIpu >= tilesInMapping);
+  assert(offset < tilePerIpu);
+
+  mapping.resize(tilePerIpu);
+  std::rotate(mapping.rbegin(), mapping.rbegin() + offset, mapping.rend());
+
+  offset += tilesInMapping;
+  offset %= tilePerIpu;
+
+  return {mapping, offset};
+}
+
 void mapTensorLinearlyWithOffset(poplar::Graph &graph, const poplar::Tensor &t,
                                  unsigned minElementsPerTile,
                                  unsigned grainSize, unsigned offset,
@@ -257,6 +276,70 @@ poplar::Tensor cloneToGraph(poplar::Graph &srcGraph, poplar::Graph &dstGraph,
 
   di.addOutput(tLocal);
   return tLocal;
+}
+
+std::pair<poplar::Tensor, unsigned>
+cloneAndExpandAliasing(poplar::Graph &graph, const poplar::Tensor &t,
+                       unsigned offset,
+                       const poplar::DebugContext &debugContext) {
+  // If the source tensor doesn't contain aliasing, there is no special
+  // remapping that needs to be done.
+  if (!t.containsAliases()) {
+    return {graph.clone(t, debugContext), offset};
+  }
+
+  const auto tFlat = t.flatten();
+
+  std::vector<std::size_t> aliases;
+  auto sequences = graph.getSortedContiguousRegions(
+      tFlat, {{0, tFlat.numElements()}}, false, &aliases);
+
+  // Flatten `sequences` into `intervals`.
+  std::vector<poplar::Interval> intervals;
+  for (const auto &sequence : sequences) {
+    for (const auto &interval : sequence) {
+      intervals.push_back(interval);
+    }
+  }
+  // Also create a new interval vector that will undo the shuffling applied
+  // using `intervals`. See the documentation of
+  // `poputil::calculateUnshufflingIntervals`.
+  const auto unshufflingIntervals = calculateUnshufflingIntervals(intervals);
+
+  // Reorder `tFlat` such that contiguous regions are next to each other.
+  auto tFlatReordered = poplar::concat(tFlat.slices(intervals));
+
+  // Clone the source tensor. The `CREATE_NEW_ORDER` tensor clone method will
+  // preserve the tile mapping of the source tensor and remove any aliasing
+  // elements.
+  auto dstFlatReordered =
+      graph.clone(tFlatReordered, debugContext,
+                  poplar::TensorCloneMethod::CREATE_NEW_ORDER);
+
+  // Reorder `dstFlatReordered` back to the original ordering.
+  auto dstFlat = poplar::concat(dstFlatReordered.slices(unshufflingIntervals));
+
+  // Extract all aliasing intervals.
+  std::vector<poplar::Interval> aliasingIntervals;
+  for (std::size_t i = 0; i < intervals.size(); i++) {
+    const auto &interval = intervals[i];
+    if (interval.lower() != aliases[i]) { // Is the interval an alias?
+      aliasingIntervals.push_back(interval);
+    }
+  }
+
+  // If the source tensor didn't have aliasing intervals, this function would
+  // have returned by now.
+  assert(!aliasingIntervals.empty());
+
+  // Linearly remap all tensor elements which correspond to aliasing intervals
+  // in the source tensor.
+  auto dstFlatAliasing = poplar::concat(dstFlat.slices(aliasingIntervals));
+  const auto [mapping, newOffset] =
+      calcLinearTileMappingAndNewOffset(graph, dstFlatAliasing, offset);
+  graph.setTileMapping(dstFlatAliasing, mapping);
+
+  return {dstFlat.reshape(t.shape()), newOffset};
 }
 
 poplar::Tensor createIpuCopy(poplar::Graph &masterGraph,

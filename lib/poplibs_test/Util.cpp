@@ -260,6 +260,44 @@ template bool checkEqual<std::uint64_t>(const std::string &,
                                         const std::vector<std::size_t> &,
                                         const std::uint64_t *, std::size_t);
 
+bool checkEqual(const poplar::Graph::TileToTensorMapping &a,
+                const poplar::Graph::TileToTensorMapping &b) {
+  bool result = true;
+
+  if (a.size() != b.size()) {
+    std::cerr << "The sizes of the mappings differ: [" << a.size()
+              << " !=" << b.size() << "].\n";
+    result = false;
+  }
+
+  for (std::size_t i = 0; i < std::min(a.size(), b.size()); i++) {
+    const auto &aIntervals = a[i];
+    const auto &bIntervals = b[i];
+
+    if (aIntervals.size() != bIntervals.size()) {
+      std::cerr
+          << "The mappings consist of a different number of intervals on tile "
+          << i << ": [" << aIntervals.size() << " !=" << bIntervals.size()
+          << "].\n";
+      result = false;
+    } else {
+      for (std::size_t j = 0; j < aIntervals.size(); j++) {
+        const auto &aInterval = aIntervals[j];
+        const auto &bInterval = bIntervals[j];
+
+        if (aInterval != bInterval) {
+          std::cerr << "The " << j << "th intervals on tile " << i
+                    << " differ: [" << aInterval << " != " << bInterval
+                    << "].\n";
+          result = false;
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 template <typename FPType>
 bool checkIsClose(const std::string &name, const FPType *actual,
                   const std::vector<std::size_t> &shape, const FPType *expected,

@@ -185,6 +185,9 @@ bool checkEqual(const std::string &name, const intType *actual,
                 const std::vector<std::size_t> &shape, const intType *expected,
                 std::size_t N);
 
+bool checkEqual(const poplar::Graph::TileToTensorMapping &a,
+                const poplar::Graph::TileToTensorMapping &b);
+
 template <typename FPType>
 bool checkIsClose(FPType a, FPType b, double relativeTolerance);
 

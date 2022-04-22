@@ -460,4 +460,29 @@ poplar::Tensor createMetadataTensor(poplar::Graph &graph,
   return metadataTensor;
 }
 
+std::vector<poplar::Interval>
+calculateUnshufflingIntervals(const std::vector<poplar::Interval> &intervals) {
+  std::vector<std::size_t> sortIdxs(intervals.size());
+  std::iota(sortIdxs.begin(), sortIdxs.end(), 0);
+  std::sort(sortIdxs.begin(), sortIdxs.end(),
+            [&intervals](std::size_t a, std::size_t b) {
+              return intervals[a].lower() < intervals[b].lower();
+            });
+
+  std::vector<std::size_t> idxs(intervals.size());
+  for (std::size_t i = 0; i < sortIdxs.size(); i++) {
+    idxs[sortIdxs[i]] = i;
+  }
+
+  std::vector<poplar::Interval> unshufflingIntervals(intervals.size());
+  std::size_t intervalStart = 0;
+  for (std::size_t i = 0; i < intervals.size(); i++) {
+    const auto &interval = intervals[i];
+    std::size_t intervalEnd = intervalStart + interval.size();
+    unshufflingIntervals[idxs[i]] = {intervalStart, intervalEnd};
+    intervalStart = intervalEnd;
+  }
+  return unshufflingIntervals;
+}
+
 } // namespace poputil
