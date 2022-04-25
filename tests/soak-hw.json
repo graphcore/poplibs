@@ -9,6 +9,9 @@
                 "--ipus", "1",
                 "--binary", "${BUILD_DIR}/build/poplibs/tools/single_conv_layer"
             ],
+            "env": {
+              "POPLAR_RUNTIME_OPTIONS": "{\"target.hostSyncTimeout\": \"600.0\"}"
+            },
             "testArgs": {
                 "timeout": 1200,
                 "skip": [77, 245],
@@ -26,6 +29,9 @@
                 "--ipus", "1",
                 "--binary", "${BUILD_DIR}/build/poplibs/tools/single_conv_layer"
             ],
+            "env": {
+              "POPLAR_RUNTIME_OPTIONS": "{\"target.hostSyncTimeout\": \"600.0\"}"
+            },
             "testArgs": {
                 "timeout": 1200,
                 "skip": [77, 245],
