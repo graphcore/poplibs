@@ -398,9 +398,14 @@ static ExprAndType optimiseBinary(const expr::BinaryOp *b,
     // This cast has the same source and destination types and should be
     // a copy that gets elided.
     const auto &exprAndType = valAndExpr->second;
-    return {std::unique_ptr<expr::Expr>(
-                new expr::Cast(*exprAndType->expression, exprAndType->type)),
-            exprAndType->type};
+    if (const auto c = (*exprAndType->expression).getAs<expr::Const>()) {
+      return {std::unique_ptr<expr::Expr>(new expr::Const(*c)),
+              exprAndType->type};
+    } else {
+      return {std::unique_ptr<expr::Expr>(
+                  new expr::Cast(*exprAndType->expression, exprAndType->type)),
+              exprAndType->type};
+    }
   }
 
   auto argRhs = optimise(b->getRHS(), tTypes);

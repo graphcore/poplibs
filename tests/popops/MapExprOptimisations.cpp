@@ -432,3 +432,24 @@ BOOST_AUTO_TEST_CASE(Div_half_const_rhs) {
   BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
                                 p.second.begin(), p.second.end());
 }
+
+BOOST_AUTO_TEST_CASE(Add_half_const_const) {
+  auto e1 = popops::expr::Add(_1, Add(Const(1.f), Const(0.f)));
+  auto p = executeExpr(e1, poplar::HALF, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(Mul_half_const_const) {
+  auto e1 = popops::expr::Add(_1, Mul(Const(2.f), Const(1.f)));
+  auto p = executeExpr(e1, poplar::HALF, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
+
+BOOST_AUTO_TEST_CASE(ShiftLeft_int_const_const) {
+  auto e1 = popops::expr::Add(_1, Shl(Const(1), Const(0)));
+  auto p = executeExpr(e1, poplar::INT, true, false);
+  BOOST_CHECK_EQUAL_COLLECTIONS(p.first.begin(), p.first.end(),
+                                p.second.begin(), p.second.end());
+}
