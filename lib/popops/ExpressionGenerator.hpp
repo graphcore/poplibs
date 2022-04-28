@@ -18,6 +18,12 @@
 namespace popops {
 
 // Interface wrapper for the below class.
+void generateMappedOperations(
+    const poplar::Target &target, const expr::Expr &expr,
+    const std::vector<poplar::Tensor> &inputs,
+    std::unordered_map<const expr::Expr *, poplar::Type> &constTypes,
+    bool allInputsScalar, std::stringstream &outputCodeletCode);
+
 poplar::Tensor generateAndExecuteMappedOperations(
     poplar::Graph &graph, const expr::Expr &expr,
     const std::vector<poplar::Tensor> &inputs,
@@ -54,6 +60,12 @@ public:
       const expr::Expr &expr,
       std::unordered_map<const expr::Expr *, poplar::Type> &constTypes);
 
+  //  Create the codelet
+  void generateCodelet(const poplar::Target &target, std::string &vertexName,
+                       bool allInputsScalar, const expr::Expr &expr,
+                       const InitializerStrings &initializerStrings,
+                       bool isMultiVertex, std::stringstream &stream);
+
   // Create the codelet, save it to file, register the codelet to poplar, then
   // remove the file.
   std::string generateCodelet(poplar::Graph &graph, bool allInputsScalar,
@@ -61,13 +73,13 @@ public:
                               const InitializerStrings &initializerStrings,
                               bool isMultiVertex);
 
-  InitializerStrings generateInitializerStrings(const poplar::Graph &graph);
+  InitializerStrings generateInitializerStrings(const poplar::Target &target);
 
   poplar::Type deduceReturnType() const { return data.top().second; }
 
   bool isVectorized() const { return vectorizationIsSupported; }
 
-  unsigned getVectorizationWidth(const poplar::Graph &graph) const;
+  unsigned getVectorizationWidth(const poplar::Target &target) const;
 
   size_t getNumFusedOps() const { return numFusedOps; }
 

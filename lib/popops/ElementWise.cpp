@@ -2410,9 +2410,10 @@ mapPlaceholdersInExpression(const expr::Expr &e, const F &f) {
   POPLIB_UNREACHABLE();
 }
 
-Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
-           program::Sequence &prog, const poplar::DebugContext &debugContext,
-           const OptionFlags &options) {
+static Tensor map(Graph &graph, const expr::Expr &expr,
+                  const std::vector<Tensor> &ts, program::Sequence &prog,
+                  const poplar::DebugContext &debugContext,
+                  const OptionFlags &options, std::ostream *outputCodeletCode) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, expr, options));
 
@@ -2437,12 +2438,11 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
-  const auto canGenerateCodelet =
-      analyseExpr(optExpr, ts, opts.forceGenerateCodelet);
-  if (opts.enableGenerateCodelet && canGenerateCodelet.isSupported) {
+  const auto exprAnalysis = analyseExpr(optExpr, ts, opts.forceGenerateCodelet);
+  if (opts.enableGenerateCodelet && exprAnalysis.isSupported) {
     return generateAndExecuteMappedOperations(
         graph, optExpr, ts, constTypes, prog, false,
-        canGenerateCodelet.allInputsScalar, {di});
+        exprAnalysis.allInputsScalar, {di});
   }
 
   auto constTiles = getConstTile(graph, optExpr, ts);
@@ -2452,7 +2452,13 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
                     .first;
   di.addOutput(output);
   return output;
-} // namespace popops
+}
+
+Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
+           program::Sequence &prog, const poplar::DebugContext &debugContext,
+           const OptionFlags &options) {
+  return map(graph, expr, ts, prog, debugContext, options, nullptr);
+}
 
 void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const std::vector<Tensor> &ts, program::Sequence &prog,
@@ -2483,11 +2489,10 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
-  const auto canGenerateCodelet =
-      analyseExpr(optExpr, ts, opts.forceGenerateCodelet);
-  if (opts.enableGenerateCodelet && canGenerateCodelet.isSupported) {
+  const auto exprAnalysis = analyseExpr(optExpr, ts, opts.forceGenerateCodelet);
+  if (opts.enableGenerateCodelet && exprAnalysis.isSupported) {
     generateAndExecuteMappedOperations(graph, optExpr, ts, constTypes, prog,
-                                       true, canGenerateCodelet.allInputsScalar,
+                                       true, exprAnalysis.allInputsScalar,
                                        {di});
     return;
   }
@@ -2536,6 +2541,32 @@ void mapWithOutput(Graph &graph, const expr::Expr &expr_,
   auto expr = mapPlaceholdersInExpression(
       expr_, [](unsigned index) { return index + 1; });
   mapInPlace(graph, *expr, ts, prog, {di}, options);
+}
+
+void outputGeneratedCodelet(const poplar::Target &target,
+                            const expr::Expr &expr,
+                            const std::vector<poplar::Tensor> &ts,
+                            const poplar::OptionFlags &options,
+                            std::ostream &os) {
+  POPOPS_TRACEPOINT();
+
+  auto opts = parseOptionFlags(options);
+
+  const auto tTypes = getTypesFromTensors(ts);
+
+  std::unique_ptr<expr::Expr> newExpr;
+  if (opts.enableExpressionOptimizations) {
+    newExpr = optimise(expr, tTypes).expression;
+  }
+  const auto &optExpr = opts.enableExpressionOptimizations ? *newExpr : expr;
+
+  auto constTypes = getConstType(optExpr, tTypes);
+
+  const auto exprAnalysis = analyseExpr(optExpr, ts, true);
+  std::stringstream ss;
+  generateMappedOperations(target, optExpr, ts, constTypes,
+                           exprAnalysis.allInputsScalar, ss);
+  os << ss.str();
 }
 
 } // namespace popops

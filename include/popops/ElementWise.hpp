@@ -34,7 +34,7 @@ poplar::ProfileValue toProfileValue(const popops::expr::TernaryOpType &op);
 
 namespace popops {
 
-// Element-wise operations.
+// Elementwise operations.
 
 /* Variance conversion operations can be created using the map functions,
  *  but that requires the input and output to be of the same type.
@@ -111,14 +111,16 @@ invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &src,
 
 /** Map an expression across tensors.
  *
- * **Element Wise Options**
+ * **Elementwise Options**
  *
  *    * `enableGenerateCodelet` (true, false) [=true]
  *
- *      If true (and all of the inputs are the same size and do not alias), a
- *      codelet is generated to execute this map operation. A codelet will not
- *      be generated if there is only a single operation unless
- *      `forceGenerateCodelet` is true.
+ *      When true and the following conditions are met, poplar will generate a
+ *      codelet to execute the map operation. Otherwise, it will sequence
+ *      poplibs codelets to create the expression.
+ *      - All of the inputs are of the same size
+ *      - Inputs do not alias
+ *      - Multiple operations are being performed
  */
 /*[INTERNAL]
  *    * `enableVectorBroadcastOptimisations` (true, false) [=true]
@@ -129,7 +131,8 @@ invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &src,
  *
  *    * `forceGenerateCodelet` (true, false) [=false]
  *
- *      See `enableGenerateCodelet`. Intended for testing only.
+ *      Always generates codelets regardless of the expression and input
+ *      tensors. Intended for testing only.
  *
  *    * `enableExpressionOptimizations' (true, false_ [=true])
  *
@@ -287,7 +290,31 @@ inline void mapWithOutput(poplar::Graph &graph, expr::TernaryOpType op,
   mapWithOutput(graph, expr::TernaryOp(op, expr::_1, expr::_2, expr::_3),
                 {a, b, c}, out, prog, {di}, options);
 }
+
 /** @} */
+
+/**
+ *  Writes the generated codelet for the given \p expr and \p ts to \p os.
+ *
+ *  \param target  The target the graph is being constructed to work with.
+ *  \param expr    The expression to map across the tensors. The placeholders
+ *                 in the expressions will be substituted with corresponding
+ *                 elements from the tensors in \p ts.
+ *  \param ts      The list of tensors to map the expression across.
+ *                 If elements from these tensors are used in binary/ternary
+ *                 operations in the expression the numpy-style broadcast rules
+ *                 are used to match the shapes of the tensors (see
+ *                 poputil::broadcastToMatch()).
+ *  \param options A list of flags to pass to the expression evaluator. See
+ *                 map() function for details.
+ *
+ *  \param os      The stream to output generated codelet.
+ */
+void outputGeneratedCodelet(const poplar::Target &target,
+                            const expr::Expr &expr,
+                            const std::vector<poplar::Tensor> &ts,
+                            const poplar::OptionFlags &options,
+                            std::ostream &os);
 
 // Unary operations
 

@@ -102,3 +102,22 @@ BOOST_AUTO_TEST_CASE(MapExprScalarSupportedOps) {
   // These do not
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Divide(_1, _1), type), 0);
 }
+
+BOOST_AUTO_TEST_CASE(printGeneratedCodelet) {
+  auto device = createTestDevice(TEST_TARGET, 1, 1);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  auto t1 = graph.addVariable(FLOAT, {5}, VariableMappingMethod::LINEAR, "t1");
+  auto t2 = graph.addVariable(FLOAT, {5}, VariableMappingMethod::LINEAR, "t2");
+
+  const auto vExpr = Add(Sub(Add(_1, _2), _1), _2);
+  poplar::OptionFlags options;
+  std::stringstream stream;
+  outputGeneratedCodelet(target, vExpr, {t1, t2}, options, stream);
+
+  std::string codeletName =
+      R"(ADDu_SUBTRACTu_ADDu_float_1__float_2__d_float_1__d_float_2__d0000)";
+  BOOST_CHECK(stream.str().find(codeletName) != std::string::npos);
+}

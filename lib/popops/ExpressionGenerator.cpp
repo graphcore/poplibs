@@ -344,6 +344,31 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
 
 } // end anonymous namespace
 
+void generateMappedOperations(
+    const Target &target, const expr::Expr &expr,
+    const std::vector<Tensor> &inputs,
+    std::unordered_map<const expr::Expr *, Type> &constTypes,
+    bool allInputsScalar, std::stringstream &outputCodeletCode) {
+
+  GenerateCodeletFromMapExpr generate{false, inputs};
+
+  // Traverse the expression tree and based on each node in the tree build up
+  // the body of the map operation in a string format representing the end code.
+  generate.traverseExpressionTree(expr, constTypes);
+
+  poplar::Type returnType = generate.deduceReturnType();
+
+  // Generate the actual codelet (single worker 1D) and a MultiVertex.
+  // Both or just one of these may actually be executed depending on if each
+  // tile contains > 1 region or not.
+  // However both are compiled, added to the graph, and the names of the
+  // generated codelets are stored in codeletName, codeletNameMultiVertex.
+  const auto initialiserStrings = generate.generateInitializerStrings(target);
+  std::string vertexName;
+  generate.generateCodelet(target, vertexName, allInputsScalar, expr,
+                           initialiserStrings, false, outputCodeletCode);
+}
+
 // Top level function which calls functions to generate and execute the
 // generated codelet.
 poplar::Tensor generateAndExecuteMappedOperations(
@@ -364,13 +389,14 @@ poplar::Tensor generateAndExecuteMappedOperations(
   // tile contains > 1 region or not.
   // However both are compiled, added to the graph, and the names of the
   // generated codelets are stored in codeletName, codeletNameMultiVertex.
-  const auto initialiserStrings = generate.generateInitializerStrings(graph);
+  const auto &target = graph.getTarget();
+  const auto initialiserStrings = generate.generateInitializerStrings(target);
   const auto codeletName = generate.generateCodelet(
       graph, allInputsScalar, expr, initialiserStrings, false);
 
   size_t numFusedOp = generate.getNumFusedOps();
 
-  const auto vectorizationWidth = generate.getVectorizationWidth(graph);
+  const auto vectorizationWidth = generate.getVectorizationWidth(target);
 
   std::vector<Tensor> flattenedIns;
   std::vector<Tensor *> asPtr;
@@ -410,7 +436,6 @@ poplar::Tensor generateAndExecuteMappedOperations(
   const auto codeletNameMultiVertex = [&]() {
     // Check if each worker in a multivertex can write without conflicting with
     // other workers
-    auto target = graph.getTarget();
     const auto outputWritesAreAtomic =
         target.getTypeSize(out.elementType()) * vectorizationWidth >=
         target.getAtomicStoreGranularity();
@@ -431,7 +456,6 @@ poplar::Tensor generateAndExecuteMappedOperations(
   }();
 
   auto outFlat = out.flatten();
-  const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet({dnai});
   graph.reorderToSimplify(&outFlat, asPtr, false);
@@ -1000,7 +1024,7 @@ void GenerateCodeletFromMapExpr::addSerialSection(
 }
 
 InitializerStrings GenerateCodeletFromMapExpr::generateInitializerStrings(
-    const poplar::Graph &graph) {
+    const poplar::Target &target) {
   // Each stage of the operation is stored as a variable initalization.
   InitializerStrings result;
 
@@ -1009,7 +1033,7 @@ InitializerStrings GenerateCodeletFromMapExpr::generateInitializerStrings(
     initalizers.pop();
   }
 
-  const auto vectorizationWidth = getVectorizationWidth(graph);
+  const auto vectorizationWidth = getVectorizationWidth(target);
   // Process the constant values. We need this step as we cannot just embed
   // the constants if we are working with vectors.
   while (!constantInitalizers.empty()) {
@@ -1047,22 +1071,19 @@ InitializerStrings GenerateCodeletFromMapExpr::generateInitializerStrings(
   return result;
 }
 
-std::string GenerateCodeletFromMapExpr::generateCodelet(
-    poplar::Graph &graph, bool allInputsScalar, const expr::Expr &expr,
-    const InitializerStrings &initializerStrings, bool isMultiVertex) {
+void GenerateCodeletFromMapExpr::generateCodelet(
+    const poplar::Target &target, std::string &vertexName, bool allInputsScalar,
+    const expr::Expr &expr, const InitializerStrings &initializerStrings,
+    bool isMultiVertex, std::stringstream &stream) {
 
-  const auto vectorizationWidth = getVectorizationWidth(graph);
-  const std::string vertexName =
-      createVertexName(expr, inputs, inPlace, allInputsScalar, isMultiVertex);
+  const auto vectorizationWidth = getVectorizationWidth(target);
+  const auto numWorkers = target.getNumWorkerContexts();
 
-  const std::string namespacedVertexName = "popops::map::" + vertexName;
-
-  if (graph.hasCodelet(namespacedVertexName)) {
-    logging::popops::debug("Codelet already in graph {}", namespacedVertexName);
-    return namespacedVertexName;
+  if (vertexName.empty()) {
+    vertexName =
+        createVertexName(expr, inputs, inPlace, allInputsScalar, isMultiVertex);
   }
 
-  std::stringstream stream;
   std::stringstream body_stream;
 
   addHeader(stream);
@@ -1138,7 +1159,6 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
               unsigned remainder = out.size();)l";
     }
   }
-  const auto numWorkers = graph.getTarget().getNumWorkerContexts();
   // If we can generate a vectorized version add it to the codelet.
   if (vectorizationIsSupported && vectorizationWidth > 1 && !allInputsScalar) {
     addVectorizedSection(body_stream, vectorizationWidth,
@@ -1165,6 +1185,29 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
   )l";
 
   addFooter(stream);
+}
+
+std::string GenerateCodeletFromMapExpr::generateCodelet(
+    poplar::Graph &graph, bool allInputsScalar, const expr::Expr &expr,
+    const InitializerStrings &initializerStrings, bool isMultiVertex) {
+
+  const auto &target = graph.getTarget();
+
+  std::string vertexName =
+      createVertexName(expr, inputs, inPlace, allInputsScalar, isMultiVertex);
+
+  const std::string namespacedVertexName = "popops::map::" + vertexName;
+
+  if (graph.hasCodelet(namespacedVertexName)) {
+    logging::popops::debug("Codelet already in graph {}", namespacedVertexName);
+    return namespacedVertexName;
+  }
+
+  std::stringstream stream;
+
+  generateCodelet(target, vertexName, allInputsScalar, expr, initializerStrings,
+                  isMultiVertex, stream);
+
   logging::popops::debug("Adding codelet {} to graph", namespacedVertexName);
   graph.addCodelets(stream);
 
@@ -1187,8 +1230,7 @@ std::string GenerateCodeletFromMapExpr::createVertexName(
 }
 
 unsigned
-GenerateCodeletFromMapExpr::getVectorizationWidth(const Graph &graph) const {
-  const auto &target = graph.getTarget();
+GenerateCodeletFromMapExpr::getVectorizationWidth(const Target &target) const {
   // Get the smallest vectorization width of all the types.
   poplar::Type smallestVector = *std::min_element(
       TypesNeedingAlias.begin(), TypesNeedingAlias.end(),
