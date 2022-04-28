@@ -154,7 +154,7 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
         unsigned blankSymbol, std::size_t numClasses, Type inType, Type outType,
         OptionFlags planOpts, OptionFlags debugOpts,
         const DeviceType &deviceType, boost::optional<unsigned> tiles,
-        bool ignoreData, bool profile,
+        bool ignoreData, bool profile, bool lossOnly,
         boost::optional<std::string> &profileDir) {
 
   auto device = createTestDevice(deviceType, 1, tiles);
@@ -212,23 +212,37 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   copy(target, initDataLengths, dataLengths.elementType(),
        rawDataLengths.get());
 
-  // Create gradient
+  // Create loss and gradient
   Sequence prog;
-  const auto result = [&]() {
+  const auto [lossResult,
+              gradResult] = [&]() -> std::pair<poplar::Tensor, poplar::Tensor> {
     const auto layer = "ctc_loss";
-    if (inputs[0].isLogits) {
-      return popnn::ctc::calcLossAndGradientLogits(
-          graph, outType, data, labels, dataLengths, labelLengths, prog,
-          blankSymbol, plan, layer, debugOpts);
+    if (!lossOnly) {
+      if (inputs[0].isLogits) {
+        return popnn::ctc::calcLossAndGradientLogits(
+            graph, outType, data, labels, dataLengths, labelLengths, prog,
+            blankSymbol, plan, layer, debugOpts);
+      } else {
+        return popnn::ctc::calcLossAndGradientLogProbabilities(
+            graph, outType, data, labels, dataLengths, labelLengths, prog,
+            blankSymbol, plan, layer, debugOpts);
+      }
     } else {
-      return popnn::ctc::calcLossAndGradientLogProbabilities(
-          graph, outType, data, labels, dataLengths, labelLengths, prog,
-          blankSymbol, plan, layer, debugOpts);
+      poplar::Tensor empty;
+      if (inputs[0].isLogits) {
+        return {popnn::ctc::calcCTCLossLogits(
+                    graph, outType, data, labels, dataLengths, labelLengths,
+                    prog, blankSymbol, plan, layer, debugOpts),
+                empty};
+      } else {
+        return {popnn::ctc::calcCTCLossLogProbabilities(
+                    graph, outType, data, labels, dataLengths, labelLengths,
+                    prog, blankSymbol, plan, layer, debugOpts),
+                empty};
+      }
     }
   }();
 
-  auto lossResult = result.first;
-  auto gradResult = result.second;
   // Create handles for reading the result
   std::vector<std::unique_ptr<char[]>> rawLossResult(batchSize);
   std::vector<std::unique_ptr<char[]>> rawGradResult(batchSize);
@@ -237,9 +251,11 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
       rawLossResult[i] = allocateHostMemoryForTensor(
           lossResult.slice(i, i + 1, 0), "result_loss_" + std::to_string(i),
           graph, uploadProg, downloadProg, tmap);
-      rawGradResult[i] = allocateHostMemoryForTensor(
-          gradResult.slice(i, i + 1, 1), "result_grad_" + std::to_string(i),
-          graph, uploadProg, downloadProg, tmap);
+      if (!lossOnly) {
+        rawGradResult[i] = allocateHostMemoryForTensor(
+            gradResult.slice(i, i + 1, 1), "result_grad_" + std::to_string(i),
+            graph, uploadProg, downloadProg, tmap);
+      }
     }
   }
 
@@ -279,8 +295,10 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   if (!ignoreData) {
     for (unsigned i = 0; i < batchSize; i++) {
       copy(target, outType, rawLossResult[i].get(), &output[i].first, 1);
-      output[i].second.resize(boost::extents[maxT][numClasses]);
-      copy(target, outType, rawGradResult[i].get(), output[i].second);
+      if (!lossOnly) {
+        output[i].second.resize(boost::extents[maxT][numClasses]);
+        copy(target, outType, rawGradResult[i].get(), output[i].second);
+      }
     }
   }
 
@@ -289,6 +307,27 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
                                OptionFlags{{"showExecutionSteps", "true"}});
   }
   return output;
+}
+
+template <typename FPType>
+std::pair<FPType, boost::multi_array<FPType, 2>>
+lossReference(const InputSequence<FPType> &test_, unsigned blankClass,
+              unsigned numClasses, bool verbose) {
+  auto test = test_;
+  if (test.isLogits) { // Convert to log probs
+    test.input = log::log(transpose(log::softMax(transpose(test.input))));
+  }
+  auto paddedSequence = extendedLabels(test.labels, blankClass);
+  auto in = transpose(test.input);
+  boost::multi_array<FPType, 2> logSequence(
+      boost::extents[paddedSequence.size()][in.shape()[1]]);
+  poplibs_test::embedding::multiSlice(in, paddedSequence, logSequence);
+
+  auto negLogLoss =
+      loss(logSequence, paddedSequence, blankClass, test.inputLength);
+
+  boost::multi_array<FPType, 2> noneArray;
+  return {negLogLoss, noneArray};
 }
 
 int main(int argc, char **argv) {
@@ -379,6 +418,7 @@ int main(int argc, char **argv) {
     "\nSpecifically:"
     "\n  2 * t - 1 >= labelLength")
     ("plan-only", "Only plan the requested passes, don't build or run a graph")
+    ("loss-only", "Only calculate loss")
     ("verbose", "Provide debug printout");
   // clang-format on
 
@@ -401,6 +441,7 @@ int main(int argc, char **argv) {
   const bool planOnly = vm.count("plan-only");
   const bool disableAlwaysSatisfiableError =
       vm.count("disable-always-satisfiable-error");
+  const bool lossOnly = vm.count("loss-only");
 
   // Needed to set default arguments.
   po::notify(vm);
@@ -482,30 +523,38 @@ int main(int argc, char **argv) {
       print("Log Softmax in", tests[i].input, blankClass, verbose);
     }
     if (!ignoreData) {
-      references.push_back(
-          gradReference<double>(tests[i], blankClass, numClasses,
-                                testReducedCodeletGradient, verbose));
-      references.back().second =
-          maskResults(references.back().second, tests[i].inputLength);
+      if (lossOnly) {
+        references.push_back(
+            lossReference<double>(tests[i], blankClass, numClasses, verbose));
+      } else {
+        references.push_back(
+            gradReference<double>(tests[i], blankClass, numClasses,
+                                  testReducedCodeletGradient, verbose));
+        references.back().second =
+            maskResults(references.back().second, tests[i].inputLength);
+      }
       if (verbose) {
         std::cout << "Reference loss = " << references.back().first << "\n";
       }
     }
   }
+
   auto outputs = gradIPU(tests, maxLabelLength, blankClass, numClasses, inType,
                          outType, planOpts, debugOpts, deviceType, tiles,
-                         ignoreData, profile, profileDir);
+                         ignoreData, profile, lossOnly, profileDir);
 
   for (unsigned i = 0; i < batchSize; i++) {
-    outputs[i].second = maskResults(outputs[i].second, tests[i].inputLength);
     if (verbose) {
       std::cout << "Result loss = " << outputs[i].first << "\n";
     }
-    print("Result gradient, batch:" + std::to_string(i), outputs[i].second,
-          blankClass, verbose);
+    if (!lossOnly) {
+      outputs[i].second = maskResults(outputs[i].second, tests[i].inputLength);
+      print("Result gradient, batch:" + std::to_string(i), outputs[i].second,
+            blankClass, verbose);
+    }
   }
   double relativeTolerance, absoluteTolerance;
-  if (testReducedCodeletGradient) {
+  if (testReducedCodeletGradient && !lossOnly) {
     relativeTolerance = outType == FLOAT ? CODELET_TEST_FLOAT_REL_TOL
                                          : CODELET_TEST_HALF_REL_TOL;
     absoluteTolerance = outType == FLOAT ? CODELET_TEST_FLOAT_ABS_TOL
@@ -518,10 +567,13 @@ int main(int argc, char **argv) {
   if (!ignoreData) {
     for (unsigned i = 0; i < batchSize; i++) {
       bool batchSuccess = checkIsClose(outputs[i].first, references[i].first,
-                                       relativeTolerance) &&
-                          checkIsClose("Batch:" + std::to_string(i) + " result",
-                                       outputs[i].second, references[i].second,
-                                       relativeTolerance, absoluteTolerance);
+                                       relativeTolerance);
+      if (!lossOnly) {
+        batchSuccess = batchSuccess &&
+                       checkIsClose("Batch:" + std::to_string(i) + " result",
+                                    outputs[i].second, references[i].second,
+                                    relativeTolerance, absoluteTolerance);
+      }
       if (!batchSuccess) {
         success = false;
       }

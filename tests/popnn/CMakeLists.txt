@@ -1492,6 +1492,26 @@ foreach(batch 1 4 8)
   endforeach()
 endforeach()
 
+# Test loss only mode
+foreach(batch 1 4 8)
+  foreach(num_classes 30 60 90)
+    foreach(labels 10 20)
+      add_multitarget_test(
+        NAME CTC_Loss_LossOnly_Batch_${batch}_NumClasses_${num_classes}_Labels_${labels}
+        COMMAND ctc_loss
+                --loss-only
+                --enable-reduce-classes-in-label=1
+                --batch=${batch}
+                --max-time=50
+                --time=50
+                --num-classes=${num_classes}
+                --max-label-length=${labels}
+                --label-length=${labels}
+        VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
+  endforeach()
+endforeach()
+
 add_multitarget_test(
   NAME CTC_Loss_Codelet_Result_only
   COMMAND ctc_loss

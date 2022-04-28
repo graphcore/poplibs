@@ -1393,7 +1393,8 @@ calcLossAndGradientLogProbabilitiesImpl(
     const poplar::Tensor &originData, const poplar::Tensor &originLabels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned originBlankClass,
-    const LossPlan &plan, const poplar::DebugContext &debugContext,
+    const LossPlan &plan, const bool lossOnly,
+    const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options) {
   const auto opts = parseCalcLossAndGradLogProbOptions(options);
   const auto partialsType = plan.params.partialsType;
@@ -1583,15 +1584,20 @@ calcLossAndGradientLogProbabilitiesImpl(
     }
   }();
   auto gradReduced = [&]() {
-    if (gradient.dim(0) == 1) {
-      return toExternalShape(gradient.squeeze({0}));
+    if (lossOnly) {
+      poplar::Tensor empty;
+      return empty;
     } else {
-      // Ensure we preserve mapping of the result to fit in with the plan
-      auto gradientReduced =
-          graph.clone(partialsType, internalData, debugContext).squeeze({0});
-      popops::reduceWithOutput(graph, gradient, gradientReduced, {0},
-                               reduceParams, reductionCS, di);
-      return toExternalShape(gradientReduced);
+      if (gradient.dim(0) == 1) {
+        return toExternalShape(gradient.squeeze({0}));
+      } else {
+        // Ensure we preserve mapping of the result to fit in with the plan
+        auto gradientReduced =
+            graph.clone(partialsType, internalData, debugContext).squeeze({0});
+        popops::reduceWithOutput(graph, gradient, gradientReduced, {0},
+                                 reduceParams, reductionCS, di);
+        return toExternalShape(gradientReduced);
+      }
     }
   }();
   for (const auto &cs : reductionCS) {
@@ -1601,9 +1607,11 @@ calcLossAndGradientLogProbabilitiesImpl(
   popops::negInPlace(graph, lossReduced, prog, di);
   if (!opts.returnReducedCodeletGradient) {
     auto lossShaped = lossReduced.reshape({1, batchSize, 1});
-    popops::mapInPlace(graph,
-                       Sub(Exp(Cast(_3, partialsType)), Exp(Add(_1, _2))),
-                       {gradReduced, lossShaped, data}, prog, {di, "CalcGrad"});
+    if (!lossOnly) {
+      popops::mapInPlace(
+          graph, Sub(Exp(Cast(_3, partialsType)), Exp(Add(_1, _2))),
+          {gradReduced, lossShaped, data}, prog, {di, "CalcGrad"});
+    }
   }
 
   auto [lossOut, gradOut] = [&]() -> std::pair<poplar::Tensor, poplar::Tensor> {
@@ -1611,7 +1619,13 @@ calcLossAndGradientLogProbabilitiesImpl(
       poplar::DebugContext castDebug{di, "Cast"};
       auto castCS = graph.addComputeSet(castDebug);
       auto loss = popops::cast(graph, lossReduced, outType, castCS, castDebug);
-      auto grad = popops::cast(graph, gradReduced, outType, castCS, castDebug);
+      auto grad = [&]() {
+        if (lossOnly) {
+          return gradReduced;
+        } else {
+          return popops::cast(graph, gradReduced, outType, castCS, castDebug);
+        }
+      }();
       prog.add(Execute(castCS, castDebug));
       return {loss, grad};
     } else {
@@ -1619,8 +1633,8 @@ calcLossAndGradientLogProbabilitiesImpl(
     };
   }();
 
-  poplar::Tensor finalGradOut = gradOut;
-  if (plan.params.enableReducedClassesInLabel) {
+  auto finalGradOut = gradOut;
+  if (plan.params.enableReducedClassesInLabel && !lossOnly) {
     // If we launched ctcLossPreProcess, we need to scatter gradient elements to
     // new grad output.
     logging::popnn::debug("Launch ctcLossPostProcess to scatter gradient "
@@ -1632,8 +1646,12 @@ calcLossAndGradientLogProbabilitiesImpl(
     finalGradOut = completeGrad;
   }
 
-  di.addOutputs({{"loss", poputil::toProfileValue(lossOut)},
-                 {"grad", poputil::toProfileValue(finalGradOut)}});
+  if (lossOnly) {
+    di.addOutputs({{"loss", poputil::toProfileValue(lossOut)}});
+  } else {
+    di.addOutputs({{"loss", poputil::toProfileValue(lossOut)},
+                   {"grad", poputil::toProfileValue(finalGradOut)}});
+  }
 
   if (!opts.includeSoftmaxGradient) {
     // TODO: Remove gradient from LogSoftmax
@@ -1673,7 +1691,7 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
 
   return calcLossAndGradientLogProbabilitiesImpl(
       graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
-      blankClass, lossPlan, {debugContext, "CTCLossAndGradientLogProbs"},
+      blankClass, lossPlan, false, {debugContext, "CTCLossAndGradientLogProbs"},
       options);
 }
 
@@ -1697,8 +1715,51 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
 
   return calcLossAndGradientLogProbabilitiesImpl(
       graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
-      blankClass, lossPlan, {debugContext, "CTCLossAndGradientLogProbs"},
+      blankClass, lossPlan, false, {debugContext, "CTCLossAndGradientLogProbs"},
       options);
+}
+
+poplar::Tensor calcCTCLossLogProbabilities(
+    poplar::Graph &graph, const poplar::Type &outType,
+    const poplar::Tensor &logProbs, const poplar::Tensor &labels,
+    const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
+    poplar::program::Sequence &prog, const unsigned blankClass,
+    const Plan &plan, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options) {
+  const auto &lossPlan = plan.getImpl().getAsLossPlan();
+  const auto partialsType = lossPlan.params.partialsType;
+  printOp("CTCLossLogProbabilities", partialsType, outType, logProbs, labels,
+          dataLengths, labelLengths, blankClass, debugContext);
+
+  return calcLossAndGradientLogProbabilitiesImpl(
+             graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
+             blankClass, lossPlan, true,
+             {debugContext, "CTCLossAndGradientLogProbs"}, options)
+      .first;
+}
+
+poplar::Tensor calcCTCLossLogits(
+    poplar::Graph &graph, const poplar::Type &outType,
+    const poplar::Tensor &logits, const poplar::Tensor &labels,
+    const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
+    poplar::program::Sequence &prog, const unsigned blankClass,
+    const Plan &plan, const poplar::DebugContext &parentDebugContext,
+    const poplar::OptionFlags &options) {
+  const auto &lossPlan = plan.getImpl().getAsLossPlan();
+  const auto partialsType = lossPlan.params.partialsType;
+  printOp("CTCLossLogits", partialsType, outType, logits, labels, dataLengths,
+          labelLengths, blankClass, parentDebugContext);
+  poplar::DebugContext debugContext{parentDebugContext, "CTCLossLogits"};
+  // Ensure we preserve mapping of the result to fit in with the plan
+  auto logProbs = graph.clone(logits, debugContext);
+  prog.add(Copy(logits, logProbs, false, debugContext));
+  logSoftmaxInPlace(graph, logProbs, prog, debugContext);
+
+  return calcLossAndGradientLogProbabilitiesImpl(
+             graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
+             blankClass, lossPlan, true,
+             {debugContext, "CTCLossAndGradientLogProbs"}, options)
+      .first;
 }
 
 } // end namespace ctc
