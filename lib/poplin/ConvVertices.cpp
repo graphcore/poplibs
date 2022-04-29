@@ -427,8 +427,13 @@ static void createConvPartialAmpVertex(
   assert(plan.convGroupsPerGroup == 1);
   const auto &method = boost::get<Plan::Amp>(plan.method);
   const auto &target = graph.getTarget();
-  const auto convUnitWeightHeight =
-      target.getWeightsPerConvUnit(in.elementType()) / plan.inChansPerGroup;
+
+  const auto convInputLoadElems = method.convInputLoadElems;
+  const auto convChainLength =
+      target.getConvUnitMaxPipelineDepth(weights.elementType());
+  const auto weightsPerConvUnit = convChainLength * convInputLoadElems;
+  const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
+
   if (convUnitWeightHeight != 1) {
     assert(weights.dim(3) % convUnitWeightHeight == 0);
     assert(params->inputTransform.truncationLower[0] == 0);
@@ -512,6 +517,7 @@ static void createConvPartialAmpVertex(
   outStrideX /= strideDivisor;
 
   const auto contextsPerVertex = target.getNumWorkerContexts();
+
   const auto convUnitWeightWidth = 1u;
   auto partitions = createPartitions(params, convUnitWeightHeight,
                                      convUnitWeightWidth, contextsPerVertex);
@@ -607,8 +613,6 @@ static void createConvPartialAmpVertex(
           (inputBatchAndFieldShape[0] * inputBatchAndFieldShape[1]),
       useConvPartial1x1OutVertex, convUnitWeightHeight);
 
-  const auto convInputLoadElems =
-      target.getConvUnitInputLoadElemsPerCycle(in.elementType());
   int transformedInStride =
       getTransformedInStride(convUnitWeightHeight, inStrideX, inRowStride,
                              convInputLoadElems, inChansPerGroup);
@@ -635,8 +639,11 @@ static void createConvPartialAmpVertex(
 
   bool useLimitedVer = true;
   const auto zerosInfo = outWindow[0].numElements();
-  const int convOutputStoreElems =
-      target.getConvUnitInputLoadElemsPerCycle(out.elementType());
+  const int convOutputStoreElems = out.elementType() == poplar::FLOAT  ? 2
+                                   : out.elementType() == poplar::HALF ? 4
+                                                                       : 0;
+  // Not a condition we expect a user to be able to trigger.
+  assert(convOutputStoreElems != 0);
 
   if (!fitsMachineStride(target, transformedOutStride / convOutputStoreElems) ||
       !fitsMachineStride(target, transformedInStride) ||
@@ -683,14 +690,16 @@ static void createConvPartialAmpVertex(
 
   const auto worklistEntryType = useLimitedVer ? UNSIGNED_SHORT : UNSIGNED_INT;
 
-  auto codeletName = useConvPartial1x1OutVertex ? "poplin::ConvPartial1x1Out"
-                                                : "poplin::ConvPartialnx1";
+  const auto codeletName = useConvPartial1x1OutVertex
+                               ? "poplin::ConvPartial1x1Out"
+                               : "poplin::ConvPartialnx1";
   auto v = graph.addVertex(
-      fwdCS, templateVertex(
-                 codeletName, in.elementType(), plan.types.back().partialType,
-                 useLimitedVer ? "true" : "false",
-                 use128BitConvUnitLoad ? "true" : "false", method.convUnits,
-                 disableSRForAMPVertices ? "true" : "false"));
+      fwdCS, templateVertex(codeletName, in.elementType(),
+                            plan.types.back().partialType,
+                            useLimitedVer ? "true" : "false",
+                            use128BitConvUnitLoad ? "true" : "false",
+                            method.convUnits, method.convInputLoadElems,
+                            disableSRForAMPVertices ? "true" : "false"));
 
   // The parameters are modified to what the vertex uses
   graph.connect(v["in"], inWindow);
@@ -818,7 +827,11 @@ static void createConvPartialAmpVertices(
     const DebugNameAndId &dnai) {
   assert(params == params.canonicalize());
   const auto &target = graph.getTarget();
-  auto weightsPerConvUnit = target.getWeightsPerConvUnit(in.elementType());
+  const auto &method = boost::get<Plan::Amp>(plan.method);
+  const auto convInputLoadElems = method.convInputLoadElems;
+  const auto convChainLength =
+      target.getConvUnitMaxPipelineDepth(weights.elementType());
+  const auto weightsPerConvUnit = convChainLength * convInputLoadElems;
   assert(weightsPerConvUnit % plan.inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
@@ -855,8 +868,6 @@ static void createConvPartialAmpVertices(
   const auto inRowStrideBeforeSplit = getInRowStride(
       params, product(params.inputFieldShape) / params.inputFieldShape[0],
       useConvPartial1x1OutVertex, convUnitWeightHeight);
-  const auto convInputLoadElems =
-      target.getConvUnitInputLoadElemsPerCycle(in.elementType());
 
   int transformedInStrideBeforeSplit = getTransformedInStride(
       convUnitWeightHeight, inStrideX, inRowStrideBeforeSplit,

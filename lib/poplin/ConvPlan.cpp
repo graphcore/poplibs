@@ -149,6 +149,7 @@ static boost::property_tree::ptree toPTree(const Plan::Method &m) {
       [&](const Plan::Amp &m) {
         tree.put("type", "AMP");
         tree.put("convUnits", m.convUnits);
+        tree.put("convInputLoadElems", m.convInputLoadElems);
       },
       [&](const Plan::Slic &m) {
         tree.put("type", "SLIC");

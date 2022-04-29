@@ -571,11 +571,10 @@ bri           LNumElemsEq1
 // =============================================================================
 // Instantiate codelets
 
-CONV_1x1_SUPERVISOR float float false 16 f32sisov2amp false false
-CONV_1x1_SUPERVISOR float float true  16 f32sisov2amp false false
-CONV_1x1_SUPERVISOR float float false 16 f32sisov2amp false true
-CONV_1x1_SUPERVISOR float float true  16 f32sisov2amp false true
-
+CONV_1x1_SUPERVISOR float float false 16 2 f32sisov2amp false false
+CONV_1x1_SUPERVISOR float float true  16 2 f32sisov2amp false false
+CONV_1x1_SUPERVISOR float float false 16 2 f32sisov2amp false true
+CONV_1x1_SUPERVISOR float float true  16 2 f32sisov2amp false true
 
 // =============================================================================
 #endif // #ifdef __IPU__

@@ -330,10 +330,10 @@ bri           LNumElemsEq1
 // =============================================================================
 // Instantiate codelets
 
-CONV_1x1_SUPERVISOR half half false 8 f16v4hihoamp false false
-CONV_1x1_SUPERVISOR half half true  8 f16v4hihoamp false false
-CONV_1x1_SUPERVISOR half half false 8 f16v4hihoamp false true
-CONV_1x1_SUPERVISOR half half true  8 f16v4hihoamp false true
+CONV_1x1_SUPERVISOR half half false 8 4 f16v4hihoamp false false
+CONV_1x1_SUPERVISOR half half true  8 4 f16v4hihoamp false false
+CONV_1x1_SUPERVISOR half half false 8 4 f16v4hihoamp false true
+CONV_1x1_SUPERVISOR half half true  8 4 f16v4hihoamp false true
 
 // =============================================================================
 #endif // #ifdef __IPU__

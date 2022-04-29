@@ -368,10 +368,10 @@ bri           StoreFinalAmpOutputs2
 // =============================================================================
 // Instantiate codelets
 
-CONV_Nx1_SUPERVISOR half half false 8 false f16v4hihoamp
-CONV_Nx1_SUPERVISOR half half true  8 false f16v4hihoamp
-CONV_Nx1_SUPERVISOR half half false 8 true f16v4hihoamp
-CONV_Nx1_SUPERVISOR half half true  8 true f16v4hihoamp
+CONV_Nx1_SUPERVISOR half half false 8 4 false f16v4hihoamp
+CONV_Nx1_SUPERVISOR half half true  8 4 false f16v4hihoamp
+CONV_Nx1_SUPERVISOR half half false 8 4 true f16v4hihoamp
+CONV_Nx1_SUPERVISOR half half true  8 4 true f16v4hihoamp
 
 // =============================================================================
 #endif

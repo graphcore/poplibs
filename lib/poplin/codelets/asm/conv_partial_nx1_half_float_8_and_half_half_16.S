@@ -439,10 +439,10 @@ bri           StoreFinalAmpOutputs2_\COMMAND\()
 CONV_Nx1_WORKER f16v4hihov4amp
 
 // Supervisor
-CONV_Nx1_SUPERVISOR half half false 16 false f16v4hihov4amp
-CONV_Nx1_SUPERVISOR half half true  16 false f16v4hihov4amp
-CONV_Nx1_SUPERVISOR half half false 16 true f16v4hihov4amp
-CONV_Nx1_SUPERVISOR half half true  16 true f16v4hihov4amp
+CONV_Nx1_SUPERVISOR half half false 16 4 false f16v4hihov4amp
+CONV_Nx1_SUPERVISOR half half true  16 4 false f16v4hihov4amp
+CONV_Nx1_SUPERVISOR half half false 16 4 true f16v4hihov4amp
+CONV_Nx1_SUPERVISOR half half true  16 4 true f16v4hihov4amp
 #endif
 
 
@@ -450,10 +450,10 @@ CONV_Nx1_SUPERVISOR half half true  16 true f16v4hihov4amp
 CONV_Nx1_WORKER f16v4sisoamp
 
 // Supervisors
-CONV_Nx1_SUPERVISOR half float false 8 false f16v4sisoamp
-CONV_Nx1_SUPERVISOR half float true  8 false f16v4sisoamp
-CONV_Nx1_SUPERVISOR half float false 8 true f16v4sisoamp
-CONV_Nx1_SUPERVISOR half float true  8 true f16v4sisoamp
+CONV_Nx1_SUPERVISOR half float false 8 4 false f16v4sisoamp
+CONV_Nx1_SUPERVISOR half float true  8 4 false f16v4sisoamp
+CONV_Nx1_SUPERVISOR half float false 8 4 true f16v4sisoamp
+CONV_Nx1_SUPERVISOR half float true  8 4 true f16v4sisoamp
 
 
 // =============================================================================

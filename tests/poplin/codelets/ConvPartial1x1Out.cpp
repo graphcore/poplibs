@@ -39,7 +39,8 @@ isIpu21(boost::unit_test::test_unit_id = 0) {
          TEST_TARGET == DeviceType::IpuModel21;
 }
 
-const unsigned LOAD_SIZE = 8; // How many bytes in one 'ld64' IPU instruction
+const unsigned WORKLIST_OFFSET_MULTIPLIER =
+    8; // How many bytes in one 'ld64' IPU instruction
 
 // These definitions limits the testing to the variants of the vertex for which
 // the template parameter 'useLimitedVer' is 'true'
@@ -49,7 +50,7 @@ const auto worklistEntryType = UNSIGNED_SHORT;
 
 // The worklist ('partition' list) has a triplet of integer values for each
 // worker thread, specifying what part of the work the thread has to do.
-struct worklistElem {
+struct WorklistElem {
   // Units of 8 bytes, must contain a multiple of outChansPerGroup values
   unsigned outOffs;
   //  How many 'Output Channel Groups' this worker will compute
@@ -59,16 +60,17 @@ struct worklistElem {
 };
 
 // This contains all test parameters that specify a single test.
-struct testParams {
-  testParams()
-      : verificationTolerance(0.00001), numConvUnits(8), inStride(1),
-        alignedAllocation(false), inType(FLOAT), accumType(FLOAT),
+struct TestParams {
+  TestParams()
+      : verificationTolerance(0.00001), numConvUnits(8), inputLoadWidth(8),
+        inStride(1), alignedAllocation(false), inType(FLOAT), accumType(FLOAT),
         fieldWidth(1), numConvGroups(1), numOutGroups(1), numInGroups(1),
         outChansPerGroup(8), flipOut(false), use128BitLoad(false),
         weightFp8Format(QuarterMetadata::Format::F143), weightFp8Scale(0),
         inputFp8Format(QuarterMetadata::Format::F143), inputFp8Scale(0) {}
   double verificationTolerance;
   unsigned numConvUnits;
+  unsigned inputLoadWidth;
   int inStride;
   bool alignedAllocation;
 
@@ -88,7 +90,7 @@ struct testParams {
   QuarterMetadata::Format inputFp8Format;
   int inputFp8Scale;
 
-  std::vector<worklistElem> worklists;
+  std::vector<WorklistElem> worklists;
 };
 
 /// Performs the same computation done by the vertex; used to verify results
@@ -99,7 +101,7 @@ void vertexCompute(const unsigned numContexts, const unsigned inTypeSize,
                    const unsigned accumTypeSize, const unsigned inChansPerGroup,
                    const boost::multi_array<float, 2> &in,
                    const boost::multi_array<float, 2> &weights,
-                   boost::multi_array<float, 2> &out, const testParams &t) {
+                   boost::multi_array<float, 2> &out, const TestParams &t) {
   for (unsigned cg = 0; cg < t.numConvGroups; ++cg) {
     for (unsigned og = 0; og < t.numOutGroups; ++og) {
 
@@ -114,13 +116,16 @@ void vertexCompute(const unsigned numContexts, const unsigned inTypeSize,
         for (unsigned context = 0; context < numContexts; ++context) {
 
           // Adjust the offset fields for this context from the worklist.
-          // From units of 8 bytes (LOAD_SIZE) to the number of groups of chans
-          const auto outOffset =
-              (t.worklists[context].outOffs * LOAD_SIZE / accumTypeSize) /
-              t.outChansPerGroup;
-          const auto inOffset =
-              (t.worklists[context].inOffs * LOAD_SIZE / inTypeSize) /
-              inChansPerGroup;
+          // From units of 8 bytes (WORKLIST_OFFSET_MULTIPLIER) to the number
+          // of groups of chans.
+          // NOTE: Even when greater input load width is given, we currently
+          // have the same 8 bytes multiplier so this is intentional.
+          const auto outOffset = (t.worklists[context].outOffs *
+                                  WORKLIST_OFFSET_MULTIPLIER / accumTypeSize) /
+                                 t.outChansPerGroup;
+          const auto inOffset = (t.worklists[context].inOffs *
+                                 WORKLIST_OFFSET_MULTIPLIER / inTypeSize) /
+                                inChansPerGroup;
 
           for (int i = 0; i < t.worklists[context].numFieldElems; ++i) {
 
@@ -247,7 +252,7 @@ void compareResults(const boost::multi_array<float, 2> &results,
 ///
 /// Runs a test according to the parameters.
 ///
-void runTest(const struct testParams &t) {
+void runTest(const struct TestParams &t) {
   auto device = createTestDevice(TEST_TARGET);
   const Target &target = device.getTarget();
   Graph graph(target);
@@ -256,29 +261,31 @@ void runTest(const struct testParams &t) {
 
   // Check correctness of test parameters
   std::string err;
-  if ((t.numConvUnits != 4) && (t.numConvUnits != 8) &&
-      (t.numConvUnits != 16)) {
-    err = "'numConvUnits' must be 4, 8 or 16 (16 only on IPU2 / IPU21)";
+  if ((t.numConvUnits != 8) && (t.numConvUnits != 16)) {
+    err = "'numConvUnits' must be 8 or 16 (16 only on IPU2 / IPU21)";
   } else if ((t.numConvUnits == 16) && !isIpu2() && !isIpu21()) {
     err = "'numConvUnits' can be 16 only on IPU2";
   } else if ((t.outChansPerGroup % t.numConvUnits) != 0) {
-    err = "'outChansPerGroup' must be a multiple of 'numConvUnits'";
+    throw poputil::poplibs_error(
+        "'outChansPerGroup' must be a multiple of 'numConvUnits'");
   } else if (t.worklists.size() != numContexts) {
-    err = "'worklists' must have " + std::to_string(numContexts) + " elements";
+    throw poputil::poplibs_error("'worklists' must have " +
+                                 std::to_string(numContexts) + " elements");
   }
-  if (!err.empty()) {
-    throw poputil::poplibs_error(err);
+
+  const unsigned inTypeSize = target.getTypeSize(t.inType);
+  if (t.inputLoadWidth % inTypeSize != 0) {
+    throw poputil::poplibs_error(
+        "'inputLoadWidth' must be a multiple of the size of the input type");
   }
-  const bool isFp8 = t.inType == QUARTER;
+
+  const unsigned convInputLoadElems = t.inputLoadWidth / inTypeSize;
 
   // This value is hard coded in the vertex assembly because of the AMP
   // hardware structure
-  unsigned inChansPerGroup;
-  if (t.numConvUnits == 8) {
-    inChansPerGroup = (t.inType == HALF) ? 16 : 8;
-  } else {
-    inChansPerGroup = isFp8 ? 32 : 16;
-  }
+  const unsigned inChansPerGroup = convInputLoadElems * 4;
+
+  const bool isFp8 = t.inType == QUARTER;
 
   // "Host side" buffers
   boost::multi_array<float, 2> inBuf{
@@ -332,9 +339,9 @@ void runTest(const struct testParams &t) {
   graph.setTileMapping(weights, 0);
   graph.setTileMapping(out, 0);
 
-  const std::string vertexName =
-      templateVertex("poplin::ConvPartial1x1Out", t.inType, t.accumType, true,
-                     t.use128BitLoad, t.numConvUnits, false);
+  const std::string vertexName = templateVertex(
+      "poplin::ConvPartial1x1Out", t.inType, t.accumType, true, t.use128BitLoad,
+      t.numConvUnits, convInputLoadElems, false);
   std::cout << "========= " << vertexName << "\n";
 
   auto v = graph.addVertex(cs, vertexName);
@@ -377,8 +384,7 @@ void runTest(const struct testParams &t) {
   prog.add(Execute(cs));
 
   // Populate the 'composite' vertex fields
-  const unsigned inTypeSize = target.getTypeSize(t.inType);
-  auto loadElems = LOAD_SIZE / inTypeSize;
+  auto loadElems = WORKLIST_OFFSET_MULTIPLIER / inTypeSize;
   SignedType transformedInStride =
       (t.inStride - 1) * inChansPerGroup / loadElems + 1;
   unsigned strideAdj = (t.accumType == FLOAT) ? -6 : -4;
@@ -440,7 +446,7 @@ void runTest(const struct testParams &t) {
 // ====================== FLOAT FLOAT ======================
 BOOST_AUTO_TEST_SUITE(float_float)
 BOOST_AUTO_TEST_CASE(t1) {
-  testParams t;
+  TestParams t;
   t.inType = FLOAT;
   t.accumType = FLOAT;
   t.fieldWidth = 4;
@@ -455,7 +461,7 @@ BOOST_AUTO_TEST_CASE(t1) {
   runTest(t);
 }
 BOOST_AUTO_TEST_CASE(t2) {
-  testParams t;
+  TestParams t;
   t.inType = FLOAT;
   t.accumType = FLOAT;
   t.fieldWidth = 4;
@@ -471,7 +477,7 @@ BOOST_AUTO_TEST_CASE(t2) {
   runTest(t);
 }
 BOOST_AUTO_TEST_CASE(t3) {
-  testParams t;
+  TestParams t;
   t.inType = FLOAT;
   t.accumType = FLOAT;
   t.fieldWidth = 7;
@@ -487,7 +493,7 @@ BOOST_AUTO_TEST_CASE(t3) {
   runTest(t);
 }
 BOOST_AUTO_TEST_CASE(t4) {
-  testParams t;
+  TestParams t;
   t.inType = FLOAT;
   t.accumType = FLOAT;
   t.fieldWidth = 4;
@@ -507,7 +513,7 @@ BOOST_AUTO_TEST_SUITE_END()
 // ====================== HALF HALF ======================
 BOOST_AUTO_TEST_SUITE(half_half)
 BOOST_AUTO_TEST_CASE(t1) {
-  testParams t;
+  TestParams t;
   t.inType = HALF;
   t.accumType = HALF;
   t.verificationTolerance = 0.005;
@@ -528,7 +534,7 @@ BOOST_AUTO_TEST_SUITE_END()
 // ====================== HALF FLOAT ======================
 BOOST_AUTO_TEST_SUITE(half_float)
 BOOST_AUTO_TEST_CASE(t1) {
-  testParams t;
+  TestParams t;
   t.inType = HALF;
   t.accumType = FLOAT;
   t.verificationTolerance = 0.005;
@@ -549,7 +555,7 @@ BOOST_AUTO_TEST_SUITE_END()
 // ====================== HALF HALF DUAL ======================
 BOOST_AUTO_TEST_SUITE(half_half_dual, *boost::unit_test::precondition(isIpu2))
 BOOST_AUTO_TEST_CASE(t1) {
-  testParams t;
+  TestParams t;
   t.inType = HALF;
   t.accumType = HALF;
   t.numConvUnits = 16;
@@ -571,7 +577,7 @@ BOOST_AUTO_TEST_SUITE_END()
 // ====================== QUARTER HALF ======================
 BOOST_AUTO_TEST_SUITE(quarter_half, *boost::unit_test::precondition(isIpu21))
 BOOST_AUTO_TEST_CASE(t1) {
-  testParams t;
+  TestParams t;
   t.inType = QUARTER;
   t.accumType = HALF;
   t.verificationTolerance = 0.005;
@@ -591,7 +597,7 @@ BOOST_AUTO_TEST_CASE(t1) {
   runTest(t);
 }
 BOOST_AUTO_TEST_CASE(t2) {
-  testParams t;
+  TestParams t;
   t.inType = QUARTER;
   t.accumType = HALF;
   t.verificationTolerance = 0.005;
@@ -613,7 +619,7 @@ BOOST_AUTO_TEST_CASE(t2) {
 }
 
 BOOST_AUTO_TEST_CASE(t3) {
-  testParams t;
+  TestParams t;
   t.inType = QUARTER;
   t.accumType = HALF;
   t.verificationTolerance = 0.005;
@@ -636,7 +642,7 @@ BOOST_AUTO_TEST_CASE(t3) {
 }
 
 BOOST_AUTO_TEST_CASE(t4) {
-  testParams t;
+  TestParams t;
   t.inType = QUARTER;
   t.accumType = HALF;
   t.verificationTolerance = 0.005;
@@ -659,5 +665,76 @@ BOOST_AUTO_TEST_CASE(t4) {
                  {0, 0, 0}, {0, 0, 0},  {0, 0, 0}};
   runTest(t);
 }
+BOOST_AUTO_TEST_SUITE_END()
 
+BOOST_AUTO_TEST_SUITE(half_half_dual_double_width)
+BOOST_AUTO_TEST_CASE(t1) {
+  TestParams t;
+  t.inType = HALF;
+  t.accumType = HALF;
+  t.numConvUnits = 16;
+  t.inputLoadWidth = 16;
+  t.verificationTolerance = 0.005;
+  t.fieldWidth = 7;
+  t.numConvGroups = 1;
+  t.numOutGroups = 1;
+  t.numInGroups = 1;
+  t.outChansPerGroup = 16;
+  t.flipOut = true;
+  // Worklist 'outOffs', 'inOffs' are in units of 4 half values,
+  // and must be a multiple of the input channel grouping
+  // (a derivative of inputLoadWidth and the AMP pipeline depth).
+  // 'numFieldElems' is in units of outChansPerGroup (16 half values)
+  t.worklists = {{0, 1, 48},  {4, 1, 40},  {8, 1, 32},
+                 {12, 1, 24}, {16, 1, 16}, {24, 2, 0}};
+  runTest(t);
+}
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(half_float_double_width)
+BOOST_AUTO_TEST_CASE(t1) {
+  TestParams t;
+  t.inType = HALF;
+  t.accumType = FLOAT;
+  t.numConvUnits = 8;
+  t.inputLoadWidth = 16;
+  t.verificationTolerance = 0.005;
+  t.fieldWidth = 7;
+  t.numConvGroups = 1;
+  t.numOutGroups = 1;
+  t.numInGroups = 1;
+  t.outChansPerGroup = 8;
+  t.flipOut = true;
+  // Worklist 'outOffs' is in units of 4 half values and 'inOffs'
+  // is in units of 2 float values, and must be a multiple of the input
+  // channel grouping (a derivative of inputLoadWidth and the AMP
+  // pipeline depth).
+  // 'numFieldElems' is in units of outChansPerGroup (16 half values)
+  t.worklists = {{0, 1, 48}, {2, 1, 40}, {4, 1, 32},
+                 {6, 1, 24}, {8, 1, 16}, {12, 2, 0}};
+  runTest(t);
+}
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(float_float_double_width)
+BOOST_AUTO_TEST_CASE(t1) {
+  TestParams t;
+  t.inType = FLOAT;
+  t.accumType = FLOAT;
+  t.numConvUnits = 8;
+  t.inputLoadWidth = 16;
+  t.fieldWidth = 7;
+  t.numConvGroups = 1;
+  t.numOutGroups = 1;
+  t.numInGroups = 1;
+  t.outChansPerGroup = 8;
+  t.flipOut = true;
+  // Worklist 'outOffs', 'inOffs' are in units of 2 float values,
+  // and must be a multiple of the input channel grouping
+  // (a derivative of inputLoadWidth and the AMP pipeline depth).
+  // 'numFieldElems' is in units of outChansPerGroup (16 half values)
+  t.worklists = {{0, 1, 24}, {2, 1, 20}, {4, 1, 16},
+                 {6, 1, 12}, {8, 1, 8},  {12, 2, 0}};
+  runTest(t);
+}
 BOOST_AUTO_TEST_SUITE_END()

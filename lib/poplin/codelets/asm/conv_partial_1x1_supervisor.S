@@ -19,7 +19,7 @@
 #include "conv_sr_ctrl.h.S"
 
 // =============================================================================
-#define CODELET_NAME __runCodelet_poplin__ConvPartial1x1Out___\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR
+#define CODELET_NAME __runCodelet_poplin__ConvPartial1x1Out___\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()_\INPUT_ELEMS\()_\DISABLE_SR
 
 // =============================================================================
 
@@ -103,7 +103,7 @@
 
 // ZERO_PARTIALS_PATH : set to true if zero path exists in the worker function
 
-.macro CONV_1x1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS COMMAND ZERO_PARTIALS_PATH DISABLE_SR
+.macro CONV_1x1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS INPUT_ELEMS COMMAND ZERO_PARTIALS_PATH DISABLE_SR
 
 .ifc \ACTIVATIONS_TYPE, half
     .equ SIZE_OF_ACTIVATIONS,        2

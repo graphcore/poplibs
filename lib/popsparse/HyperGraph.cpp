@@ -88,10 +88,13 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
   std::vector<poplar::Tensor> out;
   out.push_back(output);
 
+  const auto convInputLoadElems =
+      target.getConvUnitInputLoadElemsPerCycle(inDataType);
+
   poplar::VertexRef v = graph.addVertex(
       mulCS, poputil::templateVertex("poplin::ConvPartial1x1Out", inDataType,
                                      partialDataType, "true", "false",
-                                     convUnits, false));
+                                     convUnits, convInputLoadElems, false));
 
   graph.connect(v["in"], inputA);
   graph.connect(v["out"], out);

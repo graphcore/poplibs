@@ -22,8 +22,15 @@ static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 namespace poplin {
 
 template <typename FPType, typename AccumType, bool useLimitedVer,
-          unsigned numConvUnits>
+          unsigned numConvUnits, unsigned convInputLoadElems>
 constexpr bool hasAssembly() {
+  if (std::is_same_v<FPType, quarter>) {
+    return false;
+  }
+  constexpr std::size_t loadElems64Bits = std::is_same_v<FPType, half> ? 4 : 2;
+  if (convInputLoadElems != loadElems64Bits) {
+    return false;
+  }
   return !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
          useLimitedVer == true &&
          (numConvUnits == 8 ||
@@ -40,23 +47,24 @@ constexpr bool hasAssembly() {
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
 template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad,
-          unsigned numConvUnits, bool disableSR>
+          unsigned numConvUnits, unsigned convInputLoadElems, bool disableSR>
 class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
-    : public SupervisorVertexIf<
-          hasAssembly<FPType, AccumType, useLimitedVer, numConvUnits>() &&
-          ASM_CODELETS_ENABLED> {
+    : public std::conditional_t<
+          hasAssembly<FPType, AccumType, useLimitedVer, numConvUnits,
+                      convInputLoadElems>() &&
+              EXTERNAL_CODELET,
+          SupervisorVertex, MultiVertex> {
   static const bool needsAlignWorkers = false;
 
 public:
   ConvPartial1x1Out();
 
   using WorkListType =
-      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  using WorkListNumFieldType =
-      typename std::conditional<useLimitedVer, short, int>::type;
+      std::conditional_t<useLimitedVer, unsigned short, unsigned>;
+  using WorkListNumFieldType = std::conditional_t<useLimitedVer, short, int>;
   using UnsignedType =
-      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
+      std::conditional_t<useLimitedVer, unsigned short, unsigned>;
+  using SignedType = std::conditional_t<useLimitedVer, short, int>;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR, 4> in;
   Vector<Input<Vector<FPType, ONE_PTR, weightsAlign, use128BitLoad>>, ONE_PTR,
@@ -77,16 +85,16 @@ public:
   const SignedType transformedOutStride;
   const UnsignedType inChansPerGroup;
 
-  IS_EXTERNAL_CODELET(
-      (hasAssembly<FPType, AccumType, useLimitedVer, numConvUnits>()));
+  IS_EXTERNAL_CODELET((hasAssembly<FPType, AccumType, useLimitedVer,
+                                   numConvUnits, convInputLoadElems>()));
 
-  bool compute() {
-    const unsigned convInputLoadElems =
-        std::is_same<FPType, float>::value ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
-        : std::is_same<FPType, half>::value
-            ? CONV_UNIT_INPUT_LOAD_ELEMS_HALF
-            : CONV_UNIT_INPUT_LOAD_ELEMS_QUARTER;
-    const unsigned usedContexts = CTXT_WORKERS;
+  // For assembly codelets, a true SupervisorVertex is used.
+  bool compute();
+
+  // For C++ codelets, a MultiVertex is used.
+  bool compute(unsigned wid) {
+    const auto usedContexts = CTXT_WORKERS;
+
     // modify to set actual values used by vertex
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
@@ -128,36 +136,33 @@ public:
           const auto inRow = cg * numInGroups + ig;
           const auto wRow = cg * numOutGroups * numInGroups +
                             ig * numOutGroups + (numOutGroups - 1 - og);
-          for (unsigned context = 0; context < usedContexts; ++context) {
-            WorklistEntry entry = worklists_[context];
-            // Decode the worklist offsets.
-            entry.outOffset /= (outChansPerGroup * accumTypeSize) / 8;
-            entry.inOffset /= (inChansPerGroup * typeSize) / 8;
-            // The numFieldElems values from worklist is less by 3
-            entry.numFieldElems += 3;
+          WorklistEntry entry = worklists_[wid];
+          // Decode the worklist offsets.
+          entry.outOffset /= (outChansPerGroup * accumTypeSize) / 8;
+          entry.inOffset /= (inChansPerGroup * typeSize) / 8;
+          // The numFieldElems values from worklist is less by 3
+          entry.numFieldElems += 3;
 
-            for (unsigned i = 0; i < entry.numFieldElems; ++i) {
-              for (unsigned outChan = 0; outChan < outChansPerGroup;
-                   ++outChan) {
-                const auto outCol =
-                    (entry.outOffset + (flipOut ? -i : i)) * outChansPerGroup;
-                const auto inCol =
-                    (entry.inOffset + i * inStride) * inChansPerGroup;
-                const auto wCol = outChan * inChansPerGroup;
+          for (unsigned i = 0; i < entry.numFieldElems; ++i) {
+            for (unsigned outChan = 0; outChan < outChansPerGroup; ++outChan) {
+              const auto outCol =
+                  (entry.outOffset + (flipOut ? -i : i)) * outChansPerGroup;
+              const auto inCol =
+                  (entry.inOffset + i * inStride) * inChansPerGroup;
+              const auto wCol = outChan * inChansPerGroup;
 
-                float sum = 0;
-                for (unsigned inChan = 0; inChan < inChansPerGroup; ++inChan) {
-                  sum += promoteType<FPType, float>(in[inRow][inCol + inChan],
-                                                    inMetadata) *
-                         promoteType<FPType, float>(
-                             weights[wRow][wCol + inChan], weightsMetadata);
-                }
-
-                if (ig == 0)
-                  out[outRow][outCol + outChan] = sum;
-                else
-                  out[outRow][outCol + outChan] += sum;
+              float sum = 0;
+              for (unsigned inChan = 0; inChan < inChansPerGroup; ++inChan) {
+                sum += promoteType<FPType, float>(in[inRow][inCol + inChan],
+                                                  inMetadata) *
+                       promoteType<FPType, float>(weights[wRow][wCol + inChan],
+                                                  weightsMetadata);
               }
+
+              if (ig == 0)
+                out[outRow][outCol + outChan] = sum;
+              else
+                out[outRow][outCol + outChan] += sum;
             }
           }
         }
@@ -166,6 +171,39 @@ public:
     return true;
   }
 };
+
+#define INSTANTIATE_DISABLE_SR(inType, parType, limited, weights128,           \
+                               convUnits, inputElems)                          \
+  template class ConvPartial1x1Out<inType, parType, limited, weights128,       \
+                                   convUnits, inputElems, true>;               \
+  template class ConvPartial1x1Out<inType, parType, limited, weights128,       \
+                                   convUnits, inputElems, false>
+
+#define INSTANTIATE_LIMITED(inType, parType, weights128, convUnits,            \
+                            inputElems)                                        \
+  INSTANTIATE_DISABLE_SR(inType, parType, true, weights128, convUnits,         \
+                         inputElems);                                          \
+  INSTANTIATE_DISABLE_SR(inType, parType, false, weights128, convUnits,        \
+                         inputElems)
+
+#define INSTANTIATE_WEIGHTS_128(inType, parType, convUnits, inputElems)        \
+  INSTANTIATE_LIMITED(inType, parType, true, convUnits, inputElems);           \
+  INSTANTIATE_LIMITED(inType, parType, false, convUnits, inputElems)
+
+INSTANTIATE_WEIGHTS_128(half, half, 8, 4);
+INSTANTIATE_WEIGHTS_128(half, float, 8, 4);
+INSTANTIATE_WEIGHTS_128(float, float, 8, 2);
+
+INSTANTIATE_WEIGHTS_128(half, half, 16, 4);
+INSTANTIATE_WEIGHTS_128(float, float, 16, 2);
+
+INSTANTIATE_WEIGHTS_128(half, half, 8, 8);
+INSTANTIATE_WEIGHTS_128(half, float, 8, 8);
+INSTANTIATE_WEIGHTS_128(float, float, 8, 4);
+
+INSTANTIATE_WEIGHTS_128(half, half, 16, 8);
+INSTANTIATE_WEIGHTS_128(half, float, 16, 8);
+INSTANTIATE_WEIGHTS_128(float, float, 16, 4);
 
 #ifdef __IPU__
 
@@ -217,10 +255,10 @@ public:
 };
 
 template <bool useLimitedVer, bool use128BitLoad, unsigned numConvUnits,
-          bool disableSR>
+          unsigned convInputLoadElems, bool disableSR>
 class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out<
-    quarter, half, useLimitedVer, use128BitLoad, numConvUnits, disableSR>
-    : public SupervisorVertex {
+    quarter, half, useLimitedVer, use128BitLoad, numConvUnits,
+    convInputLoadElems, disableSR> : public SupervisorVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -307,48 +345,6 @@ public:
 #endif // __IPU_ARCH_VERSION__
 #endif // __IPU__
 
-#define INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(LIMITED, LOAD128, DISABLE_SR) \
-  template class ConvPartial1x1Out<half, half, LIMITED, LOAD128, 8,            \
-                                   DISABLE_SR>;                                \
-  template class ConvPartial1x1Out<half, float, LIMITED, LOAD128, 8,           \
-                                   DISABLE_SR>;                                \
-  template class ConvPartial1x1Out<float, half, LIMITED, LOAD128, 8,           \
-                                   DISABLE_SR>;                                \
-  template class ConvPartial1x1Out<float, float, LIMITED, LOAD128, 8,          \
-                                   DISABLE_SR>;
-
-INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(true, false, false)
-INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(false, false, false)
-INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(true, true, false)
-INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(false, true, false)
-INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(true, false, true)
-INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(false, false, true)
-INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(true, true, true)
-INSTANTIATE_CONVUNITS_8_HALF_FLOAT_TYPES(false, true, true)
-
-#define INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(LIMITED, LOAD128,            \
-                                                  DISABLE_SR)                  \
-  template class ConvPartial1x1Out<half, half, LIMITED, LOAD128, 16,           \
-                                   DISABLE_SR>;                                \
-  template class ConvPartial1x1Out<float, float, LIMITED, LOAD128, 16,         \
-                                   DISABLE_SR>;
-
-INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(true, false, false)
-INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(false, false, false)
-INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(true, true, false)
-INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(false, true, false)
-INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(true, false, true)
-INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(false, false, true)
-INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(true, true, true)
-INSTANTIATE_CONVUNITS_16_HALF_FLOAT_TYPES(false, true, true)
-
-template class ConvPartial1x1Out<quarter, half, true, false, 16, false>;
-template class ConvPartial1x1Out<quarter, half, true, true, 16, false>;
-template class ConvPartial1x1Out<quarter, half, false, false, 16, false>;
-template class ConvPartial1x1Out<quarter, half, false, true, 16, false>;
-template class ConvPartial1x1Out<quarter, half, true, false, 16, true>;
-template class ConvPartial1x1Out<quarter, half, true, true, 16, true>;
-template class ConvPartial1x1Out<quarter, half, false, false, 16, true>;
-template class ConvPartial1x1Out<quarter, half, false, true, 16, true>;
+INSTANTIATE_WEIGHTS_128(quarter, half, 16, 8);
 
 } // end namespace poplin

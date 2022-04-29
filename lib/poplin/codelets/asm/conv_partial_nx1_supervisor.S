@@ -16,9 +16,9 @@
 
 // =============================================================================
 
-#define CODELET_NAME __runCodelet_poplin__ConvPartialnx1___\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
+#define CODELET_NAME __runCodelet_poplin__ConvPartialnx1___\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()_\INPUT_ELEMS\()_\DISABLE_SR\()
 
-#define SYMBOL_SUFFIX \ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
+#define SYMBOL_SUFFIX \ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_true_\LD128\()_\AMP_OUTPUTS\()_\INPUT_ELEMS\()_\DISABLE_SR\()
 
 // =============================================================================
 
@@ -194,7 +194,7 @@
 
 #define wkr_base                        sp
 
-.macro CONV_Nx1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS DISABLE_SR COMMAND
+.macro CONV_Nx1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS INPUT_ELEMS DISABLE_SR COMMAND
 
 .ifc \ACTIVATIONS_TYPE, half
     .equ SIZEOF_IN_ATOM,             2

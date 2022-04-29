@@ -3170,6 +3170,95 @@ foreach(USE_CREATE_INPUT "0" "1")
                     --use-create-input=${USE_CREATE_INPUT})
 endforeach()
 
+# Test the --input-load-width option and modelling work functionally
+# for some AMP configurations
+add_multitarget_test(
+  NAME conv_1x1_double_input_width_half_half
+  COMMAND single_conv_layer
+          --input-channels=32
+          --output-channels=16
+          --field={256}
+          --batch-size=4
+          --data-type=half
+          --convolution-options={\"partialsType\":\"half\"}
+          --input-load-width=16
+          --single-phase=fwd
+          --tiles-per-ipu=16
+          --fwd-plan-constraints={\"method\":{\"type\":\"AMP\",\"convInputLoadElems\":\"8\",\"convUnits\":\"16\"}})
+
+add_multitarget_test(
+  NAME conv_1x1_double_input_width_half_float
+  COMMAND single_conv_layer
+          --input-channels=32
+          --output-channels=16
+          --field={256}
+          --batch-size=4
+          --data-type=half
+          --convolution-options={\"partialsType\":\"float\"}
+          --input-load-width=16
+          --single-phase=fwd
+          --tiles-per-ipu=16
+          --fwd-plan-constraints={\"method\":{\"type\":\"AMP\",\"convInputLoadElems\":\"8\",\"convUnits\":\"16\"}})
+
+add_multitarget_test(
+  NAME conv_1x1_double_input_width_float_float
+  COMMAND single_conv_layer
+          --input-channels=16
+          --output-channels=8
+          --field={256}
+          --batch-size=4
+          --data-type=float
+          --convolution-options={\"partialsType\":\"float\"}
+          --input-load-width=16
+          --single-phase=fwd
+          --tiles-per-ipu=16
+          --fwd-plan-constraints={\"method\":{\"type\":\"AMP\",\"convInputLoadElems\":\"4\",\"convUnits\":\"8\"}})
+
+add_multitarget_test(
+  NAME conv_3x3_double_input_width_half_half
+  COMMAND single_conv_layer
+          --input-channels=32
+          --output-channels=16
+          --field={16,16}
+          --kernel-size={3,3}
+          --batch-size=4
+          --data-type=half
+          --convolution-options={\"partialsType\":\"half\"}
+          --input-load-width=16
+          --single-phase=fwd
+          --tiles-per-ipu=16
+          --fwd-plan-constraints={\"method\":{\"type\":\"AMP\",\"convInputLoadElems\":\"8\",\"convUnits\":\"16\"}})
+
+add_multitarget_test(
+  NAME conv_3x3_double_input_width_half_float
+  COMMAND single_conv_layer
+          --input-channels=32
+          --output-channels=16
+          --field={16,16}
+          --kernel-size={3,3}
+          --batch-size=4
+          --data-type=half
+          --convolution-options={\"partialsType\":\"float\"}
+          --input-load-width=16
+          --single-phase=fwd
+          --tiles-per-ipu=16
+          --fwd-plan-constraints={\"method\":{\"type\":\"AMP\",\"convInputLoadElems\":\"8\",\"convUnits\":\"16\"}})
+
+add_multitarget_test(
+  NAME conv_3x3_double_input_width_float_float
+  COMMAND single_conv_layer
+          --input-channels=16
+          --output-channels=8
+          --field={16,16}
+          --kernel-size={3,3}
+          --batch-size=4
+          --data-type=float
+          --convolution-options={\"partialsType\":\"float\"}
+          --input-load-width=16
+          --single-phase=fwd
+          --tiles-per-ipu=16
+          --fwd-plan-constraints={\"method\":{\"type\":\"AMP\",\"convInputLoadElems\":\"4\",\"convUnits\":\"8\"}})
+
 # Fully connected layer tests
 
 add_multitarget_test(

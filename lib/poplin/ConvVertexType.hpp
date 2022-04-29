@@ -38,6 +38,14 @@ bool operator==(const ConvVertexType &a, const ConvVertexType &b);
 
 std::ostream &operator<<(std::ostream &os, const ConvVertexType &cvt);
 
+bool canUseConvolutionInstruction(const poplar::Type &actsType,
+                                  const poplar::Type &partialsType,
+                                  unsigned inChansPerGroup,
+                                  unsigned numConvUnitsRequired,
+                                  unsigned convInputLoadElems,
+                                  unsigned outChansPerGroup,
+                                  const poplar::Target &target);
+
 std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::Target &target,
                             poplar::Type inputType, poplar::Type outputType,

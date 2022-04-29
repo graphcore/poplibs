@@ -19,53 +19,39 @@ using namespace poplibs_support;
 
 namespace poplin {
 
-static unsigned getConvUnitsPerTile(const poplar::Target &target,
-                                    bool floatActivations, bool floatPartials) {
-  if (floatActivations) {
-    return floatPartials ? target.getFp32InFp32OutConvUnitsPerTile() : 0;
-  }
-  return floatPartials ? target.getFp16InFp32OutConvUnitsPerTile()
-                       : target.getFp16InFp16OutConvUnitsPerTile();
-}
-
-static bool canUseConvolutionInstruction(const poplar::Type actsType,
-                                         bool floatPartials,
+static bool canUseConvolutionInstruction(const poplar::Type &actsType,
+                                         const poplar::Type &partialsType,
                                          const poplar::Target &target) {
-  const auto floatActivations = actsType == poplar::FLOAT;
-  if (getConvUnitsPerTile(target, floatActivations, floatPartials) == 0) {
+  // We expect partials type size to be larger or equal the activations type.
+  if (target.getTypeSize(actsType) > target.getTypeSize(partialsType)) {
     return false;
   }
 
-  if (actsType == poplar::QUARTER && floatPartials) {
+  // Half is the only supported partials type for quarter activations.
+  if (actsType == poplar::QUARTER && partialsType != poplar::HALF) {
     return false;
-  }
-
-  if (floatActivations) {
-    // the case where activations are float but partials are not is handled by
-    // getConvUnitsPerTile above.
-    assert(floatPartials);
   }
 
   return true;
 }
 
-static bool canUseConvolutionInstruction(const poplar::Type actsType,
-                                         bool floatPartials,
-                                         unsigned inChansPerGroup,
-                                         unsigned numConvUnitsRequired,
-                                         unsigned outChansPerGroup,
-                                         const poplar::Target &target) {
-  const auto quarterActivations = actsType == poplar::QUARTER;
-  const auto floatActivations = actsType == poplar::FLOAT;
-  if (!canUseConvolutionInstruction(actsType, floatPartials, target)) {
+bool canUseConvolutionInstruction(const poplar::Type &actsType,
+                                  const poplar::Type &partialsType,
+                                  unsigned inChansPerGroup,
+                                  unsigned numConvUnitsRequired,
+                                  unsigned convInputLoadElems,
+                                  unsigned outChansPerGroup,
+                                  const poplar::Target &target) {
+  if (!canUseConvolutionInstruction(actsType, partialsType, target)) {
     return false;
   }
-  const unsigned usedWeightsPerConvUnit =
-      target.getWeightsPerConvUnit(actsType);
+  const unsigned convChainLength =
+      target.getConvUnitMaxPipelineDepth(partialsType);
+  const unsigned usedWeightsPerConvUnit = convChainLength * convInputLoadElems;
   if (usedWeightsPerConvUnit % inChansPerGroup != 0) {
     return false;
   }
-  if (quarterActivations)
+  if (actsType == poplar::QUARTER)
     if (outChansPerGroup != numConvUnitsRequired ||
         usedWeightsPerConvUnit != inChansPerGroup) {
       return false;
@@ -74,12 +60,9 @@ static bool canUseConvolutionInstruction(const poplar::Type actsType,
   if ((outChansPerGroup % numConvUnitsRequired) != 0) {
     return false;
   }
-  // Check we can use aligned loads.
-  if ((inChansPerGroup * (floatActivations     ? 32
-                          : quarterActivations ? 8
-                                               : 16)) %
-          target.getDataPathWidth() !=
-      0) {
+  // Check we can use aligned loads (i.e. that the input channel grouping is
+  // a multiple of the loaded input channels per-cycle).
+  if (inChansPerGroup % convInputLoadElems != 0) {
     return false;
   }
   return true;
@@ -104,12 +87,9 @@ static void getConvVertexHMACCandidates(
   const auto constrainedUseLimitedVersion =
       planConstraints.get_optional<bool>("method.useLimitedVersion");
 
-  bool floatActivations = vertexInputType == poplar::FLOAT;
-  bool floatPartials = partialType == poplar::FLOAT;
-  bool ampFloatPartials = floatPartials;
-  auto numConvUnits =
-      getNumConvUnits(floatActivations, ampFloatPartials, target);
+  auto numConvUnits = target.getNumConvUnits(vertexInputType, partialType);
   Plan::Hmac method{};
+
   // For the test purposes constrain vertex to use unsigned type for
   // vertex states
   if (constrainedUseLimitedVersion) {
@@ -119,7 +99,7 @@ static void getConvVertexHMACCandidates(
   // Constrain the input channel grouping to a multiple of two if the activation
   // type is half. This ensures that we never need to apply padding when sending
   // activations over the exchange.
-  auto grainSize = floatActivations ? 1u : 2u;
+  auto grainSize = inputType == poplar::FLOAT ? 1u : 2u;
   const auto roundedNumInChans =
       gccs::alignNext(params.getNumInputChansPerConvGroup(), grainSize);
 
@@ -148,7 +128,7 @@ static void getConvVertexHMACCandidates(
   unsigned partialChansPerGroup = 1;
   // HMAC codelet for half partials processes 2 partials inside inner loop
   // to have most optimal load/store pipeline
-  if (!floatPartials) {
+  if (partialType != poplar::FLOAT) {
     partialChansPerGroup = 2;
   }
 
@@ -200,17 +180,16 @@ static void getConvVertexVMACCandidates(
   const auto constrainedConvGroupsPerGroup =
       planConstraints.get_optional<popsolver::DataType>("convGroupsPerGroup");
 
-  bool floatActivations = vertexInputType == poplar::FLOAT;
-
   // Assembly version only available for half activations and float partials
-  if (floatActivations) {
+  if (vertexInputType == poplar::FLOAT) {
     return;
   }
 
   // Special exception for CPU target, where vector width is identified
   // differently for half types but our vertices assume half is 2 bytes
   // and vector width is 64-bits.
-  if (!floatActivations && target.getTypeSize(vertexInputType) != 2) {
+  if (vertexInputType != poplar::FLOAT &&
+      target.getTypeSize(vertexInputType) != 2) {
     return;
   }
 
@@ -219,7 +198,7 @@ static void getConvVertexVMACCandidates(
   unsigned inChansPerGroup = 1;
   unsigned partialChansPerGroup = 1;
   auto vectorWidth = target.getVectorWidth(vertexInputType);
-  const unsigned actsPer64Bits = floatActivations ? 2u : 4u;
+  const unsigned actsPer64Bits = vertexInputType == poplar::FLOAT ? 2u : 4u;
   std::vector<unsigned> convGroupsPerGroupCandidates = {vectorWidth};
   while (vectorWidth > actsPer64Bits) {
     vectorWidth >>= 1;
@@ -251,7 +230,7 @@ static void getConvVertexVMACCandidates(
 
 static void getConvVertexAMPCandidates(
     const poplar::Target &target, const poplar::Type &inputType,
-    const poplar::Type &partialType, const ConvOptions &options,
+    const poplar::Type &partialType_, const ConvOptions &options,
     bool isJointPlan, std::vector<ConvVertexType> &candidates) {
   const auto &planConstraints = options.planConstraints;
   const auto constrainedInChansPerGroup =
@@ -260,98 +239,135 @@ static void getConvVertexAMPCandidates(
       planConstraints.get_optional<popsolver::DataType>("partialChansPerGroup");
   const auto constrainedNumConvUnits =
       planConstraints.get_optional<popsolver::DataType>("method.convUnits");
+  const auto constrainedConvInputLoadElems =
+      planConstraints.get_optional<popsolver::DataType>(
+          "method.convInputLoadElems");
 
-  bool quarterActivations = inputType == poplar::QUARTER;
-  bool floatActivations = inputType == poplar::FLOAT;
-  bool floatPartials = partialType == poplar::FLOAT;
-  bool ampFloatPartials = floatPartials;
-  auto numConvUnitsOnIpu =
-      getNumConvUnits(floatActivations, ampFloatPartials, target);
-  if (numConvUnitsOnIpu == 0 && !floatPartials) {
-    ampFloatPartials = true;
-    numConvUnitsOnIpu =
-        getNumConvUnits(floatActivations, ampFloatPartials, target);
+  auto partialType = partialType_;
+  if (inputType == poplar::FLOAT && partialType != poplar::FLOAT) {
+    partialType = poplar::FLOAT;
   }
-  auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;
-  if (canUseConvolutionInstruction(inputType, ampFloatPartials, target)) {
+  auto numConvUnitsOnIpu = target.getNumConvUnits(inputType, partialType);
+  if (canUseConvolutionInstruction(inputType, partialType, target)) {
     const auto weightsPerConvUnit = target.getWeightsPerConvUnit(inputType);
+
+    const auto convChainLength =
+        target.getConvUnitMaxPipelineDepth(partialType);
+    const auto maxConvUnitInputLoadElems =
+        target.getConvUnitInputLoadElemsPerCycle(inputType);
 
     std::vector<unsigned> partialChansCandidates = {numConvUnitsOnIpu,
                                                     weightsPerConvUnit};
     std::vector<unsigned> numConvUnitsCandidates = {numConvUnitsOnIpu};
+    std::vector<unsigned> convInputLoadElemsCandidates = {
+        maxConvUnitInputLoadElems};
 
-    // On IPU2 we need to enable 8 engines config as well
-    if (!quarterActivations && numConvUnitsOnIpu > 8) {
-      numConvUnitsCandidates.push_back(8);
-      partialChansCandidates.push_back(8);
+    // Ensure we have a 2/4/8 elem candidate for float/half/quarter
+    // convInputLoadElems if supported by the target.
+    {
+      const unsigned smallestWidthLoad = inputType == poplar::FLOAT     ? 2
+                                         : inputType == poplar::HALF    ? 4
+                                         : inputType == poplar::QUARTER ? 8
+                                                                        : 0;
+      // Not expected to be possible for a user to trigger the condition in
+      // this assert (inputType is not FLOAT, HALF, or QUARTER) so this is
+      // an assert rather than an exception.
+      assert(smallestWidthLoad != 0);
+      if (maxConvUnitInputLoadElems % smallestWidthLoad &&
+          convInputLoadElemsCandidates.back() != smallestWidthLoad) {
+        convInputLoadElemsCandidates.push_back(smallestWidthLoad);
+      }
     }
 
-    for (const auto convUnits : numConvUnitsCandidates) {
-      for (unsigned inputs = weightsPerConvUnit; inputs >= 1; inputs--) {
-        for (const auto partials : partialChansCandidates) {
-          // Input channels constrain
+    // On IPU2 with half inputs we need to enable 8 engines config as well
+    if (inputType != poplar::QUARTER && numConvUnitsOnIpu > 8) {
+      numConvUnitsCandidates.push_back(8);
+    }
+
+    for (const auto convInputLoadElems : convInputLoadElemsCandidates) {
+      if (constrainedConvInputLoadElems &&
+          popsolver::DataType{convInputLoadElems} !=
+              *constrainedConvInputLoadElems) {
+        continue;
+      }
+      const auto weightsPerConvUnit = convChainLength * convInputLoadElems;
+      std::vector<unsigned> partialChansCandidates = {numConvUnitsOnIpu};
+      if (weightsPerConvUnit > numConvUnitsOnIpu) {
+        partialChansCandidates.push_back(weightsPerConvUnit);
+      }
+
+      // On IPU2 we need to enable 8 engines config as well
+      if (numConvUnitsOnIpu > 8) {
+        partialChansCandidates.push_back(8);
+      }
+
+      for (const auto convUnits : numConvUnitsCandidates) {
+        // Number of conv units constrain
+        if (constrainedNumConvUnits &&
+            popsolver::DataType{convUnits} != *constrainedNumConvUnits) {
+          continue;
+        }
+        for (unsigned inputs = weightsPerConvUnit; inputs >= 1; inputs--) {
+          // Input channels constraint
           if (constrainedInChansPerGroup &&
               popsolver::DataType{inputs} != *constrainedInChansPerGroup) {
             continue;
           }
-
-          // Partial channels constrain
-          if (constrainedPartialChansPerGroup &&
-              popsolver::DataType{partials} !=
-                  *constrainedPartialChansPerGroup) {
-            continue;
-          }
-
-          // Number of conv units constrain
-          if (constrainedNumConvUnits &&
-              popsolver::DataType{convUnits} != *constrainedNumConvUnits) {
-            continue;
-          }
-
-          const auto usedWeightsPerConvUnit =
-              weightsPerConvUnit * convUnits / numConvUnitsOnIpu;
-          if (partials != convUnits && partials != usedWeightsPerConvUnit) {
-            continue;
-          }
-
-          if (!canUseConvolutionInstruction(inputType, floatPartials, inputs,
-                                            convUnits, partials, target)) {
-            continue;
-          }
-
-          // There are two reasons we might choose to make partialChansPerGroup
-          // not equal to numConvUnitsOnIpu:
-          // - The output of a convolution is likely to be fed into another
-          //   convolution that wants its input grouped by weightsPerConvUnit
-          //   so there will be a small cost (estimated by the planner) if
-          //   partialChansPerGroup != weightsPerConvUnit
-          // - The output channel grouping of a fully connected forward pass
-          //   becomes the input channel grouping of the fully connected weight
-          //   update pass and so if partialChansPerGroup != weightsPerConvUnit
-          //   we can't fully utilize AMP in the weight update pass.
-          // Neither of these reasons apply to fully connected inference (we
-          // must always rearrange the output regardless of the grouping and
-          // there is no weight update pass).
-          if (options.pass == Pass::FC_INFERENCE_FWD && partials != convUnits) {
-            continue;
-          }
-
-          if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
-            // The input channels in the forward pass become the output channels
-            // of the weight update pass. Make sure it is a multiple of the
-            // supported output channels per group.
-            if (inputs % convUnits != 0) {
+          for (const auto partials : partialChansCandidates) {
+            // Partial channels constrain
+            if (constrainedPartialChansPerGroup &&
+                popsolver::DataType{partials} !=
+                    *constrainedPartialChansPerGroup) {
               continue;
             }
+
+            if (partials != convUnits && partials != weightsPerConvUnit) {
+              continue;
+            }
+
+            if (!canUseConvolutionInstruction(inputType, partialType, inputs,
+                                              convUnits, convInputLoadElems,
+                                              partials, target)) {
+              continue;
+            }
+
+            // There are two reasons we might choose to make
+            // partialChansPerGroup not equal to numConvUnitsOnIpu:
+            // - The output of a convolution is likely to be fed into another
+            //   convolution that wants its input grouped by weightsPerConvUnit
+            //   so there will be a small cost (estimated by the planner) if
+            //   partialChansPerGroup != weightsPerConvUnit
+            // - The output channel grouping of a fully connected forward pass
+            //   becomes the input channel grouping of the fully connected
+            //   weight update pass and so if partialChansPerGroup !=
+            //   weightsPerConvUnit we can't fully utilize AMP in the weight
+            //   update pass.
+            // Neither of these reasons apply to fully connected inference (we
+            // must always rearrange the output regardless of the grouping and
+            // there is no weight update pass).
+            if (options.pass == Pass::FC_INFERENCE_FWD &&
+                partials != convUnits) {
+              continue;
+            }
+
+            if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
+              // The input channels in the forward pass become the output
+              // channels of the weight update pass. Make sure it is a multiple
+              // of the supported output channels per group.
+              if (inputs % convUnits != 0) {
+                continue;
+              }
+            }
+
+            // AMP only supports a conv group grouping of 1.
+            const unsigned convGroupsPerGroup = 1;
+
+            Plan::Amp method{};
+            method.convUnits = convUnits;
+            method.convInputLoadElems = convInputLoadElems;
+            candidates.emplace_back(method, inputType, partialType,
+                                    convGroupsPerGroup, inputs, partials);
           }
-
-          // AMP only supports a conv group grouping of 1.
-          const unsigned convGroupsPerGroup = 1;
-
-          Plan::Amp method{};
-          method.convUnits = convUnits;
-          candidates.emplace_back(method, inputType, ampPartialType,
-                                  convGroupsPerGroup, inputs, partials);
         }
       }
     }
@@ -392,7 +408,7 @@ static void getConvVertexAMPCandidates(
 
 static void getConvVertexSLICCandidates(
     const poplar::Target &target, const poplar::Type &inputType,
-    const poplar::Type &outputType, const poplar::Type &partialType,
+    const poplar::Type &outputType, const poplar::Type &partialType_,
     const ConvParams &params, const ConvOptions &options, bool isJointPlan,
     std::vector<ConvVertexType> &candidates) {
 
@@ -428,20 +444,15 @@ static void getConvVertexSLICCandidates(
       return boost::none;
     }
   }();
-  const bool floatActivations = inputType == poplar::FLOAT;
-  const bool quarterActivations = inputType == poplar::QUARTER;
-  const bool floatPartials = partialType == poplar::FLOAT;
-  bool ampFloatPartials = floatPartials;
-  auto numConvUnits =
-      getNumConvUnits(floatActivations, ampFloatPartials, target);
-  if (numConvUnits == 0 && !floatPartials) {
-    ampFloatPartials = true;
-    numConvUnits = getNumConvUnits(floatActivations, ampFloatPartials, target);
+  auto partialType = partialType_;
+  if (inputType == poplar::FLOAT && partialType != poplar::FLOAT) {
+    partialType = poplar::FLOAT;
   }
+  auto numConvUnits = target.getNumConvUnits(inputType, partialType);
   // List the number of conv chains used in the candidate vertices which are
   // available - either on this hardware or implemented at present
   std::vector<unsigned> convChainsCandidates;
-  if (floatPartials) {
+  if (partialType == poplar::FLOAT) {
     convChainsCandidates.push_back(2);
   } else {
     if (numConvUnits == 16) {
@@ -449,20 +460,33 @@ static void getConvVertexSLICCandidates(
     }
     // This is always available with 8, or 16 conv units - let cycle estimates
     // reject it in favour of the 16 conv unit version if that's available
-    if (!quarterActivations) {
+    if (inputType == poplar::HALF) {
       convChainsCandidates.push_back(2);
     }
   }
 
-  const auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;
-  const unsigned weightsPerConvUnit = target.getWeightsPerConvUnit(inputType);
+  const unsigned convChainLength =
+      target.getConvUnitMaxPipelineDepth(partialType);
+  const unsigned maxConvInputLoadElems =
+      target.getConvUnitInputLoadElemsPerCycle(inputType);
 
   // the numbers below are hardcoded but dependent on the expected machine
   // model that the real hardware models. ie. we expect 16 weights per conv unit
-  if ((quarterActivations && weightsPerConvUnit != 32) ||
-      (!quarterActivations && weightsPerConvUnit != 16)) {
-    throw poputil::poplibs_error("Unsupported number of weights per conv "
-                                 "unit for the SLIC instruction.");
+  if (convChainLength != 4) {
+    throw poputil::poplibs_error(
+        "Unsupported conv unit chain length for the SLIC instruction: " +
+        std::to_string(convChainLength));
+  }
+
+  const unsigned minRequiredConvInputLoadElems =
+      inputType == poplar::FLOAT     ? 2
+      : inputType == poplar::HALF    ? 4
+      : inputType == poplar::QUARTER ? 8
+                                     : std::numeric_limits<unsigned>::max();
+  if (maxConvInputLoadElems < minRequiredConvInputLoadElems) {
+    throw poputil::poplibs_error(
+        "Unsupported conv unit input load width for SLIC instruction: " +
+        std::to_string(maxConvInputLoadElems));
   }
 
   // TODO: T14626, add a vertex for the the 1x3 kernel window size.
@@ -485,12 +509,14 @@ static void getConvVertexSLICCandidates(
   };
 
   std::vector<Candidate> groupings;
-  if (quarterActivations) {
+  if (inputType == poplar::QUARTER) {
     groupings.emplace_back(Candidate{1u, 8u});
   } else {
+    assert(inputType == poplar::HALF);
     groupings = {Candidate{1u, 4u}, Candidate{2u, 2u}, Candidate{4u, 1u}};
   }
-  if (!quarterActivations && !floatPartials && numConvUnits == 16) {
+  if (inputType != poplar::QUARTER && partialType != poplar::FLOAT &&
+      numConvUnits == 16) {
     groupings.emplace_back(Candidate{8u, 1u});
     groupings.emplace_back(Candidate{16u, 1u});
   }
@@ -513,9 +539,8 @@ static void getConvVertexSLICCandidates(
       Plan::Slic method{};
       method.windowWidth = slicWindowWidth;
       method.convUnitChainsRequired = convChains;
-      candidates.emplace_back(method, inputType, ampPartialType,
-                              grouping.groups, grouping.channels,
-                              grouping.channels);
+      candidates.emplace_back(method, inputType, partialType, grouping.groups,
+                              grouping.channels, grouping.channels);
     }
   }
 }

@@ -111,6 +111,7 @@ int main(int argc, char **argv) try {
   double absoluteTolerance, relativeTolerance;
   unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
+  boost::optional<unsigned> inputLoadWidth;
   bool reportPlan;
   bool reportVarStorage;
   unsigned numDeterminismChecks;
@@ -292,6 +293,8 @@ int main(int argc, char **argv) try {
      "Number of IPUs")
     ("tiles-per-ipu", po::value(&tilesPerIPU),
      "Number of tiles per IPU")
+    ("input-load-width", po::value(&inputLoadWidth),
+     "Load width for AMP/tile memory when the device is an IPUModel")
     ("workers-per-tile",
      po::value<unsigned>(),
      "Number of worker contexts per tile")
@@ -408,6 +411,11 @@ int main(int argc, char **argv) try {
   }
   auto &inputFieldSize = inputFieldSizeOption.val;
 
+  if (inputLoadWidth && !isIpuModel(deviceType)) {
+    std::cerr << "Cannot model input load width on non-IPUModel device\n";
+    return 1;
+  }
+
   auto dev = [&]() -> TestDevice {
     if (isIpuModel(deviceType)) {
       // When running on the IPU model we apply global exchange constraints,
@@ -415,6 +423,20 @@ int main(int argc, char **argv) try {
       // the normal createTestDevice factory function.
       IPUModel ipuModel(deviceTypeToIPUName(deviceType));
       ipuModel.numIPUs = numIPUs;
+      if (inputLoadWidth) {
+        // dataPathWidth is specified in bits
+        ipuModel.dataPathWidth = *inputLoadWidth * 8;
+        assert(*inputLoadWidth % 4 == 0);
+        ipuModel.fp32ConvUnitInputLoadElemsPerCycle = *inputLoadWidth / 4;
+        ipuModel.fp16ConvUnitInputLoadElemsPerCycle = *inputLoadWidth / 2;
+        ipuModel.fp8ConvUnitInputLoadElemsPerCycle = *inputLoadWidth / 1;
+        // adjust 16.32 units to remove restriction based on store width.
+        const auto pipelineDepth = ipuModel.fp16ConvUnitMaxPipelineDepth;
+        const auto fp32StoredPerCycle = ipuModel.dataPathWidth / 8 / 4;
+        ipuModel.fp16InFp32OutConvUnitsPerTile =
+            std::min(ipuModel.fp16InFp16OutConvUnitsPerTile,
+                     pipelineDepth * fp32StoredPerCycle);
+      }
       if (vm.count("profile") || profileDir) {
         ipuModel.compileIPUCode = true;
       }

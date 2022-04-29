@@ -481,17 +481,16 @@ CONV_1x1_WORKER f16v4sisoamp
 // Instantiate codelets
 // Supervisors
 #if (__IPU_ARCH_VERSION__ == 2) || (__IPU_ARCH_VERSION__ == 21)
-  CONV_1x1_SUPERVISOR half half false 16 f16v4hihov4amp true false
-  CONV_1x1_SUPERVISOR half half true  16 f16v4hihov4amp true false
-  CONV_1x1_SUPERVISOR half half false 16 f16v4hihov4amp true true
-  CONV_1x1_SUPERVISOR half half true  16 f16v4hihov4amp true true
+  CONV_1x1_SUPERVISOR half half false 16 4 f16v4hihov4amp true false
+  CONV_1x1_SUPERVISOR half half true  16 4 f16v4hihov4amp true false
+  CONV_1x1_SUPERVISOR half half false 16 4 f16v4hihov4amp true true
+  CONV_1x1_SUPERVISOR half half true  16 4 f16v4hihov4amp true true
 #endif
 
-CONV_1x1_SUPERVISOR half float false 8 f16v4sisoamp true false
-CONV_1x1_SUPERVISOR half float true  8 f16v4sisoamp true false
-CONV_1x1_SUPERVISOR half float false 8 f16v4sisoamp true true
-CONV_1x1_SUPERVISOR half float true  8 f16v4sisoamp true true
-
+CONV_1x1_SUPERVISOR half float false 8 4 f16v4sisoamp true false
+CONV_1x1_SUPERVISOR half float true  8 4 f16v4sisoamp true false
+CONV_1x1_SUPERVISOR half float false 8 4 f16v4sisoamp true true
+CONV_1x1_SUPERVISOR half float true  8 4 f16v4sisoamp true true
 
 // =============================================================================
 #endif // #ifdef __IPU__

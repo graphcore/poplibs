@@ -198,8 +198,11 @@ struct Plan {
   struct Amp {
     // Number of conv engines enabled
     unsigned convUnits;
+    // Input vector width
+    unsigned convInputLoadElems;
     auto operator<(const Amp &other) const {
-      return convUnits < other.convUnits;
+      return std::tie(convUnits, convInputLoadElems) <
+             std::tie(other.convUnits, other.convInputLoadElems);
     }
     auto operator==(const Amp &other) const {
       return !(*this < other) && !(other < *this);
