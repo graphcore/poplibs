@@ -6,6 +6,8 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "ScaledAddSupervisor.inc"
 #include "CommonPoplibsMacros.h.S"
+#include "workDivision.h.S"
+#include "MathConstants.S"
 
 #define VERTEX_2D_ADD_SCALE_FLOAT_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
 #define VERTEX_2D_ADD_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledAdd2D___half_half_float_false_false
@@ -14,7 +16,7 @@
 #define VERTEX_SV_ADD_SCALE_FLOAT_FAST __runCodelet_popops__ScaledAddSupervisor___half_half_float_false_true
 #define VERTEX_SV_ADD_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledAddSupervisor___half_half_float_false_false
 #define VERTEX_SV_SCALE_FLOAT_COMMON __ScaledAddSupervisor___half_half_float_common
-#define VERTEX_SV_SCALE_FLOAT_COMMON_CONST __ScaledAddSupervisor___half_half_float_common_const
+#define VERTEX_SV_NEG_SCALE_FLOAT_COMMON __ScaledSubtractSupervisor___half_half_float_common
 
 #define VERTEX_2D_SUBTRACT_SCALE_FLOAT_FAST __runCodelet_popops__ScaledSubtract2D___half_float_true
 #define VERTEX_2D_SUBTRACT_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledSubtract2D___half_float_false
@@ -26,8 +28,17 @@
 // They use this define to produce labels
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
-// A C function to check the accuracy when casting.  Extracted from the elf file
-#define CHECK_ACCURACY_WHEN_CAST _ZN6popops32checkAccuracyWhenCastComputeImplIfDhEEbT_f
+
+//******************************************************************************
+// 2d Case vertex state definition
+//******************************************************************************
+// Variable offsets (in bytes)
+#define VERTEX_DATA_A_OFFSET 0
+#define VERTEX_DATA_A_SIZE_OFFSET 4
+#define VERTEX_DATA_B_OFFSET 8
+#define VERTEX_SCALE_OFFSET 12
+#define VERTEX_TOLERANCE_OFFSET 16
+
 //******************************************************************************
 // Common definitions and subroutines used by both the 2D and Supervisor cases
 //******************************************************************************
@@ -64,6 +75,46 @@
 #define mscratch m10
 #define mscratch2 m6
 #define ascratch a6
+
+// A C function to check the accuracy when casting.  Extracted from the elf file
+#define CHECK_ACCURACY_WHEN_CAST _ZN6popops32checkAccuracyWhenCastComputeImplIfDhEEbT_f
+
+// Registers used in calling the C function checkAccuracyWhenCast
+#define C_CALL_PARAM_TOLERANCE a1
+#define C_CALL_SCALE a0
+#define C_CALL_RETURN m0
+
+.macro CALL_CHECK_ACCURACY_WHEN_CAST_2D
+  mov $sp, $m12
+  // Call the C function to check if we can use scale as a half
+  // Pass in scale and tolerance
+  ld32  $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
+  ld32  $C_CALL_SCALE, $mzero, $dataPtr, 0
+  // a7 is a callee save register so is safe to store the FP_CTL register
+  // which will be modified inside the called function
+  {ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, VERTEX_TOLERANCE_OFFSET/4
+  uget  $a7, CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK }
+  call $lr, CHECK_ACCURACY_WHEN_CAST
+  uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $a7
+.endm
+
+// Check accuracy when cast impelmented in assembler, used in the Supervisor
+// version of the code
+.macro CHECK_ACCURACY_WHEN_CAST_ASM
+  // multiply scale by tolerance
+  f32mul    $dataB1i0, $C_CALL_PARAM_TOLERANCE, $dataB0i0
+  f32absadd $dataB1i0, $dataB1i0, $azero// abs value: max admissible errors
+
+  // Compute the diff between the input and the input converted to half
+  f32tof16  $dataB0i1, $dataB0i0
+  f16tof32  $dataB0i1, $dataB0i1
+  f32sub    $dataB0i1, $dataB0i1, $dataB0i0 // subtract original input
+  f32absadd $dataB0i1, $dataB0i1, $azero   // get absolute value of diff
+
+  // Results in TFPU_FP32_TRUE if difference is less than error
+  f32cmplt  $dataB0i0, $dataB1i0, $dataB0i1
+.endm
+
 
 
 // Subroutine: Loop Kernel for ScaledAdd(data_half, dataB_half, factor_float) case:
@@ -224,16 +275,8 @@ FN_SIZE scaled_add_data_half_factor_float_scalar
 // 2D case
 //******************************************************************************
 
-// Variable offsets (in bytes)
-#define VERTEX_DATA_A_OFFSET 0
-#define VERTEX_DATA_A_SIZE_OFFSET 4
-#define VERTEX_DATA_B_OFFSET 8
-#define VERTEX_SCALE_OFFSET 12
-#define VERTEX_TOLERANCE_OFFSET 16
-
 // Integer variables
 #define outData m0
-#define outDataSize m11
 #define outDataB m2
 #define dataSize m4
 #define origDataSize m3
@@ -244,26 +287,8 @@ FN_SIZE scaled_add_data_half_factor_float_scalar
 #define factorTmp a6
 
 // Shared with the all half version - be careful!
-#define memConstraints m11
+//#define memConstraints m11 //defined in shared file
 
-// Registers used in calling the C function checkAccuracyWhenCast
-#define C_CALL_PARAM_TOLERANCE a1
-#define C_CALL_SCALE a0
-#define C_CALL_RETURN m0
-
-.macro CALL_CHECK_ACCURACY_WHEN_CAST_2D
-  mov $sp, $m12
-  // Call the C function to check if we can use scale as a half
-  // Pass in scale and tolerance
-  ld32  $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
-  ld32  $C_CALL_SCALE, $mzero, $dataPtr, 0
-  // a7 is a callee save register so is safe to store the FP_CTL register
-  // which will be modified inside the called function
-  {ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, VERTEX_TOLERANCE_OFFSET/4
-  uget  $a7, CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK }
-  call $lr, CHECK_ACCURACY_WHEN_CAST
-  uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $a7
-.endm
 
 // Common code used by both the plus/subtract workers. The optional argument
 // is intended to allow the scale factor argument to be negated by the subtract
@@ -272,7 +297,7 @@ FN_SIZE scaled_add_data_half_factor_float_scalar
   ld32  $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/4
   ld32  $factor, $mzero, $dataPtr, 0
   \OPTIONAL_SCALE_FACTOR_MODIFIER
-  
+
   { brz   $C_CALL_RETURN, VERTEX_2D_SCALE_FLOAT_COMMON
     f32tof16 $factorTmp, $factor}
   // Otherwise cast, broadcast and branch into the "all half" version
@@ -313,8 +338,11 @@ FN_EXPORT VERTEX_2D_SUBTRACT_SCALE_FLOAT_FAST
   setzi $memConstraints, 1
 1:
   PERFORM_VERTEX_2D_SCALE_FLOAT f32sub $factor, $azero, $factor
-  
+
 FN_SIZE VERTEX_2D_SUBTRACT_SCALE_FLOAT_SLOW
+
+
+#define outDataSize m11
 
 // The fastest implementation happens to use more Aux instructions than Main
 // instructions. Since memory access instructions use the Main path, the
@@ -394,7 +422,6 @@ FN_SIZE VERTEX_2D_SCALE_FLOAT_COMMON
 #undef dataSize
 #undef origDataSize
 #undef factor
-#undef memConstraints
 
 //******************************************************************************
 // Supervisor case
@@ -407,16 +434,15 @@ FN_SIZE VERTEX_2D_SCALE_FLOAT_COMMON
 #define VERTEX_DATA_A_OFFSET 0
 #define VERTEX_DATA_B_OFFSET 4
 #define VERTEX_SCALE_OFFSET 8
-
 #define VERTEX_PACKED_COUNT_OFFSET 10
-#define VERTEX_PACKED_COUNT_CONST_OFFSET 12
-
 #define VERTEX_TOLERANCE_OFFSET_SV 12
 
 
 // Integer variables.
 // Registers prefixed tmp_ indicate the same register being used but as a temp register - not
 // with the meaning that the name implies.
+
+//#define memConstaints m0 // define/ shared between files
 #define vertexPtr m0
 #define tmp_countD2 m1
 #define final m2
@@ -437,133 +463,100 @@ FN_SIZE VERTEX_2D_SCALE_FLOAT_COMMON
 
 // ScaledSubtract Supervisor entry point. Just negates the scale value
 // and lets the ScaledAdd Supervisor do the rest.
-DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW
+DEF_STACK_SIZE_OWN 0 .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW
 FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW 4 "" NONE
-  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  setzi $sv_memConstraints, 0
-  bri   1f
+  setzi $sv_workerFunction, VERTEX_SV_NEG_SCALE_FLOAT_COMMON
+  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
+  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
 
-FN_EXPORT VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST
-  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
-1:
-  shl   $factorPtr, $factorPtr, SCALED_PTR128_SHL_BITS
-  ld32 $sv_scale, $mzero, $factorPtr, 0
-  or   $tmp_countD2, $mzero, NEGATE_FLOAT_BY_XOR
-  xor  $sv_scale, $sv_scale, $tmp_countD2
- 
-  bri VERTEX_SV_ADD_SCALE_FLOAT_SLOW_RUN_WORKERS
+  br $lr // 6 cycles
 FN_SIZE VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW
 
 
+DEF_STACK_SIZE_OWN 0 .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST
+FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST 4 "" NONE
+  setzi $sv_workerFunction, VERTEX_SV_NEG_SCALE_FLOAT_COMMON_FAST
+  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
+  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
 
-DEF_STACK_SIZE_OWN  STACK_SIZE  .text.VERTEX_SV_ADD_SCALE_FLOAT_SLOW
+  br $lr // 6 cycles
+FN_SIZE VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST
+
+
+DEF_STACK_SIZE_OWN 0 .text.VERTEX_SV_ADD_SCALE_FLOAT_SLOW
 FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_ADD_SCALE_FLOAT_SLOW 4 "" NONE
-  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  setzi $sv_memConstraints, 0
-  bri   1f
-
-FN_EXPORT VERTEX_SV_ADD_SCALE_FLOAT_FAST
-  ldz16 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
-  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
-1:
-  shl   $factorPtr, $factorPtr, SCALED_PTR128_SHL_BITS
-  ld32  $sv_scale, $mzero, $factorPtr, 0
-
-VERTEX_SV_ADD_SCALE_FLOAT_SLOW_RUN_WORKERS:
-  // Use a worker to test if the float scale is accurate enough to use when cast
-  // to a half. Don't stress too much about pipe hits as we would only pad it with
-  // code from after the `run` which runs for free while the worker runs anyhow.
-  setzi $tmp_remM1, TMEM_REGION0_BASE_ADDR
-  setzi $tmp_log2AtomSize, VERTEX_SV_SCALE_FLOAT_CHECK
-  sub $tmp_remM1,$m0, $tmp_remM1
-  // Save SSR register for later in case other vertices in this compute set
-  // check/rely on it
-  get $tmp_atomSizeMask, SSR_REGISTER // Pipe flush which would happen before run instruction anyhow
-
-  // Call the worker which will check the accuracy of the scale
-  run $tmp_log2AtomSize, $tmp_remM1, 0
-  // Do work while the worker is working, we don't care much about pipe hits as
-  // we should beat it. The 1-bit exit status of the FLOAT_CHECK worker thread
-  // will be AND-ed to the LC bit in $SSR register, so we need to set the LC bit
-  // to 1 (through CR register) to find the exit status.
-  add $sp, $sp, -STACK_SIZE
-  // Set the LC bit in SSR to 1 (through CR register)
-  setzi $tmp_countD2, LC_SET
-  put CR_REGISTER, $tmp_countD2
-
-
-  // Based on the returned isHalfAccurate flag being zero, we could select the
-  // path that casts everything to float or casts scale to half.
-  // Load scale - the same in both cases
-  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
-
-  // Set up assuming that we'll do the all half version
-  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
-  // pointer to the worker code to run
-  setzi $sv_workerFunction, VERTEX(half_half_float_continue)
-
-
-  // Done all we can while the worker runs.  Now wait for it to complete
-  sync TEXCH_SYNCZONE_LOCAL
-  // Fetch and isolate the return value "isHalfAccurate"
-  get $tmp_remM1, SSR_REGISTER // This get flushes the pipline
-  and $tmp_remM1, $tmp_remM1, LC_MASK
-  put SSR_REGISTER, $tmp_atomSizeMask // Restore SSR. This flushes the pipeline
-
-  brnz $tmp_remM1, VERTEX(supervisor)  // 6 Cycles if branch taken, 1 otherwise
-
-  setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-  setzi $sv_atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
-  // pointer to the worker code to run
   setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON
-  bri   VERTEX(supervisor) // 6 cycles
+  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
+  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
+
+  br $lr // 6 cycles
 FN_SIZE VERTEX_SV_ADD_SCALE_FLOAT_SLOW
+
+DEF_STACK_SIZE_OWN 0 .text.VERTEX_SV_ADD_SCALE_FLOAT_FAST
+FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_ADD_SCALE_FLOAT_FAST 4 "" NONE
+  setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON_FAST
+  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
+  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
+
+  br $lr // 6 cycles
+
+FN_SIZE VERTEX_SV_ADD_SCALE_FLOAT_FAST
 
 //******************************************************************************
 
-
-DEF_STACK_SIZE_OWN  0  VERTEX_SV_SCALE_FLOAT_COMMON
-// Worker entry point used first by the supervisor to check the accuracy of
-// the float scale when cast to a half.
-FN_WORKER_ENTRY_POINT VERTEX_SV_SCALE_FLOAT_CHECK 4 "" NONE
-  // Just call the C function which will check if scale is accurate
-  // enough as a half precision value
-  mov $sp, $m12
-  // passing scale and tolerance.
-  // FP_CTL will be modified in the call but as we exit as a worker this won't matter
-  ldz16 $factorPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl   $factorPtr, $factorPtr, SCALED_PTR128_SHL_BITS
-  ld32  $C_CALL_SCALE, $mzero, $factorPtr, 0
-
-  ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, VERTEX_TOLERANCE_OFFSET_SV/4
-  call $lr, CHECK_ACCURACY_WHEN_CAST
-  // Return value from C which will get and-ed with SSR bit0
-  exitnz $C_CALL_RETURN
-
+FN_WORKER_ENTRY_POINT VERTEX_SCALE_FLOAT_CHECK 4
 
 //******************************************************************************
 // Normal worker code entry to do the scaledAdd
+VERTEX_SV_SCALE_FLOAT_COMMON_FAST:
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  { bri 1f
+    or    $factor,$azero,FLOAT_1_0}
+
+VERTEX_SV_NEG_SCALE_FLOAT_COMMON_FAST:
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  { bri 1f
+    or    $factor,$azero,FLOAT_NEG_1_0}
+
 VERTEX_SV_SCALE_FLOAT_COMMON:
+  setzi $memConstraints, 0
+  { bri 1f
+    or    $factor,$azero,FLOAT_1_0}
 
-VERTEX_SV_SCALE_FLOAT_COMMON_CONST:
-  // load vertex state
-  {
-    ld32 $dataSizeD2, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET/4
-    setzi $ascratch, ZAACC_BITMASK
-  }
-  {
-    ld32 $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET/4
-    uput $FP_CLR, $ascratch
-  }
-  ld32 $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET/4
+VERTEX_SV_NEG_SCALE_FLOAT_COMMON:
+  {setzi $memConstraints, 0
+  or    $factor,$azero,FLOAT_NEG_1_0}
+1:
+  // Based on the accuracy given when using scale cast to half -
+  // branch and do that instead.  The $memConstraints parameter will be
+  // valid in that case
 
-  ld32 $dataPtr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET/4
-  ld32 $dataBPtr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET/4
+  ldz16  $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
+  shl    $dataPtr, $dataPtr, SCALED_PTR128_SHL_BITS
+  // Store FP_CTL while we check scale accuracy
+  {ld32   $dataB0i0, $mzero, $dataPtr, 0
+   uget   $data1i0, CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK }
 
-  ld32 $factor, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
-  get $workerIdM1, $WSR
+  f32mul $factor, $factor, $dataB0i0
+  {ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, VERTEX_TOLERANCE_OFFSET_SV/4
+   uput   $FP_CTL, $azero}   // disable FP exceptions for macro
+
+  // Check the accuracy of the scale when cast to half to see if we
+  // can run that path
+  CHECK_ACCURACY_WHEN_CAST_ASM
+
+  {mov  $C_CALL_RETURN, $dataB0i0 // transfer to MRF register
+   uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $data1i0}
+
+   // Prepare scale for the faster, half scale version
+   // held in its `k` register
+   f32tof16 $k, $factor
+  {get $workerIdM1, $WSR
+   or  $data0i0, $azero, HALF_1_0<<16}
+
+   {brz        $C_CALL_RETURN, half_half_half_scales_in_k_continue
+    // Pass $k for the f16v4axpby instructions in the half_half_half path.
+    sort4x16hi $k, $data0i0, $k}
 
   {
     and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
@@ -571,12 +564,17 @@ VERTEX_SV_SCALE_FLOAT_COMMON_CONST:
     uput $TAS, $factor
   }
 
-  // process 2 at a time first as this is the optimal scenario
-  shr $dataSizeD2, $dataSizeD2, 1
+  {
+    ld32 $dataPtr, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
+    setzi $ascratch, ZAACC_BITMASK
+  }
+  {
+    ld32 $dataBPtr, $mvertex_base, $mzero, VERTEX_DATA_B_OFFSET/4
+    uput $FP_CLR, $ascratch
+  }
+  ldz16 $remM1, $mvertex_base, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
 
-  // if worker id is less than the remainder this worker can process an extra 1.
-  cmpslt $mscratch, $workerIdM1, $remM1
-  add $dataSizeD2, $dataSizeD2, $mscratch
+  DIVIDE_BY_WORKER $remM1, $workerIdM1, $mscratch, $dataSizeD2, LOG2_FLOAT_ATOM_SIZE
 
   // offset each worker's pointer into the data to interleave them.
   ld32step $azero, $mzero, $dataPtr+=, $workerIdM1
@@ -595,12 +593,14 @@ VERTEX_SV_SCALE_FLOAT_COMMON_CONST:
   st32step $data0i0, $mzero, $dataPtr+=, $stride
 
 .Lhalf_half_float_loop_epilogue:
-  // at most one of our workers will have to do the remaining elements. this
-  // worker id is equal to the $rem value in the vertex state. the amount
-  // of elements remaining is the $final value. $final will be 1 at most.
-  cmpeq $mscratch, $workerIdM1, $remM1
+  and      $mscratch, $remM1, 1
+  brz      $mscratch, .Lhalf_half_float_epilogue
+  andc     $remM1, $remM1, 1
+  ld32     $mscratch, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
+  ldb16step $azero, $mzero, $mscratch+=, $remM1
+  cmpeq    $mscratch, $dataPtr, $mscratch
+  // Use the worker that is pointing at the final element to process it
   brz $mscratch, .Lhalf_half_float_epilogue
-  brz $final, .Lhalf_half_float_epilogue
 
   // there is one more element that needs to be stored, do a read/modify/write
   // so we do not trash anything else may be stored in the same word.
@@ -613,7 +613,7 @@ VERTEX_SV_SCALE_FLOAT_COMMON_CONST:
 .Lhalf_half_float_epilogue:
   exitz $mzero
 
-FN_SIZE VERTEX_SV_SCALE_FLOAT_CHECK
+FN_SIZE VERTEX_SCALE_FLOAT_CHECK
 
 // Undefine Supervisor register definitions
 #undef vertexPtr

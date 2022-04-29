@@ -376,7 +376,7 @@ BOOST_AUTO_TEST_CASE(
 }
 
 BOOST_AUTO_TEST_CASE(
-    StdAddTo_half_scale_float_tensor_const,
+    StdAddTo_half_scale_float,
     *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1)) *
         utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))) {
   auto device = createTestDevice(TEST_TARGET, 1, 2);
@@ -398,20 +398,21 @@ BOOST_AUTO_TEST_CASE(
   float k = (3.0e-9);
   auto factor = graph.addVariable(FLOAT, {});
   graph.setInitialValue(factor, k);
+  auto factorA = graph.addVariable(FLOAT, {});
+  graph.setInitialValue(factorA, 1.0f);
 
   auto in1 = graph.addVariable(HALF, {DIM_SIZE}, "in1");
-  auto in1ConstTest = graph.addVariable(HALF, {DIM_SIZE}, "in1");
+  auto in1aXpbYTest = graph.addVariable(HALF, {DIM_SIZE}, "in1");
   auto in1Fails = graph.addVariable(HALF, {DIM_SIZE}, "in1");
-  auto in1ConstTestFails = graph.addVariable(HALF, {DIM_SIZE}, "in1");
+  auto in1aXpbYTestFails = graph.addVariable(HALF, {DIM_SIZE}, "in1");
   auto in2 = graph.addVariable(HALF, {DIM_SIZE}, "in2");
   mapTensorLinearly(graph, in1);
-  mapTensorLinearly(graph, in1ConstTest);
+  mapTensorLinearly(graph, in1aXpbYTest);
   mapTensorLinearly(graph, in1Fails);
-  mapTensorLinearly(graph, in1ConstTestFails);
+  mapTensorLinearly(graph, in1aXpbYTestFails);
   mapTensorLinearly(graph, in2);
   mapTensorLinearly(graph, factor);
-  // Map differently, causing 2D decisions and vertex connection to happen
-  graph.setTileMapping(in1[4], 1);
+  mapTensorLinearly(graph, factorA);
 
   auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
   std::vector<char> rawIn1(rawBufSize), rawIn2(rawBufSize);
@@ -419,21 +420,21 @@ BOOST_AUTO_TEST_CASE(
   poplar::copyFloatToDeviceHalf(target, &hIn2[0], rawIn2.data(), DIM_SIZE);
 
   graph.createHostWrite("in1", in1);
-  graph.createHostWrite("in1ConstTest", in1ConstTest);
+  graph.createHostWrite("in1aXpbYTest", in1aXpbYTest);
   graph.createHostWrite("in1Fails", in1Fails);
-  graph.createHostWrite("in1ConstTestFails", in1ConstTestFails);
+  graph.createHostWrite("in1aXpbYTestFails", in1aXpbYTestFails);
   graph.createHostWrite("in2", in2);
   graph.createHostRead("out", in1);
-  graph.createHostRead("outConstTest", in1ConstTest);
+  graph.createHostRead("outaXpbYTest", in1aXpbYTest);
   graph.createHostRead("outFails", in1Fails);
-  graph.createHostRead("outConstTestFails", in1ConstTestFails);
+  graph.createHostRead("outaXpbYTestFails", in1aXpbYTestFails);
 
   auto prog = Sequence();
   // These tests should produce a reasonable answer as the scale and multiply
   // is implemented in full precision
   scaledAddTo(graph, in1, in2, factor, prog, "Tensor test",
               {{"scaleFloatToHalfTolerance", "1e-6"}});
-  scaledAddTo(graph, in1ConstTest, in2, k, prog, "Const test",
+  scaledAddTo(graph, in1aXpbYTest, factorA, in2, factor, prog, "aXpbY test",
               {{"scaleFloatToHalfTolerance", "1e-6"}});
 
   // These tests should "fail", producing 0.0 exactly as the scale becomes
@@ -441,58 +442,58 @@ BOOST_AUTO_TEST_CASE(
   // automatic selection of full precision arithmetic off.
   scaledAddTo(graph, in1Fails, in2, factor, prog, "Tensor test fail",
               {{"scaleFloatToHalfTolerance", "2.0"}});
-  scaledAddTo(graph, in1ConstTestFails, in2, k, prog, "Const test fail",
-              {{"scaleFloatToHalfTolerance", "2.0"}});
+  scaledAddTo(graph, in1aXpbYTestFails, factorA, in2, factor, prog,
+              "aXpbY test fail", {{"scaleFloatToHalfTolerance", "2.0"}});
   Engine eng(graph, prog);
 
-  std::vector<char> rawOut(rawBufSize), rawOutConstTest(rawBufSize);
-  std::vector<char> rawOutFails(rawBufSize), rawOutConstTestFails(rawBufSize);
+  std::vector<char> rawOut(rawBufSize), rawOutaXpbYTest(rawBufSize);
+  std::vector<char> rawOutFails(rawBufSize), rawOutaXpbYTestFails(rawBufSize);
 
   device.bind([&](const Device &d) {
     eng.load(d);
 
     eng.writeTensor("in1", rawIn1.data(), rawIn1.data() + rawIn1.size());
-    eng.writeTensor("in1ConstTest", rawIn1.data(),
+    eng.writeTensor("in1aXpbYTest", rawIn1.data(),
                     rawIn1.data() + rawIn1.size());
     eng.writeTensor("in1Fails", rawIn1.data(), rawIn1.data() + rawIn1.size());
-    eng.writeTensor("in1ConstTestFails", rawIn1.data(),
+    eng.writeTensor("in1aXpbYTestFails", rawIn1.data(),
                     rawIn1.data() + rawIn1.size());
     eng.writeTensor("in2", rawIn2.data(), rawIn2.data() + rawIn2.size());
 
     eng.run();
 
     eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
-    eng.readTensor("outConstTest", rawOutConstTest.data(),
-                   rawOutConstTest.data() + rawOutConstTest.size());
+    eng.readTensor("outaXpbYTest", rawOutaXpbYTest.data(),
+                   rawOutaXpbYTest.data() + rawOutaXpbYTest.size());
     eng.readTensor("outFails", rawOutFails.data(),
                    rawOutFails.data() + rawOutFails.size());
-    eng.readTensor("outConstTestFails", rawOutConstTestFails.data(),
-                   rawOutConstTestFails.data() + rawOutConstTestFails.size());
+    eng.readTensor("outaXpbYTestFails", rawOutaXpbYTestFails.data(),
+                   rawOutaXpbYTestFails.data() + rawOutaXpbYTestFails.size());
   });
 
-  float hOut[DIM_SIZE], hOutConstTest[DIM_SIZE];
-  float hOutFails[DIM_SIZE], hOutConstTestFails[DIM_SIZE];
+  float hOut[DIM_SIZE], hOutaXpbYTest[DIM_SIZE];
+  float hOutFails[DIM_SIZE], hOutaXpbYTestFails[DIM_SIZE];
   poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0], DIM_SIZE);
-  poplar::copyDeviceHalfToFloat(target, rawOutConstTest.data(),
-                                &hOutConstTest[0], DIM_SIZE);
+  poplar::copyDeviceHalfToFloat(target, rawOutaXpbYTest.data(),
+                                &hOutaXpbYTest[0], DIM_SIZE);
   poplar::copyDeviceHalfToFloat(target, rawOutFails.data(), &hOutFails[0],
                                 DIM_SIZE);
-  poplar::copyDeviceHalfToFloat(target, rawOutConstTestFails.data(),
-                                &hOutConstTestFails[0], DIM_SIZE);
+  poplar::copyDeviceHalfToFloat(target, rawOutaXpbYTestFails.data(),
+                                &hOutaXpbYTestFails[0], DIM_SIZE);
 
   // Check result
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     double res = hIn1[i] + k * hIn2[i];
     BOOST_TEST(hOut[i] == res);
-    BOOST_TEST(hOutConstTest[i] == res);
+    BOOST_TEST(hOutaXpbYTest[i] == res);
     // These tests should "fail", producing hIn1 exactly.
-    std::cout << "hOut:" << hOut[i] << " hOutConstTest:" << hOutConstTest[i]
+    std::cout << "hOut:" << hOut[i] << " hOutaXpbYTest:" << hOutaXpbYTest[i]
               << " hOutFails:" << hOutFails[i]
-              << " hOutConstTestFails:" << hOutConstTestFails[i] << "\n";
+              << " hOutaXpbYTestFails:" << hOutaXpbYTestFails[i] << "\n";
     // Avoid testing this properly in IPUModel, as half isn't accurate
     if (!isIpuModel(TEST_TARGET)) {
       BOOST_TEST(static_cast<bool>(hOutFails[i] == hIn1[i]));
-      BOOST_TEST(static_cast<bool>(hOutConstTestFails[i] == hIn1[i]));
+      BOOST_TEST(static_cast<bool>(hOutaXpbYTestFails[i] == hIn1[i]));
     }
   }
 }

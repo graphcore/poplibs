@@ -112,10 +112,10 @@ struct VertexDesc {
         !(name == "ScaledAddSupervisor" || name == "ScaledAdd2D" ||
           name == "ScaledSubtractSupervisor" || name == "ScaledSubtract2D");
 
-    hasTolerance = dataAType == HALF && dataBType == HALF &&
-                   scaleType == FLOAT && scaleIsConstant == false;
+    hasTolerance = dataAType == HALF && dataBType == HALF && scaleType == FLOAT;
 
-    // Build the vertex class string, using appropriate type names & flags
+    // Build the vertex class string, using appropriate type
+    // names & flags
     std::string vName = "popops::" + name;
     if (name == "ScaledAddSupervisor" || name == "ScaledAdd2D") {
       vClass = templateVertex(vName, dataAType, dataBType, scaleType,
@@ -267,87 +267,6 @@ struct TestRecord {
   }
 };
 
-//***************************************************************************
-// Return true if the combination for the vertex (vertex name, data types and
-// [scaleIsConstant, constrainedAB] flag pair) is implemented.
-//                             |   Data types:    |    flags      |    total |
-//                             |  A     B   scale | const  constr | variants |
-//  +--------------------------+------------------+---------------+----------|
-//  | ScaledAddSupervisor      |float float float | false  false  |          |
-//  | ScaledAdd2D              |half  half  half  | false  true   | 2x4 = 8  |
-//  |                          |                  | true   false  |          |
-//  |                          |                  | true   true   |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |half  half  float | true   false  |       2  |
-//  |                          |                  | true   true   |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |float half  half  |               |          |
-//  |                          |float half  float |               |          |
-//  |                          |half  float half  | false  false  |          |
-//  |                          |half  float float | true   false  | 6x2 = 12 |
-//  |                          |int   int   int   |               |          |
-//  |                          |uint  uint  uint  |               |          |
-//  +--------------------------+------------------+---------------+----------+
-//  | ScaledSubtractSupervisor |float float float |               |          |
-//  |                          |half  half  half  | -      false  | 4x2 = 8  |
-//  |                          |half  float half  |        true   |          |
-//  |                          |half  half  float |               |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |int   int   int   | -      false  |       2  |
-//  |                          |uint  uint  uint  |               |          |
-//  +--------------------------+------------------+---------------+----------+
-//  | ScaledSubtract2D         |half  -     half  |        false  | 3x2 = 6  |
-//  |                          |float -     float | -      true   |          |
-//  |                          |half  -     float |               |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |int   -     int   | -      false  |       2  |
-//  |                          |uint  -     uint  |               |          |
-//  +--------------------------+------------------+---------------+----------+
-//  | aXPlusbYSupervisor       |half  -     half  | false  false  |          |
-//  |                          |                  | false  true   |       4  |
-//  |                          |                  | true   false  |          |
-//  |                          |                  | true   true   |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |half  -     float | false  false  |          |
-//  |                          |                  | false  true   |       3  |
-//  |                          |                  | true   false  |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |float -     float | false  false  |          |
-//  |                          |                  | true   false  |       2  |
-//  +--------------------------+------------------+---------------+----------+
-//  | aXPlusbY2D               |half  -     half  | false  false  |          |
-//  |                          |                  | false  true   |       4  |
-//  |                          |                  | true   false  |          |
-//  |                          |                  | true   true   |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |half  -     float | false  false  |          |
-//  |                          |                  | false  true   |       3  |
-//  |                          |                  | true   false  |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |float -     float | false  false  |          |
-//  |                          |                  | true   false  |       2  |
-//  +--------------------------+------------------+---------------+----------+
-//  | aXMinusbYSupervisor      |half  -     half  | false  false  | 2x2 = 4  |
-//  |                          |half  -     float | false  true   |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |float -     float | false  false  |       1  |
-//  +--------------------------+------------------+---------------+----------+
-//  | aXMinusbY2D              |half  -     half  | false  false  | 2x2 = 4  |
-//  |                          |half  -     float | false  true   |          |
-//  |                          +------------------+---------------+----------+
-//  |                          |float -     float | false  false  |       1  |
-//  +--------------------------+------------------+---------------+----------+
-//  | XMinusaXPlusbYSupervisor |half  -     -     | false  false  |          |
-//  |                          |                  | false  true   |       4  |
-//  |                          |                  | true   false  |          |
-//  |                          |                  | true   true   |          |
-//  +--------------------------+------------------+---------------+----------+
-//  | XMinusaXPlusbY2D         |half  -     -     | false  false  |          |
-//  |                          |                  | false  true   |       4  |
-//  |                          |                  | true   false  |          |
-//  |                          |                  | true   true   |          |
-//  +--------------------------+------------------+---------------+----------+
-//                                                                        98
 bool isImplementedCombination(const std::string &name, const Type AType,
                               const Type BType, const Type scaleType,
                               const std::optional<bool> scaleIsConstant,
@@ -393,8 +312,8 @@ bool isImplementedCombination(const std::string &name, const Type AType,
       {true,      true }}},
 
     {{{HALF,  HALF,  FLOAT}},
-     {{true,     false},
-      {true,     true }}},
+     {{false,     false},
+      {false,     true }}},
 
     {{{FLOAT, HALF,  HALF },
       {FLOAT, HALF,  FLOAT},

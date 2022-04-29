@@ -41,6 +41,8 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "ScaledAddSupervisor.inc"
 #include "CommonPoplibsMacros.h.S"
+#include "workDivision.h.S"
+#include "MathConstants.S"
 
 #define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT __runCodelet_popops__aXPlusbYSupervisor___half_float_false_false
 #define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXPlusbYSupervisor___half_float_false_true
@@ -52,7 +54,7 @@
 #define VERTEX_AXMINUSBY_2D_HALF_FLOAT __runCodelet_popops__aXMinusbY2D___half_float_false_false
 #define VERTEX_AXMINUSBY_2D_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXMinusbY2D___half_float_false_true
 
-#define SCALED_PTR128_SHIFTS       4
+#define SCALED_PTR128_SHL_BITS       4
 
 #if defined(VECTOR_AVAIL_SHORT_SPAN)
   #define SHORT_SPAN_PTR_SIZE      20
@@ -193,113 +195,44 @@ scaleA & scaleB values are contained in a 1-value Tensor:
 
 #define mscratch m8
 
-
-// ---------------------------------------------------------------
-// Common setup code used by both the AXMinusBY and AXPlusBY supervisors.
-.macro AXBY_MIXED_SUPERVISOR_SETUP
-  ldz16   $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/2
-  ldz16   $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_OFFSET/2
-  ld32    $tolerance, $vertexPtr, $mzero, VERTEX_SV_TOLERANCE_OFFSET/4
-  add     $sp, $sp, -STACK_SIZE
-  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
-  setzi   $memBase, TMEM_REGION0_BASE_ADDR
-
-  shl     $sv_scale, $sv_scale, SCALED_PTR128_SHIFTS
-  shl     $scaleB, $scaleB, SCALED_PTR128_SHIFTS
-.endm
-
 // ---------------------------------------------------------------
 // aXMinusbY Supervisor entry point (tensor scale values) with and without
-// memory constraints. These just negate the scaleB value and then lets the
-// aXPlusbY Supervisor do the rest.
-FN_SUPERVISOR_ENTRY_POINT VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR 4 "" STACK_SIZE
-  setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
-  bri     1f
+// memory constraints. These will run the workers which negate the scaleB value
+// and then the workers continue in the same way as the aXPlusbY code
+FN_SUPERVISOR_ENTRY_POINT VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
+  setzi $sv_workerFunction, aXminusbY_half_float_fast_worker
+  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
+  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
+
+  br $lr // 6 cycles
 FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
 
-FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT 4 "" STACK_SIZE
-  setzi   $sv_memConstraints, 0
-1:
-  AXBY_MIXED_SUPERVISOR_SETUP
+FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT
+  setzi $sv_workerFunction, aXminusbY_half_float_worker
+  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
+  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
 
-  or      $mscratch, $mzero, NEGATE_FLOAT_BY_XOR
-  ld32    $scaleB, $mzero, $scaleB, 0
-  ld32    $sv_scale, $mzero, $sv_scale, 0
-  setzi   $sv_workerFunction, checkAccuracyWhenCastFloatV2ToHalfWorker
-  // Need to get the worker vertex base as offset from base of memory for 'run'
-  sub     $workerVertexBase, $sp, $memBase
+  br $lr // 6 cycles
 
-  st32    $tolerance, $sp, $mzero, CHECK_ACCURACY_TOLERANCE_OFFSET/4
-  nop
-  // Negate scaleB
-  xor     $scaleB, $scaleB, $mscratch
-  st32    $sv_scale, $sp, $mzero, CHECK_ACCURACY_SCALE_A_OFFSET/4
-
-  nop
-  nop
-  nop
-  nop
-  st32    $scaleB, $sp, $mzero, CHECK_ACCURACY_SCALE_B_OFFSET/4
-
-  bri     VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_RUN_WORKERS
 FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT
 
 // ---------------------------------------------------------------
 // Supervisor entry point (tensor scale values) with and without
 // memory constraints.
-// Load parameters and jumps to the worker partitioning function.
-// Instructions are moved around and nops added to avoid pipeline stalls
-FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR 4 "" STACK_SIZE
-  setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
-  bri     1f
+FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
+  setzi $sv_workerFunction, aXplusbY_half_float_fast_worker
+  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
+  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
+
+  br $lr // 6 cycles
 FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
 
-FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT 4 "" STACK_SIZE
-  setzi   $sv_memConstraints, 0
-1:
-  AXBY_MIXED_SUPERVISOR_SETUP
+FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT
+  setzi $sv_workerFunction, aXplusbY_half_float_worker
+  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
+  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
 
-  ld32    $sv_scale, $mzero, $sv_scale, 0
-  ld32    $scaleB, $mzero, $scaleB, 0
-  setzi   $sv_workerFunction, checkAccuracyWhenCastFloatV2ToHalfWorker
-  // Need to get the worker vertex base as offset from base of memory for 'run'
-  sub     $workerVertexBase, $sp, $memBase
-
-  st32    $tolerance, $sp, $mzero, CHECK_ACCURACY_TOLERANCE_OFFSET/4
-  nop
-  st32    $sv_scale, $sp, $mzero, CHECK_ACCURACY_SCALE_A_OFFSET/4
-  st32    $scaleB, $sp, $mzero, CHECK_ACCURACY_SCALE_B_OFFSET/4
-
-VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_RUN_WORKERS:
-  // Store the scaleB value for the structure on stack used by the worker
-  // called by VERTEX(supervisor); VERTEX(supervisor) itself is not aware of it.
-  st32    $scaleB, $sp, $mzero, SV_STATE_SCALEB_OFFSET/4
-
-  run     $sv_workerFunction, $workerVertexBase, 0
-  // wait for worker to terminate before checking result. We cannot do anything
-  // while the worker runs as we have to wait for the result.
-  sync    TEXCH_SYNCZONE_LOCAL
-  ld32    $isAccurate, $sp, $mzero, CHECK_ACCURACY_RESULT_OFFSET/4
-
-  setzi   $sv_workerFunction, aXplusbY_half_float_worker
-  setzi   $sv_log2AtomSize, 1
-  setzi   $sv_atomSizeMask, 1
-  nop
-  nop
-
-  brnz    $isAccurate, 1f
-  bri     VERTEX(supervisor)
-1:
-  // If the accuracy check returned non-zero (i.e. HALF are accurate enough),
-  // run the faster data=HALF/scales=HALF code
-
-  // Get the combined scale A & B values, returned by the checkAccuracy thread
-  ld32    $sv_scale, $sp, $mzero, CHECK_ACCURACY_SCALE_AB_OFFSET/4
-  setzi   $sv_log2AtomSize, 2
-  setzi   $sv_atomSizeMask, 0x3
-
-  setzi   $sv_workerFunction, VERTEX(axplusby_half).kernel
-  bri     VERTEX(supervisor)
+  br $lr // 6 cycles
 
 FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT
 
@@ -342,8 +275,8 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT
 #define value2          a1
 #define value1_2        a0:1
 #define tolerance       a2
-#define value1_2_half   a2
 #define saveFpCtl       a3
+#define value1_2_half   a2
 #define maxErr1         a6
 #define maxErr2         a7
 #define maxErr1_2       a6:7
@@ -373,29 +306,7 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT
   mov         $bothAccurate, $bothAccurate_a  // transfer to MRF register
 .endm
 
-// ****************************************************************************
-// The above code for accuracy check of 2 single floats, as a worker thread.
-// The return values ($m0 and $a2 from the macro) are stored in the vertex
-// state itself.
-// ****************************************************************************
-FN_SECTION checkAccuracyWhenCastFloatV2ToHalfWorker
-checkAccuracyWhenCastFloatV2ToHalfWorker:
-  ld32   $value1, $mvertex_base, $mzero, CHECK_ACCURACY_SCALE_A_OFFSET/4
-  ld32   $value2, $mvertex_base, $mzero, CHECK_ACCURACY_SCALE_B_OFFSET/4
-{
-  ld32   $tolerance, $mvertex_base, $mzero, CHECK_ACCURACY_TOLERANCE_OFFSET/4
-  uput   $FP_CTL, $azero   // disable FP exceptions for macro
-}
-  CHECK_ACCURACY_FLOAT_V2_TO_HALF
-  st32   $bothAccurate, $mvertex_base, $mzero, CHECK_ACCURACY_RESULT_OFFSET/4
-  st32   $value1_2_half, $mvertex_base, $mzero, CHECK_ACCURACY_SCALE_AB_OFFSET/4
-  exitz  $mzero
-FN_SIZE checkAccuracyWhenCastFloatV2ToHalfWorker
-
-#undef value1
-#undef value2
 #undef value1_2
-#undef saveFpCtl
 #undef maxErr1
 #undef maxErr2
 #undef maxErr1_2
@@ -409,6 +320,7 @@ FN_SIZE checkAccuracyWhenCastFloatV2ToHalfWorker
 
 // ------------------------------------------------------------------
 // REGISTER NAMING FOR THE WORKER THREADS
+
 #define Xptr           m0  // Will read X values with this ptr
 #define Yptr           m1  // Will read Y values with this ptr
 
@@ -421,7 +333,9 @@ FN_SIZE checkAccuracyWhenCastFloatV2ToHalfWorker
 #define Yrow           m7  // for the 2D vertex, pointer to the 2d vector
 #define numRows        m8  // for the 2D vertex
 #define stride         m9  // 1 or 6, process contiguous or strided elements
-#define memConstraints m11 // passed to the _half_half entry point
+// Note  memConstraints defined/shared between files, passed to the
+// _half_half entry point
+//#define memConstraints m11
 
 
 #define a             a0   // used briefly, same as $result
@@ -441,44 +355,91 @@ FN_SIZE checkAccuracyWhenCastFloatV2ToHalfWorker
 // The supervisor vertices will start 6 of these worker threads.
 // Each will processes elements from the 1D vector, with a stride of
 // 12 halves [CTXT_WORKERS (6) x 2 halves] = 6 words.
-// This will take its parameters from the state record created on the
-// (supervisor) stack by the supevisor vertex.
-// It will adjust the parameters (start ptrs, count of elements) based
-// on its worker id.
+
 #define workerIdM1  m4
 #define remM1       m6 // workers [0..'remM1'] will process 2 extra halves
 #define final       m7 // workers 'remM1' will 'final' (0 or 1) extra half
 #define mscratch    m8
 
 FN_SECTION aXplusbY_half_float_worker
+// Note - fast path based on scale accuracy will have a memory fast path
+aXminusbY_half_float_worker:
+  setzi $memConstraints, 0
+  { bri 1f
+    or  $ascratch, $azero, FLOAT_NEG_1_0}
+
+aXminusbY_half_float_fast_worker:
+  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  { bri 1f
+    or  $ascratch, $azero, FLOAT_NEG_1_0}
+
 aXplusbY_half_float_worker:
+  setzi $memConstraints, 0
+  { bri 1f
+    or  $ascratch, $azero, FLOAT_1_0}
+
+aXplusbY_half_float_fast_worker:
+  {setzi $memConstraints, MEM_CONSTRAINTS_MASK
+    or  $ascratch, $azero, FLOAT_1_0}
+1:
+
+  // Based on the accuracy given when using scale cast to half -
+  // branch and do that instead.  The $memConstraints parameter will be
+  // valid in that case
+
+  // Get scaleB coefficient then scaleA
+  ldz16          $mscratch, $mvertex_base, $mzero, VERTEX_SV_SCALE_B_OFFSET/2
+  shl            $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  ld32           $value2, $mzero, $mscratch, 0
+
+  {
+    ldz16        $mscratch, $mvertex_base, $mzero, VERTEX_SV_SCALE_A_OFFSET/2
+    f32mul       $value2, $value2, $ascratch
+  }
+  shl            $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  {
+    ld32         $value1, $mzero, $mscratch, 0
+    uget         $saveFpCtl, $FP_CTL
+  }
+  {
+  ld32   $tolerance, $mvertex_base, $mzero, VERTEX_SV_TOLERANCE_OFFSET/4
+  uput   $FP_CTL, $azero   // disable FP exceptions for macro
+  }
+  CHECK_ACCURACY_FLOAT_V2_TO_HALF
+  // Copy to $k for branch to shared entry point
+  mov             $k, $value1_2_half
+  {brnz           $bothAccurate, half_half_half_scales_in_k_continue
+   uput           $FP_CTL, $saveFpCtl} // restore FP exception register
+
   // Get the worker ID (0..5)
-  get $workerIdM1, $WSR
+  {get $workerIdM1, $WSR
+   mov $b, $value2}
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
-  // Get scaleA coefficient
-  ld32          $a, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
-{
-  // ScaleB value is stored in the 'MEM_CONSTRAINTS' word (no memory
-  // constraints for this vertex)
-  ld32          $b, $mvertex_base, $mzero, SV_STATE_SCALEB_OFFSET/4
-  uput          $TAS, $a
-}
+ {
+  ldz16          $mscratch, $mvertex_base, $mzero, VERTEX_SV_SCALE_B_OFFSET/2
+  uput           $TAS, $value1
+ }
 
-  ld32          $Xptr, $mvertex_base, $mzero, SV_STATE_DATA_OFFSET/4
-  ld32          $Yptr, $mvertex_base, $mzero, SV_STATE_DATA_B_OFFSET/4
-  ld32          $size, $mvertex_base, $mzero, SV_STATE_COUNT_OFFSET/4
-  ld32          $remM1, $mvertex_base, $mzero, SV_STATE_REMM1_OFFSET/4
-  ld32          $final, $mvertex_base, $mzero, SV_STATE_FINAL_OFFSET/4
-  setzi         $stride, CTXT_WORKERS
+  ld32          $Xptr, $mvertex_base, $mzero, VERTEX_SV_DATA_A_OFFSET/4
+  ld32           $Yptr, $mvertex_base, $mzero, VERTEX_SV_DATA_B_OFFSET/4
+  ldz16          $mscratch, $mvertex_base, $mzero, VERTEX_SV_COUNT_OFFSET/2
+  setzi          $stride, CTXT_WORKERS
 
-  // If worker id is less than the remainder this worker processes an extra 2.
-  cmpslt        $mscratch, $workerIdM1, $remM1
+  // Divide work, keeping a remainder
+  SPLIT_BETWEEN_WORKERS $mscratch, $size, $remM1,  12
+  // Size is the number of elements a worker needs to process
+  shl $size, $size, 1
+
+  // If worker id is less than the remainder/2 this worker processes an extra 2.
+  shr           $final, $remM1, 1
+  cmpslt        $mscratch, $workerIdM1, $final
   shl           $mscratch, $mscratch, 1
   add           $size, $size, $mscratch
   // If this is the "last" worker, it may process one extra single value
-  cmpeq         $mscratch, $workerIdM1, $remM1
+  cmpeq         $mscratch, $workerIdM1, $final
   brz           $mscratch, 1f
-  add           $size, $size, $final
+  and           $mscratch, $remM1,1
+  add           $size, $size, $mscratch
 1:
   // Increment X,Y pointers by the 0-based worker Id for the strided access
   ld32step      $mscratch, $mzero, $Xptr+=, $workerIdM1

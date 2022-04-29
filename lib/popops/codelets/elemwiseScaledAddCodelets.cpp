@@ -129,7 +129,7 @@ template class ScaledAddSupervisor<half, float, float, false, false>;
     ScaledAddSupervisor();                                                     \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<half, ONE_PTR, 8>> A;                                         \
+    InOut<Vector<half, ONE_PTR, 8, IS_CONSTRAINED>> A;                         \
     Input<Vector<half, ONE_PTR, 8>> B;                                         \
     InputScaleType<float> scaleB;                                              \
     unsigned short size;                                                       \
@@ -333,7 +333,7 @@ public:
     ScaledSubtractSupervisor();                                                \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<half, ONE_PTR, 8>> A;                                         \
+    InOut<Vector<half, ONE_PTR, 8, IS_CONSTRAINED>> A;                         \
     Input<Vector<half, ONE_PTR, 8>> B;                                         \
     InputScaleType<float> scaleB;                                              \
     unsigned short size;                                                       \
