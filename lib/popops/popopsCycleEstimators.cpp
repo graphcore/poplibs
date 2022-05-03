@@ -2958,6 +2958,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
       CYCLE_ESTIMATOR_ENTRY(popops, name, QUARTER, CHAR),                      \
       CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, QUARTER),             \
       CYCLE_ESTIMATOR_ENTRY(popops, name, QUARTER, UNSIGNED_CHAR),             \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SIGNED_CHAR, QUARTER),               \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, QUARTER, SIGNED_CHAR),               \
       CYCLE_ESTIMATOR_ENTRY(popops, name, QUARTER, QUARTER)
 
 poputil::internal::PerfEstimatorTable makePerfFunctionTable() {

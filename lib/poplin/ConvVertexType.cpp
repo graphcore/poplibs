@@ -247,9 +247,16 @@ static void getConvVertexAMPCandidates(
   if (inputType == poplar::FLOAT && partialType != poplar::FLOAT) {
     partialType = poplar::FLOAT;
   }
-  auto numConvUnitsOnIpu = target.getNumConvUnits(inputType, partialType);
-  if (canUseConvolutionInstruction(inputType, partialType, target)) {
-    const auto weightsPerConvUnit = target.getWeightsPerConvUnit(inputType);
+  const auto vertexInputType =
+      (inputType == poplar::QUARTER &&
+       target.getNumConvUnits(inputType, partialType) == 0)
+          ? poplar::HALF
+          : inputType;
+
+  auto numConvUnitsOnIpu = target.getNumConvUnits(vertexInputType, partialType);
+  if (canUseConvolutionInstruction(vertexInputType, partialType, target)) {
+    const auto weightsPerConvUnit =
+        target.getWeightsPerConvUnit(vertexInputType);
 
     const auto convChainLength =
         target.getConvUnitMaxPipelineDepth(partialType);
@@ -265,14 +272,16 @@ static void getConvVertexAMPCandidates(
     // Ensure we have a 2/4/8 elem candidate for float/half/quarter
     // convInputLoadElems if supported by the target.
     {
-      const unsigned smallestWidthLoad = inputType == poplar::FLOAT     ? 2
-                                         : inputType == poplar::HALF    ? 4
-                                         : inputType == poplar::QUARTER ? 8
-                                                                        : 0;
+      const unsigned smallestWidthLoad = vertexInputType == poplar::FLOAT  ? 2
+                                         : vertexInputType == poplar::HALF ? 4
+                                         : vertexInputType == poplar::QUARTER
+                                             ? 8
+                                             : 0;
       // Not expected to be possible for a user to trigger the condition in
       // this assert (inputType is not FLOAT, HALF, or QUARTER) so this is
       // an assert rather than an exception.
       assert(smallestWidthLoad != 0);
+
       if (maxConvUnitInputLoadElems % smallestWidthLoad &&
           convInputLoadElemsCandidates.back() != smallestWidthLoad) {
         convInputLoadElemsCandidates.push_back(smallestWidthLoad);
@@ -280,7 +289,7 @@ static void getConvVertexAMPCandidates(
     }
 
     // On IPU2 with half inputs we need to enable 8 engines config as well
-    if (inputType != poplar::QUARTER && numConvUnitsOnIpu > 8) {
+    if (vertexInputType != poplar::QUARTER && numConvUnitsOnIpu > 8) {
       numConvUnitsCandidates.push_back(8);
     }
 
@@ -325,9 +334,9 @@ static void getConvVertexAMPCandidates(
               continue;
             }
 
-            if (!canUseConvolutionInstruction(inputType, partialType, inputs,
-                                              convUnits, convInputLoadElems,
-                                              partials, target)) {
+            if (!canUseConvolutionInstruction(
+                    vertexInputType, partialType, inputs, convUnits,
+                    convInputLoadElems, partials, target)) {
               continue;
             }
 
@@ -365,7 +374,7 @@ static void getConvVertexAMPCandidates(
             Plan::Amp method{};
             method.convUnits = convUnits;
             method.convInputLoadElems = convInputLoadElems;
-            candidates.emplace_back(method, inputType, partialType,
+            candidates.emplace_back(method, vertexInputType, partialType,
                                     convGroupsPerGroup, inputs, partials);
           }
         }
@@ -416,6 +425,12 @@ static void getConvVertexSLICCandidates(
     return;
   }
 
+  const auto vertexInputType =
+      (inputType == poplar::QUARTER &&
+       target.getNumConvUnits(inputType, partialType_) == 0)
+          ? poplar::HALF
+          : inputType;
+
   const auto &planConstraints = options.planConstraints;
   const auto constrainedConvGroupsPerGroup =
       planConstraints.get_optional<popsolver::DataType>("convGroupsPerGroup");
@@ -445,7 +460,7 @@ static void getConvVertexSLICCandidates(
     }
   }();
   auto partialType = partialType_;
-  if (inputType == poplar::FLOAT && partialType != poplar::FLOAT) {
+  if (vertexInputType == poplar::FLOAT && partialType != poplar::FLOAT) {
     partialType = poplar::FLOAT;
   }
   auto numConvUnits = target.getNumConvUnits(inputType, partialType);
@@ -460,7 +475,7 @@ static void getConvVertexSLICCandidates(
     }
     // This is always available with 8, or 16 conv units - let cycle estimates
     // reject it in favour of the 16 conv unit version if that's available
-    if (inputType == poplar::HALF) {
+    if (vertexInputType == poplar::HALF) {
       convChainsCandidates.push_back(2);
     }
   }
@@ -468,7 +483,7 @@ static void getConvVertexSLICCandidates(
   const unsigned convChainLength =
       target.getConvUnitMaxPipelineDepth(partialType);
   const unsigned maxConvInputLoadElems =
-      target.getConvUnitInputLoadElemsPerCycle(inputType);
+      target.getConvUnitInputLoadElemsPerCycle(vertexInputType);
 
   // the numbers below are hardcoded but dependent on the expected machine
   // model that the real hardware models. ie. we expect 16 weights per conv unit
@@ -509,13 +524,13 @@ static void getConvVertexSLICCandidates(
   };
 
   std::vector<Candidate> groupings;
-  if (inputType == poplar::QUARTER) {
+  if (vertexInputType == poplar::QUARTER) {
     groupings.emplace_back(Candidate{1u, 8u});
   } else {
-    assert(inputType == poplar::HALF);
+    assert(vertexInputType == poplar::HALF);
     groupings = {Candidate{1u, 4u}, Candidate{2u, 2u}, Candidate{4u, 1u}};
   }
-  if (inputType != poplar::QUARTER && partialType != poplar::FLOAT &&
+  if (vertexInputType != poplar::QUARTER && partialType != poplar::FLOAT &&
       numConvUnits == 16) {
     groupings.emplace_back(Candidate{8u, 1u});
     groupings.emplace_back(Candidate{16u, 1u});
@@ -539,8 +554,9 @@ static void getConvVertexSLICCandidates(
       Plan::Slic method{};
       method.windowWidth = slicWindowWidth;
       method.convUnitChainsRequired = convChains;
-      candidates.emplace_back(method, inputType, partialType, grouping.groups,
-                              grouping.channels, grouping.channels);
+      candidates.emplace_back(method, vertexInputType, partialType,
+                              grouping.groups, grouping.channels,
+                              grouping.channels);
     }
   }
 }

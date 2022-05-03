@@ -888,7 +888,7 @@ foreach(IN_TYPE half float)
   endforeach()
 endforeach()
 
-# Cast half to quarter (then to half for test)
+# Cast half to quarter
 foreach(COLUMNS 1 2 3 4 8 24 48 141)
   foreach(IN_TYPE half quarter char schar)
     add_multitarget_test(NAME CastTest_quarter_1_${IN_TYPE}_${COLUMNS}_Supervisor
@@ -928,6 +928,45 @@ foreach(ROWS 1 2)
     endforeach()
   endforeach()
 endforeach()
+
+foreach(ROWS 1 2)
+  foreach(IN_TYPE half quarter char uchar schar)
+    add_multitarget_test(NAME CastTest_quarter_${IN_TYPE}_quarter_${ROWS}_100_Worker
+        COMMAND CastTest
+          --in-type ${IN_TYPE}
+          --out-type quarter
+          --rows=${ROWS}
+          --columns=100
+          --supervisor=0
+          --out-offset=0
+          --fp8-format=F143
+          --fp8-scale=2
+          --fp8-format-out=F143
+          --fp8-scale-out=2
+          LABELS codelet
+          VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+  endforeach()
+endforeach()
+
+foreach(ROWS 1 2)
+  foreach(OUT_TYPE half quarter char uchar schar)
+    add_multitarget_test(NAME CastTest_quarter_${OUT_TYPE}_${ROWS}_100_Worker
+        COMMAND CastTest
+          --in-type quarter
+          --out-type ${OUT_TYPE}
+          --rows=${ROWS}
+          --columns=100
+          --supervisor=0
+          --out-offset=0
+          --fp8-format=F143
+          --fp8-scale=2
+          --fp8-format-out=F143
+          --fp8-scale-out=2
+          LABELS codelet
+          VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+  endforeach()
+endforeach()
+
 
 add_multi_target_test_executable(CastCodeletsTest CastCodeletsTest.cpp)
 add_multitarget_test(NAME CastCodeletsTest_to_char

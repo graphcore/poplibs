@@ -1,5 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#include <poplar/HalfFloat.hpp>
+#define __QUARTER_FOR_IPU__
 #include <poplar/Vertex.hpp>
 
 #include <cassert>
@@ -281,7 +281,7 @@ public:
   }
 };
 
-#ifndef __IPU__
+#if !defined(__IPU__) || (__IPU_ARCH_VERSION__ <= 2)
 // For non IPU and any ARCH_VERSION compile using cast functions
 // for quarter types
 
@@ -479,24 +479,6 @@ public:
       }
     }
   }
-};
-#else // __IPU_ARCH_VERSION__ > 2
-// For IPU and ARCH VERSION <= 2 there is no implementation for quarter types
-
-template <typename SrcType, typename DstType>
-struct CastDispatch<SrcType, DstType, true, true> {
-public:
-  static void compute(unsigned numElems, const SrcType *src, DstType *dst,
-                      const MetadataType *metadataSrc,
-                      const MetadataType *metadataDst) {}
-};
-
-template <typename SrcType, typename DstType>
-struct CastDispatchMultiVertex<SrcType, DstType, true, true> {
-public:
-  static void compute(unsigned numElems, unsigned wid, const SrcType *src,
-                      DstType *dst, const MetadataType *metadataSrc,
-                      const MetadataType *metadataDst) {}
 };
 
 #endif // __IPU_ARCH_VERSION__ > 2

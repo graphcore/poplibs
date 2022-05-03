@@ -3280,6 +3280,24 @@ add_multitarget_test(
           --tiles-per-ipu=16
           --fwd-plan-constraints={\"method\":{\"type\":\"AMP\",\"convInputLoadElems\":\"4\",\"convUnits\":\"8\"}})
 
+# Test quarter input on Ipu2 architecture
+foreach(CONSTRAINT "AMP" "SLIC" "VMAC" "HMAC")
+    add_multitarget_test(
+      NAME conv_quarter_arch_2_${CONSTRAINT}
+      COMMAND single_conv_layer
+        --single-phase=fwd
+        --field={2,16}
+        --kernel-size={2,8}
+        --batch-size=43
+        --conv-groups=16
+        --input-channels=1
+        --output-channels=1
+        --fwd-plan-constraints={"method":{"type":"${CONSTRAINT}","convUnits":"16"}}
+        --tiles-per-ipu=1
+        VARIANTS IpuModel2;Hw)
+endforeach()
+
+
 # Fully connected layer tests
 
 add_multitarget_test(
