@@ -119,6 +119,14 @@ poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::OptionFlags &options = {},
                       matmul::PlanningCache *cache = nullptr);
 
+/** Matrix multiply with explicitly defined output. */
+void matMulWithOutput(poplar::Graph &graph, const poplar::Tensor &A_,
+                      const poplar::Tensor &B_, poplar::Tensor &out,
+                      poplar::program::Sequence &prog,
+                      const poplar::DebugContext &debugContext = {},
+                      const poplar::OptionFlags &options_ = {},
+                      matmul::PlanningCache *cache = nullptr);
+
 /** Report the convolution plan corresponding to the parameters and options
  * provided.
  *
@@ -174,6 +182,14 @@ poplar::Tensor matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::Type &outputType,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {},
+                             matmul::PlanningCache *cache = nullptr);
+
+/** Grouped matmul with explicit output argument. */
+void matMulGroupedWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
+                             const poplar::Tensor &B, poplar::Tensor &out,
+                             poplar::program::Sequence &prog,
+                             const poplar::DebugContext &debugContext = {},
+                             const poplar::OptionFlags &options_ = {},
                              matmul::PlanningCache *cache = nullptr);
 
 /** Report the convolution plan corresponding to the \p params and \p options
@@ -416,6 +432,49 @@ poplar::Tensor createMatMulInputRHS(poplar::Graph &graph,
                                     matmul::PlanningCache *cache = nullptr);
 
 /**
+ * Create a tensor that is used as the output operand of matrix multiplication.
+ *
+ * This will create a 2D tensor in the graph. The ordering and tile mapping
+ * of the tensor will be set to make a matrix multiplication with this
+ * tensor as the output argument efficient.
+ *
+ * \param graph           The Poplar graph.
+ * \param inputType       The input data type.
+ * \param outputType      The data type of the returned tensor.
+ * \param aShape          The shape of the matrix that the required matrix will
+ *                        be multiplied by.
+ * \param bShape          The shape of the required matrix.
+ * \param debugContext    Debug information.
+ * \param options         The implementation options of the multiplication. See
+ *                        matMul().
+ * \param cache           Optional pointer to a planning cache to use.
+ *
+ * \returns               A matrix of type \p type and shape
+ *                        [ \p aShape[0], \p bShape[1] ]. The
+ *                        tensor will have been mapped to tiles.
+ */
+poplar::Tensor createMatMulOutput(poplar::Graph &graph,
+                                  const poplar::Type &inputType,
+                                  const poplar::Type &outputType,
+                                  const std::vector<std::size_t> &aShape,
+                                  const std::vector<std::size_t> &bShape,
+                                  const poplar::DebugContext &debugContext,
+                                  const poplar::OptionFlags &options = {},
+                                  matmul::PlanningCache *cache = nullptr);
+
+/**
+ * Overloaded function for when inputType == outputType (represented by the
+ * dataType parameter).
+ */
+poplar::Tensor createMatMulOutput(poplar::Graph &graph,
+                                  const poplar::Type &dataType,
+                                  const std::vector<std::size_t> &aShape,
+                                  const std::vector<std::size_t> &bShape,
+                                  const poplar::DebugContext &debugContext,
+                                  const poplar::OptionFlags &options = {},
+                                  matmul::PlanningCache *cache = nullptr);
+
+/**
  * Create a tensor that is used as the right operand of grouped matrix
  * multiplication.
  *
@@ -448,6 +507,39 @@ createMatMulGroupedInputRHS(poplar::Graph &graph, const poplar::Type &inputType,
                             const poplar::OptionFlags &options = {},
                             matmul::PlanningCache *cache = nullptr);
 
+/**
+ * Create a tensor that is used as the output operand of grouped matrix
+ * multiplication (with output).
+ *
+ * This will create a 3D tensor in the graph. The ordering and tile mapping of
+ * the tensor will be set to make a grouped matrix multiplication with this
+ * tensor as the output argument efficient.
+ *
+ * The first dimension of the required matrix and the matrix it multiplies by
+ * must the number of groups.
+ *
+ * \param graph           The Poplar graph.
+ * \param type            The data type of the required matrix.
+ * \param aShape          The grouped shape [g, r, c] of the matrix that the
+ *                        required matrix will be multiplied by.
+ * \param bShape          The grouped shape [g, r, c] of the required matrix.
+ * \param debugContext    Debug information.
+ * \param options         The implementation options of the multiplication. See
+ *                        matMul().
+ * \param cache           Optional pointer to planning cache to use.
+ *
+ * \returns               A matrix of type \p type and grouped shape
+ *                        [ \p aShape[g], \p aShape[r], \p bShape[c] ].
+ *                        The tensor will have been mapped to tiles.
+ */
+poplar::Tensor
+createMatMulGroupedOutput(poplar::Graph &graph, const poplar::Type &inputType,
+                          const poplar::Type &outputType,
+                          const std::vector<std::size_t> &aShape,
+                          const std::vector<std::size_t> &bShape,
+                          const poplar::DebugContext &debugContext,
+                          const poplar::OptionFlags &options = {},
+                          matmul::PlanningCache *cache = nullptr);
 /** Pre-arrange right-hand side input.
  *
  *  Re-arrange memory for RHS operand to an upcoming matmul operation.

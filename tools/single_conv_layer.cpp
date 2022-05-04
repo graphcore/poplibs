@@ -79,6 +79,26 @@ static Tensor createGenericConvInput(Graph &graph,
       params.getNumInputChansPerConvGroup(), params.getInputFieldShape(), name);
 }
 
+static Tensor
+convolve(bool useCreateOutput, poplar::Graph &graph, const poplar::Tensor &in,
+         const poplar::Tensor &weights, const poplin::ConvParams &params,
+         bool transposeAndFlipWeights, poplar::program::Sequence &prog,
+         const poplar::DebugContext &debugContext,
+         const poplar::OptionFlags &options, poplin::PlanningCache *cache) {
+  if (useCreateOutput) {
+    auto out =
+        poplin::createConvOutput(graph, params, debugContext, options, cache);
+    poplin::convolutionWithOutput(graph, in, weights, out, params,
+                                  transposeAndFlipWeights, prog, debugContext,
+                                  options, cache);
+    return out;
+  } else {
+    return poplin::convolution(graph, in, weights, params,
+                               transposeAndFlipWeights, prog, debugContext,
+                               options, cache);
+  }
+}
+
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
@@ -118,6 +138,7 @@ int main(int argc, char **argv) try {
   bool enableConvolutionReuse;
   bool remapOutputTensor;
   bool useCreateInput;
+  bool useCreateOutput;
   bool preplan;
   QuarterMetadata::Format fp8FormatFwdIn = QuarterMetadata::Format::F143;
   QuarterMetadata::Format fp8FormatWeights = QuarterMetadata::Format::F143;
@@ -354,6 +375,10 @@ int main(int argc, char **argv) try {
      "layout optimised for the plan. If set to false use a generic layout that "
      "is independent of the plan and representative of a typical layout in a "
      "neural network")
+    ("use-create-output",
+     po::value<bool>(&useCreateOutput)->default_value(false),
+     "Use the output allocation function to create an output tensor "
+     "before convolving")
     ("num-determinism-checks",
      po::value<unsigned>(&numDeterminismChecks)->default_value(0),
      "The amount of additional identical executions (results are compared to check determinism)."
@@ -867,8 +892,8 @@ int main(int argc, char **argv) try {
   auto fwdConv = [&]() -> graphfn::TensorFunction {
     using graphfn::input;
     const auto conv = [&](std::vector<Tensor> &args, Sequence &prog) {
-      return poplin::convolution(graph, args[0], args[1], params, false, prog,
-                                 "fwd", fwdOptions, &cache);
+      return convolve(useCreateOutput, graph, args[0], args[1], params, false,
+                      prog, "fwd", fwdOptions, &cache);
     };
     return {graph, {input(prevAct, "in"), input(weights, "weights")}, conv};
   }();
@@ -910,8 +935,8 @@ int main(int argc, char **argv) try {
       std::vector<Tensor> bwdArgs{zDeltas, bwdWeights};
       prevDeltas = fwdConv(bwdArgs, revProg);
     } else {
-      prevDeltas = poplin::convolution(graph, zDeltas, weights, bwdParams, true,
-                                       revProg, "bwd", bwdOptions, &cache);
+      prevDeltas = convolve(useCreateOutput, graph, zDeltas, weights, bwdParams,
+                            true, revProg, "bwd", bwdOptions, &cache);
     }
   }
   if (doWuPass) {

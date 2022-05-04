@@ -835,6 +835,44 @@ add_multitarget_test(
          --enable-fast-reduce=true
          )
 
+add_multitarget_test(
+  NAME gemm_5x0x4_with_output
+  COMMAND general_matrix_multiply
+          --m 5
+          --k 0
+          --n 4
+          --alpha 1
+          --beta 1
+          --tiles-per-ipu=1
+          --left-matrix-op=normal
+          --right-matrix-op=normal
+          --use-create-output=true)
+
+add_multitarget_test(
+ NAME gemm_40x39x38_left_transpose_halffloat_with_output
+ COMMAND general_matrix_multiply
+         --m 40
+         --k 39
+         --n 38
+         --alpha 2
+         --beta 1
+         --tiles-per-ipu=16
+         --left-matrix-op=transpose
+         --right-matrix-op=normal
+         --input-type=half
+         --output-type=float
+         --use-create-output=true)
+
+add_multitarget_test(
+ NAME gemm_40x80x140_serial_split_nx4_with_output
+ COMMAND general_matrix_multiply
+         --m 40
+         --k 80
+         --n 140
+         --tiles-per-ipu=16
+         --plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx4.json
+         --use-create-output=true)
+
 # Single conv layer tests
 
 if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)

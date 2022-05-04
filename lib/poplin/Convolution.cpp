@@ -1621,6 +1621,30 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
   return output;
 }
 
+Tensor createConvOutput(poplar::Graph &graph, const ConvParams &params,
+                        const poplar::DebugContext &debugContext,
+                        const poplar::OptionFlags &options,
+                        PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache),
+                                 "createConvOutput");
+
+  // temporary, sub-optimal implementation before partial creation is decoupled
+  // from the rest of the convolution construction code. See T61567.
+  std::vector<std::size_t> outShape = {params.batchSize,
+                                       params.numConvGroups *
+                                           params.outputChannelsPerConvGroup};
+  const auto &outFieldShape = params.getOutputFieldShape();
+  outShape.insert(std::end(outShape), std::begin(outFieldShape),
+                  std::end(outFieldShape));
+
+  auto out = graph.addVariable(params.outputType, outShape, {di});
+  poputil::mapTensorLinearly(graph, out);
+
+  di.addOutput(out);
+  return out;
+}
+
 static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
                       const poplar::Tensor &out,
                       const boost::optional<Plan> &plan) {
@@ -2840,6 +2864,19 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   cpt.lower(graph, prog, plan, options.insertTransformsCycleCountProgs, {di});
   di.addOutput(out);
   return out;
+}
+
+void convolutionWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
+                           const poplar::Tensor &weights,
+                           const poplar::Tensor &out, const ConvParams &params,
+                           bool transposeAndFlipWeights,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext,
+                           const poplar::OptionFlags &options,
+                           PlanningCache *cache) {
+  auto out_ = convolution(graph, in, weights, params, transposeAndFlipWeights,
+                          prog, debugContext, options, cache);
+  prog.add(Copy(out_, out));
 }
 
 static uint64_t getFlops(const ConvParams &params) {

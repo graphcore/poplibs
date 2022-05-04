@@ -145,6 +145,7 @@ class Params:
                    shape_to_str(self.kernel_padding_lower))
         cmd.append('--stride=' + shape_to_str(self.stride))
         cmd.append('--use-create-input=' + str(self.use_create_input))
+        cmd.append('--use-create-output=' + str(self.use_create_output))
         cmd.append('--preplan=' + str(self.preplan))
         cmd.append('--convolution-options=' + json.dumps(self.conv_options))
         return cmd
@@ -254,6 +255,7 @@ def make_params(args):
     if args.partials_type is not 'any':
         params.conv_options['partialsType'] = args.partials_type
     params.use_create_input = random.choice([True, False])
+    params.use_create_output = random.choice([True, False])
     params.preplan = random.choice([True, False])
     params.conv_options['remapOutputTensor'] = random.choice([True, False])
     params.conv_options['use128BitConvUnitLoad'] = random.choice([True, False])

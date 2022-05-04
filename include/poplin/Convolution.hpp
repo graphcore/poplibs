@@ -297,6 +297,27 @@ poplar::Tensor createInput(poplar::Graph &graph, const ConvParams &params,
                            const poplar::OptionFlags &options = {},
                            PlanningCache *cache = nullptr);
 
+/** Create an output tensor for a convolution.
+ *
+ * Use this when you need to create an output data tensor for a convolution. The
+ * same set of parameters which will be passed to the convolution() should also
+ * be passed to createInput().
+ *
+ * The returned tensor has the shape [B x inChans x H x W].
+ *
+ * \param graph         The tensor will be added to this graph.
+ * \param params        Parameters as passed to the target convolution.
+ * \param debugContext  Debugging name for the tensor.
+ * \param options       Options controlling the implementation. See
+ *                      createWeights().
+ * \param cache         Optional pointer to planning cache to use.
+ * \return              The allocated output tensor.
+ */
+poplar::Tensor createConvOutput(poplar::Graph &graph, const ConvParams &params,
+                                const poplar::DebugContext &debugContext = {},
+                                const poplar::OptionFlags &options = {},
+                                PlanningCache *cache = nullptr);
+
 /** Convolve an input with a set of weights.
  *
  * The input tensor is in the form [B x inChans x H x W], and can be allocated
@@ -324,6 +345,38 @@ poplar::Tensor createInput(poplar::Graph &graph, const ConvParams &params,
 poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
                            const poplar::Tensor &weights,
                            const ConvParams &params,
+                           bool transposeAndFlipWeights,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext = {},
+                           const poplar::OptionFlags &options = {},
+                           PlanningCache *cache = nullptr);
+
+/** Convolve an input with a set of weights into a pre-allocated output tensor.
+ *
+ * The output tensor is in the form [B x OutChans x H x W], and can be allocated
+ * using createConvOutput().  The weights tensor is in the form
+ * [convGroups x outChansPerConvGroup x inChansPerConvGroup x H x W], and can be
+ * allocated using createWeights(). The input tensor is in the form
+ * [B x inChans x H x W], and can be allocated using createInput().
+ *
+ * Padding and striding are specified in the ConvParams structure.
+ *
+ * \param graph                   The graph that the operation will be added to.
+ * \param in                      Input data tensor.
+ * \param weights                 Weights tensor.
+ * \param out                     Pre-allocated output tensor.
+ * \param params                  Parameters for the form of the convolution.
+ * \param transposeAndFlipWeights For the weight update pass.
+ * \param prog                    Poplar program sequence to append the
+ *                                operation onto.
+ * \param debugContext            Optional debug information.
+ * \param options                 Options that control the implementation. See
+ *                                createWeights().
+ * \param cache                   Optional pointer to planning cache to use.
+ */
+void convolutionWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
+                           const poplar::Tensor &weights,
+                           const poplar::Tensor &out, const ConvParams &params,
                            bool transposeAndFlipWeights,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},

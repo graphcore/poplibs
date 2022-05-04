@@ -73,6 +73,26 @@ std::ostream &operator<<(std::ostream &os, const MatrixOp &op) {
   return os << asString(op);
 }
 
+static Tensor groupedMatMul(bool useCreateOutput, poplar::Graph &graph,
+                            const poplar::Tensor &A, const poplar::Tensor &B,
+                            poplar::program::Sequence &prog,
+                            const poplar::Type &outputType,
+                            const poplar::DebugContext &debugContext,
+                            const poplar::OptionFlags &options,
+                            matmul::PlanningCache *cache) {
+  if (useCreateOutput) {
+    auto out =
+        createMatMulGroupedOutput(graph, A.elementType(), outputType, A.shape(),
+                                  B.shape(), debugContext, options, cache);
+    matMulGroupedWithOutput(graph, A, B, out, prog, debugContext, options,
+                            cache);
+    return out;
+  } else {
+    return matMulGrouped(graph, A, B, prog, outputType, debugContext, options,
+                         cache);
+  }
+}
+
 const OptionFlags defaultEngineOptions;
 
 int main(int argc, char **argv) {
@@ -98,6 +118,7 @@ int main(int argc, char **argv) {
   std::string planConstraintsFile;
   bool remapOutputTensor;
   bool enableFastReduce;
+  bool useCreateOutput;
 
   QuarterMetadata::Format fp8FormatA = QuarterMetadata::Format::F152;
   QuarterMetadata::Format fp8FormatB = QuarterMetadata::Format::F152;
@@ -199,6 +220,10 @@ int main(int argc, char **argv) {
        ->default_value(planConstraintsFile),
      "Constraints on the chosen convolution plan as a file "
      "path to a JSON file")
+     ("use-create-output",
+     po::value<bool>(&useCreateOutput)->default_value(false),
+     "Use the output allocation function to create an output tensor "
+     "before matmul")
   ;
   // clang-format on
   po::variables_map vm;
@@ -326,8 +351,8 @@ int main(int argc, char **argv) {
   auto matLhs = transposeA ? matA.dimShufflePartial({1, 2}, {2, 1}) : matA;
   auto matRhs = transposeB ? matB.dimShufflePartial({1, 2}, {2, 1}) : matB;
 
-  auto matAxB = matMulGrouped(graph, matLhs, matRhs, prog, outputType,
-                              "op(A) x op(B)", mmOpt, &cache);
+  auto matAxB = groupedMatMul(useCreateOutput, graph, matLhs, matRhs, prog,
+                              outputType, "op(A) x op(B)", mmOpt, &cache);
 
   auto matC = graph.clone(outputType, matAxB, "matC");
   // inner repeat loop copies the source and performs the multiply and
