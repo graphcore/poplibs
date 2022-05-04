@@ -2748,7 +2748,7 @@ add_multitarget_test(
                  --tiles-per-ipu=8
                  VARIANTS "Sim2;IpuModel2")
 
-                 
+
 
 add_multitarget_test(
          NAME conv1d_simple
@@ -2921,23 +2921,6 @@ add_multitarget_test(
                 --kernel-dilation={3,2}
                 --tiles-per-ipu=12
                 VARIANTS ${TimesOutOnSim})
-
-add_multitarget_test(
-         NAME conv_flattening
-         COMMAND single_conv_layer
-                --input-channels=46
-                --output-channels=4
-                --fwd-plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/zero_conv_flattening.json
-                --field={8,1}
-                --in-dilation={1,2}
-                --padding-upper={3,2}
-                --padding-lower={1,1}
-                --kernel-size={1,1}
-                --kernel-dilation={1,2}
-                --kernel-padding-lower={2,1}
-                --stride={1,1}
-                --tiles-per-ipu=20
-                VARIANTS "Hw;${IPUMODEL_VARIANTS}")
 
 add_multitarget_test(
          NAME conv3x3_kernel_padding_amp
