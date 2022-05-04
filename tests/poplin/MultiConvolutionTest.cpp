@@ -24,12 +24,18 @@ BOOST_AUTO_TEST_CASE(DifferentDataTypes) {
   ConvParams convB(FLOAT, 4, {5, 5}, {1, 1}, 11, 5, 1);
   ConvParams convC(QUARTER, HALF, 4, {8, 8}, {4, 4}, 1, 1, 10);
 
+  const auto testQuarter =
+      TEST_TARGET == DeviceType::Sim21 || TEST_TARGET == DeviceType::IpuModel21;
+
   auto args = [&](const std::string &suffix) {
-    return std::vector<multiconv::CreateTensorArgs>{
+    auto result = std::vector<multiconv::CreateTensorArgs>{
         {convA, {}, "convA_" + suffix},
         {convB, {}, "convB_" + suffix},
-        {convC, {}, "convC_" + suffix},
     };
+    if (testQuarter) {
+      result.push_back({convC, {}, "convC_" + suffix});
+    }
+    return result;
   };
 
   auto device = createTestDevice(TEST_TARGET, 1, 64);
@@ -56,12 +62,16 @@ BOOST_AUTO_TEST_CASE(DifferentDataTypes) {
     ws.push_back(
         multiconv::createWeights(graph, weights, i, multiConvOptions, &cache));
   }
-
-  const std::vector<multiconv::ConvolutionArgs> convArgs{
-      {is[0], ws[0], convA, {}},
-      {is[1], ws[1], convB, {}},
-      {is[2], ws[2], convC, {}},
-  };
+  const auto convArgs = [&]() {
+    std::vector<multiconv::ConvolutionArgs> convArgs{
+        {is[0], ws[0], convA, {}},
+        {is[1], ws[1], convB, {}},
+    };
+    if (testQuarter) {
+      convArgs.push_back({is[2], ws[2], convC, {}});
+    }
+    return convArgs;
+  }();
 
   Sequence prog;
   std::vector<Tensor> outs;
