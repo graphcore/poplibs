@@ -93,7 +93,7 @@ std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << opts.gatherConvOutput << "\n";
   os << "        experimental.slicVmac16              ";
   os << opts.experimentalSlicVmac16 << "\n";
-  os << "        disableSRForAMPVertices";
+  os << "        disableSRForAMPVertices              ";
   os << opts.disableSRForAMPVertices;
   return os;
 }
