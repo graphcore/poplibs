@@ -26,6 +26,7 @@ add_library(popops SHARED
   ExpressionGenerator.hpp
   ExprOpUtil.cpp
   ExprOpUtil.hpp
+  ExprOpUtils.cpp
   Fill.cpp
   FillModelling.cpp
   FillModelling.hpp
@@ -73,6 +74,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Expr.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/ExprOpUtils.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Fill.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/GatherStatistics.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/NaN.hpp
