@@ -54,75 +54,77 @@ using ComputeType =
                          std::is_same<float, ScaleType>::value)),
                        float, AType>;
 
-template <typename AType, typename BType, typename ScaleType, bool isConstant,
+template <typename AType, typename BType, typename ScaleType,
           bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] ScaledAddSupervisor
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+    : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
   ScaledAddSupervisor();
   using ComputeType = ComputeType<AType, BType, ScaleType>;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(!std::is_integral_v<AType>);
 
   InOut<Vector<AType, ONE_PTR, 8, memConstraints>> A;
   Input<Vector<BType, ONE_PTR, 8>> B;
   InputScaleType<ScaleType> scaleB;
   unsigned short size;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] += static_cast<AType>(static_cast<ComputeType>(scaleB[0]) *
-                                 static_cast<ComputeType>(B[i]));
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         ++i, idx += CTXT_WORKERS) {
+      A[idx] += static_cast<AType>(static_cast<ComputeType>(scaleB[0]) *
+                                   static_cast<ComputeType>(B[idx]));
     }
     return true;
   }
 };
 
 template <typename AType, typename BType, typename ScaleType>
-class ScaledAddSupervisor<AType, BType, ScaleType, false, false>
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+class ScaledAddSupervisor<AType, BType, ScaleType, false> : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
   ScaledAddSupervisor();
   using ComputeType = ComputeType<AType, BType, ScaleType>;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(!std::is_integral_v<AType>);
 
   InOut<Vector<AType, ONE_PTR, 8, false>> A;
   Input<Vector<BType, ONE_PTR, 8>> B;
   InputScaleType<ScaleType> scaleB;
   unsigned short size;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] += static_cast<AType>(static_cast<ComputeType>(scaleB[0]) *
-                                 static_cast<ComputeType>(B[i]));
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    // Where the vertex is used on IPU (for integral types) loading scale
+    // avoids re-reading every loop
+    const auto scale = static_cast<ComputeType>(scaleB[0]);
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         i++, idx += CTXT_WORKERS) {
+      A[idx] += static_cast<AType>(scale * static_cast<ComputeType>(B[idx]));
     }
     return true;
   }
 };
 
-template class ScaledAddSupervisor<float, float, float, false, true>;
-template class ScaledAddSupervisor<float, float, float, false, false>;
-template class ScaledAddSupervisor<half, half, half, false, true>;
-template class ScaledAddSupervisor<half, half, half, false, false>;
+template class ScaledAddSupervisor<float, float, float, true>;
+template class ScaledAddSupervisor<float, float, float, false>;
+template class ScaledAddSupervisor<half, half, half, true>;
+template class ScaledAddSupervisor<half, half, half, false>;
 
-template class ScaledAddSupervisor<float, half, half, false, false>;
-template class ScaledAddSupervisor<float, half, float, false, false>;
+template class ScaledAddSupervisor<float, half, half, false>;
+template class ScaledAddSupervisor<float, half, float, false>;
 
-template class ScaledAddSupervisor<half, float, half, false, false>;
-template class ScaledAddSupervisor<half, float, float, false, false>;
+template class ScaledAddSupervisor<half, float, half, false>;
+template class ScaledAddSupervisor<half, float, float, false>;
 
 #define DEF_SCALED_ADD_FLOAT_SCALE_SUPER_VERTEX(CONSTRAINTS, IS_CONSTRAINED)   \
   template <>                                                                  \
-  class CONSTRAINTS                                                            \
-      ScaledAddSupervisor<half, half, float, false, IS_CONSTRAINED>            \
-      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+  class CONSTRAINTS ScaledAddSupervisor<half, half, float, IS_CONSTRAINED>     \
+      : public MultiVertex {                                                   \
     static const bool needsAlignWorkers = false;                               \
                                                                                \
   public:                                                                      \
@@ -135,17 +137,18 @@ template class ScaledAddSupervisor<half, float, float, false, false>;
     unsigned short size;                                                       \
     const float tolerance;                                                     \
                                                                                \
-    bool compute() {                                                           \
-      unsigned limI = size;                                                    \
+    bool compute(unsigned wid) {                                               \
+      unsigned limI = divideWork(size, 0, wid);                                \
+      unsigned idx = wid;                                                      \
       if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB[0],             \
                                                         tolerance)) {          \
         const auto halfScale = static_cast<half>(scaleB[0]);                   \
-        for (unsigned i = 0; i < limI; ++i) {                                  \
-          A[i] += halfScale * B[i];                                            \
+        for (unsigned i = 0; i < limI; ++i, idx += CTXT_WORKERS) {             \
+          A[idx] += halfScale * B[idx];                                        \
         }                                                                      \
       } else {                                                                 \
-        for (unsigned i = 0; i < limI; ++i) {                                  \
-          A[i] += static_cast<half>(scaleB[0] * static_cast<float>(B[i]));     \
+        for (unsigned i = 0; i < limI; ++i, idx += CTXT_WORKERS) {             \
+          A[idx] += static_cast<half>(scaleB[0] * static_cast<float>(B[idx])); \
         }                                                                      \
       }                                                                        \
       return true;                                                             \
@@ -158,10 +161,10 @@ DEF_SCALED_ADD_FLOAT_SCALE_SUPER_VERTEX(, false)
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it
-template class ScaledAddSupervisor<int, int, int, false, false>;
-template class ScaledAddSupervisor<unsigned, unsigned, unsigned, false, false>;
+template class ScaledAddSupervisor<int, int, int, false>;
+template class ScaledAddSupervisor<unsigned, unsigned, unsigned, false>;
 
-template <typename AType, typename BType, typename ScaleType, bool isConstant,
+template <typename AType, typename BType, typename ScaleType,
           bool memConstraints>
 class [[poplar::constraint("elem(**A) != elem(**B)")]] ScaledAdd2D
     : public Vertex {
@@ -191,7 +194,7 @@ public:
 };
 
 template <typename AType, typename BType, typename ScaleType>
-class ScaledAdd2D<AType, BType, ScaleType, false, false> : public Vertex {
+class ScaledAdd2D<AType, BType, ScaleType, false> : public Vertex {
 public:
   ScaledAdd2D();
   using ComputeType = ComputeType<AType, BType, ScaleType>;
@@ -216,21 +219,21 @@ public:
   }
 };
 
-template class ScaledAdd2D<float, float, float, false, true>;
-template class ScaledAdd2D<float, float, float, false, false>;
+template class ScaledAdd2D<float, float, float, true>;
+template class ScaledAdd2D<float, float, float, false>;
 
-template class ScaledAdd2D<half, half, half, false, true>;
-template class ScaledAdd2D<half, half, half, false, false>;
+template class ScaledAdd2D<half, half, half, true>;
+template class ScaledAdd2D<half, half, half, false>;
 
-template class ScaledAdd2D<half, float, float, false, false>;
-template class ScaledAdd2D<half, float, half, false, false>;
+template class ScaledAdd2D<half, float, float, false>;
+template class ScaledAdd2D<half, float, half, false>;
 
-template class ScaledAdd2D<float, half, half, false, false>;
-template class ScaledAdd2D<float, half, float, false, false>;
+template class ScaledAdd2D<float, half, half, false>;
+template class ScaledAdd2D<float, half, float, false>;
 
 #define DEF_SCALED_ADD_FLOAT_SCALE_2D_VERTEX(CONSTRAINTS, IS_CONSTRAINED)      \
   template <>                                                                  \
-  class CONSTRAINTS ScaledAdd2D<half, half, float, false, IS_CONSTRAINED>      \
+  class CONSTRAINTS ScaledAdd2D<half, half, float, IS_CONSTRAINED>             \
       : public Vertex {                                                        \
   public:                                                                      \
     ScaledAdd2D();                                                             \
@@ -274,27 +277,31 @@ DEF_SCALED_ADD_FLOAT_SCALE_2D_VERTEX(, false)
 
 // No memory constraints for integral versions as the code doesn't make
 // use of it
-template class ScaledAdd2D<int, int, int, false, false>;
-template class ScaledAdd2D<unsigned, unsigned, unsigned, false, false>;
+template class ScaledAdd2D<int, int, int, false>;
+template class ScaledAdd2D<unsigned, unsigned, unsigned, false>;
 
 template <typename AType, typename BType, typename ScaleType,
           bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] ScaledSubtractSupervisor
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+    : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(!is_integral_v<AType>);
 
   InOut<Vector<AType, ONE_PTR, 8, memConstraints>> A;
   Input<Vector<BType, ONE_PTR, 8>> B;
   InputScaleType<ScaleType> scaleB;
   unsigned short size;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] -= scaleB[0] * static_cast<AType>(B[i]);
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    // Where the vertex is used on IPU (for integral types) loading scale
+    // avoids re-reading every loop
+    const auto scale = scaleB[0];
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         i++, idx += CTXT_WORKERS) {
+      A[idx] -= scale * static_cast<AType>(B[idx]);
     }
     return true;
   }
@@ -302,21 +309,25 @@ public:
 
 template <typename AType, typename BType>
 class ScaledSubtractSupervisor<AType, BType, AType, false>
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+    : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(!is_integral_v<AType>);
 
   InOut<Vector<AType, ONE_PTR, 8>> A;
   Input<Vector<BType, ONE_PTR, 8>> B;
   InputScaleType<AType> scaleB;
   unsigned short size;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] -= scaleB[0] * static_cast<AType>(B[i]);
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    // Where the vertex is used on IPU (for integral types) loading scale
+    // avoids re-reading every loop
+    const auto scale = scaleB[0];
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         i++, idx += CTXT_WORKERS) {
+      A[idx] -= scale * static_cast<AType>(B[idx]);
     }
     return true;
   }
@@ -326,7 +337,7 @@ public:
   template <>                                                                  \
   class CONSTRAINTS                                                            \
       ScaledSubtractSupervisor<half, half, float, IS_CONSTRAINED>              \
-      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+      : public MultiVertex {                                                   \
     static const bool needsAlignWorkers = false;                               \
                                                                                \
   public:                                                                      \
@@ -339,17 +350,18 @@ public:
     unsigned short size;                                                       \
     const float tolerance;                                                     \
                                                                                \
-    bool compute() {                                                           \
-      unsigned limI = size;                                                    \
+    bool compute(unsigned wid) {                                               \
+      unsigned limI = divideWork(size, 0, wid);                                \
+      unsigned idx = wid;                                                      \
       if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB[0],             \
                                                         tolerance)) {          \
         const auto halfScale = static_cast<half>(scaleB[0]);                   \
-        for (unsigned i = 0; i < limI; ++i) {                                  \
-          A[i] -= halfScale * B[i];                                            \
+        for (unsigned i = 0; i < limI; ++i, idx += CTXT_WORKERS) {             \
+          A[idx] -= halfScale * B[idx];                                        \
         }                                                                      \
       } else {                                                                 \
-        for (unsigned i = 0; i < limI; ++i) {                                  \
-          A[i] -= static_cast<half>(scaleB[0] * static_cast<float>(B[i]));     \
+        for (unsigned i = 0; i < limI; ++i, idx += CTXT_WORKERS) {             \
+          A[idx] -= static_cast<half>(scaleB[0] * static_cast<float>(B[idx])); \
         }                                                                      \
       }                                                                        \
       return true;                                                             \
@@ -475,10 +487,9 @@ template class ScaledSubtract2D<half, half, false>;
 template class ScaledSubtract2D<int, int, false>;
 template class ScaledSubtract2D<unsigned, unsigned, false>;
 
-template <typename DataType, typename ScaleType, bool isConstant,
-          bool memConstraints>
+template <typename DataType, typename ScaleType, bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] aXPlusbYSupervisor
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+    : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -491,18 +502,18 @@ public:
   unsigned short size;
   InputScaleType<DataType> scaleB;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] = scaleA[0] * A[i] + scaleB[0] * B[i];
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         ++i, idx += CTXT_WORKERS) {
+      A[idx] = scaleA[0] * A[idx] + scaleB[0] * B[idx];
     }
     return true;
   }
 };
 
 template <typename DataType>
-class aXPlusbYSupervisor<DataType, DataType, false, false>
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+class aXPlusbYSupervisor<DataType, DataType, false> : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -515,27 +526,28 @@ public:
   unsigned short size;
   InputScaleType<DataType> scaleB;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] = scaleA[0] * A[i] + scaleB[0] * B[i];
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         ++i, idx += CTXT_WORKERS) {
+      A[idx] = scaleA[0] * A[idx] + scaleB[0] * B[idx];
     }
     return true;
   }
 };
 
-template class aXPlusbYSupervisor<half, half, false, true>;
-template class aXPlusbYSupervisor<half, half, false, false>;
+template class aXPlusbYSupervisor<half, half, true>;
+template class aXPlusbYSupervisor<half, half, false>;
 
-template class aXPlusbYSupervisor<float, float, false, false>;
+template class aXPlusbYSupervisor<float, float, false>;
 
 // This is for the vertex having data=HALF; scale values=FLOAT. This vertex
 // has an extra 'tolerance' field, and extra code to check the accuracy of
 // the scale values
 #define DEF_AXPLUSBY_MIXED_SUPER(CONSTRAINTS, IS_CONSTRAINED)                  \
   template <>                                                                  \
-  class CONSTRAINTS aXPlusbYSupervisor<half, float, false, IS_CONSTRAINED>     \
-      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+  class CONSTRAINTS aXPlusbYSupervisor<half, float, IS_CONSTRAINED>            \
+      : public MultiVertex {                                                   \
     static const bool needsAlignWorkers = false;                               \
                                                                                \
   public:                                                                      \
@@ -549,19 +561,20 @@ template class aXPlusbYSupervisor<float, float, false, false>;
     InputScaleType<float> scaleB;                                              \
     float tolerance;                                                           \
                                                                                \
-    bool compute() {                                                           \
+    bool compute(unsigned wid) {                                               \
       bool castScalesToHalf = !checkAccuracyWhenCastFloatV2ToHalf(             \
           scaleA[0], scaleB[0], tolerance);                                    \
-      unsigned limI = size;                                                    \
+      unsigned limI = divideWork(size, 0, wid);                                \
+      unsigned idx = wid;                                                      \
       if (castScalesToHalf) {                                                  \
-        for (unsigned i = 0; i < limI; ++i) {                                  \
-          A[i] = static_cast<half>(scaleA[0]) * A[i] +                         \
-                 static_cast<half>(scaleB[0]) * B[i];                          \
+        for (unsigned i = 0; i < limI; ++i, idx += CTXT_WORKERS) {             \
+          A[idx] = static_cast<half>(scaleA[0]) * A[idx] +                     \
+                   static_cast<half>(scaleB[0]) * B[idx];                      \
         }                                                                      \
       } else {                                                                 \
-        for (unsigned i = 0; i < limI; ++i) {                                  \
-          A[i] = scaleA[0] * static_cast<float>(A[i]) +                        \
-                 scaleB[0] * static_cast<float>(B[i]);                         \
+        for (unsigned i = 0; i < limI; ++i, idx += CTXT_WORKERS) {             \
+          A[idx] = scaleA[0] * static_cast<float>(A[idx]) +                    \
+                   scaleB[0] * static_cast<float>(B[idx]);                     \
         }                                                                      \
       }                                                                        \
       return true;                                                             \
@@ -571,8 +584,7 @@ template class aXPlusbYSupervisor<float, float, false, false>;
 DEF_AXPLUSBY_MIXED_SUPER([[poplar::constraint("elem(*A) != elem(*B)")]], true)
 DEF_AXPLUSBY_MIXED_SUPER(, false)
 
-template <typename DataType, typename ScaleType, bool isConstant,
-          bool memConstraints>
+template <typename DataType, typename ScaleType, bool memConstraints>
 class [[poplar::constraint("elem(**A) != elem(**B)")]] aXPlusbY2D
     : public Vertex {
 public:
@@ -598,7 +610,7 @@ public:
   }
 };
 template <typename DataType>
-class aXPlusbY2D<DataType, DataType, false, false> : public Vertex {
+class aXPlusbY2D<DataType, DataType, false> : public Vertex {
 public:
   aXPlusbY2D();
   IS_EXTERNAL_CODELET(true);
@@ -622,18 +634,17 @@ public:
   }
 };
 
-template class aXPlusbY2D<half, half, false, true>;
-template class aXPlusbY2D<half, half, false, false>;
+template class aXPlusbY2D<half, half, true>;
+template class aXPlusbY2D<half, half, false>;
 
-template class aXPlusbY2D<float, float, false, false>;
+template class aXPlusbY2D<float, float, false>;
 
 // This is for the vertex having data=HALF; scale values=FLOAT. This vertex
 // has an extra 'tolerance' field, and extra code to check the accuracy of
 // the scale values
 #define DEF_AXPLUSBY_2D_MIXED(CONSTRAINTS, IS_CONSTRAINED)                     \
   template <>                                                                  \
-  class CONSTRAINTS aXPlusbY2D<half, float, false, IS_CONSTRAINED>             \
-      : public Vertex {                                                        \
+  class CONSTRAINTS aXPlusbY2D<half, float, IS_CONSTRAINED> : public Vertex {  \
   public:                                                                      \
     aXPlusbY2D();                                                              \
     IS_EXTERNAL_CODELET(true);                                                 \
@@ -692,10 +703,9 @@ public:
   }
 };
 
-template <typename DataType, typename ScaleType, bool isConstant,
-          bool memConstraints>
+template <typename DataType, typename ScaleType, bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] aXMinusbYSupervisor
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+    : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -708,18 +718,18 @@ public:
   unsigned short size;
   InputScaleType<DataType> scaleB;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] = scaleA[0] * A[i] - scaleB[0] * B[i];
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         ++i, idx += CTXT_WORKERS) {
+      A[idx] = scaleA[0] * A[idx] - scaleB[0] * B[idx];
     }
     return true;
   }
 };
 
 template <typename DataType>
-class aXMinusbYSupervisor<DataType, DataType, false, false>
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+class aXMinusbYSupervisor<DataType, DataType, false> : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -732,24 +742,25 @@ public:
   unsigned short size;
   InputScaleType<DataType> scaleB;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] = scaleA[0] * A[i] - scaleB[0] * B[i];
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         ++i, idx += CTXT_WORKERS) {
+      A[idx] = scaleA[0] * A[idx] - scaleB[0] * B[idx];
     }
     return true;
   }
 };
 
-template class aXMinusbYSupervisor<half, half, false, true>;
-template class aXMinusbYSupervisor<half, half, false, false>;
+template class aXMinusbYSupervisor<half, half, true>;
+template class aXMinusbYSupervisor<half, half, false>;
 
-template class aXMinusbYSupervisor<float, float, false, false>;
+template class aXMinusbYSupervisor<float, float, false>;
 
 #define DEF_AXMINUSBY_MIXED_SUPER_VERTEX(CONSTRAINTS, IS_CONSTRAINED)          \
   template <>                                                                  \
-  class CONSTRAINTS aXMinusbYSupervisor<half, float, false, IS_CONSTRAINED>    \
-      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+  class CONSTRAINTS aXMinusbYSupervisor<half, float, IS_CONSTRAINED>           \
+      : public MultiVertex {                                                   \
     static const bool needsAlignWorkers = false;                               \
                                                                                \
   public:                                                                      \
@@ -763,20 +774,21 @@ template class aXMinusbYSupervisor<float, float, false, false>;
     InputScaleType<float> scaleB;                                              \
     float tolerance;                                                           \
                                                                                \
-    bool compute() {                                                           \
+    bool compute(unsigned wid) {                                               \
       bool castScalesToHalf = !checkAccuracyWhenCastFloatV2ToHalf(             \
           scaleA[0], scaleB[0], tolerance);                                    \
                                                                                \
-      unsigned limI = size;                                                    \
+      unsigned limI = divideWork(size, 0, wid);                                \
+      unsigned idx = wid;                                                      \
       if (castScalesToHalf) {                                                  \
-        for (unsigned i = 0; i < limI; ++i) {                                  \
-          A[i] = static_cast<half>(scaleA[0]) * A[i] -                         \
-                 static_cast<half>(scaleB[0]) * B[i];                          \
+        for (unsigned i = 0; i < limI; ++i, idx += CTXT_WORKERS) {             \
+          A[idx] = static_cast<half>(scaleA[0]) * A[idx] -                     \
+                   static_cast<half>(scaleB[0]) * B[idx];                      \
         }                                                                      \
       } else {                                                                 \
-        for (unsigned i = 0; i < limI; ++i) {                                  \
-          A[i] = scaleA[0] * static_cast<float>(A[i]) -                        \
-                 scaleB[0] * static_cast<float>(B[i]);                         \
+        for (unsigned i = 0; i < limI; ++i, idx += CTXT_WORKERS) {             \
+          A[idx] = scaleA[0] * static_cast<float>(A[idx]) -                    \
+                   scaleB[0] * static_cast<float>(B[idx]);                     \
         }                                                                      \
       }                                                                        \
       return true;                                                             \
@@ -787,8 +799,7 @@ DEF_AXMINUSBY_MIXED_SUPER_VERTEX([[poplar::constraint("elem(*A) != elem(*B)")]],
                                  true)
 DEF_AXMINUSBY_MIXED_SUPER_VERTEX(, false)
 
-template <typename DataType, typename ScaleType, bool isConstant,
-          bool memConstraints>
+template <typename DataType, typename ScaleType, bool memConstraints>
 class [[poplar::constraint("elem(**A) != elem(**B)")]] aXMinusbY2D
     : public Vertex {
 public:
@@ -815,7 +826,7 @@ public:
 };
 #define DEF_AXMINUSBY_2D_VERTEX(CONSTRAINTS, IS_CONSTRAINED)                   \
   template <typename DataType>                                                 \
-  class CONSTRAINTS aXMinusbY2D<DataType, DataType, false, IS_CONSTRAINED>     \
+  class CONSTRAINTS aXMinusbY2D<DataType, DataType, IS_CONSTRAINED>            \
       : public Vertex {                                                        \
   public:                                                                      \
     aXMinusbY2D();                                                             \
@@ -843,18 +854,17 @@ public:
 DEF_AXMINUSBY_2D_VERTEX([[poplar::constraint("elem(**A) != elem(**B)")]], true)
 DEF_AXMINUSBY_2D_VERTEX(, false)
 
-template class aXMinusbY2D<half, half, false, true>;
-template class aXMinusbY2D<half, half, false, false>;
+template class aXMinusbY2D<half, half, true>;
+template class aXMinusbY2D<half, half, false>;
 
-template class aXMinusbY2D<float, float, false, false>;
+template class aXMinusbY2D<float, float, false>;
 
 // This is for the vertex having data=HALF; scale values=FLOAT. This vertex
 // has an extra 'tolerance' field, and extra code to check the accuracy of
 // the scale values.
 #define DEF_AXMINUSBY_2D_MIXED_VERTEX(CONSTRAINTS, IS_CONSTRAINED)             \
   template <>                                                                  \
-  class CONSTRAINTS aXMinusbY2D<half, float, false, IS_CONSTRAINED>            \
-      : public Vertex {                                                        \
+  class CONSTRAINTS aXMinusbY2D<half, float, IS_CONSTRAINED> : public Vertex { \
   public:                                                                      \
     aXMinusbY2D();                                                             \
     IS_EXTERNAL_CODELET(true);                                                 \
@@ -893,9 +903,9 @@ DEF_AXMINUSBY_2D_MIXED_VERTEX([[poplar::constraint("elem(**A) != elem(**B)")]],
                               true)
 DEF_AXMINUSBY_2D_MIXED_VERTEX(, false)
 
-template <typename InType, bool isConstant, bool memConstraints>
+template <typename InType, bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] XMinusaXPlusbYSupervisor
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+    : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -908,18 +918,18 @@ public:
   unsigned short size;
   InputScaleType<InType> scaleB;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] = A[i] - scaleA[0] * A[i] + scaleB[0] * B[i];
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         ++i, idx += CTXT_WORKERS) {
+      A[idx] = A[idx] - scaleA[0] * A[idx] + scaleB[0] * B[idx];
     }
     return true;
   }
 };
 
 template <typename InType>
-class XMinusaXPlusbYSupervisor<InType, false, false>
-    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
+class XMinusaXPlusbYSupervisor<InType, false> : public MultiVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -932,19 +942,20 @@ public:
   unsigned short size;
   InputScaleType<InType> scaleB;
 
-  bool compute() {
-    unsigned limI = size;
-    for (unsigned i = 0; i < limI; ++i) {
-      A[i] = A[i] - scaleA[0] * A[i] + scaleB[0] * B[i];
+  bool compute(unsigned wid) {
+    unsigned idx = wid;
+    for (unsigned i = 0; i < divideWork(size, 0, wid);
+         ++i, idx += CTXT_WORKERS) {
+      A[idx] = A[idx] - scaleA[0] * A[idx] + scaleB[0] * B[idx];
     }
     return true;
   }
 };
 
-template class XMinusaXPlusbYSupervisor<half, false, true>;
-template class XMinusaXPlusbYSupervisor<half, false, false>;
+template class XMinusaXPlusbYSupervisor<half, true>;
+template class XMinusaXPlusbYSupervisor<half, false>;
 
-template <typename InType, bool isConstant, bool memConstraints>
+template <typename InType, bool memConstraints>
 class [[poplar::constraint("elem(**A) != elem(**B)")]] XMinusaXPlusbY2D
     : public Vertex {
 public:
@@ -971,7 +982,7 @@ public:
 };
 
 template <typename InType>
-class XMinusaXPlusbY2D<InType, false, false> : public Vertex {
+class XMinusaXPlusbY2D<InType, false> : public Vertex {
 public:
   XMinusaXPlusbY2D();
   IS_EXTERNAL_CODELET(true);
@@ -995,6 +1006,6 @@ public:
   }
 };
 
-template class XMinusaXPlusbY2D<half, false, true>;
-template class XMinusaXPlusbY2D<half, false, false>;
+template class XMinusaXPlusbY2D<half, true>;
+template class XMinusaXPlusbY2D<half, false>;
 } // namespace popops

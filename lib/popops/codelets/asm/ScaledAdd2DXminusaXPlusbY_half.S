@@ -6,9 +6,9 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "CommonPoplibsMacros.h.S"
 
-#define VERTEX_XMINUSAXPLUSBY_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_false_true
+#define VERTEX_XMINUSAXPLUSBY_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_true
 
-#define VERTEX_XMINUSAXPLUSBY_SLOW __runCodelet_popops__XMinusaXPlusbY2D___half_false_false
+#define VERTEX_XMINUSAXPLUSBY_SLOW __runCodelet_popops__XMinusaXPlusbY2D___half_false
 
 // This is used as an entry point from the half, half, float version, when it
 // is decided that the float scale is OK when cast to half

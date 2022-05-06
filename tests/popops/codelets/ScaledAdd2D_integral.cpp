@@ -98,7 +98,7 @@ const int k = 9;
 
 template <typename T>
 void testScaledAdd2D(const char *vertex, const Type &type,
-                     const bool &constantFactor, const bool &doSubtract) {
+                     const bool &doSubtract) {
   const TestData<T> testData;
   const auto &data = testData.data;
   const auto &deltas = testData.deltas;
@@ -124,14 +124,10 @@ void testScaledAdd2D(const char *vertex, const Type &type,
   graph.setFieldSize(v["A"], data.size());
   graph.setFieldSize(v["B"], deltas.size());
 
-  if (constantFactor) {
-    graph.setInitialValue(v["scaleB"], k);
-  } else {
-    auto factorTensor = graph.addVariable(type, {});
-    graph.setTileMapping(factorTensor, 0);
-    graph.connect(v["scaleB"], factorTensor);
-    graph.setInitialValue(factorTensor, k);
-  }
+  auto factorTensor = graph.addVariable(type, {});
+  graph.setTileMapping(factorTensor, 0);
+  graph.connect(v["scaleB"], factorTensor);
+  graph.setInitialValue(factorTensor, k);
   // create tensors for each of the input rows.
   assert(data.size() == deltas.size());
   for (unsigned i = 0; i < data.size(); ++i) {
@@ -188,8 +184,7 @@ void testScaledAdd2D(const char *vertex, const Type &type,
 BOOST_AUTO_TEST_SUITE(ScaledAdd2DIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DIntTensor) {
-  testScaledAdd2D<int>("popops::ScaledAdd2D<int,int,int,false,false>", INT,
-                       false, false);
+  testScaledAdd2D<int>("popops::ScaledAdd2D<int,int,int,false>", INT, false);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -198,8 +193,8 @@ BOOST_AUTO_TEST_SUITE(ScaledAdd2DUnsignedIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledAdd2DUnsignedIntTensor) {
   testScaledAdd2D<unsigned>(
-      "popops::ScaledAdd2D<unsigned int,unsigned int,unsigned int,false,false>",
-      UNSIGNED_INT, false, false);
+      "popops::ScaledAdd2D<unsigned int,unsigned int,unsigned int,false>",
+      UNSIGNED_INT, false);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -207,8 +202,7 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(ScaledSubtract2DIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DIntTensor) {
-  testScaledAdd2D<int>("popops::ScaledSubtract2D<int,int,false>", INT, false,
-                       true);
+  testScaledAdd2D<int>("popops::ScaledSubtract2D<int,int,false>", INT, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -218,7 +212,7 @@ BOOST_AUTO_TEST_SUITE(ScaledSubtract2DUnsignedIntTensor)
 BOOST_AUTO_TEST_CASE(ScaledSubtract2DUnsignedIntTensor) {
   testScaledAdd2D<unsigned>(
       "popops::ScaledSubtract2D<unsigned int,unsigned int,false>", UNSIGNED_INT,
-      false, true);
+      true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

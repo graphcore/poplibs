@@ -158,10 +158,9 @@ void createVertices(Graph &graph, Tensor A, std::optional<Tensor> scaleA,
     vertexHasTolerance = (dataType == HALF) && (scaleType == FLOAT);
 
     codeletName2D = templateVertex("popops::aXMinusbY2D", dataType, scaleType,
-                                   false, addConstraints);
-    codeletNameSupervisor =
-        templateVertex("popops::aXMinusbYSupervisor", dataType, scaleType,
-                       false, addConstraints);
+                                   addConstraints);
+    codeletNameSupervisor = templateVertex("popops::aXMinusbYSupervisor",
+                                           dataType, scaleType, addConstraints);
   } else if (doSubtract && !doaXPlusbY) {
     codeletName2D = templateVertex("popops::ScaledSubtract2D", dataType,
                                    scaleType, addConstraints);
@@ -170,29 +169,28 @@ void createVertices(Graph &graph, Tensor A, std::optional<Tensor> scaleA,
                        scaleType, addConstraints);
   } else if (!doSubtract && doaXPlusbY) {
     if (speciality == ScaledAddSpecialisation::X_MINUS_AX_PLUS_BY) {
-      codeletName2D = templateVertex("popops::XMinusaXPlusbY2D", dataType,
-                                     false, addConstraints);
+      codeletName2D =
+          templateVertex("popops::XMinusaXPlusbY2D", dataType, addConstraints);
       codeletNameSupervisor = templateVertex("popops::XMinusaXPlusbYSupervisor",
-                                             dataType, false, addConstraints);
+                                             dataType, addConstraints);
     } else {
       // The 'mixed' vertex (with 'half' data and 'float' scales) has a
       // 'tolerance' field ...
       vertexHasTolerance = (dataType == HALF) && (scaleType == FLOAT);
 
       codeletName2D = templateVertex("popops::aXPlusbY2D", dataType, scaleType,
-                                     false, addConstraints);
-      codeletNameSupervisor =
-          templateVertex("popops::aXPlusbYSupervisor", dataType, scaleType,
-                         false, addConstraints);
+                                     addConstraints);
+      codeletNameSupervisor = templateVertex(
+          "popops::aXPlusbYSupervisor", dataType, scaleType, addConstraints);
     }
   } else if (!doSubtract && !doaXPlusbY) {
     vertexHasTolerance =
         (dataType == HALF) && (deltaType == HALF) && (scaleType == FLOAT);
     codeletName2D = templateVertex("popops::ScaledAdd2D", dataType, deltaType,
-                                   scaleType, false, addConstraints);
+                                   scaleType, addConstraints);
     codeletNameSupervisor =
         templateVertex("popops::ScaledAddSupervisor", dataType, deltaType,
-                       scaleType, false, addConstraints);
+                       scaleType, addConstraints);
   }
 
   // Maximum elements vertices can handle per-region is based on input vector
@@ -203,7 +201,7 @@ void createVertices(Graph &graph, Tensor A, std::optional<Tensor> scaleA,
 
   const auto codeletNameSupervisorForSizingOnly =
       templateVertex("popops::ScaledAddSupervisor", dataType, deltaType,
-                     scaleType, false, addConstraints);
+                     scaleType, addConstraints);
 
   const auto maxSupervisorElements = std::min<std::size_t>(
       graph.getMaxVertexFieldValue(codeletNameSupervisorForSizingOnly, "size"),

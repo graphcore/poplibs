@@ -191,8 +191,8 @@ struct ScaledArithmeticTargetParameters {
 std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
     const ScaledArithmeticTargetParameters &targetParams,
     const poplar::Type &dataType, const poplar::Type &dataBType,
-    const bool isConstant, const bool memConstrained,
-    const ScaledArithmeticOp operation, const poplar::layout::Vector &aLayout,
+    const bool memConstrained, const ScaledArithmeticOp operation,
+    const poplar::layout::Vector &aLayout,
     const poplar::layout::Vector &bLayout, const unsigned numElems);
 
 // Computes the cycles used by the scalar broadcast 1D codelet

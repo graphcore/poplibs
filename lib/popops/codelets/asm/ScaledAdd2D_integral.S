@@ -36,8 +36,8 @@ FN_EXPORT VERTEX_SUBTRACT(unsigned_int_unsigned_int_false)
 FN_SIZE VERTEX_SUBTRACT(int_int_false)
 
 
-FN_WORKER_ENTRY_POINT VERTEX(int_int_int_false_false) 8
-FN_EXPORT VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false)
+FN_WORKER_ENTRY_POINT VERTEX(int_int_int_false) 8
+FN_EXPORT VERTEX(unsigned_int_unsigned_int_unsigned_int_false)
   // load vertex state specific to the case where we multiply by a tensor, factor
   ld32 $k, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET
   ld32 $k, $mzero, $k, 0

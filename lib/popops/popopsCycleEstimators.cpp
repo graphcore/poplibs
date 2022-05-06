@@ -426,13 +426,13 @@ MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2D)(const VertexIntrospector &vertex,
 
 VertexPerfEstimate scaledArithmeticSupervisorCycleEstimate(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &dataType, const Type &dataBType, const bool isConstant,
-    const bool memConstrained, const ScaledArithmeticOp operation) {
+    const Type &dataType, const Type &dataBType, const bool memConstrained,
+    const ScaledArithmeticOp operation) {
   CODELET_FIELD(A);
   CODELET_FIELD(B);
   ScaledArithmeticTargetParameters targetParams(target, dataType);
   const auto cycles = getScaledArithmeticSupervisorCycleEstimate(
-      targetParams, dataType, dataBType, isConstant, memConstrained, operation,
+      targetParams, dataType, dataBType, memConstrained, operation,
       A.getProfilerVectorLayout(0), B.getProfilerVectorLayout(0), A.size());
   std::uint64_t flops =
       A.size() * (flopsPerBinaryOpElement(BinaryOpType::ADD) +
@@ -469,23 +469,20 @@ std::uint64_t aXPlusbYMixedCoreCycleEstimate(unsigned count) {
 }
 
 // aX Plus BY vertices where the data is half and the scale coeffs are float
-VertexPerfEstimate aXPlusbYMixedSupervisorCycleEstimate(
-    const VertexIntrospector &vertex, const Target &target,
-    const bool isConstant, const bool memConstrained) {
+VertexPerfEstimate
+aXPlusbYMixedSupervisorCycleEstimate(const VertexIntrospector &vertex,
+                                     const Target &target,
+                                     const bool memConstrained) {
   CODELET_FIELD(A);
   std::uint64_t supervisorCycles = 0;
   const bool scaledPtr64 =
       A.getProfilerVectorLayout(0) == layout::Vector::ScaledPtr64;
 
-  if (isConstant) {
-    supervisorCycles += 9 + 5;
-  } else {
-    supervisorCycles += memConstrained ? 2 + 5 : 1;
-    supervisorCycles += scaledPtr64 ? 12 : 6;
-    supervisorCycles += 10;
-    supervisorCycles += 15 * 6; // checkAccuracy thread
-    supervisorCycles += 9 + 5;
-  }
+  supervisorCycles += memConstrained ? 2 + 5 : 1;
+  supervisorCycles += scaledPtr64 ? 12 : 6;
+  supervisorCycles += 10;
+  supervisorCycles += 15 * 6; // checkAccuracy thread
+  supervisorCycles += 9 + 5;
 
   // common 'VERTEX(supervisor)' code
   const auto numWorkers = target.getNumWorkerContexts();
@@ -520,59 +517,52 @@ VertexPerfEstimate aXPlusbYMixedSupervisorCycleEstimate(
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledAddSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
-    const Type &BType, const Type &ScaleType, const bool isConstant,
-    const bool memConstrained) {
-  return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType, BType,
-                                                 isConstant, memConstrained,
-                                                 ScaledArithmeticOp::ADD);
+    const Type &BType, const Type &ScaleType, const bool memConstrained) {
+  return scaledArithmeticSupervisorCycleEstimate(
+      vertex, target, AType, BType, memConstrained, ScaledArithmeticOp::ADD);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledSubtractSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
     const Type &BType, const Type &ScaleType, const bool memConstrained) {
   return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType, BType,
-                                                 false, memConstrained,
+                                                 memConstrained,
                                                  ScaledArithmeticOp::SUBTRACT);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXPlusbYSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &DataType, const Type &ScaleType, const bool isConstant,
-    const bool memConstrained) {
+    const Type &DataType, const Type &ScaleType, const bool memConstrained) {
   if (DataType == HALF && ScaleType == FLOAT)
-    return aXPlusbYMixedSupervisorCycleEstimate(vertex, target, isConstant,
-                                                memConstrained);
+    return aXPlusbYMixedSupervisorCycleEstimate(vertex, target, memConstrained);
   else
     return scaledArithmeticSupervisorCycleEstimate(
-        vertex, target, DataType, DataType, isConstant, memConstrained,
+        vertex, target, DataType, DataType, memConstrained,
         ScaledArithmeticOp::AXPLUSBY);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXMinusbYSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &DataType, const Type &ScaleType, const bool isConstant,
-    const bool memConstrained) {
+    const Type &DataType, const Type &ScaleType, const bool memConstrained) {
   if (DataType == HALF && ScaleType == FLOAT)
     // Other than for the minus, the plus and minus mixed supervisors are the
     // same.
-    return aXPlusbYMixedSupervisorCycleEstimate(vertex, target, isConstant,
-                                                memConstrained);
+    return aXPlusbYMixedSupervisorCycleEstimate(vertex, target, memConstrained);
   else
     return scaledArithmeticSupervisorCycleEstimate(
-        vertex, target, DataType, ScaleType, isConstant, memConstrained,
+        vertex, target, DataType, ScaleType, memConstrained,
         ScaledArithmeticOp::AXMINUSBY);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(XMinusaXPlusbYSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
-    const bool isConstant, const bool memConstrained) {
+    const bool memConstrained) {
   return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType, AType,
-                                                 isConstant, memConstrained,
+                                                 memConstrained,
                                                  ScaledArithmeticOp::AXPLUSBY);
 }
 
 VertexPerfEstimate ScaledArithmetic2DCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
-    const bool isConstant, const bool memConstrained,
-    const ScaledArithmeticOp operation) {
+    const bool memConstrained, const ScaledArithmeticOp operation) {
   CODELET_FIELD(A);
   CODELET_FIELD(B);
 
@@ -585,9 +575,8 @@ VertexPerfEstimate ScaledArithmetic2DCycleEstimate(
       cycles += 7                    // outer loop constant overhead
                 + (A[i].size() * 5); // inner loop
     }
-    if (!isConstant)
-      cycles += 1;
-    if (operation == ScaledArithmeticOp::SUBTRACT && !isConstant)
+    cycles += 1;
+    if (operation == ScaledArithmeticOp::SUBTRACT)
       cycles += 1;
     return cycles;
   } else {
@@ -604,14 +593,11 @@ VertexPerfEstimate ScaledArithmetic2DCycleEstimate(
   }
   const auto grain = target.getVectorWidth(type);
   std::uint64_t cycles = 9; // prologue and epilogue overhead.
-  if (!isConstant)
-    cycles += 1;
-  if (operation == ScaledArithmeticOp::SUBTRACT && !isConstant)
+  cycles += 1;
+  if (operation == ScaledArithmeticOp::SUBTRACT)
     cycles += 2;
-  if (operation == ScaledArithmeticOp::AXPLUSBY && !isConstant)
+  if (operation == ScaledArithmeticOp::AXPLUSBY)
     cycles += 6;
-  if (operation == ScaledArithmeticOp::AXPLUSBY && isConstant)
-    cycles += 4;
 
   std::uint64_t totalElems = 0;
   for (unsigned i = 0; i < A.size(); ++i) {
@@ -643,8 +629,7 @@ VertexPerfEstimate ScaledArithmetic2DCycleEstimate(
 // aX Plus BY vertices where the data is half and the scale coeffs are float
 VertexPerfEstimate
 aXPlusbYMixed2DCycleEstimate(const VertexIntrospector &vertex,
-                             const Target &target, const bool isConstant,
-                             const bool memConstrained) {
+                             const Target &target, const bool memConstrained) {
   CODELET_FIELD(A);
   CODELET_FIELD(B);
   std::uint64_t cycles = 0;
@@ -653,12 +638,8 @@ aXPlusbYMixed2DCycleEstimate(const VertexIntrospector &vertex,
   const bool shortSpan = (layoutA == layout::Vector::ShortSpan);
   const bool scaledPtr64 = (layoutB == layout::Vector::ScaledPtr64);
 
-  if (!isConstant) {
-    cycles += memConstrained ? 2 : 1;
-    cycles += 15;
-  } else {
-    cycles += 2;
-  }
+  cycles += memConstrained ? 2 : 1;
+  cycles += 15;
   cycles += 6;
   unsigned rowLoopCycles = 2 + (shortSpan ? 4 : 2) + (scaledPtr64 ? 2 : 1);
   for (unsigned i = 0; i < A.size(); i++) {
@@ -672,50 +653,42 @@ aXPlusbYMixed2DCycleEstimate(const VertexIntrospector &vertex,
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledAdd2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
-    const Type &BType, const Type &ScaleType, const bool isConstant,
-    const bool memConstrained) {
+    const Type &BType, const Type &ScaleType, const bool memConstrained) {
   return ScaledArithmetic2DCycleEstimate(vertex, target, AType, memConstrained,
-                                         isConstant, ScaledArithmeticOp::ADD);
+                                         ScaledArithmeticOp::ADD);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledSubtract2D)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &DataType, const Type &ScaleType, const bool memConstrained) {
-  return ScaledArithmetic2DCycleEstimate(vertex, target, DataType, false,
-                                         memConstrained,
-                                         ScaledArithmeticOp::SUBTRACT);
+  return ScaledArithmetic2DCycleEstimate(
+      vertex, target, DataType, memConstrained, ScaledArithmeticOp::SUBTRACT);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXPlusbY2D)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &DataType, const Type &ScaleType, const bool isConstant,
-    const bool memConstrained) {
+    const Type &DataType, const Type &ScaleType, const bool memConstrained) {
   if (DataType == HALF && ScaleType == FLOAT)
-    return aXPlusbYMixed2DCycleEstimate(vertex, target, isConstant,
-                                        memConstrained);
+    return aXPlusbYMixed2DCycleEstimate(vertex, target, memConstrained);
   else
-    return ScaledArithmetic2DCycleEstimate(vertex, target, DataType,
-                                           memConstrained, isConstant,
-                                           ScaledArithmeticOp::AXPLUSBY);
+    return ScaledArithmetic2DCycleEstimate(
+        vertex, target, DataType, memConstrained, ScaledArithmeticOp::AXPLUSBY);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXMinusbY2D)(
     const VertexIntrospector &vertex, const Target &target,
-    const Type &DataType, const Type &ScaleType, const bool isConstant,
-    const bool memConstrained) {
+    const Type &DataType, const Type &ScaleType, const bool memConstrained) {
   if (DataType == HALF && ScaleType == FLOAT)
     // Other than for the minus, the plus and minus workers are the same.
-    return aXPlusbYMixed2DCycleEstimate(vertex, target, isConstant,
-                                        memConstrained);
+    return aXPlusbYMixed2DCycleEstimate(vertex, target, memConstrained);
   else
     return ScaledArithmetic2DCycleEstimate(vertex, target, DataType,
-                                           memConstrained, isConstant,
+                                           memConstrained,
                                            ScaledArithmeticOp::AXMINUSBY);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(XMinusaXPlusbY2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
-    const bool isConstant, const bool memConstrained) {
+    const bool memConstrained) {
   return ScaledArithmetic2DCycleEstimate(vertex, target, type, memConstrained,
-                                         isConstant,
                                          ScaledArithmeticOp::AXPLUSBY);
 }
 
@@ -2932,8 +2905,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
       CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::MULTIPLY, HALF)
 
 #define SCALED_ADD_CYCLE_ESTIM_ENTRIES(NAME, TYPE1, TYPE2, TYPE3)              \
-  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, true),       \
-      CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false, false)
+  CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, true),              \
+      CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, false)
 
 // A couple of macros to create more compactly the entries for the various
 // Cast vertices, for all possible combinations of input and output types
@@ -2997,36 +2970,31 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, ScalarMultiply2D, HALF, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, ScalarMultiply2DInplace, HALF, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, HALF, HALF,
-                            false, false),
+                            false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, FLOAT, HALF, FLOAT,
-                            false, false),
+                            false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, UNSIGNED_INT,
-                            UNSIGNED_INT, UNSIGNED_INT, false, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, INT, INT, false,
-                            false),
+                            UNSIGNED_INT, UNSIGNED_INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, INT, INT, INT, false),
 
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAdd2D, FLOAT, FLOAT, FLOAT),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAdd2D, HALF, HALF, HALF),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAdd2D, HALF, HALF, FLOAT),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, HALF, false,
-                            false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, FLOAT, false,
-                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, HALF, FLOAT, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, HALF,
-                            false, false),
+                            false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAddSupervisor, HALF, FLOAT, FLOAT,
-                            false, false),
+                            false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, HALF, HALF, false,
-                            false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, HALF, FLOAT, false,
-                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, HALF, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, FLOAT, HALF, FLOAT, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, UNSIGNED_INT, UNSIGNED_INT,
-                            UNSIGNED_INT, false, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, INT, INT, false, false),
+                            UNSIGNED_INT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, ScaledAdd2D, INT, INT, INT, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtractSupervisor, FLOAT, FLOAT,
                             FLOAT, true),
@@ -3060,48 +3028,36 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             UNSIGNED_INT, false),
       CYCLE_ESTIMATOR_ENTRY(popops, ScaledSubtract2D, INT, INT, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, false,
-                            true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, false,
-                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, HALF, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, FLOAT, false,
-                            true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, FLOAT, false,
-                            false),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, FLOAT, FLOAT, false,
-                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, HALF, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbYSupervisor, FLOAT, FLOAT, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, false, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, HALF, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, false, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, false, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, FLOAT, FLOAT, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, HALF, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXPlusbY2D, FLOAT, FLOAT, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, HALF, false,
-                            true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, HALF, false,
-                            false),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, FLOAT, false,
-                            false),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, FLOAT, false,
-                            true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, FLOAT, FLOAT, false,
-                            false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, HALF, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbYSupervisor, FLOAT, FLOAT, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, false, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, false, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, false, false),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, false, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, FLOAT, FLOAT, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, HALF, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, aXMinusbY2D, FLOAT, FLOAT, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, false,
-                            true),
-      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, false,
-                            false),
-      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, false, true),
-      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, false, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbYSupervisor, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, XMinusaXPlusbY2D, HALF, false),
 
       VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInner1D),
       VECTOR_INNER_CYCLE_ESTIM_ENTRIES(BroadcastVectorInner1DInPlace),

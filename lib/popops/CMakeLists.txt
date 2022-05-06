@@ -168,7 +168,6 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_integral.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAddSupervisor_float_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAddSupervisor_fp.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAddSupervisor_integral.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd_half_half_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAddaXPlusbY_mixed.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SliceCopyFunction.S

@@ -20,38 +20,6 @@
 #define VERTEX_SCALE_OFFSET 8
 #define VERTEX_PACKED_COUNT_OFFSET 10
 
-// constants
-#define SCALED_PTR128_SHL_BITS 4
-
-// supervisor variables
-#define vertexPtr m0
-
-
-//******************************************************************************
-// Float entry points - macro
-//******************************************************************************
-
-.macro SUPERVISOR_ENTRY LABEL WORKER_FUNCTION
-
-FN_SUPERVISOR_ENTRY_POINT VERTEX(\LABEL) 4 ""
-  setzi $sv_workerFunction, VERTEX(\WORKER_FUNCTION\()).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX(\LABEL)
-.endm
-
-// Create the entry points
-
-SUPERVISOR_ENTRY float_half_half_false_false half_scale
-
-SUPERVISOR_ENTRY float_half_float_false_false float_scale
-
-
-// clear supervisor variables
-#undef vertexPtr
-
 //******************************************************************************
 // worker variables
 
@@ -80,16 +48,15 @@ SUPERVISOR_ENTRY float_half_float_false_false float_scale
 #define ascratch a7
 
 FN_SECTION VERTEX(float_half).kernel 8
-VERTEX(float_half).kernel:
-VERTEX(half_scale).kernel:
+FN_EXPORT VERTEX(float_half_half_false)
   ldz16 $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHL_BITS
+  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHIFTS
   ldb16 $k, $mzero, $dataPtr, 0
   {bri  1f
    f16tof32 $k,$k}
-VERTEX(float_scale).kernel:
+FN_EXPORT VERTEX(float_half_float_false)
   ldz16 $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHL_BITS
+  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHIFTS
   ld32  $k, $mzero, $dataPtr, 0
 1:
   // load vertex state

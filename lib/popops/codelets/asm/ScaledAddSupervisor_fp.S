@@ -26,194 +26,6 @@
 #define VERTEX_PACKED_COUNT_OFFSET 10
 #define VERTEX_SCALE_B_OFFSET 12
 
-// constants
-#define SCALED_PTR128_SHL_BITS 4
-
-// supervisor variables
-#define vertexPtr m0
-
-//******************************************************************************
-// Float variant entry points
-//******************************************************************************
-FN_SUPERVISOR_ENTRY_POINT VERTEX(float_float_float_false_false)  4 ""
-  setzi $sv_workerFunction, VERTEX(float).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-
-FN_EXPORT VERTEX(float_float_float_false_true)
-  setzi $sv_workerFunction, VERTEX(float_true).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX(float_float_float_false_false)
-
-
-FN_SUPERVISOR_ENTRY_POINT SUBTRACT_VERTEX(float_float_float_false) 4 ""
-  setzi $sv_workerFunction, VERTEX(sub_float_false).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_EXPORT SUBTRACT_VERTEX(float_float_float_true)
-  setzi $sv_workerFunction, VERTEX(sub_float_true).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE SUBTRACT_VERTEX(float_float_float_false)
-
-FN_SUPERVISOR_ENTRY_POINT AXPLUSBY_VERTEX(float_float_false_false) 4 ""
-  setzi $sv_workerFunction, AXPLUSBY_VERTEX(float).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE AXPLUSBY_VERTEX(float_float_false_false)
-
-
-FN_SUPERVISOR_ENTRY_POINT AX_MINUS_BY_VERTEX(float_float_false_false) 4 ""
-  setzi $sv_workerFunction, AXPLUSBY_VERTEX(sub_float).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE AX_MINUS_BY_VERTEX(float_float_false_false)
-
-//******************************************************************************
-// Half variant entry points
-//******************************************************************************
-
-FN_SUPERVISOR_ENTRY_POINT VERTEX(half_half_half_false_false) 4 ""
-  setzi $sv_workerFunction, VERTEX(half).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX(half_half_half_false_false)
-
-FN_SUPERVISOR_ENTRY_POINT VERTEX(half_half_half_false_true)
-  setzi $sv_workerFunction, VERTEX(half_fast).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX(half_half_half_false_true)
-
-
-FN_SUPERVISOR_ENTRY_POINT SUBTRACT_VERTEX(half_half_half_false) 4 ""
-  setzi $sv_workerFunction, VERTEX(sub_half).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE SUBTRACT_VERTEX(half_half_half_false)
-
-FN_SUPERVISOR_ENTRY_POINT SUBTRACT_VERTEX(half_half_half_true)
-  setzi $sv_workerFunction, VERTEX(sub_half_fast).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE SUBTRACT_VERTEX(half_half_half_true)
-
-FN_SUPERVISOR_ENTRY_POINT AXPLUSBY_VERTEX(half_half_false_false)
-  setzi $sv_workerFunction, VERTEX(axplusby_half).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE AXPLUSBY_VERTEX(half_half_false_false)
-
-FN_SUPERVISOR_ENTRY_POINT AXPLUSBY_VERTEX(half_half_false_true)
-  setzi $sv_workerFunction, VERTEX(axplusby_half_fast).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE AXPLUSBY_VERTEX(half_half_false_true)
-
-FN_SUPERVISOR_ENTRY_POINT XMINUSAXPLUSBY_VERTEX(half_false_false)
-  setzi $sv_workerFunction, VERTEX(xminusaxplusby_half).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE XMINUSAXPLUSBY_VERTEX(half_false_false)
-
-FN_SUPERVISOR_ENTRY_POINT XMINUSAXPLUSBY_VERTEX(half_false_true)
-  setzi $sv_workerFunction, VERTEX(xminusaxplusby_half_fast).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE XMINUSAXPLUSBY_VERTEX(half_half_true)
-
-
-FN_SUPERVISOR_ENTRY_POINT AX_MINUS_BY_VERTEX(half_half_false_false)
-  setzi $sv_workerFunction, VERTEX(axminusby_half).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE AX_MINUS_BY_VERTEX(half_half_false_false)
-
-FN_SUPERVISOR_ENTRY_POINT AX_MINUS_BY_VERTEX(half_half_false_true)
-  setzi $sv_workerFunction, VERTEX(axminusby_half_fast).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE AX_MINUS_BY_VERTEX(half_half_false_true)
-
-//******************************************************************************
-// Mixed precision, i.e. dataA (X) = half, dataB (Y) = float, scaleB = half
-// (tensor) entry point
-// The leaf code has no constraints.
-//******************************************************************************
-
-FN_SUPERVISOR_ENTRY_POINT VERTEX(half_float_half_false_false) 4 ""
-  setzi $sv_workerFunction, VERTEX(half_float_half).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-
-FN_SIZE VERTEX(half_float_half_false_false)
-
-//******************************************************************************
-// Mixed precision, i.e. dataA (X) = half, dataB (Y) = float, scaleB = float
-// (tensor) entry point
-// The leaf code has no constraints.
-//******************************************************************************
-FN_SUPERVISOR_ENTRY_POINT VERTEX(half_float_float_false_false) 4 ""
-  setzi $sv_workerFunction, VERTEX(half_float_float).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX(half_float_float_false_false)
-
-//*****************************************************************************
-
-FN_SUPERVISOR_ENTRY_POINT SUBTRACT_VERTEX(half_float_half_false) 4 ""
-FN_EXPORT SUBTRACT_VERTEX(half_float_half_true)
-// vertex has no memory constraints
-  setzi $sv_workerFunction, VERTEX(sub_half_float_half).kernel
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-
-FN_SIZE SUBTRACT_VERTEX(half_float_half_false)
-
-
-// clear supervisor variables
-#undef vertexPtr
-
-
 // worker variables
 
 // integer variables
@@ -306,20 +118,20 @@ FN_SIZE SUBTRACT_VERTEX(half_float_half_false)
 .endm
 
 
-FN_WORKER_ENTRY_POINT VERTEX(float).kernel 8 nop
+FN_WORKER_ENTRY_POINT VERTEX(float_float_float_false) 8 nop
   {setzi $memConstraints, 0
    or    $datai0,$azero,FLOAT_1_0}
   bri 1f
-VERTEX(float_true).kernel:
+FN_EXPORT VERTEX(float_float_float_true)
   {setzi $memConstraints, 1
    or    $datai0,$azero,FLOAT_1_0}
   bri 1f
-VERTEX(sub_float_true).kernel:
+FN_EXPORT SUBTRACT_VERTEX(float_float_float_true)
   {setzi $memConstraints, 1
    or    $datai0,$azero,FLOAT_NEG_1_0}
   bri 1f
 
-VERTEX(sub_float_false).kernel:
+FN_EXPORT SUBTRACT_VERTEX(float_float_float_false)
   {setzi $memConstraints, 0
    or    $datai0,$azero,FLOAT_NEG_1_0}
 1:
@@ -328,7 +140,7 @@ VERTEX(sub_float_false).kernel:
 
   // Fetch scale : a PTR128 that points to a float
   ldz16 $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHL_BITS
+  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHIFTS
   ld32  $k, $dataPtr, $mzero, 0
 3:
   {
@@ -461,13 +273,13 @@ FN_SIZE VERTEX(float).kernel
 
 //******************************************************************************
 
-FN_WORKER_ENTRY_POINT AXPLUSBY_VERTEX(float).kernel 8 nop
+FN_WORKER_ENTRY_POINT AXPLUSBY_VERTEX(float_float_false) 8 nop
 
   // load vertex state
   {ldz16 $remM1, $mvertex_base, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
    or    $datai0,$azero,FLOAT_1_0}
    bri   1f
-AXPLUSBY_VERTEX(sub_float).kernel:
+FN_EXPORT AX_MINUS_BY_VERTEX(float_float_false)
   // load vertex state
   {ldz16 $remM1, $mvertex_base, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
    or    $datai0,$azero,FLOAT_NEG_1_0}
@@ -475,11 +287,11 @@ AXPLUSBY_VERTEX(sub_float).kernel:
 
   // Fetch scale : a PTR128 that points to a float
   ldz16 $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHL_BITS
+  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHIFTS
   ld32  $k, $mzero, $dataPtr, 0
 
   ldz16 $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET/2
-  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHL_BITS
+  shl   $dataPtr, $dataPtr, SCALED_PTR128_SHIFTS
   ld32  $ascratch, $mzero, $dataPtr, 0
   {ld32 $dataPtr, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
    f32mul $ascratch, $ascratch, $datai0}
@@ -538,19 +350,19 @@ FN_SIZE AXPLUSBY_VERTEX(float).kernel
 //******************************************************************************
 
 FN_SECTION VERTEX(half).kernel
-VERTEX(sub_half_fast).kernel:
+FN_EXPORT SUBTRACT_VERTEX(half_half_half_true)
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
   {bri 1f
    or $datai0, $azero, HALF_NEG_1_0<<16}
-VERTEX(sub_half).kernel:
+FN_EXPORT SUBTRACT_VERTEX(half_half_half_false)
   setzi $memConstraints, 0
   {bri 1f
    or $datai0, $azero, HALF_NEG_1_0<<16}
-VERTEX(half_fast).kernel:
+FN_EXPORT VERTEX(half_half_half_true)
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
   {bri 1f
   or $datai0, $azero, HALF_1_0<<16}
-VERTEX(half).kernel:
+FN_EXPORT VERTEX(half_half_half_false)
   {setzi $memConstraints, 0
    or $datai0, $azero, HALF_1_0<<16}
 1:
@@ -558,7 +370,7 @@ VERTEX(half).kernel:
     ldz16 $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
     f16v2exp $ascratch, $azero
   }
-  shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  shl    $mscratch, $mscratch, SCALED_PTR128_SHIFTS
   ldb16  $k, $mscratch, $mzero, 0
   f16v2mul $k, $datai0:BU, $k
   // $k should have the form of {1, k}
@@ -567,31 +379,31 @@ VERTEX(half).kernel:
 
 FN_SIZE VERTEX(half).kernel
 
-FN_WORKER_ENTRY_POINT VERTEX(axplusby_half).kernel 8
+FN_WORKER_ENTRY_POINT AXPLUSBY_VERTEX(half_half_false) 8
   {setzi $memConstraints, 0
    or $datai0, $azero, HALF_1_0<<16}
   bri   1f
 
-VERTEX(axplusby_half_fast).kernel:
+FN_EXPORT AXPLUSBY_VERTEX(half_half_true)
   {setzi $memConstraints, MEM_CONSTRAINTS_MASK
    or $datai0, $azero, HALF_1_0<<16}
   bri 1f
-VERTEX(axminusby_half).kernel:
+FN_EXPORT AX_MINUS_BY_VERTEX(half_half_false)
   {setzi $memConstraints, 0
    or $datai0, $azero, HALF_NEG_1_0<<16}
   bri   1f
-VERTEX(axminusby_half_fast).kernel:
+FN_EXPORT AX_MINUS_BY_VERTEX(half_half_true)
   {setzi $memConstraints, MEM_CONSTRAINTS_MASK
    or $datai0, $azero, HALF_NEG_1_0<<16}
 1:
   ldz16  $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET/2
-  shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  shl    $mscratch, $mscratch, SCALED_PTR128_SHIFTS
   ldb16  $k, $mscratch, $mzero, 0
 
   {ldz16  $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
    f16v2mul $k, $datai0:BU, $k}
 
-  shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  shl    $mscratch, $mscratch, SCALED_PTR128_SHIFTS
   ldb16  $ascratch, $mscratch, $mzero, 0
   sort4x16lo $k, $ascratch, $k
 
@@ -824,21 +636,21 @@ FN_EXPORT half_half_half_scales_in_k_continue
 FN_SIZE VERTEX(axplusby_half).kernel
 
 //******************************************************************************
-FN_WORKER_ENTRY_POINT VERTEX(xminusaxplusby_half).kernel 8 nop
+FN_WORKER_ENTRY_POINT XMINUSAXPLUSBY_VERTEX(half_false) 8 nop
   setzi   $memConstraints, 0
   bri     1f
-VERTEX(xminusaxplusby_half_fast).kernel:
+FN_EXPORT XMINUSAXPLUSBY_VERTEX(half_true)
   setzi   $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   // -1 * scale, scaleB
   ldz16 $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  {shl   $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  {shl   $mscratch, $mscratch, SCALED_PTR128_SHIFTS
    or $ascratch, $azero, HALF_NEG_1_0<<16}
   ldb16 $k, $mzero, $mscratch, 0
 
   {ldz16 $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_B_OFFSET/2
    f16v2mul $k, $ascratch:BU, $k}
-  shl   $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  shl   $mscratch, $mscratch, SCALED_PTR128_SHIFTS
   ldb16 $ascratch, $mzero, $mscratch, 0
   {get $workerIdM1, $WSR
    sort4x16lo $k, $k, $ascratch}
@@ -1048,17 +860,20 @@ FN_SIZE VERTEX(xminusaxplusby_half).kernel
 #define aB1     a5    //f32v1
 #define aB01h   a4
 
-FN_WORKER_ENTRY_POINT VERTEX(half_float_half).kernel 8 nop
+FN_WORKER_ENTRY_POINT VERTEX(half_float_half_false) 8 nop
   ldz16  $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  shl    $mscratch, $mscratch, SCALED_PTR128_SHIFTS
   {ldb16 $aBScale, $mzero, $mscratch, 0
    or    $aTmp,$azero,FLOAT_1_0}
   {bri 1f
    f16tof32 $aBScale, $aBScale
   }
-FN_EXPORT VERTEX(sub_half_float_half).kernel
+FN_EXPORT SUBTRACT_VERTEX(half_float_half_false)
+FN_EXPORT SUBTRACT_VERTEX(half_float_half_true)
+// vertex has no memory constraints
+
   ldz16  $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl    $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  shl    $mscratch, $mscratch, SCALED_PTR128_SHIFTS
   {ldb16 $aBScale, $mzero, $mscratch, 0
    or    $aTmp,$azero,FLOAT_NEG_1_0}
   {bri 1f
@@ -1071,10 +886,10 @@ FN_EXPORT VERTEX(sub_half_float_half).kernel
 // uses fp16 for the addition - but that hasn't been deemed necessary so far.
 // This is a 4 cycle inner loop, so in this case there is no benefit from
 // adding any constraints to the Tensors.
-FN_EXPORT VERTEX(half_float_float).kernel
+FN_EXPORT VERTEX(half_float_float_false)
   // load vertex state
   ldz16 $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl   $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  shl   $mscratch, $mscratch, SCALED_PTR128_SHIFTS
   {ld32  $aBScale, $mzero, $mscratch, 0
    or    $aTmp,$azero,FLOAT_1_0}
 1:

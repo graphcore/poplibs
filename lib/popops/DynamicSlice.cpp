@@ -4276,10 +4276,10 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
         // but a runtime check opportunistically selects the fast path if
         // inputs are in different memory elements.
         e.updateFinalElemwiseCycles =
-            modelContiguousScaledAdd(
-                target, FLOAT, FLOAT, /* scaleIsConstant */ false,
-                /* usesMemoryConstraints */ true, m, mBaseElemsStoragePerTile,
-                "update.1.updateBase")
+            modelContiguousScaledAdd(target, FLOAT, FLOAT,
+                                     /* usesMemoryConstraints */ true, m,
+                                     mBaseElemsStoragePerTile,
+                                     "update.1.updateBase")
                 .cycles;
         e.updateFinalElemwiseCycles =
             m.product({mLookupsAreSplit, e.updateFinalElemwiseCycles});

@@ -119,7 +119,7 @@ struct VertexDesc {
     std::string vName = "popops::" + name;
     if (name == "ScaledAddSupervisor" || name == "ScaledAdd2D") {
       vClass = templateVertex(vName, dataAType, dataBType, scaleType,
-                              *scaleIsConstant, *constrainedAB);
+                              *constrainedAB);
     } else if (name == "ScaledSubtractSupervisor") {
       vClass = templateVertex(vName, dataAType, dataBType, scaleType,
                               *constrainedAB);
@@ -127,12 +127,10 @@ struct VertexDesc {
       vClass = templateVertex(vName, dataAType, scaleType, *constrainedAB);
     } else if (name == "aXPlusbYSupervisor" || name == "aXPlusbY2D" ||
                name == "aXMinusbYSupervisor" || name == "aXMinusbY2D") {
-      vClass = templateVertex(vName, dataAType, scaleType, *scaleIsConstant,
-                              *constrainedAB);
+      vClass = templateVertex(vName, dataAType, scaleType, *constrainedAB);
     } else if (name == "XMinusaXPlusbYSupervisor" ||
                name == "XMinusaXPlusbY2D") {
-      vClass =
-          templateVertex(vName, dataAType, *scaleIsConstant, *constrainedAB);
+      vClass = templateVertex(vName, dataAType, *constrainedAB);
     } else {
       throw std::runtime_error("Invalid vertex name (" + name + ")");
     }

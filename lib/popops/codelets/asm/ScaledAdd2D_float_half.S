@@ -6,8 +6,8 @@
 #include "poplar/StackSizeDefs.hpp"
 #include "CommonPoplibsMacros.h.S"
 
-#define VERTEX_ADD_TENSOR_HALF_SCALE __runCodelet_popops__ScaledAdd2D___float_half_half_false_false
-#define VERTEX_ADD_TENSOR_FLOAT_SCALE __runCodelet_popops__ScaledAdd2D___float_half_float_false_false
+#define VERTEX_ADD_TENSOR_HALF_SCALE __runCodelet_popops__ScaledAdd2D___float_half_half_false
+#define VERTEX_ADD_TENSOR_FLOAT_SCALE __runCodelet_popops__ScaledAdd2D___float_half_float_false
 
 #define VERTEX_COMMON __ScaledAdd2D___float_half_common
 

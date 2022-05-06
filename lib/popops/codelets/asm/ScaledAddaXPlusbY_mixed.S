@@ -44,17 +44,15 @@
 #include "workDivision.h.S"
 #include "MathConstants.S"
 
-#define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT __runCodelet_popops__aXPlusbYSupervisor___half_float_false_false
-#define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXPlusbYSupervisor___half_float_false_true
-#define VERTEX_AXPLUSBY_2D_HALF_FLOAT __runCodelet_popops__aXPlusbY2D___half_float_false_false
-#define VERTEX_AXPLUSBY_2D_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXPlusbY2D___half_float_false_true
+#define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT __runCodelet_popops__aXPlusbYSupervisor___half_float_false
+#define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXPlusbYSupervisor___half_float_true
+#define VERTEX_AXPLUSBY_2D_HALF_FLOAT __runCodelet_popops__aXPlusbY2D___half_float_false
+#define VERTEX_AXPLUSBY_2D_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXPlusbY2D___half_float_true
 
-#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT __runCodelet_popops__aXMinusbYSupervisor___half_float_false_false
-#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXMinusbYSupervisor___half_float_false_true
-#define VERTEX_AXMINUSBY_2D_HALF_FLOAT __runCodelet_popops__aXMinusbY2D___half_float_false_false
-#define VERTEX_AXMINUSBY_2D_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXMinusbY2D___half_float_false_true
-
-#define SCALED_PTR128_SHL_BITS       4
+#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT __runCodelet_popops__aXMinusbYSupervisor___half_float_false
+#define VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXMinusbYSupervisor___half_float_true
+#define VERTEX_AXMINUSBY_2D_HALF_FLOAT __runCodelet_popops__aXMinusbY2D___half_float_false
+#define VERTEX_AXMINUSBY_2D_HALF_FLOAT_MEMCONSTR __runCodelet_popops__aXMinusbY2D___half_float_true
 
 #if defined(VECTOR_AVAIL_SHORT_SPAN)
   #define SHORT_SPAN_PTR_SIZE      20
@@ -155,95 +153,6 @@ scaleA & scaleB values are contained in a 1-value Tensor:
 #define VERTEX_SV_COUNT_OFFSET      10
 #define VERTEX_SV_SCALE_B_OFFSET    12
 #define VERTEX_SV_TOLERANCE_OFFSET  16
-
-
-// --------------------------------------------------------------------
-//                        Supervisor code
-// --------------------------------------------------------------------
-
-// 'VERTEX(supervisor)' and 'VERTEX(axplusby_half).kernel' are defined in
-// ScaledAddSupervisor_fp.S as the common supervisor code to partitions
-// works among workers, and the worker for the HALF/HALF worker.
-// We use the same macro name for consistency (and ease of text search)
-#define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
-
-
-// The checkAccuracyWorker worker thread uses a record on the supervisor stack
-// with this format for in/out parameters
-#define CHECK_ACCURACY_SCALE_A_OFFSET    0
-#define CHECK_ACCURACY_SCALE_B_OFFSET    4
-#define CHECK_ACCURACY_TOLERANCE_OFFSET  8
-
-#define CHECK_ACCURACY_RESULT_OFFSET     0 // Result
-#define CHECK_ACCURACY_SCALE_AB_OFFSET   4 // Scale values converted to HALF
-
-// Note that this size must be less than STACK_SIZE (in ScaledAddSupervisor.inc)
-#define CHECK_STATE_SIZE                12
-
-
-
-#define vertexPtr       m0 // Standard vertex state pointer
-
-//The scaleB value is not handled by 'VERTEX(supervisor)'
-#define scaleB          m3
-
-
-#define memBase          m7
-#define workerVertexBase m7
-#define isAccurate       m3
-#define tolerance        m5
-
-#define mscratch m8
-
-// ---------------------------------------------------------------
-// aXMinusbY Supervisor entry point (tensor scale values) with and without
-// memory constraints. These will run the workers which negate the scaleB value
-// and then the workers continue in the same way as the aXPlusbY code
-FN_SUPERVISOR_ENTRY_POINT VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
-  setzi $sv_workerFunction, aXminusbY_half_float_fast_worker
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
-
-FN_SUPERVISOR_ENTRY_POINT   VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT
-  setzi $sv_workerFunction, aXminusbY_half_float_worker
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-
-FN_SIZE VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT
-
-// ---------------------------------------------------------------
-// Supervisor entry point (tensor scale values) with and without
-// memory constraints.
-FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
-  setzi $sv_workerFunction, aXplusbY_half_float_fast_worker
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
-
-FN_SUPERVISOR_ENTRY_POINT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT
-  setzi $sv_workerFunction, aXplusbY_half_float_worker
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-
-FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT
-
-#undef vertexPtr
-#undef scaleB
-#undef memBase
-#undef workerVertexBase
-#undef isAccurate
-#undef tolerance
-#undef mscratch
-
 
 // --------------------------------------------------------------------
 //                           Worker code
@@ -363,22 +272,22 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT
 
 FN_SECTION aXplusbY_half_float_worker
 // Note - fast path based on scale accuracy will have a memory fast path
-aXminusbY_half_float_worker:
+FN_EXPORT VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT
   setzi $memConstraints, 0
   { bri 1f
     or  $ascratch, $azero, FLOAT_NEG_1_0}
 
-aXminusbY_half_float_fast_worker:
+FN_EXPORT VERTEX_AXMINUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
   { bri 1f
     or  $ascratch, $azero, FLOAT_NEG_1_0}
 
-aXplusbY_half_float_worker:
+FN_EXPORT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT
   setzi $memConstraints, 0
   { bri 1f
     or  $ascratch, $azero, FLOAT_1_0}
 
-aXplusbY_half_float_fast_worker:
+FN_EXPORT VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_MEMCONSTR
   {setzi $memConstraints, MEM_CONSTRAINTS_MASK
     or  $ascratch, $azero, FLOAT_1_0}
 1:
@@ -389,14 +298,14 @@ aXplusbY_half_float_fast_worker:
 
   // Get scaleB coefficient then scaleA
   ldz16          $mscratch, $mvertex_base, $mzero, VERTEX_SV_SCALE_B_OFFSET/2
-  shl            $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  shl            $mscratch, $mscratch, SCALED_PTR128_SHIFTS
   ld32           $value2, $mzero, $mscratch, 0
 
   {
     ldz16        $mscratch, $mvertex_base, $mzero, VERTEX_SV_SCALE_A_OFFSET/2
     f32mul       $value2, $value2, $ascratch
   }
-  shl            $mscratch, $mscratch, SCALED_PTR128_SHL_BITS
+  shl            $mscratch, $mscratch, SCALED_PTR128_SHIFTS
   {
     ld32         $value1, $mzero, $mscratch, 0
     uget         $saveFpCtl, $FP_CTL

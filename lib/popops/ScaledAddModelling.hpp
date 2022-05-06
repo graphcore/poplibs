@@ -21,9 +21,9 @@ struct ScaledAddEstimates {
 
 ScaledAddEstimates modelContiguousScaledAdd(
     const poplar::Target &target, const poplar::Type &dataType,
-    const poplar::Type &dataBType, const bool scaleIsConstant,
-    const bool isMemConstrained, popsolver::Model &m,
-    const popsolver::Variable &mNumElems, const std::string &debugPrefix);
+    const poplar::Type &dataBType, const bool isMemConstrained,
+    popsolver::Model &m, const popsolver::Variable &mNumElems,
+    const std::string &debugPrefix);
 
 } // end namespace modelling
 } // end namespace popops

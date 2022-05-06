@@ -9,12 +9,12 @@
 #include "workDivision.h.S"
 #include "MathConstants.S"
 
-#define VERTEX_2D_ADD_SCALE_FLOAT_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
-#define VERTEX_2D_ADD_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledAdd2D___half_half_float_false_false
+#define VERTEX_2D_ADD_SCALE_FLOAT_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_true
+#define VERTEX_2D_ADD_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledAdd2D___half_half_float_false
 #define VERTEX_2D_SCALE_FLOAT_COMMON __ScaledAdd2D___half_half_float_common
 
-#define VERTEX_SV_ADD_SCALE_FLOAT_FAST __runCodelet_popops__ScaledAddSupervisor___half_half_float_false_true
-#define VERTEX_SV_ADD_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledAddSupervisor___half_half_float_false_false
+#define VERTEX_SV_ADD_SCALE_FLOAT_FAST __runCodelet_popops__ScaledAddSupervisor___half_half_float_true
+#define VERTEX_SV_ADD_SCALE_FLOAT_SLOW __runCodelet_popops__ScaledAddSupervisor___half_half_float_false
 #define VERTEX_SV_SCALE_FLOAT_COMMON __ScaledAddSupervisor___half_half_float_common
 #define VERTEX_SV_NEG_SCALE_FLOAT_COMMON __ScaledSubtractSupervisor___half_half_float_common
 
@@ -47,8 +47,6 @@
 #define SHORT_SPAN_PTR_SIZE 20
 #define SHORT_SPAN_LENGTH_SIZE 12
 #endif
-
-#define SCALED_PTR128_SHL_BITS 4
 
 // Integer variables
 #define dataPtr m1
@@ -443,64 +441,11 @@ FN_SIZE VERTEX_2D_SCALE_FLOAT_COMMON
 // with the meaning that the name implies.
 
 //#define memConstaints m0 // define/ shared between files
-#define vertexPtr m0
-#define tmp_countD2 m1
-#define final m2
 #define remM1 m3
-#define tmp_remM1 m3
-#define factorPtr m4
-#define tmp_log2AtomSize m7
-#define tmp_atomSizeMask m8
 #define workerIdM1 m8
 
 // Float variables
 #define factor a7
-
-#define LC_SET 2
-#define LC_MASK 1
-#define SSR_REGISTER 1
-#define CR_REGISTER 2
-
-// ScaledSubtract Supervisor entry point. Just negates the scale value
-// and lets the ScaledAdd Supervisor do the rest.
-DEF_STACK_SIZE_OWN 0 .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW
-FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW 4 "" NONE
-  setzi $sv_workerFunction, VERTEX_SV_NEG_SCALE_FLOAT_COMMON
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW
-
-
-DEF_STACK_SIZE_OWN 0 .text.VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST
-FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST 4 "" NONE
-  setzi $sv_workerFunction, VERTEX_SV_NEG_SCALE_FLOAT_COMMON_FAST
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST
-
-
-DEF_STACK_SIZE_OWN 0 .text.VERTEX_SV_ADD_SCALE_FLOAT_SLOW
-FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_ADD_SCALE_FLOAT_SLOW 4 "" NONE
-  setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-FN_SIZE VERTEX_SV_ADD_SCALE_FLOAT_SLOW
-
-DEF_STACK_SIZE_OWN 0 .text.VERTEX_SV_ADD_SCALE_FLOAT_FAST
-FN_SUPERVISOR_ENTRY_POINT VERTEX_SV_ADD_SCALE_FLOAT_FAST 4 "" NONE
-  setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON_FAST
-  runall $sv_workerFunction, $vertexPtr, 0 // 6 cycles
-  sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
-
-  br $lr // 6 cycles
-
-FN_SIZE VERTEX_SV_ADD_SCALE_FLOAT_FAST
 
 //******************************************************************************
 
@@ -508,22 +453,22 @@ FN_WORKER_ENTRY_POINT VERTEX_SCALE_FLOAT_CHECK 4
 
 //******************************************************************************
 // Normal worker code entry to do the scaledAdd
-VERTEX_SV_SCALE_FLOAT_COMMON_FAST:
+FN_EXPORT VERTEX_SV_ADD_SCALE_FLOAT_FAST
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
   { bri 1f
     or    $factor,$azero,FLOAT_1_0}
 
-VERTEX_SV_NEG_SCALE_FLOAT_COMMON_FAST:
+FN_EXPORT VERTEX_SV_SUBTRACT_SCALE_FLOAT_FAST
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
   { bri 1f
     or    $factor,$azero,FLOAT_NEG_1_0}
 
-VERTEX_SV_SCALE_FLOAT_COMMON:
+FN_EXPORT VERTEX_SV_ADD_SCALE_FLOAT_SLOW
   setzi $memConstraints, 0
   { bri 1f
     or    $factor,$azero,FLOAT_1_0}
 
-VERTEX_SV_NEG_SCALE_FLOAT_COMMON:
+FN_EXPORT VERTEX_SV_SUBTRACT_SCALE_FLOAT_SLOW
   {setzi $memConstraints, 0
   or    $factor,$azero,FLOAT_NEG_1_0}
 1:
@@ -532,7 +477,7 @@ VERTEX_SV_NEG_SCALE_FLOAT_COMMON:
   // valid in that case
 
   ldz16  $dataPtr, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
-  shl    $dataPtr, $dataPtr, SCALED_PTR128_SHL_BITS
+  shl    $dataPtr, $dataPtr, SCALED_PTR128_SHIFTS
   // Store FP_CTL while we check scale accuracy
   {ld32   $dataB0i0, $mzero, $dataPtr, 0
    uget   $data1i0, CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK }
@@ -614,13 +559,5 @@ VERTEX_SV_NEG_SCALE_FLOAT_COMMON:
   exitz $mzero
 
 FN_SIZE VERTEX_SCALE_FLOAT_CHECK
-
-// Undefine Supervisor register definitions
-#undef vertexPtr
-#undef final
-#undef remM1
-#undef factorPtr
-#undef workerIdM1
-
 
 #endif // __IPU__

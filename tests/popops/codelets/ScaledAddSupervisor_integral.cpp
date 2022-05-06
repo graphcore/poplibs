@@ -50,7 +50,6 @@ constexpr const std::array<unsigned, N> TestData<unsigned>::deltas;
 
 template <typename T>
 void testScaledAddSupervisor(const char *vertex, const Type &type,
-                             const bool &constantFactor,
                              const bool &doSubtract) {
   const auto &data = TestData<T>::data;
   const auto &deltas = TestData<T>::deltas;
@@ -94,14 +93,10 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
     graph.connect(v["B"], deltasTensor.slice(interval));
 
     graph.setInitialValue(v["size"], i);
-    if (constantFactor) {
-      graph.setInitialValue(v["scaleB"], k);
-    } else {
-      auto factorTensor = graph.addVariable(type, {});
-      graph.setTileMapping(factorTensor, tile);
-      graph.connect(v["scaleB"], factorTensor.reshape({1}));
-      graph.setInitialValue(factorTensor, 9);
-    }
+    auto factorTensor = graph.addVariable(type, {});
+    graph.setTileMapping(factorTensor, tile);
+    graph.connect(v["scaleB"], factorTensor.reshape({1}));
+    graph.setInitialValue(factorTensor, 9);
   }
   prog.add(Execute(cs));
 
@@ -149,9 +144,8 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
 BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorIntTensor) {
-  testScaledAddSupervisor<int>(
-      "popops::ScaledAddSupervisor<int,int,int,false,false>", INT, false,
-      false);
+  testScaledAddSupervisor<int>("popops::ScaledAddSupervisor<int,int,int,false>",
+                               INT, false);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -161,8 +155,8 @@ BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorUnsignedIntTensor)
 BOOST_AUTO_TEST_CASE(ScaledAddSupervisorUnsignedIntTensor) {
   testScaledAddSupervisor<unsigned>(
       "popops::ScaledAddSupervisor<unsigned int,unsigned int,"
-      "unsigned int,false,false>",
-      UNSIGNED_INT, false, false);
+      "unsigned int,false>",
+      UNSIGNED_INT, false);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -171,7 +165,7 @@ BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorIntTensor)
 
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorIntTensor) {
   testScaledAddSupervisor<int>(
-      "popops::ScaledSubtractSupervisor<int,int,int,false>", INT, false, true);
+      "popops::ScaledSubtractSupervisor<int,int,int,false>", INT, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -181,7 +175,7 @@ BOOST_AUTO_TEST_SUITE(ScaledSubtractSupervisorUnsignedIntTensor)
 BOOST_AUTO_TEST_CASE(ScaledSubtractSupervisorUnsignedIntTensor) {
   testScaledAddSupervisor<unsigned>("popops::ScaledSubtractSupervisor<unsigned "
                                     "int,unsigned int,unsigned int,false>",
-                                    UNSIGNED_INT, false, true);
+                                    UNSIGNED_INT, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

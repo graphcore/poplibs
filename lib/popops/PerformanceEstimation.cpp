@@ -472,14 +472,14 @@ std::uint64_t getFill2DCycleEstimate(const FillTargetParameters &targetParams,
 
 std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
     const ScaledArithmeticTargetParameters &targetParams, const Type &dataType,
-    const Type &dataBType, const bool isConstant, const bool memConstrained,
+    const Type &dataBType, const bool memConstrained,
     const ScaledArithmeticOp operation, const layout::Vector &aLayout,
     const layout::Vector &bLayout, const unsigned numElems) {
   if (dataType == INT || dataType == UNSIGNED_INT) {
     std::uint64_t supervisorCycles = 53 // constant overhead
                                      + (26 * (numElems / 3)); // main loop
 
-    if (operation == ScaledArithmeticOp::SUBTRACT && !isConstant) {
+    if (operation == ScaledArithmeticOp::SUBTRACT) {
       supervisorCycles += 1;
     }
 
@@ -490,9 +490,7 @@ std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
                           + (26 * (numElems % 3)); // remainder loop
     }
     supervisorCycles += 8; // constant epilogue overhead.
-    if (!isConstant) {
-      supervisorCycles += 6;
-    }
+    supervisorCycles += 6;
     return supervisorCycles;
   } else {
     assert(dataType == HALF || dataType == FLOAT);
@@ -518,17 +516,15 @@ std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
                                    basicOpSupervisorOverhead() +
                                    +(remainingElems == 0 ? 7 : 13) + 12;
 
-  if (operation == ScaledArithmeticOp::AXPLUSBY && !isConstant) {
+  if (operation == ScaledArithmeticOp::AXPLUSBY) {
     supervisorCycles += 12 + poputil::internal::getUnpackCost(aLayout) +
                         poputil::internal::getUnpackCost(bLayout);
   }
-  if (operation == ScaledArithmeticOp::SUBTRACT && !isConstant) {
+  if (operation == ScaledArithmeticOp::SUBTRACT) {
     supervisorCycles += 7;
   }
-  if (!isConstant) {
-    // setzi + bri, but the branch skips a setzi already counted so just + 6.
-    supervisorCycles += 6;
-  }
+  // setzi + bri, but the branch skips a setzi already counted so just + 6.
+  supervisorCycles += 6;
 
   std::vector<unsigned> workerCycles;
   workerCycles.reserve(targetParams.numWorkerContexts);
