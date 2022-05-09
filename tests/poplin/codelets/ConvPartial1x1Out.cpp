@@ -710,8 +710,8 @@ BOOST_AUTO_TEST_CASE(t1) {
   // channel grouping (a derivative of inputLoadWidth and the AMP
   // pipeline depth).
   // 'numFieldElems' is in units of outChansPerGroup (16 half values)
-  t.worklists = {{0, 1, 48}, {2, 1, 40}, {4, 1, 32},
-                 {6, 1, 24}, {8, 1, 16}, {12, 2, 0}};
+  t.worklists = {{0, 1, 48},  {4, 1, 40},  {8, 1, 32},
+                 {12, 1, 24}, {16, 1, 16}, {24, 2, 0}};
   runTest(t);
 }
 BOOST_AUTO_TEST_SUITE_END()
@@ -733,8 +733,8 @@ BOOST_AUTO_TEST_CASE(t1) {
   // and must be a multiple of the input channel grouping
   // (a derivative of inputLoadWidth and the AMP pipeline depth).
   // 'numFieldElems' is in units of outChansPerGroup (16 half values)
-  t.worklists = {{0, 1, 24}, {2, 1, 20}, {4, 1, 16},
-                 {6, 1, 12}, {8, 1, 8},  {12, 2, 0}};
+  t.worklists = {{0, 1, 48},  {4, 1, 40},  {8, 1, 32},
+                 {12, 1, 24}, {16, 1, 16}, {24, 2, 0}};
   runTest(t);
 }
 BOOST_AUTO_TEST_SUITE_END()

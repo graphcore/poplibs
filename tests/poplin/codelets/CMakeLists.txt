@@ -1,9 +1,11 @@
 add_unit_test(ConvPartial1x1Out
               ConvPartial1x1Out.cpp
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 add_unit_test(OuterProductTest
               OuterProductTest.cpp
-              LABELS codelet)
+              LABELS codelet
+              VARIANTS ${SIM_VARIANTS})
 
 add_multi_target_test_executable(ConvPartial1xNSLIC ConvPartial1xNSLIC.cpp)
 foreach(MODE 0 1 2)
