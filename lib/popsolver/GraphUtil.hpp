@@ -1,10 +1,11 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-
-#ifndef poplibs_support_GraphUtil_hpp
-#define poplibs_support_GraphUtil_hpp
+#ifndef _popsolver_GraphUtil_hpp_
+#define _popsolver_GraphUtil_hpp_
 
 #include <boost/graph/adjacency_matrix.hpp>
 #include <vector>
+
+namespace popsolver {
 
 // Returns an adjacency matrix representing pair-wise reachability of the input
 // graph.
@@ -49,4 +50,6 @@ static inline boost::adjacency_matrix<> pairwise_reachability(const Graph &g) {
   return result;
 }
 
-#endif // poplibs_support_GraphUtil_hpp
+} // namespace popsolver
+
+#endif // _popsolver_GraphUtil_hpp_

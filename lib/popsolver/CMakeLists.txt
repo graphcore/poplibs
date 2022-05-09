@@ -3,6 +3,7 @@ include(GNUInstallDirs)
 add_library(popsolver STATIC
   Constraint.cpp
   Constraint.hpp
+  GraphUtil.hpp
   Model.cpp
   Scheduler.cpp
   Scheduler.hpp
@@ -23,7 +24,6 @@ target_link_libraries(popsolver
     Boost::boost
   PRIVATE
     poplar
-    poplibs_support
     spdlog::spdlog_header_only
 )
 

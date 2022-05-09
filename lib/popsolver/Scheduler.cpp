@@ -27,32 +27,7 @@ std::pair<bool, ConstraintEvaluationSummary> Scheduler::propagate() {
     const auto cid = worklist.front();
     const auto constraint = constraints[cid];
     worklist.pop();
-
-    if (poplibs_support::logging::popsolver::shouldLog(
-            poplibs_support::logging::Level::Trace)) {
-      // Only provide a breakdown when we are trace log level because this is
-      // too slow to be on by default.
-      if (dynamic_cast<GenericAssignment<DataType> *>(constraint) != nullptr ||
-          dynamic_cast<GenericAssignment<unsigned> *>(constraint) != nullptr) {
-        constraintEvalCount.call++;
-      } else if (dynamic_cast<Product *>(constraint) != nullptr) {
-        constraintEvalCount.product++;
-      } else if (dynamic_cast<Sum *>(constraint) != nullptr) {
-        constraintEvalCount.sum++;
-      } else if (dynamic_cast<Max *>(constraint) != nullptr) {
-        constraintEvalCount.max++;
-      } else if (dynamic_cast<Min *>(constraint) != nullptr) {
-        constraintEvalCount.min++;
-      } else if (dynamic_cast<Less *>(constraint) != nullptr) {
-        constraintEvalCount.less++;
-      } else if (dynamic_cast<LessOrEqual *>(constraint) != nullptr) {
-        constraintEvalCount.lessOrEqual++;
-      } else {
-        constraintEvalCount.unknown++;
-      }
-    } else {
-      constraintEvalCount.unknown++;
-    }
+    constraintEvalCount++;
 
     // Note we don't remove the constaint from the queued set until after the
     // call to propagate(). The propagate() method is responsible for computing

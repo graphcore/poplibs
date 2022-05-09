@@ -25,38 +25,7 @@ namespace popsolver {
 class Constraint;
 class Scheduler;
 
-struct ConstraintEvaluationSummary {
-  using CountType = std::uint64_t;
-  CountType call = 0;
-  CountType product = 0;
-  CountType sum = 0;
-  CountType max = 0;
-  CountType min = 0;
-  CountType less = 0;
-  CountType lessOrEqual = 0;
-
-  CountType unknown = 0;
-
-  CountType total() const {
-    return call + product + sum + max + min + less + lessOrEqual + unknown;
-  }
-
-  void operator+=(const ConstraintEvaluationSummary &other) {
-    call += other.call;
-    product += other.product;
-    sum += other.sum;
-    max += other.max;
-    min += other.min;
-    less += other.less;
-    lessOrEqual += other.lessOrEqual;
-    unknown += other.unknown;
-  }
-};
-
-// Extra breakdown information is collected when POPLIBS_LOG_LEVEL is set to
-// TRACE or higher
-std::ostream &operator<<(std::ostream &os,
-                         const ConstraintEvaluationSummary &s);
+using ConstraintEvaluationSummary = std::uint64_t;
 
 class DataType {
 public:

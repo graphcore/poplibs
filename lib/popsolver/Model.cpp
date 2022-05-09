@@ -2,10 +2,8 @@
 #include <popsolver/Model.hpp>
 
 #include "Constraint.hpp"
+#include "GraphUtil.hpp"
 #include "Scheduler.hpp"
-
-#include <poplibs_support/GraphUtil.hpp>
-#include <poplibs_support/logging.hpp>
 
 #include <boost/graph/depth_first_search.hpp>
 #include <boost/optional.hpp>
@@ -16,22 +14,6 @@
 #include <ostream>
 
 using namespace popsolver;
-using namespace poplibs_support;
-
-std::ostream &popsolver::operator<<(std::ostream &os,
-                                    const ConstraintEvaluationSummary &s) {
-  if (poplibs_support::logging::popsolver::shouldLog(
-          poplibs_support::logging::Level::Trace)) {
-    os << s.total() << " { call " << s.call << ", product " << s.product
-       << ", sum " << s.sum << ", max " << s.max << ", min " << s.min
-       << ", less " << s.less << ", lessOrEqual " << s.lessOrEqual
-       << ", unknown " << s.unknown << " }";
-  } else {
-    os << s.total();
-  }
-
-  return os;
-}
 
 Model::Model() {
   defaultPriorityGroup = PriorityGroupID(boost::add_vertex(priorityGraph));

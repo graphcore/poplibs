@@ -18,7 +18,6 @@ add_library(poplibs_support STATIC
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/CTCInferenceDefs.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/forceInterleavedEstimates.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/GraphUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/IclUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/LogArithmetic.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/logging.hpp
