@@ -16,6 +16,7 @@
 #include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/DynamicSlice.hpp>
+#include <popops/Fill.hpp>
 #include <popops/Operation.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -1865,6 +1866,10 @@ void checkQuarterMetadata(void) {
       "embedding");
   auto groupedIds = popops::createGroupedIndicesTensor(
       graph, groupSize, {0}, numIndices, groupedPlan, {}, "ids");
+
+  // Indices must be legal even though we're not really testing dynamic slice
+  popops::fill<unsigned>(graph, groupedIds, sequence, 0u, "zero indices");
+
   graph.setInitialValue(
       grouped.getMetadata(),
       QuarterMetadata(QuarterMetadata::Format::F143, 1).getBinary());
