@@ -169,6 +169,7 @@ makeConvSize(const std::vector<unsigned> &values,
       convSizeVarsVector.numConvGroupGrains() * convGroupsPerGroup;
 
   const auto numFieldGrains = convSizeVarsVector.numFieldGrains();
+  convSize.fieldSize.reserve(numFieldDims);
   for (unsigned d = 0; d < numFieldDims; ++d) {
     convSize.fieldSize.push_back(numFieldGrains[d] * fieldGrainSize[d]);
   }
@@ -809,6 +810,8 @@ applyPadding(popsolver::Model &m, const poplar::Target &target,
 
     std::vector<popsolver::Variable> kernelDims;
     std::vector<popsolver::Variable> paddedKernelDims;
+    kernelDims.reserve(numKernelDims);
+    paddedKernelDims.reserve(numKernelDims);
     for (unsigned d = 0; d < numKernelDims; ++d) {
       const auto kernelSize = transformedSizes[tileLevel].kernelSize[d];
 
@@ -826,6 +829,8 @@ applyPadding(popsolver::Model &m, const poplar::Target &target,
 
     std::vector<popsolver::Variable> fieldDims;
     std::vector<popsolver::Variable> paddedFieldDims;
+    fieldDims.reserve(numFieldDims);
+    paddedFieldDims.reserve(numFieldDims);
     for (unsigned d = 0; d < numFieldDims; ++d) {
       const auto fieldGrainSize =
           m.addConstant(partitionVars[systemLevel].fieldGrainSize[d]);
@@ -990,6 +995,8 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     // they must be stored in vectors.
     std::vector<popsolver::Variable> outputFieldSizes;
     std::vector<popsolver::Variable> inputFieldSizes;
+    outputFieldSizes.reserve(numFieldDims);
+    inputFieldSizes.reserve(numFieldDims);
 
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
       const auto fieldGrainSize = partitionsNextLevel.fieldGrainSize[dim];
@@ -2244,6 +2251,8 @@ addBwdEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
   std::vector<PartitionVariables> bwdPartitionVars;
   std::vector<ConvSizeVariables> bwdConvSize;
   std::vector<ConvSizeVariables> bwdTransformedConvSize;
+  bwdConvSize.reserve(numLevelsOfHierarchy);
+  bwdTransformedConvSize.reserve(numLevelsOfHierarchy);
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
     if (level + 1 < numLevelsOfHierarchy) {
       const auto &p = partitionVars[level];
@@ -2252,20 +2261,20 @@ addBwdEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
       bwdP.inChanSplit.parallel = p.fieldSplit.back();
       bwdP.inChanGrainSize = p.fieldGrainSize.back();
       bwdP.fieldGrainSize.back() = fwdConvVertexType.inChansPerGroup;
-      bwdPartitionVars.push_back(bwdP);
+      bwdPartitionVars.push_back(std::move(bwdP));
     }
 
     const auto &s = convSize[level];
     auto bwdS = s;
     bwdS.numFieldGrains.back() = s.numInChanGrains;
     bwdS.numInChanGrains = s.numFieldGrains.back();
-    bwdConvSize.push_back(bwdS);
+    bwdConvSize.push_back(std::move(bwdS));
 
     const auto &tS = convSize[level];
     auto bwdTS = tS;
     bwdTS.numFieldGrains.back() = tS.numInChanGrains;
     bwdTS.numInChanGrains = tS.numFieldGrains.back();
-    bwdTransformedConvSize.push_back(bwdTS);
+    bwdTransformedConvSize.push_back(std::move(bwdTS));
   }
 
   auto bwdConvVertexType = getFullyConnectedBwdConvVertexType(
@@ -2389,6 +2398,8 @@ addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
   std::vector<PartitionVariables> wuPartitionVars;
   std::vector<ConvSizeVariables> wuConvSize;
   std::vector<ConvSizeVariables> wuTransformedConvSize;
+  wuConvSize.reserve(numLevelsOfHierarchy);
+  wuTransformedConvSize.reserve(numLevelsOfHierarchy);
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
     if (level + 1 < numLevelsOfHierarchy) {
       const auto &p = partitionVars[level];
@@ -2398,7 +2409,7 @@ addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
       wuP.inChanGrainSize = p.outChanGrainSize;
       wuP.outChanGrainSize = p.inChanGrainSize;
       wuP.fieldGrainSize = std::vector<unsigned>(numFieldDims, 1);
-      wuPartitionVars.push_back(wuP);
+      wuPartitionVars.push_back(std::move(wuP));
     }
 
     const auto &s = convSize[level];
@@ -2414,7 +2425,7 @@ addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
             m.product({s.numFieldGrains[dim], m.addConstant(fieldGrainSize)});
       }
     }
-    wuConvSize.push_back(wuS);
+    wuConvSize.push_back(std::move(wuS));
 
     const auto &tS = convSize[level];
     auto wuTS = tS;
@@ -2430,7 +2441,7 @@ addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
             m.product({tS.numFieldGrains[dim], m.addConstant(fieldGrainSize)});
       }
     }
-    wuTransformedConvSize.push_back(wuTS);
+    wuTransformedConvSize.push_back(std::move(wuTS));
   }
 
   auto wuConvVertexType = getFullyConnectedWuConvVertexType(
@@ -2957,6 +2968,7 @@ getUsedTiles(popsolver::Model &m,
   const auto &p = partitionVars[0];
   // we only care about splits across tiles so don't include the serial splits
   std::vector<popsolver::Variable> splits;
+  splits.reserve(4 + p.fieldSplit.size() + p.kernelSplit.size());
   splits.push_back(p.batchSplit);
   splits.push_back(p.outChanSplit.parallel);
   splits.push_back(p.inChanSplit.parallel);
