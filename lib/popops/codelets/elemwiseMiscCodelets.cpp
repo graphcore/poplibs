@@ -285,24 +285,6 @@ public:
 // For non IPU and any ARCH_VERSION compile using cast functions
 // for quarter types
 
-quarter_metadata unpackMetadataDeprecate(const MetadataType *in) {
-  quarter_metadata out;
-  constexpr auto formatBit = 7;
-  constexpr auto formatBitMask = (1 << formatBit);
-  constexpr auto scaleSignBit = 5;
-  constexpr auto scaleSignBitMask = (1 << scaleSignBit);
-  constexpr auto scaleMask = (1 << (scaleSignBit + 1)) - 1;
-  constexpr auto scaleSignExtendMask = 0xff ^ scaleMask;
-
-  out.fmt =
-      *in & formatBitMask ? quarter_metadata::f143 : quarter_metadata::f152;
-  out.scale = static_cast<char>(*in & scaleMask);
-  if (out.scale & scaleSignBitMask) {
-    out.scale |= scaleSignExtendMask;
-  }
-  return out;
-}
-
 template <typename SrcType, typename DstType>
 DstType cast(SrcType src, quarter_metadata metadataSrc,
              quarter_metadata metadataDst) {
@@ -324,10 +306,10 @@ public:
                       const MetadataType *metadataDst) {
     quarter_metadata metadata0, metadata1;
     if constexpr (std::is_same<SrcType, quarter>::value) {
-      metadata0 = unpackMetadataDeprecate(metadataSrc);
+      metadata0 = unpackMetadata(metadataSrc);
     }
     if constexpr (std::is_same<DstType, quarter>::value) {
-      metadata1 = unpackMetadataDeprecate(metadataDst);
+      metadata1 = unpackMetadata(metadataDst);
     }
     constexpr unsigned elemsPerLoop = 4;
     for (unsigned i = 0; i < numElems / elemsPerLoop; ++i) {
@@ -354,10 +336,10 @@ public:
 
     quarter_metadata metadata0, metadata1;
     if constexpr (std::is_same<SrcType, quarter>::value) {
-      metadata0 = unpackMetadataDeprecate(metadataSrc);
+      metadata0 = unpackMetadata(metadataSrc);
     }
     if constexpr (std::is_same<DstType, quarter>::value) {
-      metadata1 = unpackMetadataDeprecate(metadataDst);
+      metadata1 = unpackMetadata(metadataDst);
     }
     for (unsigned i = 0; i < divideWork(numElems, 2, wid); ++i) {
       *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);

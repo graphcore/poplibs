@@ -126,8 +126,8 @@ public:
 
     quarter_metadata inMetadata, weightsMetadata;
     if constexpr (std::is_same<FPType, quarter>::value) {
-      inMetadata = unpackMetadataDeprecate(in.getMetadata());
-      weightsMetadata = unpackMetadataDeprecate(weights.getMetadata());
+      inMetadata = unpackMetadata(in.getMetadata());
+      weightsMetadata = unpackMetadata(weights.getMetadata());
     }
     for (unsigned cg = 0; cg < numConvGroups; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {

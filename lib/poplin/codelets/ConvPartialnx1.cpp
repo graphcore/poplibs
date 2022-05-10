@@ -164,8 +164,8 @@ public:
 
     quarter_metadata inMetadata, weightsMetadata;
     if constexpr (std::is_same<FPType, quarter>::value) {
-      inMetadata = unpackMetadataDeprecate(in.getMetadata());
-      weightsMetadata = unpackMetadataDeprecate(weights.getMetadata());
+      inMetadata = unpackMetadata(in.getMetadata());
+      weightsMetadata = unpackMetadata(weights.getMetadata());
     }
     const unsigned numElems = zerosInfo;
 
