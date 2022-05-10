@@ -49,7 +49,7 @@ struct SolveParams {
   bool unitDiagonal;
   std::size_t blockSize;
   poplar::OptionFlags options;
-  matmul::PlanningCache *cache;
+  PlanningCache *cache;
   poplar::Tensor x;
   std::unique_ptr<poputil::graphfn::VoidFunction> solver;
   std::size_t solverSize;
@@ -58,7 +58,7 @@ struct SolveParams {
       matmuls;
 
   SolveParams(const SolveOptions &options, std::size_t k, bool lower,
-              bool unitDiagonal, matmul::PlanningCache *cache)
+              bool unitDiagonal, PlanningCache *cache)
       : k(k), lower(lower), unitDiagonal(unitDiagonal),
         blockSize(options.blockSize), options(options.matmulOptions),
         cache(cache), solverSize(0) {}
@@ -548,7 +548,7 @@ poplar::Tensor createTriangularSolveOutput(
     const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &xShape, bool leftSide,
     std::size_t blockSize, const poplar::DebugContext &debugContext,
-    const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
+    const poplar::OptionFlags &options, PlanningCache *cache) {
   auto xGrouped = groupedShape(xShape);
 
   auto tensor = createInput(graph, inputType, xGrouped, false,
@@ -564,7 +564,7 @@ poplar::Tensor createTriangularSolveInputLHS(
     const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, bool leftSide,
     const poplar::DebugContext &debugContext,
-    const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
+    const poplar::OptionFlags &options, PlanningCache *cache) {
   POPLIN_TRACEPOINT();
   validateInputs(aShape, bShape, leftSide);
   auto aGrouped = groupedShape(aShape);
@@ -580,7 +580,7 @@ poplar::Tensor createTriangularSolveInputRHS(
     const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, bool leftSide,
     const poplar::DebugContext &debugContext,
-    const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
+    const poplar::OptionFlags &options, PlanningCache *cache) {
   POPLIN_TRACEPOINT();
   validateInputs(aShape, bShape, leftSide);
   auto bGrouped = groupedShape(bShape);
@@ -627,7 +627,7 @@ poplar::Tensor triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
                                poplar::program::Sequence &prog,
                                const poplar::DebugContext &debugContext,
                                const poplar::OptionFlags &options,
-                               matmul::PlanningCache *cache) {
+                               PlanningCache *cache) {
   POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -655,7 +655,7 @@ poplar::Tensor triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
 
   // even though cache == null, matmul could benefit of planning cache,
   // provide local ephemeral cache for the solver only.
-  matmul::PlanningCache localCache;
+  PlanningCache localCache;
   SolveParams params(solveOptions, bn, lower, unitDiagonal,
                      cache ? cache : &localCache);
 

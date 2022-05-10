@@ -274,7 +274,7 @@ int main(int argc, char **argv) {
     mapTensorLinearly(graph, timeSteps);
   }
 
-  poplin::matmul::PlanningCache cache;
+  poplin::PlanningCache cache;
   gru::GruParams params(dataType, batchSize, sequenceSize, timeSteps,
                         {inputSize, outputSize}, activation,
                         recurrentActivation);

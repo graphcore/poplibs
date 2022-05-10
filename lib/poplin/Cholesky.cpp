@@ -50,10 +50,10 @@ struct CholeskyParams {
   bool lower;
   std::size_t blockSize;
   poplar::OptionFlags options;
-  matmul::PlanningCache *cache;
+  PlanningCache *cache;
 
   CholeskyParams(bool lower, const CholeskyOptions &options,
-                 matmul::PlanningCache *cache)
+                 PlanningCache *cache)
       : lower(lower), blockSize(options.blockSize),
         options(options.matmulOptions), cache(cache) {}
 };
@@ -362,13 +362,11 @@ getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
   return matmulParams;
 }
 
-poplar::Tensor createCholeskyInput(poplar::Graph &graph,
-                                   const poplar::Type &type,
-                                   const std::vector<std::size_t> &shape,
-                                   bool lower,
-                                   const poplar::DebugContext &debugContext,
-                                   const poplar::OptionFlags &options,
-                                   matmul::PlanningCache *cache) {
+poplar::Tensor
+createCholeskyInput(poplar::Graph &graph, const poplar::Type &type,
+                    const std::vector<std::size_t> &shape, bool lower,
+                    const poplar::DebugContext &debugContext,
+                    const poplar::OptionFlags &options, PlanningCache *cache) {
   POPLIN_TRACEPOINT();
 
   poputil::PoplibsOpDebugInfo di(debugContext);
@@ -407,8 +405,7 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
 void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
                      poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext,
-                     poplar::OptionFlags options,
-                     matmul::PlanningCache *cache) {
+                     poplar::OptionFlags options, PlanningCache *cache) {
   POPLIN_TRACEPOINT();
 
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(a));
@@ -424,7 +421,7 @@ void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
 
   CholeskyOptions choleskyOptions(options, As.dim(1));
 
-  matmul::PlanningCache localCache;
+  PlanningCache localCache;
   CholeskyParams params(lower, choleskyOptions, cache ? cache : &localCache);
 
   factoriseBlocked(graph, As, prog, {di, "factoriseBlockedTop"}, params);
@@ -434,8 +431,7 @@ void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
 poplar::Tensor cholesky(poplar::Graph &graph, const poplar::Tensor &a,
                         bool lower, poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext,
-                        poplar::OptionFlags options,
-                        matmul::PlanningCache *cache) {
+                        poplar::OptionFlags options, PlanningCache *cache) {
   POPLIN_TRACEPOINT();
 
   auto a2 = createCholeskyInput(graph, a.elementType(), a.shape(), lower,

@@ -16,6 +16,7 @@
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
+#include <poplin/ConvPreplan.hpp>
 #include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
@@ -186,7 +187,7 @@ int main(int argc, char **argv) try {
   poplin::addCodelets(graph);
   popops::addCodelets(graph);
 
-  poplin::matmul::PlanningCache cache;
+  poplin::PlanningCache cache;
   poplar::program::Sequence uploadProg, prog, downloadProg;
   poplar::OptionFlags options;
 
@@ -225,7 +226,7 @@ int main(int argc, char **argv) try {
   std::set<poplin::MatMulPlanParams> params;
   for (auto &pair : matmulOptPairs)
     params.emplace(&target, pair.first, &pair.second);
-  preplanMatMuls(params, cache);
+  preplan({}, params, cache);
 
   poplar::Tensor inputA;
   if (runCholesky) {

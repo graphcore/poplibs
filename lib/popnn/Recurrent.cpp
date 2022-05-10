@@ -128,7 +128,7 @@ Tensor createFwdState(Graph &graph, const Type &dType, unsigned batchSize,
                       unsigned outputSize, Sequence &prog, bool initState,
                       bool inferenceOnly,
                       const poplar::DebugContext &debugContext,
-                      matmul::PlanningCache *cache) {
+                      PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -154,7 +154,7 @@ Tensor getOutputFromFwdState(const Tensor &fwdState) {
 Tensor createBwdState(Graph &graph, const Type &dType, unsigned batchSize,
                       unsigned outputSize, Sequence &prog,
                       const poplar::DebugContext &debugContext,
-                      matmul::PlanningCache *cache) {
+                      PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(dType, batchSize, outputSize, cache));
@@ -172,7 +172,7 @@ Tensor createInput(Graph &graph, unsigned sequenceSize, unsigned batchSize,
                    unsigned inputSize, unsigned outputSize, const Type &dType,
                    const Type &partialsType, bool inferenceOnly,
                    const poplar::DebugContext &debugContext,
-                   matmul::PlanningCache *cache) {
+                   PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(sequenceSize, batchSize, inputSize, outputSize,
@@ -200,7 +200,7 @@ poplar::Tensor createWeightsInput(Graph &graph, unsigned /* sequenceSize */,
                                   unsigned outputSize, const Type &dType,
                                   const Type &partialsType, bool inferenceOnly,
                                   const poplar::DebugContext &debugContext,
-                                  matmul::PlanningCache *cache) {
+                                  PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(batchSize, inputSize, outputSize, dType,
@@ -221,7 +221,7 @@ poplar::Tensor createWeightsFeedback(Graph &graph, unsigned batchSize,
                                      const Type &partialsType,
                                      bool inferenceOnly,
                                      const poplar::DebugContext &debugContext,
-                                     matmul::PlanningCache *cache) {
+                                     PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(batchSize, outputSize, dType,
@@ -241,7 +241,7 @@ Tensor forwardWeightInput(Graph &graph, const Tensor &actIn,
                           const Tensor &weights, Sequence &prog,
                           const Type &partialsType, bool inferenceOnly,
                           const poplar::DebugContext &debugContext,
-                          matmul::PlanningCache *cache) {
+                          PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -266,7 +266,7 @@ Tensor forwardIterate(Graph &graph, const Tensor &feedFwdIn,
                       popnn::NonLinearityType nonLinearityType,
                       const Type &partialsType, bool inferenceOnly,
                       const poplar::DebugContext &debugContext,
-                      matmul::PlanningCache *cache) {
+                      PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(feedFwdIn, initState, weightsFeedback,
@@ -321,7 +321,7 @@ poplar::Tensor rnnFwdSequence(
     const poplar::Tensor &feedbackWeights, const poplar::Tensor &prevLayerActs,
     const popnn::NonLinearityType &nonLinearityType,
     const poplar::Type &partialsType, bool inferenceOnly,
-    const poplar::DebugContext &debugContext, matmul::PlanningCache *cache) {
+    const poplar::DebugContext &debugContext, PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(fwdStateInit, weightedIn, biases, feedFwdWeights,
@@ -393,7 +393,7 @@ std::pair<Tensor, Tensor> backwardGradientStepImpl(
     const Tensor &actOut, const Tensor *weightsInput,
     const Tensor *weightsFeedback, Sequence &prog,
     popnn::NonLinearityType nonLinearityType, const Type &partialsType,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, PlanningCache *cache) {
   OptionFlags mmOpt{{"partialsType", partialsType.toString()},
                     {"fullyConnectedPass", "TRAINING_BWD"}};
 
@@ -416,7 +416,7 @@ std::pair<Tensor, Tensor> backwardGradientStep(
     const Tensor &actOut, const Tensor &weightsInput,
     const Tensor &weightsFeedback, Sequence &prog,
     popnn::NonLinearityType nonLinearityType, const Type &partialsType,
-    const poplar::DebugContext &debugContext, matmul::PlanningCache *cache) {
+    const poplar::DebugContext &debugContext, PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -437,7 +437,7 @@ Tensor backwardGradientStep(Graph &graph, const Tensor &gradientOut,
                             popnn::NonLinearityType nonLinearityType,
                             const Type &partialsType,
                             const poplar::DebugContext &debugContext,
-                            matmul::PlanningCache *cache) {
+                            PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(gradientOut, bwdState, actOut, weightsFeedback,
@@ -456,7 +456,7 @@ void paramDeltaUpdate(Graph &graph, const Tensor &bwdState, const Tensor &actIn,
                       Tensor &weightsFeedbackDeltasAcc, Tensor &biasDeltasAcc,
                       Sequence &prog, const Type &partialsType,
                       const poplar::DebugContext &debugContext,
-                      matmul::PlanningCache *cache) {
+                      PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -493,8 +493,7 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
                const poplar::Tensor &outGradient, const poplar::Tensor &actIn,
                const popnn::NonLinearityType &nonLinearityType,
                const poplar::Type &partialsType,
-               const poplar::DebugContext &debugContext,
-               matmul::PlanningCache *cache) {
+               const poplar::DebugContext &debugContext, PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,

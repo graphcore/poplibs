@@ -2525,7 +2525,7 @@ getActivationsShape(const FullyConnectedParams &params) {
           params.getInputChannelsPerGroup()};
 }
 
-static poplin::matmul::PlanningCache *getDenseCache(PlanningCache *cache) {
+static poplin::PlanningCache *getDenseCache(PlanningCache *cache) {
   if (cache == nullptr) {
     return nullptr;
   }

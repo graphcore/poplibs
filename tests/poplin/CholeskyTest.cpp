@@ -10,6 +10,7 @@
 
 #include <poplar/Engine.hpp>
 #include <poplin/Cholesky.hpp>
+#include <poplin/ConvPreplan.hpp>
 #include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
@@ -90,8 +91,8 @@ BOOST_DATA_TEST_CASE(CholeskyTest,
   std::set<MatMulPlanParams> params;
   for (auto &pair : matmulOptPairs)
     params.emplace(&target, pair.first, &pair.second);
-  matmul::PlanningCache cache;
-  preplanMatMuls(params, cache);
+  PlanningCache cache;
+  preplan({}, params, cache);
   BOOST_TEST(cache.size() == matmulOptPairs.size());
 
   if (N > blockSize) {

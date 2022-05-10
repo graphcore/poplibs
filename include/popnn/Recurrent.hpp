@@ -33,9 +33,9 @@
 #include <popnn/NonLinearity.hpp>
 
 namespace poplin {
-namespace matmul {
+
 class PlanningCache;
-}
+
 } // namespace poplin
 
 namespace popnn {
@@ -93,13 +93,13 @@ uint64_t getWuFlops(unsigned sequenceSize, unsigned batchSize,
  *
  * \return Tensor of shape [`numSteps`, `batchSize`, `inputSize`]
  */
-poplar::Tensor
-createInput(poplar::Graph &graph, unsigned numSteps, unsigned batchSize,
-            unsigned inputSize, unsigned outputSize, const poplar::Type &dType,
-            const poplar::Type &partialsType = poplar::FLOAT,
-            bool inferenceOnly = false,
-            const poplar::DebugContext &debugContext = {},
-            poplin::matmul::PlanningCache *planningCache = nullptr);
+poplar::Tensor createInput(poplar::Graph &graph, unsigned numSteps,
+                           unsigned batchSize, unsigned inputSize,
+                           unsigned outputSize, const poplar::Type &dType,
+                           const poplar::Type &partialsType = poplar::FLOAT,
+                           bool inferenceOnly = false,
+                           const poplar::DebugContext &debugContext = {},
+                           poplin::PlanningCache *planningCache = nullptr);
 
 /**
  * Create initial state for a vanilla RNN. The state, apart from the
@@ -123,11 +123,12 @@ createInput(poplar::Graph &graph, unsigned numSteps, unsigned batchSize,
  *
  * \return A 2D tensor of shape [`batchSize`, `outputSize`]
  */
-poplar::Tensor createFwdState(
-    poplar::Graph &graph, const poplar::Type &dType, unsigned batchSize,
-    unsigned outputSize, poplar::program::Sequence &prog, bool initState,
-    bool inferenceOnly, const poplar::DebugContext &debugContext = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+poplar::Tensor createFwdState(poplar::Graph &graph, const poplar::Type &dType,
+                              unsigned batchSize, unsigned outputSize,
+                              poplar::program::Sequence &prog, bool initState,
+                              bool inferenceOnly,
+                              const poplar::DebugContext &debugContext = {},
+                              poplin::PlanningCache *planningCache = nullptr);
 
 /** Extract previous output tensor from the hidden state. The returned tensor is
  *  a view of the tensor and can be used to initialise the tensor, if required.
@@ -159,7 +160,7 @@ poplar::Tensor createWeightsInput(
     unsigned inputSize, unsigned outputSize, const poplar::Type &dType,
     const poplar::Type &partialsType = poplar::FLOAT,
     bool inferenceOnly = false, const poplar::DebugContext &debugContext = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+    poplin::PlanningCache *planningCache = nullptr);
 
 /** Create the weights used in the recurrent part of a vanilla RNN layer.
  *
@@ -178,7 +179,7 @@ poplar::Tensor createWeightsFeedback(
     poplar::Graph &graph, unsigned batchSize, unsigned outputSize,
     const poplar::Type &dType, const poplar::Type &partialsType = poplar::FLOAT,
     bool inferenceOnly = false, const poplar::DebugContext &debugContext = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+    poplin::PlanningCache *planningCache = nullptr);
 
 /**
  * Perform the feedforward part of a RNN layer. The feedforward part of the RNN
@@ -215,7 +216,7 @@ poplar::Tensor forwardWeightInput(
     const poplar::Tensor &weights, poplar::program::Sequence &prog,
     const poplar::Type &partialsType = poplar::FLOAT,
     bool inferenceOnly = false, const poplar::DebugContext &debugContext = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+    poplin::PlanningCache *planningCache = nullptr);
 
 /**
  * Perform the feedback part of the RNN layer. The feedback part of the RNN
@@ -256,7 +257,7 @@ poplar::Tensor forwardIterate(
     popnn::NonLinearityType nonLinearityType,
     const poplar::Type &partialsType = poplar::FLOAT,
     bool inferenceOnly = false, const poplar::DebugContext &debugContext = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+    poplin::PlanningCache *planningCache = nullptr);
 
 /** Create initial state for backward pass of a vanilla RNN.
  *
@@ -270,12 +271,11 @@ poplar::Tensor forwardIterate(
  *
  * \return Tile mapped initial state tensor.
  */
-poplar::Tensor
-createBwdState(poplar::Graph &graph, const poplar::Type &dType,
-               unsigned batchSize, unsigned outputSize,
-               poplar::program::Sequence &prog,
-               const poplar::DebugContext &debugContext = {},
-               poplin::matmul::PlanningCache *planningCache = nullptr);
+poplar::Tensor createBwdState(poplar::Graph &graph, const poplar::Type &dType,
+                              unsigned batchSize, unsigned outputSize,
+                              poplar::program::Sequence &prog,
+                              const poplar::DebugContext &debugContext = {},
+                              poplin::PlanningCache *planningCache = nullptr);
 
 /** Compute a single step of the backward pass of a vanilla RNN layer. Two
  *  gradient outputs are produced. The first gradient is at the input of the RNN
@@ -318,11 +318,11 @@ std::pair<poplar::Tensor, poplar::Tensor> backwardGradientStep(
     poplar::program::Sequence &prog, popnn::NonLinearityType nonLinearityType,
     const poplar::Type &partialsType = poplar::FLOAT,
     const poplar::DebugContext &debugContext = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+    poplin::PlanningCache *planningCache = nullptr);
 
 // clang-format off
 // To handle long lines in Doxygen for auto-linking of overloaded functions.
-/** Same as backwardGradientStep(poplar::Graph&, const poplar::Tensor&, const poplar::Tensor&, const poplar::Tensor&, const poplar::Tensor&, const poplar::Tensor &, poplar::program::Sequence&, popnn::NonLinearityType, const poplar::Type&, const poplar::DebugContext&, poplin::matmul::PlanningCache*) with the difference that the input gradients are not computed.
+/** Same as backwardGradientStep(poplar::Graph&, const poplar::Tensor&, const poplar::Tensor&, const poplar::Tensor&, const poplar::Tensor&, const poplar::Tensor &, poplar::program::Sequence&, popnn::NonLinearityType, const poplar::Type&, const poplar::DebugContext&, poplin::PlanningCache*) with the difference that the input gradients are not computed.
  */
 // clang-format on
 poplar::Tensor backwardGradientStep(
@@ -332,7 +332,7 @@ poplar::Tensor backwardGradientStep(
     popnn::NonLinearityType nonLinearityType,
     const poplar::Type &partialsType = poplar::FLOAT,
     const poplar::DebugContext &debugContext = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+    poplin::PlanningCache *planningCache = nullptr);
 
 /** Update parameter deltas for a vanilla RNN step.
  *  The parameter deltas updated are:
@@ -370,7 +370,7 @@ void paramDeltaUpdate(poplar::Graph &graph, const poplar::Tensor &bwdState,
                       poplar::program::Sequence &prog,
                       const poplar::Type &partialsType = poplar::FLOAT,
                       const poplar::DebugContext &debugContext = {},
-                      poplin::matmul::PlanningCache *planningCache = nullptr);
+                      poplin::PlanningCache *planningCache = nullptr);
 
 /**
  * Perform the forward part of the RNN layer. The feedback part of the RNN layer
@@ -413,7 +413,7 @@ poplar::Tensor rnnFwdSequence(
     const popnn::NonLinearityType &nonLinearityType,
     const poplar::Type &partialsType, bool inferenceOnly,
     const poplar::DebugContext &debugContext = {},
-    poplin::matmul::PlanningCache *planningCache = nullptr);
+    poplin::PlanningCache *planningCache = nullptr);
 
 /**
  * Perform the feedback part of the RNN layer. The feedback part of the RNN
@@ -467,7 +467,7 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
                const popnn::NonLinearityType &nonLinearityType,
                const poplar::Type &partialsType,
                const poplar::DebugContext &debugContext = {},
-               poplin::matmul::PlanningCache *planningCache = nullptr);
+               poplin::PlanningCache *planningCache = nullptr);
 
 } // namespace rnn
 } // namespace popnn

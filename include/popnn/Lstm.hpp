@@ -157,11 +157,10 @@ uint64_t getBasicLstmCellWuFlops(const LstmParams &params);
  * \return A tensor created in the graph, of shape
  *         [\p timeSteps, \p batchSize, \p inputSize].
  */
-poplar::Tensor
-createInput(poplar::Graph &graph, const LstmParams &params,
-            const poplar::DebugContext &debugContext,
-            const poplar::OptionFlags &options = {},
-            poplin::matmul::PlanningCache *planningCache = nullptr);
+poplar::Tensor createInput(poplar::Graph &graph, const LstmParams &params,
+                           const poplar::DebugContext &debugContext,
+                           const poplar::OptionFlags &options = {},
+                           poplin::PlanningCache *planningCache = nullptr);
 
 /** Create the initial output that can be combined with the initial cell state
  *  using an LstmState. This then can be fed into the LSTM cell at the first
@@ -181,7 +180,7 @@ poplar::Tensor
 createInitialOutput(poplar::Graph &graph, const LstmParams &params,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options = {},
-                    poplin::matmul::PlanningCache *planningCache = nullptr);
+                    poplin::PlanningCache *planningCache = nullptr);
 
 /** Create the initial cell state that can be combined with the initial output
  *  using an LstmState. This then can be fed into the LSTM cell at the first
@@ -201,7 +200,7 @@ poplar::Tensor
 createInitialCellState(poplar::Graph &graph, const LstmParams &params,
                        const poplar::DebugContext &debugContext,
                        const poplar::OptionFlags &options = {},
-                       poplin::matmul::PlanningCache *planningCache = nullptr);
+                       poplin::PlanningCache *planningCache = nullptr);
 
 /** Creates the initial state (both output and cell state) that is fed into
  *  the LSTM cell at the first timestep. It can be initialised by writing the
@@ -217,11 +216,10 @@ createInitialCellState(poplar::Graph &graph, const LstmParams &params,
  * \return A tensor which is the state for the forward operation of the LSTM
  *         cell.
  */
-LstmState
-createInitialState(poplar::Graph &graph, const LstmParams &params,
-                   const poplar::DebugContext &debugContext,
-                   const poplar::OptionFlags &options = {},
-                   poplin::matmul::PlanningCache *planningCache = nullptr);
+LstmState createInitialState(poplar::Graph &graph, const LstmParams &params,
+                             const poplar::DebugContext &debugContext,
+                             const poplar::OptionFlags &options = {},
+                             poplin::PlanningCache *planningCache = nullptr);
 
 /** Initialise the forward state of an LSTM with zeros.
  *
@@ -252,7 +250,7 @@ std::pair<poplar::Tensor, poplar::Tensor>
 createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options = {},
-                    poplin::matmul::PlanningCache *planningCache = nullptr);
+                    poplin::PlanningCache *planningCache = nullptr);
 
 /** Create the weights biases.
  */
@@ -260,16 +258,15 @@ poplar::Tensor
 createWeightsBiases(poplar::Graph &graph, const LstmParams &params,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options = {},
-                    poplin::matmul::PlanningCache *planningCache = nullptr);
+                    poplin::PlanningCache *planningCache = nullptr);
 
 /** Create the weights (both kernel and biases) used to weight the input of an
  *  LSTM.
  */
-LstmWeights
-createWeights(poplar::Graph &graph, const LstmParams &params,
-              const poplar::DebugContext &debugContext,
-              const poplar::OptionFlags &options = {},
-              poplin::matmul::PlanningCache *planningCache = nullptr);
+LstmWeights createWeights(poplar::Graph &graph, const LstmParams &params,
+                          const poplar::DebugContext &debugContext,
+                          const poplar::OptionFlags &options = {},
+                          poplin::PlanningCache *planningCache = nullptr);
 
 /** Calculate the result of applying an LSTM across a sequence.
  *
@@ -308,7 +305,7 @@ lstmFwd(poplar::Graph &graph, const LstmParams &params,
         poplar::program::Sequence &fwdProg,
         const poplar::DebugContext &debugContext = {},
         const poplar::OptionFlags &options = {},
-        poplin::matmul::PlanningCache *planningCache = nullptr);
+        poplin::PlanningCache *planningCache = nullptr);
 
 /**
  *  Run LSTM backward pass. The backward pass executes in reverse order as
@@ -363,7 +360,7 @@ lstmBwd(poplar::Graph &graph, const LstmParams &params,
         poplar::Tensor *inputGrad, poplar::Tensor *bwdIntermediates,
         const poplar::DebugContext &debugContext = {},
         const poplar::OptionFlags &options = {},
-        poplin::matmul::PlanningCache *planningCache = nullptr);
+        poplin::PlanningCache *planningCache = nullptr);
 
 /** \deprecated
  *  **deprecated** Use previously defined popnn::lstmBwd() instead.
@@ -423,7 +420,7 @@ LstmState lstmBwd(poplar::Graph &graph, const LstmParams &params,
                   poplar::Tensor *inputGrad, poplar::Tensor *bwdIntermediates,
                   const poplar::DebugContext &debugContext = {},
                   const poplar::OptionFlags &options = {},
-                  poplin::matmul::PlanningCache *planningCache = nullptr);
+                  poplin::PlanningCache *planningCache = nullptr);
 
 /**
  *  Run a standalone weight update pass. Takes intermediates and gradients
@@ -462,7 +459,7 @@ LstmWeights lstmWU(poplar::Graph &graph, const LstmParams &params,
                    const poplar::Tensor &output,
                    const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {},
-                   poplin::matmul::PlanningCache *planningCache = nullptr);
+                   poplin::PlanningCache *planningCache = nullptr);
 
 /**
  *  Run a combined LSTM backward and weight update pass. Use this combined
@@ -516,7 +513,7 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
                         poplar::Tensor *inputGrad, LstmWeights &weightsGrad,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {},
-                        poplin::matmul::PlanningCache *planningCache = nullptr);
+                        poplin::PlanningCache *planningCache = nullptr);
 
 /** \deprecated
  *  **deprecated** Use previously defined popnn::lstmBwdWithWU() instead.
@@ -573,7 +570,7 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
                         poplar::Tensor *inputGrad, LstmWeights &weightsGrad,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {},
-                        poplin::matmul::PlanningCache *planningCache = nullptr);
+                        poplin::PlanningCache *planningCache = nullptr);
 
 } // namespace lstm
 } // namespace popnn

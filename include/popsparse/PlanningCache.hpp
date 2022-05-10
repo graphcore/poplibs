@@ -9,11 +9,9 @@
 #include <memory>
 
 namespace poplin {
-namespace matmul {
 
 class PlanningCache;
 
-}
 } // namespace poplin
 
 namespace popsparse {
@@ -28,7 +26,7 @@ class PlanningCacheImpl;
 class PlanningCache {
 public:
   PlanningCache();
-  PlanningCache(poplin::matmul::PlanningCache *matMulCache);
+  PlanningCache(poplin::PlanningCache *planningCache);
   ~PlanningCache();
   std::unique_ptr<PlanningCacheImpl> impl;
 };

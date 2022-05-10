@@ -8,6 +8,7 @@
 #include <poplibs_test/Util.hpp>
 
 #include <poplar/Engine.hpp>
+#include <poplin/ConvPreplan.hpp>
 #include <poplin/MatMul.hpp>
 #include <poplin/TriangularSolve.hpp>
 #include <poplin/codelets.hpp>
@@ -71,13 +72,13 @@ bool deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
   auto matmuls = getTriangularSolveMatMulPrePlanParameters(
       type, type, a_shape, b_shape, left_side, lower, options);
 
-  matmul::PlanningCache cache;
+  PlanningCache cache;
   std::set<MatMulPlanParams> params;
   assert(cache.size() == 0);
   for (auto &param : matmuls) {
     params.emplace(&target, param.first, &param.second);
   }
-  preplanMatMuls(params, cache);
+  preplan({}, params, cache);
   assert(cache.size() == matmuls.size());
 
   Tensor tA = graph.addVariable(type, a_shape, "A");

@@ -15,7 +15,7 @@ namespace popsparse {
 namespace dynamic {
 
 class PlanningCacheImpl {
-  using DenseCacheType = poplin::matmul::PlanningCache;
+  using DenseCacheType = poplin::PlanningCache;
   // If no dense cache provided then create one managed by this struct
   // If it does already exist denseCache will point to this and this
   // unique pointer will be empty

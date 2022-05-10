@@ -41,8 +41,7 @@ poplar::Tensor createTriangularSolveInputLHS(
     const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, bool leftSide,
     const poplar::DebugContext &debugContext,
-    const poplar::OptionFlags &options = {},
-    matmul::PlanningCache *cache = nullptr);
+    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 /**
  * Create a tensor that is used as the right operand of triangular solve.
@@ -72,8 +71,7 @@ poplar::Tensor createTriangularSolveInputRHS(
     const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, bool leftSide,
     const poplar::DebugContext &debugContext,
-    const poplar::OptionFlags &options = {},
-    matmul::PlanningCache *cache = nullptr);
+    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 /**
  * Masks the unused components of the input tensor with zeroes, optionally
@@ -123,7 +121,7 @@ poplar::Tensor triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
                                poplar::program::Sequence &prog,
                                const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {},
-                               matmul::PlanningCache *cache = nullptr);
+                               PlanningCache *cache = nullptr);
 
 /**
  * Plan matrix multiplication for given triangular solver

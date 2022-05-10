@@ -40,7 +40,9 @@ void preplan(const std::set<ConvPlanParams> &convs,
 
 void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
                     matmul::PlanningCache &cache) {
-  preplan({}, matmuls, cache.getImpl());
+  logging::poplin::warn("poplin::preplanMatMuls() is deprecated! "
+                        "Use poplin::preplan() instead");
+  preplan({}, matmuls, cache);
 }
 
 void preplanConvolutions(poplar::Graph &graph,

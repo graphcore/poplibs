@@ -13,9 +13,7 @@
 
 namespace poplin {
 
-namespace matmul {
 class PlanningCache;
-}
 
 /**
  * Plan matrix multiplication for the Cholesky factoriser.
@@ -73,7 +71,7 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
                                    bool lower,
                                    const poplar::DebugContext &debugContext,
                                    const poplar::OptionFlags &options = {},
-                                   matmul::PlanningCache *cache = nullptr);
+                                   PlanningCache *cache = nullptr);
 
 /**
  * Computes Cholesky factor for a symmetric positive definite matrix.
@@ -104,7 +102,7 @@ poplar::Tensor cholesky(poplar::Graph &graph, const poplar::Tensor &a,
                         bool lower, poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         poplar::OptionFlags options = {},
-                        matmul::PlanningCache *cache = nullptr);
+                        PlanningCache *cache = nullptr);
 
 /**
  * Computes Cholesky factor in place for a symmetric positive definite matrix.
@@ -134,7 +132,7 @@ void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
                      poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext = {},
                      poplar::OptionFlags options = {},
-                     matmul::PlanningCache *cache = nullptr);
+                     PlanningCache *cache = nullptr);
 
 } // namespace poplin
 

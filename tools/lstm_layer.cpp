@@ -293,7 +293,7 @@ int main(int argc, char **argv) {
     ignoreFinalState = true;
   }
 
-  poplin::matmul::PlanningCache cache;
+  poplin::PlanningCache cache;
   lstm::LstmParams params(dataType, batchSize, sequenceSize, timeSteps,
                           {inputSize, outputSize}, activation,
                           recurrentActivation);

@@ -17,8 +17,8 @@ namespace dynamic {
 
 PlanningCache::PlanningCache() : impl(new PlanningCacheImpl()) {}
 
-PlanningCache::PlanningCache(poplin::matmul::PlanningCache *matMulCache)
-    : impl(new PlanningCacheImpl(matMulCache)) {}
+PlanningCache::PlanningCache(poplin::PlanningCache *planningCache)
+    : impl(new PlanningCacheImpl(planningCache)) {}
 
 PlanningCache::~PlanningCache() = default;
 

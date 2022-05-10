@@ -1029,7 +1029,7 @@ int main(int argc, char **argv) {
         }
 
         if (operandsType[nStep] == OperandsType::ddd) {
-          poplin::matmul::PlanningCache cache;
+          poplin::PlanningCache cache;
           OptionFlags mmOpt;
 
           // LHS matrix

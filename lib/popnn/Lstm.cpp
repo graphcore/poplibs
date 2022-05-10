@@ -135,7 +135,7 @@ static void applyGateNonlinearities(Graph &graph, const Tensor &t,
 // Computes the output before nonlinearities to all the units are applies
 static Tensor basicLstmUnitsNlInputPreWeighted(
     Graph &graph, Tensor weightedIn, Tensor prevOutput, Tensor weightsOutput,
-    Sequence &prog, OptionFlags &mmOpt, matmul::PlanningCache *cache,
+    Sequence &prog, OptionFlags &mmOpt, PlanningCache *cache,
     const DebugNameAndId &dnai) {
   assert(weightedIn.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
@@ -151,8 +151,7 @@ static Tensor basicLstmUnitsNlInputPreWeighted(
 static Tensor basicLstmUnitsNlInput(Graph &graph, Tensor prevAct,
                                     Tensor prevOutput, Tensor weightsInput,
                                     Tensor weightsOutput, Sequence &prog,
-                                    OptionFlags &mmOpt,
-                                    matmul::PlanningCache *cache,
+                                    OptionFlags &mmOpt, PlanningCache *cache,
                                     const DebugNameAndId &dnai) {
   assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
@@ -431,7 +430,7 @@ static std::size_t getNumShards(const Graph &graph, const LstmParams &params,
 
 static Tensor createInput(Graph &graph, const LstmParams &params,
                           const DebugNameAndId &dnai, const LstmOpts &opt,
-                          matmul::PlanningCache *cache) {
+                          PlanningCache *cache) {
   validateParams(params);
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass",
@@ -457,7 +456,7 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
 
 Tensor createInput(Graph &graph, const LstmParams &params,
                    const poplar::DebugContext &debugContext,
-                   const OptionFlags &options, matmul::PlanningCache *cache) {
+                   const OptionFlags &options, PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
 
@@ -469,8 +468,7 @@ Tensor createInput(Graph &graph, const LstmParams &params,
 
 Tensor createInitialOutput(Graph &graph, const LstmParams &params,
                            const poplar::DebugContext &debugContext,
-                           const OptionFlags &options,
-                           matmul::PlanningCache *cache) {
+                           const OptionFlags &options, PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   auto opt = parseOptions(options, params.rnn.dataType);
@@ -485,7 +483,7 @@ Tensor createInitialOutput(Graph &graph, const LstmParams &params,
 Tensor createInitialCellState(Graph &graph, const LstmParams &params,
                               const poplar::DebugContext &debugContext,
                               const OptionFlags &options,
-                              matmul::PlanningCache *cache) {
+                              PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   auto opt = parseOptions(options, params.rnn.dataType);
@@ -499,8 +497,7 @@ Tensor createInitialCellState(Graph &graph, const LstmParams &params,
 
 LstmState createInitialState(Graph &graph, const LstmParams &params,
                              const poplar::DebugContext &debugContext,
-                             const OptionFlags &options,
-                             matmul::PlanningCache *cache) {
+                             const OptionFlags &options, PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   auto opt = parseOptions(options, params.rnn.dataType);
@@ -530,7 +527,7 @@ std::pair<poplar::Tensor, poplar::Tensor>
 createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options,
-                    poplin::matmul::PlanningCache *cache) {
+                    poplin::PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
 
@@ -584,7 +581,7 @@ poplar::Tensor createWeightsBiases(poplar::Graph &graph,
                                    const LstmParams &params,
                                    const poplar::DebugContext &debugContext,
                                    const OptionFlags &,
-                                   poplin::matmul::PlanningCache *) {
+                                   poplin::PlanningCache *) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params));
 
@@ -601,7 +598,7 @@ poplar::Tensor createWeightsBiases(poplar::Graph &graph,
 LstmWeights createWeights(Graph &graph, const LstmParams &params,
                           const poplar::DebugContext &debugContext,
                           const OptionFlags &options,
-                          poplin::matmul::PlanningCache *cache) {
+                          poplin::PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
 
@@ -618,7 +615,7 @@ static Tensor calcSequenceWeightedInputs(Graph &graph, const Tensor &in_,
                                          program::Sequence &prog,
                                          const LstmOpts &opt,
                                          const DebugNameAndId &dnai,
-                                         matmul::PlanningCache *cache) {
+                                         PlanningCache *cache) {
   auto mmOpt = getMMOpts(opt);
   auto sequenceSize = in_.dim(0);
   auto batchSize = in_.dim(1);
@@ -688,7 +685,7 @@ static void lstmCellForwardPassCalcUnits(
     const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
     bool inferenceOnly, const Tensor &unitsOutputRearranged,
     const std::vector<std::size_t> &cellIndices, const LstmParams &params,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, PlanningCache *cache) {
   auto prevCellState = prevState.cellState;
   auto prevOutput = prevState.output;
   const unsigned outputSize = prevOutput.dim(1);
@@ -751,7 +748,7 @@ static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
     const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
     bool inferenceOnly, const rnn::TimeStepState &time,
     const rnn::RnnBatchwiseFlags &batchwiseFlags, const LstmParams &params,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, PlanningCache *cache) {
   const auto &prevCellState = prevState.cellState;
   const std::string baseStr = "BasicLstmCell";
 
@@ -815,7 +812,7 @@ static void basicLstmCellForwardPassInPlace(
     const LstmState &state, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
     bool inferenceOnly, const LstmParams &params, const DebugNameAndId &dnai,
-    matmul::PlanningCache *cache) {
+    PlanningCache *cache) {
   auto cellState = state.cellState;
   auto output = state.output;
   const std::string baseStr = "BasicLstmCell";
@@ -971,7 +968,7 @@ static Tensor lstmFwd(Graph &graph, const LstmParams &params,
                       Tensor *intermediatesSeq, Tensor *finalCellState,
                       const poplar::DebugContext &debugContext,
                       const OptionFlags &options,
-                      poplin::matmul::PlanningCache *cache) {
+                      poplin::PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(prevLayerActs, weights, intermediatesSeq,
@@ -1102,7 +1099,7 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
         const Tensor &prevLayerActs, const LstmWeights &weights,
         Tensor *intermediatesSeq, program::Sequence &fwdProg,
         const poplar::DebugContext &debugContext, const OptionFlags &options,
-        poplin::matmul::PlanningCache *cache) {
+        poplin::PlanningCache *cache) {
   Tensor finalCellState;
   auto output =
       lstmFwd(graph, params, fwdProg, fwdStateInit, weights, prevLayerActs,
@@ -1115,7 +1112,7 @@ static Tensor lstmBwdRearrangeWeights(Graph &graph, const LstmParams &params,
                                       const Tensor &weightsOutput,
                                       Sequence &initProg, const LstmOpts &opt,
                                       const DebugNameAndId &dnai,
-                                      matmul::PlanningCache *cache) {
+                                      PlanningCache *cache) {
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
   mmOpt.set("inputRHSIsPreArranged", "true");
@@ -1140,7 +1137,7 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
                  const Tensor &fwdIntermediates, const LstmState &stateGrad,
                  bool inputGradSupplied, const Tensor weights, Sequence &prog,
                  const LstmOpts &opt, const LstmParams &params,
-                 const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+                 const DebugNameAndId &dnai, PlanningCache *cache) {
   const std::string fPrefix = "LstmBwd";
   auto outputGrad = stateGrad.output;
   auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
@@ -1277,7 +1274,7 @@ std::tuple<LstmState, Tensor, Tensor> basicLstmBackwardStep(
     Graph &graph, const Tensor *gradNextLayer, const Tensor &fwdIntermediates,
     const LstmState &stateGrad, bool inputGradSupplied, const Tensor &weights,
     Sequence &prog, const LstmOpts &opt, const LstmParams &params,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, PlanningCache *cache) {
   return backwardStepImpl(graph, gradNextLayer, fwdIntermediates, stateGrad,
                           inputGradSupplied, weights, prog, opt, params, {dnai},
                           cache);
@@ -1293,7 +1290,7 @@ basicLstmParamUpdate(Graph &graph, const Tensor &prevLayerActs,
                      const unsigned stepSize, LstmWeights &weightGrads,
                      Sequence &prog, const LstmOpts &opt,
                      const boost::optional<PlanConstraints> &planConstraints,
-                     const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+                     const DebugNameAndId &dnai, PlanningCache *cache) {
   logging::popnn::debug("basicLstmParamUpdate begin {}", dnai.getPathName());
   const std::string fPrefix = "LstmDeltas";
   auto mmOpt = getMMOpts(opt);
@@ -1443,8 +1440,7 @@ static bool interleavedWUIsBeneficial(const LstmParams &params) {
 // interval was found.
 static std::pair<std::size_t, boost::optional<PlanConstraints>>
 interleaveWUCadence(const Graph &graph, const LstmParams &params,
-                    const LstmOpts &options,
-                    poplin::matmul::PlanningCache *cache) {
+                    const LstmOpts &options, poplin::PlanningCache *cache) {
   boost::optional<PlanConstraints> planConstraints{boost::none};
   auto target = graph.getTarget();
   const auto batchSize = params.rnn.batchSize;
@@ -1654,7 +1650,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
             const boost::optional<unsigned> &stepsPerWU,
             const boost::optional<PlanConstraints> &wuPlanConstraints,
             const DebugNameAndId &dnai, const LstmOpts &options,
-            poplin::matmul::PlanningCache *cache) {
+            poplin::PlanningCache *cache) {
   auto numShards = getNumShards(graph, params, options, {dnai, "numShards"});
   auto weightsRearranged = lstmBwdRearrangeWeights(
       graph, params, inputGradSeq ? &weights.inputWeights : nullptr,
@@ -1869,16 +1865,14 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   return stateGrads;
 }
 
-LstmState lstmBwd(Graph &graph, const LstmParams &params,
-                  program::Sequence &prog, const LstmState &fwdStateInit,
-                  const Tensor &fwdIntermediatesSeq, const LstmWeights &weights,
-                  const Tensor &fwdInputSeq, const Tensor &fwdOutput,
-                  const Tensor &gradLayerNext,
-                  const LstmState *lastStepStateGrad, Tensor *inputGrad,
-                  Tensor *bwdIntermediates,
-                  const poplar::DebugContext &debugContext,
-                  const OptionFlags &options_,
-                  poplin::matmul::PlanningCache *planningCache) {
+LstmState
+lstmBwd(Graph &graph, const LstmParams &params, program::Sequence &prog,
+        const LstmState &fwdStateInit, const Tensor &fwdIntermediatesSeq,
+        const LstmWeights &weights, const Tensor &fwdInputSeq,
+        const Tensor &fwdOutput, const Tensor &gradLayerNext,
+        const LstmState *lastStepStateGrad, Tensor *inputGrad,
+        Tensor *bwdIntermediates, const poplar::DebugContext &debugContext,
+        const OptionFlags &options_, poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -1911,16 +1905,14 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
   return outputs;
 }
 
-LstmState lstmBwd(Graph &graph, const LstmParams &params,
-                  program::Sequence &prog, const LstmState &fwdStateInit,
-                  const Tensor &fwdIntermediatesSeq, const LstmWeights &weights,
-                  const Tensor &fwdInputSeq, const Tensor &fwdOutput,
-                  const Tensor &gradLayerNext,
-                  const Tensor *lastCellStateGradPtr, Tensor *inputGrad,
-                  Tensor *bwdIntermediates,
-                  const poplar::DebugContext &debugContext,
-                  const OptionFlags &options_,
-                  poplin::matmul::PlanningCache *planningCache) {
+LstmState
+lstmBwd(Graph &graph, const LstmParams &params, program::Sequence &prog,
+        const LstmState &fwdStateInit, const Tensor &fwdIntermediatesSeq,
+        const LstmWeights &weights, const Tensor &fwdInputSeq,
+        const Tensor &fwdOutput, const Tensor &gradLayerNext,
+        const Tensor *lastCellStateGradPtr, Tensor *inputGrad,
+        Tensor *bwdIntermediates, const poplar::DebugContext &debugContext,
+        const OptionFlags &options_, poplin::PlanningCache *planningCache) {
   LstmState lastStepStateGrad;
   if (lastCellStateGradPtr != nullptr) {
     lastStepStateGrad.cellState = *lastCellStateGradPtr;
@@ -1947,7 +1939,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
            const Tensor &bwdIntermediatesSeq, const LstmWeights &weights,
            const Tensor &input, const Tensor &output,
            const DebugNameAndId &dnai, const LstmOpts &options,
-           poplin::matmul::PlanningCache *planningCache) {
+           poplin::PlanningCache *planningCache) {
   LstmWeights weightGrads = createWeightAccumulators(
       graph, weights, bwdIntermediatesSeq[0], options, {dnai});
   zeroWeightAccumulators(graph, prog, weightGrads, options, {dnai});
@@ -2001,7 +1993,7 @@ LstmWeights lstmWU(Graph &graph, const LstmParams &params,
                    const Tensor &input, const Tensor &output,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_,
-                   poplin::matmul::PlanningCache *planningCache) {
+                   poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(fwdIntermediates, bwdIntermediates,
@@ -2018,18 +2010,15 @@ LstmWeights lstmWU(Graph &graph, const LstmParams &params,
   return outputs;
 }
 
-LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
-                        poplar::program::Sequence &prog,
-                        const LstmState &fwdStateInit,
-                        const poplar::Tensor &fwdIntermediates,
-                        const LstmWeights &weights, const poplar::Tensor &input,
-                        const poplar::Tensor &output,
-                        const poplar::Tensor &outputGrad,
-                        const LstmState *lastStepStateGrad,
-                        poplar::Tensor *inputGrad, LstmWeights &weightsGrad_,
-                        const poplar::DebugContext &debugContext,
-                        const poplar::OptionFlags &options_,
-                        poplin::matmul::PlanningCache *planningCache) {
+LstmState lstmBwdWithWU(
+    poplar::Graph &graph, const LstmParams &params,
+    poplar::program::Sequence &prog, const LstmState &fwdStateInit,
+    const poplar::Tensor &fwdIntermediates, const LstmWeights &weights,
+    const poplar::Tensor &input, const poplar::Tensor &output,
+    const poplar::Tensor &outputGrad, const LstmState *lastStepStateGrad,
+    poplar::Tensor *inputGrad, LstmWeights &weightsGrad_,
+    const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options_, poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(fwdIntermediates, weights, input,
@@ -2080,18 +2069,15 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
   return stateGrads;
 }
 
-LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
-                        poplar::program::Sequence &prog,
-                        const LstmState &fwdStateInit,
-                        const poplar::Tensor &fwdIntermediates,
-                        const LstmWeights &weights, const poplar::Tensor &input,
-                        const poplar::Tensor &output,
-                        const poplar::Tensor &outputGrad,
-                        const poplar::Tensor *lastCellStateGradPtr,
-                        poplar::Tensor *inputGrad, LstmWeights &weightsGrad_,
-                        const poplar::DebugContext &debugContext,
-                        const poplar::OptionFlags &options_,
-                        poplin::matmul::PlanningCache *planningCache) {
+LstmState lstmBwdWithWU(
+    poplar::Graph &graph, const LstmParams &params,
+    poplar::program::Sequence &prog, const LstmState &fwdStateInit,
+    const poplar::Tensor &fwdIntermediates, const LstmWeights &weights,
+    const poplar::Tensor &input, const poplar::Tensor &output,
+    const poplar::Tensor &outputGrad,
+    const poplar::Tensor *lastCellStateGradPtr, poplar::Tensor *inputGrad,
+    LstmWeights &weightsGrad_, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options_, poplin::PlanningCache *planningCache) {
   LstmState lastStepStateGrad;
   if (lastCellStateGradPtr != nullptr) {
     lastStepStateGrad.cellState = *lastCellStateGradPtr;

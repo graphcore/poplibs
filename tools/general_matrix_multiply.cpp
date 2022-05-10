@@ -79,7 +79,7 @@ static Tensor groupedMatMul(bool useCreateOutput, poplar::Graph &graph,
                             const poplar::Type &outputType,
                             const poplar::DebugContext &debugContext,
                             const poplar::OptionFlags &options,
-                            matmul::PlanningCache *cache) {
+                            PlanningCache *cache) {
   if (useCreateOutput) {
     auto out =
         createMatMulGroupedOutput(graph, A.elementType(), outputType, A.shape(),
@@ -301,7 +301,7 @@ int main(int argc, char **argv) {
     is.read(&planConstraints[0], bytes);
   }
 
-  matmul::PlanningCache cache;
+  PlanningCache cache;
   poplar::OptionFlags mmOpt;
 
   // For single layer tests always disable output remapping

@@ -9,9 +9,6 @@
 #include <poplar/OptionFlags.hpp>
 
 namespace poplin {
-namespace matmul {
-class PlanningCache;
-}
 
 class PlanningCache;
 
@@ -63,16 +60,13 @@ poplibs_support::PlanConstraints groupedMatMulPlanConstraints(
     const poplar::Graph &graph, const poplar::Type &inputType,
     const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape,
-    const poplar::OptionFlags &options_ = {},
-    matmul::PlanningCache *cache = nullptr);
+    const poplar::OptionFlags &options_ = {}, PlanningCache *cache = nullptr);
 
-poplibs_support::PlanConstraints
-matMulPlanConstraints(const poplar::Graph &graph, const poplar::Type &inputType,
-                      const poplar::Type &outputType,
-                      const std::vector<std::size_t> &aShape,
-                      const std::vector<std::size_t> &bShape,
-                      const poplar::OptionFlags &options_ = {},
-                      matmul::PlanningCache *cache = nullptr);
+poplibs_support::PlanConstraints matMulPlanConstraints(
+    const poplar::Graph &graph, const poplar::Type &inputType,
+    const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape,
+    const poplar::OptionFlags &options_ = {}, PlanningCache *cache = nullptr);
 
 } // namespace poplin
 

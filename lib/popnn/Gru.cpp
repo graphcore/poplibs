@@ -63,7 +63,7 @@ poplar::ProfileValue toProfileValue(const popnn::gru::GruParams &t) {
 // Utility macro to print out tensor
 // debug_tensor is only defined when "DEBUG_TENSOR" is defined
 
-//#define DEBUG_TENSOR
+// #define DEBUG_TENSOR
 
 #ifdef DEBUG_TENSOR
 #define debug_tensor(prog, msg, tensor) prog.add(PrintTensor(msg, tensor))
@@ -112,7 +112,7 @@ static Tensor basicGruUnitsNlInput(Graph &graph, Tensor prevAct,
                                    Tensor prevOutput, size_t num_unit,
                                    Tensor weightsInput, Tensor weightsOutput,
                                    Sequence &prog, OptionFlags &mmOpt,
-                                   matmul::PlanningCache *cache,
+                                   PlanningCache *cache,
                                    const DebugNameAndId &dnai) {
   assert(weightsInput.dim(0) == num_unit);
   assert(weightsOutput.dim(0) == num_unit);
@@ -308,7 +308,7 @@ static std::size_t getNumShards(const Graph &graph, const GruParams &params,
 Tensor createInput(Graph &graph, const GruParams &params,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options,
-                   poplin::matmul::PlanningCache *planningCache) {
+                   poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(params, options, planningCache));
@@ -323,8 +323,7 @@ Tensor createInput(Graph &graph, const GruParams &params,
 
 Tensor createInitialState(Graph &graph, const GruParams &params,
                           const poplar::DebugContext &debugContext,
-                          const OptionFlags &options,
-                          matmul::PlanningCache *cache) {
+                          const OptionFlags &options, PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
   const auto opt = parseOptions(options);
@@ -407,7 +406,7 @@ std::pair<poplar::Tensor, poplar::Tensor>
 createWeightsKernel(poplar::Graph &graph, const GruParams &params,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options,
-                    poplin::matmul::PlanningCache *cache) {
+                    poplin::PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
 
@@ -467,11 +466,11 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
 
 /** Create the weights biases.
  */
-poplar::Tensor
-createWeightsBiases(poplar::Graph &graph, const GruParams &params,
-                    const poplar::DebugContext &debugContext,
-                    const OptionFlags &options,
-                    poplin::matmul::PlanningCache *planningCache) {
+poplar::Tensor createWeightsBiases(poplar::Graph &graph,
+                                   const GruParams &params,
+                                   const poplar::DebugContext &debugContext,
+                                   const OptionFlags &options,
+                                   poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(params, options, planningCache));
@@ -497,7 +496,7 @@ createWeightsBiases(poplar::Graph &graph, const GruParams &params,
 GruWeights createWeights(Graph &graph, const GruParams &params,
                          const poplar::DebugContext &debugContext,
                          const OptionFlags &options,
-                         poplin::matmul::PlanningCache *cache) {
+                         poplin::PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
 
@@ -547,7 +546,7 @@ static void gruCellForwardPassCalcUnits(
     const Tensor &biases, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &prog, const GruOpts &opt,
     const Tensor &unitsOutputRearranged, const GruParams &params,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, PlanningCache *cache) {
   const unsigned outputSize = prevOutput.dim(1);
   const unsigned batchSize = prevOutput.dim(0);
 
@@ -638,8 +637,7 @@ static void gruCellForwardPassCalcUnitsResetAfter(
     const Tensor &biases, const Tensor *weightsInput,
     const Tensor &weightsOutput, Tensor *candidateRecurrant, Sequence &prog,
     const GruOpts &opt, const Tensor &unitsOutputRearranged,
-    const GruParams &params, const DebugNameAndId &dnai,
-    matmul::PlanningCache *cache) {
+    const GruParams &params, const DebugNameAndId &dnai, PlanningCache *cache) {
   const unsigned outputSize = prevOutput.dim(1);
   const unsigned batchSize = prevOutput.dim(0);
 
@@ -761,7 +759,7 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
                         const boost::optional<const Tensor &> &attScoreOpt,
                         Sequence &prog, const GruOpts &opt,
                         const GruParams &params, const DebugNameAndId &dnai,
-                        matmul::PlanningCache *cache) {
+                        PlanningCache *cache) {
   debug_tensor(prog, "fwd h_prev", prevOutput);
   debug_tensor(prog, "fwd input", in);
 
@@ -848,7 +846,7 @@ static void basicGruCellForwardPassInPlace(
     const Tensor *weightsInput, const Tensor &weightsOutput,
     const boost::optional<const Tensor &> &attScoreOpt, Sequence &prog,
     const GruOpts &opt, const GruParams &params, const DebugNameAndId &dnai,
-    matmul::PlanningCache *cache, bool resetAfter) {
+    PlanningCache *cache, bool resetAfter) {
   debug_tensor(prog, "fwd h_prev", output);
   debug_tensor(prog, "fwd input", in);
   const std::string baseStr = "BasicGruCellInPlace";
@@ -923,8 +921,7 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
                   const GruWeights &weights_, Tensor *intermediatesSeq,
                   const boost::optional<const Tensor &> &attScoresOpt,
                   program::Sequence &fwdProg, const DebugNameAndId &dnai,
-                  const OptionFlags &options,
-                  poplin::matmul::PlanningCache *cache) {
+                  const OptionFlags &options, poplin::PlanningCache *cache) {
   logging::popnn::info("gruFwdImpl(steps={}, batch {} x layers {}, name {}",
                        params.rnn.maxTimeSteps, params.rnn.batchSize,
                        params.rnn.layerSizes, dnai.getPathName());
@@ -1050,8 +1047,7 @@ Tensor gruFwd(Graph &graph, const GruParams &params,
               const GruWeights &weights_, Tensor *intermediatesSeq,
               program::Sequence &fwdProg,
               const poplar::DebugContext &debugContext,
-              const OptionFlags &options,
-              poplin::matmul::PlanningCache *cache) {
+              const OptionFlags &options, poplin::PlanningCache *cache) {
 
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
@@ -1072,8 +1068,7 @@ Tensor gruFwd(Graph &graph, const GruParams &params_,
               const Tensor &realTimeSteps, const GruWeights &weights_,
               Tensor *intermediatesSeq, program::Sequence &fwdProg,
               const poplar::DebugContext &debugContext,
-              const OptionFlags &options,
-              poplin::matmul::PlanningCache *cache) {
+              const OptionFlags &options, poplin::PlanningCache *cache) {
   POPNN_TRACEPOINT();
 
   if (!params_.outputFullSequence) {
@@ -1098,8 +1093,7 @@ Tensor auGruFwd(Graph &graph, const GruParams &params,
                 const GruWeights &weights_, Tensor *intermediatesSeq,
                 const Tensor &attScores, program::Sequence &fwdProg,
                 const poplar::DebugContext &debugContext,
-                const OptionFlags &options,
-                poplin::matmul::PlanningCache *cache) {
+                const OptionFlags &options, poplin::PlanningCache *cache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(fwdOutputInit, prevLayerActs, attScores, weights_,
@@ -1120,8 +1114,7 @@ Tensor auGruFwd(Graph &graph, const GruParams &params_,
                 Tensor *intermediatesSeq, const Tensor &attScores,
                 program::Sequence &fwdProg,
                 const poplar::DebugContext &debugContext,
-                const OptionFlags &options,
-                poplin::matmul::PlanningCache *cache) {
+                const OptionFlags &options, poplin::PlanningCache *cache) {
   POPNN_TRACEPOINT();
 
   if (!params_.outputFullSequence) {
@@ -1144,7 +1137,7 @@ Tensor auGruFwd(Graph &graph, const GruParams &params_,
 static Tensor gruBackwardRearrangeWeights(
     Graph &graph, const GruParams &params, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &initProg, const GruOpts &opt,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, PlanningCache *cache) {
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
   mmOpt.set("inputRHSIsPreArranged", "true");
@@ -1175,7 +1168,7 @@ static Tensor gruBackwardRearrangeWeights(
 Tensor gruBackwardRearrangeWeightsResetAfter(
     Graph &graph, const GruParams &params, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &initProg, const GruOpts &opt,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, PlanningCache *cache) {
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
   mmOpt.set("inputRHSIsPreArranged", "true");
@@ -1224,7 +1217,7 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
                  const boost::optional<const Tensor &> &attScoresOpt,
                  const boost::optional<Tensor &> &attScoresGradsOpt,
                  Sequence &prog, const GruOpts &opt, const GruParams &params,
-                 const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+                 const DebugNameAndId &dnai, PlanningCache *cache) {
   const std::string fPrefix = "GruBwdOneStep";
   auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
   Tensor d_h = graph.clone(outputGrad, {dnai});
@@ -1403,7 +1396,7 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
     const boost::optional<const Tensor &> &attScoresOpt,
     const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &prog,
     const GruOpts &opt, const GruParams &params, const DebugNameAndId &dnai,
-    matmul::PlanningCache *cache) {
+    PlanningCache *cache) {
   const std::string fPrefix = "GruBwdOneStep";
   auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
   Tensor d_h = graph.clone(outputGrad, {dnai});
@@ -1573,8 +1566,7 @@ std::tuple<Tensor, Tensor, Tensor> basicGruBackwardStep(
     const Tensor &outGrad, const Tensor &weights, const Tensor &mask,
     const boost::optional<const Tensor &> &attScoreOpt,
     const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &prog,
-    const GruOpts &opt, const DebugNameAndId &dnai,
-    matmul::PlanningCache *cache) {
+    const GruOpts &opt, const DebugNameAndId &dnai, PlanningCache *cache) {
   auto inputSize = params.rnn.layerSizes[0];
   auto outputSize = params.rnn.layerSizes[1];
   bool weightsIncludeInputs =
@@ -1602,7 +1594,7 @@ static void basicGruParamUpdate(Graph &graph, const Tensor &prevLayerActs,
                                 const Tensor &bwdIntermediates,
                                 const GruWeights &weightGrads, Sequence &prog,
                                 const GruOpts &opt, const DebugNameAndId &dnai,
-                                matmul::PlanningCache *cache, bool resetAfter) {
+                                PlanningCache *cache, bool resetAfter) {
   const std::string fPrefix = "GruDeltas";
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass", "TRAINING_WU");
@@ -1749,7 +1741,7 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
                          const boost::optional<const Tensor &> &attScoresOpt,
                          Tensor *attScoresGrads, const DebugNameAndId &dnai,
                          const poplar::OptionFlags &options_,
-                         poplin::matmul::PlanningCache *cache) {
+                         poplin::PlanningCache *cache) {
   logging::popnn::info("gruBwdImpl(steps={}, batch {} x layers {}, name {}",
                        params.rnn.maxTimeSteps, params.rnn.batchSize,
                        params.rnn.layerSizes, dnai.getPathName());
@@ -1927,7 +1919,7 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               Tensor *inputGrad, Tensor *bwdIntermediates,
               const poplar::DebugContext &debugContext,
               const OptionFlags &options_,
-              poplin::matmul::PlanningCache *planningCache) {
+              poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -1962,7 +1954,7 @@ Tensor gruBwd(Graph &graph, const GruParams &params_, program::Sequence &prog,
               Tensor *bwdIntermediates,
               const poplar::DebugContext &debugContext,
               const OptionFlags &options,
-              poplin::matmul::PlanningCache *planningCache) {
+              poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
 
   if (bool(inputGrad) != params_.calcInputGradients) {
@@ -1993,7 +1985,7 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                 const Tensor &attentions, Tensor *attentionsGrad,
                 const poplar::DebugContext &debugContext,
                 const OptionFlags &options_,
-                poplin::matmul::PlanningCache *planningCache) {
+                poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -2027,7 +2019,7 @@ Tensor auGruBwd(Graph &graph, const GruParams &params_, program::Sequence &prog,
                 Tensor *attentionsGrad,
                 const poplar::DebugContext &debugContext,
                 const OptionFlags &options,
-                poplin::matmul::PlanningCache *planningCache) {
+                poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
 
   if (bool(inputGrad) != params_.calcInputGradients) {
@@ -2055,8 +2047,7 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
           const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
           const Tensor &bwdIntermediatesSeq, const GruWeights &weights,
           const Tensor &input, const Tensor &output, const DebugNameAndId &dnai,
-          const GruOpts &options,
-          poplin::matmul::PlanningCache *planningCache) {
+          const GruOpts &options, poplin::PlanningCache *planningCache) {
   auto loopWU = [&params, &options, &planningCache](
                     GruWeights &weightGrads, Graph &graph,
                     const rnn::TimeStepState &time,
@@ -2112,7 +2103,7 @@ GruWeights gruWU(Graph &graph, const GruParams &params, program::Sequence &prog,
                  const Tensor &input, const Tensor &output,
                  const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options_,
-                 poplin::matmul::PlanningCache *planningCache) {
+                 poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -2142,7 +2133,7 @@ GruWeights augruWU(Graph &graph, const GruParams &params,
                    const Tensor &input, const Tensor &output,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_,
-                   poplin::matmul::PlanningCache *planningCache) {
+                   poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -2191,7 +2182,7 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
              const poplar::Tensor &outputGrad, poplar::Tensor *inputGrad,
              GruWeights &weightsGrad_, const poplar::DebugContext &debugContext,
              const poplar::OptionFlags &options_,
-             poplin::matmul::PlanningCache *planningCache) {
+             poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(fwdOutputInit, fwdIntermediates, weights_, input,
@@ -2248,7 +2239,7 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params_,
              poplar::Tensor *inputGrad, GruWeights &weightsGrad,
              const poplar::DebugContext &debugContext,
              const poplar::OptionFlags &options,
-             poplin::matmul::PlanningCache *planningCache) {
+             poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
 
   if (bool(inputGrad) != params_.calcInputGradients) {
@@ -2271,17 +2262,15 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params_,
                       planningCache);
 }
 
-Tensor
-auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
-               poplar::program::Sequence &prog, const Tensor &fwdOutputInit,
-               const poplar::Tensor &fwdIntermediates,
-               const GruWeights &weights_, const poplar::Tensor &input,
-               const poplar::Tensor &output, const poplar::Tensor &outputGrad,
-               poplar::Tensor *inputGrad, GruWeights &weightsGrad_,
-               const poplar::Tensor &attentions, poplar::Tensor *attentionsGrad,
-               const poplar::DebugContext &debugContext,
-               const poplar::OptionFlags &options_,
-               poplin::matmul::PlanningCache *planningCache) {
+Tensor auGruBwdWithWU(
+    poplar::Graph &graph, const GruParams &params,
+    poplar::program::Sequence &prog, const Tensor &fwdOutputInit,
+    const poplar::Tensor &fwdIntermediates, const GruWeights &weights_,
+    const poplar::Tensor &input, const poplar::Tensor &output,
+    const poplar::Tensor &outputGrad, poplar::Tensor *inputGrad,
+    GruWeights &weightsGrad_, const poplar::Tensor &attentions,
+    poplar::Tensor *attentionsGrad, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options_, poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
@@ -2329,18 +2318,16 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
   return outGrads;
 }
 
-Tensor
-auGruBwdWithWU(poplar::Graph &graph, const GruParams &params_,
-               poplar::program::Sequence &prog, const Tensor &fwdOutputInit,
-               const poplar::Tensor &fwdIntermediates,
-               const GruWeights &weights, const poplar::Tensor &input,
-               const poplar::Tensor &realTimeSteps,
-               const poplar::Tensor &output, const poplar::Tensor &outputGrad,
-               poplar::Tensor *inputGrad, GruWeights &weightsGrad,
-               const poplar::Tensor &attentions, poplar::Tensor *attentionsGrad,
-               const poplar::DebugContext &debugContext,
-               const poplar::OptionFlags &options,
-               poplin::matmul::PlanningCache *planningCache) {
+Tensor auGruBwdWithWU(
+    poplar::Graph &graph, const GruParams &params_,
+    poplar::program::Sequence &prog, const Tensor &fwdOutputInit,
+    const poplar::Tensor &fwdIntermediates, const GruWeights &weights,
+    const poplar::Tensor &input, const poplar::Tensor &realTimeSteps,
+    const poplar::Tensor &output, const poplar::Tensor &outputGrad,
+    poplar::Tensor *inputGrad, GruWeights &weightsGrad,
+    const poplar::Tensor &attentions, poplar::Tensor *attentionsGrad,
+    const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options, poplin::PlanningCache *planningCache) {
   POPNN_TRACEPOINT();
 
   if (bool(inputGrad) != params_.calcInputGradients) {

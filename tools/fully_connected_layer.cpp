@@ -290,7 +290,7 @@ int main(int argc, char **argv) {
   // Validate all options
   poplin::matmulValidateOptions(fwdOptions);
 
-  matmul::PlanningCache cache;
+  PlanningCache cache;
   Tensor prevAct;
   if (useCreateInput) {
     prevAct = createMatMulGroupedInputLHS(
