@@ -1,0 +1,16 @@
+{
+  "inputType": "quarter",
+  "outputType": "half",
+  "batchSize": 2,
+  "numConvGroups": 24,
+  "inputFieldShape": [32,32],
+  "kernelShape": [5,5],
+  "inputChannelsPerConvGroup": 1,
+  "outputChannelsPerConvGroup": 1,
+  "fp8FormatFwd": "F152",
+  "fp8ScaleFwd": -1,
+  "fp8FormatWeights": "F143",
+  "fp8ScaleWeights": 1,
+  "fp8FormatBwd": "F152",
+  "fp8ScaleBwd": -2
+}

@@ -3,8 +3,11 @@
 #include <boost/assign/list_of.hpp>
 #include <boost/optional.hpp>
 #include <boost/program_options.hpp>
+#include <boost/property_tree/json_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 #include <boost/version.hpp>
 #include <iostream>
+#include <poplar/Quarter.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_test/Check.hpp>
@@ -15,6 +18,45 @@
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <sstream>
+
+struct ConvMetadata {
+  poplar::QuarterMetadata fwd;
+  poplar::QuarterMetadata bwd;
+  poplar::QuarterMetadata weights;
+};
+
+std::istream &operator>>(std::istream &is, ConvMetadata &p) {
+  namespace pt = boost::property_tree;
+
+  pt::ptree root;
+  pt::json_parser::read_json(is, root);
+
+  static const std::unordered_map<std::string, poplar::QuarterMetadata::Format>
+      formatMap{{"F143", poplar::QuarterMetadata::Format::F143},
+                {"F152", poplar::QuarterMetadata::Format::F152}};
+
+  struct Format {
+    std::string ext;
+    poplar::QuarterMetadata *metadata;
+  };
+
+  const std::vector<Format> formats = {
+      {"Fwd", &p.fwd}, {"Weights", &p.weights}, {"Bwd", &p.bwd}};
+
+  for (const auto &f : formats) {
+    if (const auto format =
+            root.get_optional<std::string>("fp8Format" + f.ext)) {
+      signed char scale = 0;
+      if (const auto readScale =
+              root.get_optional<unsigned>("fp8Scale" + f.ext)) {
+        scale = *readScale;
+      }
+      *f.metadata = poplar::QuarterMetadata(formatMap.at(*format), scale);
+    }
+  }
+  return is;
+}
+
 using namespace poplibs_support;
 
 int main(int argc, char **argv) try {
@@ -91,14 +133,21 @@ int main(int argc, char **argv) try {
   const std::vector<poplar::OptionFlags> options(convs.size());
   std::vector<poplin::ConvParams> fwdParams;
   std::vector<poplin::ConvParams> bwdParams;
+  std::vector<ConvMetadata> metadata;
   for (const auto &conv : convs) {
     std::stringstream ss;
     ss << conv;
     poplin::ConvParams p;
     ss >> p;
 
+    std::stringstream meta;
+    meta << conv;
+    ConvMetadata m;
+    meta >> m;
+
     bwdParams.push_back(getGradientParams(p));
     fwdParams.push_back(std::move(p));
+    metadata.push_back(std::move(m));
   }
 
   auto &params = bwdPass ? bwdParams : fwdParams;
@@ -258,17 +307,26 @@ int main(int argc, char **argv) try {
           boost::extents[p.batchSize][inChannels][product(p.inputFieldShape)]);
       poplibs_test::util::writeRandomBinaryValues(
           target, p.inputType, hostInputs.back(), -1.0, 1.0, randomEngine);
-      poplar_test::copy(target, hostInputs.back(), p.inputType,
-                        rawHostInputs[i].get());
-
+      if (p.inputType == poplar::QUARTER) {
+        poplar_test::copy(target, hostInputs.back(), p.inputType,
+                          bwdPass ? metadata[i].bwd : metadata[i].fwd,
+                          rawHostInputs[i].get());
+      } else {
+        poplar_test::copy(target, hostInputs.back(), p.inputType,
+                          rawHostInputs[i].get());
+      }
       hostWeights.emplace_back(
           boost::extents[p.numConvGroups][p.outputChannelsPerConvGroup]
                         [p.inputChannelsPerConvGroup][product(p.kernelShape)]);
       poplibs_test::util::writeRandomBinaryValues(
           target, p.inputType, hostWeights.back(), -1.0, 1.0, randomEngine);
-      poplar_test::copy(target, hostWeights.back(), p.inputType,
-                        rawHostWeights[i].get());
-
+      if (p.inputType == poplar::QUARTER) {
+        poplar_test::copy(target, hostWeights.back(), p.inputType,
+                          metadata[i].weights, rawHostWeights[i].get());
+      } else {
+        poplar_test::copy(target, hostWeights.back(), p.inputType,
+                          rawHostWeights[i].get());
+      }
       // build a reference model to validate against
       boost::multi_array<double, 1> biases(boost::extents[outChannels]);
       std::fill(biases.data(), biases.data() + biases.num_elements(), 0.0);

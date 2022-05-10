@@ -33,7 +33,8 @@ namespace poplibs_support {
 // careful when adding new enums that begin with Hw:
 enum class DeviceType { Cpu, Sim2, Sim21, Hw, IpuModel2, IpuModel21 };
 
-const auto deviceTypeHelp = "Device type: Cpu | IpuModel2 | Sim2 | Hw";
+const auto deviceTypeHelp =
+    "Device type: Cpu | IpuModel2 | Sim2 | IpuModel21 | Sim21 | Hw";
 
 constexpr bool isSimulator(DeviceType d) {
   return d == DeviceType::Sim2 || d == DeviceType::Sim21;

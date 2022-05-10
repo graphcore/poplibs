@@ -3604,6 +3604,17 @@ add_multitarget_test(
                  --input-type=float
                  --output-type=half)
 
+add_multitarget_test(
+         NAME fully_connected_quarter_half
+         COMMAND fully_connected_layer
+                 --input-size 300
+                 --output-size 100
+                 --tiles-per-ipu 16
+                 --batch-size=2
+                 --input-type=quarter
+                 --output-type=half
+                 VARIANTS IpuModel21)
+
 # Fully connected layer where the RHS has fewer elements than the LHS
 add_multitarget_test(
          NAME fully_connected_small_rhs
@@ -3745,6 +3756,9 @@ endforeach()
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/json/depthwise_conv_half.json DEPTHWISE_CONV)
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/json/pointwise_conv_float.json POINTWISE_CONV)
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/json/pointwise_reusable_conv_float.json POINTWISE_REUSABLE_CONV)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/json/depthwise_conv_quarter1.json DEPTHWISE_QUARTER_HALF_CONV_1)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/json/depthwise_conv_quarter2.json DEPTHWISE_QUARTER_HALF_CONV_2)
+
 add_multitarget_test(
          NAME multi_conv_different_types
          COMMAND multi_conv_layer
@@ -3780,6 +3794,24 @@ add_multitarget_test(
          	 --bwd 1
          	 --enable-convolution-reuse 1
          VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME multi_conv_quarter_half_fwd
+         COMMAND multi_conv_layer
+           --tiles-per-ipu 128
+                 --conv ${DEPTHWISE_QUARTER_HALF_CONV_1}
+                 --conv ${DEPTHWISE_QUARTER_HALF_CONV_2}
+           --bwd 0
+           VARIANTS IpuModel21)
+
+add_multitarget_test(
+         NAME multi_conv_quarter_half_bwd
+         COMMAND multi_conv_layer
+           --tiles-per-ipu 128
+                 --conv ${DEPTHWISE_QUARTER_HALF_CONV_1}
+                 --conv ${DEPTHWISE_QUARTER_HALF_CONV_2}
+           --bwd 1
+           VARIANTS IpuModel21)
 
 add_multitarget_test(
          NAME triangular_solve_4_31_10_4_float_left_lower_unit_validation

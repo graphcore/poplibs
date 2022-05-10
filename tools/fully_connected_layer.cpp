@@ -74,6 +74,10 @@ int main(int argc, char **argv) {
   bool remapOutputTensor;
   bool mapBiasesByUse;
   bool useCreateInput;
+  QuarterMetadata::Format fp8FormatFwdIn = QuarterMetadata::Format::F143;
+  QuarterMetadata::Format fp8FormatWeights = QuarterMetadata::Format::F143;
+  QuarterMetadata::Format fp8FormatBwdIn = QuarterMetadata::Format::F143;
+  int fp8ScaleFwdIn = 1, fp8ScaleWeights = 2, fp8scaleBwdIn = 1;
 
   po::options_description desc("Options");
   // clang-format off
@@ -108,6 +112,28 @@ int main(int argc, char **argv) {
     ("output-type",
      po::value<Type>(&outputType),
      "Type of the output data")
+    ("fp8-scale-fwd",
+      po::value<int>(&fp8ScaleFwdIn)->default_value(fp8ScaleFwdIn),
+     "Scaling to apply to the fwd input if its type is quarter")
+    ("fp8-scale-weights",
+      po::value<int>(&fp8ScaleWeights)->default_value(fp8ScaleWeights),
+     "Scaling to apply to the weights input if its type is quarter")
+    ("fp8-scale-bwd",
+      po::value<int>(&fp8scaleBwdIn)->default_value(fp8scaleBwdIn),
+     "Scaling to apply to the bwd input if its type is quarter")
+    ("fp8-format-fwd",
+      po::value<QuarterMetadata::Format>(&fp8FormatFwdIn)->
+      default_value(fp8FormatFwdIn),
+     "The data format of the fwd input if its type is quarter")
+    ("fp8-format-weights",
+      po::value<QuarterMetadata::Format>(&fp8FormatWeights)->
+      default_value(fp8FormatWeights),
+     "The data format of the weights input if its type is quarter")
+    ("fp8-format-bwd",
+      po::value<QuarterMetadata::Format>(&fp8FormatBwdIn)->
+      default_value(fp8FormatBwdIn),
+     "The data format of the bwd input if its type is quarter")
+
     ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
@@ -175,10 +201,20 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  bool testingQuarter = inputType == QUARTER;
   bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
   bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
-  bool doWuPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::WU);
-
+  auto doWuPass = [=]() {
+    if (!inferenceOnly && (pass == Pass::ALL || pass == Pass::WU)) {
+      if (testingQuarter) {
+        std::cerr << "Weight update pass with quarter data type will implement "
+                     "operations on half, so is excluded from this test\n";
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }();
   if ((vm["output-type"].empty() != vm["input-type"].empty()) ||
       (!vm["data-type"].defaulted() && !vm["output-type"].empty())) {
     throw poputil::poplibs_error("Please specify either --data-type OR "
@@ -446,8 +482,16 @@ int main(int argc, char **argv) {
     std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
               0.0);
   }
-  copy(target, hostPrevAct, inputType, rawHostPrevAct.get());
-  copy(target, hostWeights, inputType, rawHostWeights.get());
+  if (testingQuarter) {
+    copy(target, hostPrevAct, inputType,
+         QuarterMetadata(fp8FormatFwdIn, fp8ScaleFwdIn), rawHostPrevAct.get());
+    copy(target, hostWeights, inputType,
+         QuarterMetadata(fp8FormatWeights, fp8ScaleWeights),
+         rawHostWeights.get());
+  } else {
+    copy(target, hostPrevAct, inputType, rawHostPrevAct.get());
+    copy(target, hostWeights, inputType, rawHostWeights.get());
+  }
   if (bias) {
     copy(target, hostBiases, outputType, rawHostBiases.get());
   }
@@ -463,7 +507,13 @@ int main(int argc, char **argv) {
     else
       writeRandomBinaryValues(target, inputType, hostZDeltas, -1.0, 1.0,
                               randomEngine);
-    copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+    if (testingQuarter) {
+      copy(target, hostZDeltas, inputType,
+           QuarterMetadata(fp8FormatBwdIn, fp8scaleBwdIn),
+           rawHostZDeltas.get());
+    } else {
+      copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+    }
   }
   // Run the forward pass.
   device.bind([&](const Device &d) {

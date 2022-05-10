@@ -25,7 +25,7 @@ void poplin::validateLayerParams(const ConvParams &params,
     if (entry.type != poplar::HALF && entry.type != poplar::FLOAT &&
         entry.type != poplar::QUARTER) {
       throw poputil::poplibs_error(std::string("Unsupported ") + entry.name +
-                                   " (must be float or half)");
+                                   " (must be float, half or quarter)");
     }
   }
   const struct {

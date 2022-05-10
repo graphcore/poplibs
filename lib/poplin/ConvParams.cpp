@@ -363,7 +363,9 @@ std::ostream &operator<<(std::ostream &os, const ConvParams &p) {
 }
 
 static const std::unordered_map<std::string, poplar::Type> typeMap{
-    {"half", poplar::HALF}, {"float", poplar::FLOAT}};
+    {"half", poplar::HALF},
+    {"float", poplar::FLOAT},
+    {"quarter", poplar::QUARTER}};
 
 std::istream &operator>>(std::istream &is, ConvParams &p) {
   namespace pt = boost::property_tree;
