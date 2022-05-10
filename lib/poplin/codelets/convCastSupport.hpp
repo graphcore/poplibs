@@ -5,7 +5,7 @@
 #ifndef _conv_cast_support_hpp_
 #define _conv_cast_support_hpp_
 
-static quarter_metadata unpackMetadata(const MetadataType *in) {
+static quarter_metadata unpackMetadataDeprecate(const MetadataType *in) {
   quarter_metadata out;
   constexpr auto formatBit = 7;
   constexpr auto formatBitMask = (1 << formatBit);

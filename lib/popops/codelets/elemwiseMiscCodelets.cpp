@@ -285,7 +285,7 @@ public:
 // For non IPU and any ARCH_VERSION compile using cast functions
 // for quarter types
 
-quarter_metadata unpackMetadata(const MetadataType *in) {
+quarter_metadata unpackMetadataDeprecate(const MetadataType *in) {
   quarter_metadata out;
   constexpr auto formatBit = 7;
   constexpr auto formatBitMask = (1 << formatBit);
@@ -324,10 +324,10 @@ public:
                       const MetadataType *metadataDst) {
     quarter_metadata metadata0, metadata1;
     if constexpr (std::is_same<SrcType, quarter>::value) {
-      metadata0 = unpackMetadata(metadataSrc);
+      metadata0 = unpackMetadataDeprecate(metadataSrc);
     }
     if constexpr (std::is_same<DstType, quarter>::value) {
-      metadata1 = unpackMetadata(metadataDst);
+      metadata1 = unpackMetadataDeprecate(metadataDst);
     }
     constexpr unsigned elemsPerLoop = 4;
     for (unsigned i = 0; i < numElems / elemsPerLoop; ++i) {
@@ -354,10 +354,10 @@ public:
 
     quarter_metadata metadata0, metadata1;
     if constexpr (std::is_same<SrcType, quarter>::value) {
-      metadata0 = unpackMetadata(metadataSrc);
+      metadata0 = unpackMetadataDeprecate(metadataSrc);
     }
     if constexpr (std::is_same<DstType, quarter>::value) {
-      metadata1 = unpackMetadata(metadataDst);
+      metadata1 = unpackMetadataDeprecate(metadataDst);
     }
     for (unsigned i = 0; i < divideWork(numElems, 2, wid); ++i) {
       *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);
