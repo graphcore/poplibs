@@ -1107,6 +1107,8 @@ void validateTensorTypes(const poplar::Tensor &data,
 
 struct CalcLossAndGradLogProbOptions {
   bool includeSoftmaxGradient = true;
+  bool zeroInfinity = false;
+  double zeroInfinityRelTolerance = .01;     // Internal
   bool returnReducedCodeletGradient = false; // Internal only, for test
 };
 
@@ -1117,6 +1119,10 @@ parseCalcLossAndGradLogProbOptions(const poplar::OptionFlags &options) {
   const poplibs::OptionSpec spec{
       {"includeSoftmaxGradient",
        poplibs::OptionHandler::createWithBool(opts.includeSoftmaxGradient)},
+      {"zeroInfinity",
+       poplibs::OptionHandler::createWithBool(opts.zeroInfinity)},
+      {"zeroInfinityRelTolerance", poplibs::OptionHandler::createWithDouble(
+                                       opts.zeroInfinityRelTolerance, 0.)},
       {"returnReducedCodeletGradient", poplibs::OptionHandler::createWithBool(
                                            opts.returnReducedCodeletGradient)},
   };
@@ -1612,6 +1618,27 @@ calcLossAndGradientLogProbabilitiesImpl(
           graph, Sub(Exp(Cast(_3, partialsType)), Exp(Add(_1, _2))),
           {gradReduced, lossShaped, data}, prog, {di, "CalcGrad"});
     }
+  }
+
+  if (opts.zeroInfinity) {
+    logging::popnn::debug(
+        "zeroInfinity is enabled. "
+        "Infinite losses and the associated gradients will be zero'd-out.");
+    // Check whether the loss is close enough to log::probabilityZero
+    // we consider such values of the loss as "infinity"
+    auto mask = popops::map(
+        graph,
+        Cast(_1 < Const(-(1 - (float)opts.zeroInfinityRelTolerance) *
+                        log::probabilityZero),
+             lossReduced.elementType()),
+        {lossReduced}, prog, {di, "Compare"});
+    // Zero out the values of the loss that are "infinite"
+    popops::mulInPlace(graph, lossReduced, mask, prog,
+                       {di, "zeroInfinityLoss"});
+    // Zero out the corresponding gradients
+    popops::mulInPlace(graph, gradReduced.dimShufflePartial({0}, {1}),
+                       mask.reshape({batchSize, 1, 1}), prog,
+                       {di, "zeroInfinityGrad"});
   }
 
   auto [lossOut, gradOut] = [&]() -> std::pair<poplar::Tensor, poplar::Tensor> {

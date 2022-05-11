@@ -122,7 +122,7 @@ template <typename FPType>
 std::pair<FPType, boost::multi_array<FPType, 2>>
 gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
               unsigned numClasses, bool testReducedCodeletGradient,
-              bool verbose) {
+              bool zeroInfinity, bool verbose) {
   auto test = test_;
   if (test.isLogits) { // Convert to log probs
     test.input = log::log(transpose(log::softMax(transpose(test.input))));
@@ -145,6 +145,16 @@ gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
   auto gradient =
       grad(logSequence, in, alphaLog, betaLog, paddedSequence, numClasses,
            blankClass, test.inputLength, testReducedCodeletGradient);
+
+  if (zeroInfinity) {
+    bool isInf =
+        checkIsClose(negLogLoss, -(double)log::probabilityZero, FLOAT_REL_TOL);
+    if (isInf) {
+      negLogLoss = 0.0;
+      std::fill(gradient.data(), gradient.data() + gradient.num_elements(),
+                0.0);
+    }
+  }
 
   return {negLogLoss, transpose(gradient)};
 }
@@ -404,6 +414,7 @@ int main(int argc, char **argv) {
     ("ignore-data", "Ignore data, to check execution time")
     ("logit-inputs", po::value(&isLogits)->default_value(isLogits),
      "pass logit inputs to ctc loss api, otherwise convert to logProbs prior")
+    ("zero-infinity", "Zero-out infinite losses and the associated gradients")
     ("test-reduced-codelet-result",
         po::value(&testReducedCodeletGradient)->
             default_value(testReducedCodeletGradient),
@@ -442,6 +453,7 @@ int main(int argc, char **argv) {
   const bool disableAlwaysSatisfiableError =
       vm.count("disable-always-satisfiable-error");
   const bool lossOnly = vm.count("loss-only");
+  const bool zeroInfinity = vm.count("zero-infinity");
 
   // Needed to set default arguments.
   po::notify(vm);
@@ -479,6 +491,9 @@ int main(int argc, char **argv) {
   poplar::OptionFlags debugOpts;
   if (testReducedCodeletGradient) {
     debugOpts.set("returnReducedCodeletGradient", "true");
+  }
+  if (zeroInfinity) {
+    debugOpts.set("zeroInfinity", "true");
   }
 
   if (planOnly) {
@@ -527,9 +542,9 @@ int main(int argc, char **argv) {
         references.push_back(
             lossReference<double>(tests[i], blankClass, numClasses, verbose));
       } else {
-        references.push_back(
-            gradReference<double>(tests[i], blankClass, numClasses,
-                                  testReducedCodeletGradient, verbose));
+        references.push_back(gradReference<double>(
+            tests[i], blankClass, numClasses, testReducedCodeletGradient,
+            zeroInfinity, verbose));
         references.back().second =
             maskResults(references.back().second, tests[i].inputLength);
       }

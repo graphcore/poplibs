@@ -1518,6 +1518,22 @@ add_multitarget_test(
           --test-reduced-codelet-result=1
   VARIANTS ${IPUMODEL_VARIANTS})
 
+# Test the zeroInfinity option
+foreach(type half float)
+  add_multitarget_test(
+    NAME CTC_Loss_ZeroInfinity_type_${type}
+    COMMAND ctc_loss
+            --zero-infinity
+            --batch=10
+            --min-time=1
+            --max-label-length=10
+            --in-type=${type}
+            --partials-type=${type}
+            --out-type=${type}
+            --disable-always-satisfiable-error
+    VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()
+
 # CTC inference beam search.  Batch size provides multiple random inputs
 foreach(beam_width 1 2 3 10 15)
   foreach(num_classes 3 5 10)

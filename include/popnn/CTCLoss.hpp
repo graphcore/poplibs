@@ -103,6 +103,22 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
  *      taken to not include gradient of the LogSoftmax (created external to
  *      this function call) twice.
  *
+ *    * `zeroInfinity` (true, false) [=false]
+ *
+ *      Whether to zero infinite losses and the associated gradients.
+ *      Infinite losses mainly occur when data batches are too short
+ *      to be aligned to the labels.
+ */
+/*[INTERNAL]
+ *    * `zeroInfinityRelTolerance` Positive decimal [=0.01]
+ *
+ *      When zeroInfinity is enabled, the value of the loss for each batch
+ *      is compared to the value of the loss that we would get if the input
+ *      batches were too short to be alined to the labels. This option
+ *      determines the relative tolerance within which the two values are
+ *      considered equal.
+ */
+/**
  * \param graph        The graph the operation will be added to
  * \param outType      The data type of the gradient output
  * \param logProbs     The data input [maxTime, batchSize, numClasses] tensor
