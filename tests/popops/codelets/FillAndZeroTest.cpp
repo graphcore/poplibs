@@ -2,6 +2,7 @@
 // Tests for the `popops::fill()`, `popops::zero()` functions and
 // the fill and fill2d vertices.
 
+#include "poputil/Util.hpp"
 #include <poplar/Engine.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/codelets.hpp>
@@ -39,7 +40,8 @@ using ProgramBuilderType =
 // This is checked as well as the "wanted" data.
 template <typename FillValueType, size_t N>
 void Test(const std::array<TestParams, N> &testList, const Type &dataType,
-          FillValueType fillValue, ProgramBuilderType programBuilder) {
+          std::optional<QuarterMetadata> metadata, FillValueType fillValue,
+          ProgramBuilderType programBuilder) {
   // determine the sizes of arrays required
   const auto test_count = testList.size();
 
@@ -73,8 +75,10 @@ void Test(const std::array<TestParams, N> &testList, const Type &dataType,
 
   // Initialise input pattern, dummy data to check its overwritten when
   // it should be, and not when its not
-  for (unsigned i = 0; i < total_size; i++)
-    inTest[i] = i;
+  const unsigned modulo = dataType == QUARTER ? 8 : total_size;
+  for (unsigned i = 0; i < total_size; i++) {
+    inTest[i] = i % modulo;
+  }
 
   auto device = createTestDevice(TEST_TARGET);
   Target target = device.getTarget();
@@ -84,8 +88,17 @@ void Test(const std::array<TestParams, N> &testList, const Type &dataType,
   popops::addCodelets(graph);
 
   // Test data tensor
-  Tensor data =
-      graph.addVariable(dataType, {max_rows, max_columns + max_offset}, "Data");
+  Tensor data;
+  if (metadata) {
+    auto metadataTensor = graph.addVariable(QUARTER_METADATA, {}, "Metadata");
+    graph.setTileMapping(metadataTensor, 0);
+    data = graph.addVariable(dataType, &metadataTensor,
+                             {max_rows, max_columns + max_offset}, "Data");
+  } else {
+    data = graph.addVariable(dataType, {max_rows, max_columns + max_offset},
+                             "Data");
+  }
+
   graph.setTileMapping(data, 0);
 
   // allocateHostMemoryForTensor
@@ -105,7 +118,8 @@ void Test(const std::array<TestParams, N> &testList, const Type &dataType,
     auto offset = testList[tests].offset;
 
     // Exclude zero2d tests for int, unsigned
-    if (dataType == HALF || dataType == FLOAT || rows < 2) {
+    if (dataType == HALF || dataType == FLOAT || dataType == QUARTER ||
+        rows < 2) {
       // Different slices to test looping decisions, with offset
       Tensor sliceOut;
       if (rows == 1) {
@@ -137,18 +151,25 @@ void Test(const std::array<TestParams, N> &testList, const Type &dataType,
     auto offset = testList[tests].offset;
 
     // Exclude zero2d tests for int, unsigned
-    if (dataType == HALF || dataType == FLOAT || rows < 2) {
-      copy(target, inTest.data(), inTest.size(), dataType, input.get());
-
+    if (dataType == HALF || dataType == FLOAT || dataType == QUARTER ||
+        rows < 2) {
+      if (metadata) {
+        copy(target, inTest, dataType, *metadata, input.get());
+      } else {
+        copy(target, inTest.data(), inTest.size(), dataType, input.get());
+      }
       device.bind([&](const Device &d) {
         engine.load(d);
         engine.run(uploadProgIndex);
         engine.run(tests);
         engine.run(downloadProgIndex);
       });
-
-      copy(target, dataType, input.get(), outHost.data(), outHost.size());
-
+      if (metadata) {
+        QuarterMetadata outMetadata;
+        copy(target, dataType, outMetadata, input.get(), outHost);
+      } else {
+        copy(target, dataType, input.get(), outHost.data(), outHost.size());
+      }
       // Generate the expected result.
       std::copy(std::begin(inTest), std::end(inTest), std::begin(expected));
       for (unsigned i = 0; i < rows; i++) {
@@ -169,15 +190,17 @@ void Test(const std::array<TestParams, N> &testList, const Type &dataType,
 
 // Test the Fill and Fill2d vertices.
 template <typename FillType>
-void FillVerticesTest(const Type &dataType, FillType fillValue) {
-  constexpr std::array<TestParams, 20> testList = {{
-      {1, 1, 0}, {1, 2, 0}, {1, 3, 0}, {1, 4, 0}, {1, 5, 0},
-      {1, 6, 0}, {1, 7, 0}, {1, 8, 0}, {1, 1, 1}, {1, 2, 1},
-      {1, 3, 1}, {1, 4, 1}, {1, 5, 1}, {1, 6, 1}, {1, 7, 1},
-      {1, 8, 1}, {2, 1, 1}, {2, 4, 1}, {2, 7, 1}, {2, 8, 1},
-  }};
+void FillVerticesTest(const Type &dataType,
+                      std::optional<QuarterMetadata> metadata,
+                      FillType fillValue) {
+  constexpr std::array<TestParams, 27> testList = {
+      {{1, 3, 1}, {1, 3, 2}, {1, 3, 3}, {1, 3, 4}, {1, 2, 0}, {1, 3, 0},
+       {1, 4, 0}, {1, 5, 0}, {1, 6, 1}, {1, 7, 0}, {1, 8, 0}, {1, 1, 1},
+       {1, 2, 1}, {1, 3, 1}, {1, 4, 1}, {1, 5, 1}, {1, 6, 1}, {1, 7, 1},
+       {1, 8, 1}, {1, 1, 1}, {1, 4, 1}, {1, 7, 1}, {1, 8, 1}, {1, 8, 2},
+       {1, 8, 3}, {1, 8, 2}, {1, 8, 3}}};
 
-  Test(testList, dataType, fillValue,
+  Test(testList, dataType, metadata, fillValue,
        [dataType, fillValue](const TestParams &test, poplar::Graph &graph,
                              Tensor &sliceOut) {
          ComputeSet testComputeSet = graph.addComputeSet("computeFill");
@@ -196,13 +219,25 @@ void FillVerticesTest(const Type &dataType, FillType fillValue) {
        });
 }
 
+BOOST_AUTO_TEST_CASE(FillVerticesTest_quarter143) {
+  FillVerticesTest<float>(
+      QUARTER, QuarterMetadata(QuarterMetadata::Format::F143, -1), 3.0);
+}
+
+BOOST_AUTO_TEST_CASE(FillVerticesTest_quarter152) {
+  FillVerticesTest<float>(
+      QUARTER, QuarterMetadata(QuarterMetadata::Format::F152, 1), -2.0);
+}
+
 BOOST_AUTO_TEST_CASE(FillVerticesTest_half) {
-  FillVerticesTest<float>(HALF, 3.0);
+  FillVerticesTest<float>(HALF, std::nullopt, 3.0);
 }
 BOOST_AUTO_TEST_CASE(FillVerticesTest_float) {
-  FillVerticesTest<float>(FLOAT, 1.23456789);
+  FillVerticesTest<float>(FLOAT, std::nullopt, 1.23456789);
 }
-BOOST_AUTO_TEST_CASE(FillVerticesTest_int) { FillVerticesTest<int>(INT, 4); }
+BOOST_AUTO_TEST_CASE(FillVerticesTest_int) {
+  FillVerticesTest<int>(INT, std::nullopt, 4);
+}
 BOOST_AUTO_TEST_CASE(FillIncorrectVertexTest) {
   constexpr float fillValue = 5.0;
   constexpr std::array<TestParams, 1> testList = {{{2, 1, 0}}};
@@ -221,8 +256,9 @@ BOOST_AUTO_TEST_CASE(FillIncorrectVertexTest) {
         sequence.add(Execute(testComputeSet));
         return sequence;
       };
-  BOOST_CHECK_THROW(Test(testList, HALF, fillValue, programBuilder),
-                    poplar::graph_connection_error);
+  BOOST_CHECK_THROW(
+      Test(testList, HALF, std::nullopt, fillValue, programBuilder),
+      poplar::graph_connection_error);
 }
 
 BOOST_AUTO_TEST_CASE(FillTest) {
@@ -234,7 +270,37 @@ BOOST_AUTO_TEST_CASE(FillTest) {
     constexpr float fillValue = 3.0;
     constexpr std::array<TestParams, 3> testList = {
         {{0, 0, 0}, {1, 1, 0}, {2, 1, 0}}};
-    Test(testList, HALF, fillValue,
+    Test(testList, HALF, std::nullopt, fillValue,
+         [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
+           Sequence sequence;
+           popops::fill(graph, sliceOut, sequence, fillValue);
+           return sequence;
+         });
+  }
+
+  // Check that `popops::fill()` works with a non-zero value and the quarter
+  // type
+  {
+    constexpr float fillValue = 3.0;
+    constexpr std::array<TestParams, 3> testList = {
+        {{0, 0, 0}, {1, 1, 0}, {2, 1, 0}}};
+    Test(testList, QUARTER, QuarterMetadata(QuarterMetadata::Format::F143, 1),
+         fillValue,
+         [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
+           Sequence sequence;
+           popops::fill(graph, sliceOut, sequence, fillValue);
+           return sequence;
+         });
+  }
+
+  // Check that `popops::fill()` works with a non-zero value and the quarter
+  // type
+  {
+    constexpr float fillValue = 3.0;
+    constexpr std::array<TestParams, 3> testList = {
+        {{0, 0, 0}, {1, 1, 0}, {2, 1, 0}}};
+    Test(testList, QUARTER, QuarterMetadata(QuarterMetadata::Format::F152, 2),
+         fillValue,
          [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
            Sequence sequence;
            popops::fill(graph, sliceOut, sequence, fillValue);
@@ -249,7 +315,7 @@ BOOST_AUTO_TEST_CASE(ZeroTest) {
 
   // Test the program overload.
   {
-    Test(testList, HALF, 0,
+    Test(testList, HALF, std::nullopt, 0,
          [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
            Sequence sequence;
            popops::zero(graph, sliceOut, sequence);
@@ -259,7 +325,7 @@ BOOST_AUTO_TEST_CASE(ZeroTest) {
 
   // Test the compute set overloads.
   {
-    Test(testList, INT, 0,
+    Test(testList, INT, std::nullopt, 0,
          [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
            Sequence sequence;
 
@@ -274,7 +340,7 @@ BOOST_AUTO_TEST_CASE(ZeroTest) {
   }
 
   {
-    Test(testList, FLOAT, 0,
+    Test(testList, FLOAT, std::nullopt, 0,
          [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
            Sequence sequence;
 
@@ -287,7 +353,7 @@ BOOST_AUTO_TEST_CASE(ZeroTest) {
   }
 
   {
-    Test(testList, UNSIGNED_INT, 0,
+    Test(testList, UNSIGNED_INT, std::nullopt, 0,
          [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
            Sequence sequence;
 
@@ -300,7 +366,7 @@ BOOST_AUTO_TEST_CASE(ZeroTest) {
   }
 
   {
-    Test(testList, UNSIGNED_LONGLONG, 0,
+    Test(testList, UNSIGNED_LONGLONG, std::nullopt, 0,
          [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
            Sequence sequence;
 
@@ -312,7 +378,7 @@ BOOST_AUTO_TEST_CASE(ZeroTest) {
          });
   }
   {
-    Test(testList, LONGLONG, 0,
+    Test(testList, LONGLONG, std::nullopt, 0,
          [](const TestParams &test, poplar::Graph &graph, Tensor &sliceOut) {
            Sequence sequence;
 

@@ -377,7 +377,7 @@ endforeach()
 add_unit_test(FillAndZeroTest
               FillAndZeroTest.cpp
               LABELS codelet
-              VARIANTS ${SIM_VARIANTS})
+              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
 add_unit_test(DynamicSliceCodeletTest
               DynamicSliceCodeletTest.cpp
               LABELS codelet

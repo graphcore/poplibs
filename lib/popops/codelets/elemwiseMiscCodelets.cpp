@@ -75,6 +75,114 @@ public:
   }
 };
 
+#ifdef __IPU__
+
+static __attribute__((always_inline)) void
+fillMisaligned(quarter *out, unsigned size, unsigned charValue4) {
+
+  constexpr unsigned fullWordMask = 0xffffffff;
+  constexpr unsigned sizeOfQuarterInBits = 8;
+  constexpr unsigned sizeOfFullWordInBits = 32;
+  constexpr unsigned quartersPerWord =
+      sizeOfFullWordInBits / sizeOfQuarterInBits;
+  constexpr unsigned misalignMask = quartersPerWord - 1;
+
+  auto address = reinterpret_cast<unsigned>(out);
+  // Misaligned
+  auto ptr4 = reinterpret_cast<unsigned *>(address & (~misalignMask));
+  const auto misalignment = (address & misalignMask);
+  if (misalignment) {
+    auto preserved = *ptr4;
+    const unsigned misalignedBytes = quartersPerWord - misalignment;
+
+    // clang-format off
+    // Form a mask to preserve the part of the word that is not part of the
+    // data.  Need to account for size resulting in only a "middle portion" of
+    // the word being written.
+    // Expected masks, the least significant byte is
+    // that found in memory first. 0xff denotes a byte to be preserved, 0x00 to
+    // be filled
+    // misalignedBytes=3 size>=3  0x000000ff
+    // misalignedBytes=2 size>=2  0x0000ffff
+    // misalignedBytes=1 size>=1  0x00ffffff
+    // misalignedBytes=3 size==1  0xffff00ff
+    // misalignedBytes=3 size==2  0xff0000ff
+    // misalignedBytes=2 size==1  0xff00ffff
+    // clang-format on
+
+    unsigned mask = fullWordMask >> (sizeOfQuarterInBits * misalignedBytes);
+    if (size < misalignedBytes) {
+      mask |= fullWordMask << ((misalignment + size) * sizeOfQuarterInBits);
+    }
+    *ptr4++ = (preserved & mask) | (charValue4 & (~mask));
+    if (size <= misalignedBytes) {
+      return;
+    }
+    size -= misalignedBytes;
+  }
+
+  // Vectors of 4 to avoid subword writes
+  for (unsigned i = 0; i < size / quartersPerWord; i++) {
+    *ptr4++ = charValue4;
+  }
+  // Remainder, shifting forms a similar function to the mask when dealing
+  // with misalignment
+  const auto shifts = sizeOfQuarterInBits * (size & misalignMask);
+  if (shifts) {
+    auto preserved = (*ptr4) >> shifts;
+    *ptr4 =
+        (preserved << shifts) | (charValue4 >> (sizeOfFullWordInBits - shifts));
+  }
+}
+
+template <> class Fill<quarter> : public Vertex {
+public:
+  // We store a float value as all representable values of type quarter can
+  // be represented by float, but not by half.
+  float in;
+  Output<Vector<quarter>> out;
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute() {
+    // TODO T62077 - when casting, using the intermediate type of half can
+    // result in inaccurate results depending on the value of scale.  A direct
+    // conversion float to quarter could be created if necessary to improve
+    // this.
+    auto value =
+        toQuarter(static_cast<half>(in), unpackMetadata(out.getMetadata()));
+    auto charValue = *(reinterpret_cast<unsigned char *>(&value));
+    uchar4 charValue4 = {charValue, charValue, charValue, charValue};
+    fillMisaligned(&out[0], out.size(), unsigned(charValue4));
+    return true;
+  }
+};
+
+#else
+
+template <> class Fill<quarter> : public Vertex {
+public:
+  // We store a float value as all representable values of type quarter can
+  // be represented by float, but not by half.
+  float in;
+  Output<Vector<quarter>> out;
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute() {
+    // TODO T62077 - when casting, using the intermediate type of half can
+    // result in inaccurate results depending on the value of scale.  A direct
+    // conversion float to quarter could be created if necessary to improve
+    // this.
+    const auto value =
+        toQuarter(static_cast<half>(in), unpackMetadata(out.getMetadata()));
+    for (auto &x : out) {
+      x = value;
+    }
+    return true;
+  }
+};
+
+#endif
+
 template class Fill<float>;
 template class Fill<half>;
 template class Fill<int>;
@@ -102,6 +210,44 @@ public:
     return true;
   }
 };
+#ifdef __IPU__
+template <> class Fill2d<quarter> : public Vertex {
+public:
+  half in;
+  Vector<Output<Vector<quarter>>> out;
+
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute() {
+    auto value = toQuarter(in, unpackMetadata(out.getMetadata()));
+    auto charValue = *(reinterpret_cast<unsigned char *>(&value));
+    uchar4 charValue4 = {charValue, charValue, charValue, charValue};
+
+    for (auto &row : out) {
+      fillMisaligned(&row[0], row.size(), unsigned(charValue4));
+    }
+    return true;
+  }
+};
+#else
+template <> class Fill2d<quarter> : public Vertex {
+public:
+  half in;
+  Vector<Output<Vector<quarter>>> out;
+
+  IS_EXTERNAL_CODELET(false);
+
+  bool compute() {
+    const auto value = toQuarter(in, unpackMetadata(out.getMetadata()));
+    for (auto &row : out) {
+      for (auto &x : row) {
+        x = value;
+      }
+    }
+    return true;
+  }
+};
+#endif
 
 template class Fill2d<float>;
 template class Fill2d<half>;
