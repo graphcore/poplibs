@@ -3482,10 +3482,21 @@ static void multiUpdateAddDuplicates(
 
     // Construct the reduction for each offset.
     std::unordered_map<unsigned, SingleReduceOp> reduction_map;
+
+    const auto reduceOpScale = [&]() {
+      // Reduction requires scale to be of type float. As we are going to use
+      // reduction to do this operation, cast the scale to float if necessary
+      if (scale.elementType() == FLOAT) {
+        return scale;
+      }
+      auto result = cast(graph, scale, FLOAT, prog, debugContext);
+      graph.setTileMapping(result, graph.getTileMapping(scale));
+      return result;
+    }();
     for (auto pair : input_slices) {
       Tensor in = poplar::concat(pair.second, dim);
-      SingleReduceOp op(in, {dim},
-                        ReduceParams(popops::Operation::ADD, true, scale));
+      SingleReduceOp op(
+          in, {dim}, ReduceParams(popops::Operation::ADD, true, reduceOpScale));
 
       reduction_map.insert({pair.first, op});
     }

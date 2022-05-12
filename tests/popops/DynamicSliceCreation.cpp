@@ -20,7 +20,6 @@ int testDim(unsigned sliceDim, const Type &type) {
   auto device = createTestDeviceFullSize(TEST_TARGET);
   Target target = device.getTarget();
 
-  std::cout << "Creating graph" << std::endl;
   Graph graph(target);
   popops::addCodelets(graph);
 
@@ -106,4 +105,29 @@ BOOST_AUTO_TEST_CASE(UlongLongDim2,
 BOOST_AUTO_TEST_CASE(QuarterDim2,
                      *boost::unit_test::precondition(enableIfIpu21Sim())) {
   testDim(2, QUARTER);
+}
+
+BOOST_AUTO_TEST_CASE(CheckHalfScale,
+                     *boost::unit_test::precondition(enableIfIpuModel())) {
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  Target target = device.getTarget();
+
+  Graph graph(target);
+  popops::addCodelets(graph);
+  Sequence prog;
+
+  // Specifically check that the case where scaleType == HALF and the offsets
+  // result in duplicated offests is OK.  This will produce a reduction,
+  // requring scale to be cast to type == FLOAT
+  auto scale = graph.addConstant(poplar::HALF, {}, 1.0f);
+  graph.setTileMapping(scale, 0);
+
+  auto s = graph.addVariable(poplar::HALF, {2, 1});
+  graph.setTileMapping(s, 0);
+  auto t = graph.addVariable(poplar::HALF, {1});
+  graph.setTileMapping(t, 0);
+
+  std::vector<unsigned int> offsets = {0, 0};
+  BOOST_CHECK_NO_THROW(
+      popops::multiUpdateAdd(graph, t, s, offsets, scale, 0, prog));
 }
