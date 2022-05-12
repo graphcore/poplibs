@@ -68,7 +68,8 @@ std::pair<bool, int> reverseTransfromedOutStride(int transformedOutStride,
   return std::make_pair(flipOut, outStride);
 }
 
-unsigned packAmpNx1Stride(const unsigned strideBits, int p2, int p1, int p0) {
+unsigned long long packAmpNx1Stride(const unsigned strideBits, int p2, int p1,
+                                    int p0) {
   const unsigned strideMask = (1 << strideBits) - 1;
   const unsigned s10 = strideBits;
   const unsigned s20 = 2 * strideBits;
@@ -77,8 +78,8 @@ unsigned packAmpNx1Stride(const unsigned strideBits, int p2, int p1, int p0) {
          (p0 & strideMask);
 }
 
-int unpackAmpNx1Stride(const unsigned strideBits, unsigned stride, unsigned pX,
-                       bool signExtention) {
+int unpackAmpNx1Stride(const unsigned strideBits, unsigned long long stride,
+                       unsigned pX, bool signExtention) {
   const unsigned strideMask = (1 << strideBits) - 1;
   const unsigned shift = pX * strideBits;
   const int mask = 1 << (strideBits - 1);

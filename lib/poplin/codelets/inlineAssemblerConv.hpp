@@ -470,15 +470,16 @@ static __attribute__((always_inline)) unsigned getWid(void) {
   return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;
 }
 
-static __attribute__((always_inline)) unsigned packStrides(unsigned stride0,
-                                                           unsigned stride1) {
-  return stride0 | (stride1 << NUM_STRIDE_BITS);
+static __attribute__((always_inline)) unsigned long long
+packStrides(unsigned stride0, unsigned stride1, unsigned numStrideBits) {
+  return stride0 | (stride1 << numStrideBits);
 }
 
-static __attribute__((always_inline)) unsigned
-packStrides(unsigned stride0, unsigned stride1, unsigned stride2) {
-  return stride0 | (stride1 << NUM_STRIDE_BITS) |
-         (stride2 << (NUM_STRIDE_BITS * 2));
+static __attribute__((always_inline)) unsigned long long
+packStrides(unsigned stride0, unsigned stride1, unsigned stride2,
+            unsigned numStrideBits) {
+  return stride0 | (stride1 << numStrideBits) |
+         (stride2 << (numStrideBits * 2));
 }
 
 #endif

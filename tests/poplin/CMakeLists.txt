@@ -875,6 +875,31 @@ add_multitarget_test(
 
 # Single conv layer tests
 
+add_multitarget_test(NAME Conv_strides_gt_10bits
+  COMMAND single_conv_layer
+    --data-type=float 
+    --conv-groups=1 
+    --batch-size=1 
+    --field={8,47,8} 
+    --input-channels=2 
+    --in-dilation={1,1,1}
+    --padding-upper={0,0,0} 
+    --padding-lower={0,2,0}
+    --output-channels=8 
+    --kernel-size={1,1,1} 
+    --kernel-dilation={2,1,1} 
+    --kernel-padding-upper={0,0,0} 
+    --kernel-padding-lower={0,0,0} 
+    --stride={1,1,1}
+    --use-create-input=False 
+    --use-create-output=True 
+    --preplan=True 
+    --convolution-options={\"use128BitConvUnitLoad\":true,\"remapOutputTensor\":false,\"partialsType\":\"float\"}
+    --tiles-per-ipu=1
+    --single-phase=fwd 
+    --bias=0)
+
+
 if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
   # Random single_conv_layer tests with fixed seed.
   set(NUM_CONV_RANDOM_TESTS 50)

@@ -310,9 +310,13 @@ public:
     // Stride for memory initialisation
     const auto inOutStrides = flipOut ? -1 * (numConvUnits >> 1) + 1 : 1;
 
+    static constexpr unsigned numStrideBits =
+        useLimitedVer ? NUM_STRIDE_BITS : numStrideBitsUnlimited();
+    static constexpr unsigned strideMask = (1 << numStrideBits) - 1;
+
     // Strides for use with tapack
-    workerState.strides =
-        packStrides(transformedInStride, inOutStrides & NUM_STRIDE_BITS_MASK);
+    workerState.strides = packStrides(transformedInStride,
+                                      inOutStrides & strideMask, numStrideBits);
 
     for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
       for (unsigned og = 0; og < numOutGroups; ++og) {

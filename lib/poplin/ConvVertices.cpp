@@ -82,9 +82,9 @@ static unsigned getNumElementsInSlice(const std::vector<unsigned> &sliceBegin,
   return numElements;
 }
 
-static bool fitsMachineStride(const Target &target, int stride) {
-  int64_t maxLimit = (1 << target.getNumStrideBits()) / 2 - 1;
-  int64_t minLimit = -(1 << target.getNumStrideBits()) / 2;
+static bool fitsMachineStride(const unsigned numStrideBits, int stride) {
+  int64_t maxLimit = (1 << numStrideBits) / 2 - 1;
+  int64_t minLimit = -(1 << numStrideBits) / 2;
   return stride >= minLimit && stride <= maxLimit;
 }
 
@@ -645,10 +645,23 @@ static void createConvPartialAmpVertex(
   // Not a condition we expect a user to be able to trigger.
   assert(convOutputStoreElems != 0);
 
-  if (!fitsMachineStride(target, transformedOutStride / convOutputStoreElems) ||
-      !fitsMachineStride(target, transformedInStride) ||
-      !fitsMachineStride(target, transformedInRowStride)) {
+  auto fitsGivenStride = [&](unsigned numStrideBits) {
+    if (!fitsMachineStride(numStrideBits,
+                           transformedOutStride / convOutputStoreElems) ||
+        !fitsMachineStride(numStrideBits, transformedInStride) ||
+        !fitsMachineStride(numStrideBits, transformedInRowStride)) {
+      return false;
+    }
+    return true;
+  };
+
+  if (!fitsGivenStride(target.getNumStrideBits())) {
     useLimitedVer = false;
+    if (!fitsGivenStride(numStrideBitsUnlimited())) {
+      throw poputil::poplibs_error(
+          "Unlimited version can't be used because strides don't fit in " +
+          std::to_string(numStrideBitsUnlimited()) + " bits");
+    }
   }
 
   if ((numConvGroupGroups - 1 > unsignedMax) ||
@@ -799,7 +812,8 @@ static void createConvPartialAmpVertex(
       inRowStride = 1;
     }
 
-    const unsigned strideBits = target.getNumStrideBits();
+    const unsigned strideBits =
+        useLimitedVer ? target.getNumStrideBits() : numStrideBitsUnlimited();
     transformedInStride =
         packAmpNx1Stride(strideBits, outStrideStep, inStride, outStridePlusX);
     transformedOutStride =

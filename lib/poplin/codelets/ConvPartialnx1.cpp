@@ -68,19 +68,21 @@ public:
   using UnsignedType =
       std::conditional_t<useLimitedVer, unsigned short, unsigned>;
   using SignedType = std::conditional_t<useLimitedVer, short, int>;
+  using PackedStridesType =
+      std::conditional_t<useLimitedVer, unsigned, unsigned long long>;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
+  static constexpr unsigned numStrideBits =
+      useLimitedVer ? NUM_STRIDE_BITS : numStrideBitsUnlimited();
 
   // This value is
   // (inStrideX - 1 - (ampKernelHeight - 1) * inRowStride)
   //      * inChansPerGroup / convInputLoadElems + 1)
   // Where inStrideX is the actual stride
-  // const SignedType transformedInStride;
-  const signed transformedInStride;
+  const PackedStridesType transformedInStride;
   // This output stride also encodes the flip parameter and is given as
   // -6 + outChansPerGroup * (actual output stride) if flipOut = false
   // -6 - outChansPerGroup * (actual output stride) if flipOut = true
-  // const SignedType transformedOutStride;
-  const signed transformedOutStride;
+  const PackedStridesType transformedOutStride;
 
   Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
@@ -123,16 +125,16 @@ public:
     const unsigned kernelInnerElements = kernelInnerElementsM1 + 1;
 
     const int convOutputStoreElems = std::is_same<AccumType, half>() ? 4 : 2;
-    const int packedTransformedInStrideReg = transformedInStride;
-    const int packedTransformedOutStrideReg = transformedOutStride;
+    const auto packedTransformedInStrideReg = transformedInStride;
+    const auto packedTransformedOutStrideReg = transformedOutStride;
 
     // Unpack registers strides into transformed strides
     int unpackedTransformedInStride =
-        unpackAmpNx1Stride(NUM_STRIDE_BITS, packedTransformedInStrideReg, 1);
+        unpackAmpNx1Stride(numStrideBits, packedTransformedInStrideReg, 1);
     int unpackedTransformedOutStride =
-        unpackAmpNx1Stride(NUM_STRIDE_BITS, packedTransformedOutStrideReg, 0);
+        unpackAmpNx1Stride(numStrideBits, packedTransformedOutStrideReg, 0);
     const int secondPtrOffset =
-        unpackAmpNx1Stride(NUM_STRIDE_BITS, packedTransformedOutStrideReg, 1) +
+        unpackAmpNx1Stride(numStrideBits, packedTransformedOutStrideReg, 1) +
         transformedInRowStride;
     const int unpackedTransformedInRowStride =
         unpackAmpNx1InRowStride(ampKernelHeight, secondPtrOffset);
@@ -378,19 +380,21 @@ public:
   using UnsignedType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
+  using PackedStridesType =
+      std::conditional_t<useLimitedVer, unsigned, unsigned long long>;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
-
+  static constexpr unsigned numStrideBits =
+      useLimitedVer ? NUM_STRIDE_BITS : numStrideBitsUnlimited();
+  static constexpr unsigned strideMask = (1 << numStrideBits) - 1;
   // This value is
   // (inStrideX - 1 - (ampKernelHeight - 1) * inRowStride)
   //      * inChansPerGroup / convInputLoadElems + 1)
   // Where inStrideX is the actual stride
-  // const SignedType transformedInStride;
-  const signed transformedInStride;
+  const PackedStridesType transformedInStride;
   // This output stride also encodes the flip parameter and is given as
   // -6 + outChansPerGroup * (actual output stride) if flipOut = false
   // -6 - outChansPerGroup * (actual output stride) if flipOut = true
-  // const SignedType transformedOutStride;
-  const signed transformedOutStride;
+  const PackedStridesType transformedOutStride;
 
   Vector<Input<Vector<FPType, COMPACT_PTR, 8>>, ONE_PTR> in;
   Vector<Input<Vector<FPType, COMPACT_PTR, weightsAlign, use128BitLoad>>,
@@ -427,14 +431,14 @@ public:
     // A small amount of manipulation on the passed strides.
     // This could be avoided by packing differently for this vertex but this
     // way it's compatible with others
-    constexpr auto unsignedSize = 32;
-    int unpackedTransformedInStride = transformedInStride
-                                      << (unsignedSize - 2 * NUM_STRIDE_BITS);
-    int inStride =
-        (unpackedTransformedInStride >> (unsignedSize - NUM_STRIDE_BITS)) -
+    constexpr auto packedStrideSize = useLimitedVer ? 32 : 64;
+    auto unpackedTransformedInStride =
+        transformedInStride << (packedStrideSize - 2 * numStrideBits);
+    auto inStride =
+        (unpackedTransformedInStride >> (packedStrideSize - numStrideBits)) -
         (transformedInRowStride * 2);
     workerState.strides =
-        packStrides(inStride, transformedOutStride & NUM_STRIDE_BITS_MASK);
+        packStrides(inStride, transformedOutStride & strideMask, numStrideBits);
     // Zeroing - using a worker function with 64 bit writes, rpt and bundles
     const unsigned numOutGroups = numOutGroupsM1 + 1;
 

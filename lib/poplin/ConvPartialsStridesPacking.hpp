@@ -9,6 +9,9 @@
 
 namespace poplin {
 
+// Number of stride bits when unlimited codelet versions are used
+constexpr unsigned inline numStrideBitsUnlimited() { return 21; }
+
 // Below 6 functions designed to convert between C++ codelet strides and
 // strides used by ASM load/stores instructions
 int getTransformedInStride(unsigned convUnitWeightHeight, unsigned inStride,
@@ -41,11 +44,17 @@ std::pair<bool, int> reverseTransfromedOutStride(int transformedOutStride,
 // instructions. Each stride (p0, p1 and p2) will be masked by stride mask
 // and placed accordingly.
 // For example for p1: (p1 & strideMask) << (1 * strideBits)
-unsigned packAmpNx1Stride(const unsigned strideBits, int p2, int p1, int p0);
+// Always return unsigned long long as the limited and unlimited
+// variants of the codelets can result in different stride widths.
+unsigned long long packAmpNx1Stride(const unsigned strideBits, int p2, int p1,
+                                    int p0);
 
 // Extracts a stride from <stride> register based on position index <pX>.
-int unpackAmpNx1Stride(const unsigned strideBits, unsigned stride, unsigned pX,
-                       bool signExtention = true);
+// Could have an overload with unsigned rather than unsigned long long as this
+// function is used by codelets. It is not implemented because we use ASM
+// codelets with the packed stride fits within 32 bits.
+int unpackAmpNx1Stride(const unsigned strideBits, unsigned long long stride,
+                       unsigned pX, bool signExtention = true);
 
 // To overcome HW limitation of 10bits per stride AMP Nx1 vertices for a
 // limited version has two independent pointer that move alongside.
