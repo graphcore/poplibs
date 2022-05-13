@@ -1,4 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#define __QUARTER_FOR_IPU__
 #include <cassert>
 #include <cmath>
 #include <poplar/AvailableVTypes.h>
@@ -254,11 +255,11 @@ public:
   }
 };
 
-template <bool useLimitedVer, bool use128BitLoad, unsigned numConvUnits,
+template <bool use128BitLoad, unsigned numConvUnits,
           unsigned convInputLoadElems, bool disableSR>
 class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out<
-    quarter, half, useLimitedVer, use128BitLoad, numConvUnits,
-    convInputLoadElems, disableSR> : public SupervisorVertex {
+    quarter, half, true, use128BitLoad, numConvUnits, convInputLoadElems,
+    disableSR> : public SupervisorVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -266,13 +267,10 @@ public:
   using FPType = quarter;
   using AccumType = half;
 
-  using WorkListType =
-      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  using WorkListNumFieldType =
-      typename std::conditional<useLimitedVer, short, int>::type;
-  using UnsignedType =
-      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
+  using WorkListType = unsigned short;
+  using WorkListNumFieldType = short;
+  using UnsignedType = unsigned short;
+  using SignedType = short;
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR, 4> in;
   Vector<Input<Vector<FPType, ONE_PTR, weightsAlign, use128BitLoad>>, ONE_PTR,
@@ -294,6 +292,11 @@ public:
   const UnsignedType inChansPerGroup;
 
   __attribute__((target("supervisor"))) bool compute() {
+    unsigned srStore;
+    if constexpr (disableSR) {
+      srStore = getFPICTL();
+      putFPICTL(srStore & stocasticRoundingMask);
+    }
     WorkerState1x1<UnsignedType> workerState;
     workerState.partition = &worklists[0];
     const auto weightsMetadata = *weights.getMetadata();
@@ -310,8 +313,7 @@ public:
     // Stride for memory initialisation
     const auto inOutStrides = flipOut ? -1 * (numConvUnits >> 1) + 1 : 1;
 
-    static constexpr unsigned numStrideBits =
-        useLimitedVer ? NUM_STRIDE_BITS : numStrideBitsUnlimited();
+    static constexpr unsigned numStrideBits = NUM_STRIDE_BITS;
     static constexpr unsigned strideMask = (1 << numStrideBits) - 1;
 
     // Strides for use with tapack
@@ -342,6 +344,9 @@ public:
       }
     }
     syncWorkers();
+    if constexpr (disableSR) {
+      putFPICTL(srStore);
+    }
     return true;
   }
 };

@@ -1,4 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#define __QUARTER_FOR_IPU__
 #include <cassert>
 #include <cmath>
 #include <poplar/AvailableVTypes.h>
@@ -361,11 +362,11 @@ public:
   }
 };
 
-template <bool useLimitedVer, bool use128BitLoad, unsigned numConvUnits,
+template <bool use128BitLoad, unsigned numConvUnits,
           unsigned convInputLoadElems, bool disableSR>
 class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartialnx1<
-    quarter, half, useLimitedVer, use128BitLoad, numConvUnits,
-    convInputLoadElems, disableSR> : public SupervisorVertex {
+    quarter, half, true, use128BitLoad, numConvUnits, convInputLoadElems,
+    disableSR> : public SupervisorVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -373,18 +374,14 @@ public:
   using FPType = quarter;
   using AccumType = half;
 
-  using WorkListType =
-      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  using WorkListNumFieldType =
-      typename std::conditional<useLimitedVer, short, int>::type;
-  using UnsignedType =
-      typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
-  using PackedStridesType =
-      std::conditional_t<useLimitedVer, unsigned, unsigned long long>;
+  using WorkListType = unsigned short;
+  using WorkListNumFieldType = short;
+  using UnsignedType = unsigned short;
+  using SignedType = short;
+  using PackedStridesType = unsigned;
+
   static constexpr unsigned weightsAlign = use128BitLoad ? 16 : 8;
-  static constexpr unsigned numStrideBits =
-      useLimitedVer ? NUM_STRIDE_BITS : numStrideBitsUnlimited();
+  static constexpr unsigned numStrideBits = NUM_STRIDE_BITS;
   static constexpr unsigned strideMask = (1 << numStrideBits) - 1;
   // This value is
   // (inStrideX - 1 - (ampKernelHeight - 1) * inRowStride)
@@ -418,6 +415,11 @@ public:
   const UnsignedType inChansPerGroup;
 
   __attribute__((target("supervisor"))) bool compute() {
+    unsigned srStore;
+    if constexpr (disableSR) {
+      srStore = getFPICTL();
+      putFPICTL(srStore & stocasticRoundingMask);
+    }
     WorkerStateNx1 workerState;
     auto wlStatePtr = reinterpret_cast<unsigned *>(&worklists);
     workerState.partitionBase =
@@ -431,7 +433,7 @@ public:
     // A small amount of manipulation on the passed strides.
     // This could be avoided by packing differently for this vertex but this
     // way it's compatible with others
-    constexpr auto packedStrideSize = useLimitedVer ? 32 : 64;
+    constexpr auto packedStrideSize = 32;
     auto unpackedTransformedInStride =
         transformedInStride << (packedStrideSize - 2 * numStrideBits);
     auto inStride =
@@ -497,6 +499,9 @@ public:
       }
     }
     syncWorkers();
+    if constexpr (disableSR) {
+      putFPICTL(srStore);
+    }
     return true;
   }
 };

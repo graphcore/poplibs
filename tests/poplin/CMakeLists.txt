@@ -877,26 +877,51 @@ add_multitarget_test(
 
 add_multitarget_test(NAME Conv_strides_gt_10bits
   COMMAND single_conv_layer
-    --data-type=float 
-    --conv-groups=1 
-    --batch-size=1 
-    --field={8,47,8} 
-    --input-channels=2 
+    --data-type=float
+    --conv-groups=1
+    --batch-size=1
+    --field={8,47,8}
+    --input-channels=2
     --in-dilation={1,1,1}
-    --padding-upper={0,0,0} 
+    --padding-upper={0,0,0}
     --padding-lower={0,2,0}
-    --output-channels=8 
-    --kernel-size={1,1,1} 
-    --kernel-dilation={2,1,1} 
-    --kernel-padding-upper={0,0,0} 
-    --kernel-padding-lower={0,0,0} 
+    --output-channels=8
+    --kernel-size={1,1,1}
+    --kernel-dilation={2,1,1}
+    --kernel-padding-upper={0,0,0}
+    --kernel-padding-lower={0,0,0}
     --stride={1,1,1}
-    --use-create-input=False 
-    --use-create-output=True 
-    --preplan=True 
+    --use-create-input=False
+    --use-create-output=True
+    --preplan=True
     --convolution-options={\"use128BitConvUnitLoad\":true,\"remapOutputTensor\":false,\"partialsType\":\"float\"}
     --tiles-per-ipu=1
-    --single-phase=fwd 
+    --single-phase=fwd
+    --bias=0)
+
+add_multitarget_test(NAME Conv_strides_gt_10bits_quarter
+  COMMAND single_conv_layer
+    --input-type=quarter
+    --output-type=half
+    --conv-groups=1
+    --batch-size=1
+    --field={8,47,8}
+    --input-channels=2
+    --in-dilation={1,1,1}
+    --padding-upper={0,0,0}
+    --padding-lower={0,2,0}
+    --output-channels=8
+    --kernel-size={1,1,1}
+    --kernel-dilation={2,1,1}
+    --kernel-padding-upper={0,0,0}
+    --kernel-padding-lower={0,0,0}
+    --stride={1,1,1}
+    --use-create-input=False
+    --use-create-output=True
+    --preplan=True
+    --fwd-plan-constraints={"method":{"type":"AMP","convUnits":"16"}}
+    --tiles-per-ipu=1
+    --single-phase=fwd
     --bias=0)
 
 

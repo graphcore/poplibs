@@ -1,4 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+#define __QUARTER_FOR_IPU__
 #include <poplar/AvailableVTypes.h>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/QuarterFloat.hpp>
@@ -295,18 +296,16 @@ template class WorkerClass1xN<unsigned, 1, false, 16>;
 template class WorkerClass1xN<unsigned short, 2, false, 16>;
 template class WorkerClass1xN<unsigned, 2, false, 16>;
 
-template <unsigned outStride, bool useShortTypes, unsigned windowWidth,
-          unsigned numConvChains, unsigned convGroupsPerGroupVertexType,
-          bool disableSR>
+template <unsigned outStride, unsigned windowWidth, unsigned numConvChains,
+          unsigned convGroupsPerGroupVertexType, bool disableSR>
 class [[poplar::constraint(
     "elem(**in) != elem(**out)",
     "elem(**in) != "
     "elem(*"
     "outFieldBuffer"
-    ")")]] ConvPartial1xNSLIC<quarter, half, outStride, useShortTypes,
-                              windowWidth, numConvChains,
-                              convGroupsPerGroupVertexType, disableSR>
-    : public SupervisorVertex {
+    ")")]] ConvPartial1xNSLIC<quarter, half, outStride, true, windowWidth,
+                              numConvChains, convGroupsPerGroupVertexType,
+                              disableSR> : public SupervisorVertex {
   static const bool needsAlignWorkers = false;
 
 public:
@@ -314,11 +313,9 @@ public:
   using FPType = quarter;
   using AccumType = half;
 
-  // Depending on whether strides/sizes fit, use short types for storage.
-  using UnsignedType =
-      std::conditional_t<useShortTypes, unsigned short, unsigned int>;
-  using WorkListType =
-      std::conditional_t<useShortTypes, unsigned short, unsigned int>;
+  // Uses short types for storage.
+  using UnsignedType = unsigned short;
+  using WorkListType = unsigned short;
 
   // A pointer for inputs per conv group group.
   Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> in;
@@ -351,6 +348,11 @@ public:
   const UnsignedType numConvGroupGroupsM1;
 
   __attribute__((target("supervisor"))) bool compute() {
+    unsigned srStore;
+    if constexpr (disableSR) {
+      srStore = getFPICTL();
+      putFPICTL(srStore & stocasticRoundingMask);
+    }
     WorkerState1xN workerState;
     auto wlStatePtr = reinterpret_cast<unsigned *>(&worklists);
     workerState.partitionBase =
@@ -419,6 +421,9 @@ public:
       }
     }
     syncWorkers();
+    if constexpr (disableSR) {
+      putFPICTL(srStore);
+    }
     return true;
   }
 };

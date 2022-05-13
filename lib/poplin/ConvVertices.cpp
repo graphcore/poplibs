@@ -850,16 +850,19 @@ static void createConvPartialAmpVertices(
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
     assert(weights.elementType() == in.elementType());
-    Padder padder(graph, tile, transformPre, copyWritten, weights, {dnai});
+
+    Padder weightsPadder(graph, tile, transformPre, copyWritten, weights,
+                         {dnai});
 
     // If we are doing an nx1 convolution we need to pad the weights to a
     // multiple of n.
     const auto kernelHeightDim = 0;
     weights = padKernelSpatialDim(graph, params, weights, kernelHeightDim,
-                                  convUnitWeightHeight, padder);
+                                  convUnitWeightHeight, weightsPadder);
 
+    Padder inPadder(graph, tile, transformPre, copyWritten, in, {dnai});
     // Explicitly apply input transforms.
-    in = truncateDilateAndPadInput(graph, params, in, 0, padder, {dnai});
+    in = truncateDilateAndPadInput(graph, params, in, 0, inPadder, {dnai});
   }
 
   const auto partialsType = out.elementType();

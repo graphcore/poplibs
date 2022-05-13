@@ -482,4 +482,15 @@ packStrides(unsigned stride0, unsigned stride1, unsigned stride2,
          (stride2 << (numStrideBits * 2));
 }
 
+constexpr unsigned stocasticRoundingMask =
+    ~(CSR_S_FP_ICTL__ESR__MASK << CSR_S_FP_ICTL__ESR__SHIFT);
+
+static __attribute__((always_inline)) unsigned getFPICTL(void) {
+  return __builtin_ipu_get(CSR_S_FP_ICTL__INDEX);
+}
+
+static __attribute__((always_inline)) void putFPICTL(unsigned value) {
+  __builtin_ipu_put(value, CSR_S_FP_ICTL__INDEX);
+}
+
 #endif
