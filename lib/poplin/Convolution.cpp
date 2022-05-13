@@ -2842,11 +2842,13 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    bool transposeAndFlipWeights, Sequence &prog,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
-  POPLIN_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(in, weights, params_, transposeAndFlipWeights, options_, cache),
       "convolution");
+  using namespace fmt::literals;
+  POPLIN_TRACEPOINT_WITH_METADATA(
+      pvti::createJsonMetadata(R"({{"name": "{}"}})"_format(di.getPathName())));
 
   const CanonicalConvParams params(params_);
   const ConvOptions options(options_);

@@ -22,6 +22,11 @@ public:
   Tracepoint(pvti::TraceChannel *channel, const std::string traceLabel)
       : pvti::Tracepoint(channel, traceLabel) {}
 
+  Tracepoint(pvti::TraceChannel *channel, const std::string_view traceLabel,
+             pvti::Metadata m)
+      : pvti::Tracepoint(channel, traceLabel.begin(), traceLabel.length(), &m) {
+  }
+
   Tracepoint(pvti::TraceChannel *channel, const char *traceLabel)
       : pvti::Tracepoint(channel, traceLabel) {}
 
@@ -61,10 +66,16 @@ constexpr std::string_view formatPrettyFunction(std::string_view s) {
 
 } // namespace detail
 
-#define POPLIN_TRACEPOINT()                                                    \
+#define POPLIN_TRACEPOINT(...)                                                 \
   poplibs_support::Tracepoint pt__(                                            \
       &poplibs_support::tracePoplin,                                           \
       poplibs_support::detail::formatPrettyFunction(__PRETTY_FUNCTION__))
+
+#define POPLIN_TRACEPOINT_WITH_METADATA(metadata)                              \
+  poplibs_support::Tracepoint pt__(                                            \
+      &poplibs_support::tracePoplin,                                           \
+      poplibs_support::detail::formatPrettyFunction(__PRETTY_FUNCTION__),      \
+      pvti::Metadata(metadata))
 
 #define POPNN_TRACEPOINT()                                                     \
   poplibs_support::Tracepoint pt__(                                            \
