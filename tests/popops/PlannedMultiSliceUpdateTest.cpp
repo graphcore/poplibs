@@ -89,7 +89,7 @@ multiSlice(const DeviceType &deviceType, const unsigned numIPUs,
   if (dataType.requiresMetadata()) {
     // TODO T57103 - Consider write this in with the data rather than this copy
     auto metadata =
-        createMetadataTensor(graph, QuarterMetadata::Format::F152, 1);
+        createConstantMetadataTensor(graph, QuarterMetadata::Format::F152, 1);
     prog.add(Copy(metadata, t.getMetadata()));
   }
 
@@ -230,7 +230,7 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
   Sequence prog;
   if (dataType.requiresMetadata()) {
     auto metadata =
-        createMetadataTensor(graph, QuarterMetadata::Format::F152, 1);
+        createConstantMetadataTensor(graph, QuarterMetadata::Format::F152, 1);
     prog.add(Copy(metadata, t.getMetadata()));
   }
   Tensor offset =

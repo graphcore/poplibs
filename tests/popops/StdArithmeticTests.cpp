@@ -1114,7 +1114,8 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
   // IPU, or is this a useful test anyhow?
   auto in = graph.addVariable(HALF, {DIM_SIZE}, "in");
 
-  auto metadata = createMetadataTensor(graph, QuarterMetadata::Format::F143, 0);
+  auto metadata =
+      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 0);
   auto inter = graph.addVariable(QUARTER, &metadata, {DIM_SIZE}, "inter");
   auto out = graph.addVariable(HALF, {DIM_SIZE}, "out");
   mapTensorLinearly(graph, in);
@@ -1176,7 +1177,7 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
   // TODO - T57103 won't need an intermediate cast once we can copy data to the
   // IPU, or is this a useful test anyhow?
   poplar::Tensor metadata =
-      createMetadataTensor(graph, QuarterMetadata::Format::F143, 0);
+      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 0);
   poplar::Tensor inter = cast(graph, in, QUARTER, metadata, prog, "castToFP8");
   poplar::Tensor out = cast(graph, inter, HALF, prog, "castToHalf");
   graph.createHostRead("out", out);
@@ -1224,7 +1225,7 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
   // TODO - T57103 won't need an intermediate cast once we can copy data to the
   // IPU, or is this a useful test anyhow?
   poplar::Tensor metadata =
-      createMetadataTensor(graph, QuarterMetadata::Format::F143, -1);
+      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, -1);
   poplar::Tensor inter = cast(graph, in, QUARTER, metadata, prog, "castToFP8");
   poplar::Tensor out = cast(graph, inter, CHAR, prog, "castToChar");
   graph.createHostRead("out", out);
@@ -1260,7 +1261,7 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
   }
   // Manipulate the input to result in 2D vertex being called
   auto metadata0 =
-      createMetadataTensor(graph, QuarterMetadata::Format::F143, 2);
+      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 2);
   auto toSlice =
       graph.addVariable(QUARTER, &metadata0, {DIM_SIZE + 16}, "toSlice");
   mapTensorLinearly(graph, toSlice);
@@ -1272,7 +1273,7 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
   //  - T57103 won't need an intermediate cast once we can copy data to the
   // IPU, or is this a useful test anyhow?
   auto metadata1 =
-      createMetadataTensor(graph, QuarterMetadata::Format::F152, -1);
+      createConstantMetadataTensor(graph, QuarterMetadata::Format::F152, -1);
   auto inter = cast(graph, in, QUARTER, metadata1, prog, "castToQUART143");
   auto out = cast(graph, inter, QUARTER, metadata0, prog, "castToQUART152");
   graph.createHostRead("out", out);

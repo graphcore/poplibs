@@ -1818,7 +1818,7 @@ void checkQuarterMetadata(void) {
 
   // Create an input tensor with an associated metadata value to check
   auto embeddingMetadata =
-      createMetadataTensor(graph, QuarterMetadata::Format::F143, 1);
+      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 1);
   auto embedding = popops::createSliceableTensor(graph, QUARTER, tShape, {0},
                                                  {1}, plan, {}, "embedding");
   Sequence sequence;
@@ -1835,9 +1835,9 @@ void checkQuarterMetadata(void) {
                                   plan, optionFlags, "slice");
   // copy new metadata here, so as to leave the original value of metadata in
   // embedding intact for test.
-  sequence.add(Copy(
-      poputil::createMetadataTensor(graph, QuarterMetadata::Format::F143, 3),
-      dummy.getMetadata()));
+  sequence.add(Copy(poputil::createConstantMetadataTensor(
+                        graph, QuarterMetadata::Format::F143, 3),
+                    dummy.getMetadata()));
   popops::multiUpdate(graph, embedding, dummy, ids, {0}, {1}, sequence, plan,
                       optionFlags, "slice");
 

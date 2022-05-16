@@ -200,14 +200,15 @@ poplar::Tensor unfactorDims(const poplar::Tensor &t, unsigned numDims,
                             unsigned startDim = 0);
 
 // Create metadata for use with FP8 data types
-poplar::Tensor createMetadataTensor(poplar::Graph &graph,
-                                    poplar::QuarterMetadata::Format fp8Format,
-                                    int fp8Scale);
+poplar::Tensor
+createConstantMetadataTensor(poplar::Graph &graph,
+                             poplar::QuarterMetadata::Format fp8Format,
+                             int fp8Scale);
 
-poplar::Tensor createMetadataTensor(poplar::Graph &graph,
-                                    poplar::QuarterMetadata::Format fp8Format,
-                                    int fp8Scale,
-                                    poplar::program::Sequence &prog);
+poplar::Tensor
+createVariableMetadataTensor(poplar::Graph &graph,
+                             poplar::QuarterMetadata::Format fp8Format,
+                             int fp8Scale);
 
 /** Calculate the un-shuffling intervals based on the given intervals.
  *

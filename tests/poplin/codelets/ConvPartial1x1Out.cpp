@@ -360,10 +360,10 @@ void runTest(const struct TestParams &t) {
     // But then when doing the convolution 2^(scaleWeights + scaleIn) should be
     // applied so we get the same result.  (Subject to values being
     // representable in each number format)
-    auto weightsMetadata =
-        createMetadataTensor(graph, t.weightFp8Format, t.weightFp8Scale);
+    auto weightsMetadata = createConstantMetadataTensor(
+        graph, t.weightFp8Format, t.weightFp8Scale);
     auto inMetadata =
-        createMetadataTensor(graph, t.inputFp8Format, t.inputFp8Scale);
+        createConstantMetadataTensor(graph, t.inputFp8Format, t.inputFp8Scale);
 
     // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
     auto inFp8 = popops::cast(graph, in, QUARTER, inMetadata, prog, "CastIn");

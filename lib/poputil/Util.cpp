@@ -437,9 +437,10 @@ poplar::Tensor unfactorDims(const poplar::Tensor &t_, unsigned numDims,
   return t.reshapePartial(startDim, startDim + numDims * 2, unfactoredShape);
 }
 
-poplar::Tensor createMetadataTensor(poplar::Graph &graph,
-                                    poplar::QuarterMetadata::Format fp8Format,
-                                    int fp8Scale) {
+poplar::Tensor
+createConstantMetadataTensor(poplar::Graph &graph,
+                             poplar::QuarterMetadata::Format fp8Format,
+                             int fp8Scale) {
   auto metadataTensor = graph.addConstant(
       poplar::QUARTER_METADATA, {1},
       poplar::QuarterMetadata(fp8Format, fp8Scale).getBinary());
@@ -447,10 +448,10 @@ poplar::Tensor createMetadataTensor(poplar::Graph &graph,
   return metadataTensor;
 }
 
-poplar::Tensor createMetadataTensor(poplar::Graph &graph,
-                                    poplar::QuarterMetadata::Format fp8Format,
-                                    int fp8Scale,
-                                    poplar::program::Sequence &prog) {
+poplar::Tensor
+createVariableMetadataTensor(poplar::Graph &graph,
+                             poplar::QuarterMetadata::Format fp8Format,
+                             int fp8Scale) {
 
   auto metadataTensor = graph.addVariable(poplar::QUARTER_METADATA, {1});
   graph.setTileMapping(metadataTensor, 0);

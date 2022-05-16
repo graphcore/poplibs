@@ -103,7 +103,7 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   Tensor out;
   if (dataTypeOut.requiresMetadata()) {
     auto metadata =
-        createMetadataTensor(graph, fp8FormatOut, fp8ScaleOut, sequence);
+        createVariableMetadataTensor(graph, fp8FormatOut, fp8ScaleOut);
     out = graph.addVariable(dataTypeOut, &metadata, {rows, columns + offsetOut},
                             "Output");
   } else {
