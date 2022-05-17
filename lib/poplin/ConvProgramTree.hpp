@@ -119,6 +119,10 @@ struct ConvProgramTree {
   // the dynamic slice and update/add that happens at
   // the beginning and end of each loop iteration.
   poplar::program::Sequence slice, update;
+  // the slice to occur at the start of an optional extra loop iteration to
+  // handle e.g. the last serial slice of the output channels when the
+  // number of channels isn't a multiple of the number of slices.
+  boost::optional<poplar::program::Sequence> lastSlice, lastUpdate;
   // the core convolution op.
   ComputeSetsGroup convolveCSGroup;
   // Any post-conv reductions or casts that might be required. First vector is

@@ -793,6 +793,16 @@ add_multitarget_test(
          )
 
 add_multitarget_test(
+ NAME gemm_100x100x100_serial_split_nx3
+ COMMAND general_matrix_multiply
+         --m 100
+         --k 100
+         --n 100
+         --tiles-per-ipu=16
+         --plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx3.json
+         )
+
+add_multitarget_test(
  NAME gemm_200x100x50_serial_split_nx2
  COMMAND general_matrix_multiply
          --m 200
@@ -800,6 +810,16 @@ add_multitarget_test(
          --n 50
          --tiles-per-ipu=16
          --plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx2.json
+         )
+
+add_multitarget_test(
+ NAME gemm_200x100x50_serial_split_nx3
+ COMMAND general_matrix_multiply
+         --m 200
+         --k 100
+         --n 50
+         --tiles-per-ipu=16
+         --plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx3.json
          )
 
 add_multitarget_test(
@@ -3092,6 +3112,19 @@ add_multitarget_test(
              --kernel-size=1
              --single-phase=fwd
              --fwd-plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx2.json
+         VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME conv1x1_stride_1_fwd_serial_split_ocx3
+         COMMAND single_conv_layer
+             --input-channels=128
+             --output-channels=256
+             --field={7,7}
+             --tiles-per-ipu=16
+             --stride=1
+             --kernel-size=1
+             --single-phase=fwd
+             --fwd-plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx3.json
          VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
