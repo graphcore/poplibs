@@ -58,13 +58,14 @@ Tensor createOutputForElementWiseOp(Graph &graph,
   std::vector<unsigned> tilesOccupied(inputs.size());
   std::vector<unsigned> numRegions(inputs.size());
   std::vector<size_t> maxTileElements(inputs.size());
-  std::vector<bool> parallelWriteable(inputs.size());
+  std::vector<bool> containsAliases(inputs.size());
 
   // Gather info on distribution of inputs.
   for (unsigned i = 0; i < inputs.size(); ++i) {
-    if (!inputs[i].isParallelWriteable())
+    if (inputs[i].containsAliases()) {
+      containsAliases[i] = true;
       continue;
-    parallelWriteable[i] = true;
+    }
     // Simplify the input so that when we get the tile mapping we
     // have the intersection of the tile mapping and the contiguous
     // regions of the tensor.
@@ -87,11 +88,10 @@ Tensor createOutputForElementWiseOp(Graph &graph,
   // create the output.
   int best = -1;
   for (unsigned i = 0; i < inputs.size(); ++i) {
-    // If not parallel writeable, either this has constant elements with
-    // indeterminate mapping, or some elements alias others, and likely
-    // the resulting tensor will not be well distributed.
-    if (!parallelWriteable[i])
+    // Ignore those with aliases as the mapping will be unhelpful
+    if (containsAliases[i]) {
       continue;
+    }
 
     // Select the tensor with the minimum maximum tile elements
     if (best < 0 || maxTileElements[i] < maxTileElements[best]) {
