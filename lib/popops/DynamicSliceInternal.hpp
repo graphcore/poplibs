@@ -31,18 +31,22 @@ template <typename T> struct Partition {
 
 template <typename T>
 bool operator<(const Partition<T> &a, const Partition<T> &b) {
-  return std::tie(a.lookupSerialSplit, a.lookupParallelSplit, a.slicedDimSplit,
-                  a.unslicedDimSplit, a.groupSplit, a.unslicedGrainSize) <
-         std::tie(b.lookupSerialSplit, b.lookupParallelSplit, b.slicedDimSplit,
-                  b.unslicedDimSplit, b.groupSplit, b.unslicedGrainSize);
+  return std::tie(a.precopyBaseWhenSerialSlice, a.lookupSerialSplit,
+                  a.lookupParallelSplit, a.slicedDimSplit, a.unslicedDimSplit,
+                  a.groupSplit, a.unslicedGrainSize) <
+         std::tie(b.precopyBaseWhenSerialSlice, b.lookupSerialSplit,
+                  b.lookupParallelSplit, b.slicedDimSplit, b.unslicedDimSplit,
+                  b.groupSplit, b.unslicedGrainSize);
 }
 
 template <typename T>
 bool operator==(const Partition<T> &a, const Partition<T> &b) {
-  return std::tie(a.lookupSerialSplit, a.lookupParallelSplit, a.slicedDimSplit,
-                  a.unslicedDimSplit, a.groupSplit, a.unslicedGrainSize) ==
-         std::tie(b.lookupSerialSplit, b.lookupParallelSplit, b.slicedDimSplit,
-                  b.unslicedDimSplit, b.groupSplit, b.unslicedGrainSize);
+  return std::tie(a.precopyBaseWhenSerialSlice, a.lookupSerialSplit,
+                  a.lookupParallelSplit, a.slicedDimSplit, a.unslicedDimSplit,
+                  a.groupSplit, a.unslicedGrainSize) ==
+         std::tie(b.precopyBaseWhenSerialSlice, b.lookupSerialSplit,
+                  b.lookupParallelSplit, b.slicedDimSplit, b.unslicedDimSplit,
+                  b.groupSplit, b.unslicedGrainSize);
 }
 
 } // namespace sliceInternal
