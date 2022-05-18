@@ -3755,6 +3755,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
           : *std::max_element(numLookups.cbegin(), numLookups.cend());
 
   const std::size_t minGrainSizeBytes = target.getDataPathWidth() / 8;
+  const auto maxWriteBytesPerCycle = minGrainSizeBytes;
 
   // Attempt to use single region optimisation.
   const auto trySingleRegionOptimisation = plannedNumIndices == 1;
@@ -3839,8 +3840,16 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
   // Base precopy is only relevant for slicing.
   partition.precopyBaseWhenSerialSlice = m.addVariable(
       0, options.usedForSlice ? 1 : 0, "precopyBaseWhenSerialSlice");
+
+  // The relationship betwen the serial split and the total cycles is expected
+  // to be fairly monontonic and best decided early.
   partition.lookupSerialSplit =
       m.addVariable(1, maxLookupSplits, "lookupSerialSplit");
+
+  auto topPrio = m.addPriorityGroup();
+  m.prioritiseOver(topPrio, m.getDefaultPriorityGroup());
+  m.setPriorityGroup(partition.lookupSerialSplit, topPrio);
+
   partition.lookupParallelSplit =
       m.addVariable(1, maxLookupSplits, "lookupParallelSplit");
   const auto mTotalLookupSplit =
@@ -4060,6 +4069,28 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
         m.product({e.sliceCyclesPerSerialSplit, partition.lookupSerialSplit});
     e.sliceTotalCycles = m.sum({e.sliceTotalCycles, e.slicePrecopyCycles});
     e.totalCycles = e.sliceTotalCycles;
+
+    // Constrain the splits assuming that no more than 8 bytes can be written
+    // per cycle. This is very optimistic in some case (eg splits where subword
+    // writes are required will achieve less than 1byte/cycle)) but still
+    // reduces the search space in many cases.
+    const auto totalWriteCycles = gccs::ceildiv(
+        plannedNumIndices * groupSize * outputSize * dataElementSize,
+        maxWriteBytesPerCycle);
+    const auto mTotalWriteCycles = m.addConstant(totalWriteCycles);
+
+    // These splits increase the tiles writing without increasing the total
+    // bytes written:
+    // - unslicedDimSplit
+    // - groupSplit
+    // - lookupParallelSplit
+    // These splits also duplicate writes so don't help
+    // - slicedDimSplit
+    m.lessOrEqual(
+        mTotalWriteCycles,
+        m.product({partition.lookupSerialSplit, partition.lookupParallelSplit,
+                   partition.unslicedDimSplit, partition.groupSplit,
+                   e.sliceFirstStageComputeCycles}));
 
     const auto mEmbeddingExchangeInstrs0PerGroup =
         m.product({mLookupsAreSplit, partition.lookupParallelSplit});

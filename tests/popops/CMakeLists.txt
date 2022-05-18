@@ -337,6 +337,14 @@ NAME PlannedGroupedMultiUpdateTest_ManySplits
     --operation=ADD
     VARIANTS Hw;${IPUMODEL_VARIANTS})
 
+# YOLO slice that took too long. This should only take a couple of seconds,
+# if it times out there is definitely a problem.
+add_multitarget_test(
+  NAME PlannedMultisliceYolo
+  COMMAND PlannedMultiSliceUpdateTest
+  --shape={268800,1} --num-indices=10400 --compile-only
+)
+
 add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(RegroupTest RegroupTest.cpp)
