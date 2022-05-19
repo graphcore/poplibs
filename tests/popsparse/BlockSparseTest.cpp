@@ -10,6 +10,7 @@
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 #include <random>
 #include <vector>
 
@@ -1826,7 +1827,8 @@ Testing block-sparse API
 dense x dense = sparse case
 */
 void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize,
-                const std::string &partitionMethod = "block-naive") {
+                const std::string &partitionMethod = "block-naive",
+                const std::optional<poplar::Type> partialType = std::nullopt) {
   auto device = createTestDevice(TEST_TARGET, 1, 16);
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -1866,7 +1868,7 @@ void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize,
 
   BSMatMulParams bsParams({rowsA, colsA, colsB},
                           {rowsInBlockA, colsInBlockA, colsInBlockB}, sparsityC,
-                          dataType, dataType, dataType);
+                          dataType, dataType, partialType.value_or(dataType));
 
   // LHS dense matrix
   poplar::Tensor tensorA = createBSMatMulInputLHS(graph, bsParams, "A");
@@ -1925,3 +1927,7 @@ BOOST_AUTO_TEST_CASE(DenseSparseDenseAPI_testF32_block_naive) {
 }
 
 BOOST_AUTO_TEST_CASE(DenseDenseSparseAPI_testF32) { TestDDSAPI(FLOAT, 8, 8); }
+BOOST_AUTO_TEST_CASE(DenseDenseSparseAPI_testF16PartialF32DataFails) {
+  BOOST_CHECK_THROW(TestDDSAPI(FLOAT, 8, 8, "block-naive", HALF),
+                    poputil::poplibs_error);
+}

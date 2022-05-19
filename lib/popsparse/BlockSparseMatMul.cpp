@@ -35,6 +35,70 @@ using namespace poplibs;
 
 class BSMatMulImpl {
 
+  static void
+  checkCommonParameters(const std::array<int, 3> &dim,
+                        const std::array<int, 3> &blockSize,
+                        const std::vector<unsigned char> &sparsityMask,
+                        const std::array<int, 2> &sparseDims,
+                        const poplar::Type &inType, const poplar::Type &outType,
+                        const poplar::Type &partialType, unsigned numGroups) {
+    if (inType != poplar::HALF && inType != poplar::FLOAT) {
+      throw poputil::poplibs_error(
+          "Input error: input data type must be half or float but got " +
+          inType.toString());
+    }
+    if (outType != poplar::HALF && outType != poplar::FLOAT) {
+      throw poputil::poplibs_error(
+          "Input error: output data type must be half or float but got " +
+          outType.toString());
+    }
+    if (partialType != poplar::HALF && partialType != poplar::FLOAT) {
+      throw poputil::poplibs_error(
+          "Input error: partial data type must be half or float but got " +
+          partialType.toString());
+    }
+    if (inType == poplar::FLOAT && partialType == poplar::HALF) {
+      throw poputil::poplibs_error(
+          "Input error: partial data type's precision must be equal to or "
+          "greater than input data type's precision. Input type was " +
+          inType.toString() + " and partial data type was " +
+          partialType.toString() + ".");
+    }
+    if (numGroups == 0) {
+      throw poputil::poplibs_error("Input error: zero number of groups.");
+    }
+    for (int iDim = 0; iDim < 3; ++iDim) {
+      if (dim[iDim] % blockSize[iDim] != 0) {
+        throw poputil::poplibs_error(
+            "Input error: input dimension " + std::to_string(iDim) + ": " +
+            std::to_string(dim[iDim]) +
+            " is not divisible by block size dimension " +
+            std::to_string(iDim) + ": " + std::to_string(blockSize[iDim]));
+      }
+    }
+    const std::size_t sparsitySize = sparsityMask.size();
+    if (sparsitySize % numGroups != 0) {
+      throw poputil::poplibs_error(
+          "Input error: sparsity mask size " + std::to_string(sparsitySize) +
+          " is not divisible by number of groups " + std::to_string(numGroups));
+    }
+    const std::size_t sparsitySizePerGroup = sparsitySize / numGroups;
+    const std::size_t numBlocks =
+        std::accumulate(sparseDims.begin(), sparseDims.end(), std::size_t(1),
+                        [&](std::size_t t, int iDim) {
+                          return t * static_cast<std::size_t>(dim[iDim]) /
+                                 static_cast<std::size_t>(blockSize[iDim]);
+                        });
+    if (numBlocks != sparsitySizePerGroup) {
+      throw poputil::poplibs_error(
+          "Input error: sparsity mask size " +
+          std::string((numGroups > 1 ? "per group:" : ":")) +
+          std::to_string(sparsitySizePerGroup) +
+          " does not match total number of blocks: " +
+          std::to_string(numBlocks));
+    }
+  }
+
 public:
   BSMatMulImpl(const std::array<int, 3> &dim,
                const std::array<int, 3> &blockSize,
@@ -47,36 +111,10 @@ public:
         isRhsSparse(true), isResSparse(false),
         rhsNeedTranspose(rhsNeedTransposeIn), subBlockMask(SubBlockMask::None),
         numGroups(numGroupsIn) {
-
-    if (numGroupsIn == 0) {
-      throw poputil::poplibs_error("Input error: zero number of groups.");
-    }
-    for (int iDim = 0; iDim < 3; ++iDim) {
-      if (dim[iDim] % blockSize[iDim] != 0) {
-        throw poputil::poplibs_error(
-            "Input error: input dimension " + std::to_string(iDim) + ": " +
-            std::to_string(dim[iDim]) +
-            " is not divisible by block size dimension " +
-            std::to_string(iDim) + ": " + std::to_string(blockSize[iDim]));
-      }
-    }
-    std::size_t sparsitySize = rhsSparsity.size();
-    if (sparsitySize % numGroups != 0) {
-      throw poputil::poplibs_error(
-          "Input error: sparsity mask size " + std::to_string(sparsitySize) +
-          " is not divisible by number of groups " + std::to_string(numGroups));
-    }
-    std::size_t sparsitySizePerGroup = sparsitySize / numGroups;
-    int numBlocks = dim[1] / blockSize[1] * dim[2] / blockSize[2];
-    if (static_cast<int>(sparsitySizePerGroup) != numBlocks) {
-      throw poputil::poplibs_error(
-          "Input error: sparsity mask size" +
-          std::string((numGroups > 1 ? " per group:" : ":")) +
-          std::to_string(sparsitySizePerGroup) +
-          " does not match total number of blocks: " +
-          std::to_string(numBlocks));
-    }
+    checkCommonParameters(dim, blockSize, rhsSparsity, {1, 2}, inDataType,
+                          outDataType, partialDataType, numGroups);
     const unsigned char *sparsityBuf = rhsSparsity.data();
+    const std::size_t sparsitySizePerGroup = rhsSparsity.size() / numGroups;
     for (unsigned idxGroup = 0; idxGroup < numGroups; ++idxGroup) {
       lhsMatrices.emplace_back(new BlockDenseMatrix(
           dim[0], dim[1], blockSize[0], blockSize[1], false));
@@ -110,34 +148,8 @@ public:
         isLhsSparse(false), isRhsSparse(false), isResSparse(true),
         rhsNeedTranspose(false), subBlockMask(subBlockMaskIn),
         numGroups(numGroupsIn) {
-    if (numGroupsIn == 0) {
-      throw poputil::poplibs_error("Input error: zero number of groups.");
-    }
-    for (int iDim = 0; iDim < 3; ++iDim) {
-      if (dim[iDim] % blockSize[iDim] != 0) {
-        throw poputil::poplibs_error(
-            "Input error: input dimension " + std::to_string(iDim) + ": " +
-            std::to_string(dim[iDim]) +
-            " is not divisible by block size dimension " +
-            std::to_string(iDim) + ": " + std::to_string(blockSize[iDim]));
-      }
-    }
-    std::size_t sparsitySize = resSparsityIn.size();
-    if (sparsitySize % numGroups != 0) {
-      throw poputil::poplibs_error(
-          "Input error: sparsity mask size " + std::to_string(sparsitySize) +
-          " is not divisible by number of groups " + std::to_string(numGroups));
-    }
-    std::size_t sparsitySizePerGroup = sparsitySize / numGroups;
-    int numBlocks = dim[0] / blockSize[0] * dim[2] / blockSize[2];
-    if (static_cast<int>(sparsitySizePerGroup) != numBlocks) {
-      throw poputil::poplibs_error(
-          "Input error: sparsity mask size " +
-          std::string((numGroups > 1 ? "per group:" : ":")) +
-          std::to_string(sparsitySizePerGroup) +
-          " does not match total number of blocks: " +
-          std::to_string(numBlocks));
-    }
+    checkCommonParameters(dim, blockSize, resSparsityIn, {0, 2}, inDataType,
+                          outDataType, partialDataType, numGroupsIn);
     for (unsigned idxGroup = 0; idxGroup < numGroups; ++idxGroup) {
       lhsMatrices.emplace_back(new BlockDenseMatrix(
           dim[0], dim[1], blockSize[0], blockSize[1], false));
