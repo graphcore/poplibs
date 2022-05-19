@@ -18,11 +18,47 @@ public:
                const ::poplar::Type &, const ::poplar::DebugContext &,
                const ::poplar::OptionFlags &, ::poplin::PlanningCache *));
 
+  MOCK_METHOD(void, matMulGroupedWithOutput,
+              (::poplar::Graph &, const ::poplar::Tensor &,
+               const ::poplar::Tensor &, ::poplar::Tensor &,
+               ::poplar::program::Sequence &, const ::poplar::DebugContext &,
+               const ::poplar::OptionFlags &, ::poplin::PlanningCache *));
+
+  MOCK_METHOD(void, matMulWithOutput,
+              (::poplar::Graph &, const ::poplar::Tensor &,
+               const ::poplar::Tensor &, ::poplar::Tensor &,
+               ::poplar::program::Sequence &, const ::poplar::DebugContext &,
+               const ::poplar::OptionFlags &, ::poplin::PlanningCache *));
+
   MOCK_METHOD(void, matMulGroupedReportPlan,
               (std::ostream &, const ::poplar::Graph &, const ::poplar::Type &,
                const ::poplar::Type &, const std::vector<std::size_t> &,
                const std::vector<std::size_t> &, const ::poplar::OptionFlags &,
                ::poplin::PlanningCache *));
+
+  MOCK_METHOD(void, matMulReportPlan,
+              (std::ostream &, const ::poplar::Graph &, const ::poplar::Type &,
+               const ::poplar::Type &, const std::vector<std::size_t> &,
+               const std::vector<std::size_t> &, const ::poplar::OptionFlags &,
+               ::poplin::PlanningCache *));
+
+  MOCK_METHOD(::poplar::Tensor, createMatMulInputLHS,
+              (::poplar::Graph &, const ::poplar::Type &,
+               const ::poplar::Type &, const std::vector<std::size_t> &,
+               const std::vector<std::size_t> &, const ::poplar::DebugContext &,
+               const ::poplar::OptionFlags &, ::poplin::PlanningCache *));
+
+  MOCK_METHOD(::poplar::Tensor, createMatMulInputRHS,
+              (::poplar::Graph &, const ::poplar::Type &,
+               const ::poplar::Type &, const std::vector<std::size_t> &,
+               const std::vector<std::size_t> &, const ::poplar::DebugContext &,
+               const ::poplar::OptionFlags &, ::poplin::PlanningCache *));
+
+  MOCK_METHOD(::poplar::Tensor, createMatMulOutput,
+              (::poplar::Graph &, const ::poplar::Type &,
+               const ::poplar::Type &, const std::vector<std::size_t> &,
+               const std::vector<std::size_t> &, const ::poplar::DebugContext &,
+               const ::poplar::OptionFlags &, ::poplin::PlanningCache *));
 
   MOCK_METHOD(::poplar::Tensor, createMatMulGroupedInputLHS,
               (::poplar::Graph &, const ::poplar::Type &,
@@ -31,6 +67,12 @@ public:
                const ::poplar::OptionFlags &, ::poplin::PlanningCache *));
 
   MOCK_METHOD(::poplar::Tensor, createMatMulGroupedInputRHS,
+              (::poplar::Graph &, const ::poplar::Type &,
+               const ::poplar::Type &, const std::vector<std::size_t> &,
+               const std::vector<std::size_t> &, const ::poplar::DebugContext &,
+               const ::poplar::OptionFlags &, ::poplin::PlanningCache *));
+
+  MOCK_METHOD(::poplar::Tensor, createMatMulGroupedOutput,
               (::poplar::Graph &, const ::poplar::Type &,
                const ::poplar::Type &, const std::vector<std::size_t> &,
                const std::vector<std::size_t> &, const ::poplar::DebugContext &,
