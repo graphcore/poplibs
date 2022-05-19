@@ -92,13 +92,8 @@ Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
   const auto dType = expandedT.elementType();
   auto zeroShape = expandedT.shape();
   zeroShape[dim + 1] = dilationFactor - 1;
-  Tensor metadata, *metadataPtr = nullptr;
-  if (expandedT.hasMetadata()) {
-    metadata = expandedT.getMetadata();
-    metadataPtr = &metadata;
-  }
-  Tensor zero =
-      graph.addConstant(dType, metadataPtr, zeroShape, 0, {dnai, "zero"});
+  auto zero = graph.addConstant(dType, expandedT.getMetadata(), zeroShape, 0,
+                                {dnai, "zero"});
   graph.setTileMapping(zero, 0);
   return concat(expandedT, zero, dim + 1)
       .flatten(dim, dim + 2)
@@ -256,12 +251,7 @@ static void expandSpatialDimMultiStageImpl(ConvParams &params, unsigned dim,
       auto newActsShape = acts->shape();
       newActsShape[actsDimIndex] = actsFactoredSize;
       newActsShape.back() = 0;
-      Tensor metadata, *metadataPtr = nullptr;
-      if (acts->hasMetadata()) {
-        metadata = acts->getMetadata();
-        metadataPtr = &metadata;
-      }
-      *acts = (*graph).addConstant(dType, metadataPtr, newActsShape, 0,
+      *acts = (*graph).addConstant(dType, acts->getMetadata(), newActsShape, 0,
                                    {dnai, "acts"});
       (*graph).setTileMapping(*acts, 0);
     } else {

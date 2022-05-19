@@ -309,14 +309,7 @@ Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
   const auto dType = in.elementType();
   auto outShape = in.shape();
   std::swap(outShape[rank - 2], outShape[rank - 1]);
-  Tensor metadata, *metadataPtr = nullptr;
-  if (in.hasMetadata()) {
-    metadata = graph.addVariable(QUARTER_METADATA, {}, {di, "metadata"});
-    graph.setTileMapping(metadata, 0);
-    metadataPtr = &metadata;
-  }
-  auto out =
-      graph.addVariable(dType, metadataPtr, outShape, {di, "partialTranspose"});
+  auto out = graph.addVariable(dType, {}, outShape, {di, "partialTranspose"});
   auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
                             numSrcRows * numSrcColumns});
   auto outFlat = out.reshape(inFlat.shape());
@@ -534,13 +527,7 @@ regroupTensorInternal(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
   // regions to be contiguous. Performing a transpose alone
   // may leave multiple regions per-tile, one for each edge to a
   // transpose vertex.
-  Tensor metadata, *metadataPtr = nullptr;
-  if (t.hasMetadata()) {
-    metadata = t.getMetadata();
-    metadataPtr = &metadata;
-  }
-
-  auto preRegroup = graph.addVariable(t.elementType(), metadataPtr,
+  auto preRegroup = graph.addVariable(t.elementType(), t.getMetadata(),
                                       grouped.shape(), {dnai, "preRegroup"});
   auto preRegroupTranspose = preRegroup.flatten(0, preRegroup.rank() - 2);
   auto preRegroupFlat =

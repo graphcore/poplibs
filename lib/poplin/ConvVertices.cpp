@@ -274,13 +274,7 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
   auto paddingSize = paddingLower + paddingUpper;
   auto paddingShape = t.shape();
   paddingShape[dim] = paddingSize;
-
-  Tensor metadata, *metadataPtr = nullptr;
-  if (t.hasMetadata()) {
-    metadata = t.getMetadata();
-    metadataPtr = &metadata;
-  }
-  auto paddingTensor = graph.addVariable(t.elementType(), metadataPtr,
+  auto paddingTensor = graph.addVariable(t.elementType(), t.getMetadata(),
                                          paddingShape, {dnai, "zeroPadding"});
   auto paddingLowerTensor = paddingTensor.slice(0, paddingLower, dim);
   auto paddingUpperTensor = paddingTensor.slice(paddingLower, paddingSize, dim);
@@ -301,26 +295,16 @@ struct Padder {
          const DebugNameAndId &dnai)
       : graph(graph), tile(tile), transformPre(transformPre),
         type(t.elementType()), copyWritten(copyWritten), dnai(dnai) {
-    Tensor metadata, *metadataPtr = nullptr;
-    if (t.hasMetadata()) {
-      metadata = t.getMetadata();
-      metadataPtr = &metadata;
-    }
-    paddingTensor =
-        graph.addConstant(type, metadataPtr, {0}, 0, {dnai, "paddingTensor"});
+    paddingTensor = graph.addConstant(type, t.getMetadata(), {0}, 0,
+                                      {dnai, "paddingTensor"});
     graph.setTileMapping(paddingTensor, 0);
   }
 
   ~Padder() {
     if (paddingTensor.numElements() != 0) {
-      Tensor metadata, *metadataPtr = nullptr;
-      if (paddingTensor.hasMetadata()) {
-        metadata = paddingTensor.getMetadata();
-        metadataPtr = &metadata;
-      }
-      auto c =
-          graph.addConstant(paddingTensor.elementType(), metadataPtr,
-                            paddingTensor.shape(), 0, {dnai, "paddingTensor"});
+      auto c = graph.addConstant(
+          paddingTensor.elementType(), paddingTensor.getMetadata(),
+          paddingTensor.shape(), 0, {dnai, "paddingTensor"});
       graph.setTileMapping(c, 0);
       graph.setTileMapping(paddingTensor, tile);
       transformPre.emplace_back(c, paddingTensor, false, dnai);

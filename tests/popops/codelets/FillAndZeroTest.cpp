@@ -88,17 +88,8 @@ void Test(const std::array<TestParams, N> &testList, const Type &dataType,
   popops::addCodelets(graph);
 
   // Test data tensor
-  Tensor data;
-  if (metadata) {
-    auto metadataTensor = graph.addVariable(QUARTER_METADATA, {}, "Metadata");
-    graph.setTileMapping(metadataTensor, 0);
-    data = graph.addVariable(dataType, &metadataTensor,
-                             {max_rows, max_columns + max_offset}, "Data");
-  } else {
-    data = graph.addVariable(dataType, {max_rows, max_columns + max_offset},
-                             "Data");
-  }
-
+  auto data = graph.addVariable(dataType, {},
+                                {max_rows, max_columns + max_offset}, "Data");
   graph.setTileMapping(data, 0);
 
   // allocateHostMemoryForTensor

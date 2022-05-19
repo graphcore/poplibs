@@ -244,28 +244,15 @@ int main(int argc, char **argv) try {
 
   outputShape.insert(outputShape.end(), {convGroupsPerGroup, chansPerGroup});
 
-  Tensor inGroupedWithOverread;
-  if (inputType.requiresMetadata()) {
-    auto metadata = graph.addVariable(QUARTER_METADATA, {}, "inMetadata");
-    graph.setTileMapping(metadata, 0);
-    inGroupedWithOverread =
-        graph.addVariable(inputType, &metadata, inShape, "in");
-  } else {
-    inGroupedWithOverread = graph.addVariable(inputType, inShape, "in");
-  }
+  auto inGroupedWithOverread = graph.addVariable(inputType, {}, inShape, "in");
+
   const auto inGrouped = inGroupedWithOverread.slice(0, convGroupGroups, 0);
   const auto inOverreadMemory = inGroupedWithOverread.slice(
       convGroupGroups, convGroupGroups + overreadConvGroups, 0);
 
-  Tensor weightsGrouped;
-  if (inputType.requiresMetadata()) {
-    auto metadata = graph.addVariable(QUARTER_METADATA, {}, "weightsMetadata");
-    graph.setTileMapping(metadata, 0);
-    weightsGrouped =
-        graph.addVariable(inputType, &metadata, weightsShape, "weights");
-  } else {
-    weightsGrouped = graph.addVariable(inputType, weightsShape, "weights");
-  }
+  auto weightsGrouped =
+      graph.addVariable(inputType, {}, weightsShape, "weights");
+
   const auto outGrouped = graph.addVariable(partialsType, outputShape, "out");
 
   graph.setTileMapping(inGroupedWithOverread, 0);
@@ -297,9 +284,9 @@ int main(int argc, char **argv) try {
   // fill the output and input overread detection space with (signalling) NaNs
   auto fillWithNaNs = [&](const Tensor &t) {
     Tensor nan;
-    if (t.elementType().requiresMetadata()) {
-      Tensor metadata = inGroupedWithOverread.getMetadata();
-      nan = graph.addConstant(t.elementType(), &metadata, t.shape(),
+    if (t.hasMetadata()) {
+      nan = graph.addConstant(t.elementType(),
+                              inGroupedWithOverread.getMetadata(), t.shape(),
                               std::numeric_limits<float>::signaling_NaN());
     } else {
       nan = graph.addConstant(t.elementType(), t.shape(),

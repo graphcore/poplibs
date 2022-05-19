@@ -61,13 +61,13 @@ poplar::ProfileValue toProfileValue(const poplin::PlanningCache &t) {
 namespace poplin {
 
 static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
-                              const Tensor *metadata, unsigned level,
+                              const Tensor &metadata, unsigned level,
                               bool serial,
                               const std::vector<Split<ConvIndices>> &indices,
                               const DebugNameAndId &dnai, const Plan &plan,
                               const ConvOptions &options);
 static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
-                                const Tensor *metadata, unsigned level,
+                                const Tensor &metadata, unsigned level,
                                 bool serial,
                                 const std::vector<Split<ConvIndices>> &indices,
                                 const DebugNameAndId &dnai, const Plan &plan,
@@ -865,14 +865,9 @@ static CanonicalConvParams convolutionPreprocess(
     regroupIfBeneficialForPlan(graph, params, plan, level, *acts, true,
                                rearrangeProg, {dnai});
 
-    Tensor metadata, *metadataPtr = nullptr;
-    if (acts.get().hasMetadata()) {
-      metadata = acts.get().getMetadata();
-      metadataPtr = &metadata;
-    }
     auto actsRearranged =
-        createInputImpl(graph, params, metadataPtr, level, serial, indices,
-                        {dnai, "actsRearranged"}, plan, options);
+        createInputImpl(graph, params, acts.get().getMetadata(), level, serial,
+                        indices, {dnai, "actsRearranged"}, plan, options);
 
     assert(rearrangeProg);
     rearrangeProg->postTransposeActs.emplace_back(*acts, actsRearranged, false,
@@ -884,14 +879,10 @@ static CanonicalConvParams convolutionPreprocess(
   if (weights && rearrangeWeights) {
     regroupIfBeneficialForPlan(graph, params, plan, level, *weights, false,
                                rearrangeProg, {dnai});
-    Tensor metadata, *metadataPtr = nullptr;
-    if (weights.get().hasMetadata()) {
-      metadata = weights.get().getMetadata();
-      metadataPtr = &metadata;
-    }
-    auto weightsRearranged =
-        createWeightsImpl(graph, params, metadataPtr, level, serial, indices,
-                          {dnai, "weightsRearranged"}, plan, options);
+
+    auto weightsRearranged = createWeightsImpl(
+        graph, params, weights.get().getMetadata(), level, serial, indices,
+        {dnai, "weightsRearranged"}, plan, options);
 
     assert(rearrangeProg);
     rearrangeProg->postTransposeWeights.emplace_back(
@@ -1369,7 +1360,7 @@ static void mapWeights(Graph &graph, const CanonicalConvParams &params,
 }
 
 static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
-                              const Tensor *metadata, unsigned level,
+                              const Tensor &metadata, unsigned level,
                               bool serial,
                               const std::vector<Split<ConvIndices>> &indices,
                               const DebugNameAndId &dnai, const Plan &plan,
@@ -1437,20 +1428,15 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
   // to make sliced regions contiguous on each tile respecting existing
   // grain size etc.
   if (inChanSerialSplit > 1) {
-    Tensor metadata, *metadataPtr = nullptr;
-    if (t.hasMetadata()) {
-      metadata = t.getMetadata();
-      metadataPtr = &metadata;
-    }
     t = graph.clone(
-        metadataPtr, t, {dnai},
+        t.getMetadata(), t, {dnai},
         TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
   }
   return t;
 }
 
 Tensor createInput(Graph &graph, const Plan &plan,
-                   const CanonicalConvParams &params, const Tensor *metadata,
+                   const CanonicalConvParams &params, const Tensor &metadata,
                    const DebugNameAndId &dnai, const ConvOptions &options) {
   const unsigned level = 0;
   bool serial = true;
@@ -1472,19 +1458,13 @@ Tensor createInput(Graph &graph, const ConvParams &params_,
   const ConvOptions options(options_);
 
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
-  Tensor metadata, *metadataPtr = nullptr;
-  if (params_.inputType.requiresMetadata()) {
-    metadata = graph.addVariable(QUARTER_METADATA, {}, {di, "metadata"});
-    graph.setTileMapping(metadata, 0);
-    metadataPtr = &metadata;
-  }
-  auto output = createInput(graph, plan, params, metadataPtr, {di}, options);
+  auto output = createInput(graph, plan, params, {}, {di}, options);
   di.addOutput(output);
   return output;
 }
 
 static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
-                                const Tensor *metadata, unsigned level,
+                                const Tensor &metadata, unsigned level,
                                 bool serial,
                                 const std::vector<Split<ConvIndices>> &indices,
                                 const DebugNameAndId &dnai, const Plan &plan,
@@ -1575,20 +1555,15 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   // to make sliced regions contiguous on each tile respecting existing
   // grain size etc.
   if (inChanSerialSplit * outChanSerialSplit > 1) {
-    Tensor metadata, *metadataPtr = nullptr;
-    if (weights.hasMetadata()) {
-      metadata = weights.getMetadata();
-      metadataPtr = &metadata;
-    }
     weights = graph.clone(
-        metadataPtr, weights, {dnai},
+        weights.getMetadata(), weights, {dnai},
         TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
   }
   return weights;
 }
 
 Tensor createWeights(Graph &graph, const Plan &plan,
-                     const CanonicalConvParams &params, const Tensor *metadata,
+                     const CanonicalConvParams &params, const Tensor &metadata,
                      const DebugNameAndId &dnai, const ConvOptions &options) {
   const unsigned level = 0;
   bool serial = true;
@@ -1610,13 +1585,7 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
   const ConvOptions options(options_);
 
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
-  Tensor metadata, *metadataPtr = nullptr;
-  if (params_.inputType.requiresMetadata()) {
-    metadata = graph.addVariable(QUARTER_METADATA, {}, {di, "metadata"});
-    graph.setTileMapping(metadata, 0);
-    metadataPtr = &metadata;
-  }
-  auto output = createWeights(graph, plan, params, metadataPtr, {di}, options);
+  auto output = createWeights(graph, plan, params, {}, {di}, options);
   di.addOutput(output);
   return output;
 }
@@ -2255,13 +2224,13 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
                                "because sliced dimension is split over tiles",
                                dnai.getPathName(), sliceKind);
         auto createSliceMethod = isActs ? createInputImpl : createWeightsImpl;
-        Tensor metadata, *metadataPtr = nullptr;
+        Tensor metadata;
         if (in.hasMetadata() && weights.hasMetadata()) {
           metadata = isActs ? in.getMetadata() : weights.getMetadata();
-          metadataPtr = &metadata;
         }
+        assert(in.hasMetadata() == weights.hasMetadata());
         auto sliceRearranged = createSliceMethod(
-            graph, serialParams, metadataPtr, level, true, indices,
+            graph, serialParams, metadata, level, true, indices,
             {dnai, sliceKind + "Rearranged"}, plan, options);
         // WriteUndef sliceRearranged as it may be partially written. See
         // T36794.
@@ -2427,15 +2396,9 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     Tensor tileLevelActs = inSlice;
     if (plan.broadcastInputBeforeLoop) {
       auto &params = parallelParams.getParams();
-      Tensor metadata, *metadataPtr = nullptr;
-      if (in.hasMetadata()) {
-        metadata = in.getMetadata();
-        metadataPtr = &metadata;
-      }
-
-      tileLevelActs =
-          createInputImpl(graph, params, metadataPtr, tileLevel, false, indices,
-                          {dnai, "tileLevelActsRearranged"}, plan, options);
+      tileLevelActs = createInputImpl(
+          graph, params, in.getMetadata(), tileLevel, false, indices,
+          {dnai, "tileLevelActsRearranged"}, plan, options);
 
       const poplar::DebugContext debugContext = {dnai, "tileLevelActsCopy"};
 
@@ -2764,13 +2727,9 @@ convolutionInternal(Graph &graph, const poplar::Tensor &in_,
   }
   if (transposeAndFlipWeights) {
     // Create transposed/flipped weights
-    Tensor metadata, *metadataPtr = nullptr;
-    if (weights.hasMetadata()) {
-      metadata = weights.getMetadata();
-      metadataPtr = &metadata;
-    }
-    auto bwdWeights = createWeights(graph, plan, params.getParams(),
-                                    metadataPtr, {dnai, "bwdWeights"}, options);
+    auto bwdWeights =
+        createWeights(graph, plan, params.getParams(), weights.getMetadata(),
+                      {dnai, "bwdWeights"}, options);
     if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
       weightsTransposeChansFlipXY(graph, weights, bwdWeights, cpt, {dnai});
     }
@@ -3523,13 +3482,10 @@ static Tensor fullyConnectedWeightTranspose(
   auto bwdPlan = getPlan(graph.getTarget(), bwdParams, bwdOptions, cache);
   auto fwdOptions = getFullyConnectedFwdOptionsFromBwdOptions(bwdOptions);
   auto fwdPlan = getPlan(graph.getTarget(), fwdParams, fwdOptions, cache);
-  Tensor metadata, *metadataPtr = nullptr;
-  if (weights.hasMetadata()) {
-    metadata = weights.getMetadata();
-    metadataPtr = &metadata;
-  }
-  Tensor transposed = createWeights(graph, bwdPlan, bwdParams, metadataPtr,
-                                    {dnai, "transposed"}, bwdOptions);
+
+  Tensor transposed =
+      createWeights(graph, bwdPlan, bwdParams, weights.getMetadata(),
+                    {dnai, "transposed"}, bwdOptions);
   auto splitTransposed = weightsToInternalShape(transposed);
 
   const auto groupSizes =

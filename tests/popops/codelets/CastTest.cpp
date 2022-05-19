@@ -88,27 +88,18 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   Sequence sequence;
 
   // Input data
-  Tensor in;
-  if (dataTypeIn.requiresMetadata()) {
-    auto metadata = graph.addVariable(QUARTER_METADATA, {}, "inMetadata");
-    graph.setTileMapping(metadata, 0);
-    in =
-        graph.addVariable(dataTypeIn, &metadata, {rows, columns}, "Input Data");
-  } else {
-    in = graph.addVariable(dataTypeIn, {rows, columns}, "Input Data");
-  }
+  auto in = graph.addVariable(dataTypeIn, {}, {rows, columns}, "Input Data");
   graph.setTileMapping(in, 0);
 
   // Result data
-  Tensor out;
+  Tensor metadataOut;
   if (dataTypeOut.requiresMetadata()) {
-    auto metadata =
+    metadataOut =
         createVariableMetadataTensor(graph, fp8FormatOut, fp8ScaleOut);
-    out = graph.addVariable(dataTypeOut, &metadata, {rows, columns + offsetOut},
-                            "Output");
-  } else {
-    out = graph.addVariable(dataTypeOut, {rows, columns + offsetOut}, "Output");
+    graph.setTileMapping(metadataOut, 0);
   }
+  auto out = graph.addVariable(dataTypeOut, metadataOut,
+                               {rows, columns + offsetOut}, "Output");
   graph.setTileMapping(out, 0);
 
   // allocateHostMemoryForTensor

@@ -444,13 +444,7 @@ Tensor createGenericConvInput(Graph &graph, const Type &type,
   tensorShape.insert(tensorShape.end(), fieldShape.begin(), fieldShape.end());
   tensorShape.push_back(convGroupsPerGroup);
   tensorShape.push_back(chansPerGroup);
-  Tensor metadata, *metadataPtr = nullptr;
-  if (type.requiresMetadata()) {
-    metadata = graph.addVariable(QUARTER_METADATA, {}, "metadata");
-    graph.setTileMapping(metadata, 0);
-    metadataPtr = &metadata;
-  }
-  auto t = graph.addVariable(type, metadataPtr, tensorShape, name);
+  auto t = graph.addVariable(type, {}, tensorShape, name);
   const auto vectorWidth = graph.getTarget().getVectorWidth(type);
   const auto grainSize =
       std::lcm(chansPerGroup * convGroupsPerGroup, vectorWidth);

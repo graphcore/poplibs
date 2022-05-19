@@ -100,17 +100,11 @@ createPartitionableTensorInternal(Graph &graph, const Type &type,
                         "nPartitions.size() (" +
                         std::to_string(nPartitions.size()) + ")");
   }
-  Tensor metadata, *metadataPtr = nullptr;
-  if (type.requiresMetadata()) {
-    metadata = graph.addVariable(QUARTER_METADATA, {}, {di, "metadata"});
-    graph.setTileMapping(metadata, 0);
-    metadataPtr = &metadata;
-  }
   // If any dimension is 0 the resulting tensor has no elements anyway
   // so just return an appropriately shaped tensor.
   if (std::any_of(shape.begin(), shape.end(),
                   [](std::size_t n) { return n == 0; })) {
-    return graph.addVariable(type, metadataPtr, shape, {di});
+    return graph.addVariable(type, {}, shape, {di});
   }
 
   // The problem we want to solve is that we want the slice of the returned
@@ -190,6 +184,11 @@ createPartitionableTensorInternal(Graph &graph, const Type &type,
   // respective dimension to give the shape of each variable we expect ready to
   // be stitched back together.
   //
+  Tensor metadata;
+  if (type.requiresMetadata()) {
+    metadata = graph.addVariable(QUARTER_METADATA, {}, {di, "metadata"});
+    graph.setTileMapping(metadata, 0);
+  }
   std::vector<Tensor> vars;
   permute(varDimSizes, PermutationOrder::Forward,
           [&](const std::vector<std::size_t> &i,
@@ -215,7 +214,7 @@ createPartitionableTensorInternal(Graph &graph, const Type &type,
             // together with the shape of the partition in that dimension
             // (through a reshape to the permuted shape).
             vars.push_back(
-                graph.addVariable(type, metadataPtr, splitPermutedShape, {di})
+                graph.addVariable(type, metadata, splitPermutedShape, {di})
                     .dimShuffle(inversePermutation)
                     .reshape(permutedShape));
           });

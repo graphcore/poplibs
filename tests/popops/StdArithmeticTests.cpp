@@ -1116,7 +1116,7 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
 
   auto metadata =
       createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 0);
-  auto inter = graph.addVariable(QUARTER, &metadata, {DIM_SIZE}, "inter");
+  auto inter = graph.addVariable(QUARTER, metadata, {DIM_SIZE}, "inter");
   auto out = graph.addVariable(HALF, {DIM_SIZE}, "out");
   mapTensorLinearly(graph, in);
   mapTensorLinearly(graph, inter);
@@ -1263,7 +1263,7 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
   auto metadata0 =
       createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 2);
   auto toSlice =
-      graph.addVariable(QUARTER, &metadata0, {DIM_SIZE + 16}, "toSlice");
+      graph.addVariable(QUARTER, metadata0, {DIM_SIZE + 16}, "toSlice");
   mapTensorLinearly(graph, toSlice);
   auto in = concat(toSlice.slice(0, DIM_SIZE / 2),
                    toSlice.slice(16, 16 + DIM_SIZE - (DIM_SIZE / 2)), 0);

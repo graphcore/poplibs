@@ -1341,17 +1341,8 @@ static Tensor slice(Graph &graph, const Tensor &t,
   assert(dim < t.rank());
   assert(numOutIndices <= t.dim(dim));
 
-  Tensor s;
-  if (t.hasMetadata()) {
-    auto metadata = graph.addVariable(poplar::QUARTER_METADATA, {});
-    graph.setTileMapping(metadata, 0);
-    s = graph.clone(&metadata, t.slice(0, numOutIndices, dim),
-                    {dnai, std::string("sliced_") + std::to_string(dim)});
-
-  } else {
-    s = graph.clone(t.slice(0, numOutIndices, dim),
-                    {dnai, std::string("sliced_") + std::to_string(dim)});
-  }
+  auto s = graph.clone(t.slice(0, numOutIndices, dim),
+                       {dnai, std::string("sliced_") + std::to_string(dim)});
   if (prog && offset) {
     sliceWithOutput(graph, s, t, offset.get(), dim, numOutIndices, prog.get(),
                     dnai);
@@ -1585,13 +1576,7 @@ static Tensor createSliceableTensorGivenOrder(
   bool noOutputElements = std::any_of(shape.begin(), shape.end(),
                                       [](std::size_t n) { return n == 0; });
   if (dims.size() == 0 || noOutputElements) {
-    poplar::Tensor metadata, *metadataPtr = nullptr;
-    if (type.requiresMetadata()) {
-      metadata = graph.addVariable(QUARTER_METADATA, {}, dnai);
-      graph.setTileMapping(metadata, 0);
-      metadataPtr = &metadata;
-    }
-    auto t = graph.addVariable(type, metadataPtr, shape, {dnai});
+    auto t = graph.addVariable(type, {}, shape, {dnai});
     mapTensorLinearly(graph, t);
     return t;
   }

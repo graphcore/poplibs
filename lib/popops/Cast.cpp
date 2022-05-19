@@ -149,7 +149,7 @@ Tensor cast(Graph &graph, Tensor src, const Type &dstType,
     throw poputil::poplibs_error("Metadata only required when creating a"
                                  " tensor of type quarter and casting to it");
   }
-  auto dst = graph.clone(dstType, &metadata, src, {di, "cast"});
+  auto dst = graph.clone(dstType, metadata, src, {di, "cast"});
   castImpl(graph, src, dst, cs);
   di.addOutput(dst);
   return dst;
@@ -183,7 +183,7 @@ Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
     throw poputil::poplibs_error("Metadata only required when creating a "
                                  " tensor of type quarter and casting to it");
   }
-  auto dst = graph.clone(dstType, &metadata, src, {di, "cast"});
+  auto dst = graph.clone(dstType, metadata, src, {di, "cast"});
   prog.add(cast(graph, src, dst, {di}));
   di.addOutput(dst);
   return dst;

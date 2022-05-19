@@ -71,12 +71,7 @@ private:
     auto paddingShape = t.shape();
     paddingShape[dim] = static_cast<std::size_t>(padSize);
 
-    poplar::Tensor meta, *metaPtr = nullptr;
-    if (t.hasMetadata()) {
-      meta = t.getMetadata();
-      metaPtr = &meta;
-    }
-    auto c = graph.addConstant(type, metaPtr, paddingShape, val,
+    auto c = graph.addConstant(type, t.getMetadata(), paddingShape, val,
                                "ValuePadder/padding");
     mapPadding(graph, mappingMethod, t, c, dim, padIsLow);
     return c;

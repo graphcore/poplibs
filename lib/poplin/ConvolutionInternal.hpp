@@ -43,13 +43,13 @@ struct ConvSlice {
 
 poplar::Tensor createInput(poplar::Graph &graph, const Plan &plan,
                            const CanonicalConvParams &params,
-                           const poplar::Tensor *metadata,
+                           const poplar::Tensor &metadata,
                            const poplar::DebugNameAndId &dnai,
                            const ConvOptions &options);
 
 poplar::Tensor createWeights(poplar::Graph &graph, const Plan &plan,
                              const CanonicalConvParams &params,
-                             const poplar::Tensor *metadata,
+                             const poplar::Tensor &metadata,
                              const poplar::DebugNameAndId &dnai,
                              const ConvOptions &options);
 
