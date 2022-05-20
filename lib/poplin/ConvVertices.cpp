@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "ConvVertices.hpp"
+#include "ConvModel.hpp"
 #include "ConvPartialsStridesPacking.hpp"
 #include "ConvTransforms.hpp"
 #include "ConvUtilInternal.hpp"
@@ -22,6 +23,14 @@ using namespace poputil;
 using namespace poplibs_support;
 
 namespace poplin {
+
+std::vector<unsigned> convertVecToUnsigned(std::vector<size_t> const &dims) {
+  std::vector<unsigned> new_dims;
+  new_dims.reserve(dims.size());
+  for (auto d : dims)
+    new_dims.push_back(d);
+  return new_dims;
+}
 
 // A list of work for a conv partial vertex worker.
 //
@@ -509,39 +518,25 @@ static void createConvPartialAmpVertex(
 
   // Choose whether to use the nx1 vertex or 1x1 vertex.
 
-  auto isNonZero = [](unsigned x) { return x != 0; };
-  bool nx1Vertex =
-      // If the number of input channels is zero, the output could still be only
-      // padding. The 1x1 vertex requires the input channels to be non-zero to
-      // write zero to the output. Hence we always use a nx1 vertex if number
-      // of input channels is zero.
-      numInChanGroups * inChansPerGroup == 0 ||
-      product(params->kernelShape) != 1 ||
-      params->inputTransform.dilation != params->outputTransform.stride ||
-      std::any_of(params->outputTransform.paddingLower.begin(),
-                  params->outputTransform.paddingLower.end(), isNonZero) ||
-      std::any_of(params->outputTransform.paddingUpper.begin(),
-                  params->outputTransform.paddingUpper.end(), isNonZero);
+  const bool useConvPartial1x1OutVertex = canUseConvPartial1x1Vertex(
+      convUnitWeightHeight, numInChanGroups * inChansPerGroup,
+      params->batchSize, params->inputTransform.dilation,
+      params->outputTransform.stride, convertVecToUnsigned(params->kernelShape),
+      convertVecToUnsigned(params->getOutputFieldShape()),
+      params->outputTransform);
 
-  bool useConvPartial1x1OutVertex = !nx1Vertex;
+#ifndef NDEBUG
   if (useConvPartial1x1OutVertex) {
-    // In most common cases there should only be one partition per worker for
-    // a 1x1 vertex. To avoid having two types of 1x1 vertices we just make it
-    // a nx1 vertex if there's more than one partition.
+    // Check that there aren't any workers with multiple partitions.
     std::vector<unsigned> partitionsPerContext(contextsPerVertex);
     std::for_each(partitions.begin(), partitions.end(),
                   [&](const ConvVertexSpatialPartition &p) {
                     partitionsPerContext[p.context] += 1;
                   });
-
-    // find if any of the contexts has more than one partition
-    for (auto v : partitionsPerContext) {
-      if (v > 1) {
-        useConvPartial1x1OutVertex = false;
-        break;
-      }
-    }
+    for (auto v : partitionsPerContext)
+      assert(v <= 1);
   }
+#endif
 
   // create worklist now that dimensions of all splits are known
   struct AMPWorkListEntry {
@@ -850,16 +845,16 @@ static void createConvPartialAmpVertices(
   }
 
   const auto partialsType = out.elementType();
-  auto isNonZero = [](unsigned x) { return x != 0; };
-  bool nx1Vertex =
-      product(params.kernelShape) != 1 ||
-      params.inputTransform.dilation != params.outputTransform.stride ||
-      std::any_of(params.outputTransform.paddingLower.begin(),
-                  params.outputTransform.paddingLower.end(), isNonZero) ||
-      std::any_of(params.outputTransform.paddingUpper.begin(),
-                  params.outputTransform.paddingUpper.end(), isNonZero);
-  bool useConvPartial1x1OutVertex = !nx1Vertex;
+
+  const unsigned numInChanGroups = in.dim(1);
   const unsigned inChansPerGroup = plan.inChansPerGroup;
+
+  const bool useConvPartial1x1OutVertex = canUseConvPartial1x1Vertex(
+      convUnitWeightHeight, numInChanGroups * inChansPerGroup, params.batchSize,
+      params.inputTransform.dilation, params.outputTransform.stride,
+      convertVecToUnsigned(params.kernelShape),
+      convertVecToUnsigned(params.getOutputFieldShape()),
+      params.outputTransform);
 
   auto inStrideX = params.outputTransform.stride.back();
   auto outStrideX = params.inputTransform.dilation.back();
@@ -879,7 +874,7 @@ static void createConvPartialAmpVertices(
 
   // Need to adjust inStride because AMP Nx1 codelet uses different stride
   // strategy comparing to AMP 1x1 codelet
-  if (nx1Vertex) {
+  if (!useConvPartial1x1OutVertex) {
     transformedInStrideBeforeSplit = getTransformedInStrideNx1(
         convUnitWeightHeight, transformedInStrideBeforeSplit,
         transformedInRowStrideBeforeSplit);

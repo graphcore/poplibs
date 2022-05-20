@@ -46,59 +46,30 @@ getMaxInputRangeSize(popsolver::Model &m,
       });
 }
 
-static bool canUseConvPartial1x1Vertex(
-    const ConvParams &params,
-    const std::unordered_set<unsigned> &transformedDims,
+bool canUseConvPartial1x1Vertex(
+    unsigned convUnitWeightHeight, unsigned inputChannels, unsigned batchSize,
     const std::vector<unsigned> &transformedInputDilation,
     const std::vector<unsigned> &transformedOutputStride,
-    unsigned convUnitWeightHeight,
-    const std::vector<unsigned> &tileKernelShape) {
-  if (convUnitWeightHeight != 1) {
+    const std::vector<unsigned> &tileKernelShape,
+    const std::vector<unsigned> &outputFieldShape,
+    const ConvParams::OutputTransform &outputTransform) {
+  if (convUnitWeightHeight != 1 || inputChannels == 0 || batchSize != 1)
     return false;
-  }
 
-  if (transformedInputDilation != transformedOutputStride) {
+  if (product(tileKernelShape) != 1)
     return false;
-  }
 
-  const auto tileKernelElements = product(tileKernelShape);
-  if (tileKernelElements != 1) {
+  if (transformedInputDilation != transformedOutputStride)
     return false;
-  }
 
-  // To save memory the 1x1 vertex only supports a single worklist therefore
-  // all dimensions up-to the innermost spatial dimension must be singular (not
-  // including the group dimension as that is looped over in the supervisor part
-  // of this vertex). If they aren't then additional worklist items are needed
-  // for each one. This matches the logic in `createConvPartialAmpVertex` which
-  // switches to the nx1 vertex if a context has more than one partition.
-  assert(!params.inputFieldShape.empty());
-  const auto isNotOne = [](const auto &x) { return x != 1; };
-  if (params.batchSize != 1 ||
-      std::any_of(std::begin(params.inputFieldShape),
-                  std::end(params.inputFieldShape) - 1, isNotOne)) {
-    return false;
-  }
+  for (size_t dim = 0; dim + 1 < outputFieldShape.size(); ++dim)
+    if (outputFieldShape[dim] != 1)
+      return false;
 
-  // We can only use the 1x1 vertex if every output value is written. It may be
-  // the case every output value is written on some tiles but not others - we
-  // return false in this case since we are interested in the worse case
-  // and we assume the nx1 vertex is always slower.
-  const auto numFieldDims = params.getNumFieldDims();
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    if (transformedDims.count(dim)) {
-      continue;
-    }
-
-    std::pair<unsigned, unsigned> outputRange = {0, params.getOutputSize(dim)};
-    for (unsigned k = 0; k != params.kernelShape[dim]; ++k) {
-      const auto writtenOutputRange =
-          getOutputRangeForKernelIndex(dim, outputRange, k, params);
-      if (writtenOutputRange != outputRange) {
-        return false;
-      }
-    }
-  }
+  for (size_t dim = 0; dim < outputTransform.paddingLower.size(); ++dim)
+    if (outputTransform.paddingLower[dim] != 0 ||
+        outputTransform.paddingUpper[dim] != 0)
+      return false;
 
   return true;
 }
@@ -318,9 +289,10 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
               const auto floatPartials = partialType == poplar::FLOAT;
               if (canUseConvPartial1x1Vertex(
-                      params, transformedDims, transformedInputDilation,
-                      transformedOutputStride, convUnitWeightHeight,
-                      convSize.kernelSize)) {
+                      convUnitWeightHeight, params.inputChannelsPerConvGroup,
+                      params.batchSize, transformedInputDilation,
+                      transformedOutputStride, convSize.kernelSize,
+                      convSize.fieldSize, params.outputTransform)) {
                 const auto innerLoopCyclesWithZeroing =
                     cache->mGetConvPartial1x1InnerLoopCycleEstimateWithZeroing(
                         convSize.batchSize, convSize.fieldSize,

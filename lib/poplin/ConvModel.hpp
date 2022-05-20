@@ -9,6 +9,31 @@
 
 namespace poplin {
 
+/// Check if we can use the ConvPartial1x1 vertex instead of the ConvPartialnx1
+/// vertex.
+///
+/// The 1x1 vertex can only be used if:
+///
+///   - The planner has not already selected a different conv-width.
+///   - The number of input channels is non-zero. The 1x1 vertex requires the
+///     input channels to be non-zero to write zero to the output
+///   - The number of kernel elements is 1.
+///   - There will be only one work-list entry per worker. If either the batch
+///     size or outer output-field shape is > 1 then we end up with multiple
+///     partitions and multiple work-list entries per worker.
+///   - The entire output range is written by the vertex. This may not be the
+///     case if output padding is applied, because the padding may be added by
+///     a separate tile/vertex.
+///
+/// \return True if we can use the 1x1 vertex instead of the nx1 vertex.
+bool canUseConvPartial1x1Vertex(
+    unsigned convUnitWeightHeight, unsigned inputChannels, unsigned batchSize,
+    const std::vector<unsigned> &transformedInputDilation,
+    const std::vector<unsigned> &transformedOutputStride,
+    const std::vector<unsigned> &tileKernelShape,
+    const std::vector<unsigned> &outputFieldShape,
+    const ConvParams::OutputTransform &outputTransform);
+
 Estimates<popsolver::Variable> constructModel(
     const poplar::Target &target, const std::vector<ConvTransform> &transforms,
     const std::vector<ConvTypes> &types,
