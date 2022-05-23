@@ -2,9 +2,11 @@
 #include "popops/Rearrange.hpp"
 #include "RearrangeUtil.hpp"
 #include "poplibs_support/Tracepoint.hpp"
+
+#include <boost/functional/hash.hpp>
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
-#include <limits>
+
 #include <poplibs_support/logging.hpp>
 #include <poputil/DebugInfo.hpp>
 #include <poputil/Util.hpp>
@@ -13,6 +15,8 @@
 #include <poputil/exceptions.hpp>
 
 #include <gccs/Algorithm.hpp>
+
+#include <limits>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -599,7 +603,22 @@ regroupTensorInternal(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
     auto transpositionsPerTile = (numTranspositions + numTiles - 1) / numTiles;
     auto interval = transpositions.begin();
     unsigned intervalOffset = 0;
+
+    // Apply a simple hash to dither the start tile - as there is no reson
+    // to choose tile 0 (which can create a memory spike).  Better solutions
+    // may be possible, but this logic will shortly move to poplar where the
+    // allocation will need to be reconsidered.
+    const auto startTile = [&] {
+      // starting seed: 2^32/phi, where phi is the golden ratio.
+      std::size_t seed = 0x9e3779b9UL;
+      boost::hash_combine(seed, t.shape());
+      boost::hash_combine(seed, from_);
+      boost::hash_combine(seed, to_);
+      return seed % tilesPerIPU;
+    }();
+
     for (unsigned i = 0; i < numTiles; ++i) {
+      const auto tile = (i + startTile) % numTiles;
       auto remaining = std::min(transpositionsPerTile, numTranspositions);
       numTranspositions -= remaining;
       while (remaining > 0) {
@@ -607,7 +626,7 @@ regroupTensorInternal(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
         auto slice =
             preRegroupFlat.slice(interval->begin() + intervalOffset,
                                  interval->begin() + intervalOffset + n, 0);
-        graph.setTileMapping(slice, i);
+        graph.setTileMapping(slice, tile);
         remaining -= n;
         intervalOffset += n;
         if (interval->begin() + intervalOffset == interval->end()) {
