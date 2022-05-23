@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10.2) # Default version in Ubuntu 18.04.
+cmake_minimum_required(VERSION 3.12)
 project(poplibs)
 
 include(GNUInstallDirs)
