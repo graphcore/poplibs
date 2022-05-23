@@ -379,7 +379,8 @@ getStartTile(const poplar::Target &target,
   const auto numSuperTiles =
       gccs::ceildiv(target.getTilesPerIPU(), tilesPerSuperTile);
 
-  unsigned startTile = (seed % numSuperTiles) * tilesPerSuperTile;
+  // Use seed >> 1 so that the startTile and direction are independent
+  unsigned startTile = ((seed >> 1) % numSuperTiles) * tilesPerSuperTile;
 
   const auto numDirections = 2;
   auto direction =
