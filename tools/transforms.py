@@ -5,6 +5,8 @@ import collections
 import csv
 import itertools
 import logging
+import numpy
+import math
 from multiprocessing import Pool, TimeoutError
 import re
 import os

@@ -95,7 +95,7 @@ std::vector<poplin::CanonicalConvParams> getLargeOctConvParams() {
                  std::back_inserter(largeParams),
                  [](const poplin::CanonicalConvParams &p) {
                    auto largerParam = p.getParams();
-                   largerParam.numConvGroups = 1500;
+                   largerParam.numConvGroups = 500;
                    return largerParam;
                  });
   return largeParams;
