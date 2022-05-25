@@ -258,16 +258,22 @@ std::ostream &operator<<(std::ostream &os, const Plan &p) {
     os << "\ntypes #" << i << "\n";
     os << p.types[i];
   }
-  os << "\n        convGroupsPerGroup       " << p.convGroupsPerGroup << "\n"
-     << "        inChansPerGroup          " << p.inChansPerGroup << "\n"
-     << "        partialChansPerGroup     " << p.partialChansPerGroup << "\n"
-     << "        method                   " << p.method << "\n"
-     << "        isJointPlan              " << p.isJointPlan << "\n"
-     << "        startTile                " << p.startTile << "\n"
-     << "        linearizeTileDirection   " << p.linearizeTileDirection << "\n"
-     << "        totalTiles               " << p.totalTiles() << "\n"
-     << "        broadcastInputBeforeLoop "
-     << (p.broadcastInputBeforeLoop ? "true" : "false") << "\n";
+  bool was_boolalpha = os.flags() & std::ios_base::boolalpha;
+  if (!was_boolalpha)
+    os << std::boolalpha;
+  os << "\n        convGroupsPerGroup       " << p.convGroupsPerGroup
+     << "\n        inChansPerGroup          " << p.inChansPerGroup
+     << "\n        partialChansPerGroup     " << p.partialChansPerGroup
+     << "\n        method                   " << p.method
+     << "\n        isJointPlan              " << p.isJointPlan
+     << "\n        startTile                " << p.startTile
+     << "\n        linearizeTileDirection   " << p.linearizeTileDirection
+     << "\n        totalTiles               " << p.totalTiles()
+     << "\n        broadcastInputBeforeLoop " << p.broadcastInputBeforeLoop
+     << "\n";
+  // Restore the stream's original boolalpha flag value.
+  if (!was_boolalpha)
+    os << std::noboolalpha;
   return os;
 }
 

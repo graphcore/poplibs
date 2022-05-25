@@ -135,7 +135,7 @@ PartitionInfoFields = collections.namedtuple(
 #        inChansPerGroup         16
 #        partialChansPerGroup    8
 #        method                  {"type":"AMP"}
-#        isJointPlan             0
+#        isJointPlan             false
 #        startTile               0
 #        linearizeTileDirection  ASCENDING
 #        totalTiles              24
@@ -143,7 +143,7 @@ re_plan_info = re.compile(r'^\s+convGroupsPerGroup\s+(\d+)' + NEW_LINE_CHAR +
                           '\s+inChansPerGroup\s+(\d+)' + NEW_LINE_CHAR +
                            '\s+partialChansPerGroup\s+(\d+)' + NEW_LINE_CHAR +
                            '\s+method\s+{"type":\s*"([A-Z]+)".*' + NEW_LINE_CHAR +
-                           '\s+isJointPlan\s+(\d+)' + NEW_LINE_CHAR +
+                           '\s+isJointPlan\s+(true|false)' + NEW_LINE_CHAR +
                            '\s+startTile\s+(\d+)' + NEW_LINE_CHAR +
                            '\s+linearizeTileDirection\s+([A-Z]+)' + NEW_LINE_CHAR +
                            '\s+totalTiles\s+(\d+)$',
