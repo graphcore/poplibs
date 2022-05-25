@@ -461,6 +461,12 @@ public:
         : TernaryOp(TernaryOpType::Op, a, b, c) {}                             \
   };
 
+/** Computes the conditional ternary operation
+ *
+ * ```
+ * c ? a : b
+ * ```
+ */
 POPLIBS_DEFINE_EXPR_TERNARY_OP(Select, SELECT)
 POPLIBS_DEFINE_EXPR_TERNARY_OP(Clamp, CLAMP)
 
