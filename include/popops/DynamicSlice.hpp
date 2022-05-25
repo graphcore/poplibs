@@ -269,11 +269,12 @@ createIndicesTensor(poplar::Graph &graph, const std::vector<std::size_t> &dims,
  *          appropriately to be used as the indices for a slice/update
  *          operation. Element type is always UNSIGNED_INT.
  */
-poplar::Tensor createGroupedIndicesTensor(
-    poplar::Graph &graph, const std::size_t groupSize,
-    const std::vector<std::size_t> &dims, const std::size_t numIndices,
-    const SlicePlan & /* plan */, const poplar::OptionFlags & /* options */,
-    const poplar::DebugContext &debugContext = {});
+poplar::Tensor
+createGroupedIndicesTensor(poplar::Graph &graph, const std::size_t groupSize,
+                           const std::vector<std::size_t> &dims,
+                           const std::size_t numIndices, const SlicePlan &plan,
+                           const poplar::OptionFlags & /* options */,
+                           const poplar::DebugContext &debugContext = {});
 
 /** Create and map a tensor to be sliced/updated.
  *

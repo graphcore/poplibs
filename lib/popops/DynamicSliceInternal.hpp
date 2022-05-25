@@ -5,6 +5,8 @@
 #include <memory>
 #include <vector>
 
+#include <boost/functional/hash.hpp>
+
 namespace popops {
 namespace sliceInternal {
 // How to partition work across tiles.
@@ -67,6 +69,10 @@ public:
   unsigned groupSize;
   std::vector<std::size_t> slicedDims;
   std::vector<std::size_t> slicedDimSizes;
+
+  // Excluded from the hash and comparison operators intentionally as it
+  // is a function of the other plan parameters.
+  std::size_t startTile;
 
   std::unique_ptr<SlicePlanInternal> clone() const {
     return std::make_unique<SlicePlanInternal>(*this);

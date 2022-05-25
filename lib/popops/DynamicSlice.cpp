@@ -86,6 +86,37 @@ namespace popops {
 
 namespace {
 
+std::size_t plannedHash(const SlicePlanInternal &p) {
+  // starting seed: 2^32/phi, where phi is the golden ratio.
+  std::size_t seed = 0x9e3779b9UL;
+  boost::hash_combine(seed, p.useIndicesOrderingInfo);
+  boost::hash_combine(seed, p.validateIndices);
+  boost::hash_combine(seed, p.partition.precopyBaseWhenSerialSlice);
+  boost::hash_combine(seed, p.partition.lookupSerialSplit);
+  boost::hash_combine(seed, p.partition.lookupParallelSplit);
+  boost::hash_combine(seed, p.partition.slicedDimSplit);
+  boost::hash_combine(seed, p.partition.unslicedDimSplit);
+  boost::hash_combine(seed, p.partition.groupSplit);
+  boost::hash_combine(seed, p.partition.unslicedGrainSize);
+  boost::hash_combine(seed, p.rank);
+  boost::hash_combine(seed, p.groupSize);
+  boost::hash_range(seed, p.slicedDims.begin(), p.slicedDims.end());
+  boost::hash_range(seed, p.slicedDimSizes.begin(), p.slicedDimSizes.end());
+  return seed;
+}
+
+std::size_t unplannedHash(const std::vector<std::size_t> &shape,
+                          const std::vector<std::size_t> &dims,
+                          const std::vector<std::size_t> &sizes) {
+  // starting seed: 2^32/phi, where phi is the golden ratio.
+  std::size_t seed = 0x9e3779b9UL;
+  boost::hash_range(seed, shape.begin(), shape.end());
+  boost::hash_range(seed, dims.begin(), dims.end());
+  boost::hash_range(seed, sizes.begin(), sizes.end());
+
+  return seed;
+}
+
 constexpr std::size_t minIndicesPerTile = 32;
 
 enum class IndicesDistribution {
@@ -212,8 +243,9 @@ std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p) {
   o << "    groupSplit=" << p.partition.groupSplit << "\n";
   o << "    unslicedGrainSize=" << p.partition.unslicedGrainSize << "\n";
   o << "  useIndicesOrderingInfo="
-    << (p.useIndicesOrderingInfo ? " true" : "false");
+    << (p.useIndicesOrderingInfo ? " true\n" : "false\n");
   o << "  validateIndices=" << p.validateIndices << "\n";
+  o << "  startTile=" << p.startTile << "\n";
   return o;
 }
 
@@ -348,8 +380,8 @@ static unsigned linearizeSliceIndices(
     const std::size_t groupPartition, const std::size_t indexPartition,
     const std::size_t slicedPartition, const std::size_t unslicedPartition,
     const std::size_t groupIdx, const std::size_t indexIdx,
-    const std::size_t slicedIdx, const std::size_t unslicedIdx) {
-
+    const std::size_t slicedIdx, const std::size_t unslicedIdx,
+    const std::size_t startTile, const std::size_t numTiles) {
   unsigned tile = 0;
 
   // groups
@@ -365,7 +397,7 @@ static unsigned linearizeSliceIndices(
   // unsliced dimensions
   tile = tile * unslicedPartition + unslicedIdx;
 
-  return tile;
+  return (startTile + tile) % numTiles;
 }
 
 /** Add programs to check that all indices are in-range.
@@ -935,6 +967,7 @@ static void generatePlannedMultiUpdateOp(
 
   const auto offsets1d = offsets.squeeze({2});
   const auto &target = graph.getTarget();
+  const auto numTiles = target.getNumTiles();
   const auto type = base.elementType();
   const auto groupSize = base.dim(0);
 
@@ -1142,7 +1175,7 @@ static void generatePlannedMultiUpdateOp(
             }
             const auto tile = linearizeSliceIndices(
                 groupSplit, p.lookupParallelSplit, slicedSplit, unslicedSplit,
-                g, lookupParallelSplitIdx, s, u);
+                g, lookupParallelSplitIdx, s, u, plan.startTile, numTiles);
             // We have different specialisations for half data depending on the
             // need for subword writes
             //
@@ -1570,14 +1603,14 @@ static Tensor createSliceableTensorGivenOrder(
     poplar::Graph &graph, const poplar::Type &type,
     const std::vector<std::size_t> &shape, const std::vector<std::size_t> &dims,
     const std::vector<std::size_t> &idxOrder, std::size_t minGrainSize,
-    const DebugNameAndId &dnai) {
+    std::size_t startTile, const DebugNameAndId &dnai) {
   // Return a linearly mapped tensor if no slice dim is specified.
   // Or return an EmptyTensor if shape has a zero dimension.
   bool noOutputElements = std::any_of(shape.begin(), shape.end(),
                                       [](std::size_t n) { return n == 0; });
   if (dims.size() == 0 || noOutputElements) {
     auto t = graph.addVariable(type, {}, shape, {dnai});
-    mapTensorLinearly(graph, t);
+    mapTensorLinearlyWithOffset(graph, t, startTile);
     return t;
   }
 
@@ -1655,21 +1688,21 @@ static Tensor createSliceableTensorGivenOrder(
                                      {dnai, "sliceable"});
 
   // Distribute over tiles starting from 0.
-  unsigned tile = 0;
+  unsigned tile = startTile;
   iterateTensorPartitions(
       t, nPartitions, [&](const std::vector<std::size_t> &, const Tensor &s) {
-        graph.setTileMapping(s, tile++);
+        graph.setTileMapping(s, (tile++) % numTiles);
       });
   t = t.reshapePartial(t.rank() - 1, t.rank(), unslicedShape)
           .dimShuffle(inversePermutation);
 
   logging::popops::debug(
       "createSliceableTensor {}, minGrainSize {}, dims {}, "
-      "used tiles {}, "
+      "used {} tiles starting from tile {}, "
       "elem size {}, "
       "{} tiles with {} elems, "
       "{} tiles with {} elems",
-      t.shape(), minGrainSize, dims, tilesUsed,
+      t.shape(), minGrainSize, dims, tilesUsed, startTile,
       graph.getTarget().getTypeSize(type),
       // Tiles with gccs::ceildiv(numElems, numSplits) elements
       numUnslicedElems / unslicedElemsPerSplit, unslicedElemsPerSplit,
@@ -1730,6 +1763,7 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
   // partitions of the lookup dimension to try and
   // take advantage of double-width exchange when possible.
   const auto &target = graph.getTarget();
+  const auto numTiles = target.getNumTiles();
   const auto bytesPerElem = target.getTypeSize(type);
   const std::size_t exchangeBusShareAtomBytes =
       target.getExchangeBytesPerCycle() * target.getTilesPerSharedExchangeBus();
@@ -1762,7 +1796,8 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
           unsigned tile = linearizeSliceIndices(
               plan.partition.groupSplit, plan.partition.lookupParallelSplit,
               plan.partition.slicedDimSplit, plan.partition.unslicedDimSplit,
-              groupIdx, indexIdx, slicedIdx, unslicedIdx);
+              groupIdx, indexIdx, slicedIdx, unslicedIdx, plan.startTile,
+              numTiles);
           const auto begin = std::min(sliceNumElems, indexIdx * elemsPerSplit);
           const auto end =
               std::min(sliceNumElems, (indexIdx + 1) * elemsPerSplit);
@@ -1813,8 +1848,10 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
     tName += sep + std::to_string(d);
     sep = "x";
   }
+  const auto startTile =
+      unplannedHash(shape, dims, sizes) % graph.getTarget().getNumTiles();
   auto output = createSliceableTensorGivenOrder(
-      graph, type, shape, dims, idxOrder, minGrainSize, {di, tName});
+      graph, type, shape, dims, idxOrder, minGrainSize, startTile, {di, tName});
   di.addOutput(output);
   return output;
 }
@@ -1912,8 +1949,10 @@ static Tensor createSliceTensor(Graph &graph, const poplar::Type &type,
   uIdxOrder[idxOrder.size()] = 0;
 
   // For an update tensor only the outermost dimensions is "sliceable"
+  const auto startTile =
+      unplannedHash(inputShape, dims, sizes) % graph.getTarget().getNumTiles();
   return createSliceableTensorGivenOrder(
-      graph, type, uShape, uDims, uIdxOrder, 0,
+      graph, type, uShape, uDims, uIdxOrder, 0, startTile,
       {dnai, std::string("slices") + std::to_string(numUpdates)});
 }
 
@@ -1923,6 +1962,7 @@ createSliceTensor(Graph &graph, const Type &type, const std::size_t groupSize,
                   const std::size_t slicedDim, const std::size_t numIndices,
                   const SlicePlanInternal &plan, const OptionFlags &options,
                   const DebugNameAndId &dnai) {
+  const auto numTiles = graph.getTarget().getNumTiles();
   std::vector<bool> dimIsSliced(shape.size());
   dimIsSliced[slicedDim] = true;
 
@@ -1985,7 +2025,8 @@ createSliceTensor(Graph &graph, const Type &type, const std::size_t groupSize,
           unsigned tile = linearizeSliceIndices(
               plan.partition.groupSplit, plan.partition.lookupParallelSplit,
               plan.partition.slicedDimSplit, plan.partition.unslicedDimSplit,
-              groupIdx, indexIdx, slicedIdx, unslicedIdx);
+              groupIdx, indexIdx, slicedIdx, unslicedIdx, plan.startTile,
+              numTiles);
           graph.setTileMapping(tSlice.slice(sBegin, sEnd, 2), tile);
         }
       });
@@ -2113,8 +2154,7 @@ Tensor createSliceTensor(Graph &graph, const Tensor &t,
 }
 
 Tensor createIndicesTensor(Graph &graph, const std::vector<std::size_t> &dims,
-                           const std::size_t numIndices,
-                           const SlicePlan & /* plan */,
+                           const std::size_t numIndices, const SlicePlan &plan,
                            const OptionFlags & /* options */,
                            const poplar::DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
@@ -2123,7 +2163,8 @@ Tensor createIndicesTensor(Graph &graph, const std::vector<std::size_t> &dims,
   logging::popops::info("createIndicesTensor for {} / {}", numIndices, dims);
   const auto indices = graph.addVariable(
       UNSIGNED_INT, {numIndices, dims.size()}, {di, "indices"});
-  mapTensorLinearly(graph, indices, minIndicesPerTile, 1);
+  mapTensorLinearlyWithOffset(graph, indices, minIndicesPerTile, 1,
+                              plan.getImpl().startTile);
   di.addOutput(indices);
   return indices;
 }
@@ -2148,7 +2189,8 @@ Tensor createGroupedIndicesTensor(Graph &graph, const std::size_t groupSize,
   const auto indices =
       graph.addVariable(UNSIGNED_INT, {groupSize, numIndices, dims.size()},
                         {di, "groupedIndices"});
-  mapTensorLinearly(graph, indices, minIndicesPerTile, 1);
+  mapTensorLinearlyWithOffset(graph, indices, minIndicesPerTile, 1,
+                              plan.getImpl().startTile);
   di.addOutput(indices);
   return indices;
 }
@@ -2421,6 +2463,8 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
   assert(t.dim(0) == offset.dim(0));
   assert(t.dim(0) == slice.dim(0));
 
+  const auto targetNumTiles = graph.getTarget().getNumTiles();
+
   // first dimension is group
   const auto slicedDim = 1 + dims[0];
   const auto unslicedDim = 1 + (dims[0] ^ 1);
@@ -2470,7 +2514,8 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
 
   // When serialising the index lookup we copy the base before the loop.
   const bool preCopy = p.partition.precopyBaseWhenSerialSlice && iSSplit > 1;
-  std::vector<std::pair<Tensor, Tensor>> baseCopies(preCopy ? numTiles : 0);
+  std::vector<std::pair<Tensor, Tensor>> baseCopies(preCopy ? targetNumTiles
+                                                            : 0);
 
   for (std::size_t serialI{0}; serialI < iSSplit; ++serialI) {
     const auto iPassBase = serialI * iElemsPerSerialPass;
@@ -2529,7 +2574,7 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
             unsigned tile = linearizeSliceIndices(
                 p.partition.groupSplit, p.partition.lookupParallelSplit,
                 p.partition.slicedDimSplit, p.partition.unslicedDimSplit, g, i,
-                s, h);
+                s, h, p.startTile, targetNumTiles);
             const auto hBegin = std::min(hTotalElems, h * hElemsPerPartition);
             const auto hEnd =
                 std::min(hTotalElems, (h + 1) * hElemsPerPartition);
@@ -2552,11 +2597,13 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
     }
 
     if (preCopy && serialI == 0) {
-      Tensor copySrc = baseCopies.front().first.slice(0, 0);
-      Tensor copyDst = baseCopies.front().first.slice(0, 0);
-      for (const auto &e : baseCopies) {
-        copySrc = concat(copySrc, e.first);
-        copyDst = concat(copyDst, e.second);
+      const auto startTile = p.startTile;
+      Tensor copySrc = baseCopies[startTile].first.slice(0, 0);
+      Tensor copyDst = baseCopies[startTile].first.slice(0, 0);
+      for (unsigned i = 0; i < numTiles; i++) {
+        const auto tile = (i + startTile) % targetNumTiles;
+        copySrc = concat(copySrc, baseCopies[tile].first);
+        copyDst = concat(copyDst, baseCopies[tile].second);
       }
       prog.add(
           Copy(copySrc, copyDst, false, {dnai, "preSerialisationBaseCopy"}));
@@ -2753,7 +2800,7 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
               unsigned tile = linearizeSliceIndices(
                   p.partition.groupSplit, p.partition.lookupParallelSplit,
                   p.partition.slicedDimSplit, p.partition.unslicedDimSplit, g,
-                  i, s, h);
+                  i, s, h, p.startTile, numTiles);
               const Tensor indices = iSplitByS.squeeze({2});
               const Tensor input = tSplitByS.slice(hBegin, hEnd, 2);
               const Tensor output = sSplitByS.slice(hBegin, hEnd, 3);
@@ -3026,6 +3073,7 @@ Tensor groupedMultiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                          const std::vector<std::size_t> &sizes, Sequence &prog,
                          const SlicePlan &plan, const OptionFlags &optionFlags,
                          const poplar::DebugContext &debugContext) {
+
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, offset, dims, sizes, plan, optionFlags));
@@ -4498,6 +4546,7 @@ static PlanAndEstimates choosePlan(const Target &target, const Type &dataType,
       }
     }
   }
+  best.plan.startTile = plannedHash(best.plan) % target.getNumTiles();
   return best;
 }
 
