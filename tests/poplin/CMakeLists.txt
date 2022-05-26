@@ -793,6 +793,16 @@ add_multitarget_test(
          )
 
 add_multitarget_test(
+ NAME gemm_100x100x100_serial_split_nx3
+ COMMAND general_matrix_multiply
+         --m 100
+         --k 100
+         --n 100
+         --tiles-per-ipu=16
+         --plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx3.json
+         )
+
+add_multitarget_test(
  NAME gemm_200x100x50_serial_split_nx2
  COMMAND general_matrix_multiply
          --m 200
@@ -800,6 +810,16 @@ add_multitarget_test(
          --n 50
          --tiles-per-ipu=16
          --plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx2.json
+         )
+
+add_multitarget_test(
+ NAME gemm_200x100x50_serial_split_nx3
+ COMMAND general_matrix_multiply
+         --m 200
+         --k 100
+         --n 50
+         --tiles-per-ipu=16
+         --plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx3.json
          )
 
 add_multitarget_test(
@@ -3095,6 +3115,19 @@ add_multitarget_test(
          VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
+         NAME conv1x1_stride_1_fwd_serial_split_ocx3
+         COMMAND single_conv_layer
+             --input-channels=128
+             --output-channels=256
+             --field={7,7}
+             --tiles-per-ipu=16
+             --stride=1
+             --kernel-size=1
+             --single-phase=fwd
+             --fwd-plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx3.json
+         VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
         NAME conv3x3_stride_2_128_out_fwd_serial_split_ocx4
         COMMAND single_conv_layer
             --input-channels=48
@@ -3347,6 +3380,23 @@ foreach(CONSTRAINT "AMP" "SLIC" "VMAC" "HMAC")
         VARIANTS IpuModel2;Hw)
 endforeach()
 
+# Input channels per group is larger than the actual number of
+# input channels
+add_multitarget_test(
+  NAME conv_large_in_chan_group
+  COMMAND single_conv_layer
+          --inference-only
+          --field={299,299}
+          --kernel-size={150,150}
+          --batch-size=1
+          --conv-groups=3
+          --input-channels=3
+          --output-channels=8
+          --kernel-dilation=2
+          --data-type=float
+          --remap-output-tensor=1
+          --tiles-per-ipu=1
+          --fwd-plan-constraints={"inChansPerGroup":"67500"})
 
 # Fully connected layer tests
 
@@ -3717,6 +3767,19 @@ foreach(USE_CREATE_INPUT "0" "1")
                   --data-type=half
                   --use-create-input=${USE_CREATE_INPUT})
 endforeach()
+
+# test that hit a bug where a non-factor number of serial splits of the output
+# channels in the fwd plan leads to an unsupported number of input channel
+# splits in the wu plan
+add_multitarget_test(
+         NAME fully_connected_out_chan_serial_split
+         COMMAND fully_connected_layer
+                 --input-size=1024
+                 --output-size=256
+                 --batch-size=512
+                 --data-type=float
+                 --matmul-options={\"availableMemoryProportion\":0.1}
+                 VARIANTS ${TimesOutOnSim})
 
 foreach(PLAN_TYPE parallel serial)
   add_multitarget_test(NAME octconv_basic_${PLAN_TYPE}
