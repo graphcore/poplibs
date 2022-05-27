@@ -697,12 +697,14 @@ constexpr unsigned specialStridedBaseCycleCost = 0;
 constexpr unsigned specialContinuousBaseCycleCost = 0;
 
 // Simple costs based on vertex state sizes in bytes.
-constexpr unsigned specialDefaultBaseMemoryCost = 14;
-constexpr unsigned specialDefaultPerReductionMemoryCost = 2;
+constexpr unsigned specialDefaultBaseMemoryCost = 20;
+constexpr unsigned specialDefaultPerReductionMemoryCost = 8;
 
-constexpr unsigned specialSingleInputBaseMemoryCost = 8;
-constexpr unsigned specialStridedBaseMemoryCost = 10;
-constexpr unsigned specialContinuousBaseMemoryCost = 8;
+constexpr unsigned specialSingleInputBaseMemoryCost = 12;
+// For strided reduce, use the directly included vertex state.  Typically
+// the "countsAndStrides" field will be shared at no/very little extra cost.
+constexpr unsigned specialStridedBaseMemoryCost = 12;
+constexpr unsigned specialContinuousBaseMemoryCost = 12;
 
 unsigned getReductionCost(ReductionSpecialisation specialisation,
                           const RegionReductionRange regions) {
@@ -1355,11 +1357,23 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
                (reduction.getNumPartialsElementsPerOuterStride() %
                 firstStageOutputSize) == 0;
       } else {
-        return std::all_of(
-            reduction.getPartials().begin(), reduction.getPartials().end(),
-            [&](const poplar::Tensor &t) {
-              return (t.numElements() % firstStageOutputSize) == 0;
-            });
+        if (reductionUsesInput) {
+          return std::all_of(
+              reduction.getPartials().begin(), reduction.getPartials().end(),
+              [&](const poplar::Tensor &t) {
+                return (t.numElements() % firstStageOutputSize) == 0;
+              });
+        } else {
+          // We are exchanging the partials so as long as the total size will
+          // result in a correct reduction we don't care about the size of the
+          // individual partials
+          std::size_t numPartialsElements = std::accumulate(
+              reduction.getPartials().begin(), reduction.getPartials().end(), 0,
+              [&](std::size_t acc, const poplar::Tensor &partials) {
+                return acc + partials.numElements();
+              });
+          return numPartialsElements % firstStageOutputSize == 0;
+        }
       }
     }();
     if (partialsAreSuitable) {
@@ -1400,6 +1414,8 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
         "No reductions suitable for column count optimisations");
     return remainingReductions;
   }
+  logging::popops::trace(
+      "On tile second stage reductions for column count optimisations");
 
   // Create the second stage
   if (reductionComputeSets != 2) {
@@ -2075,7 +2091,8 @@ static bool isScalarOutputReduction(const poplar::Graph &graph,
 
 static bool isStridedReduction(const poplar::Graph &graph,
                                const ReduceParams &params,
-                               const RegionReductionRange r) {
+                               const RegionReductionRange r,
+                               bool reductionUsesInput) {
 
   const auto &target = graph.getTarget();
   const auto &r0 = r.front();
@@ -2123,20 +2140,23 @@ static bool isStridedReduction(const poplar::Graph &graph,
   if (r0.regularPartials()) {
     return (r0.output.numElements() * inTypeSize) % atomicWriteSize == 0;
   } else {
+    bool partialsCopyIsCheap = true;
     bool nextIsMisaligned = false;
     for (const auto &p : r0.getPartials()) {
       // Each incoming partial region must be for a full set of outputs
       if (p.numElements() % outputElements != 0) {
-        return false;
+        partialsCopyIsCheap = false;
+        break;
       }
       // It must be possible to receive each partial over exchange without
       // requiring a gather.
       if (nextIsMisaligned) {
-        return false;
+        partialsCopyIsCheap = false;
+        break;
       }
       nextIsMisaligned = (p.numElements() * outTypeSize) % atomicWriteSize;
     }
-    return true;
+    return partialsCopyIsCheap || (!reductionUsesInput);
   }
 }
 
@@ -2159,9 +2179,6 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
     // not equal to 1
     const unsigned thisReductionPartialsElements = red.getNumPartialsElements();
 
-    if (thisReductionPartialsElements == 1) {
-      return false;
-    }
     if (requiredPartialsElements) {
       if (thisReductionPartialsElements != requiredPartialsElements.get()) {
         return false;
@@ -2233,7 +2250,7 @@ ReductionSpecialisation getReductionVertexSpecialisation(
   } else if (isScalarOutputReduction(graph, params, regions) &&
              (opIsAddOrSquareAdd || opIsLogAdd)) {
     return ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT;
-  } else if (isStridedReduction(graph, params, regions)) {
+  } else if (isStridedReduction(graph, params, regions, reductionUsesInput)) {
     // both input and output must be full width accumulators
     const auto outElemType = regions[0].output.elementType();
     const auto partialsElemType = regions[0].getPartials()[0].elementType();
