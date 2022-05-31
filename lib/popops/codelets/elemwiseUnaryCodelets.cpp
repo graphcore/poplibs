@@ -309,14 +309,20 @@ template <expr::UnaryOpType op, typename T> struct UnaryOpOutputType {
 
 #ifndef __IPU__
 #define DEFINE_UNARY_OUTPUT_TYPE_BOOL(op)                                      \
-  template <typename T> struct UnaryOpOutputType<op, T> { using type = bool; };
+  template <typename T> struct UnaryOpOutputType<op, T> {                      \
+    using type = bool;                                                         \
+  };
 #else
 #define DEFINE_UNARY_OUTPUT_TYPE_BOOL(op)                                      \
   template <typename T> struct UnaryOpOutputType<op, T> {                      \
     using type = bool;                                                         \
   };                                                                           \
-  template <> struct UnaryOpOutputType<op, float2> { using type = int2; };     \
-  template <> struct UnaryOpOutputType<op, half4> { using type = short4; };
+  template <> struct UnaryOpOutputType<op, float2> {                           \
+    using type = int2;                                                         \
+  };                                                                           \
+  template <> struct UnaryOpOutputType<op, half4> {                            \
+    using type = short4;                                                       \
+  };
 #endif
 
 DEFINE_UNARY_OUTPUT_TYPE_BOOL(expr::UnaryOpType::IS_FINITE)
@@ -478,6 +484,7 @@ DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::TANH, tanh)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::RELU,
                    return (x > decltype(x){0}) ? x : decltype(x){0};)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::ROUND, round)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::TRUNC, trunc)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQRT,
                    return std::sqrt(PromoteHalfsToFloats(x));
                    , return UnaryLibCall<expr::UnaryOpType::SQRT>{}(x);)
@@ -1281,6 +1288,7 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::TAN, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::TRUNC, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQUARE, float, half, int, unsigned)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SIGMOID, float, half)
@@ -1316,6 +1324,7 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TAN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TRUNC, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQUARE, float, half, int, unsigned)
@@ -1351,6 +1360,7 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::TAN, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::TRUNC, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQUARE, float, half, int,
                unsigned)
@@ -1387,6 +1397,7 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::TAN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ROUND, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::TRUNC, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQUARE, float, half, int,

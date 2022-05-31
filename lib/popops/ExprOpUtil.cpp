@@ -51,6 +51,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "RELU";
   case UnaryOpType::ROUND:
     return "ROUND";
+  case UnaryOpType::TRUNC:
+    return "TRUNC";
   case UnaryOpType::SIGNUM:
     return "SIGNUM";
   case UnaryOpType::SIN:
@@ -186,6 +188,8 @@ std::string debugName(expr::UnaryOpType op) {
     return "Relu";
   case UnaryOpType::ROUND:
     return "Round";
+  case UnaryOpType::TRUNC:
+    return "Trunc";
   case UnaryOpType::SIGNUM:
     return "Signum";
   case UnaryOpType::SIN:
@@ -495,6 +499,7 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::TAN:
   case UnaryOpType::TANH:
   case UnaryOpType::ROUND:
+  case UnaryOpType::TRUNC:
   case UnaryOpType::SQRT:
   case UnaryOpType::RSQRT:
   case UnaryOpType::SIGMOID:
@@ -563,6 +568,8 @@ poplar::StringRef getUnaryOpAsString(UnaryOpType op, poplar::Type type) {
     return "NAMESPACE::tanh";
   case UnaryOpType::ROUND:
     return "NAMESPACE::round";
+  case UnaryOpType::TRUNC:
+    return "NAMESPACE::trunc";
   case UnaryOpType::SQRT:
     return "NAMESPACE::sqrt";
   case UnaryOpType::RSQRT:

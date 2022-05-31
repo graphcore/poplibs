@@ -52,6 +52,7 @@ const std::map<UnaryOpType, const std::string> unaryOpToString = {
     ONE_OP(TAN),
     ONE_OP(TANH),
     ONE_OP(ROUND),
+    ONE_OP(TRUNC),
     ONE_OP(SQRT),
     ONE_OP(SQUARE),
     ONE_OP(SIGMOID),
@@ -215,6 +216,7 @@ void performOp(UnaryOpType op, float a, float &result) {
   ONE_OP(SQRT, std::sqrt(a));
   ONE_OP(TAN, std::tan(a));
   ONE_OP(TANH, std::tanh(a));
+  ONE_OP(TRUNC, std::trunc(a))
   throw std::logic_error(std::to_string(unsigned(op)) +
                          " is not a valid operator for floating point types");
 }

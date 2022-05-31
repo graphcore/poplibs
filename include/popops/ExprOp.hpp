@@ -75,7 +75,8 @@ enum class UnaryOpType {
   SQRT,
   SQUARE,
   SIGMOID,
-  RSQRT
+  RSQRT,
+  TRUNC
 };
 
 } // namespace expr
