@@ -163,17 +163,11 @@ static unsigned getConvGroupsPerGroup(const Plan &plan,
 }
 
 static unsigned getInChansPerGroup(const Plan &plan, unsigned numInChans) {
-  if (numInChans == 0) {
-    return plan.inChansPerGroup;
-  }
-  return std::min(plan.inChansPerGroup, numInChans);
+  return std::gcd(plan.inChansPerGroup, numInChans);
 }
 
 static unsigned getOutChansPerGroup(const Plan &plan, unsigned numOutChans) {
-  if (numOutChans == 0) {
-    return plan.partialChansPerGroup;
-  }
-  return std::min(plan.partialChansPerGroup, numOutChans);
+  return std::gcd(plan.partialChansPerGroup, numOutChans);
 }
 
 static unsigned linearizeConvIndices(const std::vector<unsigned> &outIndices,
@@ -1450,11 +1444,6 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
   for (unsigned i = 0; i != inChanSerialSplit; ++i) {
     auto slice = t[i];
     slice = unsplitActivationFromGroups(slice);
-
-    // Trim any channels added to bring the number per serial split up to a
-    // multiple of the group size.
-    slice = slice.slice(0, numInChansPerSerialSplit, slice.rank() - 1);
-
     slices[i] = slice;
   }
 
@@ -1467,11 +1456,13 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
 
   mapActivations(graph, params, plan, level, serial, indices, t, options);
 
-  // Clone to make sliced regions contiguous on each tile respecting existing
-  // grain size etc.
-  t = graph.clone(
-      t.getMetadata(), t, {dnai},
-      TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
+  if (inChanSerialSplit > 1) {
+    // Clone to make sliced regions contiguous on each tile respecting existing
+    // grain size etc.
+    t = graph.clone(
+        t.getMetadata(), t, {dnai},
+        TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
+  }
 
   return t;
 }
@@ -1598,34 +1589,30 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   for (unsigned i = 0; i != totalSerialSplit; ++i) {
     auto slice = weights[i];
     slice = unsplitWeightsFromGroups(slice);
-
-    // Trim any channels added to bring the channels per serial split up to
-    // multiples of the group sizes.
-    slice = slice.slice(0, weightNumOutChansPerSerialSplit, slice.rank() - 2);
-    slice = slice.slice(0, weightNumInChansPerSerialSplit, slice.rank() - 1);
-
     weightsSlices[i] = slice;
   }
 
   if (totalSerialSplit > 1) {
     assert(level < plan.partitions.size());
     weights = stitchSerialSlices(weightsSlices, false, plan.partitions[level]);
+
+    // Trim any channel added to bring channels per convolution group up to
+    // a multiple of the split count.
+    weights = weights.slice(0, outNumChans, weights.rank() - 2);
+    weights = weights.slice(0, inNumChans, weights.rank() - 1);
   } else {
     weights = weightsSlices[0];
   }
 
-  // Trim any channel added to bring channels per convolution group up to
-  // a multiple of the split count.
-  weights = weights.slice(0, outNumChans, weights.rank() - 2);
-  weights = weights.slice(0, inNumChans, weights.rank() - 1);
-
   mapWeights(graph, params, plan, level, serial, indices, weights, options);
 
-  // Clone to make sliced regions contiguous on each tile respecting existing
-  // grain size etc.
-  weights = graph.clone(
-      weights.getMetadata(), weights, {dnai},
-      TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
+  if (totalSerialSplit > 1) {
+    // Clone to make sliced regions contiguous on each tile respecting existing
+    // grain size etc.
+    weights = graph.clone(
+        weights.getMetadata(), weights, {dnai},
+        TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
+  }
 
   return weights;
 }
