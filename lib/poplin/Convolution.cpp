@@ -2045,24 +2045,16 @@ preprocessForSerialSlice(Tensor *input, Tensor *weights,
 
   if (input) {
     *input = stitchSerialSlices(inputSlices, true /* isActs */, partition);
-    if (partition.inChanSplit.serial > 1) {
-      *input = refactorSplitDimToOutermost(*input, input->rank() - 1,
-                                           partition.inChanSplit.serial);
-    }
+    *input = refactorSplitDimToOutermost(*input, input->rank() - 1,
+                                         partition.inChanSplit.serial);
   }
   if (weights) {
-    if (partition.inChanSplit.serial > 1) {
-      *weights =
-          stitchSerialSlices(weightsSlices, false /* !isActs */, partition);
-      *weights = refactorSplitDimToOutermost(*weights, weights->rank() - 1,
-                                             partition.inChanSplit.serial);
-    }
-    if (partition.outChanSplit.serial > 1) {
-      *weights =
-          stitchSerialSlices(weightsSlices, false /* !isActs */, partition);
-      *weights = refactorSplitDimToOutermost(*weights, weights->rank() - 2,
-                                             partition.outChanSplit.serial);
-    }
+    *weights =
+        stitchSerialSlices(weightsSlices, false /* !isActs */, partition);
+    *weights = refactorSplitDimToOutermost(*weights, weights->rank() - 1,
+                                           partition.inChanSplit.serial);
+    *weights = refactorSplitDimToOutermost(*weights, weights->rank() - 2,
+                                           partition.outChanSplit.serial);
   }
   return std::make_tuple(parallelParams, indices);
 }
@@ -2365,9 +2357,10 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
         inSlice = rearrangeIfSplitOverTiles(inSlice, true);
       }
 
-      if (((partition.inChanSplit.serial > 1) ||
-           (partition.outChanSplit.serial > 1)) &&
-          dimIsSplitOverTiles(graph, weightsSlice, 0)) {
+      if (((partition.inChanSplit.serial > 1) &&
+           dimIsSplitOverTiles(graph, weightsSlice, 1)) ||
+          ((partition.outChanSplit.serial > 1) &&
+           dimIsSplitOverTiles(graph, weightsSlice, 0))) {
         weightsSlice = rearrangeIfSplitOverTiles(weightsSlice, false);
       }
 
@@ -2381,25 +2374,24 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       cpt.transformPreSerial.postTransposeCtrl.emplace_back(
           zeroConstant, loopCounter, false, dnai);
 
+      if (partition.outChanSplit.serial > 1 || lastOutChanSplitWeights) {
+        weightsSlice = popops::dynamicSlice(
+            graph, weightsSlice, loopCounter, {0}, {1}, cpt.slice,
+            {dnai, "weightsSerialSlice" + levelSuffix});
+      }
+      weightsSlice = weightsSlice.squeeze({0});
+
       // per iteration slices of input.
       if (partition.inChanSplit.serial > 1) {
-        inSlice = popops::dynamicSlice(graph, inSlice, loopCounter, {0}, {1},
-                                       cpt.slice,
-                                       {dnai, "inputSerialSlice" + levelSuffix})
-                      .squeeze({0});
-        weightsSlice =
-            popops::dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1},
-                                 cpt.slice,
-                                 {dnai, "weightsSerialSlice" + levelSuffix})
-                .squeeze({0});
+        inSlice = popops::dynamicSlice(
+            graph, inSlice, loopCounter, {0}, {1}, cpt.slice,
+            {dnai, "inputSerialSlice" + levelSuffix});
+        weightsSlice = popops::dynamicSlice(
+            graph, weightsSlice, loopCounter, {0}, {1}, cpt.slice,
+            {dnai, "weightsSerialSlice" + levelSuffix});
       }
-      if (partition.outChanSplit.serial > 1 || lastOutChanSplitWeights) {
-        weightsSlice =
-            popops::dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1},
-                                 cpt.slice,
-                                 {dnai, "weightsSerialSlice" + levelSuffix})
-                .squeeze({0});
-      }
+      inSlice = inSlice.squeeze({0});
+      weightsSlice = weightsSlice.squeeze({0});
 
       // If there's output channels not covered by the dynamic slice then add
       // an extra iteration to the loop which manually copies them into the
