@@ -1767,11 +1767,19 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
   assert(params.getNumInputChansPerConvGroup() % plan.inChansPerGroup == 0);
   assert(in_.elementType() != QUARTER ||
          (in_.elementType() == QUARTER && weights_.elementType() == QUARTER));
-
+  auto hwSupportsQuarter = [&](const Target &target, const Plan &plan) {
+    // Use the partials type at the tile level plan.
+    auto partialType = plan.types.back().partialType;
+    if (partialType != HALF && partialType != QUARTER) {
+      return false;
+    }
+    return target.getNumConvUnits(QUARTER, partialType) > 0;
+  };
   auto castIfRequired = [&](const Tensor &t) {
     if (t.elementType() == QUARTER &&
         (plan.method.type() == typeid(poplin::Plan::Hmac) ||
-         plan.method.type() == typeid(poplin::Plan::Vmac))) {
+         plan.method.type() == typeid(poplin::Plan::Vmac) ||
+         !hwSupportsQuarter(graph.getTarget(), plan))) {
       if (!convolveCS.pre) {
         convolveCS.pre = graph.addComputeSet({dnai, "PreMacCast"});
       }

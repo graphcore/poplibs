@@ -261,7 +261,7 @@ static void getConvVertexAMPCandidates(
     const auto convChainLength =
         target.getConvUnitMaxPipelineDepth(partialType);
     const auto maxConvUnitInputLoadElems =
-        target.getConvUnitInputLoadElemsPerCycle(inputType);
+        target.getConvUnitInputLoadElemsPerCycle(vertexInputType);
 
     std::vector<unsigned> partialChansCandidates = {numConvUnitsOnIpu,
                                                     weightsPerConvUnit};
@@ -278,8 +278,8 @@ static void getConvVertexAMPCandidates(
                                              ? 8
                                              : 0;
       // Not expected to be possible for a user to trigger the condition in
-      // this assert (inputType is not FLOAT, HALF, or QUARTER) so this is
-      // an assert rather than an exception.
+      // this assert (vertexInputType is not FLOAT, HALF, or QUARTER) so this
+      // is an assert rather than an exception.
       assert(smallestWidthLoad != 0);
 
       if (maxConvUnitInputLoadElems % smallestWidthLoad &&
@@ -463,7 +463,7 @@ static void getConvVertexSLICCandidates(
   if (vertexInputType == poplar::FLOAT && partialType != poplar::FLOAT) {
     partialType = poplar::FLOAT;
   }
-  auto numConvUnits = target.getNumConvUnits(inputType, partialType);
+  auto numConvUnits = target.getNumConvUnits(vertexInputType, partialType);
   // List the number of conv chains used in the candidate vertices which are
   // available - either on this hardware or implemented at present
   std::vector<unsigned> convChainsCandidates;
@@ -494,10 +494,11 @@ static void getConvVertexSLICCandidates(
   }
 
   const unsigned minRequiredConvInputLoadElems =
-      inputType == poplar::FLOAT     ? 2
-      : inputType == poplar::HALF    ? 4
-      : inputType == poplar::QUARTER ? 8
-                                     : std::numeric_limits<unsigned>::max();
+      vertexInputType == poplar::FLOAT  ? 2
+      : vertexInputType == poplar::HALF ? 4
+      : vertexInputType == poplar::QUARTER
+          ? 8
+          : std::numeric_limits<unsigned>::max();
   if (maxConvInputLoadElems < minRequiredConvInputLoadElems) {
     throw poputil::poplibs_error(
         "Unsupported conv unit input load width for SLIC instruction: " +
