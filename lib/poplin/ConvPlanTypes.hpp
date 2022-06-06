@@ -8,7 +8,7 @@
 
 #include <poplar/Target.hpp>
 
-#include <popsolver/Model.hpp>
+#include <gccs/popsolver/Model.hpp>
 
 #include <vector>
 
@@ -18,13 +18,13 @@ namespace poplin {
 // level in the hierarchy.
 struct PartitionVariables {
   // indexed by field dimension.
-  std::vector<popsolver::Variable> fieldSplit;
-  popsolver::Variable batchSplit;
-  Split<popsolver::Variable> outChanSplit;
+  std::vector<gccs::popsolver::Variable> fieldSplit;
+  gccs::popsolver::Variable batchSplit;
+  Split<gccs::popsolver::Variable> outChanSplit;
   // indexed by kernel dimension.
-  std::vector<popsolver::Variable> kernelSplit;
-  Split<popsolver::Variable> inChanSplit;
-  popsolver::Variable convGroupSplit;
+  std::vector<gccs::popsolver::Variable> kernelSplit;
+  Split<gccs::popsolver::Variable> inChanSplit;
+  gccs::popsolver::Variable convGroupSplit;
   std::vector<unsigned> fieldGrainSize;
 
   unsigned convGroupGrainSize;
@@ -35,14 +35,14 @@ struct PartitionVariables {
 // constraint variables that specify the grain sizes of each dimension.
 struct ConvSizeVariables {
   // indexed by field dimension.
-  std::vector<popsolver::Variable> numFieldGrains;
-  popsolver::Variable batchSize;
+  std::vector<gccs::popsolver::Variable> numFieldGrains;
+  gccs::popsolver::Variable batchSize;
   // indexed by kernel dimension.
-  std::vector<popsolver::Variable> kernelSize;
+  std::vector<gccs::popsolver::Variable> kernelSize;
 
-  popsolver::Variable numConvGroupGrains;
-  popsolver::Variable numInChanGrains;
-  popsolver::Variable numOutChanGrains;
+  gccs::popsolver::Variable numConvGroupGrains;
+  gccs::popsolver::Variable numInChanGrains;
+  gccs::popsolver::Variable numOutChanGrains;
 };
 
 // a description of a (sub-)convolution at a particular level in the hierarchy.
@@ -144,7 +144,7 @@ template <typename T> struct SinglePassEstimates {
   T addInPlaceTempBytes;
 };
 
-using SinglePassCost = SinglePassEstimates<popsolver::DataType>;
+using SinglePassCost = SinglePassEstimates<gccs::popsolver::DataType>;
 
 template <typename T> struct Estimates {
   Estimates() = default;
@@ -165,10 +165,12 @@ template <typename T> struct Estimates {
   boost::optional<SinglePassEstimates<T>> jointPlanWuEstimates;
 };
 
-using Cost = Estimates<popsolver::DataType>;
+using Cost = Estimates<gccs::popsolver::DataType>;
 
-static Cost highestCost(popsolver::DataType::max(), popsolver::DataType::max(),
-                        popsolver::DataType::max(), popsolver::DataType::max());
+static Cost highestCost(gccs::popsolver::DataType::max(),
+                        gccs::popsolver::DataType::max(),
+                        gccs::popsolver::DataType::max(),
+                        gccs::popsolver::DataType::max());
 
 inline bool operator==(const Cost &a, const Cost &b) {
   return a.totalTiles == b.totalTiles && a.totalCycles == b.totalCycles &&
@@ -242,7 +244,7 @@ inline Cost maxPerStepCycles(Cost a, const Cost &b) {
 
 inline std::ostream &operator<<(std::ostream &os, const Cost &c) {
   os << "Cost{cycles=" << c.totalCycles << ", memory=" << c.totalTempBytes;
-  if (c.totalPerStepCycleDiff != popsolver::DataType::max()) {
+  if (c.totalPerStepCycleDiff != gccs::popsolver::DataType::max()) {
     os << ", diff=" << c.totalPerStepCycleDiff;
   }
   os << ", tiles=" << c.totalTiles << "}";
@@ -256,13 +258,13 @@ struct ConvDescription {
   boost::optional<Plan> referencePlan;
   boost::optional<Cost> referenceCost;
   bool minimizeForTiles;
-  boost::optional<popsolver::DataType> cycleLimit;
+  boost::optional<gccs::popsolver::DataType> cycleLimit;
   unsigned startTileIdxForVirtualHierarchy;
 
   ConvDescription(CanonicalConvParams params, ConvOptions options,
                   poplar::Target target, boost::optional<Plan> referencePlan,
                   boost::optional<Cost> referenceCost, bool minimizeForTiles,
-                  boost::optional<popsolver::DataType> cycleLimit,
+                  boost::optional<gccs::popsolver::DataType> cycleLimit,
                   unsigned startTileIdxForVirtualHierarchy)
       : params{std::move(params)},
         options({std::move(options)}), target{std::move(target)},

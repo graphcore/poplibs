@@ -5,7 +5,8 @@
 #include "ConvPlan.hpp"
 #include "ConvPlanTypes.hpp"
 #include <poplar/Target.hpp>
-#include <popsolver/Model.hpp>
+
+#include <gccs/popsolver/Model.hpp>
 
 #include <gccs/Algorithm.hpp>
 
@@ -25,7 +26,7 @@ class ExchangeEstimator {
   constexpr static unsigned exchangeBytesScalingFactor = 16u;
 
 public:
-  ExchangeEstimator(popsolver::Model &m, const poplar::Target &target,
+  ExchangeEstimator(gccs::popsolver::Model &m, const poplar::Target &target,
                     const std::vector<PartitionVariables> &partitionVars,
                     const Plan::LinearizeTileOrder linearizeTileOrder)
       : m(m), target(target) {
@@ -62,17 +63,17 @@ public:
       const auto outChanSplit = partitionVars[0].outChanSplit.parallel;
       const auto multiplier = m.call<unsigned>(
           {outChanSplit},
-          [tilesPerSuperTile](const auto &values) -> popsolver::DataType {
-            return popsolver::DataType{values[0] % tilesPerSuperTile == 0 ? 2
-                                                                          : 1};
+          [tilesPerSuperTile](const auto &values) -> gccs::popsolver::DataType {
+            return gccs::popsolver::DataType{
+                values[0] % tilesPerSuperTile == 0 ? 2 : 1};
           });
       scaledInputElementBytesPerCycle =
           m.product({scaledInputElementBytesPerCycle, multiplier});
     }
   }
 
-  popsolver::Variable
-  getInputElementCycles(const popsolver::Variable numInputElements,
+  gccs::popsolver::Variable
+  getInputElementCycles(const gccs::popsolver::Variable numInputElements,
                         const poplar::Type inputElementType,
                         const std::string &debugName = "") const {
     const auto scaledInputElementSize = m.addConstant(
@@ -85,9 +86,10 @@ public:
                      debugName);
   }
 
-  popsolver::Variable getCycles(const popsolver::Variable numElements,
-                                const poplar::Type elementType,
-                                const std::string &debugName = "") const {
+  gccs::popsolver::Variable
+  getCycles(const gccs::popsolver::Variable numElements,
+            const poplar::Type elementType,
+            const std::string &debugName = "") const {
     const auto scaledSize = m.addConstant(target.getTypeSize(elementType) *
                                           exchangeBytesScalingFactor);
 
@@ -105,7 +107,7 @@ public:
   }
 
 private:
-  static unsigned getScaledExchangeBytesPerCycle(popsolver::Model &m,
+  static unsigned getScaledExchangeBytesPerCycle(gccs::popsolver::Model &m,
                                                  double exchangeBytesPerCycle,
                                                  unsigned scaleFactor) {
     auto scaledExchangeBytesPerCycle =
@@ -122,14 +124,14 @@ private:
     return static_cast<unsigned>(scaledExchangeBytesPerCycle);
   }
 
-  popsolver::Model &m;
+  gccs::popsolver::Model &m;
   const poplar::Target &target;
   unsigned scaledExchangeBytesPerCycle;
-  popsolver::Variable scaledExchangeBytesPerCycleVar;
+  gccs::popsolver::Variable scaledExchangeBytesPerCycleVar;
 
   // input elements can sometimes benefit from a fast bandwidth. see comment
   // in the constructor about why this is the case.
-  popsolver::Variable scaledInputElementBytesPerCycle;
+  gccs::popsolver::Variable scaledInputElementBytesPerCycle;
 };
 
 } // namespace poplin

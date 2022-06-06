@@ -10,8 +10,6 @@
 #include "poplibs_support/logging.hpp"
 #include "poputil/exceptions.hpp"
 
-#include "popsolver/Model.hpp"
-
 #include "FullyConnectedOptions.hpp"
 #include "FullyConnectedUtils.hpp"
 #include "PlanningCacheImpl.hpp"
@@ -25,6 +23,7 @@
 
 using namespace poplar;
 using namespace poplibs_support;
+namespace popsolver = gccs::popsolver;
 
 // TODO: share this across files
 using MetaInfoType = unsigned short;

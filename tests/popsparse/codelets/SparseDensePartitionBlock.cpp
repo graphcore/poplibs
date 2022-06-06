@@ -12,8 +12,9 @@
 
 #include "../lib/popsparse/SparseMetaInfo.hpp"
 #include "SparseDensePartitionBlock.hpp"
-#include <popsolver/Model.hpp>
 #include <poputil/Util.hpp>
+
+#include <gccs/popsolver/Model.hpp>
 
 #include <gccs/Algorithm.hpp>
 

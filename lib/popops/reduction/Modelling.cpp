@@ -14,6 +14,7 @@
 
 using namespace poplar;
 using namespace popops::modelling;
+namespace popsolver = gccs::popsolver;
 
 namespace popops {
 namespace modelling {

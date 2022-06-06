@@ -14,7 +14,7 @@
 #include "FullyConnectedVector.hpp"
 #include "popsparse/FullyConnected.hpp"
 
-#include <popsolver/Model.hpp>
+#include <gccs/popsolver/Model.hpp>
 
 namespace popsparse {
 
@@ -33,7 +33,7 @@ template <typename T> struct Estimates {
   T tempBytes;
 };
 
-using Cost = Estimates<popsolver::DataType>;
+using Cost = Estimates<gccs::popsolver::DataType>;
 
 inline bool operator==(Cost a, Cost b) {
   return a.cycles == b.cycles && a.tempBytes == b.tempBytes;

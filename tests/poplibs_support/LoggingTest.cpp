@@ -15,7 +15,6 @@ BOOST_AUTO_TEST_CASE(LoggingPrintoutExample) {
   setLogLevel(Module::popnn, Level::Trace);
   setLogLevel(Module::popops, Level::Trace);
   setLogLevel(Module::poprand, Level::Trace);
-  setLogLevel(Module::popsolver, Level::Trace);
   setLogLevel(Module::popsparse, Level::Trace);
   setLogLevel(Module::poputil, Level::Trace);
   popfloat::info("Hello world");
@@ -23,7 +22,6 @@ BOOST_AUTO_TEST_CASE(LoggingPrintoutExample) {
   popnn::info("Hello world");
   popops::info("Hello world");
   poprand::info("Hello world");
-  popsolver::info("Hello world");
   popsparse::info("Hello world");
   poputil::info("Hello world");
 

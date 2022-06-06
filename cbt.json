@@ -3,6 +3,7 @@
     "boost",
     "libpva",
     "libpvti",
+    "gccs",
     "poplar",
     "spdlog",
     "tbb",

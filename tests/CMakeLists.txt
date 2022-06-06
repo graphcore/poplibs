@@ -21,10 +21,11 @@ set(COMMON_ADD_EXECUTABLE_LIBRARIES
         poplibs_support
         poplibs_test
         poplar
+        popsolver
         Boost::unit_test_framework
-        Boost::timer 
+        Boost::timer
         Boost::system
-        Boost::filesystem 
+        Boost::filesystem
         Boost::program_options
         ${CMAKE_THREAD_LIBS_INIT}
 )
@@ -62,7 +63,6 @@ add_subdirectory(poplin)
 add_subdirectory(popnn)
 add_subdirectory(popops)
 add_subdirectory(poprand)
-add_subdirectory(popsolver)
 
 if(TARGET popsparse)
   add_subdirectory(popsparse)

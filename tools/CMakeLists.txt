@@ -94,7 +94,7 @@ target_link_libraries(random_generator
 add_tool(embedding_layer embedding_layer.cpp)
 target_link_libraries(embedding_layer
                       poplibs_support
-                      poplibs_support poplibs_test
+                      poplibs_test
                       Boost::program_options)
 
 add_tool(norm_layer norm_layer.cpp)
@@ -134,7 +134,7 @@ if (TARGET popsparse)
   add_tool(sparse_fc_layer sparse_fc_layer.cpp)
   target_link_libraries(sparse_fc_layer
                         poplibs_support
-                        poplibs_support poplibs_test
+                        poplibs_test
                         popsolver
                         spdlog::spdlog_header_only
                         Boost::program_options)

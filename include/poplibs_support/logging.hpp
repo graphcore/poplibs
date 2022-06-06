@@ -56,11 +56,10 @@ enum class Module {
   popnn = 2,
   popops = 3,
   poprand = 4,
-  popsolver = 5,
-  popsparse = 6,
-  poputil = 7,
+  popsparse = 5,
+  poputil = 6,
 
-  size = 9
+  size = 7
 };
 
 // Set the current log level to one of the above levels. The default
@@ -126,7 +125,6 @@ MAKE_MODULE_TEMPLATE(poplin)
 MAKE_MODULE_TEMPLATE(popnn)
 MAKE_MODULE_TEMPLATE(popops)
 MAKE_MODULE_TEMPLATE(poprand)
-MAKE_MODULE_TEMPLATE(popsolver)
 MAKE_MODULE_TEMPLATE(popsparse)
 MAKE_MODULE_TEMPLATE(poputil)
 

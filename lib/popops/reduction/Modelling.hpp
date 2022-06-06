@@ -3,9 +3,9 @@
 #ifndef popops_reduction_Modelling_hpp
 #define popops_reduction_Modelling_hpp
 
-#include <popsolver/Model.hpp>
-
 #include "popops/Operation.hpp"
+
+#include <gccs/popsolver/Model.hpp>
 
 // Forward declarations
 namespace poplar {
@@ -21,14 +21,14 @@ class ExchangeEstimator;
 
 // Set of estimates given when modelling a reduction
 struct ReduceEstimates {
-  ReduceEstimates(const popsolver::Variable &init)
+  ReduceEstimates(const gccs::popsolver::Variable &init)
       : cycles(init), cyclesBreakdown(init) {}
-  popsolver::Variable cycles;
+  gccs::popsolver::Variable cycles;
   struct CyclesBreakdown {
-    CyclesBreakdown(const popsolver::Variable &init)
+    CyclesBreakdown(const gccs::popsolver::Variable &init)
         : exchange(init), compute(init) {}
-    popsolver::Variable exchange;
-    popsolver::Variable compute;
+    gccs::popsolver::Variable exchange;
+    gccs::popsolver::Variable compute;
   } cyclesBreakdown;
 };
 
@@ -77,10 +77,10 @@ struct ReduceEstimates {
 ReduceEstimates modelBalancedIntertileReduction(
     const poplar::Target &target, const poplar::Type &inputType,
     const poplar::Type &partialType, const popops::Operation &operation,
-    const bool isUpdate, popsolver::Model &m,
+    const bool isUpdate, gccs::popsolver::Model &m,
     const ExchangeEstimator &exchangeEstimator,
-    const popsolver::Variable &mInputsPerTile,
-    const popsolver::Variable &mReductionFactor,
+    const gccs::popsolver::Variable &mInputsPerTile,
+    const gccs::popsolver::Variable &mReductionFactor,
     const std::string &debugPrefix = "");
 
 } // end namespace modelling

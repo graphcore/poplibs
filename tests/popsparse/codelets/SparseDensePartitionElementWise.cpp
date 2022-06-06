@@ -11,8 +11,9 @@
 #include <poplibs_support/VectorUtils.hpp>
 
 #include "SparseDensePartitionElementWise.hpp"
-#include <popsolver/Model.hpp>
 #include <poputil/Util.hpp>
+
+#include <gccs/popsolver/Model.hpp>
 
 #include <gccs/Algorithm.hpp>
 
@@ -21,6 +22,7 @@
 
 using namespace poplar;
 using namespace poputil;
+namespace popsolver = gccs::popsolver;
 
 template <typename RandomEngine>
 std::vector<std::array<unsigned, 2>>

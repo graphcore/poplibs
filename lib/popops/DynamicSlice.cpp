@@ -27,13 +27,14 @@
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "popops/Zero.hpp"
-#include "popsolver/Model.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VarStructure.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/popsolver/Model.hpp>
 
 #include <gccs/Algorithm.hpp>
 
@@ -48,6 +49,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
+namespace popsolver = gccs::popsolver;
 using namespace poputil;
 using namespace poplibs_support;
 using namespace poplibs;

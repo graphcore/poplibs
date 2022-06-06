@@ -3,10 +3,10 @@
 #ifndef popops_ExchangeEstimator_hpp
 #define popops_ExchangeEstimator_hpp
 
+#include <gccs/popsolver/Model.hpp>
+
 #include <string>
 #include <vector>
-
-#include <popsolver/Model.hpp>
 
 // Forward declaration
 namespace poplar {
@@ -18,36 +18,37 @@ namespace modelling {
 
 class ExchangeEstimator {
 public:
-  ExchangeEstimator(popsolver::Model &m, const poplar::Target &target);
+  ExchangeEstimator(gccs::popsolver::Model &m, const poplar::Target &target);
 
   // Return estimated cycles to exchange the given number of bytes via exchange
   // at the given level in the hierarchy.
-  popsolver::Variable operator()(const popsolver::Variable mNumBytes,
-                                 const std::string &debugName = "") const;
+  gccs::popsolver::Variable
+  operator()(const gccs::popsolver::Variable mNumBytes,
+             const std::string &debugName = "") const;
 
   // Return estimated cycles to exchange the given number of bytes via exchange
   // at the given level in the hierarchy. Information about broadcasting may
   // be given here to allow for double-width exchange.
-  popsolver::Variable
-  operator()(const popsolver::Variable mNumBytes,
-             const popsolver::Variable mConsecutiveTilesReceivingSameData,
-             const popsolver::Variable mTotalReceivingTiles,
+  gccs::popsolver::Variable
+  operator()(const gccs::popsolver::Variable mNumBytes,
+             const gccs::popsolver::Variable mConsecutiveTilesReceivingSameData,
+             const gccs::popsolver::Variable mTotalReceivingTiles,
              const std::string &debugName = "") const;
 
 private:
-  popsolver::Variable
-  getCycles(const popsolver::Variable mNumBytes,
-            const popsolver::Variable mConsecutiveTilesReceivingSameData,
-            const popsolver::Variable mTotalReceivingTiles,
+  gccs::popsolver::Variable
+  getCycles(const gccs::popsolver::Variable mNumBytes,
+            const gccs::popsolver::Variable mConsecutiveTilesReceivingSameData,
+            const gccs::popsolver::Variable mTotalReceivingTiles,
             const std::string &debugName = "") const;
 
-  popsolver::Variable getCycles(const popsolver::Variable mNumBytes,
-                                const std::string &debugName) const;
+  gccs::popsolver::Variable getCycles(const gccs::popsolver::Variable mNumBytes,
+                                      const std::string &debugName) const;
 
-  popsolver::Model &m;
+  gccs::popsolver::Model &m;
   const poplar::Target &target;
   unsigned scaledExchangeBytesPerCycle;
-  popsolver::Variable scaledExchangeBytesPerCycleVar;
+  gccs::popsolver::Variable scaledExchangeBytesPerCycleVar;
 };
 
 } // end namespace modelling

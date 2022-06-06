@@ -5,7 +5,8 @@
 
 #include "ConvPlanTypes.hpp"
 #include <poplibs_support/Compiler.hpp>
-#include <popsolver/Model.hpp>
+
+#include <gccs/popsolver/Model.hpp>
 
 namespace poplin {
 
@@ -20,8 +21,9 @@ public:
 
 private:
   Type type;
-  popsolver::DataType cyclesBound = popsolver::DataType::max();
-  popsolver::DataType tileTempMemoryBound = popsolver::DataType::max();
+  gccs::popsolver::DataType cyclesBound = gccs::popsolver::DataType::max();
+  gccs::popsolver::DataType tileTempMemoryBound =
+      gccs::popsolver::DataType::max();
 
   // when minimising for cost difference you have the option to either minimise
   // for temp memory or tiles once a plan that fits has been found.
@@ -47,21 +49,21 @@ public:
 
   friend std::ostream &operator<<(std::ostream &os, const PlanningObjective &);
 
-  PlanningObjective &setCyclesBound(popsolver::DataType bound) {
+  PlanningObjective &setCyclesBound(gccs::popsolver::DataType bound) {
     assert(type != MINIMIZE_CYCLES);
     assert(*bound > 0);
     cyclesBound = bound;
     return *this;
   }
-  PlanningObjective &setTileTempMemoryBound(popsolver::DataType bound) {
+  PlanningObjective &setTileTempMemoryBound(gccs::popsolver::DataType bound) {
     assert(type != MINIMIZE_TILE_TEMP_MEMORY);
     assert(*bound > 0);
     tileTempMemoryBound = bound;
     return *this;
   }
 
-  popsolver::DataType getCyclesBound() const { return cyclesBound; }
-  popsolver::DataType getTileTempMemoryBound() const {
+  gccs::popsolver::DataType getCyclesBound() const { return cyclesBound; }
+  gccs::popsolver::DataType getTileTempMemoryBound() const {
     return tileTempMemoryBound;
   }
   bool getMinimizeForTiles() const { return minimizeForTiles; }
@@ -117,9 +119,9 @@ inline std::ostream &operator<<(std::ostream &os, const PlanningObjective &po) {
     break;
   }
   }
-  const auto hasCycleBound = po.cyclesBound != popsolver::DataType::max();
+  const auto hasCycleBound = po.cyclesBound != gccs::popsolver::DataType::max();
   const auto hasTileTempMemoryBound =
-      po.tileTempMemoryBound != popsolver::DataType::max();
+      po.tileTempMemoryBound != gccs::popsolver::DataType::max();
   const auto hasBoundSet = hasCycleBound || hasTileTempMemoryBound;
   if (hasBoundSet) {
     os << " : ";

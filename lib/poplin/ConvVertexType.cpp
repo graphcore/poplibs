@@ -8,14 +8,16 @@
 #include "poplibs_support/Visitor.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvParams.hpp"
-#include "popsolver/Model.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/popsolver/Model.hpp>
 
 #include <gccs/Algorithm.hpp>
 
 #include <vector>
 
 using namespace poplibs_support;
+namespace popsolver = gccs::popsolver;
 
 namespace poplin {
 

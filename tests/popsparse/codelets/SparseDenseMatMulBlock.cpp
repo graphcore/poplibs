@@ -27,8 +27,6 @@
 
 #include <popsparse/codelets.hpp>
 
-#include <popsolver/Model.hpp>
-
 #include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
@@ -39,6 +37,8 @@
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/TempDir.hpp>
 #include <poplibs_test/Util.hpp>
+
+#include <gccs/popsolver/Model.hpp>
 
 #include <gccs/Algorithm.hpp>
 

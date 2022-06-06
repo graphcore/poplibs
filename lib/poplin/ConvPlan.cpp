@@ -19,8 +19,9 @@
 #include "poplin/ConvUtil.hpp"
 #include "poplin/Convolution.hpp"
 #include "popops/PerformanceEstimation.hpp"
-#include "popsolver/Model.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/popsolver/Model.hpp>
 
 #include <gccs/Algorithm.hpp>
 
@@ -43,6 +44,7 @@
 
 using namespace poplibs_support;
 using namespace popops::internal;
+namespace popsolver = gccs::popsolver;
 
 using namespace fmt::literals;
 

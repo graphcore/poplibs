@@ -9,6 +9,7 @@
 
 using namespace poplar;
 using namespace popops::internal;
+namespace popsolver = gccs::popsolver;
 
 namespace popops {
 namespace modelling {

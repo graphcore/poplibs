@@ -5,7 +5,8 @@
 #include "PlanningCache.hpp"
 #include "PlanningObjective.hpp"
 #include <poplar/Target.hpp>
-#include <popsolver/Model.hpp>
+
+#include <gccs/popsolver/Model.hpp>
 
 namespace poplin {
 
@@ -34,7 +35,7 @@ bool canUseConvPartial1x1Vertex(
     const std::vector<unsigned> &outputFieldShape,
     const ConvParams::OutputTransform &outputTransform);
 
-Estimates<popsolver::Variable> constructModel(
+Estimates<gccs::popsolver::Variable> constructModel(
     const poplar::Target &target, const std::vector<ConvTransform> &transforms,
     const std::vector<ConvTypes> &types,
     const std::vector<unsigned> &fieldGrainSize,
@@ -43,8 +44,8 @@ Estimates<popsolver::Variable> constructModel(
     const boost::optional<Plan> &referencePlan,
     const boost::optional<Cost> &referenceCost,
     PlanningCacheImpl::CycleEstimationImpl *cache, const ConvOptions &options,
-    popsolver::Model &m, std::vector<PartitionVariables> &partitionVars,
-    popsolver::Variable &broadcastInputBeforeLoop);
+    gccs::popsolver::Model &m, std::vector<PartitionVariables> &partitionVars,
+    gccs::popsolver::Variable &broadcastInputBeforeLoop);
 
 void expandDim(ConvParams &params, unsigned dim);
 bool canDeferDilation(const ConvParams &params, unsigned dim);

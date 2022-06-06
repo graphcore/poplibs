@@ -13,7 +13,7 @@ PopLibs consists of the following libraries:
 * **popops:** Operations on tensors in control programs (elementwise functions and reductions)
 * **poprand:** Functions for populating tensors with random numbers
 * **popsparse:** Functions for operating on sparse tensors
-* **popfloat** and **popsolver:** Supporting functions
+* **popfloat** Supporting functions
 * **poputil:** General utility functions for building graphs
 
 For more information, refer to the [Poplar and PopLibs API Reference](https://docs.graphcore.ai/projects/poplar-api/).

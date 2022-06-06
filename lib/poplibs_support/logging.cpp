@@ -82,8 +82,6 @@ std::string moduleName(Module m) {
     return "POPOPS";
   case Module::poprand:
     return "POPRAND";
-  case Module::popsolver:
-    return "POPSOLVER";
   case Module::popsparse:
     return "POPSPARSE";
   case Module::poputil:
@@ -95,8 +93,8 @@ std::string moduleName(Module m) {
 
 static std::size_t getModuleMaxLength(Module m) {
   constexpr std::array modules = {
-      Module::popfloat, Module::poplin,    Module::popnn,     Module::popops,
-      Module::poprand,  Module::popsolver, Module::popsparse, Module::poputil};
+      Module::popfloat, Module::poplin,    Module::popnn,  Module::popops,
+      Module::poprand,  Module::popsparse, Module::poputil};
   std::size_t maxLength = 0;
   for (const auto module : modules) {
     maxLength = std::max(maxLength, moduleName(module).length());
@@ -173,7 +171,6 @@ LoggingContext::LoggingContext() {
   createLogger(Module::popnn);
   createLogger(Module::popops);
   createLogger(Module::poprand);
-  createLogger(Module::popsolver);
   createLogger(Module::popsparse);
   createLogger(Module::poputil);
 }

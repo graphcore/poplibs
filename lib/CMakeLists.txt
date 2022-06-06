@@ -13,18 +13,24 @@ include(GNUInstallDirs)
 # $ORIGIN/../../tbb/lib to the rpath so that executables that link with
 # poplin can find TBB when run from the build or install trees.
 #
+# GCL builds some tests against the build tree so requires the RPATH to be
+# resolveable in the build tree. Hence gccs (for popsolver) is also included
+# as a dependency
 if (APPLE)
   set(CMAKE_INSTALL_RPATH
-      "@loader_path/../${CMAKE_INSTALL_LIBDIR};@loader_path/../../tbb/${CMAKE_INSTALL_LIBDIR}"
+      "@loader_path/../${CMAKE_INSTALL_LIBDIR};"
+      "@loader_path/../../gccs/${CMAKE_INSTALL_LIBDIR};"
+      "@loader_path/../../tbb/${CMAKE_INSTALL_LIBDIR}"
       CACHE STRING "Relative RPATH for OSX." FORCE)
 elseif (UNIX)
   set(CMAKE_INSTALL_RPATH
-      "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR};\$ORIGIN/../../tbb/${CMAKE_INSTALL_LIBDIR}"
+      "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR};"
+      "\$ORIGIN/../../gccs/${CMAKE_INSTALL_LIBDIR};"
+      "\$ORIGIN/../../tbb/${CMAKE_INSTALL_LIBDIR}"
       CACHE STRING "Relative RPATH for Unix systems." FORCE)
 endif()
 
 add_subdirectory(poplibs_support)
-add_subdirectory(popsolver)
 add_subdirectory(poputil)
 add_subdirectory(popops)
 add_subdirectory(poprand)

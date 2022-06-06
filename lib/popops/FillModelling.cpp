@@ -7,6 +7,7 @@
 #include <gccs/Algorithm.hpp>
 
 using namespace poplar;
+namespace popsolver = gccs::popsolver;
 
 namespace popops {
 

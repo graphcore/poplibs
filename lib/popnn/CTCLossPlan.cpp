@@ -9,8 +9,11 @@
 #include <poplibs_support/PlanConstraints.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/CTCLoss.hpp>
-#include <popsolver/Model.hpp>
 #include <poputil/OptionParsing.hpp>
+
+#include <gccs/popsolver/Model.hpp>
+
+namespace popsolver = gccs::popsolver;
 
 namespace popnn {
 namespace ctc {

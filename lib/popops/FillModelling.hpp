@@ -3,7 +3,7 @@
 #ifndef popops_FillModelling_hpp
 #define popops_FillModelling_hpp
 
-#include <popsolver/Model.hpp>
+#include <gccs/popsolver/Model.hpp>
 
 // Forward declarations
 namespace poplar {
@@ -15,13 +15,14 @@ namespace popops {
 namespace modelling {
 
 struct FillEstimates {
-  FillEstimates(const popsolver::Variable &init) : cycles(init) {}
-  popsolver::Variable cycles;
+  FillEstimates(const gccs::popsolver::Variable &init) : cycles(init) {}
+  gccs::popsolver::Variable cycles;
 };
 
 FillEstimates modelContiguousFill(const poplar::Target &target,
-                                  const poplar::Type &type, popsolver::Model &m,
-                                  const popsolver::Variable &numElems,
+                                  const poplar::Type &type,
+                                  gccs::popsolver::Model &m,
+                                  const gccs::popsolver::Variable &numElems,
                                   const std::string &debugPrefix = "");
 
 } // end namespace modelling

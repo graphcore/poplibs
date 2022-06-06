@@ -9,6 +9,7 @@
 
 namespace poplin {
 
+namespace popsolver = gccs::popsolver;
 using namespace poplibs_support;
 
 static popsolver::Variable
@@ -2965,7 +2966,7 @@ Estimates<popsolver::Variable> constructModel(
     PlanningCacheImpl::CycleEstimationImpl *cache, const ConvOptions &options,
     popsolver::Model &m, std::vector<PartitionVariables> &partitionVars,
     popsolver::Variable &broadcastInputBeforeLoop) {
-  using namespace popsolver;
+  using namespace gccs::popsolver;
 
   const auto convGroupsPerGroup = convVertexType.convGroupsPerGroup;
   const auto inChansPerGroup = convVertexType.inChansPerGroup;

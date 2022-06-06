@@ -9,13 +9,15 @@
 #include "poplin/ConvUtil.hpp"
 #include "poputil/VarStructure.hpp"
 #include <poplibs_support/Memoize.hpp>
-#include <popsolver/Model.hpp>
+
+#include <gccs/popsolver/Model.hpp>
 
 #include <boost/range/adaptor/reversed.hpp>
 
 #include <unordered_set>
 
 using namespace poputil;
+namespace popsolver = gccs::popsolver;
 
 namespace popnn {
 namespace pooling {
