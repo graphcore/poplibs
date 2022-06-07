@@ -144,8 +144,8 @@ poplar::Tensor shapedDropout(poplar::Graph &graph, const poplar::Tensor *seed,
  *                          Ignored if \p seed is null.
  *  \param reference        A tensor that specifies the layout of the output
  *                          tensor.
- *  \param outType          Type of the output tensor. One of \c float, \c half
- *                          or \c int.
+ *  \param outType          The type of the output tensor. One of \c float,
+ *                          \c half or \c int.
  *  \param minVal           The minimum value of the distribution.
  *  \param maxVal           The maximum value of the distribution.
  *  \param prog             The program to add this operation to.
@@ -183,8 +183,8 @@ poplar::Tensor uniform(poplar::Graph &graph, const poplar::Tensor *seed,
  *                          Ignored if \p seed is null.
  *  \param reference        A tensor that specifies the layout of the output
  *                          tensor.
- *  \param outType          Type of the output tensor. One of \c float, \c half
- *                          or \c int.
+ *  \param outType          The type of the output tensor. One of \c float,
+ *                          \c half or \c int.
  *  \param minVal           The minimum value of the distribution.
  *  \param maxVal           The maximum value of the distribution.
  *  \param prog             The program to add this operation to.
@@ -221,8 +221,8 @@ poplar::Tensor logUniform(poplar::Graph &graph, const poplar::Tensor *seed,
  *                          Ignored if \p seed is null.
  *  \param reference        A tensor that specifies the layout of the output
  *                          tensor.
- *  \param outType          Type of the output tensor. One of \c float, \c half
- *                          or \c int.
+ *  \param outType          The type of the output tensor. One of \c float,
+ *                          \c half or \c int.
  *  \param prob             Probability of an element being 1.
  *  \param prog             The program to add this operation to.
  *  \param debugContext     Optional debug information.
@@ -249,7 +249,7 @@ poplar::Tensor bernoulli(poplar::Graph &graph, const poplar::Tensor *seed,
  *                          Ignored if \p seed is null.
  *  \param reference        A tensor that specifies the layout of the output
  *                          tensor.
- *  \param outType          Type of the output tensor. One of \c float or
+ *  \param outType          The type of the output tensor. One of \c float or
  *                          \c half.
  *  \param mean             The mean value of the distribution.
  *  \param stdDev           The standard deviation of the distribution.
@@ -280,7 +280,7 @@ poplar::Tensor normal(poplar::Graph &graph, const poplar::Tensor *seed,
  *                          Ignored if \p seed is null.
  *  \param reference        A tensor that specifies the layout of the output
  *                          tensor.
- *  \param outType          Type of the output tensor. One of \c float or
+ *  \param outType          The type of the output tensor. One of \c float or
  *                          \c half.
  *  \param mean             The mean value of the distribution.
  *  \param stdDev           The standard deviation of the distribution.

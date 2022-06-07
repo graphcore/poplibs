@@ -22,7 +22,7 @@ namespace popops {
  *
  * \param graph         The graph that the operation will be added to.
  * \param src           Source tensor to cast.
- * \param dstType       Type of the destination tensor.
+ * \param dstType       The type of the destination tensor.
  * \param prog          Program to add the cast operation to.
  * \param debugContext  Optional debug information.
  * \return              The resultant cast tensor.
@@ -39,7 +39,7 @@ poplar::Tensor cast(poplar::Graph &graph, const poplar::Tensor &src,
  *
  * \param graph         The graph that the operation will be added to.
  * \param src           Source tensor to cast.
- * \param dstType       Type of the destination tensor.
+ * \param dstType       The type of the destination tensor.
  * \param metadata      A tensor of type QUARTER_METADATA initialised with the
  *                      format and scale to use when casting to the destination
  *                      tensor.  The returned tensor will contain this
