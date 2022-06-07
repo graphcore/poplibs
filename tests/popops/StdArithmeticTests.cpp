@@ -1253,44 +1253,43 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
   popops::addCodelets(graph);
 
   // Choose a small numeric range which is supported by the FP8 type
-  // TODO - T57103 create real quarter data
+  const auto inMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 2u);
   const unsigned modulo = 8;
-  std::vector<char> hIn(DIM_SIZE);
+  std::vector<Quarter> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    hIn[i] = (float)(i % modulo);
+    hIn[i] = Quarter((float)(i % modulo), inMetadata);
   }
   // Manipulate the input to result in 2D vertex being called
-  auto metadata0 =
-      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 2);
-  auto toSlice =
-      graph.addVariable(QUARTER, metadata0, {DIM_SIZE + 16}, "toSlice");
+  auto toSlice = graph.addVariable(QUARTER, {DIM_SIZE + 16}, "toSlice");
   mapTensorLinearly(graph, toSlice);
   auto in = concat(toSlice.slice(0, DIM_SIZE / 2),
                    toSlice.slice(16, 16 + DIM_SIZE - (DIM_SIZE / 2)), 0);
   graph.createHostWrite("in", in);
 
   auto prog = Sequence();
-  //  - T57103 won't need an intermediate cast once we can copy data to the
-  // IPU, or is this a useful test anyhow?
   auto metadata1 =
       createConstantMetadataTensor(graph, QuarterMetadata::Format::F152, -1);
   auto inter = cast(graph, in, QUARTER, metadata1, prog, "castToQUART143");
+  auto metadata0 = createConstantMetadataTensor(graph, inMetadata.getFormat(),
+                                                inMetadata.getScale());
   auto out = cast(graph, inter, QUARTER, metadata0, prog, "castToQUART152");
   graph.createHostRead("out", out);
 
-  std::vector<char> hOut(DIM_SIZE);
+  std::vector<Quarter> hOut(DIM_SIZE);
+  QuarterMetadata outMetadata;
   Engine eng(graph, Sequence{prog});
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", hIn.data(), hIn.data() + hIn.size());
+    eng.writeTensor("in", inMetadata, gccs::ArrayRef(hIn));
     eng.run();
-    eng.readTensor("out", hOut.data(), hOut.data() + hOut.size());
+    eng.readTensor("out", outMetadata, gccs::ArrayRef(hOut));
   });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hOut[i] == i % modulo);
+    BOOST_TEST(hOut[i] == hIn[i]);
   }
+  BOOST_TEST(outMetadata == inMetadata);
 }
 
 BOOST_AUTO_TEST_CASE(

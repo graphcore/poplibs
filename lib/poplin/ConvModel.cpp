@@ -222,8 +222,11 @@ static popsolver::Variable addPartialCalcCycleEstimate(
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
   assert(params.inputType == poplar::QUARTER ||
          params.inputType == poplar::HALF || params.inputType == poplar::FLOAT);
-  unsigned actsVectorWidth = target.getVectorWidth(params.inputType);
-  bool floatActivations = params.inputType == poplar::FLOAT;
+  auto actsType = params.inputType == poplar::QUARTER &&
+                          !target.getNumConvUnits(params.inputType, partialType)
+                      ? poplar::HALF
+                      : params.inputType;
+  bool floatActivations = actsType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
 
   const auto convGroupsPerGroup = convVertexType.convGroupsPerGroup;
@@ -243,12 +246,11 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
   auto visitor = poplibs_support::make_visitor<popsolver::Variable>(
       [&](const Plan::Amp &method) {
-        auto weightsPerConvUnit =
-            target.getWeightsPerConvUnit(params.inputType);
+        auto weightsPerConvUnit = target.getWeightsPerConvUnit(actsType);
         assert(weightsPerConvUnit % inChansPerGroup == 0);
 
         const auto weightBytesPerConvUnit =
-            weightsPerConvUnit * target.getTypeSize(params.inputType);
+            weightsPerConvUnit * target.getTypeSize(actsType);
 
         auto convUnitCoeffLoadBytesPerCycle =
             target.getConvUnitCoeffLoadBytesPerCycle();
@@ -271,7 +273,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
             [&target, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
              outChansPerGroup, partialType, params, transformedDims,
              transformedInputDilation, transformedOutputStride,
-             convUnitWeightHeight, cache, weightBytesPerConvUnit,
+             convUnitWeightHeight, cache, weightBytesPerConvUnit, actsType,
              convUnitCoeffLoadBytesPerCycle, method](
                 const std::vector<unsigned> &values) -> popsolver::DataType {
               const auto convSize =
@@ -299,14 +301,14 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                         convSize.batchSize, convSize.fieldSize,
                         target.getNumWorkerContexts(), method.convUnits,
                         transformedInputDilation, transformedOutputStride,
-                        params.inputType, floatPartials);
+                        actsType, floatPartials);
                 const auto innerLoopCyclesWithoutZeroing =
                     cache
                         ->mGetConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
                             convSize.batchSize, convSize.fieldSize,
                             target.getNumWorkerContexts(), method.convUnits,
                             transformedInputDilation, transformedOutputStride,
-                            params.inputType, floatPartials);
+                            actsType, floatPartials);
 
                 auto cycles = popsolver::DataType{
                     getConvPartial1x1SupervisorOuterLoopCycleEstimate(
@@ -314,8 +316,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                         innerLoopCyclesWithoutZeroing, tileNumConvGroups,
                         tileNumInGroups, tileNumOutGroups, outChansPerGroup,
                         weightBytesPerConvUnit, method.convUnits,
-                        convUnitCoeffLoadBytesPerCycle, params.inputType,
-                        floatPartials, target.getNumWorkerContexts())};
+                        convUnitCoeffLoadBytesPerCycle, actsType, floatPartials,
+                        target.getNumWorkerContexts())};
                 return cycles;
               }
 
@@ -330,15 +332,13 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                       convSize.kernelSize, convUnitWeightHeight,
                       outChansPerGroup, weightBytesPerConvUnit,
                       method.convUnits, convUnitCoeffLoadBytesPerCycle,
-                      target.getNumWorkerContexts(), params.inputType,
-                      floatPartials, transformedInputDilation,
-                      transformedOutputStride);
+                      target.getNumWorkerContexts(), actsType, floatPartials,
+                      transformedInputDilation, transformedOutputStride);
               return popsolver::DataType{
                   getConvPartialnx1SupervisorOuterLoopCycleEstimate(
                       innerLoopCycles, tileNumConvGroups, tileNumOutGroups,
                       tileNumInGroups, outChansPerGroup, method.convUnits,
-                      target.getNumWorkerContexts(), params.inputType,
-                      floatPartials) +
+                      target.getNumWorkerContexts(), actsType, floatPartials) +
                   zeroCycles};
             },
             debugName);
@@ -348,7 +348,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
             convSizeVarsVector,
             [&target, params, fieldGrainSize, convGroupsPerGroup,
              inChansPerGroup, outChansPerGroup, transformedInputDilation,
-             transformedOutputStride, method, floatPartials, cache](
+             transformedOutputStride, method, actsType, floatPartials, cache](
                 const auto &values) -> boost::optional<popsolver::DataType> {
               const auto convSize =
                   makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
@@ -389,25 +389,25 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                       /* implicitZeroing */ true, convSize.batchSize,
                       convSize.fieldSize, target.getNumWorkerContexts(),
                       method.convUnitChainsRequired, method.windowWidth,
-                      convGroupsPerGroup, params.inputType, floatPartials);
+                      convGroupsPerGroup, actsType, floatPartials);
               const auto innerLoopCycles =
                   cache->mGetConvPartialSlicInnerLoopCycles(
                       params.outputTransform.stride.back(),
                       /* implicitZeroing */ false, convSize.batchSize,
                       convSize.fieldSize, target.getNumWorkerContexts(),
                       method.convUnitChainsRequired, method.windowWidth,
-                      convGroupsPerGroup, params.inputType, floatPartials);
+                      convGroupsPerGroup, actsType, floatPartials);
               const auto weightLoadCycles =
                   getConvPartialSlicSupervisorWeightLoadCycleEstimate(
                       convGroupsPerGroup, inChansPerGroup,
                       target.getNumWorkerContexts(), method.windowWidth,
-                      params.inputType);
+                      actsType);
               auto cycles =
                   cache->mGetConvPartialSlicSupervisorOuterLoopCycleEstimate(
                       implicitZeroInnerLoopCycles, innerLoopCycles,
                       weightLoadCycles, tileNumConvGroups, numWeightBlocks,
                       method.convUnitChainsRequired, method.windowWidth,
-                      convGroupsPerGroup, params.inputType, floatPartials,
+                      convGroupsPerGroup, actsType, floatPartials,
                       target.getNumWorkerContexts());
 
               return popsolver::DataType{cycles};
@@ -419,7 +419,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
             convSizeVarsVector,
             [&target, fieldGrainSize, inChansPerGroup, convGroupsPerGroup,
              outChansPerGroup, transformedInputDilation, cache, outputStrideX,
-             actsVectorWidth, floatActivations, floatPartials](
+             actsType, floatActivations, floatPartials](
                 const std::vector<unsigned> &values) -> popsolver::DataType {
               const auto convSize =
                   makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
@@ -445,6 +445,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                 numActiveOutRows *= dimActiveRows;
               }
 
+              const unsigned actsVectorWidth = target.getVectorWidth(actsType);
               const auto tileKernelWidth = convSize.kernelSize.back();
               const auto tileOutWidth = convSize.fieldSize.back();
               const auto zeroCycles = estimateZeroSupervisorCycles(

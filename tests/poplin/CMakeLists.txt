@@ -969,6 +969,18 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           ALLOW_SKIP)
   endforeach()
 
+  foreach(n RANGE 1 50)
+    add_multitarget_test(
+            NAME conv_random_quarter${n}
+            COMMAND ${PYTHON_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
+                    --seed ${n}
+                    --binary $<TARGET_FILE:single_conv_layer>
+                    --input-type=quarter
+             VARIANTS "IpuModel2"
+            ALLOW_SKIP)
+  endforeach()
+
   foreach(n RANGE 1 500)
     add_multitarget_test(
             NAME conv_random_quarter${n}

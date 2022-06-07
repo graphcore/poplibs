@@ -229,10 +229,6 @@ def make_params(args):
     # therefore given any values for x and s (which are both > 0), we can create
     # a padding that allows us to have a positive kernel size.
     symmetrical = random.randrange(0, 100) > 70
-    if not (args.device_type == 'Sim21' or args.device_type == 'IpuModel21') \
-        and args.input_type == 'quarter' :
-      message = 'Failed to run a self test. Quarter type is only supported in Sim21, IpuModel21'
-      raise TestFailureException(message, 1)
 
     if args.input_type == 'float':
       types =[('float', 'float')]
