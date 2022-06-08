@@ -69,6 +69,8 @@ public:
   bool experimentalSlicVmac16 = false;
   // disable Stochastic Rounding for AMP vertices
   bool disableSRForAMPVertices = false;
+  // Allow the planner to try candidates with tile-level expand dim transforms.
+  bool enableTileLevelExpandDims = false;
   void parseConvOptions(const poplar::OptionFlags &options);
 
 private:
@@ -84,7 +86,8 @@ private:
       &ConvOptions::insertTransformsCycleCountProgs,
       &ConvOptions::experimentalConvTransformsEstimates,
       &ConvOptions::gatherConvOutput, &ConvOptions::experimentalSlicVmac16,
-      &ConvOptions::disableSRForAMPVertices);
+      &ConvOptions::disableSRForAMPVertices,
+      &ConvOptions::enableTileLevelExpandDims);
 
 public:
   bool operator<(const ConvOptions &other) const {

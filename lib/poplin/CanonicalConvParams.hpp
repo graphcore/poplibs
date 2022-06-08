@@ -32,6 +32,7 @@ public:
   }
 
   const ConvParams &getParams() const { return params.get(); }
+  ConvParams &getParams() { return params.get(); }
 
   ConvParams &&releaseParams() { return std::move(params.get()); }
 };

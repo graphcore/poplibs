@@ -94,7 +94,9 @@ std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << "        experimental.slicVmac16              ";
   os << opts.experimentalSlicVmac16 << "\n";
   os << "        disableSRForAMPVertices              ";
-  os << opts.disableSRForAMPVertices;
+  os << opts.disableSRForAMPVertices << "\n";
+  os << "        enableTileLevelExpandDims            ";
+  os << opts.enableTileLevelExpandDims;
   return os;
 }
 
@@ -141,6 +143,8 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithBool(experimentalSlicVmac16)},
       {"disableSRForAMPVertices",
        OptionHandler::createWithBool(disableSRForAMPVertices)},
+      {"enableTileLevelExpandDims",
+       OptionHandler::createWithBool(enableTileLevelExpandDims)},
   };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);

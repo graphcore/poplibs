@@ -5,6 +5,7 @@
 #include "ConvOptions.hpp"
 #include "ConvPlanTypes.hpp"
 #include "ConvReducePlan.hpp"
+#include "ConvTransforms.hpp"
 #include "ConvUtilInternal.hpp"
 #include "ConvValidation.hpp"
 #include "PlanningCache.hpp"
@@ -589,11 +590,11 @@ static std::vector<std::vector<T>> getPowerSet(const std::vector<T> &items) {
 }
 
 static std::vector<std::vector<unsigned>>
-getExpandDimsCandidates(unsigned systemLevel, const ConvParams &params,
+getExpandDimsCandidates(unsigned level, const ConvParams &params,
                         const ConvOptions &options) {
   const auto &planConstraints = options.planConstraints;
   const auto constraint = planConstraints.get_child_optional(
-      std::to_string(systemLevel) + ".transform.expandDims");
+      std::to_string(level) + ".transform.expandDims");
   std::vector<std::vector<unsigned>> candidateDimSets;
   if (constraint) {
     std::vector<unsigned> forcedDims;
@@ -608,20 +609,22 @@ getExpandDimsCandidates(unsigned systemLevel, const ConvParams &params,
     candidateDimSets.emplace_back(std::move(forcedDims));
   } else {
     std::vector<unsigned> candidateDims;
-    for (unsigned i = 0; i != params.getNumFieldDims(); ++i) {
-      if (!expandingDimChangesParams(params, i) ||
-          options.disableTransformations) {
-        continue;
+    if (!options.disableTransformations &&
+        !(level == tileLevel && !options.enableTileLevelExpandDims)) {
+      for (unsigned i = 0; i != params.getNumFieldDims(); ++i) {
+        if (!expandingDimChangesParams(params, i)) {
+          continue;
+        }
+        // Don't expand this dimension if the number of non zero kernel entries
+        // is larger than the number of non zero input entries as it is unlikely
+        // to be profitable. This heuristic cuts down the size of the search
+        // space.
+        //
+        // TODO: T12884 Investigate better heuristics.
+        if (params.inputFieldShape[i] < params.kernelShape[i])
+          continue;
+        candidateDims.push_back(i);
       }
-      // Don't expand this dimension if the number of non zero kernel entries
-      // is larger than the number of non zero input entries as it is unlikely
-      // to be profitable. This heuristic cuts down the size of the search
-      // space.
-      //
-      // TODO: T12884 Investigate better heuristics.
-      if (params.inputFieldShape[i] < params.kernelShape[i])
-        continue;
-      candidateDims.push_back(i);
     }
     candidateDimSets = getPowerSet(candidateDims);
     for (auto &subset : candidateDimSets) {
@@ -1069,10 +1072,11 @@ createPlan(const ConvParams &params, const ConvOptions &options,
     const auto swappedParams =
         calculateSwappedParams(paramsWithDeferredDilation, swapOperands);
 
-    for (const std::vector<unsigned> &expandDims :
+    for (std::vector<unsigned> &systemLevelExpandDims :
          getExpandDimsCandidates(systemLevel, swappedParams, options)) {
-      transforms[systemLevel].expandDims = expandDims;
-      auto expandedParams = calculateExpandedParams(swappedParams, expandDims);
+      transforms[systemLevel].expandDims = std::move(systemLevelExpandDims);
+      auto expandedParams = calculateExpandedParams(
+          swappedParams, transforms[systemLevel].expandDims);
 
       for (const std::vector<unsigned> &outChanFlattenDims :
            getOutChanFlattenDimsCandidates(systemLevel, expandedParams,
@@ -1085,62 +1089,92 @@ createPlan(const ConvParams &params, const ConvOptions &options,
         for (const unsigned combineConvGroups : getCombineConvGroupCandidates(
                  systemLevel, flattenedParams, options, target, isJointPlan)) {
           transforms[systemLevel].combineConvGroupsFactor = combineConvGroups;
-          const auto groupedParams = calculateGroupedParams(
+          auto groupedParams = calculateGroupedParams(
               flattenedParams, transforms[systemLevel].combineConvGroupsFactor);
 
-          const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
-              target, params.inputType, params.outputType, options.partialsType,
-              groupedParams, options, isJointPlan);
+          // Only consider expanding dimensions at tile-level if none of the
+          // dimensions have been considered for expansion at system-level.
+          // This is just to cut down the planner search space.
+          std::vector<std::vector<unsigned>> tileLevelExpandDimCandidates;
+          if (transforms[systemLevel].expandDims.empty()) {
+            tileLevelExpandDimCandidates =
+                getExpandDimsCandidates(tileLevel, groupedParams, options);
+          } else {
+            // There is a system-level expand dims so only consider a nop
+            // tile-level expand dims transform.
+            tileLevelExpandDimCandidates.push_back(std::vector<unsigned>{});
+          }
 
-          for (const auto &convVertexType : convVertexTypeCandidates) {
-            std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
-            if (isJointPlan) {
-              assert(options.pass == Pass::FC_TRAINING_FWD);
-              // The innermost grain size becomes the inChansPerGroup in the
-              // backward pass. For now assume the same grouping in both
-              // passes.
-              // TODO: T12887 Search for the optimal grouping in each pass.
-              fieldGrainSize.back() = convVertexType.inChansPerGroup;
-            } else if (groupedParams.outputType == poplar::HALF &&
-                       convVertexType.partialChansPerGroup % 2 &&
-                       groupedParams.getOutputSize(
-                           groupedParams.getNumFieldDims() - 1) %
-                               2 ==
-                           0) {
-              // If the number of output channels per group is odd then use a
-              // field grain size of 2 to ensure the result has an even number
-              // of elements on each tile since an odd number of elements
-              // on a tile tends to cause costly rearrangements in the next
-              // layer.
-              fieldGrainSize.back() = 2;
-            }
-            Plan candidate;
-            Cost candidateCost;
-            const auto convTypes = getConvTypes(
-                target, convVertexType.partialType, params.outputType, options);
-            popsolver::ConstraintEvaluationSummary constraintsEvaluated{};
-            std::tie(candidate, candidateCost, constraintsEvaluated) =
-                choosePlan(target, transforms, convTypes, fieldGrainSize,
-                           convVertexType, params, isJointPlan, bestCost,
-                           objective, startTileIdxForVirtualHierarchy,
-                           referencePlan, referenceCost, cache, options);
-            logging::poplin::trace(
-                "Evaluated {} constraints for candidate plan",
-                constraintsEvaluated);
-            totalConstraintsEvaluated += constraintsEvaluated;
-            if (candidateCost == highestCost) {
-              continue;
-            }
+          for (std::vector<unsigned> &expandDimsAtTileLevel :
+               tileLevelExpandDimCandidates) {
+            transforms[tileLevel].expandDims = std::move(expandDimsAtTileLevel);
+            auto finalParams = calculateExpandedParams(
+                groupedParams, transforms[tileLevel].expandDims);
 
-            if (objective.lowerCost(candidateCost, bestCost)) {
-              bestPlan = candidate;
-              bestCost = candidateCost;
+            const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
+                target, params.inputType, params.outputType,
+                options.partialsType, finalParams, options, isJointPlan,
+                !transforms[tileLevel].expandDims.empty());
 
-              logging::poplin::debug(
-                  "Found new best candidate plan using {}: {}",
-                  candidate.method, candidateCost);
-              logPlanBreakdown(logging::Level::Trace, bestPlan, bestCost,
-                               referenceCost);
+            for (const auto &convVertexType : convVertexTypeCandidates) {
+              // The cost modelling doesn't include the cost of rearranging
+              // the inputs, which is only accurate in the case we optimise
+              // away the rearrangement with a vertex-level expansion.
+              if (!transforms[tileLevel].expandDims.empty() &&
+                  !canDeferExpandDimsToVertexLevel(
+                      convVertexType.method, finalParams, tileLevel, target))
+                continue;
+
+              std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
+              if (isJointPlan) {
+                assert(options.pass == Pass::FC_TRAINING_FWD);
+                // The innermost grain size becomes the inChansPerGroup in the
+                // backward pass. For now assume the same grouping in both
+                // passes.
+                // TODO: T12887 Search for the optimal grouping in each pass.
+                fieldGrainSize.back() = convVertexType.inChansPerGroup;
+              } else if (finalParams.outputType == poplar::HALF &&
+                         convVertexType.partialChansPerGroup % 2 &&
+                         finalParams.getOutputSize(
+                             finalParams.getNumFieldDims() - 1) %
+                                 2 ==
+                             0) {
+                // If the number of output channels per group is odd then use a
+                // field grain size of 2 to ensure the result has an even number
+                // of elements on each tile since an odd number of elements
+                // on a tile tends to cause costly rearrangements in the next
+                // layer.
+                fieldGrainSize.back() = 2;
+              }
+              Plan candidate;
+              Cost candidateCost;
+              const auto convTypes =
+                  getConvTypes(target, convVertexType.partialType,
+                               params.outputType, options);
+              popsolver::ConstraintEvaluationSummary constraintsEvaluated{};
+              std::tie(candidate, candidateCost, constraintsEvaluated) =
+                  choosePlan(target, transforms, convTypes, fieldGrainSize,
+                             convVertexType, params, isJointPlan, bestCost,
+                             objective, startTileIdxForVirtualHierarchy,
+                             referencePlan, referenceCost, cache, options);
+              logging::poplin::trace(
+                  "Evaluated {} constraints for candidate plan",
+                  constraintsEvaluated);
+              totalConstraintsEvaluated += constraintsEvaluated;
+              if (candidateCost == highestCost) {
+                continue;
+              }
+
+              if (objective.lowerCost(candidateCost, bestCost)) {
+                bestPlan = candidate;
+                bestCost = candidateCost;
+
+                logging::poplin::debug(
+                    "Found new best candidate plan using {}: {}",
+                    candidate.method, candidateCost);
+                logPlanBreakdown(logging::Level::Trace, bestPlan, bestCost,
+                                 referenceCost);
+              }
             }
           }
         }

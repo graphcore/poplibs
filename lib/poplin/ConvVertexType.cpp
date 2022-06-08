@@ -680,60 +680,66 @@ static void sortConvVertexTypeCandidates(
   candidates = std::move(sortedCandidates);
 }
 
+enum class Method { AMP, SLIC, HMAC, VMAC, OUTER_PRODUCT };
+
+static std::vector<Method>
+getConvMethodCandidates(const ConvOptions &options,
+                        bool hasExpandDimsAtTileLevel) {
+  // Constraints take priority over everything else.
+  const auto constraint = options.planConstraints.get_child_optional("method");
+  if (constraint) {
+    std::stringstream ss;
+    boost::property_tree::json_parser::write_json(ss, *constraint, false);
+    Plan::Method m;
+    ss >> m; // Reuse the plan serialiser
+    auto visitor = poplibs_support::make_visitor<Method>(
+        [&](const Plan::Amp &) { return Method::AMP; },
+        [&](const Plan::Slic &) { return Method::SLIC; },
+        [&](const Plan::Hmac &) { return Method::HMAC; },
+        [&](const Plan::Vmac &) { return Method::VMAC; },
+        [&](const Plan::OuterProduct &) { return Method::OUTER_PRODUCT; });
+    return {boost::apply_visitor(visitor, m)};
+  }
+
+  // Only consider the AMP vertex when using the tile-level expand dims
+  // transform, because it's the only vertex that supports optimising away
+  // the broadcast of inputs.
+  if (hasExpandDimsAtTileLevel) {
+    return {Method::AMP};
+  }
+
+  // The order here should be in most-likely-best first for performance
+  // because the planner constrains future models against the current best.
+  // clang-format off
+  std::vector<Method> methodCandidates = {
+      Method::AMP,
+      Method::SLIC,
+      Method::HMAC,
+      Method::VMAC,
+      Method::OUTER_PRODUCT
+  };
+  // clang-format on
+
+  // Disable SLIC until T18365 is fixed
+  bool disableSLIC = options.pass == Pass::FC_INFERENCE_FWD ||
+                     options.pass == Pass::FC_TRAINING_BWD ||
+                     options.pass == Pass::FC_TRAINING_FWD ||
+                     options.pass == Pass::FC_TRAINING_WU;
+  if (disableSLIC) {
+    methodCandidates.erase(methodCandidates.begin() + 1);
+  }
+
+  return methodCandidates;
+}
+
 std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::Target &target,
                             poplar::Type inputType, poplar::Type outputType,
                             poplar::Type partialType, const ConvParams &params,
-                            const ConvOptions &options, bool isJointPlan) {
-  const auto &planConstraints = options.planConstraints;
-
-  enum class Method { AMP, SLIC, HMAC, VMAC, OUTER_PRODUCT };
-
-  const auto constrainedMethod = [&]() -> boost::optional<Method> {
-    const auto constraint = planConstraints.get_child_optional("method");
-    if (constraint) {
-      std::stringstream ss;
-      boost::property_tree::json_parser::write_json(ss, *constraint, false);
-      Plan::Method m;
-      ss >> m; // Reuse the plan serialiser
-      auto visitor = poplibs_support::make_visitor<Method>(
-          [&](const Plan::Amp &) { return Method::AMP; },
-          [&](const Plan::Slic &) { return Method::SLIC; },
-          [&](const Plan::Hmac &) { return Method::HMAC; },
-          [&](const Plan::Vmac &) { return Method::VMAC; },
-          [&](const Plan::OuterProduct &) { return Method::OUTER_PRODUCT; });
-      return boost::apply_visitor(visitor, m);
-    }
-    return boost::none;
-  }();
-
-  std::vector<Method> methodCandidates;
-  if (constrainedMethod) {
-    methodCandidates.push_back(*constrainedMethod);
-  } else {
-
-    // Disable SLIC until T18365 is fixed
-    bool disableSLIC = options.pass == Pass::FC_INFERENCE_FWD ||
-                       options.pass == Pass::FC_TRAINING_BWD ||
-                       options.pass == Pass::FC_TRAINING_FWD ||
-                       options.pass == Pass::FC_TRAINING_WU;
-
-    // the order here should be in most-likely-best first for performance
-    // because the planner constrains future models against the current best.
-    // clang-format off
-    methodCandidates = {
-        Method::AMP,
-        Method::SLIC,
-        Method::HMAC,
-        Method::VMAC,
-        Method::OUTER_PRODUCT
-    };
-    // clang-format on
-
-    if (disableSLIC) {
-      methodCandidates.erase(methodCandidates.begin() + 1);
-    }
-  }
+                            const ConvOptions &options, bool isJointPlan,
+                            bool hasExpandDimsAtTileLevel) {
+  auto methodCandidates =
+      getConvMethodCandidates(options, hasExpandDimsAtTileLevel);
 
   // All the following methods assume half or float partial types.
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);

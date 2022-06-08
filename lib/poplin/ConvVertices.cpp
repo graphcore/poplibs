@@ -411,11 +411,284 @@ static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
   return in;
 }
 
+// Take a vector of vectors like:
+//
+//    row 0 | item 0, item 1
+//    row 1 | item 2, item 3, item 4
+//    ..... | ..., ..., ...
+//    row n | ..., ..., ..., item m
+//
+// And return a vector of every combination of items across the rows.
+template <typename T>
+static std::vector<std::vector<T>>
+nDCartesianProduct(std::vector<std::vector<T>> const &data) {
+  // Build N-dimensional indices; one to the start of the data,
+  // and one to the end that's used to track the end condition.
+  std::vector<size_t> indices(data.size(), 0);
+  std::vector<size_t> endIndices(data.size(), 0);
+  for (size_t i = 0; i < endIndices.size(); ++i) {
+    endIndices[i] = data[i].size();
+  }
+
+  std::vector<std::vector<T>> slices;
+  while (true) {
+    // Select the slice using the indices.
+    std::vector<T> slice;
+    slice.reserve(indices.size());
+    for (size_t i = 0; i < indices.size(); ++i) {
+      auto index = indices[i];
+      slice.push_back(data[i][index]);
+    }
+    slices.push_back(std::move(slice));
+
+    // Increment the indices taking care to carry 1s backward.
+    size_t i = indices.size();
+    for (; i > 0; --i) {
+      indices[i - 1] += 1;
+      if (indices[i - 1] != endIndices[i - 1])
+        break;
+      indices[i - 1] = 0;
+    }
+    if (i == 0) // all indices reached their end condition.
+      break;
+  }
+  return slices;
+}
+
+struct SliceDescriptor {
+  size_t from;
+  size_t to;
+};
+
+struct WorkListAdjustment {
+  size_t start = 0;
+  size_t size = 0;
+};
+
+// Every dimension that gets expanded creates gaps in the flattened slices.
+//
+// We need to ensure that the correct portions of the flattened slices get
+// used so we adjust the existing work-list mechanism to account for the gaps.
+static std::vector<WorkListAdjustment>
+computeWorkListAdjustments(const std::vector<unsigned> &expandDims,
+                           const std::vector<unsigned> &expandedShape,
+                           const std::vector<unsigned> &shape) {
+  // Compute the strides in flattened space to index +/-1 in a dimension.
+  std::vector<unsigned> strides(shape.size());
+  unsigned product = shape.empty() ? 0 : 1;
+  for (size_t i = 0; i < shape.size(); ++i) {
+    strides[shape.size() - 1 - i] = product;
+    product *= shape[shape.size() - 1 - i];
+  }
+
+  // Compute the gaps created by every expansion.
+  std::vector<WorkListAdjustment> gaps;
+  gaps.reserve(expandDims.size());
+  for (unsigned dim : expandDims) {
+    auto &gap = gaps.emplace_back();
+    gap.start = strides[dim] * (expandedShape[dim]);
+    gap.size = strides[dim] * (shape[dim] - expandedShape[dim]);
+  }
+
+  return gaps;
+}
+
+// Implement a vertex-level expand dims.
+//
+// Basically a normal (full) expand dims with the following changes:
+//
+//  - the IC1 dimension is directly targeted instead of IC.
+//  - the slices include unused elements to keep them contiguous.
+//  - the worklists require updating as well to avoid the unused elements
+//    (this must be handled by the caller).
+//  - the multiple dimensions are handled in one function call.
+//
+// which, in the cases it applies, can remove the need for
+// rearrangement of the inputs.
+static std::vector<WorkListAdjustment>
+expandDimsAtVertexLevel(const std::vector<unsigned> &fieldDimsToExpand,
+                        ConvParams &params, Tensor &in, Tensor &weights) {
+  // The in and weights tensors should be in grouped internal form:
+  //
+  //    in      [G1][IC1][N]...[G2][IC2]
+  //    weights [G1][OC1][IC1]...[G2][OC2][IC2]
+  //
+  // An index into the field shape can be converted into the field shape
+  // in grouped internal form (...) by adding +3.
+  //
+  // Expand the specified field dimension(s) into the IC1 dimension.
+  constexpr unsigned inDimToExpandTo = 1;
+  constexpr unsigned weightDimToExpandTo = 2;
+
+  // Create indicies.
+  //
+  // The expansion will create one slice of inputs for every position
+  // the weights can take when sliding over the inputs.
+  //
+  // For example, if expanding:
+  //
+  //    weights shape: 2x3
+  //    inputs shape : 3x5
+  //
+  // in both dimensions, then the positions the kernel can take are:
+  //
+  //    D0: [0, 1, 2]
+  //    D1: [0, 1]
+  //
+  // And the slices we take are the combinations of all these positions:
+  //
+  //    [0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]
+  //
+  std::vector<std::vector<SliceDescriptor>> offsetsPerExpansion;
+  offsetsPerExpansion.reserve(fieldDimsToExpand.size());
+  for (unsigned dim : fieldDimsToExpand) {
+    const size_t inDim = dim + 3;
+    const size_t factor = weights.dim(dim + 3);
+    auto &offsets = offsetsPerExpansion.emplace_back();
+    offsets.reserve(factor);
+    for (size_t k = 0; k < factor; ++k) {
+      offsets.push_back(SliceDescriptor{k, in.dim(inDim) - (factor - k)});
+    }
+  }
+
+  // Get every combination of slice across dimensions.
+  //
+  // For a 2D field shape:
+  //
+  //   offset[0] = [(0, 1), (1, 2)]
+  //   offset[1] = [(0, 4), (1, 5), (2, 6), (3, 7)]
+  //
+  // which we want to turn into:
+  //
+  //   index 0: [(0, 1)][(0, 4)]
+  //   index 1: [(0, 1)][(1, 5)]
+  //   index 2: [(0, 1)][(2, 6)]
+  //   index 3: [(0, 1)][(3, 7)]
+  //   index 4: [(1, 2)][(0, 4)]
+  //   index 5: [(1, 2)][(1, 5)]
+  //   index 6: [(1, 2)][(2, 6)]
+  //   index 7: [(1, 2)][(3, 7)]
+  //
+  std::vector<std::vector<SliceDescriptor>> fieldShapeIndices =
+      nDCartesianProduct(offsetsPerExpansion);
+
+  // Store some memory outside the slice loop below to save some de/allocations.
+  const auto inShape = in.shape();
+  std::vector<size_t> fromIndex(inShape.size(), 0);
+  std::vector<size_t> toIndex(inShape);
+  for (auto &i : toIndex)
+    i -= 1;
+  toIndex.back() += 1; // +1 past the end
+
+  // Convert the indices into offsets into a flattened input.
+  std::vector<SliceDescriptor> flatIndices;
+  for (auto const &index : fieldShapeIndices) {
+    for (size_t g = 0; g < in.dim(0); ++g) {
+      // Take care to preserve the outer dimensions.
+      fromIndex[0] = g;
+      toIndex[0] = g;
+      for (size_t ic1 = 0; ic1 < in.dim(1); ++ic1) {
+        fromIndex[1] = ic1;
+        toIndex[1] = ic1;
+        for (size_t dimIndex = 0; dimIndex < index.size(); ++dimIndex) {
+          unsigned dimBeingExpanded = fieldDimsToExpand[dimIndex];
+          fromIndex[dimBeingExpanded + 3] = index[dimIndex].from;
+          toIndex[dimBeingExpanded + 3] = index[dimIndex].to;
+        }
+
+        flatIndices.push_back(SliceDescriptor{flattenIndex(inShape, fromIndex),
+                                              flattenIndex(inShape, toIndex)});
+      }
+    }
+  }
+
+  // Compute the size of the gap between contiguous inner slices.
+  //
+  // By way of example, consider the following convolution:
+  //
+  //     inputs  shape: [2, 8]
+  //     weights shape: [2, 4]
+  //     output  shape: [1, 5]
+  //
+  // Expanding dimension 1 will give the following input slices:
+  //
+  //     input slices' shape: [2, 5], [2, 5], [2, 5], [2, 5]
+  //
+  // The gap is the number of elements between adjacent slices in the original
+  // tensor. So here because of the outer-most dimension being 2, there's 3
+  // elements between rows in the slice slices:
+  //
+  //     inputs:      1, 2, 3, 4, 5, 6, 7, 8,
+  //                  9,10,11,12,13,14,15,16
+  //     slice 0      <----------->
+  //     slice 1         <----------->
+  //     slice 2            <----------->
+  //     slice 3               <----------->
+  //
+  std::vector<WorkListAdjustment> adjustments;
+  {
+    std::vector<unsigned> fieldShape(params.getNumFieldDims());
+    std::vector<unsigned> expandedFieldShape(fieldShape.size());
+    for (unsigned i = 0; i < params.getNumFieldDims(); ++i) {
+      fieldShape[i] = in.dim(i + 3);
+      expandedFieldShape[i] = fieldShape[i] - weights.dim(i + 3) + 1;
+    }
+    adjustments = computeWorkListAdjustments(fieldDimsToExpand,
+                                             expandedFieldShape, fieldShape);
+  }
+
+  // Take slices of `in` such that each slice is contiguous.
+  // Use a flattened view to achieve this.
+  std::vector<Tensor> slices;
+  slices.reserve(flatIndices.size());
+  const auto inFlattened = in.flatten();
+  for (auto [from, to] : flatIndices) {
+    auto slice = inFlattened.slice(from, to, 0);
+    // Ideally slice should be contiguous at this point - but as the planner
+    // doesn't have access to the tensors we can't be sure of this.
+    slices.push_back(slice.reshape({1, 1, slice.dim(0)}));
+  }
+
+  // Concatenate all the slices together in such a way that the number of
+  // conv groups is preserved and its compatible with the construction of
+  // inWindow.
+  {
+    const unsigned g1 = in.dim(0);
+    const unsigned finalIc1Size = slices.size() / g1;
+    std::vector<Tensor> ic1Slices;
+    ic1Slices.reserve(finalIc1Size);
+    for (size_t ic1 = 0; ic1 < finalIc1Size; ++ic1) {
+      unsigned from = (ic1 + 0) * g1;
+      unsigned to = (ic1 + 1) * g1;
+      ic1Slices.push_back(
+          concat(gccs::ArrayRef(slices.data() + from, to - from), 0));
+    }
+    in = concat(ic1Slices, inDimToExpandTo);
+  }
+
+  // Flatten the weights from outwards-to-inwards to avoid any reordering.
+  auto sortedFieldDimsToExpand = fieldDimsToExpand;
+  std::sort(sortedFieldDimsToExpand.begin(), sortedFieldDimsToExpand.end());
+  for (unsigned dim : sortedFieldDimsToExpand) {
+    weights = flattenDims(weights, dim + 3, weightDimToExpandTo);
+  }
+
+  // Modify params to reflect the expansions.
+  for (unsigned dim : fieldDimsToExpand) {
+    auto factor = params.kernelShape[dim];
+    auto expandedInDimSize = params.inputFieldShape[dim] - factor + 1;
+    params.inputFieldShape[dim] = expandedInDimSize;
+    params.kernelShape[dim] = 1;
+  }
+
+  return adjustments;
+}
+
 static void createConvPartialAmpVertex(
-    Graph &graph, const Plan &plan, unsigned tile,
-    const CanonicalConvParams &params, ComputeSet fwdCS, Tensor in,
-    Tensor weights, Tensor out, bool use128BitConvUnitLoad,
-    bool disableSRForAMPVertices, const DebugNameAndId &dnai) {
+    Graph &graph, const Plan &plan, unsigned tile, CanonicalConvParams &params,
+    ComputeSet fwdCS, Tensor in, Tensor weights, Tensor out,
+    bool use128BitConvUnitLoad, bool disableSRForAMPVertices,
+    const DebugNameAndId &dnai) {
   // AMP vertices only support having a single conv group per grouping.
   assert(plan.convGroupsPerGroup == 1);
   const auto &method = boost::get<Plan::Amp>(plan.method);
@@ -436,13 +709,17 @@ static void createConvPartialAmpVertex(
     assert(params->inputTransform.paddingUpper[0] == 0);
   }
 
+  std::vector<WorkListAdjustment> workListAdjustment;
+  assert(plan.transforms.size() > 1);
+  if (!plan.transforms[tileLevel].expandDims.empty()) {
+    workListAdjustment = expandDimsAtVertexLevel(
+        plan.transforms[tileLevel].expandDims, params.getParams(), in, weights);
+  }
+
   const auto numFieldDims = params->getNumFieldDims();
   const unsigned numConvGroupGroups = out.dim(0);
   const unsigned numOutChanGroups = out.dim(1);
   const unsigned numInChanGroups = in.dim(1);
-  const unsigned outChansPerGroup = plan.partialChansPerGroup;
-  const unsigned inChansPerGroup = plan.inChansPerGroup;
-  const bool flipOut = params->inputTransform.flip[numFieldDims - 1];
 
   // Reshape the tensors into the shape expected by the vertex.
   //
@@ -460,30 +737,34 @@ static void createConvPartialAmpVertex(
   //
   // where ... are the field dimensions.
 
+  assert(in.dim(0) == weights.dim(0)); // G1 must be the same.
+  assert(in.dim(1) == weights.dim(2)); // IC1 must be the same.
+
+  std::vector<Tensor> inWindow;
+  std::vector<Tensor> outWindow;
   std::vector<Tensor> weightsWindow;
+  inWindow.reserve(numConvGroupGroups * numOutChanGroups * numInChanGroups);
+  outWindow.reserve(numConvGroupGroups * numOutChanGroups);
+  weightsWindow.reserve(numConvGroupGroups * numOutChanGroups *
+                        numInChanGroups);
+
   for (unsigned cg = 0; cg != numConvGroupGroups; ++cg) {
     for (unsigned ozg = 0; ozg < numOutChanGroups; ++ozg) {
+      outWindow.push_back(out[cg][ozg].flatten());
       for (unsigned izg = 0; izg < numInChanGroups; ++izg) {
-        auto window = weights[cg][ozg][izg];
-        weightsWindow.push_back(window.flatten());
+        weightsWindow.push_back(weights[cg][ozg][izg].flatten());
       }
-    }
-  }
-
-  std::vector<Tensor> outWindow;
-  std::vector<Tensor> inWindow;
-  for (unsigned cg = 0; cg != numConvGroupGroups; ++cg) {
-    for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
-      auto o = out[cg][ozg];
-      outWindow.push_back(o.flatten());
     }
     // TODO: T12872 If the tile kernel size is 1 and the stride is greater than
     // one we could subsample the input instead of using input striding.
     for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
-      auto window = in[cg][izg];
-      inWindow.push_back(window.flatten());
+      inWindow.push_back(in[cg][izg].flatten());
     }
   }
+
+  const unsigned outChansPerGroup = plan.partialChansPerGroup;
+  const unsigned inChansPerGroup = plan.inChansPerGroup;
+  const bool flipOut = params->inputTransform.flip[numFieldDims - 1];
 
   std::vector<std::size_t> inputBatchAndFieldShape = {params->getBatchSize()};
   std::vector<std::size_t> outputBatchAndFieldShape = {params->getBatchSize()};
@@ -560,6 +841,15 @@ static void createConvPartialAmpVertex(
                                  ? p.outXWidth
                                  : (p.outXWidth + outStrideX - 1) / outStrideX;
     entry.inputOffset = flattenIndex(inputBatchAndFieldShape, p.inBeginIndices);
+
+    // Adjust the input offset to skip over the unused bits of the input slices.
+    for (auto adj : workListAdjustment) {
+      if (adj.start != 0 && adj.size != 0) {
+        size_t m = entry.inputOffset / adj.start;
+        size_t adjustment = m * adj.size;
+        entry.inputOffset += adjustment;
+      }
+    }
   }
 
   // Encode worklist offsets
@@ -827,6 +1117,36 @@ static void createConvPartialAmpVertices(
   const auto weightsPerConvUnit = convChainLength * convInputLoadElems;
   assert(weightsPerConvUnit % plan.inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
+
+  // Apply the input transforms to in and weights if the transforms were
+  // deferred to vertex level (for expand dims).
+  {
+    boost::optional<Graph &> graphOpt = graph;
+    boost::optional<Tensor> inOpt = in;
+    boost::optional<Tensor> kernelOpt = weights;
+    for (unsigned dim : plan.transforms[tileLevel].expandDims) {
+      expandSpatialDimDoInputTransform(
+          dim + 3, // +3 to get field dimensions in grouped internal shape.
+          params.inputFieldShape[dim],
+          params.inputTransform.truncationLower[dim],
+          params.inputTransform.truncationUpper[dim],
+          params.inputTransform.dilation[dim],
+          params.inputTransform.paddingLower[dim],
+          params.inputTransform.paddingUpper[dim],
+          params.inputTransform.flip[dim], graphOpt, inOpt, dnai);
+      expandSpatialDimDoInputTransform(
+          dim + 3, params.kernelShape[dim],
+          params.kernelTransform.truncationLower[dim],
+          params.kernelTransform.truncationUpper[dim],
+          params.kernelTransform.dilation[dim],
+          params.kernelTransform.paddingLower[dim],
+          params.kernelTransform.paddingUpper[dim],
+          params.kernelTransform.flip[dim], graphOpt, kernelOpt, dnai);
+    }
+    in = *inOpt;
+    weights = *kernelOpt;
+  }
+
   if (convUnitWeightHeight != 1) {
     assert(weights.elementType() == in.elementType());
 
@@ -892,8 +1212,8 @@ static void createConvPartialAmpVertices(
         // Get sub convolution
         Tensor subIn = unsplitActivationFromGroups(in);
         Tensor subWeights = unsplitWeightsFromGroups(weights);
-        const auto subParams =
-            getSubConvolution(slice, params, &subIn, &subWeights);
+        auto subParams = getSubConvolution(slice, params, &subIn, &subWeights);
+
         subIn = splitActivationIntoGroups(subIn, plan.convGroupsPerGroup,
                                           plan.inChansPerGroup);
         subWeights = splitWeightsIntoGroups(subWeights, plan.convGroupsPerGroup,

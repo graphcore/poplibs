@@ -50,7 +50,8 @@ std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::Target &target,
                             poplar::Type inputType, poplar::Type outputType,
                             poplar::Type partialType, const ConvParams &params,
-                            const ConvOptions &options, bool isJointPlan);
+                            const ConvOptions &options, bool isJointPlan,
+                            bool hasExpandDimsAtTileLevel = false);
 
 } // End namespace poplin
 

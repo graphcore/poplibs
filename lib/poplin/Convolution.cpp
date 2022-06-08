@@ -656,10 +656,15 @@ static CanonicalConvParams convolutionPreprocess(
       }
     }
   } else {
-    // implement the expandDims transformation.
-    expandSpatialDims(params, plan, level, graph, acts, weights, rearrangeProg,
-                      rearrangeActs, rearrangeWeights, {dnai});
-    transform.expandDims.clear();
+    // implement the expandDims transformation unless we can defer the expansion
+    // of the activations to vertex creation and it's likely to be beneficial.
+    if (!(canDeferExpandDimsToVertexLevel(plan.method, params, level,
+                                          graph.getTarget()) &&
+          acts && acts->isContiguous())) {
+      expandSpatialDims(params, plan, level, graph, acts, weights,
+                        rearrangeProg, rearrangeActs, rearrangeWeights, {dnai});
+      transform.expandDims.clear();
+    }
 
     // implement the outChanFlattenDims transformation.
     if (!transform.outChanFlattenDims.empty()) {

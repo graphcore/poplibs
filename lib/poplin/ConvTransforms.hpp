@@ -3,6 +3,12 @@
 #include "ConvolutionInternal.hpp"
 #include <poputil/VarStructure.hpp>
 
+#include <vector>
+
+namespace poplar {
+class Target;
+} // namespace poplar
+
 namespace poplin {
 
 std::vector<poputil::GroupingInfo>
@@ -13,6 +19,18 @@ void swapOperands(ConvParams &params, boost::optional<poplar::Tensor> &acts,
                   boost::optional<poplar::Tensor> &weights);
 
 bool expandDimTransformIsViewOnly(const ConvParams &params, unsigned dim);
+
+bool canDeferExpandDimsToVertexLevel(const Plan::Method &method,
+                                     const ConvParams &params, unsigned level,
+                                     poplar::Target const &target);
+
+void expandSpatialDimDoInputTransform(
+    unsigned dim, size_t &size, unsigned &truncationLower,
+    unsigned &truncationUpper, unsigned &dilation, unsigned &paddingLower,
+    unsigned &paddingUpper, std::vector<bool>::reference flip,
+    boost::optional<poplar::Graph &> &graph,
+    boost::optional<poplar::Tensor> &tensor,
+    const poplar::DebugNameAndId &dnai);
 
 void expandSpatialDim(ConvParams &params, unsigned dim, poplar::Graph &graph,
                       boost::optional<poplar::Tensor> &acts,

@@ -115,6 +115,79 @@ Tensor dilateWithNearestNeighbour(const Tensor &t, unsigned dilationFactor,
 }
 
 /**
+ * The expandDims transform can cause a broadcast of the inputs.
+ *
+ * This broadcast can be avoided in some cases by connecting the input to
+ * the ConvPartial vertices such that each slice is contiguous. However
+ * this requires transformations of the vertices' worklists and so can
+ * only be performed when lowering at the vertex level.
+ *
+ * \return True if the expand dims transform can be gainfully deferred
+ *         to the vertex level, or return false otherwise.
+ */
+bool canDeferExpandDimsToVertexLevel(const Plan::Method &method,
+                                     const ConvParams &params, unsigned level,
+                                     Target const &target) {
+  // Only defer tile-level expand dims and not ipu-level.
+  if (level != tileLevel)
+    return false;
+
+  // Not supported on non-AMP vertices.
+  if (boost::get<Plan::Amp>(&method) == nullptr)
+    return false;
+
+  // Need at least 64-bit alignment of input pointers. Also need 32 bytes worth
+  // of input channels for the nx1 vertex to start with, as expanding the
+  // dimension at vertex level doesn't increase IC2 (it increases IC1 instead),
+  // and the vertex's assembly doesn't easily support < 32 bytes.
+  const auto sizeOfInput = target.getTypeSize(params.inputType);
+  if (params.inputChannelsPerConvGroup * sizeOfInput < 32)
+    return false;
+
+  // The following transformations can cause additional rearrangement
+  // of the inputs and mean the final slices are not contiguous.
+  for (unsigned dim = 0; dim < params.inputFieldShape.size(); ++dim)
+    if (params.inputTransform.dilation[dim] != 1)
+      return false;
+
+  return true;
+}
+
+/** Apply an (unpacked) input transform to an input tensor. */
+void expandSpatialDimDoInputTransform(
+    unsigned dim, size_t &size, unsigned &truncationLower,
+    unsigned &truncationUpper, unsigned &dilation, unsigned &paddingLower,
+    unsigned &paddingUpper, std::vector<bool>::reference flip,
+    boost::optional<Graph &> &graph, boost::optional<Tensor> &tensor,
+    const DebugNameAndId &dnai) {
+  if (tensor) {
+    assert(graph);
+    // Explicitly truncate.
+    tensor = pad(*graph, *tensor, -static_cast<int>(truncationLower),
+                 -static_cast<int>(truncationUpper), dim);
+    // Explicitly dilate.
+    tensor = dilate(*graph, *tensor, dilation, dim, {dnai});
+    // Explicitly pad.
+    tensor = pad(*graph, *tensor, paddingLower, paddingUpper, dim);
+    // Explicitly flip.
+    if (flip) {
+      *tensor = tensor->reverse(dim);
+    }
+  }
+
+  size -= (truncationLower + truncationUpper);
+  size = getDilatedSize(size, dilation);
+  size += paddingLower + paddingUpper;
+
+  dilation = 1;
+  truncationLower = 0;
+  truncationUpper = 0;
+  paddingLower = 0;
+  paddingUpper = 0;
+  flip = false;
+}
+
+/**
  * Expand a spatial dimension of activations/weights to increase
  * the number of input channels, potentially in multiple stages.
  *
@@ -159,29 +232,15 @@ static void expandSpatialDimMultiStageImpl(ConvParams &params, unsigned dim,
   auto &stride = params.outputTransform.stride[dim];
   auto &outputPaddingLower = params.outputTransform.paddingLower[dim];
   auto &outputPaddingUpper = params.outputTransform.paddingUpper[dim];
-  if (acts) {
-    // Explicitly truncate.
-    *acts = pad(*graph, *acts, -static_cast<int>(actsTruncationLower),
-                -static_cast<int>(actsTruncationUpper), actsDimIndex);
-    // Explicitly dilate.
-    *acts = dilate(*graph, *acts, actsDilation, actsDimIndex, {dnai});
-    // Explicitly pad.
-    *acts =
-        pad(*graph, *acts, actsPaddingLower, actsPaddingUpper, actsDimIndex);
-    // Explicitly flip.
-    if (actsFlip) {
-      *acts = acts->reverse(actsDimIndex);
-    }
-  }
-  actsSize -= (actsTruncationLower + actsTruncationUpper);
-  actsSize = getDilatedSize(actsSize, actsDilation);
-  actsSize += actsPaddingLower + actsPaddingUpper;
-  actsDilation = 1;
-  actsTruncationLower = 0;
-  actsTruncationUpper = 0;
-  actsPaddingLower = 0;
-  actsPaddingUpper = 0;
-  actsFlip = false;
+
+  // Apply the input transform to acts.
+  expandSpatialDimDoInputTransform(actsDimIndex, actsSize, actsTruncationLower,
+                                   actsTruncationUpper, actsDilation,
+                                   actsPaddingLower, actsPaddingUpper, actsFlip,
+                                   graph, acts, dnai);
+
+  // Note weights is handled separately due to partial expansion.
+
   if (weights) {
     // Explicitly truncate.
     *weights = pad(*graph, *weights, -static_cast<int>(weightsTruncationLower),
