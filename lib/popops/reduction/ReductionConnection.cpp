@@ -1885,6 +1885,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
                        unsigned tile,
                        const std::vector<RegionReduction> &reductions,
                        bool reductionUsesInput,
+                       const ReduceManyInfo &reductionInfo,
                        const poplar::DebugNameAndId &dnai) {
 
   const auto &target = graph.getTarget();
@@ -1943,7 +1944,8 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
   css.add(graph, {dnai, +"Reduce"});
   unsigned reductionComputeSets = 1;
 
-  unsigned remainingWorkers = target.getNumWorkerContexts();
+  unsigned remainingWorkers =
+      reductionInfo.assignWorkers(target.getNumWorkerContexts());
 
   auto remainingReductions = connectLargeInnerFactorReductions(
       graph, css, reductionComputeSets, params, inputType, outputType, tile,

@@ -247,7 +247,7 @@ foreach(serialisation 1 2 3)
       endif()
       foreach(numIndices ${indicesRange})
         foreach(groupSize 1 3)
-          set(commonArgs 
+          set(commonArgs
               --num-indices=${numIndices}
               --data-type=${dtype}
               --shape={${dictSize},16}
@@ -790,6 +790,17 @@ add_multitarget_test(NAME Reduce_Skip_ADD_float
     --out-type=float
     --operation=ADD
     --test=Ops)
+
+add_multitarget_test(NAME Reduce_many_combined
+  COMMAND ReductionTests
+    --dims={20,30}
+    --out-type=float
+    --operation=ADD
+    --test=Add
+    --k=2
+    --scale=0
+    --update=false
+    --partials-type=float)
 
 # Reduction tests
 foreach(type half float)

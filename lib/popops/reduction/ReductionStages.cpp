@@ -84,7 +84,8 @@ void createInputReductions(
     const StridedRegionsByTile &contiguousRegionsByTile,
     const TilePartialsDescription &groupedPartials, ReduceParams params,
     Type inputType, Type inVertexType, Type outputType, ComputeSetList &css,
-    ResultTensors &reductionResultTensors, const DebugNameAndId &dnai) {
+    ResultTensors &reductionResultTensors, const ReduceManyInfo &reductionInfo,
+    const DebugNameAndId &dnai) {
 
   logging::popops::debug("DebugStr: {}", dnai.getPathName());
   const bool isInputToOutput = out.type() == typeid(Tensor);
@@ -106,8 +107,10 @@ void createInputReductions(
 
     // Divide the patterns to split work between workers and cope with
     // other limitations
-    auto splitGroupedPartials =
-        dividePartials(groupedPartials[tile], graph, in.elementType(), params);
+    const auto numWorkers =
+        reductionInfo.assignWorkers(graph.getTarget().getNumWorkerContexts());
+    auto splitGroupedPartials = dividePartials(
+        groupedPartials[tile], graph, in.elementType(), numWorkers, params);
 
     // logging begin
     if (logging::popops::shouldLog(logging::Level::Trace)) {
@@ -250,7 +253,8 @@ void createInputReductions(
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
     connectReductions(graph, cssFork, params, inputType, inVertexType,
-                      outputType, tile, reductions, true, {dnai});
+                      outputType, tile, reductions, true, reductionInfo,
+                      {dnai});
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos) {
       csPos = cssFork.pos();
@@ -271,7 +275,8 @@ void inputToOutputNoExchange(
     boost::optional<Tensor> &originalOutput,
     const std::vector<std::size_t> outputShape, Type inVertexType,
     Type outputType, ReduceParams params, ComputeSetList &css,
-    ResultTensors &reductionResultTensors, const DebugNameAndId &dnai) {
+    ResultTensors &reductionResultTensors, const ReduceManyInfo &reductionInfo,
+    const DebugNameAndId &dnai) {
   // If we have an output, create the output Tensor for the
   // createInputReductions function. If we don't have an output,
   // createInputReductions will create its own output
@@ -294,10 +299,10 @@ void inputToOutputNoExchange(
   }
   assert(in.rank() == 2);
 
-  createInputReductions(graph, in, out, !static_cast<bool>(finalOutput),
-                        contiguousRegionsByTile, groupedPartials, params,
-                        in.elementType(), inVertexType, outputType, css,
-                        reductionResultTensors, {dnai, "InToOutNoExchange"});
+  createInputReductions(
+      graph, in, out, !static_cast<bool>(finalOutput), contiguousRegionsByTile,
+      groupedPartials, params, in.elementType(), inVertexType, outputType, css,
+      reductionResultTensors, reductionInfo, {dnai, "InToOutNoExchange"});
   if (!finalOutput) {
     finalOutput = out;
   }
@@ -309,7 +314,8 @@ IntermediatePartials inputToIntermediateNoExchange(
     const StridedRegionsByTile &contiguousRegionsByTile,
     const TilePartialsDescription &groupedPartials, Operation op,
     const Type &inVertexType, const Type &outputType, ComputeSetList &css,
-    ResultTensors &reductionResultTensors, const poplar::DebugNameAndId &dnai) {
+    ResultTensors &reductionResultTensors, const ReduceManyInfo &reductionInfo,
+    const poplar::DebugNameAndId &dnai) {
 
   // Number of output values of the reduction.
   auto outputSize = in.dim(1);
@@ -325,7 +331,7 @@ IntermediatePartials inputToIntermediateNoExchange(
   createInputReductions(graph, in, ir, false, contiguousRegionsByTile,
                         groupedPartials, op, in.elementType(), inVertexType,
                         inVertexType, css, reductionResultTensors,
-                        {dnai, "InToIntermediateNoExchange"});
+                        reductionInfo, {dnai, "InToIntermediateNoExchange"});
   return ir;
 }
 
@@ -524,7 +530,7 @@ IntermediatePartials intermediateToIntermediate(
     Graph &graph, const IntermediatePartials &ipIn, Operation op,
     const Type &outType, ComputeSetList &css,
     ResultTensors &reductionResultTensors, const unsigned startTile,
-    const poplar::DebugNameAndId &dnai) {
+    const ReduceManyInfo &reductionInfo, const poplar::DebugNameAndId &dnai) {
 
   logging::popops::debug("DebugStr: {}", dnai.getPathName());
 
@@ -746,7 +752,8 @@ IntermediatePartials intermediateToIntermediate(
     ComputeSetList cssFork = css;
 
     connectReductions(graph, cssFork, op, inType, inType, resultType, tile,
-                      reductions, false, {dnai, "IntermediateToIntermediate"});
+                      reductions, false, reductionInfo,
+                      {dnai, "IntermediateToIntermediate"});
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
@@ -762,7 +769,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                           Type outputType, ReduceParams params,
                           Type inVertexType, ComputeSetList &css,
                           ResultTensors &reductionResultTensors,
-                          const Tensor &in, unsigned reductionId,
+                          const Tensor &in, const ReduceManyInfo &reductionInfo,
                           const DebugNameAndId &dnai) {
   logging::popops::debug("DebugStr: {}", dnai.getPathName());
 
@@ -832,7 +839,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     if (!shouldReduceAtDestination(target, ipIn, mapping, inVertexType,
                                    out.numElements())) {
       std::size_t seed = 0x9e3779b9UL;
-      boost::hash_combine(seed, reductionId);
+      boost::hash_combine(seed, reductionInfo.idx);
       auto offset =
           chooseMappingOffset(target.getNumTiles(), out.shape(), seed);
       mapping = poputil::calcLinearTileMapping(
@@ -962,9 +969,10 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
         findGrainSizeForOp(graph, inVertexType, params.op);
     // Split them if it would make it faster by processing them separately
     // with different vertices.
+    const auto numWorkers =
+        reductionInfo.assignWorkers(graph.getTarget().getNumWorkerContexts());
     outputRegionsSplit = splitOutputRegionsForWorkers(
-        grainSize, graph.getTarget().getNumWorkerContexts(), inVertexType,
-        outputRegionsSplit);
+        grainSize, numWorkers, inVertexType, outputRegionsSplit);
 
     // Store the tensors that we will connect up. Have to do this
     // here so we can resize the Vectors in the vertex.
@@ -1088,7 +1096,8 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
     connectReductions(graph, cssFork, params, inType, inVertexType, outputType,
-                      tile, reductions, false, {dnai, "IntermediateToOutput"});
+                      tile, reductions, false, reductionInfo,
+                      {dnai, "IntermediateToOutput"});
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();

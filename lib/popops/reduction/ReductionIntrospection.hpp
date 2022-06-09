@@ -80,7 +80,7 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
 // can't be translated into a RegionReduction
 std::vector<PartialsDescription>
 dividePartials(const std::vector<PartialsDescription> &groupedPartials,
-               poplar::Graph &graph, poplar::Type inType,
+               poplar::Graph &graph, poplar::Type inType, unsigned numWorkers,
                popops::ReduceParams params);
 
 using TilePartialsDescription = std::vector<std::vector<PartialsDescription>>;

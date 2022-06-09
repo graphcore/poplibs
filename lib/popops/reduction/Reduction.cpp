@@ -94,7 +94,7 @@ struct ReductionTypes {
 unsigned getStartTile(const std::vector<std::size_t> &inShape,
                       const std::vector<std::size_t> &outShape,
                       const ReduceParams &params, const unsigned stageNumber,
-                      const unsigned reductionId,
+                      const unsigned reductionIdx,
                       const unsigned tilesInTarget) {
   // starting seed: 2^32/phi, where phi is the golden ratio.
   std::size_t seed = 0x9e3779b9UL;
@@ -105,7 +105,7 @@ unsigned getStartTile(const std::vector<std::size_t> &inShape,
   boost::hash_combine(seed, static_cast<T>(params.op));
   boost::hash_combine(seed, params.update);
   boost::hash_combine(seed, params.useScale);
-  boost::hash_combine(seed, reductionId);
+  boost::hash_combine(seed, reductionIdx);
   boost::hash_combine(seed, stageNumber);
 
   return seed % tilesInTarget;
@@ -121,14 +121,12 @@ unsigned getStartTile(const std::vector<std::size_t> &inShape,
 // in 2 separate compute sets. If so, they will require a WriteUndef to be
 // added to the program before the compute sets in 'css' to prevent them from
 // becoming always live.
-void reduceFirstDim2D(Graph &graph, const Tensor &in_,
-                      boost::optional<Tensor> &out,
-                      const std::vector<std::size_t> outputShape,
-                      Type outputType, ReduceParams params,
-                      const ReductionTypes &reductionTypes,
-                      std::vector<ComputeSet> &css,
-                      ResultTensors &reductionResultTensors,
-                      unsigned reductionId, const DebugNameAndId &dnai) {
+void reduceFirstDim2D(
+    Graph &graph, const Tensor &in_, boost::optional<Tensor> &out,
+    const std::vector<std::size_t> outputShape, Type outputType,
+    ReduceParams params, const ReductionTypes &reductionTypes,
+    std::vector<ComputeSet> &css, ResultTensors &reductionResultTensors,
+    const ReduceManyInfo &reductionInfo, const DebugNameAndId &dnai) {
   logging::popops::debug("Reducing first dimension");
   // We only accept reductions over 2D tensors.
   if (in_.rank() != 2) {
@@ -295,7 +293,8 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
     inputToOutputNoExchange(graph, in, contiguousRegionsByTile, groupedPartials,
                             outCopy, originalOutput, outputShape,
                             reductionTypes.inVertex, outputType, params, csList,
-                            reductionResultTensors, {dnai, "ReduceOnTile"});
+                            reductionResultTensors, reductionInfo,
+                            {dnai, "ReduceOnTile"});
     restoreOutputShape(outCopy);
   } else {
 
@@ -317,7 +316,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
       ip = inputToIntermediateNoExchange(
           graph, in, contiguousRegionsByTile, groupedPartials, params.op,
           reductionTypes.inVertex, reductionTypes.interTile, csList,
-          reductionResultTensors, {dnai, "ReduceOnTile"});
+          reductionResultTensors, reductionInfo, {dnai, "ReduceOnTile"});
       reductionStageInputType = reductionTypes.inVertex;
       // If it was a SQUARE_ADD, then at this point we have now done the
       // SQUARE - change it to an ADD.
@@ -332,8 +331,9 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
 
     constexpr unsigned loopExit = ~0u;
     for (unsigned i = 0; i != loopExit; ++i) {
-      const auto startTile = getStartTile(in.shape(), outputShape, params, i,
-                                          reductionId, target.getNumTiles());
+      const auto startTile =
+          getStartTile(in.shape(), outputShape, params, i, reductionInfo.idx,
+                       target.getNumTiles());
       // At each point, see if it is worth doing another reduction stage or if
       // we should just do the final reduction, and if so should we do
       // it spread over the tiles int he graph or at the destination?
@@ -349,7 +349,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
         // Don't do the scale or update.
         ip = intermediateToIntermediate(
             graph, ip, params.op, reductionTypes.interTile, csList,
-            reductionResultTensors, startTile,
+            reductionResultTensors, startTile, reductionInfo,
             {dnai, std::string("ReduceStage") + std::to_string(i)});
         // If it was a SQUARE_ADD, then at this point we have now done the
         // SQUARE - change it to an ADD.
@@ -363,7 +363,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
         logging::popops::debug("Creating final reduction stage");
         intermediateToOutput(graph, ip, outCopy, originalOutput, outputShape,
                              outputType, params, reductionStageInputType,
-                             csList, reductionResultTensors, in, reductionId,
+                             csList, reductionResultTensors, in, reductionInfo,
                              {dnai, "ReduceFinalStage"});
 
         restoreOutputShape(outCopy);
@@ -688,7 +688,7 @@ static void reduceWithOutputCss(
     Graph &graph, const Tensor &in, boost::optional<Tensor> &out,
     const poplar::Type &outputType, const std::vector<std::size_t> &dims,
     ReduceParams params, std::vector<ComputeSet> &css,
-    ResultTensors &reductionResultTensors, unsigned reductionId,
+    ResultTensors &reductionResultTensors, const ReduceManyInfo &reductionInfo,
     const DebugNameAndId &dnai, const poplar::OptionFlags &options) {
 
   const auto getShape = [](const Tensor &t) {
@@ -795,7 +795,7 @@ static void reduceWithOutputCss(
 
   // Do the 2D->1D reduction.
   reduceFirstDim2D(graph, input2D, out, outputShape, outputType, params,
-                   reductionTypes, css, reductionResultTensors, reductionId,
+                   reductionTypes, css, reductionResultTensors, reductionInfo,
                    {dnai});
   if (!withOutput) {
     logging::popops::debug("  out({}){}: {}", out.get().elementType(),
@@ -876,38 +876,218 @@ void reduceMany(poplar::Graph &graph,
     throw poputil::poplibs_error(
         "reduceMany: outputs must be the same size as reductions");
 
+  // If there is a scale, merging requires it to be float (As does the vertex
+  // generation later on)
+  for (const auto &reduction : reductions) {
+    if (reduction.params.useScale &&
+        reduction.params.scale.elementType() != poplar::FLOAT) {
+      throw poputil::poplibs_error("Scale for reduction must have FLOAT type");
+    }
+  }
+
   ResultTensors reductionResultTensors;
 
-  std::vector<ComputeSet> css;
-  css.reserve(reductions.size());
-
-  logging::popops::debug("reduceMany({} reductions)", reductions.size());
-
-  for (size_t i = 0; i < reductions.size(); ++i) {
-    const SingleReduceOp &op = reductions[i];
-
-    Type outputType;
-    boost::optional<Tensor> optionalOut;
-    if (shouldCreateOutputs) {
-      if (op.params.update)
+  // Simplify merging of reductions by creating outputs where needed
+  if (shouldCreateOutputs) {
+    for (size_t i = 0; i < reductions.size(); ++i) {
+      const SingleReduceOp &op = reductions[i];
+      if (op.params.update) {
         throw poputil::poplibs_error(
             "reduceMany: outputs must be provided to do a "
             "reduction with the update flag set");
-      outputType = op.useOutType ? op.outType : op.in.elementType();
-    } else {
-      outputType = outputs[i].elementType();
-      optionalOut = std::move(outputs[i]);
+      }
+      auto outputType = op.useOutType ? op.outType : op.in.elementType();
+      boost::optional<Tensor> optionalOut;
+      auto analysis = analyzeReduction(op.dims, op.in, optionalOut);
+      outputs[i] =
+          graph.addVariable(outputType, analysis.outputShape, {di, "output"});
+      poputil::mapTensorLinearly(graph, outputs[i]);
     }
+  }
 
+  // Categorise the reductions into vectors, each of which which can be
+  // combined.  Considering mangleTo2D shapes means that more reductions can be
+  // combined.
+  // Suppose Reduction0 has in = {2,2,2} dims = {1} so out = {2,2}
+  // As a 2D problem this becomes:
+  // Reduction0: a0 a1 a2 a3
+  //             b0 b1 b2 b3
+  //   Result0:  r0 r1 r2 r3
+  //
+  // Reduction1 has in = {2,3} dims = {0} so out = {3}
+  // As a 2D problem this becomes:
+  // Reduction1: a4 a5 a6
+  //             b4 b5 b6
+  //   Result1:  r4 r5 r6
+  //
+  // Combined Reduction: a0 a1 a2 a3 a4 a5 a6
+  //                     b0 b1 b2 b3 b4 b5 b6
+  //    Combined result: r0 r1 r2 r3 r4 r5 r6
+
+  struct ReductionWithOutput {
+    bool edgeCase;
+    SingleReduceOp reduction;
+    Tensor output;
+    // Uniquely identify scales which are the same tensor, constants with the
+    // same value, or the case where there is no scale used
+    unsigned scaleTensorId;
+
+    ReductionWithOutput(bool edgeCase, SingleReduceOp reduction, Tensor output)
+        : edgeCase(edgeCase), reduction(reduction), output(output) {}
+  };
+
+  // Simplify each reduction to a 2D problem where possible
+  std::vector<ReductionWithOutput> toSort;
+  toSort.reserve(reductions.size());
+
+  for (unsigned i = 0; i < reductions.size(); i++) {
+    toSort.emplace_back(true, reductions[i], outputs[i]);
+    auto dims = toSort.back().reduction.in.shape();
+    if (std::all_of(dims.begin(), dims.end(),
+                    [](const unsigned dim) { return dim != 0; })) {
+      std::set<unsigned> reducedDims(toSort.back().reduction.dims.begin(),
+                                     toSort.back().reduction.dims.end());
+      toSort.back().reduction.in =
+          mangleTo2D(toSort[i].reduction.in, reducedDims);
+      toSort.back().reduction.dims = {0};
+      toSort.back().output = toSort.back().output.flatten();
+      toSort.back().edgeCase = false;
+      toSort.back().scaleTensorId = i;
+    }
+  }
+
+  // The scale tensor (if valid) is awkward to compare - we only have an ==
+  // operator.  Use this to assign scales a numeric value.  Inclue a comparison
+  // of constant scales to simplify later sort logic
+  auto compareScale = [](const ReduceParams &a, const ReduceParams &b) {
+    if (a.useScale == false && b.useScale == false) {
+      return true;
+    }
+    if (a.useScale != b.useScale) {
+      return false;
+    }
+    float aVal, bVal;
+    auto aIsConst = a.scale.getConstantValue(&aVal);
+    auto bIsConst = b.scale.getConstantValue(&bVal);
+    return (a.scale == b.scale || (aIsConst && bIsConst && aVal == bVal));
+  };
+
+  for (unsigned i = 0; i < toSort.size(); i++) {
+    const auto &iParams = toSort[i].reduction.params;
+    for (unsigned j = 0; j < i; j++) {
+      const auto &jParams = toSort[j].reduction.params;
+      if (compareScale(iParams, jParams)) {
+        toSort[i].scaleTensorId = toSort[j].scaleTensorId;
+        break;
+      }
+    }
+  }
+  // Sort so that consecutive 2D problems can be merged
+  std::stable_sort(
+      toSort.begin(), toSort.end(),
+      [](const ReductionWithOutput &a, const ReductionWithOutput &b) {
+        auto tupleInfo = [](const ReductionWithOutput x, const Type &inType,
+                            unsigned inDim0, const Type &outType) {
+          boost::optional<poplar::Type> outTypeOpt;
+          if (x.reduction.useOutType) {
+            outTypeOpt = x.reduction.outType;
+          }
+          return std::make_tuple(inType, inDim0, outType, x.edgeCase,
+                                 x.reduction.dims, x.reduction.params.op,
+                                 x.reduction.params.update, x.scaleTensorId,
+                                 outTypeOpt);
+        };
+
+        const auto &aRed = a.reduction.in;
+        const auto &bRed = b.reduction.in;
+        return tupleInfo(a, aRed.elementType(), aRed.dim(0),
+                         a.output.elementType()) <
+               tupleInfo(b, bRed.elementType(), bRed.dim(0),
+                         b.output.elementType());
+      });
+
+  auto canMerge = [](const ReductionWithOutput &a,
+                     const ReductionWithOutput &b) {
+    auto &ar = a.reduction;
+    auto &br = b.reduction;
+    bool outTypeMatch = ar.useOutType ? (ar.outType == br.outType) : true;
+    bool paramsMatch = ar.params.op == br.params.op &&
+                       ar.params.update == br.params.update &&
+                       a.scaleTensorId == b.scaleTensorId;
+
+    auto result = (!a.edgeCase) && (!b.edgeCase) &&
+                  ar.in.elementType() == br.in.elementType() &&
+                  ar.in.dim(0) == br.in.dim(0) && ar.dims == br.dims &&
+                  outTypeMatch && paramsMatch &&
+                  ar.useOutType == br.useOutType &&
+                  a.output.elementType() == b.output.elementType();
+    return result;
+  };
+
+  // Determine which ranges can be merged
+  std::vector<Interval> mergeableRanges;
+  mergeableRanges.emplace_back(0, 1);
+  for (unsigned i = 1; i < toSort.size(); i++) {
+    if (canMerge(toSort[mergeableRanges.back().begin()], toSort[i])) {
+      mergeableRanges.back() = Interval(mergeableRanges.back().begin(), i + 1);
+    } else {
+      mergeableRanges.emplace_back(i, i + 1);
+    }
+  }
+
+  // Now combine - concatenating inputs, outputs
+  std::vector<SingleReduceOp> combinedReductions;
+  combinedReductions.reserve(mergeableRanges.size());
+  std::vector<Tensor> combinedOutputs(mergeableRanges.size());
+
+  for (unsigned i = 0; i < mergeableRanges.size(); i++) {
+    auto begin = mergeableRanges[i].begin();
+    auto end = mergeableRanges[i].end();
+    combinedReductions.emplace_back(std::move(toSort[begin].reduction));
+    std::vector<Tensor> toConcat(mergeableRanges[i].size());
+
+    toConcat[0] = std::move(combinedReductions.back().in);
+    for (unsigned j = begin + 1; j < end; j++) {
+      toConcat[j - begin] = std::move(toSort[j].reduction.in);
+    }
+    combinedReductions.back().in =
+        toSort[begin].edgeCase ? toConcat[0] : concat(toConcat, 1);
+
+    for (unsigned j = begin; j < end; j++) {
+      toConcat[j - begin] = std::move(toSort[j].output);
+    }
+    combinedOutputs[i] =
+        toSort[begin].edgeCase ? toConcat[0] : concat(toConcat);
+  }
+
+  logging::popops::debug("reduceMany({} reductions, {} reductions after merge)",
+                         reductions.size(), combinedReductions.size());
+  ReduceManyInfo reductionInfo;
+  reductionInfo.totalReductions = reductions.size();
+  reductionInfo.totalMergedReductions = combinedReductions.size();
+
+  std::vector<ComputeSet> css;
+  css.reserve(combinedReductions.size());
+
+  for (size_t i = 0; i < combinedReductions.size(); ++i) {
+    const SingleReduceOp &op = combinedReductions[i];
+    logging::popops::debug("reduceMany: Reduction {} of {} which is a merge of"
+                           " {} original reductions",
+                           i, combinedReductions.size(),
+                           mergeableRanges[i].size());
+
+    boost::optional<Tensor> optionalOut = combinedOutputs[i];
     std::string debugName =
         !op.debugName.empty() ? op.debugName : "reduction-" + std::to_string(i);
     DebugNameAndId dnai = {di, std::move(debugName)};
-
-    if (!canReduceWithMap(op.in, op.dims))
+    auto outputType = combinedOutputs[i].elementType();
+    if (!canReduceWithMap(op.in, op.dims)) {
+      reductionInfo.idx = i;
+      reductionInfo.thisIdxMergedReductions = mergeableRanges[i].size();
       reduceWithOutputCss(graph, op.in, optionalOut, outputType, op.dims,
-                          op.params, css, reductionResultTensors, i,
+                          op.params, css, reductionResultTensors, reductionInfo,
                           std::move(dnai), options);
-    else {
+    } else {
       // Convert all the compute sets we've created so far into programs,
       // so that the simplified program can be added in the right order.
       convertCssToProg(css, prog, reductionResultTensors, di);
@@ -918,8 +1098,6 @@ void reduceMany(poplar::Graph &graph,
       reduceWithMap(graph, op.in, optionalOut, outputType, op.dims, op.params,
                     prog, std::move(dnai), options);
     }
-
-    outputs[i] = std::move(*optionalOut);
   }
   di.addOutputs(DI_ARGS(outputs));
   convertCssToProg(css, prog, reductionResultTensors, di);

@@ -442,8 +442,9 @@ BOOST_AUTO_TEST_CASE(ReducePatternsDivideDifferentLengths) {
 
   auto device = createTestDevice(DeviceType::IpuModel2);
   Graph graph(device.getTarget());
-  auto dividedReductions =
-      dividePartials(reductions, graph, HALF, popops::Operation::ADD);
+  auto dividedReductions = dividePartials(
+      reductions, graph, HALF, graph.getTarget().getNumWorkerContexts(),
+      popops::Operation::ADD);
   std::cout << "Divided:\n";
   printResult(dividedReductions);
 

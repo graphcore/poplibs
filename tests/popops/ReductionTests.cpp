@@ -187,9 +187,8 @@ static bool reduceAddTest(const DeviceType &deviceType,
     outs.push_back(popops::reduce(graph, in, outType, {0},
                                   {popops::Operation::ADD, false, rate}, prog));
   } else if (many) {
-    auto rate = graph.addVariable(FLOAT, {});
+    auto rate = graph.addConstant(FLOAT, {}, k);
     graph.setTileMapping(rate, 0);
-    graph.setInitialValue(rate, k);
     std::vector<SingleReduceOp> reductions;
     reductions.reserve(many);
     for (size_t i = 0; i < many; ++i) {

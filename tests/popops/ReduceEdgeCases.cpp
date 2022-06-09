@@ -28,6 +28,7 @@ struct TestCase {
   std::vector<std::size_t> inShape;
   std::vector<std::size_t> dims;
   std::vector<std::size_t> outShape;
+  Type inType = FLOAT;
 };
 
 std::ostream &operator<<(std::ostream &os, const std::vector<size_t> &test) {
@@ -79,8 +80,8 @@ BOOST_AUTO_TEST_CASE(Reduce_Nop_ADD_float) {
   popops::addCodelets(graph);
 
   Sequence prog;
-  for (const auto &[inShape, dims, outShape] : testCases) {
-    auto in = graph.addVariable(FLOAT, inShape, "in");
+  for (const auto &[inShape, dims, outShape, inType] : testCases) {
+    auto in = graph.addVariable(inType, inShape, "in");
     poputil::mapTensorLinearly(graph, in);
     for (bool useReduceMany : {false, true}) {
       Tensor out = reduceWrapper(useReduceMany, graph, in, dims, prog);
@@ -295,4 +296,137 @@ BOOST_AUTO_TEST_CASE(Avoid_subword_mapping_single_element_per_tile) {
   BOOST_CHECK_NE(tilesContainingOutHalf, numOutputs);
   // The output should not be remapped
   BOOST_CHECK_EQUAL(tilesContainingOutFloat, numOutputs);
+}
+
+BOOST_AUTO_TEST_CASE(ReduceManyCombining) {
+  // Present a collection of tensors which should be combined internally
+  // before reduction
+  const auto bigCase1 = TestCase{{8, 1}, {0}, {1}};
+  const auto bigCase2 = TestCase{{8, 4}, {1}, {8}, HALF};
+  const auto bigCase3 = TestCase{{8, 2}, {0}, {2}, HALF};
+  const auto bigCase4 = TestCase{{8, 2}, {0}, {2}};
+
+  const std::vector<std::vector<TestCase>> tests = {
+      // Only 1 reduction
+      {TestCase{{8, 2}, {0}, {2}}},
+      // Should be combined, as all the same
+      {TestCase{{8, 1}, {0}, {1}}, TestCase{{8, 1}, {0}, {1}}},
+      // Should be combined, as gathered reduced dimensions are the same
+      {TestCase{{16, 4}, {1}, {16}}, TestCase{{8, 4}, {1}, {8}}},
+      // Should be combined, as gathered reduced dimensions are the same
+      {TestCase{{16, 4, 2}, {1, 2}, {16}}, TestCase{{8, 2, 4}, {1, 2}, {8}}},
+      // Non-reduction
+      {TestCase{{1}, {0}, {}}, TestCase{{1}, {0}, {}}},
+      // Case where reduction is elementwise
+      {TestCase{{2}, {0}, {}}, TestCase{{2}, {0}, {}}},
+      // More dims, should combine
+      {TestCase{{2, 4, 5}, {0}, {4, 5}}, TestCase{{2, 4, 5}, {0}, {4, 5}}},
+      // More dims, should combine
+      {TestCase{{2, 4, 5}, {1, 2}, {2}}, TestCase{{2, 4, 5}, {1, 2}, {2}}},
+      // Should be combined, as all the same
+      {TestCase{{8}, {0}, {}}, TestCase{{8}, {0}, {}}},
+
+      // Different shapes - 2 reductions should be produced
+      {TestCase{{8}, {0}, {}}, TestCase{{16}, {0}, {}}},
+      // Different types - 2 reductions should be produced
+      {TestCase{{8}, {0}, {}, FLOAT}, TestCase{{8}, {0}, {}, HALF}},
+      // Different shapes - 2 reductions should be produced
+      {TestCase{{16, 4}, {1}, {16}}, TestCase{{8, 8}, {1}, {8}}},
+
+      // Big collection
+      // All 1s and 4's should merge together, then all 2's and then all 3's
+      // resulting in 3 reductions
+      {bigCase1, bigCase1, bigCase4, bigCase3, bigCase2, bigCase1, bigCase2,
+       bigCase3, bigCase3, bigCase4},
+
+      // Empty, non empty
+      {TestCase{{}, {}, {}}, TestCase{{}, {}, {}}, TestCase{{8, 8}, {1}, {8}}},
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+  auto scale =
+      graph.addVariable(FLOAT, {1}, VariableMappingMethod::LINEAR, "scale");
+  for (const auto &test : tests) {
+    Sequence prog({}, DebugContext{"ReduceManyCombining"});
+    std::vector<SingleReduceOp> ops;
+    unsigned i = 0;
+    for (const auto &testCase : test) {
+      auto in = graph.addVariable(testCase.inType, testCase.inShape,
+                                  VariableMappingMethod::LINEAR,
+                                  "in" + std::to_string(i));
+      ops.push_back({in, testCase.dims,
+                     ReduceParams(popops::Operation::ADD, false, scale),
+                     testCase.inType});
+      i++;
+    }
+    std::vector<Tensor> outs;
+    popops::reduceMany(graph, ops, outs, prog);
+
+    for (unsigned i = 0; i < test.size(); i++) {
+      BOOST_TEST(outs[i].shape() == std::vector<size_t>(test[i].outShape));
+      BOOST_TEST(outs[i].numElements() != 0);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(ReduceManyCombiningScale) {
+  // Present a collection of tensors which should be combined internally
+  // before reduction
+  const auto bigCase1 = TestCase{{8, 1}, {0}, {1}};
+  const auto bigCase2 = TestCase{{8, 4}, {1}, {8}, HALF};
+  const auto bigCase3 = TestCase{{8, 2}, {0}, {2}, HALF};
+  const auto bigCase4 = TestCase{{8, 2}, {0}, {2}};
+
+  struct TestCaseScale {
+    TestCase test;
+    Tensor scale;
+  };
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  auto scale1 =
+      graph.addVariable(FLOAT, {1}, VariableMappingMethod::LINEAR, "scale1");
+  auto scale2 =
+      graph.addVariable(FLOAT, {1}, VariableMappingMethod::LINEAR, "scale2");
+  auto scale3 = graph.addConstant<float>(FLOAT, {1}, {1.0f}, "scale3");
+  auto scale4 = graph.addConstant<float>(FLOAT, {1}, {1.0f}, "scale4");
+  auto scale5 = graph.addConstant<float>(FLOAT, {1}, {2.0f}, "scale5");
+
+  const std::vector<TestCaseScale> test = {
+      // Depending on scale 1,4 can merge, others can not.
+      // The result should be 7 reductions
+      {{bigCase1, scale1},
+       {bigCase1, scale1},
+       {bigCase4, scale2},
+       {bigCase3, scale2},
+       {bigCase2, scale3},
+       {bigCase1, scale3},
+       {bigCase2, scale4},
+       {bigCase3, scale4},
+       {bigCase3, scale4},
+       {bigCase4, scale5}},
+  };
+
+  unsigned i = 0;
+  std::vector<SingleReduceOp> ops;
+  Sequence prog({}, DebugContext{"ReduceManyCombiningScale"});
+  for (const auto &testCase : test) {
+    auto in = graph.addVariable(testCase.test.inType, testCase.test.inShape,
+                                VariableMappingMethod::LINEAR,
+                                "in" + std::to_string(i));
+    ops.push_back({in, testCase.test.dims,
+                   ReduceParams(popops::Operation::ADD, false, testCase.scale),
+                   testCase.test.inType});
+    i++;
+  }
+  std::vector<Tensor> outs;
+  popops::reduceMany(graph, ops, outs, prog);
+
+  for (unsigned i = 0; i < test.size(); i++) {
+    BOOST_TEST(outs[i].shape() == std::vector<size_t>(test[i].test.outShape));
+    BOOST_TEST(outs[i].numElements() != 0);
+  }
 }

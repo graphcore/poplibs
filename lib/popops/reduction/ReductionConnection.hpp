@@ -8,6 +8,8 @@
 
 #include "popops/Reduce.hpp"
 
+#include <gccs/Algorithm.hpp>
+
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
 
@@ -18,6 +20,46 @@
 #include <vector>
 
 namespace popops {
+
+// Structure containing information about the reduce many reductions that
+// are being implemented, to aid work division when creating a single
+// reduction from the many.
+// The information is not so precise as a full analysis to the interactions
+// between reductions is complex (Eg - what is the mapping of each reduction
+// input and so how many vertices would be generated per tile). So we end up
+// with a series of heuristics.
+struct ReduceManyInfo {
+  // The index of this specific reduction [0, totalMergedReductions)
+  unsigned idx;
+  // The number of reductions to be added to the compute set
+  unsigned totalReductions;
+  // The number of reductions after merging
+  unsigned totalMergedReductions;
+  // The number of reductions merged to form this reduction
+  unsigned thisIdxMergedReductions;
+
+  ReduceManyInfo() = default;
+
+  ReduceManyInfo(unsigned idx) : idx(idx) {
+    totalReductions = 1;
+    totalMergedReductions = 1;
+    thisIdxMergedReductions = 1;
+  }
+
+  unsigned assignWorkers(unsigned workers) const {
+    if (totalMergedReductions > workers) {
+      // Allow 2 workers to share this reduction - there will be more than 6
+      // anyway so allow some work sharing but avoid creating a lot of vertices
+      return 2;
+    } else {
+      // It's possible to do all the reductions with less than 6 workers
+      // so don't allow this reduction to use more than its quota when
+      // attempting to gain speed.  (It still can to simplify the vertices
+      // selected)
+      return gccs::ceildiv(workers * thisIdxMergedReductions, totalReductions);
+    }
+  }
+};
 
 // Partials for reduction can be stored in two ways -
 // 1. If the partials are all in the same region, each of the same length
@@ -268,6 +310,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
                        unsigned tile,
                        const std::vector<RegionReduction> &reductions,
                        bool reductionUsesInput,
+                       const ReduceManyInfo &reductionInfo,
                        const poplar::DebugNameAndId &dnai);
 
 /// Find the appropriate vertex specialisation to use

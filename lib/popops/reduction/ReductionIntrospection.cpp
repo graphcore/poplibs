@@ -543,7 +543,8 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
 
 std::vector<PartialsDescription>
 dividePartials(const std::vector<PartialsDescription> &groupedPartials,
-               Graph &graph, Type inType, ReduceParams params) {
+               Graph &graph, Type inType, unsigned numWorkers,
+               ReduceParams params) {
 
   std::vector<PartialsDescription> splitGroupedPartials;
   // Split up patterns that have > 1 column and an inconsistent innerFactor, as
@@ -627,7 +628,6 @@ dividePartials(const std::vector<PartialsDescription> &groupedPartials,
   if (outRegions.size() == 0) {
     return partialsResult;
   }
-  const unsigned numWorkers = graph.getTarget().getNumWorkerContexts();
   const unsigned remainingWorkers = numWorkers > partialsResult.size()
                                         ? numWorkers - partialsResult.size()
                                         : 1;

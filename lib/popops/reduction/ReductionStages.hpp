@@ -65,7 +65,8 @@ void inputToOutputNoExchange(
     boost::optional<poplar::Tensor> &originalOutput,
     const std::vector<std::size_t> outputShape, poplar::Type inVertexType,
     poplar::Type outputType, ReduceParams params, ComputeSetList &css,
-    ResultTensors &reductionResultTensors, const poplar::DebugNameAndId &dnai);
+    ResultTensors &reductionResultTensors, const ReduceManyInfo &reductionId,
+    const poplar::DebugNameAndId &dnai);
 
 /// Take an input tensor and reduce it as much as possible on each tile without
 /// doing any exchange.
@@ -95,7 +96,7 @@ IntermediatePartials inputToIntermediateNoExchange(
     const TilePartialsDescription &groupedPartials, Operation op,
     const poplar::Type &inVertexType, const poplar::Type &outType,
     ComputeSetList &css, ResultTensors &reductionResultTensors,
-    const poplar::DebugNameAndId &dnai);
+    const ReduceManyInfo &reductionId, const poplar::DebugNameAndId &dnai);
 
 /// Reduce an intermediate result to another intermediate result by the given
 /// ratio. This is the most difficult of the stages.
@@ -117,7 +118,7 @@ IntermediatePartials intermediateToIntermediate(
     poplar::Graph &graph, const IntermediatePartials &ipIn, Operation op,
     const poplar::Type &outType, ComputeSetList &css,
     ResultTensors &reductionResultTensors, unsigned startTile,
-    const poplar::DebugNameAndId &dnai);
+    const ReduceManyInfo &reductionId, const poplar::DebugNameAndId &dnai);
 
 /// Reduce an intermediate reduction to a final output tensor. The reduction
 /// may or may not be done at the location of the output tensor. If the output
@@ -144,16 +145,14 @@ IntermediatePartials intermediateToIntermediate(
 ///                    multiple reductions are performed using reduceMany
 /// \param dnai
 ///
-void intermediateToOutput(poplar::Graph &graph,
-                          const IntermediatePartials &ipIn,
-                          boost::optional<poplar::Tensor> &output,
-                          boost::optional<poplar::Tensor> &originalOutput,
-                          const std::vector<std::size_t> outputShape,
-                          poplar::Type outputType, ReduceParams params,
-                          poplar::Type inVertexType, ComputeSetList &css,
-                          ResultTensors &reductionResultTensors,
-                          const poplar::Tensor &in, unsigned reductionId,
-                          const poplar::DebugNameAndId &dnai);
+void intermediateToOutput(
+    poplar::Graph &graph, const IntermediatePartials &ipIn,
+    boost::optional<poplar::Tensor> &output,
+    boost::optional<poplar::Tensor> &originalOutput,
+    const std::vector<std::size_t> outputShape, poplar::Type outputType,
+    ReduceParams params, poplar::Type inVertexType, ComputeSetList &css,
+    ResultTensors &reductionResultTensors, const poplar::Tensor &in,
+    const ReduceManyInfo &reductionId, const poplar::DebugNameAndId &dnai);
 
 unsigned findGrainSizeForOp(poplar::Graph &graph, poplar::Type partialType,
                             popops::Operation &operation);
