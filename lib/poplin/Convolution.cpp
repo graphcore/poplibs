@@ -263,6 +263,20 @@ linearizeTileIndices(const Target &target, const ConvOptions &opts,
   return ipu * tilesPerIpu + tile % tilesPerIpu;
 }
 
+static unsigned getParallelSplitBegin(unsigned index, unsigned dimSize,
+                                      unsigned splitCount) {
+  assert(index <= splitCount);
+  const auto splitSize = dimSize / splitCount;
+  const auto remainder = dimSize % splitCount;
+  // Handle splits of dimensions that aren't multiples of the split count
+  // by including an extra element in the last $remainder splits.
+  // This ensures that if this is being used to calculate split positions
+  // wrt grains rather than individual elements, and the dimension size also
+  // isn't a multiple of the grain size, then we don't end up with an especially
+  // short last split.
+  return index * splitSize + (index - std::min(index, splitCount - remainder));
+}
+
 static std::pair<unsigned, unsigned>
 getTileOutRange(const CanonicalConvParams &params, const Partition &partition,
                 unsigned tileIndex, unsigned dim) {
@@ -271,11 +285,13 @@ getTileOutRange(const CanonicalConvParams &params, const Partition &partition,
   const auto numGrains = gccs::ceildiv(outSize, grainSize);
   const auto split = partition.fieldSplit[dim];
 
-  const auto outGrainBegin = (tileIndex * numGrains) / split;
-  const auto outGrainEnd = ((tileIndex + 1) * numGrains) / split;
+  const auto outGrainBegin = getParallelSplitBegin(tileIndex, numGrains, split);
+  const auto outGrainEnd =
+      getParallelSplitBegin(tileIndex + 1, numGrains, split);
 
   const auto outBegin = outGrainBegin * grainSize;
-  const auto outEnd = std::min(outGrainEnd * grainSize, outSize);
+  const auto outEnd =
+      (tileIndex + 1 == split) ? outSize : (outGrainEnd * grainSize);
 
   return {outBegin, outEnd};
 }
@@ -454,24 +470,30 @@ void iteratePartitionParallel(
   const auto totalKernelSplit = product(partition.kernelSplit);
 
   for (unsigned cg = 0; cg != convGroupSplit; ++cg) {
-    const auto convGroupGrainBegin = (cg * convGroupNumGrains) / convGroupSplit;
+    const auto convGroupGrainBegin =
+        getParallelSplitBegin(cg, convGroupNumGrains, convGroupSplit);
     const auto convGroupGrainEnd =
-        ((cg + 1) * convGroupNumGrains) / convGroupSplit;
+        getParallelSplitBegin(cg + 1, convGroupNumGrains, convGroupSplit);
+
     const auto cgBegin = convGroupGrainBegin * convGroupGrainSize;
-    const auto cgEnd =
-        std::min(convGroupGrainEnd * convGroupGrainSize, numConvGroups);
+    const auto cgEnd = (cg + 1 == convGroupSplit)
+                           ? numConvGroups
+                           : (convGroupGrainEnd * convGroupGrainSize);
 
     for (unsigned b = 0; b != batchSplit; ++b) {
-      const auto batchBegin = (b * batchSize) / batchSplit;
-      const auto batchEnd = ((b + 1) * batchSize) / batchSplit;
+      const auto batchBegin = getParallelSplitBegin(b, batchSize, batchSplit);
+      const auto batchEnd = getParallelSplitBegin(b + 1, batchSize, batchSplit);
+
       for (unsigned ic = 0; ic != inChanSplit.parallel; ++ic) {
         const auto inChanGrainBegin =
-            (ic * inChanNumGrains) / inChanSplit.parallel;
-        const auto inChanGrainEnd =
-            ((ic + 1) * inChanNumGrains) / inChanSplit.parallel;
+            getParallelSplitBegin(ic, inChanNumGrains, inChanSplit.parallel);
+        const auto inChanGrainEnd = getParallelSplitBegin(
+            ic + 1, inChanNumGrains, inChanSplit.parallel);
+
         const auto inChanBegin = inChanGrainBegin * inChanGrainSize;
-        const auto inChanEnd =
-            std::min(inChanGrainEnd * inChanGrainSize, numInChans);
+        const auto inChanEnd = (ic + 1 == inChanSplit.parallel)
+                                   ? numInChans
+                                   : (inChanGrainEnd * inChanGrainSize);
 
         for (unsigned k = 0; k != totalKernelSplit; ++k) {
           auto kernelIndices = unflattenIndex(partition.kernelSplit, k);
@@ -479,20 +501,22 @@ void iteratePartitionParallel(
               kernelEnd(numFieldDims);
           for (unsigned dim = 0; dim != numFieldDims; ++dim) {
             const auto kernelSize = params->kernelShape[dim];
-            kernelBegin[dim] =
-                (kernelIndices[dim] * kernelSize) / partition.kernelSplit[dim];
-            kernelEnd[dim] = ((kernelIndices[dim] + 1) * kernelSize) /
-                             partition.kernelSplit[dim];
+            kernelBegin[dim] = getParallelSplitBegin(
+                kernelIndices[dim], kernelSize, partition.kernelSplit[dim]);
+            kernelEnd[dim] = getParallelSplitBegin(
+                kernelIndices[dim] + 1, kernelSize, partition.kernelSplit[dim]);
           }
 
           for (unsigned oc = 0; oc != outChanSplit.parallel; ++oc) {
-            const auto outChanGrainBegin =
-                (oc * outChanNumGrains) / outChanSplit.parallel;
-            const auto outChanGrainEnd =
-                ((oc + 1) * outChanNumGrains) / outChanSplit.parallel;
+            const auto outChanGrainBegin = getParallelSplitBegin(
+                oc, outChanNumGrains, outChanSplit.parallel);
+            const auto outChanGrainEnd = getParallelSplitBegin(
+                oc + 1, outChanNumGrains, outChanSplit.parallel);
+
             const auto outChanBegin = outChanGrainBegin * outChanGrainSize;
-            const auto outChanEnd =
-                std::min(outChanGrainEnd * outChanGrainSize, numOutChans);
+            const auto outChanEnd = (oc + 1 == outChanSplit.parallel)
+                                        ? numOutChans
+                                        : (outChanGrainEnd * outChanGrainSize);
 
             for (unsigned of = 0; of != totalFieldSplit; ++of) {
               auto outIndices = unflattenIndex(partition.fieldSplit, of);
