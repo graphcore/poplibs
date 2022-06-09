@@ -131,10 +131,11 @@ poplar::Tensor shapedDropout(poplar::Graph &graph, const poplar::Tensor *seed,
  *  Generates random data with uniform distribution in the interval [\p minVal,
  *  \p maxVal]. The output may be of type \c float, \c half or \c int.
  *
- *  For type \c int, data is generated in the interval [\p minVal, \p maxVal]
- *  with uniform probability if (\p maxVal - \p minVal) is a power of 2.
- *  Otherwise there will be a small bias in the probability generated, with the
- *  bias directly proportional to the ratio (\p maxVal - \p minVal + 1 ) / 2^32.
+ *  For type \c int, data is generated in the interval [\p minVal, \p maxVal].
+ *  If (\p maxVal - \p minVal + 1) is a power of 2, the probability
+ *  distribution is uniform. Otherwise, there will be a small bias in the
+ *  probability generated, with the bias directly proportional to the ratio
+ *  (\p maxVal - \p minVal + 1 ) / 2^32.
  *
  *  \param graph            The graph to add this operation to.
  *  \param seed             If not null, this is a pair of 32-bit integers used
