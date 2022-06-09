@@ -1095,8 +1095,7 @@ BOOST_AUTO_TEST_CASE(StdCast,
   }
 }
 
-BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
-                     *boost::unit_test::precondition(enableIfIpu21())) {
+BOOST_AUTO_TEST_CASE(CastHalfQuarterWithOutput) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
 
@@ -1104,57 +1103,50 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalfWithOutput,
   popops::addCodelets(graph);
 
   // Choose a small numeric range which is supported by the FP8 type
-  // TODO - T57103 create real quarter data
   const unsigned modulo = 10;
   std::vector<float> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     hIn[i] = (float)(i % modulo);
   }
-  // TODO - T57103 won't need an intermediate cast once we can copy data to the
-  // IPU, or is this a useful test anyhow?
   auto in = graph.addVariable(HALF, {DIM_SIZE}, "in");
-
-  auto metadata =
-      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 0);
-  auto inter = graph.addVariable(QUARTER, metadata, {DIM_SIZE}, "inter");
-  auto out = graph.addVariable(HALF, {DIM_SIZE}, "out");
+  const auto outMetadata = QuarterMetadata(QuarterMetadata::Format::F143, -1);
+  auto metadataTensor = createVariableMetadataTensor(
+      graph, outMetadata.getFormat(), outMetadata.getScale());
+  auto out = graph.addVariable(QUARTER, metadataTensor, {DIM_SIZE}, "out");
   mapTensorLinearly(graph, in);
-  mapTensorLinearly(graph, inter);
   mapTensorLinearly(graph, out);
   graph.createHostWrite("in", in);
 
   auto prog = Sequence();
 
-  prog.add(cast(graph, in, inter, "castToFP8"));
-
-  auto cs = graph.addComputeSet("castToHalf");
-  cast(graph, inter, out, cs);
+  auto cs = graph.addComputeSet("castToQuarter");
+  cast(graph, in, out, cs);
   prog.add(Execute(cs));
 
   graph.createHostRead("out", out);
+  QuarterMetadata resultMetadata;
+  std::vector<Quarter> hOut(DIM_SIZE);
+
   auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
   std::vector<char> rawIn(rawBufSize);
-  std::vector<char> rawOut(rawBufSize);
-  poplar::copyFloatToDeviceHalf(target, &hIn[0], rawIn.data(), DIM_SIZE);
+  poplar::copyFloatToDeviceHalf(target, hIn.data(), rawIn.data(), DIM_SIZE);
 
   Engine eng(graph, Sequence{prog});
   device.bind([&](const Device &d) {
     eng.load(d);
     eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
     eng.run();
-    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
+    eng.readTensor("out", resultMetadata, gccs::ArrayRef(hOut));
   });
-  std::vector<float> hOut(DIM_SIZE);
-  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0], DIM_SIZE);
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hOut[i] == i % modulo);
+    BOOST_TEST(hOut[i] == Quarter(i % modulo, resultMetadata));
   }
+  BOOST_TEST(resultMetadata == outMetadata);
 }
 
-BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
-                     *boost::unit_test::precondition(enableIfIpu21())) {
+BOOST_AUTO_TEST_CASE(CastHalfQuarter) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
 
@@ -1162,7 +1154,6 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
   popops::addCodelets(graph);
 
   // Choose a small numeric range which is supported by the FP8 type
-  // TODO - T57103 create real quarter data
   const unsigned modulo = 10;
   std::vector<float> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1174,22 +1165,70 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
 
   auto prog = Sequence();
 
-  // TODO - T57103 won't need an intermediate cast once we can copy data to the
-  // IPU, or is this a useful test anyhow?
-  poplar::Tensor metadata =
-      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 0);
-  poplar::Tensor inter = cast(graph, in, QUARTER, metadata, prog, "castToFP8");
-  poplar::Tensor out = cast(graph, inter, HALF, prog, "castToHalf");
+  auto cs = graph.addComputeSet("castToHalf");
+  const auto outMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 1);
+  auto metadataTensor = createVariableMetadataTensor(
+      graph, outMetadata.getFormat(), outMetadata.getScale());
+  auto out = cast(graph, in, QUARTER, metadataTensor, cs);
+  prog.add(Execute(cs));
+
   graph.createHostRead("out", out);
+  QuarterMetadata resultMetadata;
+  std::vector<Quarter> hOut(DIM_SIZE);
+
   auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
   std::vector<char> rawIn(rawBufSize);
-  std::vector<char> rawOut(rawBufSize);
-  poplar::copyFloatToDeviceHalf(target, &hIn[0], rawIn.data(), DIM_SIZE);
+  poplar::copyFloatToDeviceHalf(target, hIn.data(), rawIn.data(), DIM_SIZE);
 
   Engine eng(graph, Sequence{prog});
   device.bind([&](const Device &d) {
     eng.load(d);
     eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
+    eng.run();
+    eng.readTensor("out", resultMetadata, gccs::ArrayRef(hOut));
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    BOOST_TEST(hOut[i] == Quarter(i % modulo, resultMetadata));
+  }
+  BOOST_TEST(resultMetadata == outMetadata);
+}
+
+BOOST_AUTO_TEST_CASE(CastQuarterHalfWithOutput) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  // Choose a small numeric range which is supported by the FP8 type
+  const auto inMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 0);
+  const unsigned modulo = 10;
+  std::vector<Quarter> hIn(DIM_SIZE);
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    hIn[i] = Quarter((float)(i % modulo), inMetadata);
+  }
+  auto in = graph.addVariable(QUARTER, {DIM_SIZE}, "in");
+  auto out = graph.addVariable(HALF, {DIM_SIZE}, "out");
+  mapTensorLinearly(graph, in);
+  mapTensorLinearly(graph, out);
+  graph.createHostWrite("in", in);
+
+  auto prog = Sequence();
+
+  auto cs = graph.addComputeSet("castToHalf");
+  cast(graph, in, out, cs);
+  prog.add(Execute(cs));
+
+  graph.createHostRead("out", out);
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
+  std::vector<char> rawOut(rawBufSize);
+
+  Engine eng(graph, Sequence{prog});
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", inMetadata, ArrayRef(hIn));
     eng.run();
     eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
   });
@@ -1202,15 +1241,54 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterHalf,
   }
 }
 
-BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
-                     *boost::unit_test::precondition(enableIfIpu21())) {
+BOOST_AUTO_TEST_CASE(CastQuarterHalf) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  // Choose a small numeric range which is supported by the FP8 type
+  const auto inMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 0);
+  const unsigned modulo = 10;
+  std::vector<Quarter> hIn(DIM_SIZE);
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    hIn[i] = Quarter((float)(i % modulo), inMetadata);
+  }
+  auto in = graph.addVariable(QUARTER, {DIM_SIZE}, "in");
+  mapTensorLinearly(graph, in);
+  graph.createHostWrite("in", in);
+
+  auto prog = Sequence();
+
+  poplar::Tensor out = cast(graph, in, HALF, prog, "castToHalf");
+  graph.createHostRead("out", out);
+  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
+  std::vector<char> rawOut(rawBufSize);
+
+  Engine eng(graph, Sequence{prog});
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", inMetadata, hIn);
+    eng.run();
+    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
+  });
+  std::vector<float> hOut(DIM_SIZE);
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0], DIM_SIZE);
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    BOOST_TEST(hOut[i] == i % modulo);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(CastCharQuarterChar) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
 
   // Choose a small numeric range which is supported by the FP8 type
-  // TODO - T57103 create real quarter data
   const unsigned modulo = 10;
   std::vector<char> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1222,8 +1300,6 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
 
   auto prog = Sequence();
 
-  // TODO - T57103 won't need an intermediate cast once we can copy data to the
-  // IPU, or is this a useful test anyhow?
   poplar::Tensor metadata =
       createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, -1);
   poplar::Tensor inter = cast(graph, in, QUARTER, metadata, prog, "castToFP8");
@@ -1245,8 +1321,7 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar,
   }
 }
 
-BOOST_AUTO_TEST_CASE(CastQuarterQuarter,
-                     *boost::unit_test::precondition(enableIfIpu21())) {
+BOOST_AUTO_TEST_CASE(CastQuarterQuarter) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
   Graph graph(target);

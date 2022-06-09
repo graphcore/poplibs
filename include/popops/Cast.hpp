@@ -116,7 +116,7 @@ poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
  * \return              Resultant destination tensor.
  */
 poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
-                    const poplar::Type &dstType, poplar::Tensor &metadata,
+                    const poplar::Type &dstType, const poplar::Tensor &metadata,
                     poplar::ComputeSet cs,
                     const poplar::DebugContext &debugContext = {});
 

@@ -122,7 +122,6 @@ void writeRandomValues(const Target &target, const Type &type, T *begin, T *end,
     boost::random::uniform_int_distribution<unsigned> dist(0, 1);
     writeValues(begin, end, [&]() { return dist(randomEngine); });
   } else if (type == poplar::QUARTER) {
-    // TODO - T57103 Revise range once we can copy quarter data to the IPU
     boost::random::uniform_int_distribution<int> dist(min, max);
     writeValues(begin, end, [&]() { return dist(randomEngine); });
   } else {

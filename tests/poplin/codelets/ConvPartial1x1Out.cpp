@@ -14,6 +14,7 @@
 #include "poputil/exceptions.hpp"
 #include <boost/multi_array.hpp>
 #include <functional>
+#include <poplar/ArrayRef.hpp>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
 
@@ -330,10 +331,9 @@ void runTest(const struct TestParams &t) {
   boost::multi_array<float, 2> outHost{outShape};
   outHost = outBuf;
 
-  const auto hostInType = isFp8 ? HALF : t.inType;
-  Tensor in = graph.addVariable(hostInType, inShape, "in");
+  Tensor in = graph.addVariable(t.inType, inShape, "in");
   Tensor out = graph.addVariable(t.accumType, outShape, "out");
-  Tensor weights = graph.addVariable(hostInType, wShape, "weights");
+  Tensor weights = graph.addVariable(t.inType, wShape, "weights");
 
   graph.setTileMapping(in, 0);
   graph.setTileMapping(weights, 0);
@@ -352,29 +352,8 @@ void runTest(const struct TestParams &t) {
                                      worklistsBuf.data(), "worklists");
   graph.setTileMapping(worklists, 0);
   graph.connect(v["worklists"], worklists);
-
-  if (isFp8) {
-    // Applying a scale in metadata should result in casting half->fp8 and
-    // applying 2^(-scale) for both weights and in, so the values stored as fp8
-    // are smaller.
-    // But then when doing the convolution 2^(scaleWeights + scaleIn) should be
-    // applied so we get the same result.  (Subject to values being
-    // representable in each number format)
-    auto weightsMetadata = createConstantMetadataTensor(
-        graph, t.weightFp8Format, t.weightFp8Scale);
-    auto inMetadata =
-        createConstantMetadataTensor(graph, t.inputFp8Format, t.inputFp8Scale);
-
-    // TODO - T57103 won't need an on-IPU cast once we can copy data to the IPU
-    auto inFp8 = popops::cast(graph, in, QUARTER, inMetadata, prog, "CastIn");
-    auto weightsFp8 = popops::cast(graph, weights, QUARTER, weightsMetadata,
-                                   prog, "CastWeights");
-    graph.connect(v["in"], inFp8);
-    graph.connect(v["weights"], weightsFp8);
-  } else {
-    graph.connect(v["in"], in);
-    graph.connect(v["weights"], weights);
-  }
+  graph.connect(v["in"], in);
+  graph.connect(v["weights"], weights);
 
   graph.createHostWrite("in", in);
   graph.createHostWrite("out", out);
@@ -407,7 +386,8 @@ void runTest(const struct TestParams &t) {
     // A couple of local functions to write/read tensors with the appropriate
     // conversions between HALF and FLOAT, if necessary.
     auto writeTensorData = [&](const Type &type, const std::string &name,
-                               const boost::multi_array<float, 2> &buf) {
+                               const boost::multi_array<float, 2> &buf,
+                               boost::optional<QuarterMetadata> metadata) {
       if (type == FLOAT) {
         e.writeTensor(name, buf.data(), buf.data() + buf.num_elements());
       } else if (type == HALF) {
@@ -415,6 +395,11 @@ void runTest(const struct TestParams &t) {
         std::vector<char> tmpBuf(nBytes);
         copy(target, buf.data(), buf.num_elements(), type, tmpBuf.data());
         e.writeTensor(name, tmpBuf.data(), tmpBuf.data() + nBytes);
+      } else if (type == QUARTER) {
+        std::vector<Quarter> bufFp8(buf.num_elements());
+        copy(target, buf.data(), buf.num_elements(), QUARTER, *metadata,
+             bufFp8.data());
+        e.writeTensor(name, *metadata, ArrayRef(bufFp8));
       }
     };
     auto readTensorData = [&](const Type &type, const std::string &name,
@@ -429,9 +414,11 @@ void runTest(const struct TestParams &t) {
       }
     };
     e.load(d);
-    writeTensorData(hostInType, "in", inBuf);
-    writeTensorData(hostInType, "weights", weightsBuf);
-    writeTensorData(t.accumType, "out", outBuf);
+    writeTensorData(t.inType, "in", inBuf,
+                    QuarterMetadata(t.inputFp8Format, t.inputFp8Scale));
+    writeTensorData(t.inType, "weights", weightsBuf,
+                    QuarterMetadata(t.weightFp8Format, t.weightFp8Scale));
+    writeTensorData(t.accumType, "out", outBuf, boost::none);
     e.run();
     readTensorData(t.accumType, "out", outBuf);
   });

@@ -9,6 +9,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/Program.hpp>
+#include <poplar_test/Util.hpp>
 #include <poplibs_support/MultiArray.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/logging.hpp>
@@ -20,10 +21,12 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
+
 #include <vector>
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplar_test;
 using namespace poputil;
 using namespace popops;
 using namespace poplibs_support;
@@ -86,12 +89,6 @@ multiSlice(const DeviceType &deviceType, const unsigned numIPUs,
                                          sliceSizes, plan, sliceOptions, "t");
 
   Sequence prog;
-  if (dataType.requiresMetadata()) {
-    // TODO T57103 - Consider write this in with the data rather than this copy
-    auto metadata =
-        createConstantMetadataTensor(graph, QuarterMetadata::Format::F152, 1);
-    prog.add(Copy(metadata, t.getMetadata()));
-  }
 
   std::mt19937 randomEngine;
   auto indices =
@@ -129,13 +126,13 @@ multiSlice(const DeviceType &deviceType, const unsigned numIPUs,
 
   copy(target, indices, indicesType, rawOffsets.data());
 
-  // Type QUARTER is copied as UNSIGNED_CHAR because poplar_test copy
-  // functions do not yet support copying data of type QUARTER.
-  // T57103: This work around in poplibs must be removed after QUARTER
-  // support has been added to poplar_test copy functions.
-  Type dataTypeForCopy = (dataType == QUARTER) ? UNSIGNED_CHAR : dataType;
-  copy(target, hIn, dataTypeForCopy, rawHIn.data());
-
+  const auto metadata = QuarterMetadata(QuarterMetadata::Format::F152, 1);
+  if (dataType.requiresMetadata()) {
+    copy(target, hIn.data(), hIn.numElements(), dataType, metadata,
+         rawHIn.data());
+  } else {
+    copy(target, hIn, dataType, rawHIn.data());
+  }
   // Engine creation will fail for non-cpu targets if many edge pointers or
   // significant exchange is required; this should not happen if
   // createSliceableTensor() has given a good layout
@@ -153,8 +150,13 @@ multiSlice(const DeviceType &deviceType, const unsigned numIPUs,
     eng.run();
     eng.readTensor("out", rawHOut.data(), rawHOut.data() + rawHOut.size());
   });
-
-  copy(target, dataTypeForCopy, rawHOut.data(), hOut);
+  QuarterMetadata metadataOut;
+  if (dataType.requiresMetadata()) {
+    copy(target, dataType, metadataOut, rawHOut.data(), hOut.data(),
+         hOut.numElements());
+  } else {
+    copy(target, dataType, rawHOut.data(), hOut);
+  }
   bool matches = true;
   for (unsigned g = 0; g != groupSize; ++g) {
     for (unsigned i = 0; i != numIndices; ++i) {
@@ -290,32 +292,34 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
                  [](double x) { return static_cast<int>(x * 16) % 16; });
 
   // copy base to expected
-  // TODO T57103 eventually we should be able to copy as the QUARTER type
-  const auto copyDataType = dataType == QUARTER ? UNSIGNED_CHAR : dataType;
   std::copy(hOut.data(), hOut.data() + hOut.numElements(), expected.data());
 
   std::vector<char> rawOffsets(target.getTypeSize(indicesType) *
                                indices.numElements());
-  std::vector<char> rawIn(target.getTypeSize(copyDataType) * hIn.numElements());
-  std::vector<char> rawOut(target.getTypeSize(copyDataType) *
-                           hOut.numElements());
+  std::vector<char> rawIn(target.getTypeSize(dataType) * hIn.numElements());
+  std::vector<char> rawOut(target.getTypeSize(dataType) * hOut.numElements());
   std::vector<char> rawScaleIn(target.getTypeSize(scaleTensorType));
-
-  MultiArray<float> scalingF{1};
-  scalingF[0] = updateScaling;
-
-  // Type QUARTER is copied as UNSIGNED_CHAR because poplar_test copy
-  // functions do not yet support copying data of type QUARTER.
-  // T57103: This work around in poplibs must be removed after QUARTER
-  // support has been added to poplar_test copy functions.
-  Type dataTypeForCopy = (dataType == QUARTER) ? UNSIGNED_CHAR : dataType;
-  Type scaleTensorTypeForCopy =
-      (scaleTensorType == QUARTER) ? UNSIGNED_CHAR : scaleTensorType;
-  copy(target, scalingF, scaleTensorTypeForCopy, rawScaleIn.data());
+  const auto metadata = QuarterMetadata(QuarterMetadata::Format::F143, 2);
+  if (scaleTensorType.requiresMetadata()) {
+    MultiArray<float> scalingF{1};
+    scalingF[0] = updateScaling;
+    copy(target, scalingF.data(), scalingF.numElements(), scaleTensorType,
+         metadata, rawScaleIn.data());
+  } else {
+    MultiArray<float> scalingF{1};
+    scalingF[0] = updateScaling;
+    copy(target, scalingF, scaleTensorType, rawScaleIn.data());
+  }
   copy(target, indices, indicesType, rawOffsets.data());
-  copy(target, hIn, dataTypeForCopy, rawIn.data());
-  copy(target, hOut, dataTypeForCopy, rawOut.data());
-
+  if (dataType.requiresMetadata()) {
+    copy(target, hIn.data(), hIn.numElements(), dataType, metadata,
+         rawIn.data());
+    copy(target, hOut.data(), hOut.numElements(), dataType, metadata,
+         rawOut.data());
+  } else {
+    copy(target, hIn, dataType, rawIn.data());
+    copy(target, hOut, dataType, rawOut.data());
+  }
   Engine eng(graph, prog, engineOptions);
   device.bind([&](const Device &d) {
     eng.load(d);
@@ -330,7 +334,13 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
     eng.run();
     eng.readTensor("outT", rawOut.data(), rawOut.data() + rawOut.size());
   });
-  copy(target, dataTypeForCopy, rawOut.data(), hOut);
+  QuarterMetadata metadataOut;
+  if (dataType.requiresMetadata()) {
+    copy(target, dataType, metadataOut, rawOut.data(), hOut.data(),
+         hOut.numElements());
+  } else {
+    copy(target, dataType, rawOut.data(), hOut);
+  }
 
   for (unsigned g = 0; g != groupSize; ++g) {
     for (unsigned i = 0; i != numIndices; ++i) {
@@ -363,6 +373,9 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
         }
       }
     }
+  }
+  if (dataType.requiresMetadata() && metadata != metadataOut) {
+    matches = false;
   }
   return matches;
 }
