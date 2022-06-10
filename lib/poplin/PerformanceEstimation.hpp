@@ -475,7 +475,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimateQuarter(
                                  ? 0
                                  : std::numeric_limits<uint64_t>::max();
 
-  const auto overhead = 20;
+  const auto overhead = 17;
   for (const auto &worker : workerPartitions) {
     // 1x1 vertex doesn't support more than one worklist item per worker.
     assert(worker.size() <= 1);
@@ -486,16 +486,16 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimateQuarter(
       const unsigned outputZeroSaving = outputZeroing ? 5 : 0;
       switch (numElems) {
       case 0:
-        thisWorkerCycles += 0;
+        thisWorkerCycles += 4;
         break;
       case 1:
-        thisWorkerCycles += 17 - outputZeroSaving;
+        thisWorkerCycles += 18 - outputZeroSaving;
         break;
       case 2:
-        thisWorkerCycles += 22 - outputZeroSaving;
+        thisWorkerCycles += 23 - outputZeroSaving;
         break;
       default:
-        thisWorkerCycles += 29 - outputZeroSaving + (numElems - 3) * coreCycles;
+        thisWorkerCycles += 27 - outputZeroSaving + (numElems - 3) * coreCycles;
       }
     }
 
@@ -779,22 +779,22 @@ static std::uint64_t inline getConvPartialnx1WorkerCyclesQuarter(
   auto coreCycles = 4;
 
   const auto overhead = 18;
-  const auto worklistLoopOverhead = 22;
+  const auto worklistLoopOverhead = 16;
   std::uint64_t cycles = overhead;
   for (auto &numElems : worklist) {
     cycles += worklistLoopOverhead;
     switch (numElems) {
     case 0:
-      cycles += 0;
+      cycles += 4;
       break;
     case 1:
-      cycles += 17;
+      cycles += 18;
       break;
     case 2:
-      cycles += 22;
+      cycles += 23;
       break;
     default:
-      cycles += 29 + (numElems - 3) * coreCycles;
+      cycles += 27 + (numElems - 3) * coreCycles;
     }
     cycles -= retentionSavings;
   }

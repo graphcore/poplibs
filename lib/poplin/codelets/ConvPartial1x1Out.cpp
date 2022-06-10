@@ -71,7 +71,8 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR, weightsAlign, use128BitLoad>>, ONE_PTR,
          4>
       weights;
-  Vector<Output<Vector<AccumType, ONE_PTR, 16, true>>, ONE_PTR, 4> out;
+  static constexpr unsigned outAlign = std::is_same_v<FPType, quarter> ? 8 : 16;
+  Vector<Output<Vector<AccumType, ONE_PTR, outAlign, true>>, ONE_PTR, 4> out;
   Input<Vector<WorkListType, ONE_PTR, 4>> worklists;
   const UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this
@@ -221,8 +222,7 @@ public:
     auto partitionOffset = 3 * getWid();
     auto state = workerState<WorkerState1x1<unsigned short>>();
     int loops = *reinterpret_cast<const short *>(state->partition +
-                                                 partitionOffset + 1) +
-                3;
+                                                 partitionOffset + 1);
     constexpr auto outputVectorWidth = 4;
     constexpr auto inputVectorWidth = 8;
 
@@ -241,8 +241,7 @@ public:
     auto partitionOffset = 3 * getWid();
     auto state = workerState<WorkerState1x1<unsigned short>>();
     int loops = *reinterpret_cast<const short *>(state->partition +
-                                                 partitionOffset + 1) +
-                3;
+                                                 partitionOffset + 1);
     constexpr auto outputVectorWidth = 4;
     constexpr auto inputVectorWidth = 8;
 
@@ -276,7 +275,7 @@ public:
   Vector<Input<Vector<FPType, ONE_PTR, weightsAlign, use128BitLoad>>, ONE_PTR,
          4>
       weights;
-  Vector<Output<Vector<AccumType, ONE_PTR, 16, true>>, ONE_PTR, 4> out;
+  Vector<Output<Vector<AccumType, ONE_PTR, 8, true>>, ONE_PTR, 4> out;
   Input<Vector<WorkListType, ONE_PTR, 4>> worklists;
   const UnsignedType numConvGroupsM1;
   // Actual value is 1 more than this

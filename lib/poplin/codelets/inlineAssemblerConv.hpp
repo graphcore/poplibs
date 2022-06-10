@@ -222,15 +222,19 @@ convQuarterHalfLoop(const quarter *inPtr, half *outPtr, unsigned loops,
     )l" ::
             :);
   }
+
   asm volatile(
       R"l(
-            // Decrement the counter, exit if nothing to do
-            // Use FP_CLR to clear the accumulators
-            {brnzdec %[loops], 1f
-             setzi $a0, %[ZAACC_MASK]}
+             // loops = outs -3.  Fast forward to the >=3 loops fast path
+             {brpos %[loops], 5f
+              setzi $a0, %[ZAACC_MASK]}
+             // -3 -2 -1  => 0 1 2
+             {add %[loops], %[loops], 3
+              uput $FP_CLR, $a0}
+             brnzdec %[loops], 1f
+             // Nothing to do for this worker so exit
              bri 8f
-          1:
-          .if ZERO_PARTIALS == 0
+
             // General addressing pattern for partials, outputs:
             // Forward 1 (3 times), back inOutStride
             //  8 9 a b, 4 5 6 7,  0 1 2 3
@@ -242,9 +246,10 @@ convQuarterHalfLoop(const quarter *inPtr, half *outPtr, unsigned loops,
             // twice to $azeros in one bundle
             // ld2x64pace: 0bxxyy stride select:
             // xx=partialsInPtr, yy=inPtr
+          1:
+          .if ZERO_PARTIALS == 0
+            ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0011
 
-            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0011
-              uput $FP_CLR, $a0}
             {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0011
              amp $azeros, $azeros, $a2:3, %[TAMP_F16V4_E4_P1]}
 
@@ -256,23 +261,27 @@ convQuarterHalfLoop(const quarter *inPtr, half *outPtr, unsigned loops,
             // to avoid overreads when we fetch unused partials
             {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1111
              amp $azeros, $azeros, $a2:3, %[TAMP_F16V4_E4_P1]}
-          .else
-            // Check for the case of 1 output
-            {brnzdec %[loops], 2f
-             uput $FP_CLR, $a0}
-          .endif
 
             // This is the first genuine load of the input, and increments the
             // pointer
             {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0000
              amp $azeros, $azeros, $a2:3, %[TAMP_F16V4_E4_P1]}
+          .else
+            // Check for the case of 1 output
+            brnzdec %[loops], 2f
 
-             // Push in a genuine input (and next set of partials)
-             // Phase 0..3
-            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0000
+            // This is the first genuine load of the input, and increments the
+            // pointer
+            ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0000
+          .endif
+
+            // ***** One output *****
+            // Push in a genuine input (and next set of partials)
+            // Phase 0..3
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1100
              amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P0]}
 
-            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0000
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1100
              amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P1]}
 
             // For 1 output avoid striding the partials pointer and then
@@ -287,8 +296,7 @@ convQuarterHalfLoop(const quarter *inPtr, half *outPtr, unsigned loops,
             {bri 7f
              amp $a4:5, $azeros, $azeros, %[TAMP_F16V4_E4_P0]}
 
-
-          // Continue: 2 or more outputs
+          // ***** Two outputs *****
           1:
             {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1011
              amp $azeros, $azeros, $a2:3, %[TAMP_F16V4_E4_P1]}
@@ -306,10 +314,6 @@ convQuarterHalfLoop(const quarter *inPtr, half *outPtr, unsigned loops,
             {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0000
              amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P1]}
 
-
-          // Check for the case of 2 outputs
-            brnzdec %[loops], 1f
-
             // There are 2 outputs - avoid the stride in the partials load
             // to avoid overreads when we fetch unused partials
             {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1001
@@ -322,10 +326,41 @@ convQuarterHalfLoop(const quarter *inPtr, half *outPtr, unsigned loops,
             {ld2x64pace $a4:5, $a6:7, %[triAddr]+=, %[strides], 0b0000
              amp $a0:1, $a0:1, $a4:5, %[TAMP_F16V4_E4_P0]}
             bri 6f
-          .align 8
+            //  Always branches to tail of >=3 path
+         .align 8
             nop // Repeat alignment
 
-          1:
+          // ***** Fast path to fall through if >=3 "loops" *****
+          5:
+          .if ZERO_PARTIALS == 0
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0011
+              uput $FP_CLR, $a0}
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0011
+             amp $azeros, $azeros, $a2:3, %[TAMP_F16V4_E4_P1]}
+
+            {ld2x64pace $a0:1, $a2:3,  %[triAddr]+=, %[strides], 0b0011
+             amp $azeros, $azeros, $a2:3, %[TAMP_F16V4_E4_P1]}
+
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1011
+             amp $azeros, $azeros, $a2:3, %[TAMP_F16V4_E4_P1]}
+
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0000
+             amp $azeros, $azeros, $a2:3, %[TAMP_F16V4_E4_P1]}
+          .else
+            // This is the first genuine load of the input, and increments the
+            // pointer
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0000
+             uput $FP_CLR, $a0}
+          .endif
+
+             // Push in a genuine input (and next set of partials)
+             // Phase 0..3
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0000
+             amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P0]}
+
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0000
+             amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P1]}
+
             {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1001
              amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P2]}
 
