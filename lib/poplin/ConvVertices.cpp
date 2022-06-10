@@ -1060,7 +1060,7 @@ static void createConvPartialAmpVertex(
     int outStridePlusX = transformedOutStride + stepOverSecondPtr;
     int outStrideStep = 1 + stepOverSecondPtr;
 
-    // Some workers require diffrent strides to load/store partials
+    // Some workers require different strides to load/store partials
     // due to unique load/store patterns constrained by load/store bandwidth
     if ((method.convUnits == 8) && (in.elementType() == HALF) &&
         (out.elementType() == HALF)) {
@@ -1664,7 +1664,7 @@ static void createConvPartialHorizontalMacVertex(
                              outChansPerGroup;
 
   // Due to a fact that HMAC codelet for half partials process 2 partials in one
-  // loop iterration transformedOutStride need to be adjusted accordingly
+  // loop iteration transformedOutStride need to be adjusted accordingly
   if (plan.types.back().partialType == poplar::HALF) {
     transformedOutStride /= 2;
   }

@@ -100,13 +100,13 @@ public:
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const unsigned numOutGroups = numOutGroupsM1 + 1;
 
-    const int inStride = reverseTransfromedInStride(
+    const int inStride = reverseTransformedInStride(
         transformedInStride, convInputLoadElems, inChansPerGroup);
 
     // For AMP 1x1 output stride is always 1 hence calling
-    // reverseTransfromedOutStride just to get flipOut parameter
+    // reverseTransformedOutStride just to get flipOut parameter
     const bool flipOut =
-        reverseTransfromedOutStride(transformedOutStride,
+        reverseTransformedOutStride(transformedOutStride,
                                     std::is_same<AccumType, float>(),
                                     numConvUnits, outChansPerGroup)
             .first;

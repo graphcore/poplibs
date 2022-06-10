@@ -503,7 +503,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               // Temporary memory is used to store the partial outputs of
               // each worker.  These partials are independent from each
               // other and they are sized for the whole output. Since all
-              // the partials need to be intialised to zero by every worker,
+              // the partials need to be initialised to zero by every worker,
               // the Zeroing estimation does not need to take the number of
               // worker contexts as an argument.
               auto zeroCycles =
@@ -755,7 +755,7 @@ static void truncateDilateAndPadInput(
 
 // returns a pair of cycles and memory that estimate the cost of applying the
 // passed in kernel and input padding. currently uses a very basic of model
-// based around the nunber of zeros.
+// based around the number of zeros.
 static std::pair<popsolver::Variable, popsolver::Variable>
 applyPadding(popsolver::Model &m, const poplar::Target &target,
              const poplar::Type inputType,
@@ -1540,10 +1540,10 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
 
     auto getCycles = [](unsigned atomSize,
                         const uint64_t &bytesPerTile) -> uint64_t {
-      // Bytes to cycles convertions model is based on regression
-      // analysis of 10k random test and can be repsented as following:
+      // Bytes to cycles conversions model is based on regression
+      // analysis of 10k random test and can be represented as following:
       // cycles = 587 + 5.1484 * a2 + 3.125 * a4 + 0.4404 * a8 where aX
-      // is bytes per atom size. All coefficiens below are scaled by 1024
+      // is bytes per atom size. All coefficients below are scaled by 1024
       uint64_t cycles = 587;
       if (atomSize % 8 == 0) {
         cycles += 451 * bytesPerTile / 1024;
@@ -2123,7 +2123,7 @@ std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
           isTileLevel ? vertexOutputType : types[level + 1].resultType;
       // Use the result type of the previous level if it is smaller than the
       // requested result type. If we picked a smaller output type for the
-      // vertex because no reduction is required this will propogate through
+      // vertex because no reduction is required this will propagate through
       // the levels. It also means that if a user wants to use half partials
       // they only need to set the option for the first level that should use
       // half partials.
@@ -2874,10 +2874,10 @@ static void addSLICConstraints(popsolver::Model &m, const PartitionVariables &p,
 // a batch size of 1 on any tile). See function implementation for a full list.
 // The planner will not choose an Outer Product method unless all of these
 // criteria are met.
-static void addOuterProductConstaints(popsolver::Model &m,
-                                      const PartitionVariables &p,
-                                      const ConvSizeVariables &s,
-                                      const ConvParams &lvl1Params) {
+static void addOuterProductConstraints(popsolver::Model &m,
+                                       const PartitionVariables &p,
+                                       const ConvSizeVariables &s,
+                                       const ConvParams &lvl1Params) {
   m.equal(s.batchSize, popsolver::DataType{1});
   m.equal(getInputChannelCount(m, p, s), popsolver::DataType{1});
 
@@ -2918,7 +2918,7 @@ static void addMethodConstraints(popsolver::Model &m,
   // referencing the tile level. This is only true for single IPU
   // convolutions, for multi-IPU there can be other transforms that make
   // these fields constrainable, therefore these constraints are currently
-  // overly conserversative for the multi-IPU case.
+  // overly conservative for the multi-IPU case.
 
   auto visitor = poplibs_support::make_visitor<void>(
       [&](const Plan::Hmac &method) {},
@@ -2926,7 +2926,7 @@ static void addMethodConstraints(popsolver::Model &m,
         m.equal(s.numOutChanGrains, popsolver::DataType{1});
       },
       [&](const Plan::OuterProduct &method) {
-        addOuterProductConstaints(m, p, s, lvl1Params);
+        addOuterProductConstraints(m, p, s, lvl1Params);
       },
       [&](const Plan::Slic &method) {
         addSLICConstraints(m, p, s, lvl1Params);
@@ -2994,7 +2994,7 @@ Estimates<popsolver::Variable> constructModel(
   // If yTileSplit is greater than one we end up splitting across the y axis of
   // the output volume. The input elements required to compute output elements
   // on one side of the split will overlap with the input elements required for
-  // the otherside of the split, increasing communication.
+  // the other side of the split, increasing communication.
   // An alternative strategy would be to split across the y axis of
   // the input volume. Now there is no overlap in input elements read by each
   // tile, but nx1 convolutions for rows near the boundary must be summed
@@ -3333,7 +3333,7 @@ Estimates<popsolver::Variable> constructModel(
 
     if (referencePlan) {
       // TODO: this only needs to be "m.equal(total serial splits)", we don't
-      // need to differentiate betweem input and output as they both get lowered
+      // need to differentiate between input and output as they both get lowered
       // to a Repeat program that can be shared across convolutions.
       //
       // Ensure we match serial splits with the reference plan

@@ -191,7 +191,7 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *    * `planConstraintsOutputFilename` String
  *
  *      If set, plan constraints for each plan used by a convolution will be
- *      saved to file. The file path will be the value of this option postpended
+ *      saved to file. The file path will be the value of this option appended
  *      with _FWD, _BWD, or _WU (depending on the pass), with a file extension
  *      of .json. The content of these files may be used as input to the
  *      `planConstraints` option (above). The constraints will be complete,
@@ -216,7 +216,7 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *
  *   * `gatherConvOutput` (true, false) [=false]
  *
- *     Gather output of the matrix multipy into a single variable
+ *     Gather output of the matrix multiply into a single variable
  *
  *   * 'experimental.slicVmac16' (true, false) [=false]
  *

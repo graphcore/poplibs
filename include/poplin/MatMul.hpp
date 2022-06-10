@@ -100,7 +100,7 @@ class PlanningCache;
  *      See createWeights().
  *
  *   * `gatherOutput` (true, false) [=false]
- *     Gather output of the matrix multipy into a single variable
+ *     Gather output of the matrix multiply into a single variable
  *
  *   * 'disableSRForAMPVertices' (true, false) [=false]
  *

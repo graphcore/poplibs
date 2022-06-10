@@ -1,5 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-// Helper functions to pack/pack and calculate transformed stirdes
+// Helper functions to pack/pack and calculate transformed strides
 // used by AMP codelets
 
 #include "ConvPartialsStridesPacking.hpp"
@@ -35,7 +35,7 @@ int getTransformedOutStride(int outStride, unsigned outChansPerGroup,
   return outStrideThresh + (flipOut ? -scaledOutStride : scaledOutStride);
 }
 
-int reverseTransfromedInStride(int transformedInStride,
+int reverseTransformedInStride(int transformedInStride,
                                unsigned convInputLoadElems,
                                unsigned inChansPerGroup,
                                unsigned ampKernelHeight, int inRowStride) {
@@ -43,14 +43,14 @@ int reverseTransfromedInStride(int transformedInStride,
          (ampKernelHeight - 1) * inRowStride;
 }
 
-int reverseTransfromedInRowStride(int transformedInRowStride,
+int reverseTransformedInRowStride(int transformedInRowStride,
                                   unsigned convInputLoadElems,
                                   unsigned inChansPerGroup) {
   return (transformedInRowStride - 1) * convInputLoadElems / inChansPerGroup +
          1;
 }
 
-std::pair<bool, int> reverseTransfromedOutStride(int transformedOutStride,
+std::pair<bool, int> reverseTransformedOutStride(int transformedOutStride,
                                                  bool accumTypeIsFloat,
                                                  unsigned numConvUnits,
                                                  unsigned outChansPerGroup) {
@@ -102,9 +102,9 @@ int getSecondPtrOffset(unsigned ampKernelHeight, int transformedInRowStride) {
 
 int unpackAmpNx1InRowStride(unsigned ampKernelHeight, int secondPtrOffset) {
   if (ampKernelHeight == 4) {
-    return secondPtrOffset /= 2;
+    return secondPtrOffset / 2;
   } else {
-    return secondPtrOffset -= 1;
+    return secondPtrOffset - 1;
   }
 }
 

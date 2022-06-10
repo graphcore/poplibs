@@ -474,7 +474,7 @@ Partition splitConvIntoAmpVertices(const ConvParams &params,
                                         : (1 << numMachineStrideBits) / 2;
   unsigned splitFactor = (std::abs(stride) + machineStride - 1) / machineStride;
 
-  // Exclude spatial dimensions which yield too few outputs to be splitable,
+  // Exclude spatial dimensions which yield too few outputs to be split-able,
   // starting from the dimension next to the outermost dimension.
   std::vector<std::size_t> fieldShape(params.inputFieldShape);
   for (unsigned dim = 1; dim < numFieldDims; ++dim) {
@@ -681,14 +681,14 @@ combine(const std::vector<multiconv::internal::CreateTensorArgs> &args) {
     convParams.push_back(arg.params);
   }
 
-  // TODO: what to do with the nane?
+  // TODO: what to do with the name?
   return multiconv::internal::CreateTensorArgs{combineConvParams(convParams),
                                                args[0].options, args[0].name};
 }
 
 namespace {
 
-// tensors are concatinated in the group dimension which is 1 for acts and
+// tensors are concatenated in the group dimension which is 1 for acts and
 // 0 for weights.
 constexpr unsigned actsGroupDim = 1;
 constexpr unsigned weightsGroupDim = 0;

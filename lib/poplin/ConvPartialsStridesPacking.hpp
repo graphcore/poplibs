@@ -1,5 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-// Helper functions to pack/pack and calculate transformed stirdes
+// Helper functions to pack/pack and calculate transformed strides
 // used by AMP codelets
 
 #ifndef poplin_ConvPartialsStridesPacking_hpp
@@ -25,17 +25,17 @@ int getTransformedOutStride(int outStride, unsigned outChansPerGroup,
                             unsigned numConvUnitsRequired, bool isPartialsFloat,
                             bool flipOut);
 
-int reverseTransfromedInStride(int transformedInStride,
+int reverseTransformedInStride(int transformedInStride,
                                unsigned convInputLoadElems,
                                unsigned inChansPerGroup,
                                unsigned ampKernelHeight = 0,
                                int inRowStride = 0);
 
-int reverseTransfromedInRowStride(int transformedInRowStride,
+int reverseTransformedInRowStride(int transformedInRowStride,
                                   unsigned convInputLoadElems,
                                   unsigned inChansPerGroup);
 
-std::pair<bool, int> reverseTransfromedOutStride(int transformedOutStride,
+std::pair<bool, int> reverseTransformedOutStride(int transformedOutStride,
                                                  bool accumTypeIsFloat,
                                                  unsigned numConvUnits,
                                                  unsigned outChansPerGroup);

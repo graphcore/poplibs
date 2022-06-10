@@ -85,7 +85,7 @@ inline std::uint64_t getDenseDotProductCycles(unsigned activationsVectorWidth,
       // Limitation currently due to instruction set is that if we have
       // less than 64-bits per loop we cannot simultaneously load activations
       // and weights. Assume for higher vector widths we can always
-      // simulataneously load 64-bit values.
+      // simultaneously load 64-bit values.
       const auto cyclesPerWidth = currWidth >= actsPer64Bits ? 1 : 2;
       // Due to the same above limitation, we cannot simultaneously load
       // weights with activations during pipeline warmup so add a cycle
@@ -1151,10 +1151,10 @@ getConvPartialSlicSupervisorOuterLoopCycleEstimateHalfFloat(
 
     // For 8 and 16 groups codelets store numGroupCounter on the stack
     // so that brings extra 2 commands (st + ld) and a penalty for
-    // accessing loaded value straignt away
+    // accessing loaded value straight away
     supervisorConvGroupGroupsBodyCycles += 2 + 6;
 
-    // Update worker cycles by number of group stides
+    // Update worker cycles by number of group strides
     innerLoopCycles *= numConvGroupStrides;
   }
 

@@ -320,7 +320,7 @@ poplar::Tensor normStatisticsGradients(
 /// \returns            The gradient with respect to the input of this layer.
 ///
 poplar::Tensor distributedNormStatisticsGradients(
-    poplar::Graph &replocatedGraph, const poplar::Tensor &actsWhitened,
+    poplar::Graph &replicatedGraph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, const poplar::Tensor &invStdDev,
     poplar::program::Sequence &prog,
     poplin::DistributedNormReduceCallback reduceCallback, unsigned normSize,

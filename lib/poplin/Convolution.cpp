@@ -368,7 +368,6 @@ CanonicalConvParams getSubConvolution(const ConvSlice &slice,
     } else {
       outputTruncationLower += extraTruncationLower * stride;
     }
-    extraTruncationLower = 0;
     const auto excessPaddingUpper =
         std::min(outputPaddingUpper, extraTruncationUpper);
     outputPaddingUpper -= excessPaddingUpper;
@@ -379,7 +378,6 @@ CanonicalConvParams getSubConvolution(const ConvSlice &slice,
     } else {
       outputTruncationUpper += extraTruncationUpper * stride;
     }
-    extraTruncationUpper = 0;
   }
   // Replace unused kernel elements with zero padding.
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -390,8 +388,6 @@ CanonicalConvParams getSubConvolution(const ConvSlice &slice,
                                  params.kernelTransform.truncationUpper[dim]);
     const auto transformedKernelSize = params.getTransformedKernelSize(dim);
     if (sliceBegin >= sliceEnd) {
-      sliceBegin = 0;
-      sliceEnd = 0;
       params.kernelTransform.truncationLower[dim] = 0;
       params.kernelTransform.truncationUpper[dim] = params.kernelShape[dim];
       params.kernelTransform.paddingLower[dim] = 0;
@@ -1596,7 +1592,7 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   // Create an initial tensor with groupings set up using the dimensions
   // calculated above. Note that e.g. the number of input channel groups
   // may not be a factor of the requested number of input channels, and
-  // so the extra channnels will need trimming.
+  // so the extra channels will need trimming.
   std::vector<std::size_t> weightsShape = {totalSerialSplit,
                                            weightNumConvGroupGroups,
                                            weightNumOutChanGroupsPerSerialSplit,
@@ -2283,7 +2279,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   // Make a note of the expected size of the output channel dimension.
   // Serial slicing of the output channels by a non-integer factor is
   // supported by effectively padding the number of channels up to the nearest
-  // multilple of the number of slices, and then trimming the output down to
+  // multiple of the number of slices, and then trimming the output down to
   // this value.
   const auto outChanCount = weightsSlice.dim(weightsSlice.rank() - 2);
 
@@ -2907,7 +2903,7 @@ static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
                               grainSize, plan.startTile, ascendingMapping);
   remappedOutput =
       actsToExternalShape(unsplitActivationFromGroups(remappedOutput));
-  // Explicity copy to remapped tensor with a benign layout
+  // Explicitly copy to remapped tensor with a benign layout
   prog.add(Copy(output, remappedOutput, false, {dnai}));
   logging::poplin::debug("  convolution output tensor remapped linearly");
   return remappedOutput;
@@ -3601,7 +3597,7 @@ static double blockScore(const unsigned fwdGroupSize,
       }
       if (!TOIC) {
         // If the transpose output is not contiguous then a post arrange copy
-        // will be introduced. This number is fairly empiracle based on what
+        // will be introduced. This number is fairly empirical based on what
         // made the benchmarks pass
         tileScore = tileScore / 3;
       }

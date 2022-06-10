@@ -35,7 +35,7 @@ std::vector<float> createTriMat(std::size_t numBatches, std::size_t N,
     float f = start;
     for (std::size_t i = 0; i < N; i++) {
       for (std::size_t j = 0; j < N; j++, f += 1.0f) {
-        // Generate the same values (tranposed)
+        // Generate the same values (transposed)
         if (lower)
           v[k + i * N + j] = j > i ? 0 : f;
         else

@@ -421,13 +421,13 @@ int main(int argc, char **argv) try {
   }
   if (fwdInFile || bwdInFile) {
     if (vm.count("field") || vm.count("input-type") || vm.count("batch-size")) {
-      std::cerr << "Cannot specifiy --field, --batch-size or --input-type with "
+      std::cerr << "Cannot specify --field, --batch-size or --input-type with "
                    "an input file\n";
       return 1;
     }
   } else {
     if (vm.count("field") == 0) {
-      std::cerr << "Must use an input file or specifiy --field\n";
+      std::cerr << "Must use an input file or specify --field\n";
       return 1;
     }
     if (vm.count("batch-size") == 0) {

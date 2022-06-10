@@ -125,7 +125,7 @@ public:
 
   unsigned outTotalPatches;
 
-  /* Number of patches over which output activtions are kept.
+  /* Number of patches over which output activations are kept.
    * These patches are over the whole output space and hence
    * differs from what is defined as "patchesPerTile"
    */
@@ -1198,7 +1198,7 @@ static Program accum(Graph &graph, const WgdTilePartition &tp,
         for (unsigned og = zogS; og < zogS + zogThisTile; ++og) {
           /* all patches assigned to the same input channel group
            * and output channel groups can be processed together.
-           * ceate a vertex for all patches (each patch has
+           * create a vertex for all patches (each patch has
            * patchSize * patchSize elements)
            */
 

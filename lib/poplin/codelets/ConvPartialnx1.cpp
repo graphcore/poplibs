@@ -153,15 +153,15 @@ public:
     unpackedTransformedInStride = reverseTransformedInStrideNx1(
         unpackedTransformedInStride, secondPtrOffset);
 
-    const int inRowStride = reverseTransfromedInRowStride(
+    const int inRowStride = reverseTransformedInRowStride(
         unpackedTransformedInRowStride, convInputLoadElems, inChansPerGroup);
-    const int inStride = reverseTransfromedInStride(
+    const int inStride = reverseTransformedInStride(
         unpackedTransformedInStride, convInputLoadElems, inChansPerGroup,
         ampKernelHeight, inRowStride);
 
     bool flipOut;
     int outStride;
-    std::tie(flipOut, outStride) = reverseTransfromedOutStride(
+    std::tie(flipOut, outStride) = reverseTransformedOutStride(
         unpackedTransformedOutStride, std::is_same<AccumType, float>(),
         numConvUnits, outChansPerGroup);
 

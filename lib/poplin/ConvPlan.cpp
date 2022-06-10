@@ -1646,7 +1646,7 @@ runPlanner(const ConvDescription &conv,
 
   // we first attempt to find the fastest plan that we think will fit, if that
   // fails we replan, but minimising for memory instead. in an effort to fit in
-  // memory we will apply an architecturally relevent memory limit to this first
+  // memory we will apply an architecturally relevant memory limit to this first
   // plan. to calculate the limit we use a user-configured option called
   // `availableMemoryProportion` to state the proportion of memory which is
   // approximately available for this convolution. if the

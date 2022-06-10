@@ -16,7 +16,7 @@ namespace poplin {
 
 class ExchangeEstimator {
   // Exchange bytes per cycle is given as a floating point value but the
-  // constaint solver only supports unsigned integer variables. To reduce
+  // constraint solver only supports unsigned integer variables. To reduce
   // quantization error in the calculation of the number of cycles we multiply
   // both the divisor (exchange bytes per cycle) and the dividend (the number of
   // bytes) by this scaling factor. Larger values of the scaling factor reduce
@@ -37,7 +37,7 @@ public:
     scaledExchangeBytesPerCycleVar = m.addConstant(scaledBytesPerCycle);
     scaledInputElementBytesPerCycle = scaledExchangeBytesPerCycleVar;
 
-    // when we lay the data out on the tiles (assuming the standard linearlize
+    // when we lay the data out on the tiles (assuming the standard linearize
     // tile order) we make the grouped output channels the innermost dimension.
     // this means that consecutive output channels will be distributed across
     // consecutive tiles. this is advantageous because when we parallel split by
