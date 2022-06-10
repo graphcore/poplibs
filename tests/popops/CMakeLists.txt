@@ -86,6 +86,22 @@ foreach(DATA_TYPE half float)
     VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
+# Broadcast patterns resulting in merged patterns for broadcastVectorInner vertices
+foreach(DATA_TYPE half float)
+  foreach(OP add mul div)
+    foreach(INNER_DIM 3 4 5 6 7 8)
+      add_multitarget_test(NAME BinaryOpBroadcastInner_${DATA_TYPE}_${OP}_${INNER_DIM}
+        COMMAND BinaryOpTest
+        --ope=${OP}
+        --data=${DATA_TYPE}
+        --shape1={8,4,${INNER_DIM}}
+        --shape2={8,1,${INNER_DIM}}
+        --tiles=1
+        VARIANTS ${IPUMODEL_VARIANTS})
+      endforeach()
+  endforeach()
+endforeach()
+
 add_multitarget_test(NAME BinaryOpConstInput
   COMMAND BinaryOpTest
   --ope=add

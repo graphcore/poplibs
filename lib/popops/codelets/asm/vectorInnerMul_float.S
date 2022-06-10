@@ -142,15 +142,15 @@ FN_SIZE VectorInnerMul_core_float
 
 /////////////////// VectorInner MultiVertex ///////////////////////
 
-// Vertex state layout for MultiVertex
-#define VERTEX_DATA_SCALE_OFFSET 0                 // In 32-bits
-#define VERTEX_DATA_SCALE_SIZE_OFFSET 1            // In 32-bits
-#define VERTEX_DATA_ACTS_IN_OFFSET 2               // In 32-bits
-#define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6      // In 16-bits
-// Additional value for the non-inplace variant
-#define VERTEX_DATA_ACTS_OUT_OFFSET 4              // In 32-bits
-
-
+// Vertex state layout for the MultiVertex
+#define VERTEX_DATA_SCALE_OFFSET 0                // In 32-bits
+#define VERTEX_DATA_ACTS_OFFSET 1               // In 32-bits
+#define VERTEX_DATA_BSLICES_M1_OFFSET 4      // In 16-bits
+#define VERTEX_DATA_BSLICE_LEN_OFFSET 5         // In 16-bits
+#define VERTEX_DATA_BBROADCAST_FACTOR_OFFSET 6               // In 16-bits
+// (Gap)
+// Additional state for non-in place, Scaled
+#define VERTEX_DATA_OUT_OFFSET  4                // In 32-bits
 
 #define blocks_per_worker m5
 #define worker_id m6
@@ -158,51 +158,72 @@ FN_SIZE VectorInnerMul_core_float
 #define remaining_blocks m8
 #define mscratch0 m9
 
+#include "vectorInnerCommon.h.S"
+
 
 FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1DInPlace)
-  ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
+  ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
   mov $acts_out, $acts_in
   bri .Lworker
 FN_SIZE CPP_FUNCNAME(1DInPlace)
 
 
 FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1D)
-  ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
-  ld32 $acts_out, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OUT_OFFSET
+  ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
+  ld32 $acts_out, $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
   // Fall through.
 
 .Lworker:
   // Load vertex state.
   ld32 $scale,             $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
-  ld32 $scale_len,         $mvertex_base, $mzero, VERTEX_DATA_SCALE_SIZE_OFFSET
-  ldz16 $acts_block_count, $mvertex_base, $mzero, VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET
+  ldz16 $scale_len,         $mvertex_base, $mzero, VERTEX_DATA_BBROADCAST_FACTOR_OFFSET
 
   // Get the worker ID.
   get $worker_id, $WSR
   and $worker_id, $worker_id, CSR_W_WSR__CTXTID_M1__MASK
 
-  // Get blocks per worker and remainder.
-  shr $blocks_per_worker, $acts_block_count, 3
-  and $remaining_blocks, $acts_block_count, 0x7
+  // We need to know the number of loops for each worker, and the offset into the
+  // $acts data to start processing.  Do this by finding the amount of work for
+  // worker zero and multiplying by $worked_id.
+  // Optimised by expanding out and simplifying the DIVIDE_BY_WORKER macro
 
-  // Work out block begin, accounting for remainders.
-  mul $block_begin, $blocks_per_worker, $worker_id
-  min $mscratch0, $worker_id, $remaining_blocks
-  add $block_begin, $block_begin, $mscratch0
+  add $acts_block_count, $scale_len, CTXT_WORKERS-1
+  // (Using worker=0)
+  setzi $mscratch0, RECIPROCAL_3_SHL17
+  mul   $acts_block_count, $acts_block_count, $mscratch0
+  shr   $acts_block_count, $acts_block_count, DIV_6_SHIFT
 
-  // Add remainder to workers with IDs less than the remainder.
-  cmpult $mscratch0, $worker_id, $remaining_blocks
-  add $acts_block_count, $blocks_per_worker, $mscratch0
+  mul   $block_begin, $acts_block_count, $worker_id
+  // If the begin block is after the end then this worker has no work
+  cmpult $mscratch0,  $scale_len, $block_begin
+  brnz   $mscratch0, 9f
 
+  // Check if this worker has less than the maximum work
+  add    $mscratch0, $block_begin, $acts_block_count
+  cmpult $mscratch0, $mscratch0, $scale_len
+  brnz   $mscratch0, update_acts_ptrs
+  // numBlocks = bReps - numBlocks*wid;
+  sub    $acts_block_count, $scale_len, $block_begin
+
+update_acts_ptrs:
   // How many elements to advance $acts.
+  ldz16 $scale_len, $mvertex_base, $mzero, VERTEX_DATA_BSLICE_LEN_OFFSET
   mul $mscratch0, $block_begin, $scale_len
   // Advance $acts_in and $acts_out by 4*$mscratch0 bytes to the
   // $block_begin'th block using a dummy load.
   ld32step $azero, $mzero, $acts_in+=, $mscratch0
   ld32step $azero, $mzero, $acts_out+=, $mscratch0
 
-  call $lr, VectorInnerMul_core_float
+  ldz16 $remaining_blocks, $mvertex_base, $mzero, VERTEX_DATA_BSLICES_M1_OFFSET
+  brnz $remaining_blocks, 2f
 
+  call $lr, VectorInnerMul_core_float
+9:
+  exitnz $mzero
+
+// Multiple outer loops, call in a loop, but use the stack (Scratch) to preserve registers
+2:
+  VECTOR_INNER_OUTER_LOOP_WRAPPER VectorInnerMul_core_float ld32step $acts_in $acts_out $scale_len $scale $acts_block_count
   exitnz $mzero
 
 FN_SIZE CPP_FUNCNAME(1D)

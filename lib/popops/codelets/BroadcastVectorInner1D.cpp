@@ -14,59 +14,64 @@ using namespace poplar;
 
 namespace popops {
 
+// Overview by example:
+// Given: B = [a b c d e f g h]
+// bSliceLen = 4
+// bBroadcastFactor = 3
+// bSlicesM1 = 1
+// So the pattern of elements from `B` that get applied to `data` is:
+// a b c d   (1st slice of `B` is bSliceLen elements long)
+// a b c d
+// a b c d   (Repeat by bBroadcastFactor)
+// e f g h   (bSlicesM1 = 1 so bSlices = 2 - we use 2 slices of `B`)
+// e f g h
+// e f g h
+
 template <expr::BinaryOpType op, class FPType>
 class [[poplar::constraint("elem(*data) != elem(*out)")]] BroadcastVectorInner1D
     : public MultiVertex {
 public:
   BroadcastVectorInner1D();
-
-  Input<Vector<FPType, SPAN, 8>> B;
+  // B has size bSliceLen * (bSlicesM1 + 1)
+  Input<Vector<FPType, ONE_PTR, 8>> B;
+  // data has size bSliceLen * (bSlicesM1 + 1) * bBroadcastFactor
   Input<Vector<FPType, ONE_PTR, 8>> data;
-  // The division of work among 6 workers has been done when creating the vertex
-  // (contrary to other types of vertices that do that in the vertex code
-  // itself).
-  //
-  // The amount of work to do is expressed by:
-  //       totalBlockCount = data.size() / B.size();
-  // i.e. how many times the 'B' vector fits inside 'data'
-  // This has been divided by 6; the quotient and remainder of this division
-  // has been packed into 'dataBlockCountPacked'
-  //
-  //                         15 14 13 12 11 10            4  3  2  1  0
-  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
-  // dataBlockCountPacked:  |           13 bits               | 3 bits |
-  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
-  //
-  //                        |                                 |        |
-  //                        +---------------+-----------------+----+---+
-  //                                        |                      |
-  //                          floor(totalBlockCount/6)    totalBlockCount % 6
-  //                                (dataBlockCount)       (remainingBlocks)
-  //
-  const uint16_t dataBlockCountPacked;
+  const uint16_t bSlicesM1;
+  const uint16_t bSliceLen;
+  const uint16_t bBroadcastFactor;
   Output<Vector<FPType, ONE_PTR, 8>> out;
 
   IS_EXTERNAL_CODELET(true);
 
   bool compute(unsigned wid) {
-    unsigned BSize = B.size();
-    // Each worker will process a contiguous span from data[offs], of at least
-    // 'dataBlockCount' blocks, but the first few (wid=0 to
-    // wid=remaining_blocks-1) workers will process 1 extra block.
-    unsigned dataBlockCount = (dataBlockCountPacked >> 3);
-    const unsigned remainingBlocks = dataBlockCountPacked & 0x07;
-    unsigned offs = wid * dataBlockCount +
-                    ((wid < remainingBlocks) ? wid : remainingBlocks);
-    unsigned numBlocks = dataBlockCount + (wid < remainingBlocks);
+    // Each worker will process a contiguous span from data[offs]
 
-    const FPType *dataPtr = &data[offs * BSize];
-    FPType *outPtr = &out[offs * BSize];
+    const unsigned rowsPerWorkerToAvoidSubWordWrites = 2;
+    unsigned numBlocks = rowsPerWorkerToAvoidSubWordWrites *
+                         divideWork(bBroadcastFactor + 1, 1, 0);
+    unsigned offs = numBlocks * wid;
+    if (offs >= bBroadcastFactor) {
+      // This worker has no work
+      return true;
+    }
 
-    for (unsigned k = 0; k != BSize; ++k) {
-      for (unsigned j = 0; j != numBlocks; ++j) {
-        outPtr[j * BSize + k] =
-            BinaryOpFn<op, FPType, architecture::active>::fn(
-                dataPtr[j * BSize + k], B[k]);
+    if (numBlocks * (wid + 1) > bBroadcastFactor) {
+      // This worker has less than the maximum work
+      numBlocks = bBroadcastFactor - offs;
+    }
+
+    for (unsigned i = 0; i < (bSlicesM1 + 1); i++) {
+      const FPType *dataPtr =
+          &data[i * (bBroadcastFactor * bSliceLen) + offs * bSliceLen];
+      FPType *outPtr =
+          &out[i * (bBroadcastFactor * bSliceLen) + offs * bSliceLen];
+
+      for (unsigned k = 0; k != bSliceLen; ++k) {
+        for (unsigned j = 0; j != numBlocks; ++j) {
+          const auto idx = j * bSliceLen + k;
+          outPtr[idx] = BinaryOpFn<op, FPType, architecture::active>::fn(
+              dataPtr[idx], B[k + i * bSliceLen]);
+        }
       }
     }
     return true;

@@ -863,42 +863,82 @@ bool binaryOpBroadcastInnerVector(
   }
   const auto numWorkers = target.getNumWorkerContexts();
   auto checkUseMultiVertex = [&](std::size_t size, std::size_t subSize) {
-    const unsigned dataBlockCountPackedMaxFieldSize = 0x1fff;
+    const unsigned dataBlockCountMaxFieldSize = 0xffff;
+    const unsigned bSliceLenMaxFieldSize = 0xffff;
     const unsigned rptCountMaxFieldSize =
         (target.getRptCountMax() & ~1UL) * numWorkers;
-    return (size % subSize) == 0 &&
+    return (size % subSize) == 0 && subSize <= bSliceLenMaxFieldSize &&
            (size / subSize) <=
-               std::min(dataBlockCountPackedMaxFieldSize, rptCountMaxFieldSize);
-  };
-  // The division of work among 6 workers is done when creating the vertex
-  // (contrary to other types of vertices that do that in the device code).
-  //
-  // The amount of work to do is expressed by:
-  //        dataBlockCount = data.size() / B.size();
-  // i.e. how many times the 'B' vector fits inside 'data'
-  // This is divided by 6; the quotient and remainder of this division is
-  // packed into 'dataBlockCountPacked'
-  //
-  //                         15 14 13 12 11 10            4  3  2  1  0
-  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
-  // dataBlockCountPacked:  |           13 bits               | 3 bits |
-  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
-  //
-  //                        |                                 |        |
-  //                        +---------------+-----------------+----+---+
-  //                                        |                      |
-  //                            floor(dataBlockCount/6)    dataBlockCount % 6
-  //
-  auto packCount = [=](std::size_t size, std::size_t subSize) -> std::uint16_t {
-    auto blockCount = size / subSize;
-    return ((blockCount / numWorkers) << 3) | blockCount % numWorkers;
+               std::min(dataBlockCountMaxFieldSize, rptCountMaxFieldSize);
   };
 
   const auto elementLimit = maxVertexElementsPerRegion(target, op, in1, out);
 
   // Use a 1D MultiVertex to reduce memory use if there are a small number
   // of suitable intervals
-  if (splitIntervals.size() <= 2) {
+  auto createVectorInnerMultiVertex = [&](const Tensor &outRegion,
+                                          const Tensor &in1Region,
+                                          const Tensor &in2Region,
+                                          unsigned numCombinedIntervals) {
+    std::string vertexName = inPlace ? "popops::BroadcastVectorInner1DInPlace"
+                                     : "popops::BroadcastVectorInner1D";
+    auto vertexClass = templateVertex(vertexName, op, dType);
+    logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
+                           vertexClass);
+    std::uint16_t bBroadcastFactor =
+        outRegion.numElements() / in2Region.numElements();
+    auto v = graph.addVertex(cs, vertexClass);
+    graph.connect(v["B"], in2Region);
+    graph.connect(v["data"], in1Region);
+    if (!inPlace) {
+      graph.connect(v["out"], outRegion);
+    }
+    graph.setInitialValue(v["bSlicesM1"], numCombinedIntervals - 1);
+    graph.setInitialValue(v["bSliceLen"],
+                          in2Region.numElements() / numCombinedIntervals);
+    graph.setInitialValue(v["bBroadcastFactor"], bBroadcastFactor);
+    graph.setTileMapping(v, tile);
+  };
+
+  auto canMerge = [=](const BroadcastPattern &patA,
+                      const BroadcastPattern &patB) {
+    if (patA.numElements() % 2 && dType == HALF) {
+      // Avoid subword write by merge of patterns with an odd number of halves
+      return false;
+    }
+    if (dType == HALF && op == BinaryOpType::DIVIDE &&
+        patA.regionNumElements() % 2) {
+      // Divide always processes 2 elements per loop in the case with an odd
+      // number of elements and needs them to be 32 bit aligned, so avoid
+      // merging as the 2nd group of elements would only be 16 bit aligned
+      return false;
+    }
+    return patA.innerFactor == 1 && patA.innerFactor == patB.innerFactor &&
+           patA.outerFactor != 1 && patA.outerFactor == patB.outerFactor &&
+           patA.regionNumElements() == patB.regionNumElements();
+  };
+  // The Multivertex can absorb several compatible patterns.  Build up to
+  // 2 multivertex instances, each of which can have absorbed several patterns.
+  // Only do this if all the data is contiguous, it may be possible in other
+  // cases but gets more complex and this covers the common case
+  std::vector<Interval> mergeableGroups;
+  if (intervals.size() == 1) {
+    mergeableGroups = {{0, 1}};
+    unsigned basePattern = 0;
+    for (unsigned i = 1; i < patterns.size(); i++) {
+      if (canMerge(patterns[basePattern], patterns[i])) {
+        mergeableGroups.back() = {basePattern, i + 1};
+      } else {
+        mergeableGroups.push_back({i, i + 1});
+        basePattern = i;
+      }
+    }
+  } else if (intervals.size() == 2 && patterns.size() == 2) {
+    mergeableGroups = {{0, 1}, {1, 2}};
+  }
+  // Use a 1D MultiVertex to reduce memory use if there are a small number
+  // of suitable intervals after merge
+  if (mergeableGroups.size() == 1 || mergeableGroups.size() == 2) {
     auto intervalVectorLength = [](const std::vector<Interval> &iVector) {
       std::size_t len = 0;
       for (const auto &i : iVector)
@@ -916,27 +956,24 @@ bool binaryOpBroadcastInnerVector(
       }
     }
     if (canUseMultiVertex) {
-      for (const auto &splitInterval : splitIntervals) {
-        const auto &outRegion = concat(out.flatten().slices(splitInterval));
-        const auto &in1Region = concat(in1.flatten().slices(splitInterval));
-        const auto &in2Region = concat(in2.flatten().slices(splitInterval))
-                                    .slice(0, numPatternElems);
-        std::string vertexName = inPlace
-                                     ? "popops::BroadcastVectorInner1DInPlace"
-                                     : "popops::BroadcastVectorInner1D";
-        auto vertexClass = templateVertex(vertexName, op, dType);
-        logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
-                               vertexClass);
-        std::uint16_t dataBlockCountPacked =
-            packCount(outRegion.numElements(), in2Region.numElements());
-        auto v = graph.addVertex(cs, vertexClass);
-        graph.connect(v["B"], in2Region);
-        graph.connect(v["data"], in1Region);
-        if (!inPlace) {
-          graph.connect(v["out"], outRegion);
+      for (unsigned i = 0; i < mergeableGroups.size(); i++) {
+        const auto idx = mergeableGroups[i].begin();
+        auto outRegion = concat(out.flatten().slices(splitIntervals[idx]));
+        auto in1Region = concat(in1.flatten().slices(splitIntervals[idx]));
+        auto in2Region = concat(in2.flatten().slices(splitIntervals[idx]))
+                             .slice(0, numPatternElems);
+        for (unsigned j = mergeableGroups[i].begin() + 1;
+             j < mergeableGroups[i].end(); j++) {
+          outRegion = concat(outRegion,
+                             concat(out.flatten().slices(splitIntervals[j])));
+          in1Region = concat(in1Region,
+                             concat(in1.flatten().slices(splitIntervals[j])));
+          in2Region =
+              concat(in2Region, concat(in2.flatten().slices(splitIntervals[j]))
+                                    .slice(0, numPatternElems));
         }
-        graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
-        graph.setTileMapping(v, tile);
+        createVectorInnerMultiVertex(outRegion, in1Region, in2Region,
+                                     mergeableGroups[i].size());
       }
       return true;
     }

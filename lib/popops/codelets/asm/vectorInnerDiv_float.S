@@ -185,17 +185,14 @@ FN_SIZE VectorInnerDiv_core_float
 
 
 /////////////////// 1D  MultiVertex ///////////////////////
-
-// Vertex state layout
-#define VERTEX_DATA_B_OFFSET 0            // In 32-bits
-#define VERTEX_DATA_B_SIZE_OFFSET 1       // In 32-bits
-#define VERTEX_DATA_DATA_OFFSET 2         // In 32-bits
-#define VERTEX_DATA_BLOCK_COUNT_OFFSET 6  // In 16-bits
-
-// Additional state for non-in place
-#define VERTEX_DATA_OUT_OFFSET  4         // In 32-bits
-
-
+#define VERTEX_DATA_B_OFFSET 0                   // In 32-bits
+#define VERTEX_DATA_DATA_OFFSET 1             // In 32-bits
+#define VERTEX_DATA_BSLICES_M1_OFFSET 4      // In 16-bits
+#define VERTEX_DATA_BSLICE_LEN_OFFSET 5         // In 16-bits
+#define VERTEX_DATA_BBROADCAST_FACTOR_OFFSET 6               // In 16-bits
+// (Gap)
+// Additional state for non-in place, Scaled
+#define VERTEX_DATA_OUT_OFFSET  4                 // In 32-bits
 
 .worker
 
@@ -204,6 +201,8 @@ FN_SIZE VectorInnerDiv_core_float
 #define block_begin m6
 #define remaining_blocks m7
 #define mscratch0 m8
+
+#include "vectorInnerCommon.h.S"
 
 
 FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1D,DIVIDE)
@@ -223,71 +222,53 @@ FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1DInPlace,DIVIDE)
 .Lworker:
   // Load rest of vertex state.
   ld32 $B,                 $mvertex_base, $mzero, VERTEX_DATA_B_OFFSET
-  ld32 $B_size,            $mvertex_base, $mzero, VERTEX_DATA_B_SIZE_OFFSET
-  ldz16 $data_block_count, $mvertex_base, $mzero, VERTEX_DATA_BLOCK_COUNT_OFFSET
+  ldz16 $B_size,            $mvertex_base, $mzero, VERTEX_DATA_BBROADCAST_FACTOR_OFFSET
 
   // Get the worker ID.
   get $worker_id, $WSR
   and $worker_id, $worker_id, CSR_W_WSR__CTXTID_M1__MASK
 
-  // The division of work among 6 workers has been done when creating the vertex
-  // (contrary to other types of vertices that do that in the device code).
-  //
-  // The amount of work to do is expressed by:
-  //        dataBlockCount = data.size() / B.size();
-  // i.e. how many times the 'B' vector fits inside 'data'
-  // This has been divided by 6; the quotient and remainder of this division
-  // has been packed into 'dataBlockCountPacked'
-  //
-  //                         15 14 13 12 11 10            4  3  2  1  0
-  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
-  // dataBlockCountPacked:  |           13 bits               | 3 bits |
-  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
-  //
-  //                        |                                 |        |
-  //                        +---------------+-----------------+----+---+
-  //                                        |                      |
-  //                            floor(dataBlockCount/6)    dataBlockCount % 6
-  //                              (blocks_per_worker)      (remaining_blocks)
-  //
-  // Each worker will process at least 'blocks_per_worker' blocks, but the
-  // first few (up to remaining_blocks-1) workers will process 1 extra block.
-  //
-  // Example:   'data' is 350 elements
-  //            'B'    is   5 elements
-  //
-  //          350/5 = 70 (dataBlockCount)
-  //
-  //          70/6 => quotient 11, remainder 4
-  //
-  //   dataBlockCountPacked = (11 << 3) | 4
-  //
-  // Division of work among workers:
-  //          worker id:      0     1     2     3     4     5
-  //  blocks to process:     12     12   12    12    11    11
+  // We need to know the number of loops for each worker, and the offset into the
+  // $acts data to start processing.  Do this by finding the amount of work for
+  // worker zero and multiplying by $worked_id.
+  // Optimised by expanding out and simplifying the DIVIDE_BY_WORKER macro
 
-  // Get blocks per worker and remainder.
-  shr $blocks_per_worker, $data_block_count, 3
-  and $remaining_blocks, $data_block_count, 0x7
+  add $data_block_count, $B_size, CTXT_WORKERS-1
+  // (Using worker=0)
+  setzi $mscratch0, RECIPROCAL_3_SHL17
+  mul   $data_block_count, $data_block_count, $mscratch0
+  shr   $data_block_count, $data_block_count, DIV_6_SHIFT
 
-  // Work out block begin, accounting for remainders.
-  mul $block_begin, $blocks_per_worker, $worker_id
-  min $mscratch0, $worker_id, $remaining_blocks
-  add $block_begin, $block_begin, $mscratch0
+  mul   $block_begin, $data_block_count, $worker_id
+  // If the begin block is after the end then this worker has no work
+  cmpult $mscratch0,  $B_size, $block_begin
+  brnz   $mscratch0, 9f
 
-  // Add remainder to workers with IDs less than the remainder.
-  cmpult $mscratch0, $worker_id, $remaining_blocks
-  add $data_block_count, $blocks_per_worker, $mscratch0
+  // Check if this worker has less than the maximum work
+  add    $mscratch0, $block_begin, $data_block_count
+  cmpult $mscratch0, $mscratch0, $B_size
+  brnz   $mscratch0, update_acts_ptrs
+  // numBlocks = bReps - numBlocks*wid;
+  sub    $data_block_count, $B_size, $block_begin
 
+update_acts_ptrs:
   // How many elements to advance $data.
+  ldz16 $B_size, $mvertex_base, $mzero, VERTEX_DATA_BSLICE_LEN_OFFSET
   mul $mscratch0, $block_begin, $B_size
   // Advance $data and $out by 4*$mscratch0 bytes to the $block_begin'th block,
   // using a dummy load.
   ld32step $azero, $mzero, $data+=, $mscratch0
   ld32step $azero, $mzero, $out+=, $mscratch0
 
-  call $lr, VectorInnerDiv_core_float
+  ldz16 $remaining_blocks, $mvertex_base, $mzero, VERTEX_DATA_BSLICES_M1_OFFSET
+  brnz $remaining_blocks, 2f
 
+  call $lr, VectorInnerDiv_core_float
+9:
+  exitnz $mzero
+// Multiple outer loops, call in a loop, but use the stack (Scratch) to preserve registers
+2:
+  VECTOR_INNER_OUTER_LOOP_WRAPPER VectorInnerDiv_core_float ld32step $data $out $B_size $B $data_block_count
   exitnz $mzero
 
 FN_SIZE CPP_FUNCNAME(1DInPlace,DIVIDE)

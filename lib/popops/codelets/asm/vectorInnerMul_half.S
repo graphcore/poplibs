@@ -641,13 +641,15 @@ FN_SIZE VectorInnerMul_core_half
 
 /////////////////// VectorInner MultiVertex ///////////////////////
 
-// Vertex state layout
-#define VERTEX_DATA_SCALE_OFFSET 0                 // In 32-bits
-#define VERTEX_DATA_SCALE_SIZE_OFFSET 1            // In 32-bits
-#define VERTEX_DATA_ACTS_IN_OFFSET 2               // In 32-bits
-#define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6      // In 16-bits
-// Additional value for the non-inplace variant
-#define VERTEX_DATA_ACTS_OUT_OFFSET 4              // In 32-bits
+// Vertex state layout for MultiVertex
+#define VERTEX_DATA_SCALE_OFFSET 0              // In 32-bits
+#define VERTEX_DATA_ACTS_IN_OFFSET 1             // In 32-bits
+#define VERTEX_DATA_BSLICES_M1_OFFSET 4      // In 16-bits
+#define VERTEX_DATA_BSLICE_LEN_OFFSET 5         // In 16-bits
+#define VERTEX_DATA_BBROADCAST_FACTOR_OFFSET 6               // In 16-bits
+// (Gap)
+// Additional state for non-in place, Scaled
+#define VERTEX_DATA_ACTS_OUT_OFFSET  4                // In 32-bits
 
 
 #define blocks_per_worker m5
@@ -656,6 +658,7 @@ FN_SIZE VectorInnerMul_core_half
 #define remaining_blocks m8
 #define mscratch0 m9
 
+#include "vectorInnerCommon.h.S"
 
 FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1DInPlace)
   ld32 $acts_in, $mvertex_base, $mzero, VERTEX_DATA_ACTS_IN_OFFSET
@@ -671,64 +674,60 @@ FN_WORKER_ENTRY_POINT CPP_FUNCNAME(1D)
 .Lworker:
   // Load vertex state.
   ld32 $scale,             $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
-  ld32 $scale_len,         $mvertex_base, $mzero, VERTEX_DATA_SCALE_SIZE_OFFSET
-  ldz16 $acts_block_count, $mvertex_base, $mzero, VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET
+  ldz16 $scale_len,        $mvertex_base, $mzero, VERTEX_DATA_BBROADCAST_FACTOR_OFFSET
 
   // Get the worker ID.
   get $worker_id, $WSR
   and $worker_id, $worker_id, CSR_W_WSR__CTXTID_M1__MASK
 
-  // Get blocks per worker and remainder.
-  shr $blocks_per_worker, $acts_block_count, 3
-  and $remaining_blocks, $acts_block_count, 0x7
+  // We need to know the number of loops for each worker, and the offset into the
+  // $acts data to start processing.  Do this by finding the amount of work for
+  // worker zero and multiplying by $worked_id.
+  // Also, to avoid sub-word writes each worker must do a multiple of 2 rows
+  // Optimised by expanding out and simplifying the DIVIDE_BY_WORKER macro
+  add $acts_block_count, $scale_len, 2*CTXT_WORKERS-1
+  // (Using worker=0)
+  setzi $mscratch0, RECIPROCAL_3_SHL17
+  mul   $acts_block_count, $acts_block_count, $mscratch0
+  shr   $acts_block_count, $acts_block_count, DIV_12_SHIFT
+  // For 2 blocks per worker
+  shl   $acts_block_count, $acts_block_count, 1
 
-  // Work out block begin, accounting for remainders (each worker may
-  // get one additional block depending on its ID).
-  mul $block_begin, $blocks_per_worker, $worker_id
-  min $mscratch0, $worker_id, $remaining_blocks
-  add $block_begin, $block_begin, $mscratch0
 
-  // Add an extra block to workers with IDs less than the remainder.
-  cmpult $mscratch0, $worker_id, $remaining_blocks
-  add $acts_block_count, $blocks_per_worker, $mscratch0
+  mul   $block_begin, $acts_block_count, $worker_id
+  // If the begin block is after the end then this worker has no work
+  cmpult $mscratch0,  $scale_len, $block_begin
+  brnz   $mscratch0, 9f
 
-  // Skip redistribution if scale is a multiple of two as sub-word writes are
-  // not possible
-  and $mscratch0, $scale_len, 0x1
-  brz $mscratch0, update_acts_ptrs
-
-  // All workers except the last one must do an even number of blocks
-  // to avoid subword write issues.
-
-  // If block_begin is odd, round it down and increment acts_block_count.
-  and $mscratch0, $block_begin, 1
-  add $acts_block_count, $acts_block_count, $mscratch0
-  andc $block_begin, $block_begin, 1
-  // If we aren't the last worker with blocks, round $acts_block_count down to
-  // an even number. The last worker with blocks is 5 if $blocks_per_worker is
-  // not 0, or $remaining_blocks otherwise.
-  brz $blocks_per_worker, 1f
-  setzi $remaining_blocks, 5
-1:
-  // $mscratch0 is the id of the last worker with blocks.
-  cmpeq $mscratch0, $worker_id, $remaining_blocks
-  // Don't alter acts_block_count if we are the last worker.
-  brnz $mscratch0, 1f
-  // Round acts_block_count down to the next even number.
-  andc $acts_block_count, $acts_block_count, 1
-1:
+  // Check if this worker has less than the maximum work
+  add    $mscratch0, $block_begin, $acts_block_count
+  cmpult $mscratch0, $mscratch0, $scale_len
+  brnz   $mscratch0, update_acts_ptrs
+  // numBlocks = bReps - numBlocks*wid;
+  sub    $acts_block_count, $scale_len, $block_begin
 
   // How many elements to advance $acts_in/out
 update_acts_ptrs:
+  ldz16 $scale_len, $mvertex_base, $mzero, VERTEX_DATA_BSLICE_LEN_OFFSET
   mul $mscratch0, $block_begin, $scale_len
   // Advance $acts_in and $acts_out by 2*$mscratch0 bytes to the
   // $block_begin'th block using a dummy load.
   ldb16step $azero, $mzero, $acts_in+=, $mscratch0
   ldb16step $azero, $mzero, $acts_out+=, $mscratch0
 
-  call $lr, VectorInnerMul_core_half
+  ldz16 $remaining_blocks, $mvertex_base, $mzero, VERTEX_DATA_BSLICES_M1_OFFSET
+  brnz $remaining_blocks, 2f
 
+  call $lr, VectorInnerMul_core_half
+9:
   exitnz $mzero
+
+// Multiple outer loops, call in a loop, but use the stack (Scratch) to preserve registers
+2:
+  VECTOR_INNER_OUTER_LOOP_WRAPPER VectorInnerMul_core_half ldb16step $acts_in $acts_out $scale_len $scale $acts_block_count
+  exitnz $mzero
+
+
 FN_SIZE CPP_FUNCNAME(1D)
 
 #undef blocks_per_worker

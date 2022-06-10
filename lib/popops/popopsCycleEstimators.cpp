@@ -834,20 +834,9 @@ std::uint64_t vectorInner2DAddCycles(
 
 // Cycle count for the common part of all the VectorInnerMultiVertex ADD and
 // SUBTRACT codelets
-std::uint64_t vectorInnerMultiVertexAddCycles(unsigned numWorkerContexts,
-                                              unsigned vectorWidth,
-                                              uint32_t BLen,
-                                              uint16_t dataBlockCountPacked,
-                                              const Type &type) {
-
-  // Need to get the max number of blocks that a worker will do.
-  // Extract quotient and remainder from dataBlockCountPacked. The workers
-  // will do 'quotient' blocks, but if the remainder is nonzero, 'remainder'
-  // workers will do one extra block, so that will be the max block count.
-  auto quotient = dataBlockCountPacked >> 3;
-  auto remainder = dataBlockCountPacked & 0x3;
-
-  auto maxBlocksPerWorker = quotient + (remainder != 0);
+std::uint64_t vectorInnerMultiVertexAddCycles(
+    unsigned numWorkerContexts, unsigned vectorWidth, uint16_t bSliceLen,
+    uint16_t bSlicesM1, uint16_t maxBlocksPerWorker, const Type &type) {
 
   // Common supervisor overhead:
   // * setzi for worker entry
@@ -859,11 +848,8 @@ std::uint64_t vectorInnerMultiVertexAddCycles(unsigned numWorkerContexts,
   std::uint64_t maxWorkerCycles = 0;
   if (type == HALF) {
     maxWorkerCycles = 19;
-    if (BLen & 1) {
+    if (bSliceLen & 1) {
       maxWorkerCycles += 4;
-      if (quotient == 0) {
-        maxWorkerCycles += 1;
-      }
       // 3 max as one worker will probably have to round down
       // its number of blocks.
       maxWorkerCycles += 3;
@@ -875,7 +861,10 @@ std::uint64_t vectorInnerMultiVertexAddCycles(unsigned numWorkerContexts,
   auto coreFunc = type == HALF ? vectorInnerAddCoreCycles_half
                                : vectorInnerAddCoreCycles_float;
 
-  maxWorkerCycles += coreFunc(vectorWidth, BLen, maxBlocksPerWorker);
+  const unsigned coreFuncOverhead = bSlicesM1 ? 17 : 0;
+  maxWorkerCycles += (bSlicesM1 + 1) * coreFuncOverhead;
+  maxWorkerCycles +=
+      (bSlicesM1 + 1) * coreFunc(vectorWidth, bSliceLen, maxBlocksPerWorker);
 
   return numCycles + maxWorkerCycles * numWorkerContexts;
 }
@@ -987,18 +976,12 @@ vectorInner2DDivCycles(uint32_t n, const std::vector<uint32_t> &BLen,
 // Cycle count for the common part of all the VectorInnerMultiVertex DIV
 // codelets.
 std::uint64_t vectorInnerMultiVertexDivCycles(unsigned numWorkerContexts,
-                                              uint32_t BLen,
-                                              uint16_t dataBlockCountPacked,
+                                              uint16_t bSliceLen,
+                                              uint16_t bSlicesM1,
+                                              uint16_t blocksPerWorker,
                                               const Type &type) {
-  // These numbers may not be exact (e.g. the remainder of
-  // dataBlockCountPacked is ignored).
-
   // Supervisor overhead.
   std::uint64_t numCycles = 1 + 6 + 6;
-
-  // We need to count the *maximum* block per worker.
-  auto remainder = dataBlockCountPacked & 0x7;
-  auto blocksPerWorker = (dataBlockCountPacked >> 3) + (remainder ? 1 : 0);
 
   // Worker cycles (from the .Lworker label)
   numCycles += numWorkerContexts * (type == HALF ? 24 : 19);
@@ -1006,7 +989,10 @@ std::uint64_t vectorInnerMultiVertexDivCycles(unsigned numWorkerContexts,
   auto coreFunc = type == HALF ? vectorInnerDivCoreCycles_half
                                : vectorInnerDivCoreCycles_float;
 
-  numCycles += numWorkerContexts * coreFunc(BLen, blocksPerWorker);
+  const unsigned coreFuncOverhead = bSlicesM1 ? 17 : 0;
+  numCycles += (bSlicesM1 + 1) * numWorkerContexts * coreFuncOverhead;
+  numCycles += (bSlicesM1 + 1) * numWorkerContexts *
+               coreFunc(bSliceLen, blocksPerWorker);
 
   // Exit
   numCycles += 1;
@@ -1151,8 +1137,9 @@ std::uint64_t vectorInner2DMulCycles(
 // codelets.
 std::uint64_t vectorInnerMultiVertexMulCycles(unsigned numWorkerContexts,
                                               unsigned vectorWidth,
-                                              uint32_t BLen,
-                                              uint16_t dataBlockCountPacked,
+                                              uint16_t bSliceLen,
+                                              uint16_t bSlicesM1,
+                                              uint16_t maxBlocksPerWorker,
                                               const Type &type, bool inPlace) {
   // These numbers may not be exact (e.g. the remainder of
   // dataBlockCountPacked is ignored).
@@ -1163,19 +1150,12 @@ std::uint64_t vectorInnerMultiVertexMulCycles(unsigned numWorkerContexts,
   // * br $lr
   std::uint64_t numCycles = 1 + 6 * 2;
 
-  auto quotient = dataBlockCountPacked >> 3;
-  auto remainder = dataBlockCountPacked & 3;
-  const auto maxBlocksPerWorker = quotient + (remainder != 0);
-
   // Worker cycles (from the .Lworker label)
   std::uint64_t maxWorkerCycles = 0;
   if (type == HALF) {
     maxWorkerCycles = 19;
-    if (BLen & 1) {
+    if (bSliceLen & 1) {
       maxWorkerCycles += 4;
-      if (quotient == 0) {
-        maxWorkerCycles += 1;
-      }
       maxWorkerCycles += 3;
     }
   } else {
@@ -1186,16 +1166,12 @@ std::uint64_t vectorInnerMultiVertexMulCycles(unsigned numWorkerContexts,
   auto coreFunc = type == HALF ? vectorInnerMulCoreCycles_half
                                : vectorInnerMulCoreCycles_float;
 
-  maxWorkerCycles += coreFunc(vectorWidth, BLen, maxBlocksPerWorker, inPlace);
+  const unsigned coreFuncOverhead = bSlicesM1 ? 17 : 0;
+  maxWorkerCycles += (bSlicesM1 + 1) * coreFuncOverhead;
+  maxWorkerCycles += (bSlicesM1 + 1) * coreFunc(vectorWidth, bSliceLen,
+                                                maxBlocksPerWorker, inPlace);
 
   return numCycles + maxWorkerCycles * numWorkerContexts;
-}
-
-static std::uint64_t blockLengthFromPacked(unsigned packedBlockLength,
-                                           unsigned numWorkers) {
-  unsigned quotient = packedBlockLength >> 3;
-  unsigned remainder = packedBlockLength & 0x3;
-  return static_cast<std::uint64_t>(quotient) * numWorkers + remainder;
 }
 
 static std::uint64_t flopsForBinaryOp2D(unsigned numElems, const Type &type,
@@ -1212,15 +1188,15 @@ static std::uint64_t flopsForUnaryOp2D(unsigned numElems, const Type &type,
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1D)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  CODELET_FIELD(B);
-  CODELET_SCALAR_VAL(dataBlockCountPacked, uint16_t);
+  CODELET_SCALAR_VAL(bBroadcastFactor, uint16_t);
+  CODELET_SCALAR_VAL(bSliceLen, uint16_t);
+  CODELET_SCALAR_VAL(bSlicesM1, uint16_t);
 
-  uint32_t BLen = B.size();
   unsigned numWorkerContexts = target.getNumWorkerContexts();
+  unsigned blocksPerWorker = iceil(bBroadcastFactor, numWorkerContexts);
   unsigned vectorWidth = target.getVectorWidth(type);
   auto flops = flopsForBinaryOp2D(
-      BLen * blockLengthFromPacked(dataBlockCountPacked, numWorkerContexts),
-      type, op);
+      bSliceLen * (bSlicesM1 + 1) * bBroadcastFactor, type, op);
   // Additional branch in the supervisor, and preamble instructions in the
   // worker part.
   switch (op) {
@@ -1228,13 +1204,14 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1D)(
     const unsigned addedSuperOverhead = 6;
     const unsigned addedWorkerOverhead = 3;
     return {vectorInnerMultiVertexAddCycles(numWorkerContexts, vectorWidth,
-                                            BLen, dataBlockCountPacked, type) +
+                                            bSliceLen, bSlicesM1,
+                                            blocksPerWorker, type) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
   case BinaryOpType::DIVIDE: {
-    return {vectorInnerMultiVertexDivCycles(numWorkerContexts, BLen,
-                                            dataBlockCountPacked, type) +
+    return {vectorInnerMultiVertexDivCycles(numWorkerContexts, bSliceLen,
+                                            bSlicesM1, blocksPerWorker, type) +
                 1 + 3,
             flops};
   }
@@ -1242,7 +1219,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1D)(
     const unsigned addedSuperOverhead = 6;
     const unsigned addedWorkerOverhead = 3;
     return {vectorInnerMultiVertexAddCycles(numWorkerContexts, vectorWidth,
-                                            BLen, dataBlockCountPacked, type) +
+                                            bSliceLen, bSlicesM1,
+                                            blocksPerWorker, type) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
@@ -1250,8 +1228,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1D)(
     const unsigned addedSuperOverhead = 0;
     const unsigned addedWorkerOverhead = 2;
     return {vectorInnerMultiVertexMulCycles(numWorkerContexts, vectorWidth,
-                                            BLen, dataBlockCountPacked, type,
-                                            false) +
+                                            bSliceLen, bSlicesM1,
+                                            blocksPerWorker, type, false) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
@@ -1264,27 +1242,28 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1D)(
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1DInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  CODELET_FIELD(B);
-  CODELET_SCALAR_VAL(dataBlockCountPacked, uint16_t);
+  CODELET_SCALAR_VAL(bBroadcastFactor, uint16_t);
+  CODELET_SCALAR_VAL(bSliceLen, uint16_t);
+  CODELET_SCALAR_VAL(bSlicesM1, uint16_t);
 
-  uint32_t BLen = B.size();
   const unsigned numWorkerContexts = target.getNumWorkerContexts();
+  unsigned blocksPerWorker = iceil(bBroadcastFactor, numWorkerContexts);
   const unsigned vectorWidth = target.getVectorWidth(type);
   auto flops = flopsForBinaryOp2D(
-      BLen * blockLengthFromPacked(dataBlockCountPacked, numWorkerContexts),
-      type, op);
+      bSliceLen * (bSlicesM1 + 1) * bBroadcastFactor, type, op);
 
   switch (op) {
   case BinaryOpType::ADD: {
     const auto addedWorkerOverhead = 2;
     return {vectorInnerMultiVertexAddCycles(numWorkerContexts, vectorWidth,
-                                            BLen, dataBlockCountPacked, type) +
+                                            bSliceLen, bSlicesM1,
+                                            blocksPerWorker, type) +
                 addedWorkerOverhead * numWorkerContexts,
             flops};
   }
   case BinaryOpType::DIVIDE: {
-    return {vectorInnerMultiVertexDivCycles(numWorkerContexts, BLen,
-                                            dataBlockCountPacked, type) +
+    return {vectorInnerMultiVertexDivCycles(numWorkerContexts, bSliceLen,
+                                            bSlicesM1, blocksPerWorker, type) +
                 2,
             flops};
   }
@@ -1293,7 +1272,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1DInPlace)(
     const auto addedWorkerOverhead = 3;
     // Additional branches in the supervisor and worker part.
     return {vectorInnerMultiVertexAddCycles(numWorkerContexts, vectorWidth,
-                                            BLen, dataBlockCountPacked, type) +
+                                            bSliceLen, bSlicesM1,
+                                            blocksPerWorker, type) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
@@ -1301,8 +1281,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner1DInPlace)(
     const unsigned addedSuperOverhead = 6;
     const unsigned addedWorkerOverhead = 3;
     return {vectorInnerMultiVertexMulCycles(numWorkerContexts, vectorWidth,
-                                            BLen, dataBlockCountPacked, type,
-                                            true) +
+                                            bSliceLen, bSlicesM1,
+                                            blocksPerWorker, type, true) +
                 addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
             flops};
   }
@@ -1345,9 +1325,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2D)(
   const auto &dataBlockCount = sizes.dataBlockCount;
   std::uint64_t totalElems = 0;
   for (unsigned i = 0; i != sizes.BLen.size(); ++i) {
-    totalElems +=
-        BLen[i] * blockLengthFromPacked(sizes.dataBlockCount[i],
-                                        target.getNumWorkerContexts());
+    totalElems += BLen[i] * sizes.dataBlockCount[i];
   }
   auto flops = flopsForBinaryOp2D(totalElems, type, op);
 
@@ -1384,6 +1362,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
   const auto &n = sizes.n;
   const auto &BLen = sizes.BLen;
   const auto &dataBlockCount = sizes.dataBlockCount;
+  for (unsigned i = 0; i != sizes.BLen.size(); ++i) {
+    totalElems += BLen[i] * sizes.dataBlockCount[i];
+  }
 
   auto flops = flopsForBinaryOp2D(totalElems, type, op);
 

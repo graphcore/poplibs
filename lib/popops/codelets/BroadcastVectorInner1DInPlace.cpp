@@ -29,29 +29,39 @@ public:
       (op == expr::BinaryOpType::ADD || op == expr::BinaryOpType::MULTIPLY ||
        op == expr::BinaryOpType::SUBTRACT);
 
-  Input<Vector<FPType, SPAN, 8>> B;
+  Input<Vector<FPType, ONE_PTR, 8>> B;
   InOut<Vector<FPType, ONE_PTR, 8, needsInterleave>> data;
-  // See comment in BroadcastVectorInner1D.cpp for the meaning of this field
-  const uint16_t dataBlockCountPacked;
+  // See comment in BroadcastVectorInner1D.cpp for relationship between data
+  // sizes and these parameters
+  const uint16_t bSlicesM1;
+  const uint16_t bSliceLen;
+  const uint16_t bBroadcastFactor;
 
   IS_EXTERNAL_CODELET(true);
 
   bool compute(unsigned wid) {
-    unsigned BSize = B.size();
-    // See comment in BroadcastVectorInner1D.cpp for this calculation
-    unsigned dataBlockCount = (dataBlockCountPacked >> 3);
-    const unsigned remainingBlocks = dataBlockCountPacked & 0x07;
-    unsigned offs = wid * dataBlockCount +
-                    ((wid < remainingBlocks) ? wid : remainingBlocks);
-    unsigned numBlocks = dataBlockCount + (wid < remainingBlocks);
+    const unsigned rowsPerWorkerToAvoidSubWordWrites = 2;
+    unsigned numBlocks = rowsPerWorkerToAvoidSubWordWrites *
+                         divideWork(bBroadcastFactor + 1, 1, 0);
+    unsigned offs = numBlocks * wid;
+    if (offs >= bBroadcastFactor) {
+      // This worker has no work
+      return true;
+    }
 
-    FPType *dataPtr = &data[offs * BSize];
-
-    for (unsigned k = 0; k != BSize; ++k) {
-      for (unsigned j = 0; j != numBlocks; ++j) {
-        dataPtr[j * BSize + k] =
-            BinaryOpFn<op, FPType, architecture::active>::fn(
-                dataPtr[j * BSize + k], B[k]);
+    if (numBlocks * (wid + 1) > bBroadcastFactor) {
+      // This worker has less than the maximum work
+      numBlocks = bBroadcastFactor - offs;
+    }
+    for (unsigned i = 0; i < (bSlicesM1 + 1); i++) {
+      FPType *dataPtr =
+          &data[i * bBroadcastFactor * bSliceLen + offs * bSliceLen];
+      for (unsigned k = 0; k != bSliceLen; ++k) {
+        for (unsigned j = 0; j != numBlocks; ++j) {
+          auto idx = j * bSliceLen + k;
+          dataPtr[idx] = BinaryOpFn<op, FPType, architecture::active>::fn(
+              dataPtr[idx], B[k + i * bSliceLen]);
+        }
       }
     }
     return true;

@@ -438,14 +438,18 @@ struct TestRecord {
 
   // Is the output buffer padding made up of Nan values?
   bool padOutWithNan = false;
+  // For BroadcastVectorInner1D vertices only
+  unsigned bSlices = 1;
 
   /// \param[in] v      The vertex (with operation and data type) to test.
   /// \param[in] seq    A sequential index, different for each test
   /// \param[in] tSizes Describes generically the sizes to use for the test,
   ///                   needs to be adjusted for this specific vertex.
   TestRecord(std::unique_ptr<VertexDesc> v, unsigned seq,
-             const TensorSizes &tSizes, boost::optional<unsigned> operandOffset)
-      : sizes(tSizes), vertex(std::move(v)), operandOffset(operandOffset) {
+             const TensorSizes &tSizes, boost::optional<unsigned> operandOffset,
+             unsigned bSlices)
+      : sizes(tSizes), vertex(std::move(v)), operandOffset(operandOffset),
+        bSlices(bSlices) {
     writeName1 = vertex->in1Name + "_" + to_string(seq);
     writeName2 = vertex->in2Name + "_" + to_string(seq);
     readName = vertex->outName + "_" + to_string(seq);
@@ -584,7 +588,12 @@ bool verifyTest(const Target &target, bool isIpuModel, const TestRecord &test,
         val2 = in2Host[test.in2.offsets[0]];
       } else if (vertex.isBroadcastScalar2D) {
         val2 = in2Host[test.in2.offsets[0] + row];
-      } else if (vertex.isVectorInner) {
+      } else if (vertex.isVectorInner && !vertex.is2D) {
+        unsigned innerLength = test.in2.rowSizes[row] / test.bSlices;
+        unsigned j = i % innerLength;
+        unsigned outer = i / (test.in1.rowSizes[row] / test.bSlices);
+        val2 = in2Host[test.in2.offsets[row] + j + innerLength * outer];
+      } else if (vertex.isVectorInner && vertex.is2D) {
         unsigned j = i % test.in2.rowSizes[row];
         val2 = in2Host[test.in2.offsets[row] + j];
       } else if (vertex.isVectorOuter) {
@@ -937,10 +946,11 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
       graph.setTileMapping(workListTensor, 0);
       graph.connect(v["workList"], workListTensor);
     } else {
+      graph.setInitialValue(v["bSlicesM1"], test.bSlices - 1);
+      graph.setInitialValue(v["bSliceLen"],
+                            test.in2.rowSizes[0] / test.bSlices);
       unsigned n = test.in1.rowSizes[0] / test.in2.rowSizes[0];
-      unsigned nWorkers = target.getNumWorkerContexts();
-      std::uint16_t dataBlockCountPacked = ((n / nWorkers) << 3) | n % nWorkers;
-      graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
+      graph.setInitialValue(v["bBroadcastFactor"], n);
     }
   }
 }
@@ -1024,6 +1034,7 @@ int main(int argc, char **argv) {
 
   std::vector<SizeDesc> sizes = {{false, {25, 12, 21}}};
   std::vector<SizeDesc> sizes2;
+  unsigned bSlices = 1;
 
   std::vector<std::string> operationStr;
   std::vector<bool> allowMisaligned;
@@ -1117,6 +1128,10 @@ int main(int argc, char **argv) {
      po::value<std::vector<SizeDesc>>(&sizes2)->multitoken(),
      "Size(s) for rows of seconds operand. Single or multiple values depending "
      "on vertex variant")
+    ("b-slices",
+     po::value<unsigned>(&bSlices)->default_value(bSlices),
+     "For the BroadcastVectorInner1D(InPlace) vertices split the b-operand "
+     " resulting in `b-slices` vectors being broadcast")
     ("allow-misaligned",
      po::value<std::vector<bool>>(&allowMisaligned)->multitoken(),
      "For VectorOuter vertices only, value(s) for the 'allowMisaligned "
@@ -1134,6 +1149,12 @@ int main(int argc, char **argv) {
   parseOptions(argc, argv, poDesc);
 
   // === Some parameter checks
+  if (bSlices > 1 && (sizes2[0].val[0] / bSlices) % 2) {
+    std::cerr << " Warning - the slice of the B operand that will be used has "
+                 "an odd number of elements, be careful as some ops won't "
+                 "support this case.\n";
+  }
+
   if (!vertexRE.empty() && !vertices.empty()) {
     throw std::runtime_error(
         "Cannot specify both --vertexRE and --vertex option");
@@ -1215,7 +1236,8 @@ int main(int argc, char **argv) {
                   }
                   auto testRec = std::make_shared<TestRecord>(
                       std::move(vertex), numTests,
-                      TensorSizes(*vertex, sizes[i], sz2), operandOffset);
+                      TensorSizes(*vertex, sizes[i], sz2), operandOffset,
+                      bSlices);
                   addOneTest<TestRecord, VertexDesc>(tests, testRec, deviceType,
                                                      errCount, options);
                 }

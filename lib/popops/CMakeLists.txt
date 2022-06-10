@@ -190,6 +190,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerDiv_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerMul_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerMul_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerCommon.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterOps1D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByLimit.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram1DByData.S

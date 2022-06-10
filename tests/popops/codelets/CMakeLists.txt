@@ -200,7 +200,7 @@ LABELS codelet
 VARIANTS ${SIM_VARIANTS})
 add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorInner_long"
 COMMAND BinaryCodeletsTest
-        --vertexRE VectorInner
+        --vertexRE VectorInner1
         --data-type half
         --operation add mul
         --size   4080 4088 4096
@@ -208,6 +208,43 @@ COMMAND BinaryCodeletsTest
         --group-tests
 LABELS codelet
 VARIANTS ${SIM_VARIANTS})
+
+add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorInner_b_slices_1"
+COMMAND BinaryCodeletsTest
+        --vertexRE VectorInner1
+        --data-type half
+        --operation add div subtract mul
+        --size   48 128 256 784 1024
+        --size2  8 16
+        --group-tests
+LABELS codelet
+VARIANTS ${SIM_VARIANTS})
+
+add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorInner_b_slices_2"
+COMMAND BinaryCodeletsTest
+        --vertexRE VectorInner1
+        --data-type half
+        --operation add div subtract mul
+        --size   128 256 1024
+        --size2  8 16 32
+        --group-tests
+        --b-slices=2
+LABELS codelet
+VARIANTS ${SIM_VARIANTS})
+
+add_multitarget_test(NAME "BinaryOpCodeletsTests_VectorInner_b_slices_4"
+COMMAND BinaryCodeletsTest
+        --vertexRE VectorInner1
+        --data-type half
+        --operation add div subtract mul
+        --size   128 256 1024
+        --size2  4 8 16
+        --group-tests
+        --b-slices=4
+LABELS codelet
+VARIANTS ${SIM_VARIANTS})
+
+
 
 # Vector Outer vertices are exercised with these sizes as well.
 # When 'allowMisaligned' is false, the rows must be a multiple of atom size
