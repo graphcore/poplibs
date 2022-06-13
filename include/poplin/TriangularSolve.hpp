@@ -20,17 +20,23 @@ namespace poplin {
  * of the tensor will be set to make a triangular solver with this
  * tensor as the left argument efficient.
  *
+ * Supported options:
+ *
+ * * `blockSize`
+ *
+ *   A hint for the size of block to be used. See triangularSolve() for
+ *   more information.
+ *
+ * See matMul() for additional options.
+ *
  * \param graph           The Poplar graph.
  * \param inputType       The input data type.
  * \param outputType      The data type of the returned tensor.
  * \param aShape          The shape of the left operand.
  * \param bShape          The shape of the right operand.
- * \param leftSide        Solve AX = B if true, XA = B overwise.
+ * \param leftSide        Solve AX = B if true, XA = B otherwise.
  * \param debugContext    Debug information.
  * \param options         The implementation options of the triangular solver.
- *                        Supported options:
- *                          'blockSize' - blockSize hint
- *                        See matMul() for additional options.
  * \param cache           Optional pointer to a planning cache to use.
  *
  * \returns               A matrix of type \p type and shape \p aShape. The
@@ -50,17 +56,23 @@ poplar::Tensor createTriangularSolveInputLHS(
  * of the tensor will be set to make a triangular solver with this
  * tensor as the left argument efficient.
  *
+ * Supported options:
+ *
+ * * `blockSize`
+ *
+ *   A hint for the size of block to be used. See triangularSolve() for
+ *   more information.
+ *
+ * See matMul() for additional options.
+ *
  * \param graph           The Poplar graph.
  * \param inputType       The input data type.
  * \param outputType      The data type of the returned tensor.
  * \param aShape          The shape of the left operand.
  * \param bShape          The shape of the right operand.
- * \param leftSide        Solve AX = B if true, XA = B overwise.
+ * \param leftSide        Solve AX = B if true, XA = B otherwise.
  * \param debugContext    Debug information.
  * \param options         The implementation options of the triangular solver.
- *                        Supported options:
- *                          'blockSize' - blockSize hint
- *                        See matMul() for additional options.
  * \param cache           Optional pointer to a planning cache to use.
  *
  * \returns               A matrix of type \p type and shape \p bShape. The
@@ -97,11 +109,26 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
  * Solves systems of linear equations with lower or upper triangular
  * coefficients.
  *
+ * Supported options:
+ *
+ * * `blockSize`
+ *
+ *   A hint for the size of block to be used. The triangularSolve() function
+ *   uses a divide-and-conquer approach, where the input matrices are split into
+ *   four quadrants that can be solved independently, and in parallel. This
+ *   process is repeated until the quadrants are less than the block size.
+ *   Although smaller blocks can enable more parallelism there is an overhead
+ *   for combining the results from each step.
+ *
+ *   The default value is 64.
+ *
+ * See matMul() for additional options.
+ *
  *  \param graph          The Poplar graph.
  *  \param a              Tensor of floating-point type with shape [..., N,N].
  *  \param b              Tensor of the same type with shape [...,  N, K] if
  *                        left_side is true, [...,K, N] otherwise.
- *  \param leftSide       Solve AX = B if true, XA = B overwise.
+ *  \param leftSide       Solve AX = B if true, XA = B otherwise.
  *  \param lower          Use the upper or lower triangle of \p a.
  *  \param unitDiagonal   If true, the diagonal elements of \p a are assumed to
  *                        be 1 and not accessed.
@@ -109,9 +136,6 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
  *                        to perform the arrangement will be appended to.
  *  \param debugContext   Optional debug information.
  *  \param options        The implementation options of the triangular solver.
- *                        Supported options:
- *                          'blockSize' - blockSize hint
- *                        See matMul() for additional options.
  *  \param cache          Optional pointer to a planning cache to use.
  *  \returns              Tensor with shape of \p b with linear system solution.
  */
@@ -130,9 +154,9 @@ poplar::Tensor triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
  * \param outputType      The data type of the rhs tensor.
  * \param aShape          The shape of the left operand.
  * \param bShape          The shape of the right operand.
- * \param leftSide        Solve AX = B if true, XA = B overwise.
+ * \param leftSide        Solve AX = B if true, XA = B otherwise.
  * \param options         The implementation options of the triangular solver.
- *  \returns              Mat mul preplan parameters.
+ * \returns               Matmul preplan parameters.
  */
 std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
 getTriangularSolveMatMulPrePlanParameters(
