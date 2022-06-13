@@ -19,10 +19,17 @@ namespace util {
 
 template <typename T>
 void roundToHalfPrecision(const poplar::Target &target, T *begin, T *end) {
-  auto N = end - begin;
-  std::vector<char> buf(N * target.getTypeSize(poplar::HALF));
-  poplar_test::detail::copyToDevice(target, begin, buf.data(), N);
-  poplar_test::detail::copyFromDevice(target, buf.data(), begin, N);
+  if constexpr (std::is_same<T, float>::value ||
+                std::is_same<T, double>::value) {
+    gccs::ArrayRef<T> user{begin, static_cast<std::size_t>(end - begin)};
+    std::vector<char> buf(user.size() * target.getTypeSize(poplar::HALF));
+    poplar::convertToDeviceType(poplar::HALF, user, buf.data());
+    poplar::convertFromDeviceType(poplar::HALF, buf.data(), user);
+  } else {
+    throw poputil::poplibs_error("Data type does not support rounding to half."
+                                 " Only float and double are supported for"
+                                 " this operation.");
+  }
 }
 
 template <typename T, typename F>
@@ -39,7 +46,10 @@ void writeRandomBinaryValues(const Target &target, const Type &type, T *begin,
     boost::random::bernoulli_distribution<> dist{};
     writeValues(begin, end, [&]() { return dist(randomEngine) ? a : b; });
     if (type == poplar::HALF) {
-      roundToHalfPrecision(target, begin, end);
+      if constexpr (std::is_same<T, float>::value ||
+                    std::is_same<T, double>::value) {
+        roundToHalfPrecision(target, begin, end);
+      }
     }
   } else if (type == poplar::QUARTER) {
     boost::random::uniform_int_distribution<int> dist(a, b);
@@ -72,7 +82,10 @@ void writeRandomValuesWithRepetitions(const Target &target, const Type &type,
                                                    : dist(randomEngine);
     });
     if (type == poplar::HALF) {
-      roundToHalfPrecision(target, begin, end);
+      if constexpr (std::is_same<T, float>::value ||
+                    std::is_same<T, double>::value) {
+        roundToHalfPrecision(target, begin, end);
+      }
     }
   } else if (type == poplar::INT) {
     boost::random::uniform_int_distribution<int> dist(min, max);
@@ -110,7 +123,10 @@ void writeRandomValues(const Target &target, const Type &type, T *begin, T *end,
     boost::random::uniform_real_distribution<> dist(min, max);
     writeValues(begin, end, [&]() { return dist(randomEngine); });
     if (type == poplar::HALF) {
-      roundToHalfPrecision(target, begin, end);
+      if constexpr (std::is_same<T, float>::value ||
+                    std::is_same<T, double>::value) {
+        roundToHalfPrecision(target, begin, end);
+      }
     }
   } else if (type == poplar::INT) {
     boost::random::uniform_int_distribution<int> dist(min, max);
