@@ -32,6 +32,9 @@ createNormaliseImageInput(poplar::Graph &graph, const poplar::Type &type,
 ///
 ///      tIn[c] * inScale - offset[c]) * scale[c]
 ///
+/// \a tIn must be mapped with a single region of complete pixels on each tile.
+/// \ref createNormaliseImageInput() creates a variable that is suitably mapped.
+///
 /// \c UINT8 inputs are cast to \c HALF. Otherwise the output tensor follows the
 /// input type.
 ///
