@@ -217,7 +217,7 @@ poplar::Tensor normWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
 
 /// Computes the normalised output from whitened activations.
 /// \param graph        The graph to which the normalisation operation is added.
-/// \param actsWhitened  Whitened activations.
+/// \param actsWhitened  The whitened activation inputs to this layer.
 /// \param gamma         Per-channel multiplicative normalisation parameter.
 /// \param beta          Per-channel additive normalisation parameter.
 /// \param prog          A program sequence that the code to
@@ -236,7 +236,7 @@ poplar::Tensor normalise(poplar::Graph &graph,
 /// Compute gradients with respect to parameters required for parameter update.
 ///
 /// \param graph        The graph to which the normalisation operation is added.
-/// \param actsWhitened  Whitened activations.
+/// \param actsWhitened  The whitened activation inputs to this layer.
 /// \param gradsIn       The gradient with respect to the output of this layer.
 /// \param prog          A program sequence that the code to
 ///                      perform the normalisation will be appended to.
@@ -276,7 +276,8 @@ poplar::Tensor normGradients(poplar::Graph &graph,
 /// \p invStdDev.
 ///
 /// \param graph        The graph to which the normalisation operation is added.
-/// \param actsWhitened Forward whitened activations.
+/// \param actsWhitened The forward-pass whitened activation inputs to this
+///                     layer.
 /// \param gradsIn      The gradient with respect to the output of this layer.
 /// \param invStdDev    Inverse standard deviation from norm statistics.
 /// \param prog         A program sequence that the code to
@@ -306,7 +307,8 @@ poplar::Tensor normStatisticsGradients(
 /// \param replicatedGraph
 ///                    The replicated graph to which the normalisation operation
 ///                     is added.
-/// \param actsWhitened Forward whitened activations.
+/// \param actsWhitened The forward-pass whitened activation inputs to this
+///                     layer.
 /// \param gradsIn      The gradient with respect to the output of this layer.
 /// \param invStdDev    Inverse standard deviation from norm statistics.
 /// \param prog         A program sequence that the code to

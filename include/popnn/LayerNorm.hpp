@@ -13,7 +13,7 @@
 namespace popnn {
 namespace ln {
 
-/** Estimate mean and inverse of standard deviation of activations.
+/** Estimate the mean and inverse of the standard deviation of the activations.
  *
  * \param graph          The graph that the normalisation operation is added to.
  * \param acts           The activations for which the mean and variance are
@@ -21,10 +21,6 @@ namespace ln {
  * \param eps            The epsilon value added to the variance to avoid
  *                       division by zero.
  * \param prog           The program sequence to add the operation to.
- * \param numGroups      The number of groups to split the channel dimension
- *                       into when calculating group norm statistics. The
- *                       \c groupNormStridedChannelGrouping option defines
- *                       how the split is made.
  * \param unbiasedVarEstimate If true, an unbiased variance estimate will be
  *                            computed.
  * \param stableAlgo          If true, computes the mean first then subtracts
@@ -61,7 +57,7 @@ layerNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
   return outputs;
 }
 
-/** Whiten activations given the mean and standard deviation.
+/** Whiten the activations using the mean and standard deviation.
  *
  * \param graph         The graph that the normalisation operation is added to.
  * \param acts          The input activations that will be whitened.
@@ -92,7 +88,7 @@ layerNormWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
   return output;
 }
 
-/** Layer normalise activations given the mean, standard deviation and batch
+/** Layer normalise the activations using the mean, standard deviation and batch
  *  norm parameters.
  *
  * As layer normalise uses group normalise, options are passed through.
@@ -139,7 +135,7 @@ layerNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
   return outputs;
 }
 
-/** Compute gradients with respect to parameters for parameter update.
+/** Compute gradients with respect to the parameters for parameter update.
  *
  * \param graph         The graph that the normalisation operation is added to.
  * \param acts          The forward-pass activation inputs to this layer.
@@ -213,7 +209,7 @@ inline std::pair<poplar::Tensor, poplar::Tensor> layerNormParamGradients(
   return outputs;
 }
 
-/** Compute gradients with respect to input activations for the layer norm
+/** Compute gradients with respect to the input activations for the layer norm
  * layer. Gradients are propagated through the complete layer including
  * statistics computation.
  *
@@ -256,12 +252,13 @@ layerNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
   return output;
 }
 
-/** Compute gradients with respect to input activations for the layer norm
+/** Compute gradients with respect to the input activations for the layer norm
  *  layer. Gradients are propagated through the complete layer including
  *  statistics computation.
  *
  * \param graph         The graph that the normalisation operation is added to.
- * \param actsWhitened  The forward-pass activation inputs to this layer.
+ * \param actsWhitened  The forward-pass whitened activation inputs to this
+ *                      layer.
  * \param gradsIn       The gradient with respect to the output of this layer.
  * \param invStdDev     The inverse standard deviation of the \p acts tensor,
  *                      typically calculated using layerNormStatistics().
@@ -297,7 +294,7 @@ layerNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
   return output;
 }
 
-/** Update layer norm parameters given the gradients with respect to the
+/** Update layer norm parameters from the gradients with respect to the
  *  parameters. Gradients are propagated through the complete layer including
  *  statistics computation.
  *
@@ -334,7 +331,7 @@ inline void layerNormParamUpdate(poplar::Graph &graph,
                                          gamma, beta, prog, {di}, options);
 }
 
-/** Update layer norm parameters given the gradients with respect to the
+/** Update the layer norm parameters from the gradients with respect to the
  *  parameters. Gradients are propagated through the complete layer including
  *  statistics computation.
  *

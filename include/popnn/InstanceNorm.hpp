@@ -263,7 +263,8 @@ instanceNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
  *  statistics computation.
  *
  * \param graph         The graph that the normalisation operation is added to.
- * \param actsWhitened  The forward-pass activation inputs to this layer.
+ * \param actsWhitened  The forward-pass whitened activation inputs to this
+ *                      layer.
  * \param gradsIn       The gradient with respect to the output of this layer.
  * \param invStdDev     The inverse standard deviation of the \p acts tensor,
  *                      typically calculated using InstanceNormStatistics().
