@@ -203,6 +203,13 @@ poplar::Tensor cloneToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
   POPUTIL_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, dstIpu, method));
 
+  if (dstIpu >= masterGraph.getTarget().getNumIPUs()) {
+    throw poputil::poplibs_error(
+        "Destination IPU index (" + std::to_string(dstIpu) +
+        ") is invalid. There are " +
+        std::to_string(masterGraph.getTarget().getNumIPUs()) + " IPUs.");
+  }
+
   auto tLocal = masterGraph.clone(t, {di}, method);
   auto tSimple = t.flatten();
   auto tLocalSimple = tLocal.flatten();

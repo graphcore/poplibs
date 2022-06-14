@@ -398,6 +398,10 @@ public:
  *                during the clone. If this is empty then the debug names will
  *                be derived from existing tensor debug names.
  * \param method  The method to use for the cloning.
+ *
+ * \throws poputil::poplibs_error If `dstIPU` is greater than or equal to the
+ *                                number of IPUs targeted by the `graph`.
+ *
  * \return The cloned tensor.
  */
 poplar::Tensor
@@ -472,6 +476,10 @@ cloneAndExpandAliasing(poplar::Graph &graph, const poplar::Tensor &t,
  *                    existing tensor debug names.
  * \param method      The method to use for cloning of the tensor on the
  *                    destination IPU.
+ *
+ * \throws poputil::poplibs_error If `dstIPU` is greater than or equal to the
+ *                                number of IPUs targeted by the `graph`.
+ *
  * \return The new tensor on the specified IPU.
  */
 poplar::Tensor
@@ -498,6 +506,10 @@ copyToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
  *                    existing tensor debug names.
  * \param method      The method to use for cloning of the tensor on the
  *                    destination IPU.
+ *
+ * \throws poputil::poplibs_error If `dstIPU` is greater than or equal to the
+ *                                number of IPUs targeted by the `graph`.
+ *
  * \return The new tensor on the specified IPU.
  */
 poplar::Tensor
