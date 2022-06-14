@@ -69,7 +69,13 @@ Tensor normaliseImage(Graph &graph, Sequence &seq, Tensor tIn, float inScale,
       throw poputil::poplibs_error(
           "normaliseImage() expects a single region per tile. Did you create "
           "the input using createNormaliseImageInput()?");
+
     auto &interval = inMapping[tile].front();
+    if (interval.size() % 3 != 0)
+      throw poputil::poplibs_error(
+          "normaliseImage() expects whole pixels to be mapped to each tile. "
+          "Did you create the input using createNormaliseImageInput()?");
+
     // We're expanding the innermost dimension from 3 channels to 4.
     outMapping[tile].emplace_back(interval.begin() * 4 / 3,
                                   interval.end() * 4 / 3);
@@ -81,7 +87,6 @@ Tensor normaliseImage(Graph &graph, Sequence &seq, Tensor tIn, float inScale,
                               {"offsets", offsets}});
     graph.setInitialValue(v["inScale"], inScale);
     auto nPixels = interval.size() / 3;
-    assert(interval.size() % 3 == 0);
     unsigned packedNPixels =
         ((nPixels / numWorkers) << 3) | (nPixels % numWorkers);
     graph.setInitialValue(v["packedNPixels"], packedNPixels);
