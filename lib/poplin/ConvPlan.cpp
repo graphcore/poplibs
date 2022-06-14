@@ -1124,13 +1124,28 @@ createPlan(const ConvParams &params, const ConvOptions &options,
                 !transforms[tileLevel].expandDims.empty());
 
             for (const auto &convVertexType : convVertexTypeCandidates) {
-              // The cost modelling doesn't include the cost of rearranging
-              // the inputs, which is only accurate in the case we optimise
-              // away the rearrangement with a vertex-level expansion.
-              if (!transforms[tileLevel].expandDims.empty() &&
-                  !canDeferExpandDimsToVertexLevel(
-                      convVertexType.method, finalParams, tileLevel, target))
-                continue;
+              if (!transforms[tileLevel].expandDims.empty()) {
+                // The cost modelling doesn't include the cost of rearranging
+                // the inputs, which is only accurate in the case we optimise
+                // away the rearrangement with a vertex-level expansion.
+                if (!canDeferExpandDimsToVertexLevel(
+                        convVertexType.method, finalParams, tileLevel, target))
+                  continue;
+                // The nx1 conv partial vertex requires the first dimension of
+                // the weights to be a multiple of n. However if that dimension
+                // gets expanded then it will flatten the weight's dimension to
+                // one, so this is only valid when n is also one.
+                const auto &expandDims = transforms[tileLevel].expandDims;
+                const bool isFirstDimExpanded =
+                    std::find(expandDims.begin(), expandDims.end(), 0) !=
+                    expandDims.end();
+                const auto weightsPerConvUnit =
+                    target.getWeightsPerConvUnit(params.inputType);
+                if (isFirstDimExpanded &&
+                    weightsPerConvUnit / convVertexType.inChansPerGroup != 1) {
+                  continue;
+                }
+              }
 
               std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
               if (isJointPlan) {

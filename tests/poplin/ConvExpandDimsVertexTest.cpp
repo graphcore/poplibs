@@ -384,7 +384,8 @@ static HostTensor<HostValueType> convolve(const ConvParams &params,
       void visitOnTileExecute(
           const pva::OnTileExecuteProgram &onTileExecute) override {
         if (onTileExecute.name().find("PreArrange") != std::string::npos ||
-            onTileExecute.name().find("OnTileCopy") != std::string::npos) {
+            onTileExecute.name().find("OnTileCopy") != std::string::npos ||
+            onTileExecute.name().find("actsRearranged") != std::string::npos) {
           for (const auto &var : onTileExecute.vars()) {
             BOOST_TEST_MESSAGE(var.name());
             BOOST_TEST(var.name().find("MyInputTensor") == std::string::npos);
@@ -668,16 +669,23 @@ BOOST_AUTO_TEST_CASE(FullyExpandingWithBatchSize) {
   TestOptions options;
   options.shouldHaveExpandDims = false;
   HostTensor expect =
-      convolve<float>(params, makePlanConstraints(8, {}), options);
+      convolve<float>(params, makePlanConstraints(4, {}), options);
   // Define the test cases as every combination of expand dims.
-  std::vector<std::vector<unsigned>> cases = {
-      {0},       {1},       {2},       {0, 1},    {1, 0},
-      {0, 2},    {2, 0},    {1, 2},    {2, 1},    {0, 1, 2},
-      {2, 0, 1}, {1, 2, 0}, {1, 0, 2}, {2, 1, 0}, {0, 2, 1}};
+  std::vector<std::vector<unsigned>> cases = {{0},    {1},    {2},      {0, 1},
+                                              {0, 2}, {1, 2}, {0, 1, 2}};
   // Run the test cases.
   for (const auto &dims : cases) {
-    HostTensor output = convolve<float>(params, makePlanConstraints(8, dims));
-    BOOST_TEST(output == expect);
+    for (unsigned inChans : {2, 4, 8}) {
+      // Not supported with vertex level expansion.
+      if (dims[0] == 0 && inChans < 8)
+        continue;
+      TestOptions options;
+      options.allowInputRearrangement =
+          inChans != params.inputChannelsPerConvGroup;
+      HostTensor output =
+          convolve<float>(params, makePlanConstraints(inChans, dims), options);
+      BOOST_TEST(output == expect);
+    }
   }
 }
 
@@ -801,20 +809,6 @@ BOOST_AUTO_TEST_CASE(PopARTMultiConvBwdPassReproducer) {
   BOOST_TEST(output == expect);
 }
 
-BOOST_AUTO_TEST_CASE(PopARTMultiConvFwdPassInsufficientInputChannels) {
-  // With insufficient input channels it shouldn't be possible to plan this.
-  ConvParams params{/*dataType        = */ FLOAT,
-                    /*batchSize       = */ 1,
-                    /*inputFieldShape = */ {4, 4},
-                    /*kernelShape     = */ {2, 2},
-                    /*inputChannels   = */ 2,
-                    /*outputChannels  = */ 1,
-                    /*numConvGroups   = */ 1};
-  BOOST_CHECK_EXCEPTION(convolve<float>(params, makePlanConstraints(2, {1})),
-                        poputil::poplibs_error,
-                        [](auto const &ex) { return true; });
-}
-
 BOOST_AUTO_TEST_CASE(PopARTMultiConvFwdPassReproducerNoPadding3D) {
   ConvParams params{/*dataType        = */ FLOAT,
                     /*batchSize       = */ 1,
@@ -839,5 +833,56 @@ BOOST_AUTO_TEST_CASE(PopARTMultiConvFwdPassReproducerNoPadding3D) {
   });
   // clang-format on
   HostTensor output = convolve<float>(params, makePlanConstraints(8, {2, 0}));
+  BOOST_TEST(output == expect);
+}
+
+BOOST_AUTO_TEST_CASE(MinimalInputChannelsHalf) {
+  ConvParams params{/*dataType        = */ HALF,
+                    /*batchSize       = */ 1,
+                    /*inputFieldShape = */ {2, 8},
+                    /*kernelShape     = */ {2, 4},
+                    /*inputChannels   = */ 4,
+                    /*outputChannels  = */ 1,
+                    /*numConvGroups   = */ 1};
+  HostTensor expect = HostTensor(
+      /* shape = */ {1, 1, 1, 5},
+      /* data  = */ {21520, 22048, 22576, 23104, 23632});
+  HostTensor output = convolve<float>(params, makePlanConstraints(4, {1}));
+  BOOST_TEST(output == expect);
+}
+
+BOOST_AUTO_TEST_CASE(MinimalInputChannelsFloat) {
+  ConvParams params{/*dataType        = */ FLOAT,
+                    /*batchSize       = */ 1,
+                    /*inputFieldShape = */ {2, 8},
+                    /*kernelShape     = */ {2, 4},
+                    /*inputChannels   = */ 2,
+                    /*outputChannels  = */ 1,
+                    /*numConvGroups   = */ 1};
+  HostTensor expect = HostTensor(
+      /* shape = */ {1, 1, 1, 5},
+      /* data  = */ {2632, 2768, 2904, 3040, 3176});
+  HostTensor output = convolve<float>(params, makePlanConstraints(2, {1}));
+  BOOST_TEST(output == expect);
+}
+
+BOOST_AUTO_TEST_CASE(SubOptimalInputChannelsFloat) {
+  // Forcing the planner to use a sub-optimal number of input channels that's
+  // less than the tensors are prepared with will cause rearrangement but
+  // should still work.
+  ConvParams params{/*dataType        = */ FLOAT,
+                    /*batchSize       = */ 1,
+                    /*inputFieldShape = */ {2, 8},
+                    /*kernelShape     = */ {2, 4},
+                    /*inputChannels   = */ 4,
+                    /*outputChannels  = */ 1,
+                    /*numConvGroups   = */ 1};
+  HostTensor expect = HostTensor(
+      /* shape = */ {1, 1, 1, 5},
+      /* data  = */ {21520, 22048, 22576, 23104, 23632});
+  TestOptions options;
+  options.allowInputRearrangement = true;
+  HostTensor output =
+      convolve<float>(params, makePlanConstraints(2, {1}), options);
   BOOST_TEST(output == expect);
 }

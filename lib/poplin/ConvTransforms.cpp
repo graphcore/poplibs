@@ -136,12 +136,9 @@ bool canDeferExpandDimsToVertexLevel(const Plan::Method &method,
   if (boost::get<Plan::Amp>(&method) == nullptr)
     return false;
 
-  // Need at least 64-bit alignment of input pointers. Also need 32 bytes worth
-  // of input channels for the nx1 vertex to start with, as expanding the
-  // dimension at vertex level doesn't increase IC2 (it increases IC1 instead),
-  // and the vertex's assembly doesn't easily support < 32 bytes.
+  // Need at least 64-bit alignment of input pointers.
   const auto sizeOfInput = target.getTypeSize(params.inputType);
-  if (params.inputChannelsPerConvGroup * sizeOfInput < 32)
+  if (params.inputChannelsPerConvGroup * sizeOfInput < 8)
     return false;
 
   // The following transformations can cause additional rearrangement

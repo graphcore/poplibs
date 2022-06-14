@@ -709,6 +709,8 @@ static void createConvPartialAmpVertex(
     assert(params->inputTransform.paddingUpper[0] == 0);
   }
 
+  auto unexpandedInputFieldShape = params->getInputFieldShape();
+
   std::vector<WorkListAdjustment> workListAdjustment;
   assert(plan.transforms.size() > 1);
   if (!plan.transforms[tileLevel].expandDims.empty()) {
@@ -878,8 +880,7 @@ static void createConvPartialAmpVertex(
   // the vertex.
   int inRowStride = getInRowStride(
       params.getParams(),
-      product(inputBatchAndFieldShape) /
-          (inputBatchAndFieldShape[0] * inputBatchAndFieldShape[1]),
+      product(unexpandedInputFieldShape) / unexpandedInputFieldShape[0],
       useConvPartial1x1OutVertex, convUnitWeightHeight);
 
   int transformedInStride =
