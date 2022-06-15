@@ -1,9 +1,6 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 
-// Change a number into a string
-// The number must be known at the time the preprocessor runs
-#define STR_(x) #x
-#define STR(x) STR_(x)
+#include <ipu_builtins.h>
 
 // Flag value for rounding mode
 #define TFPU_ROUND_ZERO 3
@@ -591,13 +588,8 @@ template <unsigned stride>
 class inLineAssemblerCast<const quarter *, quarter *, true, stride> {
 public:
   static __attribute__((always_inline)) void setFp8Config(float2 metadata) {
-    asm volatile(
-        R"l(  uput $FP_SCL, %[scale]
-              uput $FP_NFMT, %[format]
-        )l"
-        :
-        : [format] "r"(metadata[0]), [scale] "r"(metadata[1])
-        :);
+    __builtin_ipu_uput(metadata[0], CSR_W_FP_NFMT__INDEX & CSR_UPPER_MASK);
+    __builtin_ipu_uput(metadata[1], CSR_W_FP_SCL__INDEX & CSR_UPPER_MASK);
   }
 
   static __attribute__((always_inline)) quarter
@@ -793,62 +785,67 @@ public:
 // masking out one of the exponent bits with `andc` even though one
 // bit should be zero as it is unused
 
+static __attribute__((always_inline)) float ldb8(const unsigned char *address) {
+  float result;
+  // TODO - Use intrinsic/builtin for this when one becomes available
+  asm volatile(
+      R"l(  ldb8 %[result], %[address], $mzero, 0
+      )l"
+      : [result] "=r"(result)
+      : [address] "r"(address)
+      :);
+  return result;
+}
+
 static __attribute__((always_inline)) void
 setFp8Config(const MetadataType *metadata) {
-  asm volatile(
-      R"l(  ldb8 $a0, %[metadata], $mzero, 0
-            uput $FP_SCL, $a0
-            andc $a0, $a0, 0x40000000
-            f32cmplt $a0, $a0, $azero
-            uput $FP_NFMT, $a0
-      )l"
-      :
-      : [metadata] "r"(metadata)
-      : "$a0");
+  float temp = ldb8(metadata);
+  __builtin_ipu_uput(temp, CSR_W_FP_SCL__INDEX & CSR_UPPER_MASK);
+  temp = __builtin_ipu_andc_f32(temp, 2.0f);
+  temp = __builtin_ipu_cmplt(temp, 0.0f);
+  __builtin_ipu_uput(temp, CSR_W_FP_NFMT__INDEX & CSR_UPPER_MASK);
 }
 
 static __attribute__((always_inline)) void
 setFp8ConfigNegScale(const MetadataType *metadata) {
+  auto scale = ldb8(metadata);
+  // The value 2.0f = 0x40000000 so andc is an and with 0xbfffffff
+  // This just makes sure that the exponent is not all 1's
+  auto format = __builtin_ipu_cmplt(__builtin_ipu_andc_f32(scale, 2.0f), 0.0f);
+  __builtin_ipu_uput(format, CSR_W_FP_NFMT__INDEX & CSR_UPPER_MASK);
+
+  // TODO - Use intrinsics / builtins for these operations when we make
+  // a method to initialise values that appear as bitmasks into $ARF registers
+  // without converting to the float equivalent.
   asm volatile(
-      R"l(  ldb8 $a0, %[metadata], $mzero, 0
-            andc $a1, $a0, 0x40000000
-            f32cmplt $a1, $a1, $azero
-            uput $FP_NFMT, $a1
-            and  $a0, $a0, 0x3f
-            setzi $a1, 0x80
-            f16v2sub  $a0, $a1, $a0
-            uput $FP_SCL, $a0
+      R"l(  and  %[scale], %[scale], 0x3f
+            setzi $a0, 0x80
+            f16v2sub  %[scale], $a0, %[scale]
       )l"
+      : [scale] "+r"(scale)
       :
-      : [metadata] "r"(metadata)
-      : "$a0", "$a1");
+      : "$a0");
+  __builtin_ipu_uput(scale, CSR_W_FP_SCL__INDEX & CSR_UPPER_MASK);
 }
 
 static float2 extractMetadata(const MetadataType *metadata) {
-  float2 result;
-  asm volatile(
-      R"l(  ldb8      %[scale], %[metadata], $mzero, 0
-            andc      $a0, %[scale], 0x40000000
-            f32cmplt  %[format], $a0, $azero
-      )l"
-      : [format] "=r"(result[0]), [scale] "=r"(result[1])
-      : [metadata] "r"(metadata)
-      : "$a0");
-  return result;
+  const auto scale = ldb8(metadata);
+  auto format = __builtin_ipu_cmplt(__builtin_ipu_andc_f32(scale, 2.0f), 0.0f);
+  return {format, scale};
 }
 
 static float2 extractMetadataNegScale(const MetadataType *metadata) {
   float2 result;
+  result[1] = ldb8(metadata);
+  result[0] =
+      __builtin_ipu_cmplt(__builtin_ipu_andc_f32(result[1], 2.0f), 0.0f);
   asm volatile(
-      R"l(  ldb8      %[scale], %[metadata], $mzero, 0
-            andc      $a0, %[scale], 0x40000000
-            f32cmplt  %[format], $a0, $azero
-            and       %[scale], %[scale], 0x3f
+      R"l(  and       %[scale], %[scale], 0x3f
             setzi     $a0, 0x80
             f16v2sub  %[scale], $a0, %[scale]
       )l"
-      : [format] "=r"(result[0]), [scale] "=r"(result[1])
-      : [metadata] "r"(metadata)
+      : [scale] "+r"(result[1])
+      :
       : "$a0");
   return result;
 }

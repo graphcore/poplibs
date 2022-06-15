@@ -43,9 +43,8 @@ bool checkAccuracyWhenCastFloatV2ToHalf(float x0, float x1, float tolerance) {
     return false;
 #ifdef __IPU__
   unsigned save_fp_ctl =
-      __builtin_ipu_uget(CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
-  __builtin_ipu_uput(0x00000000,
-                     CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+      __builtin_ipu_uget(CSR_W_FP_CTL__INDEX & CSR_UPPER_MASK);
+  __builtin_ipu_uput(0x00000000, CSR_W_FP_CTL__INDEX & CSR_UPPER_MASK);
 #endif
   float maxErr0 = std::fabs(tolerance * x0);
   float maxErr1 = std::fabs(tolerance * x1);
@@ -54,8 +53,7 @@ bool checkAccuracyWhenCastFloatV2ToHalf(float x0, float x1, float tolerance) {
   float diff0 = static_cast<float>(x0half) - x0;
   float diff1 = static_cast<float>(x1half) - x1;
 #ifdef __IPU__
-  __builtin_ipu_uput(save_fp_ctl,
-                     CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+  __builtin_ipu_uput(save_fp_ctl, CSR_W_FP_CTL__INDEX & CSR_UPPER_MASK);
 #endif
   return std::fabs(diff0) < maxErr0 && std::fabs(diff1) < maxErr1;
 }

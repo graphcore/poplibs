@@ -11,29 +11,15 @@
 static __attribute__((always_inline)) void
 setFp8Format(const MetadataType weightsMetadata,
              const MetadataType inMetadata) {
-  asm volatile(
-      R"l(  shr  $m0, %[inMetadata], 6
-            shr  $m1, %[weightsMetadata], 7
-            and  $m0, $m0, 0x2
-            or   $m0, $m0, $m1
-            put  $FP_INFMT, $m0
-      )l"
-      :
-      : [inMetadata] "r"(inMetadata), [weightsMetadata] "r"(weightsMetadata)
-      : "$m0", "$m1");
+  auto format = (0x2 & (inMetadata >> 6)) | (weightsMetadata >> 7);
+  __builtin_ipu_put(format, CSR_S_FP_INFMT__INDEX);
 }
 
 static __attribute__((always_inline)) void
 setFp8Scale(const MetadataType weightsMetadata, const MetadataType inMetadata) {
   // Scale is the sum of scales, as
   // we compute: half(input*weights) * 2^(scaleIn+scaleWeights)
-  asm volatile(
-      R"l(  add  $m0, %[weightsMetadata], %[inMetadata]
-            put  $FP_ISCL, $m0
-      )l"
-      :
-      : [inMetadata] "r"(inMetadata), [weightsMetadata] "r"(weightsMetadata)
-      : "$m0");
+  __builtin_ipu_put(weightsMetadata + inMetadata, CSR_S_FP_ISCL__INDEX);
 }
 
 template <bool use128BitLoad, unsigned convUnits>
