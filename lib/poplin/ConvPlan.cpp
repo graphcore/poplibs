@@ -976,11 +976,12 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
     logging::poplin::log(
         l,
         "{} - transform: {} copy cycles, {} exchange cycles, {} bytes (input "
-        "{}, weights {})",
+        "{}, weights {}, output {})",
         prefix, passCost.totalTransformCopyCycles,
         passCost.totalTransformExchangeCycles, passCost.totalTransformTempBytes,
         passCost.itemisedTransformEstimates.inputsTempBytes,
-        passCost.itemisedTransformEstimates.weightsTempBytes);
+        passCost.itemisedTransformEstimates.weightsTempBytes,
+        passCost.itemisedTransformEstimates.outputTempBytes);
     logging::poplin::log(
         l,
         "{} - exchange: {} cycles, n/a bytes. (Input {},"
@@ -2174,11 +2175,15 @@ static void constrainPartitionVars(popsolver::Model &m,
   constrainVariable(m, vars.convGroupSplit, partition.convGroupSplit);
 }
 
-/// Estimate the cost of a convolution. This is not used by poplibs/enigma.
-std::pair<std::uint64_t, std::uint64_t>
-estimateConvCost(const poplar::Target &target, const ConvParams &params,
-                 const ConvOptions &options, PlanningCache *cache,
-                 const Plan &plan) {
+std::pair<
+    popsolver::Solution,
+    poplin::Estimates<
+        gccs::popsolver::
+            Variable>> static estimateConvSolution(const poplar::Target &target,
+                                                   const ConvParams &params,
+                                                   const ConvOptions &options,
+                                                   PlanningCache *cache,
+                                                   const Plan &plan) {
   auto cacheImpl = cache ? cache->impl.get() : nullptr;
   std::unique_ptr<PlanningCacheImpl> tempCache;
   if (!cache) {
@@ -2213,6 +2218,87 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
   }
   popsolver::Solution s;
   s = m.minimize(e.totalCycles);
+  return {s, e};
+}
+
+internal::DetailedPlanCosts
+estimateDetailedConvCost(const poplar::Target &target, const ConvParams &params,
+                         const ConvOptions &options, PlanningCache *cache,
+                         const Plan &plan) {
+  auto [s, e] = estimateConvSolution(target, params, options, cache, plan);
+  if (!s.validSolution()) {
+    throw poputil::poplibs_error("No such plan");
+  }
+
+  auto cost = getCostOfSolution(s, e);
+
+  // Convert a SinglePassCost into a DetailedPassCost type.
+  auto getDetailedPassCost = [&](const poplin::SinglePassCost c) {
+    internal::DetailedPlanCosts dpc;
+
+    dpc.parallelSplit = plan.totalParallelSplit();
+    dpc.serialSplit = plan.totalSerialSplit();
+
+    dpc.broadcast.cycles =
+        c.broadcastInputBeforeLoopCopyCycles.getAs<size_t>() +
+        c.broadcastInputBeforeLoopExchangeCycles.getAs<size_t>();
+    dpc.broadcast.memory = c.broadcastInputBeforeLoopTempBytes.getAs<size_t>();
+
+    dpc.rearrangement.cycles = c.rearrangeBeforeSliceCycles.getAs<size_t>();
+    dpc.rearrangement.memory =
+        c.rearrangeBeforeSliceTempBytes.getAs<size_t>() +
+        c.rearrangeBeforeSliceTempDuringRearrangeBytes.getAs<size_t>();
+
+    dpc.dynamicSlice.cycles = c.dynamicSliceCycles.getAs<size_t>();
+    dpc.dynamicSlice.memory = PlanCosts::unknown;
+
+    dpc.transform.cycles = c.totalTransformCopyCycles.getAs<size_t>() +
+                           c.totalTransformExchangeCycles.getAs<size_t>();
+    dpc.transform.memory = c.totalTransformTempBytes.getAs<size_t>();
+
+    dpc.exchange.cycles = c.totalExchangeCycles.getAs<size_t>();
+    dpc.exchange.memory = PlanCosts::unknown;
+
+    dpc.tileLevelTransform.cycles = c.tileLevelTransformCycles.getAs<size_t>();
+    dpc.tileLevelTransform.memory =
+        c.tileLevelTransformTempBytes.getAs<size_t>();
+
+    dpc.inputsCast.cycles = c.inputsCastCycles.getAs<size_t>();
+    dpc.inputsCast.memory = 0;
+
+    dpc.compute.cycles = c.partialCalcCycles.getAs<size_t>();
+    dpc.compute.memory = c.convTempBytes.getAs<size_t>();
+
+    dpc.reduction.cycles = c.reduceCycles.getAs<size_t>();
+    dpc.reduction.memory = c.reduceTempBytes.getAs<size_t>();
+
+    dpc.dynamicUpdate.cycles = c.dynamicUpdateCycles.getAs<size_t>();
+    dpc.dynamicUpdate.memory = PlanCosts::unknown;
+
+    dpc.addInPlace.cycles = c.addInPlaceCycles.getAs<size_t>();
+    dpc.addInPlace.memory = c.addInPlaceTempBytes.getAs<size_t>();
+
+    dpc.outputCast.cycles = c.outputCastCycles.getAs<size_t>();
+    dpc.outputCast.memory = 0; // not considered part of the conv cost.
+
+    dpc.total.cycles = c.totalCycles.getAs<size_t>();
+    dpc.total.memory = c.totalTempBytes.getAs<size_t>();
+
+    return dpc;
+  };
+  if (cost.jointPlanBwdEstimates)
+    return getDetailedPassCost(*cost.jointPlanBwdEstimates);
+  if (cost.jointPlanWuEstimates)
+    return getDetailedPassCost(*cost.jointPlanWuEstimates);
+  return getDetailedPassCost(cost.passEstimates);
+}
+
+/// Estimate the cost of a convolution. This is not used by poplibs/enigma.
+std::pair<std::uint64_t, std::uint64_t>
+estimateConvCost(const poplar::Target &target, const ConvParams &params,
+                 const ConvOptions &options, PlanningCache *cache,
+                 const Plan &plan) {
+  auto [s, e] = estimateConvSolution(target, params, options, cache, plan);
   if (!s.validSolution()) {
     return {*highestCost.totalCycles, *highestCost.totalTempBytes};
   }

@@ -362,6 +362,11 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
                  const ConvOptions &options, PlanningCache *cache,
                  const Plan &plan);
 
+internal::DetailedPlanCosts
+estimateDetailedConvCost(const poplar::Target &target, const ConvParams &params,
+                         const ConvOptions &options, PlanningCache *cache,
+                         const Plan &plan);
+
 } // namespace poplin
 
 #endif // poplin_internal_ConvPlan_hpp

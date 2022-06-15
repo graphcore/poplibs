@@ -3456,6 +3456,44 @@ add_multitarget_test(
           --tiles-per-ipu=1
           --fwd-plan-constraints={"inChansPerGroup":"67500"})
 
+add_multitarget_test(
+  NAME
+    test-planner-stop-code-rot
+  COMMAND
+    single_conv_layer
+      --field {5,5}
+      --kernel-size {3,3}
+      --batch-size 2
+      --single-phase wu
+      --input-channels 16
+      --output-channels 16
+      --tiles-per-ipu 1
+      --test-planner
+  VARIANTS
+    Sim2
+)
+
+add_multitarget_test(
+  NAME
+    test-planner-stop-code-rot-all-options
+  COMMAND
+    single_conv_layer
+      --field {5,5}
+      --kernel-size {3,3}
+      --batch-size 2
+      --single-phase wu
+      --input-channels 16
+      --output-channels 16
+      --tiles-per-ipu 1
+      --test-planner
+      --test-planner-report-all-tiles
+      --test-planner-report-all-serial-splits
+      --test-planner-report-verbose
+      --test-planner-print-vars
+  VARIANTS
+    Sim2
+)
+
 # Fully connected layer tests
 
 add_multitarget_test(

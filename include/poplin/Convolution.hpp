@@ -590,6 +590,7 @@ void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
 struct PlanCosts {
   std::size_t cycles;
   std::size_t memory;
+  constexpr static size_t unknown = std::numeric_limits<std::size_t>::max();
 };
 
 /** Report the estimated cycles and memory costs of the convolution plan
@@ -608,6 +609,67 @@ PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
                                    const ConvParams &params,
                                    const poplar::OptionFlags &options = {},
                                    PlanningCache *cache = nullptr);
+
+namespace internal {
+
+/** Structure for detailed estimated costs returned by
+ * reportDetailedPlanEstimatedCosts(). */
+struct DetailedPlanCosts {
+  std::size_t parallelSplit = 1;
+  std::size_t serialSplit = 1;
+  PlanCosts broadcast = {};
+  PlanCosts rearrangement = {};
+  PlanCosts dynamicSlice = {};
+  PlanCosts transform = {};
+  PlanCosts exchange = {};
+  PlanCosts tileLevelTransform = {};
+  PlanCosts inputsCast = {};
+  PlanCosts compute = {};
+  PlanCosts reduction = {};
+  PlanCosts dynamicUpdate = {};
+  PlanCosts addInPlace = {};
+  PlanCosts outputCast = {};
+  PlanCosts total = {};
+
+  template <typename Function>
+  void apply(Function fn, bool includeTotal = true) const {
+    // Call the non-const overload to avoid duplication. Prevent fn from being
+    // able to modify state by wrapping it in another lambda that applies const
+    // to the reference.
+    const_cast<DetailedPlanCosts *>(this)->apply(
+        [&fn](const PlanCosts &c) { fn(c); }, includeTotal);
+  }
+  template <typename Function>
+  void apply(Function fn, bool includeTotal = true) {
+    fn(broadcast);
+    fn(rearrangement);
+    fn(dynamicSlice);
+    fn(transform);
+    fn(exchange);
+    fn(tileLevelTransform);
+    fn(inputsCast);
+    fn(compute);
+    fn(reduction);
+    fn(dynamicUpdate);
+    fn(addInPlace);
+    fn(outputCast);
+    if (includeTotal)
+      fn(total);
+  }
+};
+
+std::ostream &operator<<(std::ostream &os, DetailedPlanCosts const &c);
+
+std::istream &operator>>(std::istream &is, DetailedPlanCosts &c);
+
+/** Like reportPlanEstimatedCosts() but return an itemised breakdown of the
+ *  estimates based on what the planner did.
+ */
+DetailedPlanCosts reportDetailedPlanEstimatedCosts(
+    const poplar::Graph &graph, const ConvParams &params,
+    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
+
+} // namespace internal
 
 /** Report the convolution plan corresponding to the weight update pass given
  * the forward pass \p params and \p options.

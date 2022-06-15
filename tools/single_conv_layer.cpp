@@ -12,6 +12,7 @@
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/NonLinearity.hpp>
 #include <poplibs_test/Pass.hpp>
+#include <poplibs_test/ProgressBar.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/ConvPreplan.hpp>
 #include <poplin/ConvUtil.hpp>
@@ -24,6 +25,8 @@
 #include <poputil/GraphFunction.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <pva/pva.hpp>
 
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
@@ -51,9 +54,431 @@ using namespace poplibs_test::util;
 using namespace poplar_test;
 using namespace poputil;
 using namespace poplibs_support;
+using namespace poplin::internal;
+
 using poplibs_test::Pass;
 
 const OptionFlags defaultEngineOptions;
+
+static bool contains(const std::string &haystack, const std::string &needle) {
+  return haystack.find(needle) != std::string::npos;
+}
+
+static bool r_contains(const std::string &haystack, const std::string &needle) {
+  return haystack.rfind(needle) != std::string::npos;
+}
+
+static void updateDetailedPlanCosts(bool reportPerTile,
+                                    bool reportPerSerialSplit,
+                                    DetailedPlanCosts &costs) {
+  using poplin::PlanCosts;
+  if (!reportPerTile) {
+    costs.apply([&costs](PlanCosts &c) {
+      if (c.cycles != PlanCosts::unknown)
+        c.cycles *= costs.parallelSplit;
+      if (c.memory != PlanCosts::unknown)
+        c.memory *= costs.parallelSplit;
+    });
+  }
+
+  if (reportPerSerialSplit) {
+    // The profiler reports totals across all splits and itemised numbers
+    // as per-serial split.
+    costs.total.cycles /= costs.serialSplit;
+  } else {
+    costs.apply(
+        [&costs](PlanCosts &c) {
+          if (c.cycles != PlanCosts::unknown)
+            c.cycles *= costs.serialSplit;
+        },
+        false);
+  }
+}
+
+// Like DetailedPlanCosts but with a couple of helper methods.
+struct MeasuredPlanCosts : public DetailedPlanCosts {
+  poplin::PlanCosts unknown = {};
+  size_t totalWorkListBytes = 0;
+
+  size_t totalCycles() const noexcept {
+    size_t total = 0;
+    apply([&total](const poplin::PlanCosts &c) { total += c.cycles; }, false);
+    return total;
+  }
+
+  size_t totalMemory() const noexcept {
+    // Memory inside the serial splits is maxed rather than summed
+    // because we assume the temporary memory will be reused.
+    return broadcast.memory + tileLevelTransform.memory + rearrangement.memory +
+           std::max({compute.memory, exchange.memory, transform.memory,
+                     reduction.memory, dynamicSlice.memory,
+                     dynamicUpdate.memory, unknown.memory});
+  }
+
+  template <typename Function>
+  void apply(Function fn, bool includeTotal = true) {
+    DetailedPlanCosts::apply(fn, includeTotal);
+    fn(unknown);
+  }
+  template <typename Function>
+  void apply(Function fn, bool includeTotal = true) const {
+    DetailedPlanCosts::apply(fn, includeTotal);
+    fn(unknown);
+  }
+
+  poplin::PlanCosts toPlanCosts() const noexcept {
+    return {totalCycles(), totalMemory()};
+  }
+
+  poplin::PlanCosts &selectCosts(const std::string &name,
+                                 bool isInsideSerialSplit) noexcept {
+    if (r_contains(name, "PreArrange") || r_contains(name, "preRegroup"))
+      return isInsideSerialSplit ? transform : broadcast;
+    else if (r_contains(name, "weightsRearranged"))
+      return rearrangement;
+    else if (r_contains(name, "tileLevelActs"))
+      return broadcast;
+    else if (r_contains(name, "ExchangePre"))
+      return exchange;
+    else if (r_contains(name, "dynamicSlice"))
+      return dynamicSlice;
+    else if (r_contains(name, "dynamicUpdate"))
+      return dynamicUpdate;
+    else if (r_contains(name, "Reduce"))
+      return reduction;
+    else if (r_contains(name, "Cast"))
+      return outputCast;
+    else if (r_contains(name, "Convolve"))
+      return compute;
+    else if (r_contains(name, "Padding"))
+      return transform;
+    else if (r_contains(name, "Transpose"))
+      return isInsideSerialSplit ? transform : broadcast;
+    else {
+      fmt::print(std::cerr, "Warning: unrecognised program: '{}'\n", name);
+      return unknown;
+    }
+  }
+};
+
+struct MemoryCostProgramVisitor : public pva::ProgramVisitor {
+  MemoryCostProgramVisitor(MeasuredPlanCosts &planCosts,
+                           bool reportPerTile_ = false, size_t activeTiles_ = 1,
+                           bool isInsideSerialSplit_ = false,
+                           bool printVars_ = false)
+      : costs(planCosts), reportPerTile(reportPerTile_),
+        activeTiles(activeTiles_), isInsideSerialSplit(isInsideSerialSplit_),
+        printVars(printVars_) {}
+
+  void visitDoExchange(const pva::DoExchangeProgram &doExchange) override {
+    // Note that this doesn't include control/code bytes per tile to
+    // better match the planner.
+    size_t memory = 0;
+    size_t transformBytes = 0;
+    size_t tileLevelTransformBytes = 0;
+
+    for (auto &var : doExchange.vars()) {
+      auto name = var.name();
+      if (printVars)
+        fmt::print(std::cout, "  var={}, {} B\n", name, var.bytes());
+      // Don't include alwaysLive variables as they exist in all stages
+      // so attributing them to a single stage is a bit unfair, and this
+      // is closer to how the planner views things.
+      if (r_contains(name, "partialReduceOut") || contains(name, "mergedVars"))
+        transformBytes += var.bytes();
+      else if (r_contains(name, "zeroPadding#")) // padding to kernel height
+        tileLevelTransformBytes += var.bytes();
+      else if (contains(name, "message") || !var.alwaysLive()) {
+        memory += var.bytes();
+      }
+    }
+
+    if (reportPerTile) {
+      memory /= activeTiles;
+      transformBytes /= activeTiles;
+      tileLevelTransformBytes /= activeTiles;
+    }
+
+    // This is closer to how the planner reports memory.
+    poplin::PlanCosts *c = nullptr;
+    if (r_contains(doExchange.name(), "tileLevelActs"))
+      c = &costs.broadcast;
+    else
+      c = &costs.exchange;
+
+    // We assume the temporary memory is reused across serial splits.
+    if (isInsideSerialSplit) {
+      c->memory = std::max(c->memory, memory);
+    } else {
+      c->memory += memory;
+    }
+    costs.transform.memory = std::max(costs.transform.memory, transformBytes);
+    costs.tileLevelTransform.memory =
+        std::max(costs.tileLevelTransform.memory, tileLevelTransformBytes);
+  }
+
+  void
+  visitOnTileExecute(const pva::OnTileExecuteProgram &onTileExecute) override {
+    size_t memory = 0;
+    size_t workListBytes = 0;
+
+    // This can be slow because each lowered var is reading from a "file"
+    // on the first attribute access and allocating a new unique_ptr. This
+    // doesn't parallelise nicely with threads due to being disk limited.
+    for (auto &v : onTileExecute.vars()) {
+      auto name = v.name();
+      if (printVars)
+        fmt::print(std::cout, "  var={}, {}B\n", name, v.bytes());
+      if (r_contains(name, "worklist"))
+        workListBytes += v.bytes();
+      else if (r_contains(name, "tileLevelActs"))
+        ; // These variables have already been accounted for in broadcast.
+      else if (r_contains(name, "zeroPadding#") ||
+               r_contains(name, "mergedVars") ||
+               r_contains(name, "partialReduceOut"))
+        ; // These variables have already been accounted for in visitDoExchange.
+      else
+        memory += v.bytes();
+    }
+
+    if (reportPerTile) {
+      memory /= activeTiles;
+      workListBytes /= activeTiles;
+    }
+
+    poplin::PlanCosts &c =
+        costs.selectCosts(onTileExecute.name(), isInsideSerialSplit);
+
+    // We assume the temporary memory is reused across serial splits.
+    if (isInsideSerialSplit) {
+      c.memory = std::max(c.memory, memory);
+    } else {
+      c.memory += memory;
+    }
+
+    costs.totalWorkListBytes += workListBytes;
+  }
+
+private:
+  MeasuredPlanCosts &costs;
+  bool reportPerTile;
+  size_t activeTiles = 1;
+  bool isInsideSerialSplit = false;
+  bool printVars;
+};
+
+static MeasuredPlanCosts
+getActualCosts(const std::string &pass, const std::string &profileDir,
+               size_t parallelSplit, size_t serialSplit, bool printVars = false,
+               bool reportPerTile = false, bool reportPerSerialSplit = false) {
+  using poplin::PlanCosts;
+
+  MeasuredPlanCosts costs;
+  const auto &report = pva::openReport(profileDir + "/profile.pop");
+
+  // Find in the compilation report the Repeat/Sequence that starts the
+  // serial slice (if any).
+  std::unordered_set<size_t> progsInRepeatLoop;
+  progsInRepeatLoop.reserve(32); // inexact but cheap
+  for (auto &prog : report.compilation().programs()) {
+    auto name = prog->name();
+    if (!contains(name, pass)) {
+      continue;
+    }
+
+    if (prog->type() == pva::Program::Type::Repeat) {
+      auto tmp = prog->children();
+      if (tmp.size() == 1 && tmp[0]->type() == pva::Program::Type::Sequence) {
+        auto seq = tmp[0];
+        for (auto &c : seq->children())
+          progsInRepeatLoop.emplace(c->_id());
+      }
+    }
+  }
+
+  auto steps = report.execution().steps();
+
+  // Track the progress of the analysis.
+  ProgressBar progressBar("Analysing: ", steps.size(), !printVars);
+
+  for (const auto &b : steps) {
+    auto prog = b.program();
+    auto name = prog->name();
+    if (printVars)
+      fmt::print(std::cout, "program={}\n", name);
+
+    // Skip any programs not containing the debug names we use for the
+    // various convolutions this tool can perform.
+    if (!contains(name, pass)) {
+      ++progressBar;
+      continue;
+    }
+
+    // The planner doesn't include these so neither do we.
+    if (r_contains(name, "UpdateWeights") ||
+        r_contains(name, "loopIncrement")) {
+      ++progressBar;
+      continue;
+    }
+
+    // Track when we enter the serial splits.
+    bool isInsideSerialSplit =
+        progsInRepeatLoop.find(prog->_id()) != progsInRepeatLoop.end();
+
+    PlanCosts &c = costs.selectCosts(name, isInsideSerialSplit);
+
+    // Compute the number of cycles used. When reporting per tile use the
+    // cycles for the slowest tile as it's likely all other tiles will end
+    // up waiting for it if there is an internal sync after this program.
+    // Note that this may not always be true and could lead to some
+    // inaccuracies.
+    uint64_t activeTiles = 0;
+    if (reportPerTile) {
+      uint64_t maxCycles = 0;
+      for (auto cycles : b.cyclesByTile()) {
+        if (cycles) {
+          maxCycles = std::max(cycles, maxCycles);
+          ++activeTiles;
+        }
+      }
+      c.cycles += maxCycles;
+    } else {
+      uint64_t totalCycles = 0;
+      for (auto cycles : b.cyclesByTile()) {
+        if (cycles) {
+          totalCycles += cycles;
+        }
+        ++activeTiles;
+      }
+      c.cycles += totalCycles;
+    }
+
+    // Record the memory used by the program.
+    MemoryCostProgramVisitor visitor(costs, reportPerTile, activeTiles,
+                                     isInsideSerialSplit, printVars);
+    prog->accept(visitor);
+
+    ++progressBar;
+  }
+
+  // The above sums all serial splits so divide back into the serial splits.
+  // Note that by doing this at the end we avoid some precision loss when
+  // working with small numbers of cycles. Only applicable to stages inside
+  // the serial splits.
+  if (reportPerSerialSplit && serialSplit > 1) {
+    costs.dynamicSlice.cycles /= serialSplit;
+    costs.transform.cycles /= serialSplit;
+    costs.tileLevelTransform.cycles /= serialSplit;
+    costs.exchange.cycles /= serialSplit;
+    costs.compute.cycles /= serialSplit;
+    costs.reduction.cycles /= serialSplit;
+    costs.dynamicUpdate.cycles /= serialSplit;
+    costs.addInPlace.cycles /= serialSplit;
+    costs.totalWorkListBytes /= serialSplit;
+  }
+
+  // Compute the totals.
+  costs.total.cycles = costs.totalCycles();
+  costs.total.memory = costs.totalMemory();
+
+  return costs;
+}
+
+static void compareCosts(const std::string &title,
+                         DetailedPlanCosts const &estimates,
+                         MeasuredPlanCosts const &actual,
+                         bool reportVerbose = false, bool reportPerTile = false,
+                         bool reportPerSerialSplit = false) {
+  using fmt::print;
+  using poplin::PlanCosts;
+  using std::cout;
+
+  // Print out a summary.
+  if (reportPerTile)
+    print(cout, "\n{}: Summary for the average tile (of {} tiles):\n\n", title,
+          estimates.parallelSplit);
+  else
+    print(cout, "\n{}: Summary for {} tiles:\n\n", title,
+          estimates.parallelSplit);
+  auto reportSummary = [](auto name, auto estimate, auto actual) -> bool {
+    print(cout, "{}:\n", name);
+    print(cout, "    measured: {}\n", actual);
+    print(cout, "    estimate: {} ({:.3}% different)\n", estimate,
+          100 * (((double)estimate - actual) / actual));
+    return actual != estimate;
+  };
+  bool reportDetailedCycles =
+      reportSummary("  Cycles", estimates.total.cycles, actual.total.cycles);
+  bool reportDetailedMemory = reportSummary(
+      "  Memory (B)", estimates.total.memory, actual.total.memory);
+  print(cout, "\n");
+
+  // Print out a detailed report.
+  auto printRow = [&](bool cycles, auto category, auto measured_,
+                      auto estimate_) {
+    auto measured = cycles ? measured_.cycles : measured_.memory;
+    auto estimate = cycles ? estimate_.cycles : estimate_.memory;
+    // Skip stages for which the values are identical or uknown.
+    if (!reportVerbose && (measured == 0 || measured == PlanCosts::unknown) &&
+        (estimate == 0 || estimate == PlanCosts::unknown))
+      return;
+    // Compute the percentage difference of the impact on the total. This
+    // tends to be more useful than the difference between the measurement
+    // and the estimate.
+    auto measured_total = cycles ? actual.total.cycles : actual.total.memory;
+    auto estimate_total =
+        cycles ? estimates.total.cycles : estimates.total.memory;
+    auto total_diff = (estimate_total <= measured_total)
+                          ? measured_total - estimate_total
+                          : estimate_total - measured_total;
+    double percentage_diff = NAN;
+    if (measured == 0 && estimate == 0)
+      percentage_diff = 0.0;
+    else if (measured != PlanCosts::unknown && estimate != PlanCosts::unknown)
+      percentage_diff = 100.0 * ((double)estimate - measured) / total_diff;
+    // Print a row of the table.
+    print(cout, " {: <20} | {: >12} | {: >12} | {: > 8.5}\n", category,
+          measured != PlanCosts::unknown ? std::to_string(measured) : "n/a",
+          estimate != PlanCosts::unknown ? std::to_string(estimate) : "n/a",
+          percentage_diff);
+  };
+
+  constexpr PlanCosts unknown_costs = {PlanCosts::unknown, PlanCosts::unknown};
+  for (bool cycles : {true, false}) {
+    bool shouldReport = cycles ? reportDetailedCycles : reportDetailedMemory;
+    if (!shouldReport && !reportVerbose)
+      continue;
+    print(cout, "{} breakdown:\n\n", cycles ? "Cycles" : "Memory");
+    // clang-format off
+    print(cout, " Category             |     Measured |     Estimate | % Impact \n");
+    print(cout, "----------------------+--------------+--------------+----------\n");
+    // clang-format on
+    printRow(cycles, "broadcast", actual.broadcast, estimates.broadcast);
+    printRow(cycles, "rearrangement", actual.rearrangement,
+             estimates.rearrangement);
+    printRow(cycles, "dynamicSlice", actual.dynamicSlice,
+             estimates.dynamicSlice);
+    printRow(cycles, "transform", actual.transform, estimates.transform);
+    printRow(cycles, "exchange", actual.exchange, estimates.exchange);
+    printRow(cycles, "tileLevelTransform", actual.tileLevelTransform,
+             estimates.tileLevelTransform);
+    printRow(cycles, "inputsCast", actual.inputsCast, estimates.inputsCast);
+    printRow(cycles, "compute", actual.compute, estimates.compute);
+    printRow(cycles, "reduction", actual.reduction, estimates.reduction);
+    printRow(cycles, "dynamicUpdate", actual.dynamicUpdate,
+             estimates.dynamicUpdate);
+    printRow(cycles, "addInPlace", actual.addInPlace, estimates.addInPlace);
+    printRow(cycles, "outputCast", actual.outputCast, estimates.outputCast);
+    printRow(cycles, "unknown", actual.unknown, unknown_costs);
+    printRow(cycles, "total", actual.total, estimates.total);
+    print(cout, "\n");
+  }
+
+  if (reportVerbose) {
+    print(cout, "Note 1: Work-lists are excluded from totals.\n");
+    print(cout, "Note 2: This does not handle program overlap.\n");
+  }
+}
 
 static void overloadConstraintsFromFile(const std::string &path,
                                         std::string &s) {
@@ -167,6 +592,19 @@ int main(int argc, char **argv) try {
      po::value<decltype(profileDir)>(&profileDir)
       ->default_value(boost::none),
      "Write profile files to the specified directory.")
+    ("test-planner",
+     "Compare the profiler's measurements to the planner's estimates. "
+     "Useful for testing the planner's estimates.")
+    ("test-planner-existing-profile", "Use an existing profile. "
+     "The profile should be specified using the 'profile-dir' option")
+    ("test-planner-report-all-tiles",
+     "Report the total cycle/memory usage for all tiles.")
+    ("test-planner-report-all-serial-splits",
+     "Report the cycle/memory usage for all serial splits.")
+    ("test-planner-report-verbose",
+     "Always report with maximum detail")
+    ("test-planner-print-vars",
+     "Print every program and vars in the profile that's related to the conv.")
     ("ignore-data", "Don't upload and download the results from the device. "
      "Note that this means the result is not validated against the model.")
     ("input-channels", po::value<unsigned>(&fwdInChansPerConvGroup)->required(),
@@ -434,6 +872,64 @@ int main(int argc, char **argv) try {
       batchSize = 1;
     }
   }
+
+  bool testPlannerReportPerTile =
+      vm.count("test-planner-report-all-tiles") == 0;
+  bool testPlannerReportPerSerialSplit =
+      vm.count("test-planner-report-all-serial-splits") == 0;
+  bool testPlannerPrintVars = vm.count("test-planner-print-vars") != 0;
+  bool testPlannerReportVerbose = vm.count("test-planner-report-verbose") != 0;
+  if (vm.count("test-planner-existing-profile")) {
+    if (vm.count("test-planner")) {
+      std::cerr << "The 'test-planner' and 'test-planner-existing-"
+                   "profile' options cannot be used together.\n";
+      return 1;
+    }
+    if (vm.count("profile-dir") == 0) {
+      std::cerr << "The 'profile-dir' option must be specified when using the "
+                   "'test-planner-existing-profile' option.\n";
+      return 1;
+    }
+
+    auto phases = [pass]() -> std::vector<std::string> {
+      switch (pass) {
+      case Pass::FWD:
+        return {"fwd"};
+      case Pass::BWD:
+        return {"bwd"};
+      case Pass::WU:
+        return {"wu"};
+      case Pass::ALL:
+        return {"fwd", "bwd", "wu"};
+      }
+      POPLIB_UNREACHABLE();
+    }();
+
+    // Just look at the measurements from the profile and skip running a conv.
+    DetailedPlanCosts estimates = {};
+    for (const auto &phase : phases) {
+      std::string name = *profileDir + "/" + phase + "-plan-estimates.txt";
+      std::ifstream in(name);
+      if (in) {
+        in >> estimates;
+        updateDetailedPlanCosts(testPlannerReportPerTile,
+                                testPlannerReportPerSerialSplit, estimates);
+      } else {
+        fmt::print(std::cerr, "Warning: could not find plan estimates at: {}\n",
+                   name);
+      }
+      // Read the profile back and compare the costs.
+      MeasuredPlanCosts actual = getActualCosts(
+          phase, *profileDir, estimates.parallelSplit, estimates.serialSplit,
+          testPlannerPrintVars, testPlannerReportPerTile,
+          testPlannerReportPerSerialSplit);
+      compareCosts(phase, estimates, actual, testPlannerReportVerbose,
+                   testPlannerReportPerTile, testPlannerReportPerSerialSplit);
+    }
+
+    return 0;
+  }
+
   auto &inputFieldSize = inputFieldSizeOption.val;
 
   if (inputLoadWidth && !isIpuModel(deviceType)) {
@@ -746,6 +1242,45 @@ int main(int argc, char **argv) try {
     poplin::preplan(convs, {}, cache);
   }
 
+  // Record the plan estimates for each phase being run, if testing the planner.
+  std::vector<std::string> phases;
+  std::vector<DetailedPlanCosts> all_estimates;
+  phases.reserve(pass == Pass::ALL ? 3 : 1);
+  all_estimates.reserve(pass == Pass::ALL ? 3 : 1);
+  if (vm.count("test-planner")) {
+    if (doFwdPass) {
+      phases.push_back("fwd");
+      all_estimates.push_back(
+          reportDetailedPlanEstimatedCosts(graph, params, fwdOptions, &cache));
+    }
+    if (doBwdPass) {
+      phases.push_back("bwd");
+      all_estimates.push_back(reportDetailedPlanEstimatedCosts(
+          graph, bwdParams, bwdOptions, &cache));
+    }
+    if (doWuPass) {
+      phases.push_back("wu");
+      auto wuParams = getWeightUpdateParams(params);
+      all_estimates.push_back(
+          reportDetailedPlanEstimatedCosts(graph, wuParams, wuOptions, &cache));
+    }
+
+    for (size_t i = 0; i < phases.size(); ++i) {
+      const auto &phase = phases[i];
+      auto &estimates = all_estimates[i];
+
+      // Dump the estimates to a file for the existing profile option.
+      if (profileDir) {
+        std::ofstream out(*profileDir + "/" + phase + "-plan-estimates.txt");
+        out << estimates;
+      }
+
+      // Canonicalise the estimates based on the options.
+      updateDetailedPlanCosts(testPlannerReportPerTile,
+                              testPlannerReportPerSerialSplit, estimates);
+    }
+  }
+
   if (reportPlan || planOnly) {
     std::cout << "Convolution parameters:\n"
                  " Batch size: "
@@ -1004,8 +1539,12 @@ int main(int argc, char **argv) try {
 
   std::optional<TempDir> tempDir;
   OptionFlags engineOptions = defaultEngineOptions;
-  if (vm.count("profile") || profileDir) {
-    engineOptions.set("autoReport.outputExecutionProfile", "true");
+  if (vm.count("test-planner") || vm.count("profile") || profileDir) {
+    if (vm.count("test-planner")) {
+      engineOptions.set("autoReport.all", "true");
+    } else /* profile or profileDir */ {
+      engineOptions.set("autoReport.outputExecutionProfile", "true");
+    }
     if (profileDir) {
       engineOptions.set("autoReport.directory", *profileDir);
     } else {
@@ -1014,319 +1553,364 @@ int main(int argc, char **argv) try {
     }
   }
 
-  Engine engine(graph, std::move(programs), engineOptions);
-
-  if (vm.count("compile-only"))
-    return 0;
-
-  attachStreams(engine, tmap);
-  boost::multi_array<double, 3> hostPrevAct(
-      boost::extents[batchSize][fwdInChans][product(inputFieldSize)]);
-  boost::multi_array<double, 4> hostWeights(
-      boost::extents[numConvGroups][fwdOutChansPerConvGroup]
-                    [fwdInChansPerConvGroup][product(kernelSize)]);
-  boost::multi_array<double, 1> hostBiases(boost::extents[fwdOutChans]);
-  boost::multi_array<double, 3> hostNextAct(
-      boost::extents[batchSize][fwdOutChans][product(outFieldSize)]);
-  std::mt19937 randomEngine;
-  if (useUniformRandomData) {
-    writeRandomValues(target, inputType, hostPrevAct, -2.0, 2.0, randomEngine);
-    writeRandomValues(target, inputType, hostWeights, -1.0, +1.0, randomEngine);
-  } else {
-    writeRandomBinaryValues(target, inputType, hostPrevAct, -1.0, 1.0,
-                            randomEngine);
-    writeRandomBinaryValues(target, inputType, hostWeights, -1.0, 1.0,
-                            randomEngine);
-  }
-  if (bias) {
-    if (useUniformRandomData) {
-      writeRandomValues(target, outputType, hostBiases, -2.0, +6.0,
-                        randomEngine);
-    } else {
-      writeRandomBinaryValues(target, outputType, hostBiases, -1.0, 1.0,
-                              randomEngine);
-    }
-  } else {
-    std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
-              0.0);
-  }
-  if (testingQuarter) {
-    copy(target, hostPrevAct, inputType,
-         QuarterMetadata(fp8FormatFwdIn, fp8ScaleFwdIn), rawHostPrevAct.get());
-  } else {
-    copy(target, hostPrevAct, inputType, rawHostPrevAct.get());
-  }
-
-  boost::multi_array<double, 4> duplicatedHostWeights(
-      boost::extents[numConvGroups][fwdOutChansPerConvGroup]
-                    [fwdInChansPerConvGroup][product(kernelSize)]);
-  boost::multi_array<double, 1> duplicatedHostBiases(
-      boost::extents[fwdOutChans]);
-
-  // Used for determinism checking
-  boost::multi_array<double, 4> prevExecutionWeights(
-      boost::extents[numConvGroups][fwdOutChansPerConvGroup]
-                    [fwdInChansPerConvGroup][product(kernelSize)]);
-  boost::multi_array<double, 1> prevExecutionBiases(
-      boost::extents[fwdOutChans]);
-
-  boost::multi_array<double, 3> hostZDeltas(
-      boost::extents[batchSize][bwdParams.getNumInputChans()]
-                    [product(outFieldSize)]);
-  if (useUniformRandomData) {
-    writeRandomValues(target, inputType, hostZDeltas, -3.0, 3.0, randomEngine);
-  } else {
-    writeRandomBinaryValues(target, inputType, hostZDeltas, -1.0, 1.0,
-                            randomEngine);
-  }
-
-  const auto fwdModel = [&](const auto &hostPrevAct, const auto &hostWeights,
-                            const auto &hostBiases) {
-    boost::multi_array<double, 3> modelNextAct(
-        boost::extents[batchSize][fwdOutChans][product(outFieldSize)]);
-    poplibs_test::conv::convolution(
-        vectorConvert<unsigned>(inputFieldSize), truncationLower,
-        truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
-        vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-        kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-        kernelPaddingUpper, flipKernel, outputTruncationLower,
-        outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
-        hostPrevAct, hostWeights, hostBiases, modelNextAct);
-    return modelNextAct;
-  };
-
-  const auto bwdModel = [&](const auto &hostZDeltas, const auto &modelWeights) {
-    boost::multi_array<double, 3> modelPrevDeltas(
-        boost::extents[batchSize][fwdInChans][product(inputFieldSize)]);
-    poplibs_test::conv::convolutionBackward(
-        vectorConvert<unsigned>(inputFieldSize), truncationLower,
-        truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
-        vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-        kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-        kernelPaddingUpper, flipKernel, outputTruncationLower,
-        outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
-        hostZDeltas, modelWeights, modelPrevDeltas);
-    return modelPrevDeltas;
-  };
-
-  const auto wuModel = [&](const auto &hostPrevAct, const auto &hostZDeltas,
-                           const auto &hostWeights, const auto &hostBiases) {
-    auto modelWeights = hostWeights;
-    auto modelBiases = hostBiases;
-    poplibs_test::conv::weightUpdate(
-        vectorConvert<unsigned>(inputFieldSize), truncationLower,
-        truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
-        vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-        kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-        kernelPaddingUpper, flipKernel, outputTruncationLower,
-        outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
-        learningRate, hostPrevAct, hostZDeltas, modelWeights, modelBiases);
-    return std::make_pair(modelWeights, modelBiases);
-  };
-
-  enum class DataValidation { AgainstModel, AgainstPreviousRuns };
-  const auto validationMethod = [&]() -> boost::optional<DataValidation> {
-    if (ignoreData) {
-      return boost::none;
-    } else {
-      if (numDeterminismChecks > 0) {
-        return DataValidation::AgainstPreviousRuns;
-      } else {
-        return DataValidation::AgainstModel;
-      }
-    }
-  }();
-
   int rc = EXIT_SUCCESS;
   std::stringstream errs;
-  for (unsigned determinismCheckIdx = 0;
-       determinismCheckIdx < numDeterminismChecks + 1; ++determinismCheckIdx) {
 
-    duplicatedHostWeights = hostWeights;
+  // Put the engine in a new scope so that we can force the profile to be
+  // written on scope exit.
+  {
+    Engine engine(graph, std::move(programs), engineOptions);
+
+    if (vm.count("compile-only"))
+      return 0;
+
+    attachStreams(engine, tmap);
+    boost::multi_array<double, 3> hostPrevAct(
+        boost::extents[batchSize][fwdInChans][product(inputFieldSize)]);
+    boost::multi_array<double, 4> hostWeights(
+        boost::extents[numConvGroups][fwdOutChansPerConvGroup]
+                      [fwdInChansPerConvGroup][product(kernelSize)]);
+    boost::multi_array<double, 1> hostBiases(boost::extents[fwdOutChans]);
+    boost::multi_array<double, 3> hostNextAct(
+        boost::extents[batchSize][fwdOutChans][product(outFieldSize)]);
+    std::mt19937 randomEngine;
+    if (useUniformRandomData) {
+      writeRandomValues(target, inputType, hostPrevAct, -2.0, 2.0,
+                        randomEngine);
+      writeRandomValues(target, inputType, hostWeights, -1.0, +1.0,
+                        randomEngine);
+    } else {
+      writeRandomBinaryValues(target, inputType, hostPrevAct, -1.0, 1.0,
+                              randomEngine);
+      writeRandomBinaryValues(target, inputType, hostWeights, -1.0, 1.0,
+                              randomEngine);
+    }
     if (bias) {
-      duplicatedHostBiases = hostBiases;
+      if (useUniformRandomData) {
+        writeRandomValues(target, outputType, hostBiases, -2.0, +6.0,
+                          randomEngine);
+      } else {
+        writeRandomBinaryValues(target, outputType, hostBiases, -1.0, 1.0,
+                                randomEngine);
+      }
+    } else {
+      std::fill(hostBiases.data(),
+                hostBiases.data() + hostBiases.num_elements(), 0.0);
     }
     if (testingQuarter) {
-      copy(target, duplicatedHostWeights, inputType,
-           QuarterMetadata(fp8FormatWeights, fp8ScaleWeights),
-           rawHostWeights.get());
+      copy(target, hostPrevAct, inputType,
+           QuarterMetadata(fp8FormatFwdIn, fp8ScaleFwdIn),
+           rawHostPrevAct.get());
     } else {
-      copy(target, duplicatedHostWeights, inputType, rawHostWeights.get());
-    }
-    if (bias) {
-      copy(target, duplicatedHostBiases, outputType, rawHostBiases.get());
+      copy(target, hostPrevAct, inputType, rawHostPrevAct.get());
     }
 
-    if (doBwdPass || doWuPass) {
-      if (testingQuarter) {
-        copy(target, hostZDeltas, inputType,
-             QuarterMetadata(fp8FormatBwdIn, fp8scaleBwdIn),
-             rawHostZDeltas.get());
-      } else {
-        copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
-      }
+    boost::multi_array<double, 4> duplicatedHostWeights(
+        boost::extents[numConvGroups][fwdOutChansPerConvGroup]
+                      [fwdInChansPerConvGroup][product(kernelSize)]);
+    boost::multi_array<double, 1> duplicatedHostBiases(
+        boost::extents[fwdOutChans]);
+
+    // Used for determinism checking
+    boost::multi_array<double, 4> prevExecutionWeights(
+        boost::extents[numConvGroups][fwdOutChansPerConvGroup]
+                      [fwdInChansPerConvGroup][product(kernelSize)]);
+    boost::multi_array<double, 1> prevExecutionBiases(
+        boost::extents[fwdOutChans]);
+
+    boost::multi_array<double, 3> hostZDeltas(
+        boost::extents[batchSize][bwdParams.getNumInputChans()]
+                      [product(outFieldSize)]);
+    if (useUniformRandomData) {
+      writeRandomValues(target, inputType, hostZDeltas, -3.0, 3.0,
+                        randomEngine);
+    } else {
+      writeRandomBinaryValues(target, inputType, hostZDeltas, -1.0, 1.0,
+                              randomEngine);
     }
 
-    dev.bind([&](const Device &d) {
-      engine.load(d);
-      if (validationMethod) {
-        engine.run(uploadProgIndex);
-      }
-      // Run the forward pass.
-      engine.run(fwdProgIndex);
-      if (doBwdPass || doWuPass) {
-        // Run the backwards and/or weight update passes.
-        engine.run(revProgIndex);
-      }
-      if (validationMethod) {
-        engine.run(downloadProgIndex);
-      }
-    });
-
-    bool fwdFailed = false;
-    bool bwdFailed = false;
-    bool weightsFailed = false;
-    bool biasesFailed = false;
-
-    auto checkMetadata = [&](const std::unique_ptr<char[]> &src,
-                             QuarterMetadata::Format format, int scale,
-                             const std::string &message) {
-      boost::multi_array<double, 1> hostMetadata(boost::extents[1]);
-      copy(target, UNSIGNED_CHAR, src.get(), hostMetadata);
-      auto expectedMetadata = QuarterMetadata(format, scale).getBinary();
-      if (static_cast<unsigned>(hostMetadata[0]) != expectedMetadata) {
-        std::cerr << message << " metadata incorrect: " << hostMetadata[0]
-                  << " expected " << expectedMetadata << "\n";
-        return true;
-      }
-      return false;
+    const auto fwdModel = [&](const auto &hostPrevAct, const auto &hostWeights,
+                              const auto &hostBiases) {
+      boost::multi_array<double, 3> modelNextAct(
+          boost::extents[batchSize][fwdOutChans][product(outFieldSize)]);
+      poplibs_test::conv::convolution(
+          vectorConvert<unsigned>(inputFieldSize), truncationLower,
+          truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+          vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+          kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+          kernelPaddingUpper, flipKernel, outputTruncationLower,
+          outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+          hostPrevAct, hostWeights, hostBiases, modelNextAct);
+      return modelNextAct;
     };
 
-    if (doFwdPass) {
-      copy(target, outputType, rawHostNextAct.get(), hostNextAct);
-      if (validationMethod == DataValidation::AgainstModel) {
-        fwdFailed = !checkIsClose(
-            "fwd", hostNextAct, fwdModel(hostPrevAct, hostWeights, hostBiases),
-            relativeTolerance, absoluteTolerance);
+    const auto bwdModel = [&](const auto &hostZDeltas,
+                              const auto &modelWeights) {
+      boost::multi_array<double, 3> modelPrevDeltas(
+          boost::extents[batchSize][fwdInChans][product(inputFieldSize)]);
+      poplibs_test::conv::convolutionBackward(
+          vectorConvert<unsigned>(inputFieldSize), truncationLower,
+          truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+          vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+          kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+          kernelPaddingUpper, flipKernel, outputTruncationLower,
+          outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+          hostZDeltas, modelWeights, modelPrevDeltas);
+      return modelPrevDeltas;
+    };
+
+    const auto wuModel = [&](const auto &hostPrevAct, const auto &hostZDeltas,
+                             const auto &hostWeights, const auto &hostBiases) {
+      auto modelWeights = hostWeights;
+      auto modelBiases = hostBiases;
+      poplibs_test::conv::weightUpdate(
+          vectorConvert<unsigned>(inputFieldSize), truncationLower,
+          truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+          vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+          kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+          kernelPaddingUpper, flipKernel, outputTruncationLower,
+          outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+          learningRate, hostPrevAct, hostZDeltas, modelWeights, modelBiases);
+      return std::make_pair(modelWeights, modelBiases);
+    };
+
+    enum class DataValidation { AgainstModel, AgainstPreviousRuns };
+    const auto validationMethod = [&]() -> boost::optional<DataValidation> {
+      if (ignoreData) {
+        return boost::none;
+      } else {
+        if (numDeterminismChecks > 0) {
+          return DataValidation::AgainstPreviousRuns;
+        } else {
+          return DataValidation::AgainstModel;
+        }
+      }
+    }();
+
+    for (unsigned determinismCheckIdx = 0;
+         determinismCheckIdx < numDeterminismChecks + 1;
+         ++determinismCheckIdx) {
+
+      duplicatedHostWeights = hostWeights;
+      if (bias) {
+        duplicatedHostBiases = hostBiases;
       }
       if (testingQuarter) {
-        checkMetadata(rawPrevActsMetadata, fp8FormatFwdIn, fp8ScaleFwdIn,
-                      "fwdActs");
-        checkMetadata(rawWeightsMetadata, fp8FormatWeights, fp8ScaleWeights,
-                      "weights");
-        // Note: No metadata check for output as it is of type half
+        copy(target, duplicatedHostWeights, inputType,
+             QuarterMetadata(fp8FormatWeights, fp8ScaleWeights),
+             rawHostWeights.get());
+      } else {
+        copy(target, duplicatedHostWeights, inputType, rawHostWeights.get());
       }
-      if (fwdOutFile) {
-        std::ofstream out(fwdOutFile.get());
-        std::cout << "Saving FWD tensor with shape:" << nextAct.shape()
-                  << " Element type:" << nextAct.elementType() << "\n";
-        graph.serializeTensors(out, {nextAct}, SerializationFormat::Binary);
+      if (bias) {
+        copy(target, duplicatedHostBiases, outputType, rawHostBiases.get());
       }
-    }
 
-    if (doBwdPass || doWuPass) {
-      boost::multi_array<double, 3> hostPrevDeltas(
-          boost::extents[batchSize][params.getNumInputChans()]
-                        [product(inputFieldSize)]);
+      if (doBwdPass || doWuPass) {
+        if (testingQuarter) {
+          copy(target, hostZDeltas, inputType,
+               QuarterMetadata(fp8FormatBwdIn, fp8scaleBwdIn),
+               rawHostZDeltas.get());
+        } else {
+          copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+        }
+      }
 
-      if (doBwdPass) {
-        copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
+      dev.bind([&](const Device &d) {
+        engine.load(d);
+        if (validationMethod) {
+          engine.run(uploadProgIndex);
+        }
+        // Run the forward pass.
+        engine.run(fwdProgIndex);
+        if (doBwdPass || doWuPass) {
+          // Run the backwards and/or weight update passes.
+          engine.run(revProgIndex);
+        }
+        if (validationMethod) {
+          engine.run(downloadProgIndex);
+        }
+      });
+
+      bool fwdFailed = false;
+      bool bwdFailed = false;
+      bool weightsFailed = false;
+      bool biasesFailed = false;
+
+      auto checkMetadata = [&](const std::unique_ptr<char[]> &src,
+                               QuarterMetadata::Format format, int scale,
+                               const std::string &message) {
+        boost::multi_array<double, 1> hostMetadata(boost::extents[1]);
+        copy(target, UNSIGNED_CHAR, src.get(), hostMetadata);
+        auto expectedMetadata = QuarterMetadata(format, scale).getBinary();
+        if (static_cast<unsigned>(hostMetadata[0]) != expectedMetadata) {
+          std::cerr << message << " metadata incorrect: " << hostMetadata[0]
+                    << " expected " << expectedMetadata << "\n";
+          return true;
+        }
+        return false;
+      };
+
+      if (doFwdPass) {
+        copy(target, outputType, rawHostNextAct.get(), hostNextAct);
         if (validationMethod == DataValidation::AgainstModel) {
-          bwdFailed = !checkIsClose("bwd", hostPrevDeltas,
-                                    bwdModel(hostZDeltas, hostWeights),
-                                    relativeTolerance, absoluteTolerance);
+          fwdFailed =
+              !checkIsClose("fwd", hostNextAct,
+                            fwdModel(hostPrevAct, hostWeights, hostBiases),
+                            relativeTolerance, absoluteTolerance);
         }
         if (testingQuarter) {
-          checkMetadata(rawHostZDeltasMetadata, fp8FormatBwdIn, fp8scaleBwdIn,
-                        "zDeltas");
+          checkMetadata(rawPrevActsMetadata, fp8FormatFwdIn, fp8ScaleFwdIn,
+                        "fwdActs");
           checkMetadata(rawWeightsMetadata, fp8FormatWeights, fp8ScaleWeights,
                         "weights");
+          // Note: No metadata check for output as it is of type half
         }
-        if (bwdOutFile) {
-          std::ofstream out(bwdOutFile.get());
-          std::cout << "Saving BWD tensor with shape:" << prevDeltas.shape()
-                    << " Element type:" << prevDeltas.elementType() << "\n";
-          graph.serializeTensors(out, {prevDeltas},
-                                 SerializationFormat::Binary);
+        if (fwdOutFile) {
+          std::ofstream out(fwdOutFile.get());
+          std::cout << "Saving FWD tensor with shape:" << nextAct.shape()
+                    << " Element type:" << nextAct.elementType() << "\n";
+          graph.serializeTensors(out, {nextAct}, SerializationFormat::Binary);
         }
       }
-      if (doWuPass) {
-        copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
-        if (bias) {
-          copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
-        }
 
-        if (validationMethod == DataValidation::AgainstModel) {
-          // Take dimensions and shape from host tensors.
-          auto modelWeights = hostWeights;
-          auto modelBiases = hostBiases;
-          std::tie(modelWeights, modelBiases) =
-              wuModel(hostPrevAct, hostZDeltas, hostWeights, hostBiases);
+      if (doBwdPass || doWuPass) {
+        boost::multi_array<double, 3> hostPrevDeltas(
+            boost::extents[batchSize][params.getNumInputChans()]
+                          [product(inputFieldSize)]);
 
-          boost::multi_array<double, 4> hostWeights = duplicatedHostWeights;
-          auto failed = !checkIsClose("weights", hostWeights, modelWeights,
+        if (doBwdPass) {
+          copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
+          if (validationMethod == DataValidation::AgainstModel) {
+            bwdFailed = !checkIsClose("bwd", hostPrevDeltas,
+                                      bwdModel(hostZDeltas, hostWeights),
                                       relativeTolerance, absoluteTolerance);
-          if (failed) {
-            weightsFailed = true;
           }
-
-          if (bias) {
-            boost::multi_array<double, 1> hostBiases = duplicatedHostBiases;
-            failed = !checkIsClose("biases", hostBiases, modelBiases,
-                                   relativeTolerance, absoluteTolerance);
-            if (failed) {
-              biasesFailed = true;
-            }
+          if (testingQuarter) {
+            checkMetadata(rawHostZDeltasMetadata, fp8FormatBwdIn, fp8scaleBwdIn,
+                          "zDeltas");
+            checkMetadata(rawWeightsMetadata, fp8FormatWeights, fp8ScaleWeights,
+                          "weights");
+          }
+          if (bwdOutFile) {
+            std::ofstream out(bwdOutFile.get());
+            std::cout << "Saving BWD tensor with shape:" << prevDeltas.shape()
+                      << " Element type:" << prevDeltas.elementType() << "\n";
+            graph.serializeTensors(out, {prevDeltas},
+                                   SerializationFormat::Binary);
           }
         }
-
-        if (validationMethod == DataValidation::AgainstPreviousRuns) {
-          prevExecutionWeights = duplicatedHostWeights;
+        if (doWuPass) {
+          copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
           if (bias) {
-            prevExecutionBiases = duplicatedHostBiases;
+            copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
           }
 
-          if (determinismCheckIdx > 0) {
-            if (duplicatedHostWeights != prevExecutionWeights) {
+          if (validationMethod == DataValidation::AgainstModel) {
+            // Take dimensions and shape from host tensors.
+            auto modelWeights = hostWeights;
+            auto modelBiases = hostBiases;
+            std::tie(modelWeights, modelBiases) =
+                wuModel(hostPrevAct, hostZDeltas, hostWeights, hostBiases);
+
+            boost::multi_array<double, 4> hostWeights = duplicatedHostWeights;
+            auto failed = !checkIsClose("weights", hostWeights, modelWeights,
+                                        relativeTolerance, absoluteTolerance);
+            if (failed) {
               weightsFailed = true;
             }
+
             if (bias) {
-              if (duplicatedHostBiases != prevExecutionBiases) {
+              boost::multi_array<double, 1> hostBiases = duplicatedHostBiases;
+              failed = !checkIsClose("biases", hostBiases, modelBiases,
+                                     relativeTolerance, absoluteTolerance);
+              if (failed) {
                 biasesFailed = true;
+              }
+            }
+          }
+
+          if (validationMethod == DataValidation::AgainstPreviousRuns) {
+            prevExecutionWeights = duplicatedHostWeights;
+            if (bias) {
+              prevExecutionBiases = duplicatedHostBiases;
+            }
+
+            if (determinismCheckIdx > 0) {
+              if (duplicatedHostWeights != prevExecutionWeights) {
+                weightsFailed = true;
+              }
+              if (bias) {
+                if (duplicatedHostBiases != prevExecutionBiases) {
+                  biasesFailed = true;
+                }
               }
             }
           }
         }
       }
-    }
 
-    if (validationMethod) {
-      const std::vector<std::pair<std::string, int>> results{
-          {"fwd", fwdFailed},
-          {"bwd", bwdFailed},
-          {"weights", weightsFailed},
-          {"biases", biasesFailed},
-      };
-      for (const auto &result : results) { // Report all failures
-        if (result.second) {
-          errs << result.first << " validation failed\n";
+      if (validationMethod) {
+        const std::vector<std::pair<std::string, int>> results{
+            {"fwd", fwdFailed},
+            {"bwd", bwdFailed},
+            {"weights", weightsFailed},
+            {"biases", biasesFailed},
+        };
+        for (const auto &result : results) { // Report all failures
+          if (result.second) {
+            errs << result.first << " validation failed\n";
+          }
+        }
+        for (const auto &result : results) { // Abort if any failed
+          if (result.second) {
+            rc = EXIT_FAILURE;
+          }
         }
       }
-      for (const auto &result : results) { // Abort if any failed
-        if (result.second) {
-          rc = EXIT_FAILURE;
-        }
+
+    } // for num_determinism_checks
+
+    if (vm.count("profile") && !vm.count("test-planner")) {
+      auto reportOptions = OptionFlags{{"showExecutionSteps", "true"}};
+      if (reportVarStorage) {
+        reportOptions.set("showVarStorage", "true");
       }
+      engine.printProfileSummary(std::cout, reportOptions);
     }
+  }
 
-  } // for num_determinism_checks
-
-  if (vm.count("profile")) {
-    auto reportOptions = OptionFlags{{"showExecutionSteps", "true"}};
-    if (reportVarStorage) {
-      reportOptions.set("showVarStorage", "true");
+  if (!all_estimates.empty()) {
+    // Save the constraints file(s) (if any) into the auto report
+    // directory for posterity. Don't bother saving it if the profile
+    // directory is a temporary directory.
+    if (!tempDir) {
+      using namespace boost::filesystem;
+      if (!fwdPlanConstraintsFile.empty())
+        copy_file(fwdPlanConstraintsFile, *profileDir + "/fwd-constraints.json",
+                  copy_option::overwrite_if_exists);
+      if (!bwdPlanConstraintsFile.empty())
+        copy_file(bwdPlanConstraintsFile, *profileDir + "/bwd-constraints.json",
+                  copy_option::overwrite_if_exists);
+      if (!wuPlanConstraintsFile.empty())
+        copy_file(wuPlanConstraintsFile, *profileDir + "/wu-constraints.json",
+                  copy_option::overwrite_if_exists);
     }
-    engine.printProfileSummary(std::cout, reportOptions);
+    // Loop through all the estimates, grab the corresponding measurements
+    // and dump a textual report to the command line.
+    for (size_t i = 0; i < phases.size(); ++i) {
+      const auto &phase = phases[i];
+      const auto &estimates = all_estimates[i];
+      // Tally up the cycles and memory used according to the profile.
+      std::string actualProfileDir = tempDir ? tempDir->getPath() : *profileDir;
+      // Read the profile back and compare the costs.
+      MeasuredPlanCosts actual = getActualCosts(
+          phase, actualProfileDir, estimates.parallelSplit,
+          estimates.serialSplit, testPlannerPrintVars, testPlannerReportPerTile,
+          testPlannerReportPerSerialSplit);
+      compareCosts(phase, estimates, actual, testPlannerReportVerbose,
+                   testPlannerReportPerTile, testPlannerReportPerSerialSplit);
+    }
   }
 
   std::cerr << errs.str();

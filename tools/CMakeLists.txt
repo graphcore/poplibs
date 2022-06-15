@@ -19,7 +19,10 @@ set(CMAKE_INSTALL_RPATH $ORIGIN)
 
 add_tool(single_conv_layer single_conv_layer.cpp)
 target_link_libraries(single_conv_layer
-                      poplibs_support poplibs_test
+                      poplibs_support
+                      poplibs_test
+                      pva
+                      spdlog::spdlog_header_only
                       Boost::program_options)
 
 add_tool(multi_conv_layer multi_conv_layer.cpp)

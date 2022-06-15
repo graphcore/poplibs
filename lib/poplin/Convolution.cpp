@@ -3834,6 +3834,34 @@ PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
   return {cycles, memory};
 }
 
+namespace internal {
+
+std::ostream &operator<<(std::ostream &os, DetailedPlanCosts const &c) {
+  os << c.parallelSplit << " " << c.serialSplit << "\n";
+  c.apply(
+      [&os](const PlanCosts &c) { os << c.cycles << " " << c.memory << "\n"; });
+  return os;
+}
+
+std::istream &operator>>(std::istream &is, DetailedPlanCosts &c) {
+  is >> c.parallelSplit >> c.serialSplit;
+  c.apply([&is](PlanCosts &c) { is >> c.cycles >> c.memory; });
+  return is;
+}
+
+DetailedPlanCosts reportDetailedPlanEstimatedCosts(
+    const poplar::Graph &graph, const ConvParams &params,
+    const poplar::OptionFlags &options_, PlanningCache *cache) {
+  ConvOptions options(options_);
+  // Note validateLayerParams may change the options.
+  validateLayerParams(params, graph.getTarget(), options);
+  auto plan = getPlan(graph.getTarget(), params, options, cache);
+  return estimateDetailedConvCost(graph.getTarget(), params, options, cache,
+                                  plan);
+}
+
+} // namespace internal
+
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
                     const poplar::OptionFlags &options_, PlanningCache *cache) {
