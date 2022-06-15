@@ -775,6 +775,11 @@ gatherSlices(Graph &graph, const RnnParams &params, const RnnState &shard,
     counter = shard.counterTensor();
   }
   if (inputs.size() > 0) {
+    if (counter && numGatherSteps && (*numGatherSteps != shard.gatherSize())) {
+      // Reset the counter to point to the beginning of the final sequence of
+      // gather steps, which should be at offset zero when "reverse=true".
+      zero(graph, *counter, prog, {dnai, "zeroGatherOffsetFinal"});
+    }
     slices.inputs = sliceInputs(graph, params, interval, inputs, counter,
                                 gatherSize, prog, dnai);
   }
