@@ -1359,23 +1359,11 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
                (reduction.getNumPartialsElementsPerOuterStride() %
                 firstStageOutputSize) == 0;
       } else {
-        if (reductionUsesInput) {
           return std::all_of(
               reduction.getPartials().begin(), reduction.getPartials().end(),
               [&](const poplar::Tensor &t) {
                 return (t.numElements() % firstStageOutputSize) == 0;
               });
-        } else {
-          // We are exchanging the partials so as long as the total size will
-          // result in a correct reduction we don't care about the size of the
-          // individual partials
-          std::size_t numPartialsElements = std::accumulate(
-              reduction.getPartials().begin(), reduction.getPartials().end(), 0,
-              [&](std::size_t acc, const poplar::Tensor &partials) {
-                return acc + partials.numElements();
-              });
-          return numPartialsElements % firstStageOutputSize == 0;
-        }
       }
     }();
     if (partialsAreSuitable) {
