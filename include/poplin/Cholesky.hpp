@@ -20,16 +20,14 @@ class PlanningCache;
  *
  * Supported options:
  *
- * * `blockSize`
+ * * `blockSize`: A hint for the size of the block to be used.
  *
- *   A hint for the size of block to be used.
- *
- * See matMul() for additional options.
- *
+ * \sa matMul() for additional options.
  *
  * \param type       The data type of the input tensor.
  * \param shape      The shape of the input tensor.
- * \param lower      Lower triangular matrix if true, else upper triangular.
+ * \param lower      If true, return a lower triangular matrix, else return
+ *                   an upper triangular matrix.
  * \param options    A structure describing options on how the
  *                   decomposition should be implemented.
  * \returns          Preplan parameters for matMul().
@@ -44,11 +42,9 @@ getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
  *
  * Supported options:
  *
- * * `blockSize`
+ * * `blockSize`: A hint for the size of the block to be used.
  *
- *   A hint for the size of block to be used.
- *
- * See matMul() for additional options.
+ * \sa matMul() for additional options.
  *
  * This will create a 2D/3D tensor in the graph. The ordering and tile mapping
  * of the tensor will be set to make a triangular factoriser with this
@@ -57,6 +53,8 @@ getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
  * \param graph           The Poplar graph.
  * \param type            The input data type.
  * \param shape           The shape of the tensor.
+ * \param lower           If true, return a lower triangular matrix, else return
+ *                        an upper triangular matrix.
  * \param debugContext    Debug information.
  * \param options         A structure describing options on how the
  *                        decomposition should be implemented.
@@ -78,19 +76,16 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
  *
  * Supported options:
  *
- * * `blockSize`
+ * * `blockSize`: A hint for the size of the block to be used.
  *
- *   A hint for the size of block to be used.
- *
- * See matMul() for additional options.
+ * \sa matMul() for additional options.
  *
  *  \param graph          The Poplar graph.
- *  \param a              Tensor of floating-point type with shape [..., N,N].
+ *  \param a              A tensor of floating-point type with shape [..., N,N].
  *  \param lower          If true, return a lower triangular matrix, else return
  *                        an upper triangular matrix.
- *  \param prog           A reference to a program
- *                        sequence which the code to perform the arrangement
- *                        will be appended to.
+ *  \param prog           A reference to a program sequence which the code to
+ *                        perform the arrangement will be appended to.
  *  \param debugContext   Optional debug information.
  *  \param options        A structure describing options on how the
  *                        decomposition should be implemented.
@@ -109,24 +104,21 @@ poplar::Tensor cholesky(poplar::Graph &graph, const poplar::Tensor &a,
  *
  * Supported options:
  *
- * * `blockSize`
+ * * `blockSize`: A hint for the size of the block to be used.
  *
- *   A hint for the size of block to be used.
- *
- * See matMul() for additional options.
+ * \sa matMul() for additional options.
  *
  *  \param graph          The Poplar graph.
- *  \param a              Tensor of floating-point type with shape [..., N,N].
+ *  \param a              A tensor of floating-point type with shape [..., N,N].
  *  \param lower          If true, return a lower triangular matrix, else return
  *                        an upper triangular matrix.
- *  \param prog           A reference to a program
- *                        sequence which the code to perform the arrangement
- *                        will be appended to.
+ *  \param prog           A reference to a program sequence which the code to
+ *                        perform the arrangement will be appended to.
  *  \param debugContext   Optional debug information.
  *  \param options        A structure describing options on how the
  *                        decomposition should be implemented.
  *  \param cache          Optional pointer to a planning cache to use.
- *  \returns              None
+ *  \returns              None.
  */
 void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
                      poplar::program::Sequence &prog,
