@@ -238,13 +238,13 @@ CODELET_NAME:
 
 .supervisor
 //-----------------------------------------------------------------------------
-ld32          $temp_1_s, $sup_base, SUP_INSTRIDE/4 
+ld32          $temp_1_s, $sup_base, SUP_INSTRIDE/4
 ld32          $outstride_s, $sup_base, SUP_OUTSTRIDE/4
 ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4
 // space for worker vertex state, supervisor state and callee-save registers
 add           $sp, $sp, -TOT_STACK_SIZE
 
-// We don't care about the cost when SR is disabled or where SR doesn't matter 
+// We don't care about the cost when SR is disabled or where SR doesn't matter
 // (for example in the case of float data) as it is only provisioned for
 // testing. Hence the code is bunched up for easy maintenance.
 .ifc \DISABLE_SR, true
@@ -266,7 +266,7 @@ st32          $outstride_s, $wkr_base, WKR_INOUTSTRIDES2/4
 st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
 st32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
-shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS    
+shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 st32          $temp_5_s, $sp, (STACK_BASE + STACK_NUM_OUTCHAN_M1)/4
 st32          $temp_7_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_Y_M1)/4
 
@@ -507,7 +507,7 @@ L_sup_conv_end_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_
 // Restore saved registers
 
 .ifc \DISABLE_SR, true
-  RESTORE_FPICTL  (STACK_BASE + STACK_FPICTL)/4 fpictl_s 
+  RESTORE_FPICTL  (STACK_BASE + STACK_FPICTL)/4 fpictl_s
 .endif
 
 ld32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0

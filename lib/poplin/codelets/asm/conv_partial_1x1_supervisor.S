@@ -166,7 +166,7 @@ CODELET_NAME:
   ld32          $partition_s, $sup_base, SUP_PARTITION/4
   add           $sp, $sp, -TOT_STACK_SIZE
 
-// We don't care about the cost when SR is disabled or where SR doesn't matter 
+// We don't care about the cost when SR is disabled or where SR doesn't matter
 // (for example in the case of float data) as it is only provisioned for
 // testing. Hence the code is bunched up for easy maintenance.
 .ifc \DISABLE_SR, true
@@ -212,7 +212,7 @@ CODELET_NAME:
   nop           // keep nop for 6 instructions pipeline
   st32          $stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
 // ----------------------------------------------------------------------------
-.ifc \ZERO_PARTIALS_PATH, true 
+.ifc \ZERO_PARTIALS_PATH, true
   setzi         $wkr_function_post, convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()_Z
 .else
   setzi         $wkr_function, convPartialFlattenedField_\COMMAND\()
@@ -221,7 +221,7 @@ CODELET_NAME:
   ldz16         $outchan_group_s, $mzero, $sup_base, SUP_NUM_OUTCHAN_GROUPS_M1/2
   nop           // keep nop for 6 instructions pipeline
   put           $CCCSLOAD, $weight_vec_s
-.ifc \ZERO_PARTIALS_PATH, true 
+.ifc \ZERO_PARTIALS_PATH, true
   setzi         $wkr_function, convPartialFlattenedField_\COMMAND\()_Z
 .else
   nop
@@ -230,7 +230,7 @@ CODELET_NAME:
 
 convGroupsLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\():
 .ifc \ZERO_PARTIALS_PATH, true
-  st32          $wkr_function_post, $sp, WKR_VERTEX_SIZE/4 + SUP_WKR_FUNCTION/4     
+  st32          $wkr_function_post, $sp, WKR_VERTEX_SIZE/4 + SUP_WKR_FUNCTION/4
 .endif
   add           $inchan_group_s, $inchan_group_s, -1
 
@@ -263,7 +263,7 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\D
 .endif
       put           $CCCSLOAD, $weight_vec_s
       brnzdec       $outchan_group_s, outChanLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
-.ifc \ZERO_PARTIALS_PATH, true            
+.ifc \ZERO_PARTIALS_PATH, true
     setzi         $wkr_function_post, convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()
 .else
     // Use the MSB of stride which is unused to flag zeroing of partials
@@ -275,11 +275,11 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\D
     // cannot write to worker vertex state until all workers have finished
     // processing the output channel group
     sync          TEXCH_SYNCZONE_LOCAL
-.ifc \ZERO_PARTIALS_PATH, false    
+.ifc \ZERO_PARTIALS_PATH, false
     st32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
     setzi         $wkr_function, convPartialFlattenedFieldStateRetained_\COMMAND\()
 .endif
-.ifc \ZERO_PARTIALS_PATH, true 
+.ifc \ZERO_PARTIALS_PATH, true
     setzi         $wkr_function, convPartialFlattenedFieldStateRetained_\COMMAND\()
     nop
     st32          $wkr_function_post, $sp, WKR_VERTEX_SIZE/4 + SUP_WKR_FUNCTION/4
@@ -297,7 +297,7 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\D
   setzi         $wkr_function, convPartialFlattenedFieldStateRetained_\COMMAND\()_Z
 .else
   st32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
-.endif  
+.endif
   brnzdec       $conv_group_s, convGroupsLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()_\DISABLE_SR\()
 
 .ifc \DISABLE_SR, true

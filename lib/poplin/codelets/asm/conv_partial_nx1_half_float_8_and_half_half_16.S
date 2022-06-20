@@ -67,7 +67,7 @@ ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
 // inoutstrides2_v = [0][in-row-stride][out-stride]
 ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
 
-// Special stride for initial preloads and wind downs. Form 3 strides in 
+// Special stride for initial preloads and wind downs. Form 3 strides in
 // a register: [second-offset | 0x0 | inoutstrides3_v]
 and           $inoutstrides3_v, $inoutstrides1_v, 0x3FF
 
@@ -150,13 +150,13 @@ PartitionLoop_\COMMAND\():
     \COMMAND      $a6:7, $azeros, $a4:5, TAMP_F16V4_E4_P0
   }
   {
-    // *input-ptr += in-row-stride (first part of second ptr offset) 
+    // *input-ptr += in-row-stride (first part of second ptr offset)
     // *partials-ptr += 1
     ld2x64pace    $azeros, $a2:3, $tripacked_addr2+=, $inoutstrides2_v, 0b0010
     \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P1
   }
   {
-    // *input-ptr += second-offset (second part of second ptr offset) 
+    // *input-ptr += second-offset (second part of second ptr offset)
     // *partials-ptr += out-stride-p2;
     ld2x64pace    $azeros, $a2:3, $tripacked_addr2+=, $inoutstrides3_v, 0b0111
     \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
@@ -326,7 +326,7 @@ ld2x64pace    $azeros, $a4:5, $tripacked_addr1+=, $mzero, 0b0011
   \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P1
 }
 {
-  // *input-ptr += second offset (second part of second ptr offset) 
+  // *input-ptr += second offset (second part of second ptr offset)
   // *partials-ptr += 0
   ld2x64pace    $azeros, $a2:3, $tripacked_addr2+=, $inoutstrides3_v, 0b1011
   \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
@@ -382,7 +382,7 @@ ld2x64pace    $azeros, $a4:5, $tripacked_addr1+=, $mzero, 0b0011
   \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P1
 }
 {
-  // *input-ptr += second-offset (second part of second ptr offset) 
+  // *input-ptr += second-offset (second part of second ptr offset)
   // *partials-ptr += out-stride-p2
   ld2x64pace    $azeros, $a2:3, $tripacked_addr2+=, $inoutstrides3_v, 0b0111
   \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2

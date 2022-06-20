@@ -42,7 +42,7 @@ nop // rpt alignment
 #define partition_v                    m1
 #define num_partitions_v               m2
 #define num_fp_v                       m3
-#define second_ptr_offset_v            m3 
+#define second_ptr_offset_v            m3
 #define inoutstrides1_v                m4   // retained
 #define inoutstrides2_v                m5   // retained
 #define tripacked_addr2                m6:7
@@ -62,14 +62,14 @@ get           $wkr_id_v, $WSR
 and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
 
 // The number of input strides depends on the AMP height used. The height
-// supported is 4 and hence there can be at most 4 input stides. There is
+// supported is 4 and hence there can be at most 4 input strides. There is
 // only one output stride as the output channels are always grouped together.
 // inoutstrides1_v = [0][in-stride][out-stride]
 ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
 // inoutstrides2_v = [0][in-row-stride][out-stride]
 ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
 
-// Special stride for initial preloads and wind downs. Form 3 strides in 
+// Special stride for initial preloads and wind downs. Form 3 strides in
 // a register: [second-offset | 0x0 | inoutstrides3_v]
 and           $inoutstrides3_v, $inoutstrides1_v, 0x3FF
 
@@ -121,9 +121,9 @@ PartitionLoop:
 
   // form output address
   ld32          $out_addr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
-  ld64step      $azeros, $mzero, $out_addr_v+=, $out_offset_v 
+  ld64step      $azeros, $mzero, $out_addr_v+=, $out_offset_v
 
-  // Move partials-out1 pointer by one write (16v4) to get correct 
+  // Move partials-out1 pointer by one write (16v4) to get correct
   // store alignment
   add           $out_addr_adj_v, $out_addr_v, 0x8
 
@@ -131,7 +131,7 @@ PartitionLoop:
   tapack        $tripacked_addr1, $in_addr_v, $out_addr_v, $out_addr_adj_v
 
   tapack        $tripacked_addr2, $in_addr_v, $out_addr_v, $out_addr_v
-  // Move partials-in2 pointer by one read (16v4) to get correct 
+  // Move partials-in2 pointer by one read (16v4) to get correct
   // load alignment
   add           $tripacked_addr2_hi, $tripacked_addr2_hi, 0x8
 
@@ -148,7 +148,7 @@ PartitionLoop:
   }
 
   {
-    // *input-ptr += second-offset (second part of second ptr offset) 
+    // *input-ptr += second-offset (second part of second ptr offset)
     // *partials-ptr += out-stride (4 partials)
     ld2x64pace    $azeros, $a2:3, $tripacked_addr2+=, $inoutstrides3_v, 0b0111
     f16v4hihoamp  $a7, $azeros, $a3, TAMP_F16V4_E4_P1
@@ -206,19 +206,19 @@ Loop_start_Amp:
       f16v4hihoamp  $a6, $a0:1, $a2, TAMP_F16V4_E4_P2
     }
     {
-      // *input-ptr += in-row-stride; 
+      // *input-ptr += in-row-stride;
       // *partials-ptr += out-stride
       ld2x64pace  $a0:1, $a2:3, $tripacked_addr1+=, $inoutstrides2_v, 0b0110
       f16v4hihoamp  $a7, $a0:1, $a3, TAMP_F16V4_E4_P3
     }
     {
-      // *input-ptr += in-stride; 
+      // *input-ptr += in-stride;
       // *out-ptr += out-stride
       ldst64pace  $a0:1, $a6:7, $tripacked_addr1+=, $inoutstrides1_v, 0b0110
       f16v4hihoamp  $a6, $a0:1, $a2, TAMP_F16V4_E4_P0
     }
     {
-      // *input-ptr += in-row-stride; 
+      // *input-ptr += in-row-stride;
       // *partials-ptr += out-stride
       ld2x64pace  $a0:1, $a2:3, $tripacked_addr2+=, $inoutstrides2_v, 0b0110
       f16v4hihoamp  $a7, $a0:1, $a3, TAMP_F16V4_E4_P1

@@ -127,12 +127,12 @@ PartitionLoop:
 
   // form output address
   ld32          $out_addr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
-  ld64step      $azeros, $mzero, $out_addr_v+=, $out_offset_v 
+  ld64step      $azeros, $mzero, $out_addr_v+=, $out_offset_v
 
   // Form packed address
   tapack        $tripacked_addr, $in_addr_v, $out_addr_v, $out_addr_v
 
-  // Also move partials-out pointer by 1 write because first output 
+  // Also move partials-out pointer by 1 write because first output
   // will be saved by using tripacked_addr1
   add           $out_addr_v, $out_addr_v, 0x8  // = 1 * 8
 
@@ -194,13 +194,13 @@ PartitionLoop:
   {
     // *input-ptr += 0
     // *partials-ptr += out-stride-p4
-    ld2x64pace      NULL, P_IN, $tripacked_addr2+=, $inoutstrides3_v, 0b0110 
+    ld2x64pace      NULL, P_IN, $tripacked_addr2+=, $inoutstrides3_v, 0b0110
     f32sisov2amp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P6
   }
   {
     // *input-ptr += in-row-stride
     // *partials-ptr += 1
-    ld2x64pace      X_IN, P_IN, $tripacked_addr1+=, $inoutstrides2_v, 0b0010 
+    ld2x64pace      X_IN, P_IN, $tripacked_addr1+=, $inoutstrides2_v, 0b0010
     f32sisov2amp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P7
   }
 
@@ -281,7 +281,7 @@ PartitionLoop:
     ld2xst64pace    X_IN__P_IN, P2_OUT, $tripacked_addr2+=, $mzero, 0b000011
     f32sisov2amp    P2_OUT, X_IN_1, P_IN, TAMP_F32_E4_P3
   }
-  
+
   rpt $num_fp_v, (Loop_end_Amp-Loop_start_Amp)/8-1
 Loop_start_Amp:
     {
@@ -569,12 +569,12 @@ f32sisov2amp      P2_OUT, NULL1, NULL, TAMP_F32_E4_P1
 bri           StoreFinalAmpOutputs1
 
 // =============================================================================
-// This handles the case of number of field positions equal to 2. 
+// This handles the case of number of field positions equal to 2.
 
 // clear output stride to allow post increment by 0 in the dummy loads of
 // partials
 ConvNumFpEq2:
-  
+
 // *input-ptr += 0
 // *partials-ptr += 1
 ld2x64pace    NULL, P_IN, $tripacked_addr1+=, $mzero, 0b0011
