@@ -2728,20 +2728,19 @@ getOutChanGrainSizes(const std::vector<ConvTransform> &transforms,
 static std::vector<unsigned>
 getInChanGrainSizes(const std::vector<ConvTransform> &transforms,
                     unsigned inChansPerGroup) {
-  assert(transforms.size() >= 1);
+  assert(transforms.size() == 2);
   std::vector<unsigned> inChanGrainSizes(transforms.size());
   // The grain size at the last level is equal to inChansPerGroup.
   // To avoid rearrangement we use the same grain size at upper levels
   // unless these is a transform that rearranges the input channel axis.
-  inChanGrainSizes.back() = inChansPerGroup;
+  inChanGrainSizes[tileLevel] = inChansPerGroup;
 
-  for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
-    inChanGrainSizes[i] = (transforms[i + 1].outChanFlattenDims.empty() &&
-                           transforms[i + 1].expandDims.empty() &&
-                           (transforms[i + 1].combineConvGroupsFactor == 1))
-                              ? inChanGrainSizes[i + 1]
-                              : 1;
-  }
+  if (!transforms[tileLevel].outChanFlattenDims.empty() ||
+      transforms[tileLevel].combineConvGroupsFactor != 1)
+    inChanGrainSizes[systemLevel] = 1;
+  else
+    inChanGrainSizes[systemLevel] = inChanGrainSizes[tileLevel];
+
   return inChanGrainSizes;
 }
 
