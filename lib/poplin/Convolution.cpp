@@ -676,11 +676,9 @@ static CanonicalConvParams convolutionPreprocess(
       }
     }
   } else {
-    // implement the expandDims transformation unless we can defer the expansion
-    // of the activations to vertex creation and it's likely to be beneficial.
-    if (!(canDeferExpandDimsToVertexLevel(plan.method, params, level,
-                                          graph.getTarget()) &&
-          acts && acts->isContiguous())) {
+    // implement the expandDims transformation unless it's at tile level in
+    // which case it should be deferred to vertex level.
+    if (level != tileLevel) {
       expandSpatialDims(params, plan, level, graph, acts, weights,
                         rearrangeProg, rearrangeActs, rearrangeWeights, {dnai});
       transform.expandDims.clear();
