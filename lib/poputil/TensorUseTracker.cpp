@@ -13,23 +13,64 @@ namespace poputil {
 
 class TensorUseTrackerState {
 public:
-  using TileUsage = std::vector<boost::icl::interval_set<unsigned>>;
+  using TileUsage = std::vector<std::vector<poplar::Interval>>;
   tbb::concurrent_unordered_map<poplar::VariableRef, TileUsage,
                                 std::hash<poplar::VariableRef>>
       usage;
   unsigned numTiles;
   unsigned startTile;
   bool ascendingMappingOrder;
+
   TensorUseTrackerState(unsigned numTiles, unsigned startTile,
                         bool ascendingMappingOrder)
       : numTiles(numTiles), startTile(startTile),
         ascendingMappingOrder(ascendingMappingOrder) {}
   TensorUseTrackerState(const TensorUseTrackerState &other) = default;
+
   TileUsage &getUsage(poplar::VariableRef v) {
     auto m = usage.find(v);
     if (m != usage.end())
       return m->second;
-    return usage.emplace(v, TileUsage(numTiles)).first->second;
+    return usage.emplace(v, numTiles).first->second;
+  }
+
+  void mergeIntervals() {
+    for (auto &entry : usage) {
+      auto &usage = entry.second;
+      for (auto &tileUsage : usage) {
+        if (tileUsage.size() <= 1) {
+          continue;
+        }
+
+        // Sort the intervals by their lower bound.
+        // This will place overlapping intervals next to each other, allowing
+        // them to be merged during a single pass.
+        std::sort(
+            tileUsage.begin(), tileUsage.end(),
+            [](const auto &a, const auto &b) { return a.lower() < b.lower(); });
+
+        // The index of the last of the merged intervals.
+        auto back = 0u;
+
+        for (auto i = 1u; i != tileUsage.size(); ++i) {
+          if (tileUsage[i].lower() <= tileUsage[back].upper()) {
+            // If this interval overlaps with the last of the merged intervals,
+            // then merge it in.
+            tileUsage[back] = poplar::Interval{
+                tileUsage[back].lower(),
+                std::max(tileUsage[back].upper(), tileUsage[i].upper())};
+          } else {
+            // Otherwise, we've reached a gap, so add this interval to the list
+            // of merged intervals.
+            back += 1;
+            tileUsage[back] = tileUsage[i];
+          }
+        }
+
+        // Trim anything left over after the last of the merged intervals.
+        tileUsage.resize(back + 1);
+      }
+    }
   }
 };
 
@@ -64,12 +105,12 @@ void TensorUseTracker::add(const poplar::Graph &graph, unsigned tile,
                            const poplar::Tensor &t_) {
   auto t = t_.flatten();
   graph.reorderToSimplify(&t, {}, false);
-  const auto varRegions = t.getVarRegions();
+  auto varRegions = t.getVarRegions();
   for (const auto &region : varRegions) {
     if (graph.isConstant(region.var))
       continue;
     auto &usage = st->getUsage(region.var);
-    usage[tile].add(toIclInterval(region.interval));
+    usage[tile].push_back(region.interval);
   }
 }
 
@@ -78,6 +119,7 @@ void TensorUseTracker::add(TensorUseTracker other) {
     throw poputil::poplibs_error("Trying to add tensor use tracker state "
                                  "with differing no. of tiles");
   }
+
   for (auto &entry : other.st->usage) {
     const auto &varRef = entry.first;
     auto &otherVarUse = entry.second;
@@ -90,7 +132,8 @@ void TensorUseTracker::add(TensorUseTracker other) {
         if (varUse[tile].empty()) {
           varUse[tile] = std::move(otherVarUse[tile]);
         } else {
-          varUse[tile] += std::move(otherVarUse[tile]);
+          varUse[tile].insert(varUse[tile].end(), otherVarUse[tile].begin(),
+                              otherVarUse[tile].end());
         }
       }
     }
@@ -207,6 +250,8 @@ void TensorUseTracker::resolve(const poplar::Graph &graph, unsigned grainSize,
     grainSize = 1;
   }
 
+  st->mergeIntervals();
+
   for (auto &usageEntry : st->usage) {
     const auto t = graph.getVariable(usageEntry.first);
     auto &usage = usageEntry.second;
@@ -214,7 +259,7 @@ void TensorUseTracker::resolve(const poplar::Graph &graph, unsigned grainSize,
     for (unsigned tile = 0; tile < usage.size(); ++tile) {
       std::set<unsigned> tileSet{tile};
       for (const auto &region : usage[tile]) {
-        uses.add(std::make_pair(region, tileSet));
+        uses.add(std::make_pair(toIclInterval(region), tileSet));
       }
     }
     assert(iterative_size(uses) != 0);
@@ -271,7 +316,7 @@ void TensorUseTracker::resolve(const poplar::Graph &graph, unsigned grainSize,
           const auto lower = interval.begin() * sharedGrainSize;
           const auto upper =
               std::min(interval.end() * sharedGrainSize, numElements);
-          usage[tile] += TileUseInterval::right_open(lower, upper);
+          usage[tile].emplace_back(lower, upper);
         }
         ++i;
       }
@@ -295,10 +340,7 @@ void TensorUseTracker::mapTensorsByUse(
       auto tileIdx =
           invTransformTileIndex(tile, graph.getTarget().getNumTiles(),
                                 st->startTile, st->ascendingMappingOrder);
-      mapping[tileIdx].reserve(usage[tile].iterative_size());
-      for (const auto &interval : usage[tile]) {
-        mapping[tileIdx].emplace_back(interval.lower(), interval.upper());
-      }
+      mapping[tileIdx] = usage[tile];
     }
     graph.setTileMapping(t, mapping);
   }

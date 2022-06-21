@@ -1220,18 +1220,17 @@ static Tensor convolutionPostprocess(Graph &graph,
  *  \param options        Options for this convolution.
  */
 
-static TensorUseTracker iterateUsageByPartition(
+static void iterateUsageByPartition(
     Graph &graph, CanonicalConvParams params, Plan plan, unsigned level,
     bool serial, boost::optional<Tensor> acts, boost::optional<Tensor> weights,
     const std::vector<Split<ConvIndices>> &indices, unsigned grainSize,
     unsigned minElementsPerTile, const ConvOptions &options, unsigned startTile,
-    bool ascendingMapping) {
+    bool ascendingMapping, TensorUseTracker &tracker) {
   // Pre-process prior to the parallel partition at this level.
   params = convolutionPreprocess(graph, params.releaseParams(), options, plan,
                                  level, indices, acts, weights, serial);
   const auto numTiles = graph.getTarget().getNumTiles();
 
-  TensorUseTracker tracker(numTiles, startTile, ascendingMapping);
   // TODO: T12870 Where it is known that partitioning does not cause elements of
   // either the inputs or weights to be used on multiple tiles, this should
   // skip calculating the mapping for all but the first serial (and parallel?)
@@ -1260,22 +1259,25 @@ static TensorUseTracker iterateUsageByPartition(
             subIndices.push_back(levelIndices);
             const auto subParams = getSubConvolution(
                 slice, params, subActs.get_ptr(), subWeights.get_ptr());
-            auto usage = iterateUsageByPartition(
-                graph, subParams, plan, level, false, subActs, subWeights,
-                subIndices, grainSize, minElementsPerTile, options, startTile,
-                ascendingMapping);
+
+            TensorUseTracker serialTracker(numTiles, startTile,
+                                           ascendingMapping);
+            iterateUsageByPartition(graph, subParams, plan, level, false,
+                                    subActs, subWeights, subIndices, grainSize,
+                                    minElementsPerTile, options, startTile,
+                                    ascendingMapping, serialTracker);
+
             if (totalSerialSplit == 1) {
               // N.B. we do not resolve usage if there is no serial splitting.
-              tracker = std::move(usage);
+              tracker = std::move(serialTracker);
             } else {
-              usage.resolve(
+              serialTracker.resolve(
                   graph, grainSize, minElementsPerTile, false,
                   TensorUseTracker::MappingMethod::OptimizeHaloRegions);
-              tracker.add(std::move(usage));
+              tracker.add(std::move(serialTracker));
             }
           });
     } else {
-      const auto totalParallelSplit = partition.totalParallelSplit();
       iteratePartitionParallel(
           params, partition,
           [&](const ConvIndices &parallelIndices, const ConvSlice &slice) {
@@ -1287,19 +1289,13 @@ static TensorUseTracker iterateUsageByPartition(
             levelIndices.parallel = parallelIndices;
             const auto subParams = getSubConvolution(
                 slice, params, subActs.get_ptr(), subWeights.get_ptr());
-            auto usage = iterateUsageByPartition(
-                graph, subParams, plan, level + 1, true, subActs, subWeights,
-                subIndices, grainSize, minElementsPerTile, options, startTile,
-                ascendingMapping);
-            if (totalParallelSplit == 1) {
-              tracker = std::move(usage);
-            } else {
-              tracker.add(std::move(usage));
-            }
+            iterateUsageByPartition(graph, subParams, plan, level + 1, true,
+                                    subActs, subWeights, subIndices, grainSize,
+                                    minElementsPerTile, options, startTile,
+                                    ascendingMapping, tracker);
           });
     }
   }
-  return tracker;
 }
 
 static TensorUseTracker calculateActivationsOrWeightsUsage(
@@ -1335,9 +1331,13 @@ static TensorUseTracker calculateActivationsOrWeightsUsage(
     }
   }();
 
-  return iterateUsageByPartition(
-      graph, params, plan, level, serial, acts, weights, indices, grainSize,
-      minElementsPerTile, options, startTile, ascendingMapping);
+  const auto numTiles = graph.getTarget().getNumTiles();
+  TensorUseTracker tracker(numTiles, startTile, ascendingMapping);
+  iterateUsageByPartition(graph, params, plan, level, serial, acts, weights,
+                          indices, grainSize, minElementsPerTile, options,
+                          startTile, ascendingMapping, tracker);
+
+  return tracker;
 }
 
 /// Map the input tensor such that the exchange required during the
