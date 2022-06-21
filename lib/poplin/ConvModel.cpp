@@ -1575,7 +1575,8 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
           const auto numInChans =
               transformedViewParams.inputChannelsPerConvGroup;
           const auto numGroups = unsigned(transformedViewParams.numConvGroups);
-          const unsigned numInChanPerSplit = numInChans / inChanSerialSplit;
+          const unsigned numInChanPerSplit =
+              gccs::ceildiv(numInChans, inChanSerialSplit);
           const auto inChanShape =
               std::gcd(convVertexType.inChansPerGroup, numInChanPerSplit);
           const auto groupsShape =
@@ -1604,7 +1605,8 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
           const auto numOutChans =
               transformedViewParams.outputChannelsPerConvGroup;
           const auto numGroups = unsigned(transformedViewParams.numConvGroups);
-          const unsigned numInChanPerSplit = numInChans / inChanSerialSplit;
+          const unsigned numInChanPerSplit =
+              gccs::ceildiv(numInChans, inChanSerialSplit);
           const unsigned numOutChanPerSplit =
               gccs::ceildiv(numOutChans, outChanSerialSplit);
           const auto inChanShape =
@@ -3285,31 +3287,17 @@ Estimates<popsolver::Variable> constructModel(
           addPartitionConstant(m, options, level, "outChanSplit.serial",
                                [&] { return m.addVariable(1, levelMaxSplit); });
 
-      // we must avoid splitting the convolutions serially when it will
-      // produce different sized convolutions as this is implemented as a
-      // repeat loop of the same sub-convolution. we enforce this by
-      // requiring that the serial split is a factor of the total number of
-      // input channels.
       const auto initialInputChansPerConvGroup =
           transformedViewParams.getNumInputChansPerConvGroup();
-      m.factorOf(
-          popsolver::DataType{std::max(initialInputChansPerConvGroup, 1ul)},
-          p.inChanSplit.serial);
+      m.lessOrEqual(
+          p.inChanSplit.serial,
+          popsolver::DataType{std::max(initialInputChansPerConvGroup, 1ul)});
 
-      // The output channel serial split must be a factor for joint plans,
-      // as this will become the input channel split in the weight update
-      // plan.
       const auto initialOutputChansPerGroup =
           transformedViewParams.getNumOutputChansPerConvGroup();
-      if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
-        m.factorOf(
-            popsolver::DataType{std::max(initialOutputChansPerGroup, 1ul)},
-            p.outChanSplit.serial);
-      } else {
-        m.lessOrEqual(
-            p.outChanSplit.serial,
-            popsolver::DataType{std::max(initialOutputChansPerGroup, 1ul)});
-      }
+      m.lessOrEqual(
+          p.outChanSplit.serial,
+          popsolver::DataType{std::max(initialOutputChansPerGroup, 1ul)});
 
       auto noInChansSerialSplit =
           m.reifiedLessOrEqual(p.inChanSplit.serial, m.one());

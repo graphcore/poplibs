@@ -855,6 +855,28 @@ add_multitarget_test(
          --plan-constraints={\"0\":{\"partition\":{\"inChanSplit\":{\"serial\":5,\"parallel\":4}}}})
 
 add_multitarget_test(
+ NAME gemm_20x40x10_input_channel_serialization_by_non_factor
+ COMMAND general_matrix_multiply
+         --m 20
+         --k 40
+         --n 10
+         --tiles-per-ipu=4
+         --input-type=half
+         --output-type=half
+         --plan-constraints={\"0\":{\"partition\":{\"inChanSplit\":{\"serial\":7}}}})
+
+add_multitarget_test(
+ NAME gemm_20x3x10_input_channel_serialization_by_non_factor
+ COMMAND general_matrix_multiply
+         --m 20
+         --k 3
+         --n 10
+         --tiles-per-ipu=4
+         --input-type=half
+         --output-type=half
+         --plan-constraints={\"0\":{\"partition\":{\"inChanSplit\":{\"serial\":2}}}})
+
+add_multitarget_test(
  NAME gemm_using_fast_reduce_vertex
  COMMAND general_matrix_multiply
          --m 20

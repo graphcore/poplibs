@@ -558,10 +558,8 @@ static void iteratePartitionSerial(
   }
 
   for (unsigned ic = 0; ic != inChanSplit.serial; ++ic) {
-    // Since serial splits use the same vertex instance, numInChans must be an
-    // integer multiple of inChanSplit.serial
     const auto inChanBegin = ic * inChanSplitSize;
-    const auto inChanEnd = inChanBegin + inChanSplitSize;
+    const auto inChanEnd = std::min(inChanBegin + inChanSplitSize, numInChans);
     for (unsigned oc = 0; oc != outChanSplit.serial; ++oc) {
       const auto outChanBegin = oc * outChanSplitSize;
       const auto outChanEnd =
@@ -1435,8 +1433,8 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
   const auto numConvGroupGroups = numConvGroups / convGroupsPerGroup;
 
   const auto numInChans = params->getNumInputChansPerConvGroup();
-  assert(numInChans % inChanSerialSplit == 0);
-  const auto numInChansPerSerialSplit = numInChans / inChanSerialSplit;
+  const auto numInChansPerSerialSplit =
+      gccs::ceildiv(numInChans, inChanSerialSplit);
 
   const auto inChansPerGroup = getInChansPerGroup(plan, numInChans);
   const auto inChanGroupsPerSerialSplit =
@@ -1473,6 +1471,10 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
   if (inChanSerialSplit > 1) {
     assert(level < plan.partitions.size());
     t = stitchSerialSlices(slices, true, plan.partitions[level]);
+
+    // Trim any channels added to bring channels per convolution group up to
+    // a multiple of the split count.
+    t = t.slice(0, numInChans, t.rank() - 1);
   } else {
     t = slices[0];
   }
@@ -1580,8 +1582,8 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
       gccs::ceildiv(weightNumOutChansPerSerialSplit, weightOutChansPerGroup);
 
   const auto inNumChans = params->getNumInputChansPerConvGroup();
-  assert(inNumChans % inChanSerialSplit == 0);
-  const auto weightNumInChansPerSerialSplit = inNumChans / inChanSerialSplit;
+  const auto weightNumInChansPerSerialSplit =
+      gccs::ceildiv(inNumChans, inChanSerialSplit);
 
   const auto weightInChansPerGroup = getInChansPerGroup(plan, inNumChans);
   const auto weightNumInChanGroupsPerSerialSplit =
@@ -1619,7 +1621,7 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
     assert(level < plan.partitions.size());
     weights = stitchSerialSlices(weightsSlices, false, plan.partitions[level]);
 
-    // Trim any channel added to bring channels per convolution group up to
+    // Trim any channels added to bring channels per convolution group up to
     // a multiple of the split count.
     weights = weights.slice(0, outNumChans, weights.rank() - 2);
     weights = weights.slice(0, inNumChans, weights.rank() - 1);
@@ -2274,12 +2276,13 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
 
   const auto systemLevel = plan.transforms.size() - 2;
 
-  // Make a note of the expected size of the output channel dimension.
-  // Serial slicing of the output channels by a non-integer factor is
-  // supported by effectively padding the number of channels up to the nearest
-  // multiple of the number of slices, and then trimming the output down to
-  // this value.
+  // Make a note of the channel and serial split counts.
+  // Non-factor numbers of serial splits are handled by effectively padding
+  // the channel dimension up to the next multiple of the split count.
+  const auto inChanCount = weightsSlice.dim(weightsSlice.rank() - 1);
   const auto outChanCount = weightsSlice.dim(weightsSlice.rank() - 2);
+  auto totalInChanSerialSplit = 1u;
+  auto totalOutChanSerialSplit = 1u;
 
   auto levelIndices = indices;
   levelIndices.emplace_back();
@@ -2290,32 +2293,68 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     auto &partition = plan.partitions[level];
 
     if (partition.totalSerialSplit() > 1) {
+      totalInChanSerialSplit = partition.inChanSplit.serial;
+      totalOutChanSerialSplit = partition.outChanSplit.serial;
+
       // If the number of output channel splits isn't a factor of the number
       // of channels, then extract the weights that would be in the last slice
       // if we padded them up to the nearest multiple of the split count.
       // These weights will then be handled as a special case outside of the
       // loop.
-      std::optional<Tensor> lastOutChanSplitWeights;
+      std::optional<Tensor> lastInputSplit;
+      std::optional<Tensor> lastWeightsSplit;
+
+      const auto inChanSplitSize =
+          gccs::ceildiv(inChanCount, totalInChanSerialSplit);
+      const auto totalSerialSplitInChans =
+          inChanSplitSize * totalInChanSerialSplit;
+      if (totalSerialSplitInChans != inChanCount) {
+        auto const lastSliceBegin = totalSerialSplitInChans - inChanSplitSize;
+
+        lastInputSplit =
+            inSlice.slice(lastSliceBegin, inChanCount, inSlice.rank() - 1);
+        inSlice = inSlice.slice(0, lastSliceBegin, inSlice.rank() - 1);
+
+        lastWeightsSplit = weightsSlice.slice(lastSliceBegin, inChanCount,
+                                              weightsSlice.rank() - 1);
+        weightsSlice =
+            weightsSlice.slice(0, lastSliceBegin, weightsSlice.rank() - 1);
+
+        // "Remove" this split from the params and plans used to set up
+        // the loop over the rest of the splits.
+        partition.inChanSplit.serial -= 1;
+        auto trimmedSerialParams = serialParams.releaseParams();
+        trimmedSerialParams.inputChannelsPerConvGroup = lastSliceBegin;
+        serialParams = trimmedSerialParams;
+
+        // The loop count should have been set to the total serial split on
+        // initialisation, so it needs to be decremented as well since the
+        // last split will be handled outside of the loop.
+        // Note that this relies on the current restriction of only allowing
+        // one set of channels to be serially split, meaning that the loop
+        // counter will only be counting input channel splits.
+        cpt.loopCount -= 1;
+        assert(totalOutChanSerialSplit == 1);
+      }
 
       const auto outChanSplitSize =
-          gccs::ceildiv(outChanCount, partition.outChanSplit.serial);
+          gccs::ceildiv(outChanCount, totalOutChanSerialSplit);
       const auto totalSerialSplitOutChans =
-          outChanSplitSize * partition.outChanSplit.serial;
+          outChanSplitSize * totalOutChanSerialSplit;
       if (totalSerialSplitOutChans != outChanCount) {
-        auto const remainingWeightsBegin =
-            totalSerialSplitOutChans - outChanSplitSize;
+        auto const lastSliceBegin = totalSerialSplitOutChans - outChanSplitSize;
 
         // Extract the last split, ready to be processed separately.
-        lastOutChanSplitWeights = weightsSlice.slice(
-            remainingWeightsBegin, outChanCount, weightsSlice.rank() - 2);
-        weightsSlice = weightsSlice.slice(0, remainingWeightsBegin,
-                                          weightsSlice.rank() - 2);
+        lastWeightsSplit = weightsSlice.slice(lastSliceBegin, outChanCount,
+                                              weightsSlice.rank() - 2);
+        weightsSlice =
+            weightsSlice.slice(0, lastSliceBegin, weightsSlice.rank() - 2);
 
         // "Remove" this split from the params and plans used to set up
         // the loop over the rest of the splits.
         partition.outChanSplit.serial -= 1;
         auto trimmedSerialParams = serialParams.releaseParams();
-        trimmedSerialParams.outputChannelsPerConvGroup = remainingWeightsBegin;
+        trimmedSerialParams.outputChannelsPerConvGroup = lastSliceBegin;
         serialParams = trimmedSerialParams;
 
         // The loop count should have been set to the total serial split on
@@ -2325,7 +2364,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
         // one set of channels to be serially split, meaning that the loop
         // counter will only be counting output channel splits.
         cpt.loopCount -= 1;
-        assert(partition.inChanSplit.serial == 1);
+        assert(totalInChanSerialSplit == 1);
       }
 
       std::tie(parallelParams, levelIndices.back().serial) =
@@ -2397,37 +2436,85 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       cpt.transformPreSerial.postTransposeCtrl.emplace_back(
           zeroConstant, loopCounter, false, dnai);
 
-      if (partition.outChanSplit.serial > 1 || lastOutChanSplitWeights) {
-        weightsSlice = popops::dynamicSlice(
-            graph, weightsSlice, loopCounter, {0}, {1}, cpt.slice,
-            {dnai, "weightsSerialSlice" + levelSuffix});
+      // per iteration slices of output.
+      if (totalOutChanSerialSplit == 1) {
+        weightsSlice = weightsSlice.squeeze({0});
+      } else {
+        weightsSlice =
+            popops::dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1},
+                                 cpt.slice,
+                                 {dnai, "weightsSerialSlice" + levelSuffix})
+                .squeeze({0});
+
+        // If there's output channels not covered by the dynamic slice then add
+        // an extra iteration to the loop which manually copies them into the
+        // slice tensor.
+        if (lastWeightsSplit) {
+          const auto remainingOutChans =
+              lastWeightsSplit->dim(lastWeightsSplit->rank() - 2);
+          const auto dest =
+              weightsSlice.slice(0, remainingOutChans, weightsSlice.rank() - 2);
+          cpt.lastSlice =
+              Sequence{{Copy(*lastWeightsSplit, dest, false,
+                             {dnai, "weightsSerialLastSlice" + levelSuffix})},
+                       {dnai}};
+        }
       }
-      weightsSlice = weightsSlice.squeeze({0});
 
       // per iteration slices of input.
-      if (partition.inChanSplit.serial > 1) {
-        inSlice = popops::dynamicSlice(
-            graph, inSlice, loopCounter, {0}, {1}, cpt.slice,
-            {dnai, "inputSerialSlice" + levelSuffix});
-        weightsSlice = popops::dynamicSlice(
-            graph, weightsSlice, loopCounter, {0}, {1}, cpt.slice,
-            {dnai, "weightsSerialSlice" + levelSuffix});
-      }
-      inSlice = inSlice.squeeze({0});
-      weightsSlice = weightsSlice.squeeze({0});
+      if (totalInChanSerialSplit == 1) {
+        inSlice = inSlice.squeeze({0});
+        weightsSlice = weightsSlice.squeeze({0});
+      } else {
+        inSlice = popops::dynamicSlice(graph, inSlice, loopCounter, {0}, {1},
+                                       cpt.slice,
+                                       {dnai, "inputSerialSlice" + levelSuffix})
+                      .squeeze({0});
+        weightsSlice =
+            popops::dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1},
+                                 cpt.slice,
+                                 {dnai, "weightsSerialSlice" + levelSuffix})
+                .squeeze({0});
 
-      // If there's output channels not covered by the dynamic slice then add
-      // an extra iteration to the loop which manually copies them into the
-      // slice tensor.
-      if (lastOutChanSplitWeights) {
-        const auto remainingOutChans =
-            lastOutChanSplitWeights->dim(lastOutChanSplitWeights->rank() - 2);
-        auto dest =
-            weightsSlice.slice(0, remainingOutChans, weightsSlice.rank() - 2);
-        cpt.lastSlice =
-            Sequence{{Copy(*lastOutChanSplitWeights, dest, false,
-                           {dnai, "weightsSerialLastSlice" + levelSuffix})},
-                     {dnai}};
+        // If there's input channels not covered by the dynamic slice then add
+        // an extra iteration to the loop which manually copies them into the
+        // slice tensors.
+        if (lastInputSplit) {
+          assert(lastWeightsSplit);
+          const auto remainingInChans =
+              lastInputSplit->dim(lastInputSplit->rank() - 1);
+
+          const auto inputDest =
+              inSlice.slice(0, remainingInChans, inSlice.rank() - 1);
+          const auto weightsDest =
+              weightsSlice.slice(0, remainingInChans, weightsSlice.rank() - 1);
+
+          cpt.lastSlice =
+              Sequence{{
+                           Copy(*lastInputSplit, inputDest, false,
+                                {dnai, "inputSerialLastSlice" + levelSuffix}),
+                           Copy(*lastWeightsSplit, weightsDest, false,
+                                {dnai, "weightsSerialLastSlice" + levelSuffix}),
+                       },
+                       {dnai}};
+
+          // The remaining channels in one of the slices will need clearing
+          // to ensure they don't contribute anything to the output of the
+          // convolution.
+          const auto inPadding = inSlice.slice(
+              remainingInChans, inChanSplitSize, inSlice.rank() - 1);
+          const auto weightsPadding = weightsSlice.slice(
+              remainingInChans, inChanSplitSize, weightsSlice.rank() - 1);
+
+          // Assume clearing the smaller tensor is the cheapest option.
+          if (product(inPadding.shape()) < product(weightsPadding.shape())) {
+            popops::zero(graph, inPadding, *cpt.lastSlice,
+                         {dnai, "inputSerialLastSlice" + levelSuffix});
+          } else {
+            popops::zero(graph, weightsPadding, *cpt.lastSlice,
+                         {dnai, "weightsSerialLastSlice" + levelSuffix});
+          }
+        }
       }
     }
   }
@@ -2646,7 +2733,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       // Avoid reducing to the result type for serial input channel splitting
       // until inPlace addition of all serial splits have completed.
       auto reducedType =
-          (partition.inChanSplit.serial > 1) ? partialType : resultType;
+          (totalInChanSerialSplit > 1) ? partialType : resultType;
       bool ascendingMapping = plan.linearizeTileDirection ==
                               Plan::LinearizeTileDirection::ASCENDING;
       out = multiStageGroupedReduce(graph, partials, reducedType,
@@ -2657,7 +2744,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   }
 
   if (out.elementType() != resultType &&
-      (level == tileLevel || plan.partitions[level].inChanSplit.serial == 1)) {
+      (level == tileLevel || totalInChanSerialSplit == 1)) {
     if (cpt.reduceOrCastComputeSets[level].empty()) {
       cpt.reduceOrCastComputeSets[level].push_back(
           graph.addComputeSet({dnai, "Cast"}));
@@ -2675,8 +2762,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   if (level == systemLevel) {
     const auto &partition = plan.partitions[level];
 
-    const bool inChansAreSeriallySplit = partition.inChanSplit.serial > 1;
-    if (inChansAreSeriallySplit) {
+    if (totalInChanSerialSplit > 1) {
       auto serialOut = graph.clone(out, {dnai, "/serialOut" + levelSuffix});
 
       // In the first iteration of the loop over serial input channel splits,
@@ -2690,27 +2776,20 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       cpt.update.add(If(loopCounter.reshape({}), notFirstIterationBody,
                         firstIterationBody));
 
+      // If the loop doesn't cover all serial splits then there will be an
+      // extra slice to be processed afterwards.
+      if (totalInChanSerialSplit != partition.inChanSplit.serial) {
+        cpt.lastUpdate = notFirstIterationBody;
+      }
+
       out = serialOut;
     }
 
-    // If the number of output channel splits isn't a factor of the number
-    // of channels, then the channels are effectively padded up to the next
-    // multiple of the split count. This is implemented by extracting the last
-    // split and processing it after a loop over the rest. We can detect
-    // that this has been done if the total number of channels processed by the
-    // loop is less than the total channel count.
-    const auto outChanLoopCount = partition.outChanSplit.serial;
-    const auto totalOutChanLoopChannels =
-        outChanLoopCount * out.dim(out.rank() - 1);
-    const bool outChansAreSeriallySplit =
-        outChanLoopCount > 1 || outChanCount > totalOutChanLoopChannels;
-    if (outChansAreSeriallySplit) {
-      // Determine the total number of splits, including the optional extra
-      // split to be processed after the loop.
-      auto fullSplitCount = outChanLoopCount;
-      if (outChanCount > totalOutChanLoopChannels) {
-        fullSplitCount += 1;
-      }
+    if (totalOutChanSerialSplit > 1) {
+      const auto outChanSplitSize =
+          gccs::ceildiv(outChanCount, totalOutChanSerialSplit);
+      const auto loopOutChanCount =
+          outChanSplitSize * partition.outChanSplit.serial;
 
       // Make this tensor view suitable as a slice of the full output.
       out = out.expand({0});
@@ -2718,7 +2797,8 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       // Create an output tensor for the partials to be computed as part of
       // the loop.
       auto serialOut = popops::createSliceableTensorFromSlice(
-          graph, out, {0}, {fullSplitCount}, {dnai, "serialOut" + levelSuffix});
+          graph, out, {0}, {totalOutChanSerialSplit},
+          {dnai, "serialOut" + levelSuffix});
 
       // Flatten serial output channel split back into output channels.
       serialOut = serialOut.dimRoll(0, serialOut.rank() - 2)
@@ -2726,18 +2806,20 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
 
       // Trim extra output channels added to accommodate a non-factor number
       // of splits.
-      serialOut = serialOut.slice(0, outChanCount, serialOut.rank() - 1);
+      if (serialOut.dim(serialOut.rank() - 1) != outChanCount) {
+        serialOut = serialOut.slice(0, outChanCount, serialOut.rank() - 1);
 
-      // Use a clone to ensure the trimmed padding doesn't make it anywhere and
-      // we end up with one contiguous tensor per tile.
-      serialOut = graph.clone(
-          serialOut, {dnai, "serialOut" + levelSuffix},
-          TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
+        // Use a clone to ensure the trimmed padding doesn't make it anywhere
+        // and we end up with one contiguous tensor per tile.
+        serialOut = graph.clone(
+            serialOut, {dnai, "serialOut" + levelSuffix},
+            TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
+      }
 
       // Copy partials computed by the loop to the output tensor.
       {
         auto loopOut =
-            serialOut.slice(0, totalOutChanLoopChannels, serialOut.rank() - 1);
+            serialOut.slice(0, loopOutChanCount, serialOut.rank() - 1);
 
         loopOut = loopOut.reshapePartial(
             loopOut.rank() - 1, loopOut.rank(),
@@ -2750,15 +2832,14 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       }
 
       // Copy partials computed after the loop to the output tensor.
-      if (outChanCount > totalOutChanLoopChannels) {
-        const auto remainingOutChanCount =
-            outChanCount - totalOutChanLoopChannels;
+      if (outChanCount > loopOutChanCount) {
+        const auto remainingOutChanCount = outChanCount - loopOutChanCount;
 
         const auto src =
             out[0].slice(0, remainingOutChanCount, out[0].rank() - 1);
 
-        const auto dest = serialOut.slice(totalOutChanLoopChannels,
-                                          outChanCount, serialOut.rank() - 1);
+        const auto dest = serialOut.slice(loopOutChanCount, outChanCount,
+                                          serialOut.rank() - 1);
 
         cpt.lastUpdate =
             Sequence{{Copy(src, dest, false,
@@ -2774,7 +2855,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     }
 
     // common code for either serial splits.
-    if (inChansAreSeriallySplit || outChansAreSeriallySplit) {
+    if (totalInChanSerialSplit > 1 || totalOutChanSerialSplit > 1) {
       // Increment counter
       auto loopIncrement = graph.addConstant(UNSIGNED_INT, {}, 1, {dnai});
       graph.setTileMapping(loopIncrement, 0);
@@ -2786,7 +2867,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   // Casting to the final result type (i.e., the result type of the outermost
   // level) should be deferred until all the serial splits have executed.
   if ((out.elementType() != resultType) && level != tileLevel &&
-      plan.partitions[level].inChanSplit.serial > 1) {
+      totalInChanSerialSplit > 1) {
     out = popops::cast(graph, out, resultType, cpt.transformPostSerial.castCS,
                        {dnai});
   }
