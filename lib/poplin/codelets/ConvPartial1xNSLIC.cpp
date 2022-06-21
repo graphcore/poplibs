@@ -251,16 +251,33 @@ public:
   static bool compute() { return true; }
 };
 
+// This needs to be an equivalent statement of the vertex state of the
+// WorkerClass1xN vertex.  The supervisor contructs this struct, and the
+// worker accesses the same thing, as if it is a vertex state
+struct WorkerState1xN {
+  const quarter *inChanPtr;
+  const quarter *metadataUnused; // The vertex state quarter input adds this ptr
+  half *outChanPtr;
+  half *partialsChanPtr;
+  const unsigned *partitionList;
+  const unsigned *partitionBase;
+};
+
 template <typename UnsignedType, unsigned stride, bool implicitZero>
 class WorkerClass1xN<UnsignedType, stride, implicitZero, 16> : public Vertex {
 public:
-  static bool compute() {
-    auto state = workerState<WorkerState1xN>();
-    unsigned deltaNData = *(state->partitionList + getWid());
+  Input<Vector<quarter, ONE_PTR, 8>> inChanPtr;
+  InOut<Vector<half, ONE_PTR, 8>> outChanPtr;
+  InOut<Vector<half, ONE_PTR, 8>> partialsChanPtr;
+  Input<Vector<unsigned, ONE_PTR>> partitionList;
+  Input<Vector<unsigned, ONE_PTR>> partitionBase;
+
+  bool compute() {
+    unsigned deltaNData = *(&partitionList[0] + getWid());
     unsigned workListLength = deltaNData >> DELTAN_OFFSET_BITS;
     unsigned offset = deltaNData - (workListLength << DELTAN_OFFSET_BITS);
     const UnsignedType *workListPtr =
-        reinterpret_cast<const UnsignedType *>(state->partitionBase);
+        reinterpret_cast<const UnsignedType *>(&partitionBase[0]);
     workListPtr += offset;
 
     constexpr int strides = (0) | // 0b01 (0 for no stride to avoid overread)
@@ -268,14 +285,13 @@ public:
                             (2 << 20);  // 0b11 (out stride over 2nd call)
     const UnsignedType *workListEndPtr = workListPtr + workListLength;
     while (workListPtr < workListEndPtr) {
-      constexpr unsigned inVectorWidth = 8;
       constexpr unsigned outVectorWidth = 4;
       constexpr unsigned outVectorsPerOuterLoop = 2;
-      auto inPtr = state->inChanPtr + *workListPtr++ * inVectorWidth;
-      const auto offset =
-          outVectorsPerOuterLoop * outVectorWidth * *workListPtr++;
-      auto outPtr = state->outChanPtr + offset;
-      auto partialsPtr = state->partialsChanPtr + offset;
+
+      auto inPtr = ld64StepToIncPtr(inChanPtr.begin(), *workListPtr++);
+      const auto offset = outVectorsPerOuterLoop * *workListPtr++;
+      auto outPtr = ld64StepToIncPtr(outChanPtr.begin(), offset);
+      auto partialsPtr = ld64StepToIncPtr(partialsChanPtr.begin(), offset);
       constexpr int slicPipeLength = stride == 1 ? 5 : 3;
       int loops =
           (CSR_W_REPEAT_COUNT__VALUE__MASK & *workListPtr++) - slicPipeLength;
@@ -396,12 +412,14 @@ public:
       for (unsigned kg = 0; kg < numSubKernels; ++kg) {
         const auto &w = weights[cg * numSubKernels + kg];
         // Don't change weights or workerState until synced
+        __builtin_ipu_put(reinterpret_cast<unsigned>(&w[0]),
+                          CSR_S_CCCSLOAD__INDEX);
         syncWorkers();
         workerState.outChanPtr = currOutBuffer;
         workerState.partialsChanPtr = lastOutBuffer;
         workerState.partitionList += CTXT_WORKERS;
 
-        slicLoadWeights<false, 16>(&w[0]);
+        slicLoadWeights<false, 16>();
         runAll(workerFunction, &workerState);
 
         if constexpr (outStride == 1) {

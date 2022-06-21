@@ -23,12 +23,9 @@ setFp8Scale(const MetadataType weightsMetadata, const MetadataType inMetadata) {
 }
 
 template <bool use128BitLoad, unsigned convUnits>
-static __attribute__((always_inline)) void
-ampLoadWeights(const quarter *weights) {}
+static __attribute__((always_inline)) void ampLoadWeights(void) {}
 
-template <> void ampLoadWeights<false, 16>(const quarter *weights) {
-
-  __builtin_ipu_put(reinterpret_cast<unsigned>(weights), CSR_S_CCCSLOAD__INDEX);
+template <> void ampLoadWeights<false, 16>(void) {
   asm volatile(
       R"l(  // 0th conv unit, 0th out channel
             ld64putcs    0    // Phase 0
@@ -118,8 +115,7 @@ template <> void ampLoadWeights<false, 16>(const quarter *weights) {
       :
       :);
 }
-template <> void ampLoadWeights<true, 16>(const quarter *weights) {
-  __builtin_ipu_put(reinterpret_cast<unsigned>(weights), CSR_S_CCCSLOAD__INDEX);
+template <> void ampLoadWeights<true, 16>(void) {
   asm volatile(
       R"l(
             // 0th conv unit, 0th out channel
@@ -178,21 +174,6 @@ template <> void ampLoadWeights<true, 16>(const quarter *weights) {
       :
       :);
 }
-
-template <typename UnsignedType> struct WorkerState1x1 {
-  const quarter *inChanPtr;
-  half *outChanPtr;
-  unsigned strides;
-  const UnsignedType *partition;
-};
-
-struct WorkerStateNx1 {
-  const quarter *inChanPtr;
-  half *outChanPtr;
-  unsigned strides;
-  const unsigned *partitionList;
-  const unsigned *partitionBase;
-};
 
 template <bool ZeroPartials>
 static __attribute__((always_inline)) void
@@ -512,6 +493,16 @@ static __attribute__((always_inline)) unsigned getFPICTL(void) {
 
 static __attribute__((always_inline)) void putFPICTL(unsigned value) {
   __builtin_ipu_put(value, CSR_S_FP_ICTL__INDEX);
+}
+
+template <typename T>
+static __attribute__((always_inline)) T *ld64StepToIncPtr(T *ptr,
+                                                          unsigned stride) {
+  asm volatile(" ld64step $azeros,$mzero, %[ptr]+=,%[stride]"
+               : [ptr] "+r"(ptr)
+               : [stride] "r"(stride)
+               :);
+  return ptr;
 }
 
 #endif

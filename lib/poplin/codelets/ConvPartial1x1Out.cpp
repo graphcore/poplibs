@@ -216,43 +216,40 @@ public:
   static bool compute() { return true; }
 };
 
-template <> class WorkerClass1x1<unsigned short, true, 16> : public Vertex {
-public:
-  static bool compute() {
-    auto partitionOffset = 3 * getWid();
-    auto state = workerState<WorkerState1x1<unsigned short>>();
-    int loops = *reinterpret_cast<const short *>(state->partition +
-                                                 partitionOffset + 1);
-    constexpr auto outputVectorWidth = 4;
-    constexpr auto inputVectorWidth = 8;
+// This needs to be an equivalent statement of the vertex state of the
+// WorkerClass1x1 vertex.  The supervisor contructs this struct, and the
+// worker accesses the same thing, as if it is a vertex state
+template <typename UnsignedType> struct WorkerState1x1 {
+  const quarter *inChanPtr;
+  const quarter *metadataUnused; // The vertex state quarter input adds this ptr
+  half *outChanPtr;
+  unsigned strides;
+  const UnsignedType *partition;
+};
 
-    auto outPtr = state->outChanPtr +
-                  state->partition[partitionOffset] * outputVectorWidth;
-    auto inPtr = state->inChanPtr +
-                 state->partition[partitionOffset + 2] * inputVectorWidth;
-    convQuarterHalfLoop<true>(inPtr, outPtr, loops, state->strides);
+template <bool zeroPartials>
+class WorkerClass1x1<unsigned short, zeroPartials, 16> : public Vertex {
+public:
+  Input<Vector<quarter, ONE_PTR, 8>> inChanPtr;
+  InOut<Vector<half, ONE_PTR, 8>> outChanPtr;
+  unsigned strides;
+  Input<Vector<unsigned short, ONE_PTR>> partition;
+
+  bool compute() {
+    auto partitionOffset = 3 * getWid();
+    int loops =
+        *reinterpret_cast<const short *>(&partition[partitionOffset + 1]);
+    auto inPtr =
+        ld64StepToIncPtr(&inChanPtr[0], partition[partitionOffset + 2]);
+    auto outPtr = ld64StepToIncPtr(&outChanPtr[0], partition[partitionOffset]);
+
+    convQuarterHalfLoop<zeroPartials>(inPtr, outPtr, loops, strides);
     return true;
   }
 };
 
-template <> class WorkerClass1x1<unsigned short, false, 16> : public Vertex {
-public:
-  static bool compute() {
-    auto partitionOffset = 3 * getWid();
-    auto state = workerState<WorkerState1x1<unsigned short>>();
-    int loops = *reinterpret_cast<const short *>(state->partition +
-                                                 partitionOffset + 1);
-    constexpr auto outputVectorWidth = 4;
-    constexpr auto inputVectorWidth = 8;
-
-    auto outPtr = state->outChanPtr +
-                  state->partition[partitionOffset] * outputVectorWidth;
-    auto inPtr = state->inChanPtr +
-                 state->partition[partitionOffset + 2] * inputVectorWidth;
-    convQuarterHalfLoop<false>(inPtr, outPtr, loops, state->strides);
-    return true;
-  }
-};
+template class WorkerClass1x1<unsigned short, true, 16>;
+template class WorkerClass1x1<unsigned short, false, 16>;
 
 template <bool use128BitLoad, unsigned numConvUnits,
           unsigned convInputLoadElems, bool disableSR>
@@ -332,8 +329,10 @@ public:
               &weights[cg * numOutGroups * numInGroups + ig * numOutGroups +
                        (numOutGroups - 1 - og)][0];
           // Don't change weights or workerState until synced
+          __builtin_ipu_put(reinterpret_cast<unsigned>(w),
+                            CSR_S_CCCSLOAD__INDEX);
           syncWorkers();
-          ampLoadWeights<use128BitLoad, numConvUnits>(w);
+          ampLoadWeights<use128BitLoad, numConvUnits>();
           workerState.inChanPtr = &in[cg * numInGroups + ig][0];
           runAll(workerFunction, &workerState);
           SET_ADDR(

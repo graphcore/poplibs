@@ -3,12 +3,9 @@
 #if __IPU_ARCH_VERSION__ >= 21
 
 template <bool use128BitLoad, unsigned convUnits>
-static __attribute__((always_inline)) void
-slicLoadWeights(const quarter *weights) {}
+static __attribute__((always_inline)) void slicLoadWeights(void) {}
 
-template <> void slicLoadWeights<false, 16>(const quarter *weights) {
-  __builtin_ipu_put(reinterpret_cast<unsigned>(weights), CSR_S_CCCSLOAD__INDEX);
-
+template <> void slicLoadWeights<false, 16>(void) {
   asm volatile(
       // Last processing block (closest to the output)
       // Select using TSLIC_F16V4_1x4_W0
@@ -74,14 +71,6 @@ template <> void slicLoadWeights<false, 16>(const quarter *weights) {
       :
       :);
 }
-
-struct WorkerState1xN {
-  const quarter *inChanPtr;
-  half *outChanPtr;
-  half *partialsChanPtr;
-  const unsigned *partitionList;
-  const unsigned *partitionBase;
-};
 
 template <unsigned weightSelection>
 static __attribute__((always_inline)) void

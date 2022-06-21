@@ -290,36 +290,45 @@ public:
   static bool compute() { return true; }
 };
 
+// This needs to be an equivalent statement of the vertex state of the
+// WorkerClassNx1 vertex.  The supervisor contructs this struct, and the
+// worker accesses the same thing, as if it is a vertex state
+struct WorkerStateNx1 {
+  const quarter *inChanPtr;
+  const quarter *metadataUnused; // The vertex state quarter input adds this ptr
+  half *outChanPtr;
+  unsigned strides;
+  const unsigned *partitionList;
+  const unsigned *partitionBase;
+};
+
 template <> class WorkerClassNx1<unsigned short, 16> : public Vertex {
 public:
-  static bool compute() {
-    auto state = workerState<WorkerStateNx1>();
+  Input<Vector<quarter, ONE_PTR, 8>> inChanPtr;
+  InOut<Vector<half, ONE_PTR, 8>> outChanPtr;
+  unsigned strides;
+  Input<Vector<unsigned, ONE_PTR>> partitionList;
+  Input<Vector<unsigned, ONE_PTR>> partitionBase;
 
-    unsigned deltaNData = *(state->partitionList + getWid());
+  bool compute() {
+    unsigned deltaNData = *(&partitionList[0] + getWid());
     unsigned workListLength = deltaNData >> DELTAN_OFFSET_BITS;
     unsigned offset = deltaNData - (workListLength << DELTAN_OFFSET_BITS);
     const unsigned short *workListPtr =
-        reinterpret_cast<const unsigned short *>(state->partitionBase);
+        reinterpret_cast<const unsigned short *>(&partitionBase[0]);
     workListPtr += offset;
 
     constexpr auto outputVectorWidth = 4;
-    constexpr auto inputVectorWidth = 8;
     const unsigned short *workListEndPtr = workListPtr + workListLength;
 
     while (workListPtr < workListEndPtr) {
-      int loops = *reinterpret_cast<const short *>(workListPtr + 1);
-      auto outPtr = state->outChanPtr + workListPtr[0] * outputVectorWidth;
-      auto inPtr = state->inChanPtr + workListPtr[2] * inputVectorWidth;
-      workListPtr += 3;
-      convQuarterHalfLoop<false>(inPtr, outPtr, loops, state->strides);
+      auto outPtr = ld64StepToIncPtr(&outChanPtr[0], *workListPtr++);
+      int loops = *reinterpret_cast<const short *>(workListPtr++);
+      auto inPtr = ld64StepToIncPtr(&inChanPtr[0], *workListPtr++);
+      convQuarterHalfLoop<false>(inPtr, outPtr, loops, strides);
     }
     return true;
   }
-};
-
-struct WorkerMemZeroState {
-  half *outPtr;
-  unsigned zerosInfo;
 };
 
 static __attribute__((always_inline)) unsigned
@@ -330,20 +339,29 @@ divideWork(const unsigned size, const unsigned vectorWidthShifts,
   return (((size >> vectorWidthShifts) + 5 - worker) * 0xaaab) >> 18;
 }
 
+// This needs to be an equivalent statement of the vertex state of the
+// WorkerMemZero vertex.  The supervisor contructs this struct, and the
+// worker accesses the same thing, as if it is a vertex state
+struct WorkerMemZeroState {
+  half *outPtr;
+  unsigned zerosInfo;
+};
+
 class WorkerMemZero : public Vertex {
 public:
-  static bool compute() {
-    auto state = workerState<WorkerMemZeroState>();
+  Output<Vector<half, ONE_PTR, 8>> outPtr;
+  unsigned zerosInfo;
 
+  bool compute() {
     // All workers write the last 2 halves (treated as a float) which won't be
     // covered by the loop.  Only necessary where the number of elements is not
     // a multiple of 4 which the loop will deal with, but executed regardless.
-    float *last2Elems =
-        reinterpret_cast<float *>(state->outPtr + (state->zerosInfo) - 2);
+    float *last2Elems = reinterpret_cast<float *>(&outPtr[0] + zerosInfo - 2);
     *last2Elems = 0.0f;
 
     const auto wid = getWid();
-    unsigned loops = divideWork(state->zerosInfo, 2, wid);
+    unsigned loops = divideWork(zerosInfo, 2, wid);
+    auto wrPtr = &outPtr[0];
     asm volatile(
         R"l(
           .align 8
@@ -354,7 +372,7 @@ public:
              fnop}
            2:
         )l"
-        : [wrPtr] "+r"(state->outPtr)
+        : [wrPtr] "+r"(wrPtr)
         : [workerOffset] "r"(wid), [loops] "r"(loops)
         : "$m0", "memory");
 
@@ -484,8 +502,10 @@ public:
                   workerFunction,
                   "__runCodelet_poplin__WorkerClassNx1___unsigned_short_16")
               // Don't change weights or workerState until synced
+              __builtin_ipu_put(reinterpret_cast<unsigned>(&w[weightIndex]),
+                                CSR_S_CCCSLOAD__INDEX);
               syncWorkers();
-              ampLoadWeights<use128BitLoad, numConvUnits>(&w[weightIndex]);
+              ampLoadWeights<use128BitLoad, numConvUnits>();
               workerState.inChanPtr = &in[cg * numInGroups + ig][0];
               workerState.partitionList = partitionList;
 
