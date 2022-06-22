@@ -55,6 +55,7 @@ using namespace poplibs_support;
 using namespace poplibs;
 using namespace popops::internal;
 using namespace popops::modelling;
+using namespace popops::expr;
 
 // Temporary environment variable that can be used to globally force the
 // planning target (memory/cycles) for a planned multiSlice/Update.
@@ -180,6 +181,12 @@ struct SliceOptions {
 
   // Throw an exception if any index is out of range
   bool validateIndices = false;
+
+  // Remap indices if out of range
+  bool remapOutOfBoundIndices = false;
+
+  // Padding index used
+  bool paddingIndexUsed = false;
 
   bool alwaysIncludeBaseRearrangementCost = true;
 };
@@ -326,7 +333,11 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
        OptionHandler::createWithBool(
            options.alwaysIncludeBaseRearrangementCost)},
       {"validateIndices",
-       OptionHandler::createWithBool(options.validateIndices)}};
+       OptionHandler::createWithBool(options.validateIndices)},
+      {"remapOutOfBoundIndices",
+       OptionHandler::createWithBool(options.remapOutOfBoundIndices)},
+      {"paddingIndexUsed",
+       OptionHandler::createWithBool(options.paddingIndexUsed)}};
 
   for (const auto &entry : optionFlags) {
     spec.parse(entry.first, entry.second);
@@ -402,29 +413,95 @@ static unsigned linearizeSliceIndices(
   return (startTile + tile) % numTiles;
 }
 
+/* create constant tensor with end indices. The end index must include the
+ * padding index if it is used.
+ */
+static Tensor
+createEndIndicesConstTensor(Graph &graph, const Type &indicesType,
+                            const std::vector<std::size_t> &baseIndices,
+                            const std::vector<std::size_t> &dims,
+                            bool paddingIndexUsed, const DebugContext &dnai) {
+  std::vector<std::size_t> endIndices;
+  endIndices.reserve(dims.size());
+  for (auto &dim : dims) {
+    endIndices.push_back(baseIndices.at(dim) + paddingIndexUsed);
+  }
+  // create a constant tensor for the end indices
+  auto endIndicesT = graph.addConstant(indicesType, {endIndices.size()},
+                                       endIndices.data(), {dnai, "endIndices"});
+  graph.setTileMapping(endIndicesT, 0);
+  return endIndicesT;
+}
+
 /** Add programs to check that all indices are in-range.
  *
- * @param graph     The graph to update
- * @param prog      To program to which programs are to be appended.
- * @param indices   The indices to check
- * @param endIndex  The number of indices which are valid
- * @param dnai      Debug info
+ * @param graph       The graph to update
+ * @param prog        To program to which programs are to be appended.
+ * @param indices     The indices to check including group dimension
+ * @param baseIndices The base tensor shape excluding group dimension
+ * @param dims        The dims in \p baseIndices to check
+ * @param paddingIndexUsed true if padding index is used
+ * @param dnai        Debug info
  */
 static void addIndexValidation(Graph &graph, Sequence &prog, Tensor indices,
-                               unsigned endIndex, const DebugContext &dnai) {
-  auto endIndexT = graph.addConstant(indices.elementType(), {}, endIndex,
-                                     {dnai, "endIndex"});
-  graph.setTileMapping(endIndexT, 0);
-
-  // Reduce the indices to find the max
-  auto maxIndex =
-      reduce(graph, indices.flatten(), {0}, ReduceParams(Operation::MAX), prog,
-             {dnai, "getMaxIndex"});
-
+                               const std::vector<std::size_t> &baseIndices,
+                               const std::vector<std::size_t> &dims,
+                               bool paddingIndexUsed,
+                               const DebugContext &dnai) {
+  logging::popops::debug("Index validation for {}", dnai.getPathName());
+  const auto numGroups = indices.dim(0);
+  const auto numDims = indices.dim(2);
+  auto groupFlattenedIndices = indices.dimShufflePartial({1, 2}, {2, 1})
+                                   .reshapePartial(0, 2, {numGroups * numDims});
+  auto endIndices = createEndIndicesConstTensor(
+      graph, indices.elementType(), baseIndices, dims, paddingIndexUsed, dnai);
+  std::vector<std::size_t> indicesDims;
+  indicesDims.resize(dims.size());
+  std::iota(indicesDims.begin(), indicesDims.end(), 1);
+  auto maxIndices =
+      reduce(graph, groupFlattenedIndices, indicesDims,
+             ReduceParams(Operation::MAX), prog, {dnai, "getMaxIndices"});
+  using namespace popops::expr;
+  auto invalids = popops::map(graph, _1 >= _2,
+                              {maxIndices, endIndices.broadcast(numGroups, 0)},
+                              prog, {dnai, "invalids"});
   auto anyInvalid =
-      popops::gteq(graph, maxIndex, endIndexT, prog, {dnai, "invalid"});
+      reduce(graph, invalids.flatten(), {0},
+             ReduceParams(Operation::LOGICAL_OR), prog, {dnai, "anyInvalid"});
 
   prog.add(AbortOnCondition(anyInvalid, {dnai, "/InvalidIndex"}));
+}
+
+/**
+ * Remap indices greater than the size of that dimension to zero
+ *
+ * @param graph       The graph to update
+ * @param prog        To program to which programs are to be appended.
+ * @param indices     The indices to remap including group dimension
+ * @param baseIndices The base tensor shape excluding group dimension
+ * @param dims        The dims in \p baseIndices to remap
+ * @param dnai        Debug information
+ * @return            Remapped tensor
+ */
+static Tensor
+remapOutOfBoundIndices(Graph &graph, Sequence &prog, Tensor indices,
+                       const std::vector<std::size_t> &baseIndices,
+                       const std::vector<std::size_t> &dims,
+                       const DebugContext &dnai) {
+  logging::popops::debug("remap invalid indices for {}", dnai.getPathName());
+
+  auto endIndices = createEndIndicesConstTensor(graph, indices.elementType(),
+                                                baseIndices, dims, false, dnai);
+  const auto numGroups = indices.dim(0);
+  const auto numDims = indices.dim(2);
+  using namespace popops::expr;
+  auto remappedIndices = map(graph, _1 * Cast(_1 < _2, indices.elementType()),
+                             {indices.dimShufflePartial({1, 2}, {2, 1})
+                                  .reshapePartial(0, 2, {numGroups * numDims}),
+                              endIndices.broadcast(numGroups, 0).expand({1})},
+                             prog, {dnai, "remap"});
+  return remappedIndices.reshapePartial(0, 1, {numGroups, numDims})
+      .dimShufflePartial({1, 2}, {2, 1});
 }
 
 /** Create vertices with matching elements in t2d and s2d
@@ -440,6 +517,7 @@ static void generateVertices(std::string vertexName, Graph &graph,
                              Sequence &prog, const Tensor &offset,
                              const Tensor &t2d_, // 2d base Tensor [sliceD][]
                              const Tensor &s2d_, // 2d sub Tensor [sizeD][]
+                             const SliceOptions &options,
                              const DebugNameAndId &dnai) {
   Tensor t2d, s2d;
   if (t2d_.elementType() == QUARTER) {
@@ -525,7 +603,9 @@ static void generateVertices(std::string vertexName, Graph &graph,
         // baseIdx at compile time but we can the size of numBaseElements at
         // the very least. both are checked at runtime in the C++ codelet.
         assert(numBaseElements < (1u << 31u));
-        graph.setInitialValue(v["numBaseElements"], numBaseElements);
+        graph.setInitialValue(v["numBaseElements"],
+                              ((1u * options.remapOutOfBoundIndices) << 31) |
+                                  numBaseElements);
         graph.setInitialValue(v["numSubElements"], numSubElements);
         graph.setInitialValue(v["regionSize"], tileBase.dim(1));
         graph.setTileMapping(v, tile);
@@ -566,7 +646,9 @@ static void generateVertices(std::string vertexName, Graph &graph,
       auto v =
           graph.addVertex(cs, templatedVertexName,
                           {{"offset", offset}, {"baseT", base}, {"subT", sub}});
-      graph.setInitialValue(v["numBaseElements"], numBaseElements);
+      graph.setInitialValue(v["numBaseElements"],
+                            ((1u * options.remapOutOfBoundIndices) << 31) |
+                                numBaseElements);
       graph.setInitialValue(v["numSubElements"], numSubElements);
       graph.setInitialValue(v["numRegions"], base.size() / numBaseElements);
       graph.setTileMapping(v, tile);
@@ -1333,11 +1415,13 @@ static void generatePlannedMultiUpdateOp(
  * \param dim             The dimension to slice
  * \param numOutIndices   The size of the output Tensor in the sliced dimension
  * \param prog            Program to be updated.
+ * \param options         Slice options
  * \param dnai            The debug reference
  */
 static void sliceWithOutput(Graph &graph, const Tensor &s, const Tensor &t,
                             const Tensor &offset, unsigned dim,
                             unsigned numOutIndices, Sequence &prog,
+                            const SliceOptions &options,
                             const DebugNameAndId &dnai) {
   const unsigned numInIndices = t.dim(dim);
   assert(dim < t.rank());
@@ -1351,7 +1435,7 @@ static void sliceWithOutput(Graph &graph, const Tensor &s, const Tensor &t,
       s.dimRoll(dim).reshape({numOutIndices, s.numElements() / numOutIndices});
 
   generateVertices("popops::DynamicSlice", graph, prog, offset, t2d, s2d,
-                   {dnai, "slice"});
+                   options, {dnai, "slice"});
 }
 
 /** Return the sub-tensor acquired by indexing 't' at position 'offset' in
@@ -1366,21 +1450,27 @@ static void sliceWithOutput(Graph &graph, const Tensor &s, const Tensor &t,
  * \param numOutIndices   The size of the output Tensor in the sliced dimension
  * \param prog            Optional program to be updated. If no program given
  *                        then vertices are not generated
+ * \param options         slice options
  * \param dnai            The debug reference
  * \returns               The specified subtensor
  */
 static Tensor slice(Graph &graph, const Tensor &t,
                     const boost::optional<Tensor> &offset, unsigned dim,
                     unsigned numOutIndices, boost::optional<Sequence &> prog,
-                    const DebugNameAndId &dnai) {
+                    const SliceOptions &options, const DebugNameAndId &dnai) {
   assert(dim < t.rank());
   assert(numOutIndices <= t.dim(dim));
 
   auto s = graph.clone(t.slice(0, numOutIndices, dim),
                        {dnai, std::string("sliced_") + std::to_string(dim)});
+
   if (prog && offset) {
+    // Zero output in case padding indices are used
+    if (!options.remapOutOfBoundIndices && options.paddingIndexUsed) {
+      popops::zero(graph, s, *prog, dnai);
+    }
     sliceWithOutput(graph, s, t, offset.get(), dim, numOutIndices, prog.get(),
-                    dnai);
+                    options, dnai);
   }
   return s;
 }
@@ -1400,7 +1490,7 @@ static Tensor slice(Graph &graph, const Tensor &t,
  **/
 static void update(Graph &graph, const Tensor &t, const Tensor &s,
                    const Tensor &offset, unsigned dim,
-                   poplar::program::Sequence &prog,
+                   poplar::program::Sequence &prog, const SliceOptions &options,
                    const DebugNameAndId &dnai) {
   const unsigned numTElements = t.dim(dim);
   const unsigned numSElements = s.dim(dim);
@@ -1421,7 +1511,7 @@ static void update(Graph &graph, const Tensor &t, const Tensor &s,
       s.dimRoll(dim).reshape({numSElements, s.numElements() / numSElements});
 
   generateVertices("popops::DynamicUpdateSlice", graph, prog, offset, t2d, s2d,
-                   {dnai, "update"});
+                   options, {dnai, "update"});
 }
 
 /// If we are slicing up a tensor with the given `shape` in the dimensions
@@ -2267,6 +2357,7 @@ static void dynamicSliceWithOutputImpl(Graph &graph, const Tensor &out,
                                        const std::vector<std::size_t> &dims,
                                        const std::vector<std::size_t> &sizes,
                                        Sequence &prog,
+                                       const OptionFlags &optionFlags,
                                        const DebugNameAndId &dnai) {
   logging::popops::info(
       "dynamicSlice out={}, t={}, offset={}, dims={}, sizes={}, name={}",
@@ -2274,6 +2365,8 @@ static void dynamicSliceWithOutputImpl(Graph &graph, const Tensor &out,
 
   validateParamsWithOutput("dynamicSlice", {}, {}, out.shape(), t.shape(),
                            offset, dims, sizes);
+
+  const auto options = parseSliceOptions(optionFlags);
 
   for (unsigned i = 0; i != dims.size(); ++i) {
     if (sizes[i] == 0) {
@@ -2294,13 +2387,16 @@ static void dynamicSliceWithOutputImpl(Graph &graph, const Tensor &out,
     // don't care about offset if vertices are not mapped as we are only
     // interested in the mapping
     temp =
-        slice(graph, temp, offset[i], dims[i], sizes[i], prog,
+        slice(graph, temp, offset[i], dims[i], sizes[i], prog, options,
               {dnai, std::string("dynamicSlice_d") + std::to_string(dims[i])});
   }
 
   // Apply the final slice into the output tensor.
+  if (!options.remapOutOfBoundIndices && options.paddingIndexUsed) {
+    popops::zero(graph, out, prog, dnai);
+  }
   sliceWithOutput(
-      graph, out, temp, offset[last], dims[last], sizes[last], prog,
+      graph, out, temp, offset[last], dims[last], sizes[last], prog, options,
       {dnai, std::string("dynamicSlice_d") + std::to_string(dims[last])});
 }
 
@@ -2309,6 +2405,7 @@ static Tensor dynamicSliceImpl(Graph &graph, const Tensor &t,
                                const std::vector<std::size_t> &dims,
                                const std::vector<std::size_t> &sizes,
                                boost::optional<Sequence &> prog,
+                               const OptionFlags &optionFlags,
                                const DebugNameAndId &dnai) {
   bool checkOffset = offset != boost::none;
   if (checkOffset) {
@@ -2322,6 +2419,8 @@ static Tensor dynamicSliceImpl(Graph &graph, const Tensor &t,
 
   validateParams("dynamicSlice", {}, {}, t.shape(), offset, dims, sizes,
                  checkOffset);
+
+  const auto options = parseSliceOptions(optionFlags);
 
   for (unsigned i = 0; i != dims.size(); ++i) {
     if (sizes[i] == 0) {
@@ -2342,9 +2441,10 @@ static Tensor dynamicSliceImpl(Graph &graph, const Tensor &t,
   for (auto i : idxOrder) {
     // don't care about offset if vertices are not mapped as we are only
     // interested in the mapping
-    out = slice(
-        graph, out, checkOffset ? offset.get()[i] : offset, dims[i], sizes[i],
-        prog, {dnai, std::string("dynamicSlice_d") + std::to_string(dims[i])});
+    out =
+        slice(graph, out, checkOffset ? offset.get()[i] : offset, dims[i],
+              sizes[i], prog, options,
+              {dnai, std::string("dynamicSlice_d") + std::to_string(dims[i])});
   }
   if (t.hasMetadata()) {
     // Where the input tensor has valid metadata, copy to the out tensor.
@@ -2362,25 +2462,26 @@ Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                     const std::vector<std::size_t> &dims,
                     const std::vector<std::size_t> &sizes,
                     poplar::program::Sequence &prog,
-                    const poplar::DebugContext &debugContext) {
+                    const poplar::DebugContext &debugContext,
+                    const OptionFlags &optionFlags) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, offset, dims, sizes));
-  auto output = dynamicSliceImpl(graph, t, offset, dims, sizes, prog, {di});
+  auto output =
+      dynamicSliceImpl(graph, t, offset, dims, sizes, prog, optionFlags, {di});
   di.addOutput(output);
   return output;
 }
 
-void dynamicSliceWithOutput(poplar::Graph &graph, const poplar::Tensor &output,
-                            const poplar::Tensor &t,
-                            const poplar::Tensor &offset,
-                            const std::vector<std::size_t> &dims,
-                            const std::vector<std::size_t> &sizes,
-                            poplar::program::Sequence &prog,
-                            const poplar::DebugContext &debugContext) {
+void dynamicSliceWithOutput(
+    poplar::Graph &graph, const poplar::Tensor &output, const poplar::Tensor &t,
+    const poplar::Tensor &offset, const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &sizes, poplar::program::Sequence &prog,
+    const poplar::DebugContext &debugContext, const OptionFlags &optionFlags) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(output, t, offset, dims, sizes));
-  dynamicSliceWithOutputImpl(graph, output, t, offset, dims, sizes, prog, {di});
+  dynamicSliceWithOutputImpl(graph, output, t, offset, dims, sizes, prog,
+                             optionFlags, {di});
 }
 
 Graph::TileToTensorMapping
@@ -2388,7 +2489,7 @@ getSliceMapping(poplar::Graph &graph, const poplar::Tensor &t,
                 const std::vector<std::size_t> &dims,
                 const std::vector<std::size_t> &sizes) {
   auto sliceT =
-      dynamicSliceImpl(graph, t, boost::none, dims, sizes, boost::none, "");
+      dynamicSliceImpl(graph, t, boost::none, dims, sizes, boost::none, {}, "");
   return graph.getTileMapping(sliceT);
 }
 
@@ -2396,7 +2497,8 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
                    const Tensor &offset, const std::vector<std::size_t> &dims,
                    const std::vector<std::size_t> &sizes,
                    poplar::program::Sequence &prog,
-                   const poplar::DebugContext &debugContext) {
+                   const poplar::DebugContext &debugContext,
+                   const poplar::OptionFlags &optionFlags) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, s, offset, dims, sizes));
@@ -2404,6 +2506,7 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
       "dynamicUpdate t={}, s={}, offset={}, dims={}, sizes={}, name={}",
       t.shape(), s.shape(), offset.shape(), dims, sizes,
       debugContext.getPathName());
+  const auto sliceOptions = parseSliceOptions(optionFlags);
 
   validateParams("dynamicUpdate", {}, {}, t.shape(), offset, dims, sizes);
 
@@ -2433,6 +2536,7 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
     auto dim = idxOrder[i];
     reducedT.emplace_back(
         slice(graph, reducedT[i], offset[dim], dims[dim], sizes[dim], prog,
+              sliceOptions,
               {di, std::string("dynamicUpdateS_d") + std::to_string(dims[i])}));
   }
   // copy s into the reduced t, iterating back to full dimensions
@@ -2441,7 +2545,7 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
     auto i = ii - 1;
     auto dsIdx = idxOrder[i]; // index into dims[] and sizes[]
     update(graph, reducedT[i], reducedT[i + 1], offset[dsIdx], dims[dsIdx],
-           prog,
+           prog, sliceOptions,
            {di, std::string("dynamicUpdateU_d") + std::to_string(dims[dsIdx])});
   }
 }
@@ -2952,17 +3056,32 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
     t = t_;
     sMultiInternal = sMulti;
   }
+  const auto options = parseSliceOptions(optionFlags);
 
   logging::popops::info("name {} : {} -> {}, nullplan?={}", dnai.getPathName(),
                         t.shape(), sMultiInternal.shape(),
                         plan.getImpl().isNull);
 
-  const auto options = parseSliceOptions(optionFlags);
-  if (options.validateIndices)
-    addIndexValidation(graph, prog, offset_.flatten(0, 2), t_.dim(1),
-                       {dnai, "validateIndices"});
+  if (!options.remapOutOfBoundIndices && options.validateIndices) {
+    addIndexValidation(graph, prog, offset_, t_[0].shape(), dims,
+                       options.paddingIndexUsed, {dnai, "validateIndices"});
+  }
 
   if (!plan.getImpl().isNull) {
+    // remap indices only for planned multislice as codelets for dynamic
+    // slice take care of remaping indices.
+    Tensor maybeRemappedOffsets = offset_;
+    if (options.remapOutOfBoundIndices) {
+      maybeRemappedOffsets =
+          remapOutOfBoundIndices(graph, prog, offset_, t_[0].shape(), dims,
+                                 {dnai, "remapOutOfBoundIndices"});
+    }
+    // Set value for padding only for planned mult-slice as dynamic slice
+    // zeros slices
+    if (options.paddingIndexUsed) {
+      popops::zero(graph, sMultiInternal, prog, {dnai, "FillPadValue"});
+    }
+
     std::vector<Copy> preCopies;
     auto transposeCS = graph.addComputeSet({dnai, "preRegroup"});
 
@@ -2973,8 +3092,9 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
     addPreRegroupProgs(prog, preCopies, transposeCS, tRegroupedPre, base,
                        {dnai});
 
-    multiSlicePlanned(graph, tRegroupedPre ? base : t, offset_, sMultiInternal,
-                      dims, sizes, prog, plan.getImpl(), optionFlags, {dnai});
+    multiSlicePlanned(graph, tRegroupedPre ? base : t, maybeRemappedOffsets,
+                      sMultiInternal, dims, sizes, prog, plan.getImpl(),
+                      optionFlags, {dnai});
     return sMulti;
   }
 
@@ -2989,7 +3109,7 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
   if (offset.dim(0) <= inliningThreshold) {
     for (unsigned slice = 0; slice != offset.dim(0); ++slice) {
       auto s = dynamicSlice(graph, t, offset[slice], dims, sizes, prog,
-                            {dnai, std::to_string(slice)});
+                            {dnai, std::to_string(slice)}, optionFlags);
       prog.add(Copy(s, sMultiInternal[slice], false, {dnai}));
     }
     return sMulti;
@@ -3011,14 +3131,14 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
       [&](poplar::Tensor sIdx) {
         Sequence body({}, {dnai});
         auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
-                                 {dnai, "sliceIndex"})
+                                 {dnai, "sliceIndex"}, optionFlags)
                         .squeeze({0});
 
-        auto sI =
-            dynamicSlice(graph, t, tIdx, dims, sizes, body, {dnai, "slice"})
-                .expand({0});
+        auto sI = dynamicSlice(graph, t, tIdx, dims, sizes, body,
+                               {dnai, "slice"}, optionFlags)
+                      .expand({0});
         dynamicUpdate(graph, sMultiInternal, sI, sIdx, {0}, {1}, body,
-                      {dnai, "update"});
+                      {dnai, "update"}, optionFlags);
         return body;
       },
       {dnai, "loop"}));
@@ -3099,7 +3219,8 @@ Tensor groupedMultiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
 poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
                           poplar::ArrayRef<unsigned> offsets, std::size_t dim,
                           poplar::program::Sequence &prog,
-                          const poplar::DebugContext &debugContext) {
+                          const poplar::DebugContext &debugContext,
+                          const OptionFlags &optionFlags) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, offsets, dim));
 
@@ -3110,23 +3231,71 @@ poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
                     "input rank {}.",
                     dim, t.rank()));
   }
+  const auto options = parseSliceOptions(optionFlags);
+  const auto paddingIndex = t.dim(dim);
 
   // Check for invalid static offset.
-  for (auto offset : offsets) {
-    if (offset >= t.dim(dim)) {
+  boost::optional<std::size_t> validIndex;
+  std::size_t numPaddingIndices = 0;
+  for (std::size_t i = 0; i != offsets.size(); ++i) {
+    auto offset = (options.remapOutOfBoundIndices && offsets[i] >= t.dim(dim))
+                      ? 0
+                      : offsets[i];
+    const auto upperBound = t.dim(dim) + options.paddingIndexUsed;
+    if (offset >= upperBound) {
       throw poputil::poplibs_error(
-          fmt::format("multiSlice offset {} is greater than or equal to the "
-                      "input dim {}, which equals {}.",
-                      offset, dim, t.dim(dim)));
+          fmt::format("multiSlice offset {} is greater than the input dim {}, "
+                      "which equals {}.",
+                      offset, dim, upperBound));
+    }
+
+    // record number of padding indices
+    if (offset == paddingIndex) {
+      ++numPaddingIndices;
+    } else if (!validIndex) {
+      validIndex = i;
     }
   }
 
-  auto slices = t.slices(offsets, dim);
+  if (numPaddingIndices == offsets.size()) {
+    // All indices are padding
+    logging::popops::debug("All indices are padding, creating constant tensor "
+                           " for multiSlice {}",
+                           debugContext.getPathName());
+    auto shape = t.shape();
+    shape[dim] = 1;
+    shape.insert(shape.begin(), offsets.size());
+    auto slices = graph.addConstant(t.elementType(), shape, 0,
+                                    debugContext.getPathName() + "/fillAll");
+    mapTensorLinearly(graph, slices);
+    return poputil::duplicate(
+        graph, slices, prog, debugContext,
+        poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES);
+  }
 
-  // Expand and concat on the outermost dimension, matching the behaviour of the
-  // dynamic multiSlice.
-  for (auto &slice : slices) {
-    slice = slice.expand({0});
+  Tensor padding;
+  if (numPaddingIndices) {
+    logging::popops::debug("Found at least one padding index for multislice {}",
+                           debugContext.getPathName());
+
+    // padding tensor slice with mapping of one of the valid indices
+    const auto ref = t.slice(*validIndex, *validIndex + 1, dim);
+    padding = graph.addConstant(t.elementType(), ref.shape(), 0,
+                                debugContext.getPathName() + "/fillSlice");
+    graph.setTileMapping(padding, graph.getTileMapping(ref));
+  }
+
+  std::vector<Tensor> slices;
+  slices.reserve(offsets.size());
+  for (const auto &offset : offsets) {
+    auto remappedOffset =
+        (options.remapOutOfBoundIndices && offset >= t.dim(dim)) ? 0 : offset;
+    const auto slice = remappedOffset == paddingIndex
+                           ? padding
+                           : t.slice(remappedOffset, remappedOffset + 1, dim);
+    // Expand and concat on the outermost dimension, matching the behaviour of
+    // the dynamic multiSlice.
+    slices.push_back(slice.expand({0}));
   }
 
   // Return a duplicate to avoid any aliasing of the input tensor.
@@ -3186,14 +3355,22 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
                                       : "popops::ScaledMultiUpdateOp";
   }
   const auto options = parseSliceOptions(optionFlags);
-  if (options.validateIndices)
-    addIndexValidation(graph, prog, offset.flatten(0, 2), t.dim(1),
-                       {dnai, "validateIndices"});
+  Tensor maybeRemappedOffsets = offset;
+  if (options.remapOutOfBoundIndices) {
+    maybeRemappedOffsets =
+        remapOutOfBoundIndices(graph, prog, offset, t[0].shape(), dims,
+                               {dnai, "remapOutOfBoundIndices"});
+  } else {
+    if (options.validateIndices)
+      addIndexValidation(graph, prog, maybeRemappedOffsets, t[0].shape(), dims,
+                         options.paddingIndexUsed, {dnai, "validateIndices"});
+  }
+
   if (plan.getImpl().isNull) {
-    generateMultiSliceVertices(vertexName, true, op, graph, prog,
-                               offset.squeeze({0}), t.squeeze({0}),
-                               sMulti.squeeze({0}), scale, dims[0], boost::none,
-                               optionFlags, {dnai, multiUpdateName});
+    generateMultiSliceVertices(
+        vertexName, true, op, graph, prog, maybeRemappedOffsets.squeeze({0}),
+        t.squeeze({0}), sMulti.squeeze({0}), scale, dims[0], boost::none,
+        optionFlags, {dnai, multiUpdateName});
   } else {
 
     // The input base tensor may not have a layout that is good for efficient
@@ -3217,17 +3394,18 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
     auto [tRegroupedPre, base] =
         regroupBaseTensor(graph, preTranspose, transposeCS, t, dims, sizes,
                           plan, optionFlags, {dnai, multiUpdateName});
-    auto sRearranged = regroupSliceTensor(
-        graph, preTranspose, transposeCS, t, sMulti, offset.dim(1), dims, sizes,
-        plan, optionFlags, {dnai, multiUpdateName});
+    auto sRearranged =
+        regroupSliceTensor(graph, preTranspose, transposeCS, t, sMulti,
+                           maybeRemappedOffsets.dim(1), dims, sizes, plan,
+                           optionFlags, {dnai, multiUpdateName});
 
     addPreRegroupProgs(prog, preTranspose, transposeCS, tRegroupedPre, base,
                        {dnai, multiUpdateName});
 
     generatePlannedMultiUpdateOp(vertexName, plan.getImpl(), graph, prog,
-                                 offset, tRegroupedPre ? base : t, sRearranged,
-                                 scale, 1 + dims[0], op, optionFlags,
-                                 {dnai, multiUpdateName});
+                                 maybeRemappedOffsets, tRegroupedPre ? base : t,
+                                 sRearranged, scale, 1 + dims[0], op,
+                                 optionFlags, {dnai, multiUpdateName});
 
     // we need to keep the input tensor untouched, hence we explicitly copy the
     // temporary base if created
@@ -3246,11 +3424,12 @@ void multiUpdateInternal(Graph &graph, const Tensor &t_, const Tensor &sMulti_,
                          const Tensor &offset_, const bool grouped,
                          const std::vector<std::size_t> &dims,
                          const std::vector<std::size_t> &sizes, Sequence &prog,
-                         const SlicePlan &plan, const OptionFlags &options,
+                         const SlicePlan &plan, const OptionFlags &optionFlags,
                          const DebugNameAndId &dnai) {
   std::string dName = grouped ? "groupedMultiUpdate" : "multiUpdate";
   logging::popops::info(dName + " {} into {}, name={}", sMulti_.shape(),
                         t_.shape(), dnai.getPathName());
+  const auto options = parseSliceOptions(optionFlags);
 
   Tensor t, sMulti;
   if (t_.hasMetadata()) {
@@ -3290,7 +3469,7 @@ void multiUpdateInternal(Graph &graph, const Tensor &t_, const Tensor &sMulti_,
                           "set incorrectly");
     }
     multiUpdateOp(graph, t, sMulti, offset_, boost::none, dims, sizes, prog,
-                  plan, boost::none, grouped, options, {dnai});
+                  plan, boost::none, grouped, optionFlags, {dnai});
     return;
   }
 
@@ -3298,7 +3477,7 @@ void multiUpdateInternal(Graph &graph, const Tensor &t_, const Tensor &sMulti_,
   auto offset = offset_.squeeze({0});
   sMulti = sMulti.squeeze({0});
 
-  validateParams("multiUpdate", plan, options, t.shape(), offset[0], dims,
+  validateParams("multiUpdate", plan, optionFlags, t.shape(), offset[0], dims,
                  sizes);
 
   // When there are only a few slices the looping code can be larger than
@@ -3307,7 +3486,7 @@ void multiUpdateInternal(Graph &graph, const Tensor &t_, const Tensor &sMulti_,
   if (offset.dim(0) <= inliningThreshold) {
     for (unsigned slice = 0; slice != offset.dim(0); ++slice) {
       dynamicUpdate(graph, t, sMulti[slice], offset[slice], dims, sizes, prog,
-                    {dnai, dName + "/" + std::to_string(slice)});
+                    {dnai, dName + "/" + std::to_string(slice)}, optionFlags);
     }
     return;
   }
@@ -3317,27 +3496,26 @@ void multiUpdateInternal(Graph &graph, const Tensor &t_, const Tensor &sMulti_,
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiUpdate", true, boost::none, graph,
                                prog, offset, t, sMulti, boost::none, dims[0],
-                               boost::none, options, dName);
+                               boost::none, optionFlags, dName);
     return;
   }
   // looping case
-  prog.add(countedLoop(graph, offset.dim(0),
-                       [&](poplar::Tensor sIdx) {
-                         Sequence body({}, {dnai});
-                         auto tIdx =
-                             dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
-                                          {dnai, dName + "/sliceIndex"})
-                                 .squeeze({0});
+  prog.add(countedLoop(
+      graph, offset.dim(0),
+      [&](poplar::Tensor sIdx) {
+        Sequence body({}, {dnai});
+        auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
+                                 {dnai, dName + "/sliceIndex"}, optionFlags)
+                        .squeeze({0});
 
-                         auto sI =
-                             dynamicSlice(graph, sMulti, sIdx, dims, sizes,
-                                          body, {dnai, dName + "/slice"})
-                                 .squeeze({0});
-                         dynamicUpdate(graph, t, sI, tIdx, {0}, {1}, body,
-                                       {dnai, dName + "/update"});
-                         return body;
-                       },
-                       {dnai, dName + "/loop"}));
+        auto sI = dynamicSlice(graph, sMulti, sIdx, dims, sizes, body,
+                               {dnai, dName + "/slice"}, optionFlags)
+                      .squeeze({0});
+        dynamicUpdate(graph, t, sI, tIdx, {0}, {1}, body,
+                      {dnai, dName + "/update"}, optionFlags);
+        return body;
+      },
+      {dnai, dName + "/loop"}));
 }
 
 void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
@@ -3438,14 +3616,13 @@ void groupedMultiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
 }
 
 static void multiUpdateAddUnique(Graph &graph, const Tensor &t, const Tensor &s,
-                                 poplar::ArrayRef<unsigned> offsets,
+                                 const std::vector<unsigned> &offsets,
                                  const Tensor &scale, std::size_t dim,
                                  Sequence &prog,
                                  const DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, s, offsets, scale, dim));
-
   auto slices = t.slices(offsets, dim);
 
   for (auto &slice : slices) {
@@ -3458,14 +3635,13 @@ static void multiUpdateAddUnique(Graph &graph, const Tensor &t, const Tensor &s,
 
 static void multiUpdateAddDuplicates(
     Graph &graph, const Tensor &t, const Tensor &s,
-    poplar::ArrayRef<unsigned> offsets,
+    const std::vector<unsigned> &offsets,
     std::unordered_map<unsigned, std::size_t> &offset_count,
     const Tensor &scale, std::size_t dim, Sequence &prog,
     const DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, s, offsets, scale, dim));
-
   const auto unique_pred = [&offsets,
                             &offset_count](unsigned position) -> bool {
     return offset_count[offsets[position]] == 1;
@@ -3557,26 +3733,28 @@ static void multiUpdateAddDuplicates(
   }
 }
 
-void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &s,
-                    poplar::ArrayRef<unsigned> offsets, const Tensor &scale,
+void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &s_,
+                    poplar::ArrayRef<unsigned> offsets_, const Tensor &scale,
                     std::size_t dim, Sequence &prog,
-                    const DebugContext &debugContext) {
+                    const DebugContext &debugContext,
+                    const OptionFlags &optionFlags) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
-                                 DI_ARGS(t, s, offsets, scale, dim));
+                                 DI_ARGS(t, s_, offsets_, scale, dim));
+  const auto sliceOptions = parseSliceOptions(optionFlags);
   if (t.elementType() == QUARTER) {
     throw poplibs_error("multiUpdateAdd does not support data of type "
                         "quarter");
   }
 
-  if (offsets.size() != s.dim(0)) {
+  if (offsets_.size() != s_.dim(0)) {
     throw poplibs_error(fmt::format(
         "multiUpdateAdd offset count ({}) and s.dim(0) ({}) must match",
-        offsets.size(), s.dim(0)));
+        offsets_.size(), s_.dim(0)));
   }
 
   // Do nothing for empty offsets.
-  if (offsets.empty()) {
+  if (offsets_.empty()) {
     return;
   }
 
@@ -3586,26 +3764,45 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &s,
                     dim, t.rank()));
   }
 
-  if (t.rank() != (s.rank() - 1)) {
+  if (t.rank() != (s_.rank() - 1)) {
     throw poplibs_error(fmt::format(
         "multiUpdateAdd s.rank ({}) must be one more than t.rank() ({})",
-        s.rank(), t.rank()));
+        s_.rank(), t.rank()));
   }
 
-  if (s.dim(dim + 1) != 1) {
+  if (s_.dim(dim + 1) != 1) {
     throw poplibs_error(fmt::format(
         "multiUpdateAdd s[i].shape ({}) at dimension {} must have size 1",
-        s[0].shape(), dim));
+        s_[0].shape(), dim));
   }
 
   for (std::size_t i = 0; i < t.rank(); ++i) {
-    if (i != dim && t.dim(i) != s[0].dim(i)) {
+    if (i != dim && t.dim(i) != s_[0].dim(i)) {
       throw poplibs_error(fmt::format(
           "multiUpdateAdd s[i].shape ({}) and t.shape ({}) must match in the "
           "non-slice dimensions ({}). They mismatch at dimension {}",
-          s[0].shape(), t.shape(), dim, i));
+          s_[0].shape(), t.shape(), dim, i));
     }
   }
+
+  // filter out padding indices and remap invalid indices if appropriate options
+  // are set
+  std::vector<unsigned> offsets;
+  offsets.reserve(offsets_.size());
+  std::vector<unsigned> sIndices;
+  sIndices.reserve(offsets_.size());
+  for (unsigned i = 0; i != offsets_.size(); ++i) {
+    auto o = offsets_[i];
+    if (sliceOptions.remapOutOfBoundIndices) {
+      if (o >= t.dim(dim))
+        o = 0;
+    }
+    if (sliceOptions.paddingIndexUsed && o >= t.dim(dim))
+      continue;
+    offsets.push_back(o);
+    sIndices.push_back(i);
+  }
+  auto s = concat(s_.slices(sIndices));
 
   // Count the frequency of each offset value.
   std::unordered_map<unsigned, std::size_t> offset_count;
@@ -4567,6 +4764,7 @@ static SlicePlan planInternal(const Graph &graph, const Type &dataType,
       "DynamicSlicePlan for type {}, groupSize {}. numEntries {}, "
       " outputSize {}, numLookups {},\n  options={}",
       dataType, groupSize, numEntries, outputSize, numLookups, options);
+
   const auto &target = graph.getTarget();
 
   auto best = choosePlan(target, dataType, groupSize, numEntries, outputSize,

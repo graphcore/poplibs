@@ -182,8 +182,19 @@ FN_SIZE DS_LONGLONG_FUNC
 FN_SECTION DynamicSlice2d_common
 DynamicSlice2d_common:
     // Load most of the vertex state
-    ld32     $mSCRATCH,$mzero, $mvertex_base, VOFF_OFFSET
+    ld32     $mSCRATCH, $mzero, $mvertex_base, VOFF_OFFSET
     ld32     $OFFSET, $mzero, $mSCRATCH, 0
+
+    // quick exit if offset >= base_elem && baseElem is < 0x7FFFFFFF
+    ld32     $mSCRATCH2, $mzero, $mSCRATCH, 0
+    ld32     $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM/4
+    brneg    $BASE_ELEM, .LClearMsb
+    cmpult   $mSCRATCH2, $mSCRATCH2, $BASE_ELEM
+    brz      $mSCRATCH2, DynamicSlice_exit
+
+.LClearMsb:
+    shl      $BASE_ELEM, $BASE_ELEM, 1
+    shr      $BASE_ELEM, $BASE_ELEM, 1
 
     // Load, unpack and store BaseT base pointer and DELTAN pointer
     // Unpack BASET pointer. Abandon COUNT for now. Save it to  worker stack
@@ -226,7 +237,6 @@ DynamicSlice2d_common:
     and      $SUBT_DELTAN_PTR, $mSCRATCH, $mSCRATCH2
 #endif
     // Load rest of the state constants
-    ld32     $BASE_ELEM, $mzero, $mvertex_base, VOFF_BASE_ELEM/4
     ldz16    $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGIONS/2
 
     zero    $BASE_IDX
@@ -271,6 +281,7 @@ DynamicSlice_loop_resume:
     ld32    $mSCRATCH, $mzero, $mworker_base, WOFF_REGIONS
 
     brnzdec $mSCRATCH, .Louter_loop
+DynamicSlice_exit:
     exitz   $mzero
 FN_SIZE DynamicSlice2d_common
 

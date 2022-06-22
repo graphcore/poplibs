@@ -303,8 +303,8 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               const std::vector<std::size_t> &sliceSizes,
               const std::vector<std::size_t> &collapsedSliceDims,
               const std::vector<unsigned> &startIndexMap,
-              program::Sequence &prog,
-              const poplar::DebugContext &debugContext) {
+              program::Sequence &prog, const poplar::DebugContext &debugContext,
+              const poplar::OptionFlags &optionFlags) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(input, indices, indexVectorDim, offsetDims,
@@ -327,7 +327,7 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
 
   auto result =
       internal::gather(graph, canonicalizedInput, canonicalizedIndices,
-                       canonSliceSizes, prog, {di});
+                       canonSliceSizes, prog, {di}, optionFlags);
 
   // Permute the dimensions in the result tensor to put the sliced and
   // non-sliced axes back into their original positions.
@@ -402,7 +402,8 @@ Tensor createGatherInput(Graph &graph, const Type &type,
 
 Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               unsigned axis, program::Sequence &prog, GatherParams params,
-              const poplar::DebugContext &debugContext) {
+              const poplar::DebugContext &debugContext,
+              const poplar::OptionFlags &optionFlags) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(input, indices, axis, params));
@@ -410,7 +411,7 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
   if (input.dim(axis) > params.maxElementsPerTile) {
     if (input.dim(axis) % 2 == 1) {
       return gather(graph, pad(graph, input, 0, 1, axis), indices, axis, prog,
-                    params, {di});
+                    params, {di}, optionFlags);
     }
 
     auto shape = input.shape();
@@ -425,7 +426,7 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
     auto indicesPred = eq(graph, indicesRem, one, prog, {di});
 
     auto result = gather(graph, input.reshape(shape), indicesDiv, axis, prog,
-                         params, {di, "halved"});
+                         params, {di, "halved"}, optionFlags);
 
     // The odd and even slice pairs from the split gather
     auto even = result.slice(0, 1, axis + 1);
@@ -449,9 +450,9 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
   boost::iota(inputPermutation, 0);
   std::swap(inputPermutation.front(), inputPermutation[axis]);
 
-  auto output =
-      internal::gather(graph, input.dimShuffle(inputPermutation),
-                       indices.flatten().expand({1}), sliceSizes, prog, {di});
+  auto output = internal::gather(graph, input.dimShuffle(inputPermutation),
+                                 indices.flatten().expand({1}), sliceSizes,
+                                 prog, {di}, optionFlags);
   output = output.squeeze({1});
 
   std::vector<unsigned> outputPermutation(output.rank());

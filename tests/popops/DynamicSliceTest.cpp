@@ -802,7 +802,9 @@ void multislice(const std::vector<unsigned> &indicies,
                 bool planAsEmbedding, bool dynamic = true,
                 bool createSliceableInputs = true,
                 unsigned E = 8, // unsliced dim
-                boost::optional<unsigned> dictSize = boost::none) {
+                boost::optional<unsigned> dictSize = boost::none,
+                bool remapOutOfBoundIndices = false,
+                bool paddingIndexUsed = false) {
   // This test should pass with large T - but graph construction becomes
   // slow (a couple of minutes for T=1024)
   assert(indiciesShape.size() == 2); // max 2 dims supported by this test
@@ -815,7 +817,11 @@ void multislice(const std::vector<unsigned> &indicies,
   std::vector<std::size_t> sliceDims{0};
   std::vector<std::size_t> sliceSizes{1};
 
-  const auto sliceOptions = OptionFlags();
+  OptionFlags sliceOptions;
+  sliceOptions.set("remapOutOfBoundIndices",
+                   remapOutOfBoundIndices ? "true" : "false");
+  sliceOptions.set("paddingIndexUsed", paddingIndexUsed ? "true" : "false");
+
   auto plan = SlicePlan();
   if (planAsEmbedding) {
     plan = embedding::plan(graph, FLOAT, D, E, {indicies.size()}, sliceOptions);
@@ -845,7 +851,8 @@ void multislice(const std::vector<unsigned> &indicies,
     s = multiSlice(graph, t, offset, sliceDims, sliceSizes, prog, plan,
                    sliceOptions, "MultisliceTest");
   } else {
-    s = multiSlice(graph, t, indicies, sliceDims[0], prog, "MultisliceTest");
+    s = multiSlice(graph, t, indicies, sliceDims[0], prog, "MultisliceTest",
+                   sliceOptions);
   }
 
   BOOST_CHECK_EQUAL(s.rank(), t.rank() + 1);
@@ -879,8 +886,12 @@ void multislice(const std::vector<unsigned> &indicies,
     BOOST_TEST_MESSAGE("MSlice Output[" << outIdx++ << "] = " << e);
   for (unsigned i = 0; i != indicies.size(); ++i) {
     auto d = indicies[i];
+    if (d >= D && remapOutOfBoundIndices) {
+      d = 0;
+    }
+    auto notPadding = d < D;
     for (unsigned elem = 0; elem != E; ++elem) {
-      unsigned expected = hIn[d * E + elem];
+      unsigned expected = notPadding ? hIn[d * E + elem] : 0;
       BOOST_CHECK_EQUAL(hOut[i * E + elem], expected);
     }
   }
@@ -910,6 +921,36 @@ BOOST_AUTO_TEST_CASE(MultiSlice10) {
              /* dynamic = */ false);
 }
 
+// Test out of bound indices for static multislice
+BOOST_AUTO_TEST_CASE(MultiSliceStaticWithOutOfBoundsIndices) {
+  multislice({8, 1, 20, 22}, {4, 1}, false,
+             /* dynamic = */ false, true, /* E = */ 8, 20,
+             /* remapOutOfBoundIndices */ true);
+  multislice({8, 1, 20, 20}, {4, 1}, false,
+             /* dynamic = */ false, true, /* E = */ 8, 20,
+             /* remapOutOfBoundIndices = */ false,
+             /* usePaddingIndex = */ true);
+  multislice({20, 20, 20, 20}, {4, 1}, false,
+             /* dynamic = */ false, true, /* E = */ 8, 20,
+             /* remapOutOfBoundIndices = */ false,
+             /* usePaddingIndex = */ true);
+}
+
+// Test out of bound indices for static multislice
+BOOST_AUTO_TEST_CASE(MultiSliceDynamicWithOutOfBoundsIndices) {
+  multislice({8, 1, 20, 22}, {4, 1}, false,
+             /* dynamic = */ true, true, /* E = */ 8, 20,
+             /* remapOutOfBoundIndices */ true);
+  multislice({8, 1, 20, 20}, {4, 1}, false,
+             /* dynamic = */ true, true, /* E = */ 8, 20,
+             /* remapOutOfBoundIndices = */ false,
+             /* usePaddingIndex = */ true);
+  multislice({20, 20, 20, 20}, {4, 1}, false,
+             /* dynamic = */ true, true, /* E = */ 8, 20,
+             /* remapOutOfBoundIndices = */ false,
+             /* usePaddingIndex = */ true);
+}
+
 // test the looping multislice
 BOOST_AUTO_TEST_CASE(MultiSlice5_AsEmbedding) {
   multislice({100, 0, 50, 48, 49}, {5, 1}, true);
@@ -927,6 +968,14 @@ BOOST_AUTO_TEST_CASE(MultiSlice10_AsEmbedding) {
   multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true);
   multislice({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
              /* dynamic = */ false);
+
+  multislice({2, 1, 2, 1, 201, 70, 60, 50, 40, 30}, {10, 1}, true,
+             /* dynamic = */ true, true, /* E = */ 8, /* D = */ 200,
+             /* remapOutOfBoundIndices */ true);
+  multislice({2, 1, 2, 1, 200, 70, 60, 50, 200, 30}, {10, 1}, true,
+             /* dynamic = */ true, true, /* E = */ 8, /* D = */ 200,
+             /* remapOutOfBoundIndices = */ false,
+             /* usePaddingIndex = */ true);
 }
 
 // test the fast vertex
@@ -1027,7 +1076,9 @@ void multiupdate(const std::vector<uint32_t> &indicies,
                  const unsigned E = 8, // unsliced dim
                  boost::optional<unsigned> dictSize = boost::none,
                  bool useFloatScalingForHalf = false, bool dynamic = true,
-                 bool createSliceableInputs = true) {
+                 bool createSliceableInputs = true,
+                 bool remapOutOfBoundIndices = false,
+                 bool paddingIndexUsed = false) {
   const bool updateOp = op != boost::none;
   const bool opUsesScale = updateOp && *op == popops::Operation::ADD;
 
@@ -1059,6 +1110,10 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   } else if (*op == Operation::MAX) {
     sliceOptions.set({{"operationForUpdate", "max"}});
   }
+
+  sliceOptions.set("remapOutOfBoundIndices",
+                   remapOutOfBoundIndices ? "true" : "false");
+  sliceOptions.set("paddingIndexUsed", paddingIndexUsed ? "true" : "false");
   auto plan = SlicePlan();
   if (planAsEmbedding) {
     sliceOptions.set({{"usedForSlice", "false"}, {"usedForUpdate", "true"}});
@@ -1101,7 +1156,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
                        plan, sliceOptions, "MultisliceTest");
       } else {
         multiUpdateAdd(graph, t, s, indicies, scale, sliceDims[0], prog,
-                       "MultisliceTest");
+                       "MultisliceTest", sliceOptions);
       }
     } else if (*op == popops::Operation::MAX) {
       BOOST_CHECK(dynamic);
@@ -1188,6 +1243,10 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   updateSlices(expected);
   for (unsigned i = 0; i != indicies.size(); ++i) {
     auto d = indicies[i];
+    if (remapOutOfBoundIndices && d >= D)
+      d = 0;
+    if (d >= D)
+      continue;
     for (unsigned elem = 0; elem != E; ++elem) {
       if (!updateOp) {
         expected[d * E + elem] = hIn[i * E + elem];
@@ -1237,6 +1296,42 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAdd2) {
   multiupdate({100, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5);
   multiupdate({100, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5, 8,
               boost::none, false, /* dynamic = */ false);
+}
+
+// test the inlined multiupdate wih remapping/padding
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd2OutOfBoundDynamicWithoutPlan) {
+  multiupdate({20, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5,
+              /* E = */ 8, /* D = */ 20, false, /* dynamic = */ true, true,
+              /* remapOutOfBoundIndices = */ true,
+              /* paddingIndexUsed = */ false);
+  multiupdate({20, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5,
+              /* E = */ 8, /* D = */ 20, false, /* dynamic = */ true, true,
+              /* remapOutOfBoundIndices = */ false,
+              /* paddingIndexUsed = */ true);
+}
+
+// test the inlined multiupdate wih remapping/padding
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd2OutOfBoundStaticWithoutPlan) {
+  multiupdate({20, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5,
+              /* E = */ 8, /* D = */ 20, false, /* dynamic = */ false, true,
+              /* remapOutOfBoundIndices = */ true,
+              /* paddingIndexUsed = */ false);
+  multiupdate({20, 0}, {2, 1}, false, popops::Operation::ADD, HALF, 0.5,
+              /* E = */ 8, /* D = */ 20, false, /* dynamic = */ false, true,
+              /* remapOutOfBoundIndices = */ false,
+              /* paddingIndexUsed = */ true);
+}
+
+// test the inlined multiupdate wih remapping/padding
+BOOST_AUTO_TEST_CASE(MultiUpdateAdd2OutOfBoundDynamicWithPlan) {
+  multiupdate({20, 1, 2, 4}, {4, 1}, true, popops::Operation::ADD, HALF, 0.5,
+              /* E = */ 16, /* D = */ 20, false, /* dynamic = */ true, true,
+              /* remapOutOfBoundIndices = */ true,
+              /* paddingIndexUsed = */ false);
+  multiupdate({20, 1, 2, 4}, {4, 1}, true, popops::Operation::ADD, HALF, 0.5,
+              /* E = */ 16, /* D = */ 20, false, /* dynamic = */ true, true,
+              /* remapOutOfBoundIndices = */ false,
+              /* paddingIndexUsed = */ true);
 }
 
 // test the looping multiupdate with duplicate indices
@@ -1837,7 +1932,7 @@ void checkQuarterMetadata(void) {
                                  plan, optionFlags, "slice");
   poplar::ArrayRef<unsigned> offsets = {0};
   auto subTConst =
-      popops::multiSlice(graph, embedding, offsets, 0, sequence, "slice");
+      popops::multiSlice(graph, embedding, offsets, 0, sequence, "slice", {});
 
   // A multiupdate should not affect the metadata of the embedding
   auto dummy = popops::multiSlice(graph, embedding, ids, {0}, {1}, sequence,

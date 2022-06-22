@@ -17,6 +17,16 @@ namespace popops {
  * array \p operand, with several slices (at indices specified by
  * \p indices) updated with the values in \p updates.
  *
+ *  *  ** scatter options **
+ *    *  `remapOutOfBoundIndices` (true, false) [=false]
+ *       Out of bounds indices are mapped to index 0.
+ *
+ *    * `paddingIndexUsed` (true, false) [=false]
+ *       Padding index equal to the size of the slice dimension of tensor
+ *       \p operand may be used in the indices. The actual padding values
+ *       returned for a padding index are zeros.
+ *
+ *
  *  \param graph                        The Poplar graph.
  *  \param operand                      Array to be scattered into.
  *  \param indices                      Array containing the starting indices of
@@ -36,6 +46,7 @@ namespace popops {
  *                                      to be one-to-one and total.
  *  \param prog                         The program to be extended.
  *  \param debugContext                 Optional debug information.
+ *  \param optionFlags                  Scatter options
  *
  *  \note This is a near direct port of
  * https://www.tensorflow.org/xla/operation_semantics#scatter from
@@ -47,7 +58,8 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              std::vector<std::size_t> insertWindowDims,
              std::vector<unsigned> scatterDimsToOperandDims,
              poplar::program::Sequence &prog,
-             const poplar::DebugContext &debugContext = {});
+             const poplar::DebugContext &debugContext = {},
+             const poplar::OptionFlags &optionFlags = {});
 
 using UpdateComputationFunc = std::function<poplar::Tensor(
     poplar::Graph &, poplar::Tensor &, poplar::Tensor &,
@@ -57,6 +69,8 @@ using UpdateComputationFunc = std::function<poplar::Tensor(
  *  Similar to the above scatter(), but allows for a user defined update
  *  computation. This computation is used to combine the existing values in the
  *  input tensor and the updates during the scatter.
+ *
+ *  See overload for more information on \p optionFlags.
  *
  *  \param graph                        The Poplar graph.
  *  \param operand                      Array to be scattered into.
@@ -80,6 +94,7 @@ using UpdateComputationFunc = std::function<poplar::Tensor(
  *                           scatter.
  *  \param prog                         The program to be extended.
  *  \param debugContext                 Optional debug information.
+ *  \param optionFlags                  Option flags
  *
  *  \note The first tensor parameter that is passed into the updateComputation
  *        will always be the current value from the operand tensor and the
@@ -94,7 +109,8 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              std::vector<unsigned> scatterDimsToOperandDims,
              UpdateComputationFunc &updateComputation,
              poplar::program::Sequence &prog,
-             const poplar::DebugContext &debugContext = {});
+             const poplar::DebugContext &debugContext = {},
+             const poplar::OptionFlags &optionFlags = {});
 
 } // namespace popops
 

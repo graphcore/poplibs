@@ -8,6 +8,7 @@
 #ifndef popops_Gather_hpp
 #define popops_Gather_hpp
 #include <poplar/Graph.hpp>
+#include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
 
 namespace popops {
@@ -48,6 +49,16 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
  *  best performance, the input tensor should be created with
  *  createGatherInput().
  *
+ *  ** gather options **
+ *    *  `remapOutOfBoundIndices` (true, false) [=false]
+ *       Out of bounds indices are mapped to index 0.
+ *
+ *    * `paddingIndexUsed` (true, false) [=false]
+ *       Padding index equal to the size of the slice dimension of tensor
+ *       \p input may be used in the indices. The actual padding values
+ *       returned for a padding index are zeros.
+ *
+ *
  *  \param graph       The Poplar graph.
  *  \param input       The tensor we are gathering from of rank x.
  *  \param indices     Tensor containing the indices of the slices we gather of
@@ -56,6 +67,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
  *  \param prog        The program sequence to add this operation to.
  *  \param params      Parameters for the form of the gather.
  *  \param debugContext Optional debug information.
+ *  \param optionFlags Option flags
  *
  *  \note The indices are treated as offsets along the chosen axis. At this
  *        offset a slice of depth 1 in the axis dimension is taken.
@@ -65,7 +77,8 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
 poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const poplar::Tensor &indices, unsigned axis,
                       poplar::program::Sequence &prog, GatherParams params,
-                      const poplar::DebugContext &debugContext = {});
+                      const poplar::DebugContext &debugContext = {},
+                      const poplar::OptionFlags &optionFlags = {});
 
 /**
  *  Create the input of the gather given a start index map. This is
@@ -95,6 +108,8 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
  *  best performance, the input tensor should be created with
  *  createGatherInput().
  *
+ *  See overload of gather for information on \p optionFlags.
+ *
  *  \param graph              The Poplar graph.
  *  \param input              The tensor we are gathering from.
  *  \param indices            Tensor containing the starting indices of the
@@ -111,6 +126,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
  *                            \p indices to legal indices into \p input.
  *  \param prog               The program sequence to add this operation to.
  *  \param debugContext       Optional debug information.
+ *  \param optionFlags        Option flags
  *
  *  \note When `indexVectorDim == indices.rank()`, the indices are interpreted
  *        as scalar values.
@@ -165,7 +181,8 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const std::vector<std::size_t> &collapsedSliceDims,
                       const std::vector<unsigned> &startIndexMap,
                       poplar::program::Sequence &prog,
-                      const poplar::DebugContext &debugContext = {});
+                      const poplar::DebugContext &debugContext = {},
+                      const poplar::OptionFlags &optionFlags = {});
 
 } // namespace popops
 

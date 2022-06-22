@@ -1774,8 +1774,8 @@ std::uint64_t getDynamicSlice1DEstimate(const poplar::Target &target,
   // aligned data at 64bits/2cycles in the non-8bit case
   unsigned nCopies = elementsPerWorker / vectorWidth;
 
-  auto workerCycles = is8bit ? 72 + (70 + 2 * nCopies) * numSubElements
-                             : 35 + (24 + 2 * nCopies) * numSubElements;
+  auto workerCycles = is8bit ? 76 + (72 + 2 * nCopies) * numSubElements
+                             : 39 + (24 + 2 * nCopies) * numSubElements;
   auto cycles = superCycles + workerCycles * numWorkers;
 
   return cycles;
@@ -2039,16 +2039,18 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice2D)(
   const unsigned numRegions =
       vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
 
+  const auto numBaseElementsActual = numBaseElements & 0x7fffffffu;
+
   unsigned vectorWidth = 0;
   if (is8bit) {
     vectorWidth = 4;
   } else {
     vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   }
-  auto cycles = 23;
+  auto cycles = 27;
 
   for (unsigned r = 0; r != numRegions; ++r) {
-    auto regionSize = baseT[r * numBaseElements].size();
+    auto regionSize = baseT[r * numBaseElementsActual].size();
     unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
     if (is8bit) {
       cycles += (50 + 2 * nVectors) * numSubElements + 13;
@@ -2072,6 +2074,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice2D)(
   const unsigned numRegions =
       vertex.getFieldInfo("numRegions").getInitialValue<unsigned>(target);
 
+  const auto numBaseElementsActual = numBaseElements & 0x7fffffffu;
+
   unsigned vectorWidth = 0;
   if (is8bit) {
     vectorWidth = 4;
@@ -2079,9 +2083,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice2D)(
     // 64-bit types are treated as 32-bit with twice the region size
     vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   }
-  auto cycles = 23;
+  auto cycles = 27;
   for (unsigned r = 0; r != numRegions; ++r) {
-    auto regionSize = baseT[r * numBaseElements].size() * (1 + is64Bit);
+    auto regionSize = baseT[r * numBaseElementsActual].size() * (1 + is64Bit);
     unsigned nVectors = (regionSize + vectorWidth - 1) / vectorWidth;
     if (is8bit) {
       cycles += (50 + 23 * nVectors) * numSubElements + 13;
@@ -2103,11 +2107,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice1D)(
 #ifndef NDEBUG
   const unsigned numBaseElements =
       vertex.getFieldInfo("numBaseElements").getInitialValue<unsigned>(target);
+  const auto numBaseElementsActual = numBaseElements & 0x7fffffffu;
 #endif
+
   const auto baseT = vertex.getFieldInfo("baseT");
   const auto subT = vertex.getFieldInfo("subT");
   assert(subT.size() == numSubElements * regionSize);
-  assert(baseT.size() == numBaseElements * regionSize);
+  assert(baseT.size() == numBaseElementsActual * regionSize);
   return getDynamicSlice1DEstimate(target, type, regionSize, numSubElements);
 }
 

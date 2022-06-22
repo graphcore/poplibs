@@ -40,7 +40,8 @@ std::vector<T> deviceGather(const std::vector<T> &in,
   BOOST_REQUIRE_EQUAL(tIn.numElements(), in.size());
   BOOST_REQUIRE_EQUAL(tIndices.numElements(), indices.size());
 
-  poplar::Tensor tOut = gather(graph, tIn, tIndices, axis, seq, {});
+  poplar::Tensor tOut = gather(graph, tIn, tIndices, axis, seq, {}, {},
+                               {{"remapOutOfBoundIndices", "true"}});
 
   graph.createHostWrite("in", tIn, true);
   graph.createHostWrite("indices", tIndices);

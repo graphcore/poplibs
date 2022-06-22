@@ -99,6 +99,21 @@ FN_EXPORT DSS_SCHAR_FUNC
 
 // --------- Common path for updating/non updating version ----------
 .Lds_super_common:
+
+  // Setup baseSlice: it starts as (*OFFSET)
+  ld32      $baseSlice, $mzero, $mvertex_base, VOFF_OFFSET
+  ld32      $baseSlice, $mzero, $baseSlice, 0
+  ld32      $baseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
+  brneg     $baseElem, .LClearMsb
+
+  // exit if starting offset is not within baseElem and baseElem < 0x7fffffff
+  cmpult    $mScratch, $baseSlice, $baseElem
+  brz       $mScratch, .Lexit
+
+.LClearMsb:
+  shl       $baseElem, $baseElem, 1
+  shr       $baseElem, $baseElem, 1
+
   // Load sub elem, decrement for use as a brnzdec loop counter
   ld32      $subElem, $mzero, $mvertex_base, VOFF_SUB_ELEM
   add       $subElem, $subElem, -1
@@ -139,10 +154,6 @@ divide_work_loop:
   brnzdec   $loopCount, divide_work_loop
 1:
 
-  // Setup baseSlice: it starts as (*OFFSET)
-  ld32      $baseSlice, $mzero, $mvertex_base, VOFF_OFFSET
-  ld32      $baseSlice, $mzero, $baseSlice, 0
-
   ld32      $mRegionSize, $mzero, $mvertex_base, VOFF_REGION_SIZE
 
   zero      $subRegion
@@ -151,6 +162,9 @@ divide_work_loop:
 .Lsub_loop_8bit:
   // Make sure baseSlice is within range of baseElem; wrap around if needed
   ld32      $baseElem, $mzero, $mvertex_base, VOFF_BASE_ELEM
+  // clear out msb
+  shl       $baseElem, $baseElem, 1
+  shr       $baseElem, $baseElem, 1
   cmpult    $mScratch, $baseSlice, $baseElem
   brnz      $mScratch, 1f
   zero      $baseSlice
@@ -239,6 +253,7 @@ divide_work_loop:
   add       $subRegion, $subRegion, $mRegionSize
 
   brnzdec   $subElem, .Lsub_loop_8bit
+.Lexit:
 
   exitz     $mzero
 

@@ -49,7 +49,8 @@ deviceGather(const std::vector<T> &in, const std::vector<std::size_t> &in_shape,
 
   poplar::Tensor tOut =
       gather(graph, tIn, tIndices, index_vector_dim, offset_dims, slice_sizes,
-             collapsed_slice_dims, start_index_map, seq);
+             collapsed_slice_dims, start_index_map, seq, {},
+             {{"remapOutOfBoundIndices", "true"}});
 
   auto outMapping = graph.getTileMapping(tOut, true);
 

@@ -32,18 +32,21 @@ struct TestParams {
   // for the purpose of testing different alignment.
   unsigned dstColumn;
   bool update;
+  bool remapOutOfBoundIndices;
 };
 
 std::vector<TestParams> TestList = {
-    {0, 1, 2, 2, 8, 1, 1, false}, {0, 2, 1, 1, 4, 2, 1, false},
-    {1, 3, 2, 1, 4, 3, 2, false}, {1, 4, 2, 1, 4, 4, 2, false},
-    {1, 1, 7, 1, 7, 7, 3, false}, {0, 2, 2, 1, 4, 8, 3, false},
-    {0, 2, 2, 1, 4, 9, 3, false}, {0, 2, 2, 1, 4, 15, 0, false},
+    {0, 1, 2, 2, 8, 1, 1, false, false}, {0, 2, 1, 1, 4, 2, 1, false, false},
+    {1, 3, 2, 1, 4, 3, 2, false, false}, {1, 4, 2, 1, 4, 4, 2, false, false},
+    {1, 1, 7, 1, 7, 7, 3, false, false}, {0, 2, 2, 1, 4, 8, 3, false, false},
+    {0, 2, 2, 1, 4, 9, 3, false, false}, {0, 2, 2, 1, 4, 15, 0, false, false},
+    {8, 1, 2, 2, 8, 1, 1, true, false},  {~0u, 2, 1, 1, 4, 2, 1, false, false},
+    {8, 1, 2, 2, 8, 1, 1, true, true},   {~0u, 2, 1, 1, 4, 2, 1, false, true},
 
-    {0, 1, 2, 2, 8, 1, 1, true},  {0, 2, 1, 1, 4, 2, 1, true},
-    {1, 3, 2, 1, 4, 3, 2, true},  {1, 4, 2, 1, 4, 4, 2, true},
-    {1, 1, 7, 1, 7, 7, 3, true},  {0, 2, 2, 1, 4, 8, 3, true},
-    {0, 2, 2, 1, 4, 9, 3, true},  {0, 2, 2, 1, 4, 15, 0, true},
+    {0, 1, 2, 2, 8, 1, 1, true, true},   {0, 2, 1, 1, 4, 2, 1, true, false},
+    {1, 3, 2, 1, 4, 3, 2, true, false},  {1, 4, 2, 1, 4, 4, 2, true, false},
+    {1, 1, 7, 1, 7, 7, 3, true, false},  {0, 2, 2, 1, 4, 8, 3, true, false},
+    {0, 2, 2, 1, 4, 9, 3, true, false},  {0, 2, 2, 1, 4, 15, 0, true, false},
 };
 
 //*************************************************
@@ -52,11 +55,17 @@ std::vector<TestParams> TestList = {
 void DynamicSlice2dHost(unsigned offset, std::vector<double *> &baseT,
                         std::vector<double *> &subT, unsigned numBaseElements,
                         unsigned short numSubElements,
-                        unsigned short numRegions, unsigned short regionSize) {
+                        unsigned short numRegions, unsigned short regionSize,
+                        bool remapOutOfBoundIndices) {
   for (unsigned r = 0; r != numRegions; ++r) {
     unsigned baseSlice = offset;
-    if (baseSlice >= numBaseElements)
-      baseSlice -= numBaseElements;
+    if (baseSlice >= numBaseElements) {
+      if (remapOutOfBoundIndices) {
+        baseSlice = 0;
+      } else {
+        return;
+      }
+    }
     unsigned subIdx = r * numSubElements;
 
     for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
@@ -80,11 +89,17 @@ void DynamicUpdateSlice2dHost(unsigned offset, std::vector<double *> &baseT,
                               unsigned numBaseElements,
                               unsigned short numSubElements,
                               unsigned short numRegions,
-                              unsigned short regionSize) {
+                              unsigned short regionSize,
+                              bool remapOutOfBoundIndices) {
   for (unsigned r = 0; r != numRegions; ++r) {
     unsigned baseSlice = offset;
-    if (baseSlice >= numBaseElements)
-      baseSlice -= numBaseElements;
+    if (baseSlice >= numBaseElements) {
+      if (remapOutOfBoundIndices) {
+        baseSlice = 0;
+      } else {
+        return;
+      }
+    }
     unsigned subIdx = r * numSubElements;
 
     for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
@@ -200,6 +215,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
     auto columns = TestList[tests].columns;
     auto dstColumn = TestList[tests].dstColumn;
     auto update = TestList[tests].update;
+    auto remapOutOfBoundIndices = TestList[tests].remapOutOfBoundIndices;
 
     Sequence sequence;
 
@@ -217,9 +233,12 @@ void DynamicSliceCodeletTest(const Type &dataType) {
     auto dsVertex =
         graph.addVertex(testComputeSet, vertexClass,
                         {{"offset", offset}, {"baseT", base}, {"subT", sub}});
-    graph.setInitialValue(dsVertex["numBaseElements"], numBaseElements);
     graph.setInitialValue(dsVertex["numSubElements"], numSubElements);
     graph.setInitialValue(dsVertex["numRegions"], numRegions);
+    graph.setInitialValue(dsVertex["numBaseElements"],
+                          ((1u * remapOutOfBoundIndices) << 31) |
+                              numBaseElements);
+
     graph.setTileMapping(dsVertex, 0);
 
     popops::zero(graph, out, sequence, "Zero output");
@@ -249,6 +268,7 @@ void DynamicSliceCodeletTest(const Type &dataType) {
       auto columns = TestList[tests].columns;
       auto dstColumn = TestList[tests].dstColumn;
       auto update = TestList[tests].update;
+      auto remapOutOfBoundIndices = TestList[tests].remapOutOfBoundIndices;
 
       copy(target, inTest.data(), inTest.size(), dataType, input.get());
 
@@ -273,7 +293,8 @@ void DynamicSliceCodeletTest(const Type &dataType) {
         for (unsigned i = 0; i < numSubElements * numRegions; i++)
           hostSubT[i] = &inTest[i * maxColumns + dstColumn];
         DynamicUpdateSlice2dHost(offset, hostBaseT, hostSubT, numBaseElements,
-                                 numSubElements, numRegions, columns);
+                                 numSubElements, numRegions, columns,
+                                 remapOutOfBoundIndices);
       } else {
         for (unsigned i = 0; i < numBaseElements * numRegions; i++)
           hostBaseT[i] = &inTest[i * maxColumns];
@@ -281,7 +302,8 @@ void DynamicSliceCodeletTest(const Type &dataType) {
         for (unsigned i = 0; i < numSubElements * numRegions; i++)
           hostSubT[i] = &outTest[i * maxColumns + dstColumn];
         DynamicSlice2dHost(offset, hostBaseT, hostSubT, numBaseElements,
-                           numSubElements, numRegions, columns);
+                           numSubElements, numRegions, columns,
+                           remapOutOfBoundIndices);
       }
       // Check the result, in the outTest array
       // Always check the whole output memory to catch any overwrites

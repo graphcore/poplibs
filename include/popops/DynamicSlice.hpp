@@ -314,6 +314,15 @@ createSliceableTensorFromSlice(poplar::Graph &graph, const poplar::Tensor &s,
  * available number of tiles) then the operation as a whole will also have poor
  * tile balance and consequently poor tile memory balance.
  *
+ *  ** Dynamic slice options **
+ *    *  `remapOutOfBoundIndices` (true, false) [=false]
+ *       Out of bounds indices are mapped to index 0.
+ *
+ *    * `paddingIndexUsed` (true, false) [=false]
+ *       Padding index equal to the size of the slice dimension of tensor \p t
+ *       may be used in the indices. The actual padding values returned for
+ *       a padding index are zeros.
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The source tensor.
  *  \param offset      A tensor of offsets at which the output is extracted.
@@ -321,6 +330,7 @@ createSliceableTensorFromSlice(poplar::Graph &graph, const poplar::Tensor &s,
  *  \param sizes       The size of the slice in each of the dimensions in
  *                     \p dims.
  *  \param prog        The program to be extended
+ *  \param options     Option flags
  *  \param debugContext Optional debug information.
  *  \returns           The specified subtensor
  **/
@@ -329,7 +339,8 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, const poplar::Tensor &t,
                             const std::vector<std::size_t> &dims,
                             const std::vector<std::size_t> &sizes,
                             poplar::program::Sequence &prog,
-                            const poplar::DebugContext &debugContext = {});
+                            const poplar::DebugContext &debugContext = {},
+                            const poplar::OptionFlags &options = {});
 
 /** Slice a tensor based on offsets specified by a tensor.
  *
@@ -340,6 +351,9 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, const poplar::Tensor &t,
  *  \p offset[0], \p dims and \p sizes must have the same size. \p offset may
  *  have a second dimension with an element per tile, which can eliminate
  *  exchange.
+ *
+ *  see \p dynamicSlice for information on \p options
+ *
  *  \param graph       The Poplar graph.
  *  \param output      The output tensor, This should ideally be created with
  *                     `createSliceTensor` to maximise efficiency,
@@ -350,6 +364,8 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, const poplar::Tensor &t,
  *                     \p dims.
  *  \param prog        The program to be extended \param debugContext Optional
  *                     debug information.
+ *  \param debugContext Optional debug information
+ *  \param options     Option to control remapping of indices and padding
  **/
 void dynamicSliceWithOutput(poplar::Graph &graph, const poplar::Tensor &output,
                             const poplar::Tensor &t,
@@ -357,7 +373,8 @@ void dynamicSliceWithOutput(poplar::Graph &graph, const poplar::Tensor &output,
                             const std::vector<std::size_t> &dims,
                             const std::vector<std::size_t> &sizes,
                             poplar::program::Sequence &prog,
-                            const poplar::DebugContext &debugContext = {});
+                            const poplar::DebugContext &debugContext = {},
+                            const poplar::OptionFlags &options = {});
 
 /** Get the tile mapping for a slice of a tensor.
  *
@@ -384,6 +401,9 @@ getSliceMapping(poplar::Graph &graph, const poplar::Tensor &t,
  *  \p offset[0], \p dims and \p sizes must have the same size. \p offset may
  *  have a second dimension with an element per tile, which can eliminate
  *  exchange.
+ *
+ *  see \p dynamicSlice for information on \p options
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor to update.
  *  \param s           The updates.
@@ -393,13 +413,15 @@ getSliceMapping(poplar::Graph &graph, const poplar::Tensor &t,
  *                     \p dims.
  *  \param prog        The program to be extended.
  *  \param debugContext Optional debug information.
+ *  \param options     Option flags
  **/
 void dynamicUpdate(poplar::Graph &graph, const poplar::Tensor &t,
                    const poplar::Tensor &s, const poplar::Tensor &offset,
                    const std::vector<std::size_t> &dims,
                    const std::vector<std::size_t> &sizes,
                    poplar::program::Sequence &prog,
-                   const poplar::DebugContext &debugContext = {});
+                   const poplar::DebugContext &debugContext = {},
+                   const poplar::OptionFlags &options = {});
 
 /** Take multiple slices from a base tensor.
  *
@@ -409,6 +431,17 @@ void dynamicUpdate(poplar::Graph &graph, const poplar::Tensor &t,
  * of \p t.
  * \p t can be created using \p createSliceableTensor() to ensure efficient
  * mapping.
+ *
+ *  ** multiSlice options **
+ *    *  `remapOutOfBoundIndices` (true, false) [=false]
+ *       Out of bounds indices are mapped to index 0.
+ *
+ *    * `paddingIndexUsed` (true, false) [=false]
+ *       Padding index equal to the size of the slice dimension of tensor \p t
+ *       may be used in the indices. The actual padding values returned for
+ *       a padding index are zeros. Padding index is excluded from index
+ *       validation if it is enabled.
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being sliced.
  *  \param offsets     The offsets within \p t to be sliced.
@@ -444,6 +477,9 @@ poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
  * create tensors. \p t can be created using \p createGroupedSliceableTensor()
  * to ensure efficient mapping.
  *
+ * see \p multiSlice for informtion on \p options passed to this function in
+ * addition to those passed for \p plan.
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being sliced.
  *  \param offsets     The offsets within \p t to be sliced.
@@ -470,19 +506,28 @@ poplar::Tensor groupedMultiSlice(poplar::Graph &graph, const poplar::Tensor &t,
  * The returned tensor will have a rank one greater than \p t. Its outer
  * dimension will be \p offsets.size(). Note that \p dim refers to a dimension
  * of \p t.
+ * Any entry in \p offset greater than equal to the size of dims in \p t
+ * returns a slice filled with zeros.
+ *
+ * see other overloads of multiSlice for information on \p optionFlags.
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being sliced.
  *  \param offsets     The offsets within \p t to be sliced.
  *  \param dims        The dimension of \p t to be sliced.
  *  \param prog        The program to be extended.
  *  \param debugContext Optional debug information.
+ *  \param optionFlags Option flags.
  */
 poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
                           poplar::ArrayRef<unsigned> offsets, std::size_t dim,
                           poplar::program::Sequence &prog,
-                          const poplar::DebugContext &debugContext = {});
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &optionFlags = {});
 
 /** Update multiple slices in a tensor.
+ *
+ *  See overloads of multiSlice for information on \p options.
  *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated.
@@ -507,6 +552,8 @@ void multiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
 /** Update multiple slices in a tensor with a group dimension. The tensors \p t
  *  \p s , and \p offsets have group dimension as the first dimension.
  *
+ *  See overloads of multiSlice for information on \p options.
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated.
  *  \param s           The slices to insert.
@@ -528,6 +575,8 @@ void groupedMultiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
                         const poplar::DebugContext &debugContext = {});
 
 /** Accumulate multiple slices in a tensor
+ *
+ *  See overloads of multiSlice for information on \p options.
  *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated (must be rank 2).
@@ -560,6 +609,8 @@ void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
  *
  * \p t, \p s must be of the same type
  *
+ *  See overloads of multiSlice for information on \p options.
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated (must be rank 3).
  *  \param s           The slices to accumulate.
@@ -588,6 +639,8 @@ void groupedMultiUpdateAdd(
  *
  * \p t, \p s must be of the same type
  *
+ *  See overloads of multiSlice for information on \p optionsFlags.
+ *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated.
  *  \param s           The slices to accumulate.
@@ -599,17 +652,21 @@ void groupedMultiUpdateAdd(
  *  \param dim         The dimension of \p t to be accumulated.
  *  \param prog        The program to be extended.
  *  \param debugContext Optional debug information.
+ *  \param optionFlags Option flags.
  */
 void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
                     const poplar::Tensor &s, poplar::ArrayRef<unsigned> offsets,
                     const poplar::Tensor &scale, std::size_t dim,
                     poplar::program::Sequence &prog,
-                    const poplar::DebugContext &debugContext = {});
+                    const poplar::DebugContext &debugContext = {},
+                    const poplar::OptionFlags &optionFlags = {});
 
 /** Find maximum over multiple slices in a tensor
  *
  * \p t, \p s must have the same element type
  *  offsets[i] >= t.dim(0) are ignored.
+ *
+ *  See overloads of multiSlice for information on \p options.
  *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated (must be rank 2).
@@ -636,6 +693,8 @@ void multiUpdateMax(poplar::Graph &graph, const poplar::Tensor &t,
  *  The tensors \p t, \p s, \p offsets have groups as their first dimension.
  *  The \p offsets tensor contains indices per group which update elements of
  *  the corresponding group.
+ *
+ *  See overloads of multiSlice for information on \p options.
  *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated (must be rank 2).
@@ -717,7 +776,7 @@ namespace embedding {
  *     * `validateIndices` (true, false) [=false]
  *
  *       Check that all indices are valid at runtime. If any is invalid
- *       execution is aborted.
+ *       execution is aborted. Ignored if `remapOutOfBoundIndices` = true.
  *
  *     * `partialType` (half, float)
  *       If not provided, defaults to using the same as the data type.

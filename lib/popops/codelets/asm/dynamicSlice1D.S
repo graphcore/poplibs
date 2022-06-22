@@ -231,6 +231,17 @@ load_vertex_fields_and_preprocess:
   ld32      $BASE_SLICE, $mzero,       $BASE_SLICE, 0
 
   ld32      $BASE_ELEM,  $mzero,       $mvertex_base, VOFF_BASE_ELEM
+  {
+    brneg     $BASE_ELEM, .LClearMsb
+    fnop
+  }
+  // exit if starting offset is not within base_slice
+  cmpult    $mSCRATCH, $BASE_SLICE, $BASE_ELEM
+  brz       $mSCRATCH, .Lexit
+
+.LClearMsb:
+  shl       $BASE_ELEM, $BASE_ELEM, 1
+  shr       $BASE_ELEM, $BASE_ELEM, 1
 
     // Load sub elem, decrement for use as a loop counter
   ld32      $SUB_ELEM, $mzero, $mvertex_base, VOFF_SUB_ELEM

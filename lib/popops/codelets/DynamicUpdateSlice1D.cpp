@@ -29,18 +29,26 @@ public:
   Input<unsigned> offset; // in \a baseT
   InOut<Vector<InType, ONE_PTR>> baseT;
   Input<Vector<InType, ONE_PTR>> subT;
-  const unsigned numBaseElements; // in the slice dimension
+  const unsigned numBaseElements; // in the slice dimension MSB used to
+                                  // indicate if invalid indices must be
+                                  // remapped
   const unsigned numSubElements;  // in the slice dimension
   const unsigned regionSize;      // stride between slices
 
   IS_EXTERNAL_CODELET(true);
 
   bool compute(unsigned wid) {
+    const auto numBaseElementsActual = numBaseElements & 0x7fffffffu;
     unsigned elementsPerWorker = (regionSize + numWorkers() - 1) / numWorkers();
     unsigned workerOffset = wid * elementsPerWorker;
     unsigned baseSlice = offset;
-    if (baseSlice >= numBaseElements)
-      baseSlice = 0;
+    if (numBaseElements & 0x80000000u) {
+      if (baseSlice >= numBaseElementsActual)
+        baseSlice = 0;
+    } else {
+      if (baseSlice >= numBaseElementsActual)
+        return true;
+    }
     for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
       for (unsigned e = 0; e != elementsPerWorker; e++) {
         if (workerOffset + e >= regionSize)
@@ -50,7 +58,7 @@ public:
             subT[subSlice * regionSize + workerOffset + e];
       }
       baseSlice++;
-      if (baseSlice >= numBaseElements)
+      if (baseSlice >= numBaseElementsActual)
         baseSlice = 0;
     }
     return true;

@@ -29,27 +29,35 @@ public:
   const unsigned short numSubElements; // in the slice dimension
   Input<VectorList<InType, COMPACT_DELTAN>> subT;
   const unsigned short numRegions;
-  const unsigned numBaseElements; // in the slice dimension
+  const unsigned numBaseElements; // in the slice dimension MSB used to
+                                  // indicate if invalid indices must be
+                                  // remapped
 
   IS_EXTERNAL_CODELET(true);
 
   bool compute() {
+    const unsigned numBaseElementsActual = numBaseElements & 0x7fffffffu;
     for (unsigned r = 0; r != numRegions; ++r) {
-      auto regionSize = baseT[r * numBaseElements].size();
+      auto regionSize = baseT[r * numBaseElementsActual].size();
       unsigned baseSlice = offset;
-      if (baseSlice >= numBaseElements)
-        baseSlice = 0;
+      if (numBaseElements & 0x80000000u) {
+        if (baseSlice >= numBaseElementsActual)
+          baseSlice = 0;
+      } else {
+        if (baseSlice >= numBaseElementsActual)
+          return true;
+      }
       unsigned subIdx = r * numSubElements;
 
       for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
-        auto baseIdx = r * numBaseElements + baseSlice;
+        auto baseIdx = r * numBaseElementsActual + baseSlice;
         for (unsigned e = 0; e != regionSize; e++) {
           baseT[baseIdx][e] = subT[subIdx][e];
         }
         subIdx++;
         baseSlice++;
-        if (baseSlice >= numBaseElements)
-          baseSlice -= numBaseElements;
+        if (baseSlice >= numBaseElementsActual)
+          baseSlice -= numBaseElementsActual;
       }
     }
     return true;

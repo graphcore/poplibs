@@ -43,6 +43,7 @@ namespace internal {
  *  \param sliceSizes         The size of each sliced dimension
  *  \param prog               The program sequence to add this operation to
  *  \param dnai               The debug reference
+ *  \param optionFlags        Option flags
  *
  *  \returns The gathered slices tensor
  */
@@ -50,7 +51,8 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const poplar::Tensor &indices,
                       const std::vector<std::size_t> &sliceSizes,
                       poplar::program::Sequence &prog,
-                      const poplar::DebugNameAndId &dnai);
+                      const poplar::DebugNameAndId &dnai,
+                      const poplar::OptionFlags &optionFlags);
 
 poplar::Tensor
 createGatherInputTensor(poplar::Graph &graph, poplar::Type type,

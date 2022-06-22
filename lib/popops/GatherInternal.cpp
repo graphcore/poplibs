@@ -88,7 +88,8 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const poplar::Tensor &indices,
                       const std::vector<std::size_t> &sliceSizes,
                       poplar::program::Sequence &prog,
-                      const poplar::DebugNameAndId &dnai) {
+                      const poplar::DebugNameAndId &dnai,
+                      const poplar::OptionFlags &optionFlags) {
   checkGatherInputs(input, indices, sliceSizes);
 
   // This copy is to ensure we have the ideal tile mapping for `multiSlice`.
@@ -109,7 +110,7 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
 
   auto result =
       multiSlice(graph, inputTemp.dimShuffle(permutation), indices, dims,
-                 sliceSizes, prog, SlicePlan(), poplar::OptionFlags(), {dnai});
+                 sliceSizes, prog, SlicePlan(), optionFlags, {dnai});
 
   std::vector<unsigned> inversePermutation(permutation.size());
   for (auto i = 0ul; i < permutation.size(); ++i) {

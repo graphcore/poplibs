@@ -31,81 +31,96 @@ struct TestParams {
   // for the purpose of testing different alignment.
   unsigned dstOffset;
   bool update;
+  // remap invalid indices
+  bool remapOutOfBoundIndices;
 };
 
 // For float, half, int and unsigned char we run these common tests.
 std::vector<TestParams> tests = {
     // Test with small regions
-    {0, 4, 3, 1, 0, false},
-    {0, 4, 3, 1, 1, false},
-    {0, 4, 3, 1, 2, false},
-    {0, 4, 3, 2, 1, false},
-    {0, 4, 3, 3, 1, false},
-    {0, 4, 3, 4, 1, false},
-    {0, 4, 3, 5, 1, false},
-    {0, 4, 3, 6, 1, false},
-    {0, 4, 3, 7, 1, false},
-    {0, 4, 3, 8, 1, false},
-    {0, 4, 3, 9, 1, false},
-    {0, 4, 3, 10, 1, false},
-    {0, 4, 3, 11, 1, false},
-    {0, 4, 3, 27, 1, false},
-    {0, 4, 3, 31, 1, false},
-    {0, 4, 3, 32, 1, false},
-    {0, 4, 3, 33, 1, false},
+    {0, 4, 3, 1, 0, false, false},
+    {0, 4, 3, 1, 1, false, false},
+    {0, 4, 3, 1, 2, false, false},
+    {0, 4, 3, 2, 1, false, false},
+    {0, 4, 3, 3, 1, false, false},
+    {0, 4, 3, 4, 1, false, false},
+    {0, 4, 3, 5, 1, false, false},
+    {0, 4, 3, 6, 1, false, false},
+    {0, 4, 3, 7, 1, false, false},
+    {0, 4, 3, 8, 1, false, false},
+    {0, 4, 3, 9, 1, false, false},
+    {0, 4, 3, 10, 1, false, false},
+    {0, 4, 3, 11, 1, false, false},
+    {0, 4, 3, 27, 1, false, false},
+    {0, 4, 3, 31, 1, false, false},
+    {0, 4, 3, 32, 1, false, false},
+    {0, 4, 3, 33, 1, false, false},
     // half vertex has different handling for <= 3 atoms
-    {0, 3, 1, 4, 0, false}, // 4 atoms at all offsets
-    {0, 3, 1, 4, 1, false},
-    {0, 3, 1, 4, 2, false},
-    {0, 3, 1, 4, 3, false},
-    {0, 3, 1, 27, 0, false}, // 4 atoms/worker plus 3 at the end
-    {0, 3, 1, 27, 1, false},
-    {0, 3, 1, 27, 2, false},
-    {0, 3, 1, 27, 3, false},
-    {0, 3, 1, 27 + 24 * 2 + 1, 0, false + 1}, // 16 atoms/worker + 3 at the end
-    {0, 3, 1, 27 + 24 * 2 + 1, 1, false},
-    {0, 3, 1, 27 + 24 * 2 + 1, 2, false},
-    {0, 3, 1, 27 + 24 * 2 + 1, 3, false},
-    {0, 1, 2, 1, 1, false},
-    {0, 1, 2, 2, 1, false},
-    {0, 1, 2, 3, 1, false},
-    {0, 1, 2, 4, 1, false},
-    {0, 1, 2, 5, 1, false},
-    {0, 1, 2, 6, 1, false},
-    {1, 3, 2, 7, 0, false},
-    {0, 4, 4, 8, 1, false},
-    {2, 4, 5, 9, 0, false},
-    {0, 4, 4, 10, 1, false},
-    {2, 4, 5, 11, 0, false},
-    {0, 2, 2, 12, 1, false},
-    {3, 5, 5, 13, 0, false},
-    {3, 5, 5, 31, 0, false},
+    {0, 3, 1, 4, 0, false, false}, // 4 atoms at all offsets
+    {0, 3, 1, 4, 1, false, false},
+    {0, 3, 1, 4, 2, false, false},
+    {0, 3, 1, 4, 3, false, false},
+    {0, 3, 1, 27, 0, false, false}, // 4 atoms/worker plus 3 at the end
+    {0, 3, 1, 27, 1, false, false},
+    {0, 3, 1, 27, 2, false, false},
+    {0, 3, 1, 27, 3, false, false},
+    {0, 3, 1, 27 + 24 * 2 + 1, 0, false + 1,
+     false}, // 16 atoms/worker + 3 at the end
+    {0, 3, 1, 27 + 24 * 2 + 1, 1, false, false},
+    {0, 3, 1, 27 + 24 * 2 + 1, 2, false, false},
+    {0, 3, 1, 27 + 24 * 2 + 1, 3, false, false},
+    {0, 1, 2, 1, 1, false, false},
+    {0, 1, 2, 2, 1, false, false},
+    {0, 1, 2, 3, 1, false, false},
+    {0, 1, 2, 4, 1, false, false},
+    {0, 1, 2, 5, 1, false, false},
+    {0, 1, 2, 6, 1, false, false},
+    {1, 3, 2, 7, 0, false, false},
+    {0, 4, 4, 8, 1, false, false},
+    {2, 4, 5, 9, 0, false, false},
+    {0, 4, 4, 10, 1, false, false},
+    {2, 4, 5, 11, 0, false, false},
+    {0, 2, 2, 12, 1, false, false},
+    {3, 5, 5, 13, 0, false, false},
+    {3, 5, 5, 31, 0, false, false},
+    {8, 5, 5, 31, 0, false, false},
+    {8, 5, 5, 31, 0, true, false},
 
-    {0, 1, 1, 6, 1, true},
-    {1, 2, 2, 7, 0, true},
-    {0, 4, 4, 8, 1, true},
-    {2, 4, 4, 9, 0, true},
-    {0, 2, 2, 12, 1, true},
-    {3, 5, 5, 13, 0, true},
+    {0, 1, 1, 6, 1, true, false},
+    {1, 2, 2, 7, 0, true, false},
+    {0, 4, 4, 8, 1, true, false},
+    {2, 4, 4, 9, 0, true, false},
+    {0, 2, 2, 12, 1, true, false},
+    {3, 5, 5, 13, 0, true, false},
+    {5, 5, 5, 13, 0, true, false},
+    {6, 5, 5, 13, 0, true, true},
+    {5, 5, 5, 13, 0, false, false},
+    {6, 5, 5, 13, 0, false, true},
 };
 // For 8 bit types we run a few more tests to tests some more of the
 // combinations of offsets and sizes. We break them down among different 8 bit
 // types, despite the code being common for all of them, but we still want to
 // test that the C++ declaration and assembly label entry points are all there.
 std::vector<TestParams> testsSchar = {
-    {1, 1, 2, 1, 1, false}, {1, 1, 2, 2, 1, false}, {1, 1, 2, 3, 1, false},
-    {1, 1, 2, 4, 1, false}, {1, 1, 2, 5, 1, false}, {1, 1, 2, 6, 1, false},
-    {1, 1, 2, 7, 1, false}, {1, 1, 2, 8, 1, false}, {1, 1, 2, 9, 1, false},
+    {1, 1, 2, 1, 1, false, false}, {1, 1, 2, 2, 1, false, false},
+    {1, 1, 2, 3, 1, false, false}, {1, 1, 2, 4, 1, false, false},
+    {1, 1, 2, 5, 1, false, false}, {1, 1, 2, 6, 1, false, false},
+    {1, 1, 2, 7, 1, false, false}, {1, 1, 2, 8, 1, false, false},
+    {1, 1, 2, 9, 1, false, false},
 };
 std::vector<TestParams> testsChar = {
-    {2, 1, 2, 1, 1, false}, {2, 1, 2, 2, 1, false}, {2, 1, 2, 3, 1, false},
-    {2, 1, 2, 4, 1, false}, {2, 1, 2, 5, 1, false}, {2, 1, 2, 6, 1, false},
-    {2, 1, 2, 7, 1, false}, {2, 1, 2, 8, 1, false}, {2, 1, 2, 9, 1, false},
+    {2, 1, 2, 1, 1, false, false}, {2, 1, 2, 2, 1, false, false},
+    {2, 1, 2, 3, 1, false, false}, {2, 1, 2, 4, 1, false, false},
+    {2, 1, 2, 5, 1, false, false}, {2, 1, 2, 6, 1, false, false},
+    {2, 1, 2, 7, 1, false, false}, {2, 1, 2, 8, 1, false, false},
+    {2, 1, 2, 9, 1, false, false},
 };
 std::vector<TestParams> testsBool = {
-    {3, 1, 2, 1, 1, false}, {3, 1, 2, 2, 1, false}, {3, 1, 2, 3, 1, false},
-    {3, 1, 2, 4, 1, false}, {3, 1, 2, 5, 1, false}, {3, 1, 2, 6, 1, false},
-    {3, 1, 2, 7, 1, false}, {3, 1, 2, 8, 1, false}, {3, 1, 2, 9, 1, false},
+    {3, 1, 2, 1, 1, false, false}, {3, 1, 2, 2, 1, false, false},
+    {3, 1, 2, 3, 1, false, false}, {3, 1, 2, 4, 1, false, false},
+    {3, 1, 2, 5, 1, false, false}, {3, 1, 2, 6, 1, false, false},
+    {3, 1, 2, 7, 1, false, false}, {3, 1, 2, 8, 1, false, false},
+    {3, 1, 2, 9, 1, false, false},
 };
 
 //*************************************************
@@ -116,11 +131,16 @@ void DynamicSliceSupervisorHost(unsigned offset, std::vector<double> &baseT,
                                 unsigned numBaseElements,
                                 unsigned short numSubElements,
                                 unsigned short regionSize,
-                                unsigned short dstOffset) {
+                                unsigned short dstOffset,
+                                bool remapOutOfBoundIndices) {
   unsigned baseSlice = offset;
 
-  if (baseSlice >= numBaseElements)
-    baseSlice = 0;
+  if (baseSlice >= numBaseElements) {
+    if (remapOutOfBoundIndices)
+      baseSlice = 0;
+    else
+      return;
+  }
   for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
     for (unsigned e = 0; e != regionSize; e++) {
       subT[subSlice * regionSize + e + dstOffset] =
@@ -139,11 +159,17 @@ void DynamicSliceSupervisorHost(unsigned offset, std::vector<double> &baseT,
 void DynamicUpdateSliceSupervisorHost(
     unsigned offset, std::vector<double> &baseT, std::vector<double> &subT,
     unsigned numBaseElements, unsigned short numSubElements,
-    unsigned short regionSize, unsigned short dstOffset) {
+    unsigned short regionSize, unsigned short dstOffset,
+    bool remapOutOfBoundIndices) {
   unsigned baseSlice = offset;
 
-  if (baseSlice >= numBaseElements)
-    baseSlice = 0;
+  if (baseSlice >= numBaseElements) {
+    if (remapOutOfBoundIndices)
+      baseSlice = 0;
+    else
+      return;
+  }
+
   for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
     for (unsigned e = 0; e != regionSize; e++) {
       baseT[baseSlice * regionSize + e + dstOffset] =
@@ -242,6 +268,7 @@ void DynamicSliceCodeletTest(const Type &dataType,
     auto regionSize = TestList[tests].regionSize;
     auto dstOffset = TestList[tests].dstOffset;
     auto update = TestList[tests].update;
+    auto remapOutOfBoundIndices = TestList[tests].remapOutOfBoundIndices;
 
     Sequence sequence;
 
@@ -259,7 +286,9 @@ void DynamicSliceCodeletTest(const Type &dataType,
     auto dsVertex =
         graph.addVertex(testComputeSet, vertexClass,
                         {{"offset", offset}, {"baseT", base}, {"subT", sub}});
-    graph.setInitialValue(dsVertex["numBaseElements"], numBaseElements);
+    graph.setInitialValue(dsVertex["numBaseElements"],
+                          ((1u * remapOutOfBoundIndices) << 31) |
+                              numBaseElements);
     graph.setInitialValue(dsVertex["numSubElements"], numSubElements);
     graph.setInitialValue(dsVertex["regionSize"], regionSize);
     graph.setTileMapping(dsVertex, 0);
@@ -291,6 +320,7 @@ void DynamicSliceCodeletTest(const Type &dataType,
       auto regionSize = TestList[tests].regionSize;
       auto dstOffset = TestList[tests].dstOffset;
       auto update = TestList[tests].update;
+      auto remapOutOfBoundIndices = TestList[tests].remapOutOfBoundIndices;
 
       copy(target, inTest.data(), inTest.size(), dataType, input.get());
 
@@ -307,12 +337,13 @@ void DynamicSliceCodeletTest(const Type &dataType,
       // Run the host version of the codelet to compare against - either
       // update or non update version
       if (update) {
-        DynamicUpdateSliceSupervisorHost(offset, outTest, inTest,
-                                         numBaseElements, numSubElements,
-                                         regionSize, dstOffset);
+        DynamicUpdateSliceSupervisorHost(
+            offset, outTest, inTest, numBaseElements, numSubElements,
+            regionSize, dstOffset, remapOutOfBoundIndices);
       } else {
         DynamicSliceSupervisorHost(offset, inTest, outTest, numBaseElements,
-                                   numSubElements, regionSize, dstOffset);
+                                   numSubElements, regionSize, dstOffset,
+                                   remapOutOfBoundIndices);
       }
 
       // Check the result, in the outTest array
