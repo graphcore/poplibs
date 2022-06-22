@@ -185,18 +185,19 @@ public:
 #if __IPU_ARCH_VERSION__ >= 21
 
 template <unsigned stride, bool implicitZero>
-static __attribute__((always_inline)) void
+static __attribute__((always_inline)) __attribute__((aligned(8))) void
 f8v8hihoSLIC(const quarter *inPtr, half *partialsPtr, half *outPtr,
              unsigned strides, int loops, unsigned outVectorWidth) {
   // Process the first 4 output channels using weights=W0
   auto triAddr = __builtin_ipu_tapack(inPtr, partialsPtr, outPtr);
-  if (loops < 0) {
+  if (loops < 5) {
     f8v8hihoSLICLessThan5<TSLIC_F16V4_1x4_W0>(triAddr, strides, loops);
     // Process the second 4 output channels using weights=W1
     triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
                                    outPtr + outVectorWidth);
     f8v8hihoSLICLessThan5<TSLIC_F16V4_1x4_W1>(triAddr, strides, loops);
   } else {
+    loops -= 5;
     f8v8hihoSLICLoop<TSLIC_F16V4_1x4_W0>(triAddr, strides, loops);
     // Process the second 4 output channels using weights=W1
     triAddr = __builtin_ipu_tapack(inPtr, partialsPtr + outVectorWidth,
@@ -287,14 +288,12 @@ public:
     while (workListPtr < workListEndPtr) {
       constexpr unsigned outVectorWidth = 4;
       constexpr unsigned outVectorsPerOuterLoop = 2;
-
       auto inPtr = ld64StepToIncPtr(inChanPtr.begin(), *workListPtr++);
       const auto offset = outVectorsPerOuterLoop * *workListPtr++;
       auto outPtr = ld64StepToIncPtr(outChanPtr.begin(), offset);
       auto partialsPtr = ld64StepToIncPtr(partialsChanPtr.begin(), offset);
       constexpr int slicPipeLength = stride == 1 ? 5 : 3;
-      int loops =
-          (CSR_W_REPEAT_COUNT__VALUE__MASK & *workListPtr++) - slicPipeLength;
+      int loops = (CSR_W_REPEAT_COUNT__VALUE__MASK & *workListPtr++);
       f8v8hihoSLIC<stride, implicitZero>(inPtr, partialsPtr, outPtr, strides,
                                          loops, outVectorWidth);
     }

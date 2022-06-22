@@ -1349,6 +1349,7 @@ inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimateQuarter(
 
   std::uint64_t maxWorkerCycles = 0;
 
+  // These constants describe the C++ vertex overheads
   const std::uint64_t workerProcessGroupPreambleCycles = 20;
   const std::uint64_t whileLoopOverhead = 24;
   const std::uint64_t additionalOverheadWithIf = 18;
@@ -1357,6 +1358,9 @@ inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimateQuarter(
   for (const auto &worker : workerPartitions) {
     std::uint64_t workerCycles = workerProcessGroupPreambleCycles;
 
+    // Constants in this section describe the inline assembler common path
+    // cycles and the different number of cycles for each path through the
+    // inline assembler
     for (const auto &numFieldElems : worker) {
       workerCycles += whileLoopOverhead;
 
@@ -1364,9 +1368,10 @@ inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimateQuarter(
 
       if (outputStride == 1 && implicitZeroing) {
         if (numFieldElems < loopDecisionThresholdStride1) {
+          const auto commonPathAsmCycles = 8u;
           const std::array<unsigned, loopDecisionThresholdStride1 - 1> cycles =
-              {5, 9, 12, 15};
-          rowCycles += 6 + cycles[numFieldElems];
+              {3, 5, 9, 10};
+          rowCycles += commonPathAsmCycles + cycles[numFieldElems];
         } else {
           rowCycles += 14 + (numFieldElems - loopDecisionThresholdStride1);
         }
@@ -1375,16 +1380,18 @@ inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimateQuarter(
         rowCycles += additionalOverheadWithIf;
 
         if (numFieldElems < loopDecisionThresholdStride1) {
+          const auto commonPathAsmCycles = 2u;
           const std::array<unsigned, loopDecisionThresholdStride1 - 1> cycles =
-              {7, 10, 14, 14};
-          rowCycles += 2 + cycles[numFieldElems];
+              {8, 10, 13, 13};
+          rowCycles += commonPathAsmCycles + cycles[numFieldElems];
         } else {
           rowCycles += 12 + (numFieldElems - loopDecisionThresholdStride1);
         }
       } else {
         // outputStride == 2
         if (numFieldElems < loopDecisionThresholdStride2) {
-          rowCycles += 4 + (numFieldElems == 1 ? 6 : 11);
+          const auto commonPathAsmCycles = 6u;
+          rowCycles += commonPathAsmCycles + (numFieldElems == 1 ? 3 : 6);
         } else {
           rowCycles += 13 + 2 * (numFieldElems - loopDecisionThresholdStride2);
         }
