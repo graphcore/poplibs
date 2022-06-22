@@ -713,8 +713,8 @@ int main(int argc, char **argv) try {
   fwdOptions.set("planConstraints", fwdPlanConstraints);
   auto bwdOptions = convOptions;
   bwdOptions.set("pass", "TRAINING_BWD");
-  bwdOptions.set("planConstraints", bwdPlanConstraints);
   overloadConstraintsFromFile(bwdPlanConstraintsFile, bwdPlanConstraints);
+  bwdOptions.set("planConstraints", bwdPlanConstraints);
   auto wuOptions = convOptions;
   wuOptions.set("pass", "TRAINING_WU");
   overloadConstraintsFromFile(wuPlanConstraintsFile, wuPlanConstraints);
