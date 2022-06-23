@@ -228,8 +228,8 @@ f8v8hihoSLICLessThan5(uint2 triAddr, unsigned strides, unsigned loops) {
 
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
           f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
-        {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0100
-          f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
+
+        f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]
         {bri 3f
           f8v8hihov4slic $a4:5, $azeros, $azeros, %[SLIC_FLAGS]}
       1:

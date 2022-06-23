@@ -292,7 +292,6 @@ public:
       const auto offset = outVectorsPerOuterLoop * *workListPtr++;
       auto outPtr = ld64StepToIncPtr(outChanPtr.begin(), offset);
       auto partialsPtr = ld64StepToIncPtr(partialsChanPtr.begin(), offset);
-      constexpr int slicPipeLength = stride == 1 ? 5 : 3;
       int loops = (CSR_W_REPEAT_COUNT__VALUE__MASK & *workListPtr++);
       f8v8hihoSLIC<stride, implicitZero>(inPtr, partialsPtr, outPtr, strides,
                                          loops, outVectorWidth);

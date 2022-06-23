@@ -62,7 +62,7 @@ f8v8hihoSLICImplicitZeroStride2(uint2 triAddr, unsigned strides,
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
          {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b0100
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
-      5: {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1101
+      5: {st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
           f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
          f8v8hihov4slic $a4:5, $azeros, $azeros, %[SLIC_FLAGS]
       4: st64pace $a4:5, %[triAddr]+=, %[strides], 0b01
@@ -95,8 +95,8 @@ f8v8hihoSLICStride2(uint2 triAddr, unsigned strides, unsigned loops) {
 
         {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0101
           f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
-        {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b0101
-          f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]}
+
+          f8v8hihov4slic $azeros, $a0:1, $azeros, %[SLIC_FLAGS]
         {bri 3f
           f8v8hihov4slic $a4:5, $azeros, $azeros, %[SLIC_FLAGS]}
       1:
@@ -146,13 +146,12 @@ f8v8hihoSLICStride2(uint2 triAddr, unsigned strides, unsigned loops) {
         5:
          {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b0101
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
-         {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b1101
+         {st64pace $a4:5, %[triAddr]+=, %[strides], 0b11
           f8v8hihov4slic $a4:5, $a0:1, $azeros, %[SLIC_FLAGS]}
 
-         {ldst64pace $a0:1, $a4:5, %[triAddr]+=, %[strides], 0b0101
-          f8v8hihov4slic $a4:5, $azeros, $azeros, %[SLIC_FLAGS]}
+          f8v8hihov4slic $a4:5, $azeros, $azeros, %[SLIC_FLAGS]
         3:
-         st64pace $a4:5, %[triAddr]+=, %[strides], 0b01
+          st64pace $a4:5, %[triAddr]+=, %[strides], 0b01
         9:
       )l"
       : [triAddr] "+r"(triAddr), [loops] "+r"(loops)
