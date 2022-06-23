@@ -332,6 +332,20 @@ static void getConvVertexAMPCandidates(
               continue;
             }
 
+            // When the candidate partialChansPerGroup is larger than the
+            // candidate convUnits, but there are more convUnits available
+            // for the target, we skip the candidate under the assumption
+            // that the candidate that utilises more conv units will always
+            // be faster.
+            if (partials > convUnits && convUnits < numConvUnitsOnIpu) {
+              continue;
+            }
+
+            // Allow the partialChansPerGroup to be larger than the number
+            // of conv units for the candidate only when that grouping matches
+            // the target input channel grouping (= weightsPerConvUnit).
+            // This allows us to use a consistent channel grouping between
+            // forward and backward passes reducing the cost of rearrangement.
             if (partials != convUnits && partials != weightsPerConvUnit) {
               continue;
             }

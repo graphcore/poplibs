@@ -563,32 +563,18 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
 unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
                                    const ConvVertexType &convVertexType) {
-  const bool floatActivations = convVertexType.inputType == poplar::FLOAT;
-  const bool floatPartials = convVertexType.partialType == poplar::FLOAT;
-
   auto vectorWidth = target.getVectorWidth(convVertexType.inputType);
   auto visitor = poplibs_support::make_visitor<unsigned>(
       [&](const Plan::Hmac &) { return vectorWidth; },
       [&](const Plan::Vmac &) { return vectorWidth; },
       [&](const Plan::OuterProduct &) { return vectorWidth; },
       [&](const Plan::Slic &method) {
-        assert(!floatActivations);
+        assert(convVertexType.inputType != poplar::FLOAT);
         return std::min(vectorWidth, convVertexType.inChansPerGroup) *
                method.windowWidth * 2;
       },
       [&](const Plan::Amp &method) {
-        unsigned numConvUnits;
-        if (floatActivations) {
-          assert(floatPartials);
-          numConvUnits = target.getFp32InFp32OutConvUnitsPerTile();
-        } else if (floatPartials) {
-          numConvUnits = target.getFp16InFp32OutConvUnitsPerTile();
-        } else {
-          numConvUnits = target.getFp16InFp16OutConvUnitsPerTile();
-        }
-        auto usedConvUnits =
-            std::min(numConvUnits, convVertexType.partialChansPerGroup);
-        return usedConvUnits * vectorWidth;
+        return method.convUnits * method.convInputLoadElems;
       });
   return boost::apply_visitor(visitor, convVertexType.method);
 }
