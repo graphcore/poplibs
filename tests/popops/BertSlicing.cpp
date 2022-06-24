@@ -3,12 +3,18 @@
 // attention loop.
 
 #define BOOST_TEST_MODULE BertSlicing
+
+#include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
+
 #include <iostream>
 #include <math.h>
+#include <random>
+
 #include <poplar/Engine.hpp>
 #include <poplar/VariableMappingMethod.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/Util.hpp>
 #include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/DynamicSlice.hpp>
@@ -21,14 +27,20 @@
 #include <poputil/Util.hpp>
 #include <poputil/VarStructure.hpp>
 
+// Reference data generated from previous execution with genData=true
+#include "popops/BertSlicingRefSmall.hpp"
+
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplibs_test::util;
 
 // Check slicing in a similar manner to the bert attention layer.
-// Some elements are missed, and the tile mapings are not representative of
+// Some stages are not included, and the tile mapings are not representative of
 // what frameworks will achieve.
 BOOST_AUTO_TEST_CASE(AttentionSlice) {
   bool verbose = false;
+  // enable to output data to be copied to BertSlicingRefSmall.hpp
+  bool genData = false;
   if (isSimulator(TEST_TARGET)) {
     std::cout << "AttentionSlice is too slow to check on simulators\n";
     return;
@@ -42,16 +54,18 @@ BOOST_AUTO_TEST_CASE(AttentionSlice) {
   DebugContext di{"SimpleSliceTest"};
   popops::addCodelets(graph);
   poplin::addCodelets(graph);
+  poplin::PlanningCache planningCache;
   constexpr unsigned maxTokensPerBatch = 4 * 512;
   constexpr unsigned maxSequencesPerBatch = 8;
   constexpr unsigned maxTokensPerSequence = 512;
   constexpr unsigned nSequencesPerInnerLoop = 2;
-  constexpr unsigned maxTokensPerInnerLoop =
-      maxTokensPerSequence * nSequencesPerInnerLoop;
+
   constexpr bool large = true;
   // BERT large causes problems with a large variable not fitting on the
-  // cpu/ipuModel targets
-  const unsigned nFeatures = large && isHw(TEST_TARGET) ? 1024 : 64;
+  // cpu/ipuModel targets. So we run the large test to check for size and
+  // the smaller tests to check for correctness.
+  const bool manyFeatures = large && isHw(TEST_TARGET);
+  const unsigned nFeatures = manyFeatures ? 1024 : 64;
   constexpr unsigned nHidden = large ? 64 : 8;
   constexpr unsigned nHeads = large ? 16 : 8;
 
@@ -68,6 +82,8 @@ BOOST_AUTO_TEST_CASE(AttentionSlice) {
                                       {di, "batchTokensIn"});
   poputil::mapTensorLinearly(graph, tBatchIn);
 
+  boost::multi_array<double, 2> hQkvWeights(
+      boost::extents[nFeatures][3 * nHeads * nHidden]);
   Tensor qkvWeights = poplin::createMatMulInputRHS(
       graph, HALF, HALF, {maxTokensPerBatch, nFeatures},
       {nFeatures, 3 * nHeads * nHidden}, {di, "QKVWeights"});
@@ -101,7 +117,7 @@ BOOST_AUTO_TEST_CASE(AttentionSlice) {
   // masking.
   std::vector<unsigned> innerOffsets;
   for (unsigned i{0}; i != nSequencesPerInnerLoop; ++i)
-    innerOffsets.emplace_back(i * maxTokensPerInnerLoop);
+    innerOffsets.emplace_back(i * maxTokensPerSequence);
 
   if (verbose)
     std::cerr << "tOffsets shape " << tOffsets.shapeToString() << "\n";
@@ -126,18 +142,18 @@ BOOST_AUTO_TEST_CASE(AttentionSlice) {
       graph, HALF, HALF,
       {nHeads * nSequencesPerInnerLoop, maxTokensPerSequence, nHidden},
       {nHeads * nSequencesPerInnerLoop, nHidden, maxTokensPerSequence},
-      {loopDi, "matMulQInput"});
+      {loopDi, "matMulQInput"}, {}, &planningCache);
   Tensor matMulKTInput = poplin::createMatMulGroupedInputRHS(
       graph, HALF, HALF,
       {nHeads * nSequencesPerInnerLoop, maxTokensPerSequence, nHidden},
       {nHeads * nSequencesPerInnerLoop, nHidden, maxTokensPerSequence},
-      {loopDi, "matMulKInput"});
+      {loopDi, "matMulKInput"}, {}, &planningCache);
   Tensor matMulVInput = poplin::createMatMulGroupedInputLHS(
       graph, HALF, HALF,
       {nHeads * nSequencesPerInnerLoop, nHidden, maxTokensPerSequence},
       {nHeads * nSequencesPerInnerLoop, maxTokensPerSequence,
        maxTokensPerSequence},
-      {loopDi, "matMulVInput"});
+      {loopDi, "matMulVInput"}, {}, &planningCache);
   Tensor tInnerOffsets =
       graph.addConstant(UNSIGNED_INT, {nSequencesPerInnerLoop},
                         innerOffsets.data(), {loopDi, "inner offsets"});
@@ -183,14 +199,15 @@ BOOST_AUTO_TEST_CASE(AttentionSlice) {
 
   // Grouped matmul to calculate q*kt {nHeads*nSequencesPerInnerLoop,
   // maxTokensPerSequence, maxTokensPerSequence}.
-  Tensor qKt = poplin::matMulGrouped(graph, matMulQInput, matMulKTInput, loop,
-                                     HALF, {loopDi, "qKt=q*Kt"});
+  Tensor qKt =
+      poplin::matMulGrouped(graph, matMulQInput, matMulKTInput, loop, HALF,
+                            {loopDi, "qKt=q*Kt"}, {}, &planningCache);
   // Ignore masking step.
   // Ignore softmax and scaling steps.
   // Grouped matmul to calculate z=(q*kt)*v
   //   {nSequencesPerInnerLoop*nHeads, nHidden, maxTokensPerSequence}
   Tensor z = poplin::matMulGrouped(graph, matMulVInput, qKt, loop, HALF,
-                                   {loopDi, "z=v*qKt"});
+                                   {loopDi, "z=v*qKt"}, {}, &planningCache);
   z = z.reshape(
       {nSequencesPerInnerLoop, nHeads, nHidden, maxTokensPerSequence});
   //{nSequencesPerInnerLoop * maxTokensPerSequence, nHeads, nHidden}
@@ -199,7 +216,7 @@ BOOST_AUTO_TEST_CASE(AttentionSlice) {
   // Add z into zBatch
   Tensor zBatch = poplin::createMatMulInputLHS(
       graph, HALF, HALF, {maxTokensPerBatch, nHeads * nHidden},
-      {nHeads * nHidden, nFeatures}, {di, "zBatch"});
+      {nHeads * nHidden, nFeatures}, {di, "zBatch"}, {}, &planningCache);
 
   popops::fill(graph, zBatch, prog, 0u, {di, "zero output batch"});
   if (verbose) {
@@ -209,12 +226,16 @@ BOOST_AUTO_TEST_CASE(AttentionSlice) {
   popops::sequenceSlice(graph, z, zBatch, tInnerLengths, tInnerOffsets,
                         tBatchOffsets, false, loop, {loopDi, "updateOutput"});
   popops::addInPlace(graph, seqIdx, one, loop, {loopDi, "+1"});
-  prog.add(Repeat(nSequencesPerInnerLoop, loop, {loopDi, "loop"}));
+  prog.add(Repeat(maxSequencesPerBatch / nSequencesPerInnerLoop, loop,
+                  {loopDi, "loop"}));
 
   // Final projection matmul on the batch.
+  boost::multi_array<double, 2> hWProjWeights(
+      boost::extents[nHeads * nHidden][nFeatures]);
+
   Tensor wProj = poplin::createMatMulInputRHS(
       graph, HALF, HALF, {maxTokensPerBatch, nHeads * nHidden},
-      {nHeads * nHidden, nFeatures}, {di, "WProjection"});
+      {nHeads * nHidden, nFeatures}, {di, "WProjection"}, {}, &planningCache);
   if (verbose) {
     std::cerr << "zbatch" << zBatch.shapeToString() << "\n";
     std::cerr << "wProj" << wProj.shapeToString() << "\n";
@@ -227,24 +248,108 @@ BOOST_AUTO_TEST_CASE(AttentionSlice) {
 
   graph.createHostWrite("offset", tOffsets);
   graph.createHostWrite("length", tLengths);
+  graph.createHostWrite("qkvWeights", qkvWeights);
+  graph.createHostWrite("wProj", wProj);
   graph.createHostWrite("tokensToIpu", tBatchIn);
   graph.createHostRead("tokensFromIpu", tBatchOut);
 
   std::cerr << "Create engine\n";
   Engine engine(graph, prog);
+  // Check the model runs ok.
+  std::mt19937 randomEngine(42);
+
+  // Correctness of the model is not checked.
   device.bind([&](const Device &d) {
     std::cerr << "Load engine\n";
     engine.load(d);
     std::cerr << "Load params\n";
-    unsigned hOffset[maxSequencesPerBatch] = {10, 0, 0, 0};
-    unsigned hLength[maxSequencesPerBatch] = {5, 0, 10, 0};
-    std::vector<float> hTokens(maxTokensPerBatch * nFeatures);
-    engine.writeTensor("offset", hOffset, &hOffset[maxSequencesPerBatch]);
-    engine.writeTensor("length", hLength, &hLength[maxSequencesPerBatch]);
-    engine.writeTensor("tokensToIpu", hTokens.data(),
-                       hTokens.data() + hTokens.size());
+    // The tokens for each sequence must be non-overlapping and respect
+    // maxTokensPerSequence
+    std::vector<unsigned> hOffset{0, 16, 48, 176, 432, 944, 1200, 1712};
+    std::vector<unsigned> hLength{16, 32, 128, 256, 512, 256, 512, 32};
+    // Gap of 32 unused values at the end
+    assert(hOffset.size() == hLength.size());
+    for (std::size_t i{0}; i != hLength.size(); ++i) {
+      // Check specificed sequences fit inside the token buffer
+      BOOST_CHECK(hLength[i] <= maxTokensPerSequence);
+      BOOST_CHECK(hOffset[i] + hLength[i] <= maxTokensPerBatch);
+      // Check no overlap between sequences.
+      if (i > 0)
+        BOOST_CHECK(hOffset[i - 1] + hLength[i - 1] <= hOffset[i]);
+    }
+    boost::multi_array<double, 2> hTokens(
+        boost::extents[maxTokensPerBatch][nFeatures]);
+    auto &target = device.getTarget();
+    writeRandomValues(target, HALF, hQkvWeights, -.09, +.1, randomEngine);
+    writeRandomValues(target, HALF, hWProjWeights, -.09, +.1, randomEngine);
+    writeRandomValues(target, HALF, hTokens, -1., +1., randomEngine);
+
+    std::vector<char> rawQkvWeights(hQkvWeights.num_elements() *
+                                    target.getTypeSize(HALF));
+    copyDoubleToDeviceHalf(target, hQkvWeights.data(), rawQkvWeights.data(),
+                           hQkvWeights.num_elements());
+    std::vector<char> rawWProjWeights(hWProjWeights.num_elements() *
+                                      target.getTypeSize(HALF));
+    copyDoubleToDeviceHalf(target, hWProjWeights.data(), rawWProjWeights.data(),
+                           hWProjWeights.num_elements());
+
+    std::vector<char> rawTokens(hTokens.num_elements() *
+                                target.getTypeSize(HALF));
+    copyDoubleToDeviceHalf(target, hTokens.data(), rawTokens.data(),
+                           hTokens.num_elements());
+
+    engine.writeTensor("qkvWeights", ArrayRef(rawQkvWeights));
+    engine.writeTensor("wProj", ArrayRef(rawWProjWeights));
+    // engine.writeTensor("offset", ArrayRef(hOffset));
+    engine.writeTensor("offset", hOffset.data(),
+                       hOffset.data() + hOffset.size());
+    engine.writeTensor("length", ArrayRef(hLength));
+    engine.writeTensor("tokensToIpu", ArrayRef(rawTokens));
     engine.run();
-    engine.readTensor("tokensFromIpu", hTokens.data(),
-                      hTokens.data() + hTokens.size());
+
+    engine.readTensor("tokensFromIpu", rawTokens.data(),
+                      rawTokens.data() + rawTokens.size());
+    boost::multi_array<float, 2> hTokensOut(
+        boost::extents[maxTokensPerBatch][nFeatures]);
+    copyDeviceHalfToFloat(target, rawTokens.data(), hTokensOut.data(),
+                          hTokensOut.num_elements());
+
+    {
+      unsigned n = 0;
+      for (unsigned t = 0; t != hTokensOut.shape()[0]; ++t) {
+        for (unsigned f = 0; f != hTokensOut.shape()[1]; ++f) {
+          if (hTokensOut[t][f] != 0)
+            ++n;
+        }
+      }
+      std::cout << "Found " << n << "/" << hTokensOut.num_elements()
+                << " nonzero elements\n";
+      BOOST_CHECK(n > 0);
+    }
+    if (genData && !manyFeatures) {
+      // Output the reference data is a form ready for clipping and pasting
+      // into the reference data files.
+      std::string name;
+      name = manyFeatures ? "TokensLarge" : "TokensSmall";
+      std::cout << "// Generated by recompiling with `genData` true.\n";
+      std::cout << "std::vector<float> flat" << name << " {\n";
+      std::cout << "//";
+      for (unsigned t = 0; t != hTokensOut.shape()[0]; ++t) {
+        std::cout << "{ " << t << "\n";
+        for (unsigned f = 0; f != hTokensOut.shape()[1]; ++f) {
+          std::cout << hTokensOut[t][f] << ",\n";
+        }
+        std::cout << "//},";
+      }
+      std::cout << "\n};\n";
+      std::cout << "boost::multi_array_ref<float, 2> ref" << name << "(flat"
+                << name << ".data(), boost::extents[" << hTokensOut.shape()[0]
+                << "][" << hTokensOut.shape()[1] << "]);\n";
+    }
+    if (!manyFeatures)
+      BOOST_CHECK(
+          checkIsClose("outTokens", hTokensOut, refTokensSmall, .01, 1e-7));
+    // When manyFeatures==true we're just checking that the model fitted and
+    // ran OK.
   });
 }

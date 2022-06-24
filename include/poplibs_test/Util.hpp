@@ -221,8 +221,8 @@ checkIsClose(const std::string &name, const std::size_t *const shape_,
 
 template <std::size_t N, typename FPType>
 inline bool checkIsClose(const std::string &name,
-                         const boost::multi_array<FPType, N> &actual,
-                         const boost::multi_array<FPType, N> &expected,
+                         const boost::multi_array_ref<FPType, N> &actual,
+                         const boost::multi_array_ref<FPType, N> &expected,
                          double relativeTolerance,
                          double absoluteTolerance = 0) {
   assert(actual.storage_order() == boost::c_storage_order());
