@@ -91,20 +91,19 @@ nonLinearity1DCycleEstimator(const VertexIntrospector &vertex,
   // These cycle estimates follow the aligned path. Slightly optimistic.
   // The cost of misalignment is ~9 cycles for half, less for float.
   std::uint64_t cycles = 9; // Supervisor vertex overhead
+  std::uint64_t workerOverhead =
+      3 +                 // Load input pointer, output pointer and size
+      isNonInPlaceSwish + // Branch into shared code
+      5 +                 // Divide & Remainder to split work between workers
+      2 +                 // Get worker ID
+      2 +                 // Check 64-bit aligned and branch
+      5 +                 // Setup remainders and size for worker
+      3;                  // Offset worker's pointers and branch if done
   std::uint64_t workerCycles =
-      3 + // Load input pointer, output pointer and size
-              isNonInPlaceSwish
-          ? 1
-          : 0 +     // Branch into shared code
-                5 + // Divide & Remainder to split work between workers
-                2 + // Get worker ID
-                2 + // Check 64-bit aligned and branch
-                5 + // Setup remainders and size for worker
-                3 + // Offset worker's pointers and branch if done
-                (vectorsPerWorker ? 1 : 0) *
-                    (2 + opCycles + // Warm up pipeline, rpt
-                     (vectorsPerWorker - 1) * vectorLoopCycles + 1 +
-                     opCycles); // Handle remaining element from pipeline
+      workerOverhead + (vectorsPerWorker ? 1 : 0) *
+                           (2 + opCycles + // Warm up pipeline, rpt
+                            (vectorsPerWorker - 1) * vectorLoopCycles + 1 +
+                            opCycles); // Handle remaining element from pipeline
 
   // possibly unpack pointers
   workerCycles +=
