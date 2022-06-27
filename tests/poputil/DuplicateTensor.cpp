@@ -52,22 +52,8 @@ static void TestFunc(poplar::TensorCloneMethod cloneMethod) {
   auto rawHostTestResult = allocateHostMemoryForTensor(
       testResultNA, "testResultNA", graph, uploadProg, downloadProg, tmap);
 
-  // Verify aliases and intervals are identical
-  using TyVecA = std::vector<std::size_t>;
-  using TyVecVecI = std::vector<std::vector<Interval>>;
-
-  auto GetVecVecIntervals = [&graph](const Tensor &t,
-                                     TyVecA &aliases) -> TyVecVecI {
-    return graph.getSortedContiguousRegions(t.flatten(), {{0, t.numElements()}},
-                                            false, &aliases);
-  };
-
-  TyVecA srcAliases, resAliases;
-  TyVecVecI srcVVIntervals = GetVecVecIntervals(srcTensor, srcAliases);
-  TyVecVecI resVVIntervals = GetVecVecIntervals(testResult, resAliases);
-
-  BOOST_CHECK(srcVVIntervals == resVVIntervals);
-  BOOST_CHECK(srcAliases == resAliases);
+  // Verify layout (aliasing, element ordering, tile mapping) is identical
+  BOOST_CHECK(identicalLayout(graph, srcTensor, testResult));
 
   // verify duplicated tensor has expected number of elements
   if (preservesAliasing) {

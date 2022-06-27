@@ -414,6 +414,13 @@ poplar::Tensor createGenericFullyConnectedInput(
     poplar::Graph &graph, const poplar::Type &type, std::size_t numGroups,
     std::size_t batchSize, std::size_t inputSize, const std::string &name = "");
 
+// Check the 2 given tensors have an identical layout. This is essentially
+// the combination of checking tile mapping is identical and ordering in
+// memory of elements mapped to each tile is identical (via
+// getSortedContiguousRegions).
+bool identicalLayout(const poplar::Graph &graph, const poplar::Tensor &a,
+                     const poplar::Tensor &b);
+
 } // namespace util
 } // namespace poplibs_test
 

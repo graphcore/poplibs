@@ -482,6 +482,58 @@ Tensor createGenericFullyConnectedInput(Graph &graph, const Type &type,
       .dimShuffle({1, 0, 2});
 }
 
+namespace {
+
+struct IsomorphismCheckInterval {
+  std::size_t id;
+  Interval interval;
+  IsomorphismCheckInterval(std::size_t id, Interval interval)
+      : id(id), interval(interval) {}
+  bool operator==(const IsomorphismCheckInterval &other) const {
+    return std::tie(id, interval) == std::tie(other.id, other.interval);
+  }
+};
+
+} // end anonymous namespace
+
+static std::vector<IsomorphismCheckInterval>
+getIsomorphismCheckSummary(const std::vector<VariableInterval> &in) {
+  std::vector<IsomorphismCheckInterval> summary;
+  std::unordered_map<VariableRef, std::size_t> varRefToSummaryId;
+  std::size_t nextSummaryId = 0;
+  for (const auto &vr : in) {
+    const auto &[it, inserted] =
+        varRefToSummaryId.emplace(vr.var, nextSummaryId);
+    summary.emplace_back(it->second, vr.interval);
+    if (inserted) {
+      ++nextSummaryId;
+    }
+  }
+  return summary;
+}
+
+bool identicalLayout(const Graph &graph, const Tensor &a, const Tensor &b) {
+  const auto &aMapping = graph.getTileMapping(a);
+  const auto &bMapping = graph.getTileMapping(b);
+  if (aMapping != bMapping) {
+    return false;
+  }
+
+  // Check if the 2 tensors are isomorphic, where isomorphic in this case
+  // means the underlying allocations are the same and elements of those
+  // allocations are referenced in the same order ignoring variable IDs.
+  Tensor aReordered = a.flatten();
+  Tensor bReordered = b.flatten();
+  graph.reorderToSimplify(&aReordered, {&bReordered});
+
+  const auto &aIsoSummary =
+      getIsomorphismCheckSummary(aReordered.getVarRegions());
+  const auto &bIsoSummary =
+      getIsomorphismCheckSummary(bReordered.getVarRegions());
+
+  return aIsoSummary == bIsoSummary;
+}
+
 } // end namespace util
 } // end namespace poplibs_test
 

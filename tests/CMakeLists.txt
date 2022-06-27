@@ -59,6 +59,7 @@ list(REMOVE_ITEM TimesOutOnSimCpp "Sim2:cpp" "Sim21:cpp")
 # Tests
 add_subdirectory(popfloat)
 add_subdirectory(poplibs_support)
+add_subdirectory(poplibs_test)
 add_subdirectory(poplin)
 add_subdirectory(popnn)
 add_subdirectory(popops)
