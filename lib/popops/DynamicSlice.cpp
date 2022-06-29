@@ -1633,43 +1633,41 @@ static void validateParams(std::string name, const SlicePlan &plan,
   }
 }
 
-static void validateParamsWithOutput(
-    std::string name, const SlicePlan &plan, const OptionFlags &options,
-    const std::vector<std::size_t> &outputShape,
-    const std::vector<std::size_t> &shape,
-    const boost::optional<Tensor> &offset, const std::vector<std::size_t> &dims,
-    const std::vector<std::size_t> &sizesOrSlices) {
+static void
+validateDynamicSliceOutputShape(const std::string &name,
+                                const std::vector<std::size_t> &outputShape,
+                                const std::vector<std::size_t> &inputShape,
+                                const std::vector<std::size_t> &dims,
+                                const std::vector<std::size_t> &sizes) {
 
   // Check the output rank matches.
-  if (outputShape.size() != shape.size()) {
+  if (outputShape.size() != inputShape.size()) {
     throw graph_connection_error(
         fmt::format("{} output rank (shape=[{}]) does not match the input rank "
                     "(shape=[{}])",
-                    name, outputShape, shape));
+                    name, outputShape, inputShape));
   }
 
-  // Check the output non-sliced dimensions matches the input.
+  // Check the output non-sliced dimensions match the input.
   std::unordered_set<std::size_t> dims_set(dims.begin(), dims.end());
-  for (std::size_t dim = 0u; dim < shape.size(); ++dim) {
-    if (!dims_set.count(dim) && shape[dim] != outputShape[dim]) {
+  for (std::size_t dim = 0u; dim < inputShape.size(); ++dim) {
+    if (!dims_set.count(dim) && inputShape[dim] != outputShape[dim]) {
       throw graph_connection_error(
           fmt::format("{} output non-sliced dimension {} (shape=[{}]) does not "
                       "match the input dimension (shape=[{}])",
-                      name, dim, outputShape, shape));
+                      name, dim, outputShape, inputShape));
     }
   }
 
-  // Check the output sliced dimensions matches the slice sizes.
+  // Check the output sliced dimensions match the slice sizes.
   for (std::size_t dim = 0u; dim < dims.size(); ++dim) {
-    if (outputShape[dims[dim]] != sizesOrSlices[dim]) {
+    if (outputShape[dims[dim]] != sizes[dim]) {
       throw graph_connection_error(fmt::format(
           "{} output dimension {} (shape=[{}]) does not match the slice count "
           "{} (sizes=[{}])",
-          name, dims[dim], outputShape, sizesOrSlices[dim], sizesOrSlices));
+          name, dims[dim], outputShape, sizes[dim], sizes));
     }
   }
-
-  validateParams(name, plan, options, shape, offset, dims, sizesOrSlices);
 }
 
 // Create and map a tensor so that dynamic slicing of it will not require
@@ -2363,8 +2361,13 @@ static void dynamicSliceWithOutputImpl(Graph &graph, const Tensor &out,
       "dynamicSlice out={}, t={}, offset={}, dims={}, sizes={}, name={}",
       out.shape(), t.shape(), offset.shape(), dims, sizes, dnai.getPathName());
 
-  validateParamsWithOutput("dynamicSlice", {}, {}, out.shape(), t.shape(),
-                           offset, dims, sizes);
+  // verify that the output shape of the dynamic slice is correct:
+  validateDynamicSliceOutputShape("dynamicSlice", out.shape(), t.shape(), dims,
+                                  sizes);
+
+  // verify that all shapes other than the output shape (checked above) are
+  // correct:
+  validateParams("dynamicSlice", {}, {}, t.shape(), offset, dims, sizes);
 
   const auto options = parseSliceOptions(optionFlags);
 
@@ -3028,24 +3031,36 @@ static void validateMultiSlice(const Tensor &t, const Tensor &offset,
                  grouped ? offset[0][0] : offset[0], dims, sizes);
 }
 
-static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
-                                 const Tensor &offset_,
-                                 const std::vector<std::size_t> &dims,
-                                 const std::vector<std::size_t> &sizes,
-                                 Sequence &prog, const SlicePlan &plan,
-                                 const OptionFlags &optionFlags,
-                                 const DebugNameAndId &dnai) {
+static Tensor createMultiSliceOutput(Graph &graph, const Tensor &t_,
+                                     const Tensor &offset_,
+                                     const std::vector<std::size_t> &dims,
+                                     const std::vector<std::size_t> &sizes,
+                                     const SlicePlan &plan,
+                                     const OptionFlags &optionFlags,
+                                     const DebugNameAndId &dnai) {
+
   // We always map the output in the same way to avoid surprising changes when
   // the number of slices changes
-  Tensor sMulti, sMultiInternal, t;
+
   if (plan.getImpl().isNull) {
-    sMulti = createSliceTensor(graph, t_.squeeze({0}), dims, sizes,
-                               offset_.dim(1), {dnai});
-  } else {
-    sMulti = createGroupedSliceTensor(
-        graph, t_.elementType(), t_.dim(0), t_[0].shape(), dims, sizes,
-        offset_.dim(1), plan, optionFlags, {dnai});
+    return createSliceTensor(graph, t_.squeeze({0}), dims, sizes,
+                             offset_.dim(1), {dnai});
   }
+  return createGroupedSliceTensor(graph, t_.elementType(), t_.dim(0),
+                                  t_[0].shape(), dims, sizes, offset_.dim(1),
+                                  plan, optionFlags, {dnai});
+}
+
+static void multiSliceInternal(Graph &graph, const Tensor &sMulti,
+                               const Tensor &t_, const Tensor &offset_,
+                               const std::vector<std::size_t> &dims,
+                               const std::vector<std::size_t> &sizes,
+                               Sequence &prog, const SlicePlan &plan,
+                               const OptionFlags &optionFlags,
+                               const DebugNameAndId &dnai) {
+
+  Tensor sMultiInternal, t;
+
   if (t_.elementType() == QUARTER) {
     sMultiInternal = sMulti.reinterpret(UNSIGNED_CHAR);
     t = t_.reinterpret(UNSIGNED_CHAR);
@@ -3095,7 +3110,9 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
     multiSlicePlanned(graph, tRegroupedPre ? base : t, maybeRemappedOffsets,
                       sMultiInternal, dims, sizes, prog, plan.getImpl(),
                       optionFlags, {dnai});
-    return sMulti;
+
+    // sMulti is set, return.
+    return;
   }
 
   // sequeeze out first dimensions as there's no group dimension for unplanned
@@ -3112,7 +3129,9 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
                             {dnai, std::to_string(slice)}, optionFlags);
       prog.add(Copy(s, sMultiInternal[slice], false, {dnai}));
     }
-    return sMulti;
+
+    // sMulti is set, return.
+    return;
   }
 
   // When there are many offsets of single slices there is a fast vertex.
@@ -3122,7 +3141,9 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
     generateMultiSliceVertices("popops::MultiSlice", false, boost::none, graph,
                                prog, offset, t, sMultiInternal, boost::none,
                                dims[0], boost::none, optionFlags, {dnai});
-    return sMulti;
+
+    // sMulti is set, return.
+    return;
   }
 
   // looping case
@@ -3142,8 +3163,6 @@ static Tensor multiSliceInternal(Graph &graph, const Tensor &t_,
         return body;
       },
       {dnai, "loop"}));
-
-  return sMulti;
 }
 
 static void validateGroupDims(const std::vector<Tensor> &t,
@@ -3178,9 +3197,13 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   validateMultiSlice(t, offset, dims, sizes, false, plan, optionFlags);
   // Internal multi-slice needs a group dimension. Add singleton dimensions
   // to both base and offset tensors.
-  auto sMulti =
-      multiSliceInternal(graph, t.expand({0}), offset.expand({0}), dims, sizes,
-                         prog, plan, optionFlags, {di, "multiSlice"});
+
+  DebugNameAndId dnai{di, "multiSlice"};
+  auto sMulti = createMultiSliceOutput(graph, t.expand({0}), offset.expand({0}),
+                                       dims, sizes, plan, optionFlags, dnai);
+
+  multiSliceInternal(graph, sMulti, t.expand({0}), offset.expand({0}), dims,
+                     sizes, prog, plan, optionFlags, dnai);
 
   // Only planned version returns tensor with a grouped dimension
   if (!plan.getImpl().isNull) {
@@ -3210,8 +3233,13 @@ Tensor groupedMultiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   }
   validateGroupDims({t, offset}, {"base", "offset"}, {di, "groupedMultiSlice"});
   validateMultiSlice(t, offset, dims, sizes, true, plan, optionFlags);
-  auto sMulti = multiSliceInternal(graph, t, offset, dims, sizes, prog, plan,
-                                   optionFlags, {di, "groupedMultiSlice"});
+
+  DebugNameAndId dnai{di, "groupedMultiSlice"};
+  auto sMulti = createMultiSliceOutput(graph, t, offset, dims, sizes, plan,
+                                       optionFlags, dnai);
+
+  multiSliceInternal(graph, sMulti, t, offset, dims, sizes, prog, plan,
+                     optionFlags, dnai);
   di.addOutput(sMulti);
   return sMulti;
 }
@@ -3324,7 +3352,7 @@ static void multiUpdateOp(Graph &graph, const Tensor &t, const Tensor &sMulti,
   if (offset.rank() != 3)
     throw poputil::poplibs_error(
         multiUpdateName + " expects offset.rank() == " + rankStr +
-        " but it is" + std::to_string(offset.rank() - !grouped));
+        " but it is " + std::to_string(offset.rank() - !grouped));
   if (offset.dim(2) != dims.size())
     throw poputil::poplibs_error(
         multiUpdateName + " expects offset.dim(" + offsetDimStr +
@@ -3448,8 +3476,8 @@ void multiUpdateInternal(Graph &graph, const Tensor &t_, const Tensor &sMulti_,
   // Check the offsets have been specified with a multi-slice dimension
   if (offset_.rank() != 3)
     throw poputil::poplibs_error(
-        "multiUpdate expects offset.rank() == " + offsetRankStr + " but it is" +
-        std::to_string(offset_.rank() - !grouped));
+        "multiUpdate expects offset.rank() == " + offsetRankStr +
+        " but it is " + std::to_string(offset_.rank() - !grouped));
 
   if (offset_.dim(2) != dims.size())
     throw poputil::poplibs_error(
