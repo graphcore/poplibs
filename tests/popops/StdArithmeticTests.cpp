@@ -1269,7 +1269,7 @@ BOOST_AUTO_TEST_CASE(CastQuarterHalf) {
   Engine eng(graph, Sequence{prog});
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", inMetadata, hIn);
+    eng.writeTensor("in", inMetadata, poplar::ArrayRef(hIn));
     eng.run();
     eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
   });
@@ -1355,7 +1355,7 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter) {
   Engine eng(graph, Sequence{prog});
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", inMetadata, gccs::ArrayRef(hIn));
+    eng.writeTensor("in", inMetadata, poplar::ArrayRef(hIn));
     eng.run();
     eng.readTensor("out", outMetadata, gccs::ArrayRef(hOut));
   });
