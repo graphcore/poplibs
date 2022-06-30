@@ -1526,7 +1526,7 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
   if (transforms[systemLevel].extraFieldDims == 0 &&
       options.experimentalConvTransformsEstimates == true) {
 
-    const auto ipuTransforms = transforms[systemLevel];
+    const auto &ipuPartition = partitionVars[systemLevel];
 
     auto getCycles = [](unsigned atomSize,
                         const uint64_t &bytesPerTile) -> uint64_t {
@@ -1556,7 +1556,7 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
     estimates.inputsCopyCycles = m.call<uint64_t>(
         {partitionVars[systemLevel].inChanSplit.serial,
          estimates.inputsTempBytes},
-        [getCycles, ipuTransforms, transformedViewParams, convVertexType,
+        [getCycles, ipuPartition, transformedViewParams, convVertexType,
          inputBytesPerElement](
             const std::vector<uint64_t> &vars) -> popsolver::DataType {
           const auto &inChanSerialSplit = vars[0];
@@ -1568,7 +1568,7 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
           const unsigned numInChanPerSplit =
               gccs::ceildiv(numInChans, inChanSerialSplit);
           const auto inChanShape =
-              std::gcd(convVertexType.inChansPerGroup, numInChanPerSplit);
+              std::min(ipuPartition.inChanGrainSize, numInChanPerSplit);
           const auto groupsShape =
               std::gcd(convVertexType.convGroupsPerGroup, numGroups);
           unsigned inputsAtomSize =
@@ -1583,7 +1583,7 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
         {partitionVars[systemLevel].inChanSplit.serial,
          partitionVars[systemLevel].outChanSplit.serial,
          estimates.weightsTempBytes},
-        [getCycles, ipuTransforms, transformedViewParams, convVertexType,
+        [getCycles, ipuPartition, transformedViewParams, convVertexType,
          inputBytesPerElement](
             const std::vector<uint64_t> &vars) -> popsolver::DataType {
           const auto &inChanSerialSplit = vars[0];
@@ -1600,9 +1600,9 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
           const unsigned numOutChanPerSplit =
               gccs::ceildiv(numOutChans, outChanSerialSplit);
           const auto inChanShape =
-              std::gcd(convVertexType.inChansPerGroup, numInChanPerSplit);
+              std::min(ipuPartition.inChanGrainSize, numInChanPerSplit);
           const auto outChanShape =
-              std::gcd(convVertexType.partialChansPerGroup, numOutChanPerSplit);
+              std::min(ipuPartition.outChanGrainSize, numOutChanPerSplit);
           const auto groupsShape =
               std::gcd(convVertexType.convGroupsPerGroup, numGroups);
           unsigned weightsAtomSize =
@@ -2700,26 +2700,29 @@ getConvGroupGrainSizes(const std::vector<ConvTransform> &transforms,
 
 static std::vector<unsigned>
 getOutChanGrainSizes(const std::vector<ConvTransform> &transforms,
-                     unsigned partialChansPerGroup) {
-  assert(transforms.size() >= 1);
+                     unsigned numOutChans, unsigned partialChansPerGroup) {
+  assert(transforms.size() == 2);
   std::vector<unsigned> outChanGrainSizes(transforms.size());
   // The grain size at the last level is equal to partialChansPerGroup.
   // To avoid rearrangement we use the same grain size at upper levels
   // unless these is a transform that rearranges the output channel axis.
-  outChanGrainSizes.back() = partialChansPerGroup;
+  outChanGrainSizes[tileLevel] = partialChansPerGroup;
 
-  for (int i = static_cast<int>(transforms.size()) - 2; i >= 0; --i) {
-    outChanGrainSizes[i] = (transforms[i + 1].outChanFlattenDims.empty() &&
-                            (transforms[i + 1].combineConvGroupsFactor == 1))
-                               ? outChanGrainSizes[i + 1]
-                               : 1;
+  if (transforms[tileLevel].combineConvGroupsFactor != 1) {
+    outChanGrainSizes[systemLevel] = 1;
+  } else if (!transforms[tileLevel].outChanFlattenDims.empty()) {
+    outChanGrainSizes[systemLevel] =
+        std::gcd(numOutChans, outChanGrainSizes[tileLevel]);
+  } else {
+    outChanGrainSizes[systemLevel] = outChanGrainSizes[tileLevel];
   }
+
   return outChanGrainSizes;
 }
 
 static std::vector<unsigned>
 getInChanGrainSizes(const std::vector<ConvTransform> &transforms,
-                    unsigned inChansPerGroup) {
+                    unsigned numInChans, unsigned inChansPerGroup) {
   assert(transforms.size() == 2);
   std::vector<unsigned> inChanGrainSizes(transforms.size());
   // The grain size at the last level is equal to inChansPerGroup.
@@ -2729,7 +2732,8 @@ getInChanGrainSizes(const std::vector<ConvTransform> &transforms,
 
   if (!transforms[tileLevel].outChanFlattenDims.empty() ||
       transforms[tileLevel].combineConvGroupsFactor != 1)
-    inChanGrainSizes[systemLevel] = 1;
+    inChanGrainSizes[systemLevel] =
+        std::gcd(numInChans, inChanGrainSizes[tileLevel]);
   else
     inChanGrainSizes[systemLevel] = inChanGrainSizes[tileLevel];
 
@@ -2966,9 +2970,12 @@ Estimates<popsolver::Variable> constructModel(
 
   const auto convGroupGrainSize =
       getConvGroupGrainSizes(transforms, convGroupsPerGroup);
-  const auto outChanGrainSize =
-      getOutChanGrainSizes(transforms, partialChansPerGroup);
-  const auto inChanGrainSize = getInChanGrainSizes(transforms, inChansPerGroup);
+  const auto outChanGrainSize = getOutChanGrainSizes(
+      transforms, untransformedParams.getNumOutputChansPerConvGroup(),
+      partialChansPerGroup);
+  const auto inChanGrainSize = getInChanGrainSizes(
+      transforms, untransformedParams.getNumInputChansPerConvGroup(),
+      inChansPerGroup);
 
   // Apply the top level transform to the parameters. The top level transform is
   // the only transform that can add dimensions / swap operands. Applying the
@@ -3279,15 +3286,17 @@ Estimates<popsolver::Variable> constructModel(
 
       const auto initialInputChansPerConvGroup =
           transformedViewParams.getNumInputChansPerConvGroup();
-      m.lessOrEqual(
-          p.inChanSplit.serial,
-          popsolver::DataType{std::max(initialInputChansPerConvGroup, 1ul)});
+      const auto initialInputChanGrains =
+          gccs::ceildiv(initialInputChansPerConvGroup, inChanGrainSize[level]);
+      m.lessOrEqual(p.inChanSplit.serial,
+                    popsolver::DataType{std::max(initialInputChanGrains, 1ul)});
 
       const auto initialOutputChansPerGroup =
           transformedViewParams.getNumOutputChansPerConvGroup();
-      m.lessOrEqual(
-          p.outChanSplit.serial,
-          popsolver::DataType{std::max(initialOutputChansPerGroup, 1ul)});
+      const auto initialOutputChanGrains =
+          gccs::ceildiv(initialOutputChansPerGroup, outChanGrainSize[level]);
+      m.lessOrEqual(p.outChanSplit.serial, popsolver::DataType{std::max(
+                                               initialOutputChanGrains, 1ul)});
 
       auto noInChansSerialSplit =
           m.reifiedLessOrEqual(p.inChanSplit.serial, m.one());
