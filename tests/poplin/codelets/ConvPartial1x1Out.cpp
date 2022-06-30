@@ -14,7 +14,6 @@
 #include "poputil/exceptions.hpp"
 #include <boost/multi_array.hpp>
 #include <functional>
-#include <poplar/ArrayRef.hpp>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
 
@@ -396,10 +395,11 @@ void runTest(const struct TestParams &t) {
         copy(target, buf.data(), buf.num_elements(), type, tmpBuf.data());
         e.writeTensor(name, tmpBuf.data(), tmpBuf.data() + nBytes);
       } else if (type == QUARTER) {
-        std::vector<Quarter> bufFp8(buf.num_elements());
+        std::vector<uint8_t> bufFp8(buf.num_elements());
         copy(target, buf.data(), buf.num_elements(), QUARTER, *metadata,
              bufFp8.data());
-        e.writeTensor(name, *metadata, ArrayRef(bufFp8));
+        e.writeTensor(name, *metadata, bufFp8.data(),
+                      bufFp8.data() + bufFp8.size());
       }
     };
     auto readTensorData = [&](const Type &type, const std::string &name,

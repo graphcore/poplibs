@@ -14,6 +14,7 @@
 #include <poplar/IPUModel.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Quarter.hpp>
+#include <poplar/TypeConversion.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/TempDir.hpp>
 #include <popops/Cast.hpp>
@@ -1125,10 +1126,10 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterWithOutput) {
 
   graph.createHostRead("out", out);
   QuarterMetadata resultMetadata;
-  std::vector<Quarter> hOut(DIM_SIZE);
 
-  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
-  std::vector<char> rawIn(rawBufSize);
+  std::vector<char> rawIn(target.getTypeSize(HALF) * DIM_SIZE);
+  std::vector<char> rawOut(target.getTypeSize(QUARTER) * DIM_SIZE);
+
   poplar::copyFloatToDeviceHalf(target, hIn.data(), rawIn.data(), DIM_SIZE);
 
   Engine eng(graph, Sequence{prog});
@@ -1136,12 +1137,17 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterWithOutput) {
     eng.load(d);
     eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
     eng.run();
-    eng.readTensor("out", resultMetadata, gccs::ArrayRef(hOut));
+    eng.readTensor("out", resultMetadata, rawOut.data(),
+                   rawOut.data() + rawOut.size());
   });
+
+  std::vector<float> hOut(DIM_SIZE);
+  poplar::convertFromDeviceType(QUARTER, resultMetadata, rawOut.data(),
+                                gccs::ArrayRef(hOut));
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hOut[i] == Quarter(i % modulo, resultMetadata));
+    BOOST_TEST(hOut[i] == hIn[i]);
   }
   BOOST_TEST(resultMetadata == outMetadata);
 }
@@ -1174,10 +1180,10 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarter) {
 
   graph.createHostRead("out", out);
   QuarterMetadata resultMetadata;
-  std::vector<Quarter> hOut(DIM_SIZE);
 
-  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
-  std::vector<char> rawIn(rawBufSize);
+  std::vector<char> rawIn(target.getTypeSize(HALF) * DIM_SIZE);
+  std::vector<char> rawOut(target.getTypeSize(QUARTER) * DIM_SIZE);
+
   poplar::copyFloatToDeviceHalf(target, hIn.data(), rawIn.data(), DIM_SIZE);
 
   Engine eng(graph, Sequence{prog});
@@ -1185,12 +1191,17 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarter) {
     eng.load(d);
     eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
     eng.run();
-    eng.readTensor("out", resultMetadata, gccs::ArrayRef(hOut));
+    eng.readTensor("out", resultMetadata, rawOut.data(),
+                   rawOut.data() + rawOut.size());
   });
+
+  std::vector<float> hOut(DIM_SIZE);
+  poplar::convertFromDeviceType(QUARTER, resultMetadata, rawOut.data(),
+                                gccs::ArrayRef(hOut));
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hOut[i] == Quarter(i % modulo, resultMetadata));
+    BOOST_TEST(hOut[i] == hIn[i]);
   }
   BOOST_TEST(resultMetadata == outMetadata);
 }
@@ -1205,9 +1216,9 @@ BOOST_AUTO_TEST_CASE(CastQuarterHalfWithOutput) {
   // Choose a small numeric range which is supported by the FP8 type
   const auto inMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 0);
   const unsigned modulo = 10;
-  std::vector<Quarter> hIn(DIM_SIZE);
+  std::vector<float> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    hIn[i] = Quarter((float)(i % modulo), inMetadata);
+    hIn[i] = (float)(i % modulo);
   }
   auto in = graph.addVariable(QUARTER, {DIM_SIZE}, "in");
   auto out = graph.addVariable(HALF, {DIM_SIZE}, "out");
@@ -1222,22 +1233,27 @@ BOOST_AUTO_TEST_CASE(CastQuarterHalfWithOutput) {
   prog.add(Execute(cs));
 
   graph.createHostRead("out", out);
-  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
-  std::vector<char> rawOut(rawBufSize);
+  std::vector<char> rawIn(target.getTypeSize(QUARTER) * DIM_SIZE);
+  std::vector<char> rawOut(target.getTypeSize(HALF) * DIM_SIZE);
+
+  poplar::convertToDeviceType(QUARTER, inMetadata, gccs::ArrayRef(hIn),
+                              rawIn.data());
 
   Engine eng(graph, Sequence{prog});
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", inMetadata, ArrayRef(hIn));
+    eng.writeTensor("in", inMetadata, rawIn.data(),
+                    rawIn.data() + rawIn.size());
     eng.run();
     eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
   });
+
   std::vector<float> hOut(DIM_SIZE);
   poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0], DIM_SIZE);
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hOut[i] == i % modulo);
+    BOOST_TEST(hOut[i] == hIn[i]);
   }
 }
 
@@ -1251,9 +1267,9 @@ BOOST_AUTO_TEST_CASE(CastQuarterHalf) {
   // Choose a small numeric range which is supported by the FP8 type
   const auto inMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 0);
   const unsigned modulo = 10;
-  std::vector<Quarter> hIn(DIM_SIZE);
+  std::vector<float> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    hIn[i] = Quarter((float)(i % modulo), inMetadata);
+    hIn[i] = (float)(i % modulo);
   }
   auto in = graph.addVariable(QUARTER, {DIM_SIZE}, "in");
   mapTensorLinearly(graph, in);
@@ -1263,13 +1279,17 @@ BOOST_AUTO_TEST_CASE(CastQuarterHalf) {
 
   poplar::Tensor out = cast(graph, in, HALF, prog, "castToHalf");
   graph.createHostRead("out", out);
-  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE;
-  std::vector<char> rawOut(rawBufSize);
+  std::vector<char> rawIn(target.getTypeSize(QUARTER) * DIM_SIZE);
+  std::vector<char> rawOut(target.getTypeSize(HALF) * DIM_SIZE);
+
+  poplar::convertToDeviceType(QUARTER, inMetadata, gccs::ArrayRef(hIn),
+                              rawIn.data());
 
   Engine eng(graph, Sequence{prog});
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", inMetadata, poplar::ArrayRef(hIn));
+    eng.writeTensor("in", inMetadata, rawIn.data(),
+                    rawIn.data() + rawIn.size());
     eng.run();
     eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
   });
@@ -1278,7 +1298,7 @@ BOOST_AUTO_TEST_CASE(CastQuarterHalf) {
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hOut[i] == i % modulo);
+    BOOST_TEST(hOut[i] == hIn[i]);
   }
 }
 
@@ -1292,7 +1312,7 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar) {
   const unsigned modulo = 10;
   std::vector<char> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    hIn[i] = (float)(i % modulo);
+    hIn[i] = (char)(i % modulo);
   }
   auto in = graph.addVariable(CHAR, {DIM_SIZE}, "in");
   mapTensorLinearly(graph, in);
@@ -1307,6 +1327,7 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar) {
   graph.createHostRead("out", out);
 
   std::vector<char> hOut(DIM_SIZE);
+
   Engine eng(graph, Sequence{prog});
   device.bind([&](const Device &d) {
     eng.load(d);
@@ -1330,9 +1351,9 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter) {
   // Choose a small numeric range which is supported by the FP8 type
   const auto inMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 2u);
   const unsigned modulo = 8;
-  std::vector<Quarter> hIn(DIM_SIZE);
+  std::vector<float> hIn(DIM_SIZE);
   for (auto i = 0U; i < DIM_SIZE; ++i) {
-    hIn[i] = Quarter((float)(i % modulo), inMetadata);
+    hIn[i] = (float)(i % modulo);
   }
   // Manipulate the input to result in 2D vertex being called
   auto toSlice = graph.addVariable(QUARTER, {DIM_SIZE + 16}, "toSlice");
@@ -1350,15 +1371,26 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter) {
   auto out = cast(graph, inter, QUARTER, metadata0, prog, "castToQUART152");
   graph.createHostRead("out", out);
 
-  std::vector<Quarter> hOut(DIM_SIZE);
+  std::vector<char> rawIn(target.getTypeSize(QUARTER) * DIM_SIZE);
+  std::vector<char> rawOut(target.getTypeSize(QUARTER) * DIM_SIZE);
+
+  poplar::convertToDeviceType(QUARTER, inMetadata, gccs::ArrayRef(hIn),
+                              rawIn.data());
+
   QuarterMetadata outMetadata;
   Engine eng(graph, Sequence{prog});
   device.bind([&](const Device &d) {
     eng.load(d);
-    eng.writeTensor("in", inMetadata, poplar::ArrayRef(hIn));
+    eng.writeTensor("in", inMetadata, rawIn.data(),
+                    rawIn.data() + rawIn.size());
     eng.run();
-    eng.readTensor("out", outMetadata, gccs::ArrayRef(hOut));
+    eng.readTensor("out", outMetadata, rawOut.data(),
+                   rawOut.data() + rawOut.size());
   });
+
+  std::vector<float> hOut(DIM_SIZE);
+  poplar::convertFromDeviceType(QUARTER, outMetadata, rawOut.data(),
+                                gccs::ArrayRef(hOut));
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {

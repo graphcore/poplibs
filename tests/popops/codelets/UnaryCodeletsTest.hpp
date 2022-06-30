@@ -306,8 +306,13 @@ void performCast(const bool isIpuModel, const HostSrcType a,
   if (devDstType == BOOL) {
     result = (a != 0);
   } else if (devDstType == QUARTER) {
-    float fResult =
-        Quarter(static_cast<float>(a), *metadata).toFloat(*metadata);
+    unsigned char quart;
+    float fResult;
+    auto in = static_cast<float>(a);
+    poplar::convertToDeviceType(QUARTER, *metadata,
+                                gccs::ArrayRef<const float>(&in, 1U), &quart);
+    poplar::convertFromDeviceType(QUARTER, *metadata, &quart,
+                                  gccs::ArrayRef(&fResult, 1U));
     if (std::isnan(fResult))
       fResult = 256;
     result = fResult;
