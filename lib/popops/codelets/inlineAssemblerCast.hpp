@@ -850,4 +850,309 @@ static float2 extractMetadataNegScale(const MetadataType *metadata) {
   return result;
 }
 
+#else
+
+// FP8 -> Half Mk2 Cast
+// It's OK to overprocess because we have to deal with every byte input value of
+// the initial quarter anyway.
+
+template <unsigned stride>
+class inLineAssemblerCast<const quarter *, half *, true, stride> {
+public:
+  static __attribute__((always_inline)) half4
+  loopCast152(int loopCount, const quarter *in, half *out, float2 *metadata) {
+    half4 lastResults;
+    float2 stack[5];
+    stack[0][0] = (*metadata)[1];    // scale
+    stack[1][0] = 2.66851606673e+36; // 0x7c007c00 exponent mask
+    stack[1][1] = 2.66851606673e+36; // 0x7c007c00 exponent mask
+    stack[2][0] = 1.04226232351e+34; // 0x78007800 exponent offset
+    stack[2][1] = 1.04226232351e+34; // 0x78007800 exponent offset
+
+    // Cast fp8(152) -> half:
+    // Shuffle into 16 bit fields abcdefgh => ab00cd00 ef00gh00
+    // Temporary shift and compare with 0x08 shifted nan fp8 mask
+    // Isolate mantisa with sign bits and mantisa
+    // Check that the value is not denormalized
+    // If so, mark as zero and merge to sign and mantissa
+    // Multiply the values by 2^scale
+    asm volatile(
+        R"l(
+              .equ stackOffsetMtoA6, 6
+              .equ stackOffsetMtoA7, 7
+              .equ stackOffsetMtoA2, 8
+              .equ stackOffsetMtoA3, 9
+              .equ stackOffsetA67, 3
+              .equ stackOffsetA23, 4
+              .equ stackOffsetExpMask, 1
+              .equ stackOffsetExpOff, 2
+              .equ stackOffsetScale, 0
+              {
+                ld32step      $m7, $mzero, %[baseIn]+=, %[ctxtWorkers]
+                uput   $FP_CTL, $azero   // disable FP exceptions
+              }
+              shuf8x8lo       $m8, $mzero, $m7
+              shuf8x8hi       $m7, $mzero, $m7
+              st32            $m8, %[stackPtr], $mzero, stackOffsetMtoA6
+              st32            $m7, %[stackPtr], $mzero, stackOffsetMtoA7
+              // Shift, preserve all 8 bits, but make 0x8000 -> 0x0800
+              // So we can compare without hitting a -0.0 == 0.0 issue
+              shr             $m8, $m8, 4
+              shr             $m7, $m7, 4
+              st32            $m8, %[stackPtr], $mzero, stackOffsetMtoA2
+              st32            $m7, %[stackPtr], $mzero, stackOffsetMtoA3
+
+              {
+                ld64          $a6:7, %[stackPtr], $mzero, stackOffsetA67
+                setzi         $a4, 0x3800
+              }
+              ld64            $a2:3, %[stackPtr], $mzero, stackOffsetExpMask
+              bri             1f
+            2:
+              st64step        %[lastResults], $mzero, %[baseOut]+=, %[ctxtWorkers]
+            1:
+              {
+                ld32step      $m7, $mzero, %[baseIn]+=, %[ctxtWorkers]
+                andc64        %[lastResults], $a6:7, $a2:3
+              }
+              {
+                shuf8x8lo     $m8, $mzero, $m7
+                andc64        $a2:3, $a2:3, $a6:7
+              }
+              {
+                shuf8x8hi     $m7, $mzero, $m7
+                f16v4cmpeq    $a2:3, $azeros, $a2:3
+              }
+              {
+                ld64          $a4:5, %[stackPtr], $mzero, stackOffsetExpOff
+                f16v4mul      $a6:7, $a4:BL, $a6:7
+              }
+              {
+                st32          $m8, %[stackPtr], $mzero, stackOffsetMtoA6
+                or64          %[lastResults],%[lastResults], $a4:5
+              }
+              {
+                st32          $m7, %[stackPtr], $mzero, stackOffsetMtoA7
+                andc64        $a6:7, $a6:7, $a2:3
+              } 
+              and64           %[lastResults], %[lastResults], $a2:3
+              {
+                ld64          $a2:3, %[stackPtr], $mzero, stackOffsetA23
+                or64          %[lastResults], $a6:7, %[lastResults]
+              }
+              {
+                shr           $m8, $m8, 4
+                setzi         $a6, 0x0800
+              }
+            {
+                shr           $m7, $m7, 4
+                f16v4cmpeq    $a2:3, $a6:BL, $a2:3
+              }
+              {
+                ld32         $a2, %[stackPtr], $mzero, stackOffsetScale
+                or64         %[lastResults], $a2:3, %[lastResults]
+              }             
+              {
+                st32         $m8, %[stackPtr], $mzero, stackOffsetMtoA2
+                f32fromi32   $a2, $a2
+              }
+              {
+                st32         $m7, %[stackPtr], $mzero, stackOffsetMtoA3    
+                f32tof16     $a2, $a2
+              }
+              {
+                ld64         $a6:7, %[stackPtr], $mzero, stackOffsetA67
+                f16v2exp2    $a2, $a2
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetExpMask
+                f16v4mul     %[lastResults], $a2:BL, %[lastResults]
+              }
+              {
+                brnzdec      %[count], 2b
+                setzi        $a4, 0x3800
+              }
+          )l"
+        : [lastResults] "=r"(lastResults)
+        : [baseIn] "r"(in), [baseOut] "r"(out), [count] "r"(loopCount),
+          [ctxtWorkers] "r"(stride), [stackPtr] "r"(&stack)
+        : "$a2:3", "$a4:5", "$a6:7", "$m7", "$m8", "memory");
+    return lastResults;
+  }
+
+  static __attribute__((always_inline)) half4
+  loopCast143(int loopCount, const quarter *in, half *out, float2 *metadata) {
+    half4 lastResults;
+    half2 bias = {7.0, 7.0};
+    float2 stack[3];
+    stack[0][0] = 2.83326107615e+14;  // 0x5780d780 clampfp16
+    stack[0][1] = -1.18010406225e-38; // 0x80808080 sign mask
+    stack[1][0] = 2.66851606673e+36;  // 0x7c007c00 exponent mask
+    stack[1][1] = 2.66851606673e+36;  // 0x7c007c00 exponent mask
+    stack[2][0] = (*metadata)[1];     // scale
+    stack[2][1] = 6.01853466353e-36;  // -0.0 fp16 class 0x05000005
+
+    // Cast fp8(143) -> half:
+    // Shuffle into 16 bit fields abcdefgh => ab00cd00 ef00gh00
+    // Isolate sign then shift right by 1 and recombine signs
+    // Check that the values are not negative zeros (using f16v4class)
+    // which is equivalent to nan in fp16
+    // Clamp values to limits the range +/- 120, then Mark as 0xffff if no
+    // clamp else 0x0000
+    // Multiply the values by 2^(scale + bias)
+    asm volatile(
+        R"l(
+              .equ mask12L, 0xfff
+              .equ mask12U, 0xfff00000
+              .equ maskClassResult ,0xff0000ff
+              .equ cmpClassResult, 0x05000005
+
+              .equ stackOffsetMtoA6, 0
+              .equ stackOffsetMtoA7, 1
+              .equ stackOffsetA67, 0
+              .equ stackOffsetScale, 4
+              .equ stackOffsetSignMask, 1
+              .equ stackOffsetExpMask, 1
+              .equ stackOffsetClampfp16, 0
+              .equ stackOffsetFp16MZeroClass, 5
+
+              ld32           $a5, %[stackPtr], $mzero, stackOffsetScale
+              {
+                ld32step     $m7, $mzero, %[baseIn]+=, %[ctxtWorkers]
+                f32fromi32   $a5, $a5
+              }
+              {
+                ld32         $m2, %[stackPtr], $mzero, stackOffsetSignMask
+                f32tof16     $a5, $a5
+              }
+              {
+                ld64         %[lastResults], %[stackPtr], $mzero, stackOffsetExpMask
+                f16v2add     $a5, $a5, %[bias]
+              }
+              {
+                ld32         $a5, %[stackPtr], $mzero, stackOffsetClampfp16
+                f16v2exp2    %[bias], $a5 // prepare scale
+              }
+              {
+                and          $m4, $m7, $m2
+                uput           $FP_CTL, $azero   // disable FP exceptions
+              }
+              xor            $m7, $m7, $m4
+              shuf8x8lo      $m5, $mzero, $m4
+              shuf8x8hi      $m4, $mzero, $m4
+              shuf8x8lo      $m8, $mzero, $m7
+              shuf8x8hi      $m7, $mzero, $m7
+              shr            $m8, $m8, 0x1
+              shr            $m7, $m7, 0x1
+              or             $m8, $m8, $m5
+              or             $m7, $m7, $m4
+              st32           $m7, %[stackPtr], $mzero, stackOffsetMtoA7
+
+              bri            1f
+            2:
+              st64step       $a0:1, $mzero, %[baseOut]+=, %[ctxtWorkers]
+            1:
+              {
+                ld32step     $m7, $mzero, %[baseIn]+=, %[ctxtWorkers]
+                or           $a0, $azero, maskClassResult & mask12L
+              }
+              { 
+                st32         $m8, %[stackPtr], $mzero, stackOffsetMtoA6
+                or           $a0, $a0, maskClassResult & mask12U
+              }
+              {
+                ld64         $a6:7, %[stackPtr], $mzero, stackOffsetA67
+                mov          $a1, $a0
+              }
+              // Produces 0x05 for the value we want in 4 consecutive bytes:
+              // 0xwwxxyyzz
+              {
+                and          $m4, $m7, $m2
+                f16v4class   $a7, $a6:7
+              }
+              {
+                xor          $m7, $m7, $m4
+                sort4x16lo   $a6, $a7, $a7  //0xyyzzyyzz
+              }
+              {
+                shuf8x8lo    $m5, $mzero, $m4
+                sort4x16hi   $a7, $a7, $a7  //0xwwxxwwxx
+              }
+              {
+                shuf8x8hi    $m4, $mzero, $m4
+                and64        $a0:1, $a0:1, $a6:7  //$a1:0xww0000xx $a0:0xyy0000zz
+              }
+              shuf8x8lo      $m8, $mzero, $m7
+              ld32           $a6, %[stackPtr], $mzero, stackOffsetFp16MZeroClass
+              {
+                shuf8x8hi    $m7, $mzero, $m7
+                mov          $a7, $a6
+              }
+              // Reload as it is trampled
+              // Compare: any byte left that =0x05 => 0xffff (==nan)
+              {
+                ld64         $a6:7, %[stackPtr], $mzero, stackOffsetA67
+                f16v4cmpeq   $a0:1, $a0:1, $a6:7
+              }
+              {
+                shr          $m8, $m8, 0x1
+                or64         $a6:7, $a6:7, $a0:1
+              }
+              {
+                shr          $m7, $m7, 0x1
+                f16v4clamp   $a0:1, $a6:7, $a5
+              }
+              {
+                or           $m8, $m8, $m5
+                f16v4cmpeq   $a0:1, $a6:7, $a0:1
+              }
+              {
+                or           $m7, $m7, $m4
+                andc64       $a0:1, %[lastResults], $a0:1
+              }
+              {
+                st32         $m7, %[stackPtr], $mzero, stackOffsetMtoA7
+                or64         $a0:1, $a6:7, $a0:1
+              }
+              {
+                brnzdec      %[count], 2b
+                f16v4mul     $a0:1, %[bias]:BL, $a0:1         // Scale values
+              }
+              mov            %[lastResults], $a0:1
+          )l"
+        : [bias] "+r"(bias), [lastResults] "=r"(lastResults)
+        : [baseIn] "r"(in), [baseOut] "r"(out), [count] "r"(loopCount),
+          [ctxtWorkers] "r"(stride), [stackPtr] "r"(stack)
+        : "$a0:1", "$a5", "$a6:7", "$m2", "$m4", "$m5", "$m7", "$m8", "memory");
+    return lastResults;
+  }
+};
+// Setting Fp8 metadata:
+// Set the format to 0 if 152, otherwise 0.
+// Convert the scale value to i32.
+
+static void extractMetadata(const MetadataType *metadata,
+                            float2 *unpackedMetadata) {
+  uint32_t scaleSignMask = 0x3FFFFFF;
+  asm volatile(
+      R"l(  ldz8      $m0,  %[metadata], $mzero, 0
+            
+            and       $m1, $m0, 0x80
+            shl       $m1, $m1, 23
+            st32      $m1, %[unpackedPtr], $mzero, 0
+
+			      and $m1, $m0, 0x20
+            // 0x7FFFFFE0 mask if scale sign bit is active, else 0x0
+            mul       $m2, $m1, %[scaleSignMask]
+            shl       $m1, $m1, 0x1a
+            and       $m0, $m0, 0x1f
+
+            or        $m0, $m0, $m1
+            or        $m0, $m0, $m2
+            st32      $m0, %[unpackedPtr], $mzero, 0x1
+      )l" ::[metadata] "r"(metadata),
+      [unpackedPtr] "r"(unpackedMetadata), [scaleSignMask] "r"(scaleSignMask)
+      : "$m0", "$m1", "$m2", "memory");
+}
+
 #endif

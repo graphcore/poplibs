@@ -4,6 +4,7 @@
 //
 #include <poplar/Engine.hpp>
 #include <poplar/Quarter.hpp>
+#include <poplar/TypeConversion.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <popops/Zero.hpp>
 
@@ -36,7 +37,7 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
             unsigned rows, unsigned columns, unsigned offsetOut,
             const bool supervisor, const QuarterMetadata::Format fp8Format,
             const int fp8Scale, const QuarterMetadata::Format fp8FormatOut,
-            const int fp8ScaleOut, bool profile) {
+            const int fp8ScaleOut, bool binaryMode, bool profile) {
 
   // Check that the output offset results in a multiple of 4
   // bytes
@@ -60,14 +61,24 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
     // Pick values that are exact for the FP8 format selected.
     // QUART 143 has 3 mantissa bits + 1 lead bit = 4 bits, supports 0..16
     // QUART 152 has 2 mantissa bits + 1 lead bit = 3 bits, supports 0..8
-    const unsigned modulo = (fp8Format == QuarterMetadata::Format ::F143 &&
-                             fp8FormatOut == QuarterMetadata::Format ::F143)
-                                ? 17
-                                : 9;
-    for (unsigned i = 0; i < total_elems; i++) {
-      inTest[i] = (i + 1) % modulo;
-      if (i % 2 && dataTypeIn == CHAR) {
-        inTest[i] *= -1;
+    if (dataTypeIn == QUARTER && binaryMode) {
+      QuarterMetadata metadata(fp8Format, fp8Scale);
+      std::vector<unsigned char> quarters(total_elems);
+      for (unsigned i = 0; i < total_elems; i++) {
+        quarters[i] = (unsigned char)(i % 256);
+      }
+      convertFromDeviceType(QUARTER, metadata, quarters.data(),
+                            gccs::ArrayRef(inTest));
+    } else {
+      const unsigned modulo = (fp8Format == QuarterMetadata::Format ::F143 &&
+                               fp8FormatOut == QuarterMetadata::Format ::F143)
+                                  ? 17
+                                  : 9;
+      for (unsigned i = 0; i < total_elems; i++) {
+        inTest[i] = (i + 1) % modulo;
+        if (i % 2 && dataTypeIn == CHAR) {
+          inTest[i] *= -1;
+        }
       }
     }
   } else if (dataTypeIn == CHAR || dataTypeIn == SIGNED_CHAR) {
@@ -183,9 +194,10 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   }
   // Check the result, in the outTest array
   // Always check the whole output memory to catch any overwrites
-
-  bool check = checkIsClose("CastTest", outHost.data(), {outHost.size()},
-                            outTest.data(), outTest.size(), 0.05, 0.05);
+  const float threshold = binaryMode ? 0.f : 0.05;
+  bool check =
+      checkIsClose("CastTest", outHost.data(), {outHost.size()}, outTest.data(),
+                   outTest.size(), threshold, threshold, true);
   if (profile) {
     engine.printProfileSummary(std::cout,
                                OptionFlags{{"showExecutionSteps", "true"}});
@@ -203,6 +215,7 @@ int main(int argc, char **argv) {
   unsigned rows, columns, offsetOut;
   bool supervisor = false;
   bool profile = false;
+  bool binaryMode = false;
   QuarterMetadata::Format fp8Format = QuarterMetadata::Format::F143;
   QuarterMetadata::Format fp8FormatOut = QuarterMetadata::Format::F143;
   int fp8Scale = 0, fp8ScaleOut = 0;
@@ -244,7 +257,10 @@ int main(int argc, char **argv) {
      "Output offset in output word size units")
     ("supervisor",
      po::value<bool>(&supervisor)->implicit_value(true),
-     "Use supervisor vertex (only valid if rows=1)");
+     "Use supervisor vertex (only valid if rows=1)")
+    ("binary-mode",
+     po::value<bool>(&binaryMode)->implicit_value(true),
+     "Generate successive binary values as input (only for quarter input type).");
   // clang-format on
   po::variables_map vm;
   try {
@@ -263,11 +279,16 @@ int main(int argc, char **argv) {
     std::cerr << "error: 'supervisor' option requires 'rows'=1\n";
     return 1;
   }
+  if (binaryMode && inType != QUARTER) {
+    std::cerr << "error: 'binary-mode' option requires quarter input type\n";
+    return 1;
+  }
   if (vm.count("profile")) {
     profile = true;
   }
   if (!doTest(deviceType, inType, outType, rows, columns, offsetOut, supervisor,
-              fp8Format, fp8Scale, fp8FormatOut, fp8ScaleOut, profile))
+              fp8Format, fp8Scale, fp8FormatOut, fp8ScaleOut, binaryMode,
+              profile))
     return 1;
   return 0;
 }

@@ -317,14 +317,15 @@ template <typename FPType>
 bool checkIsClose(const std::string &name, const FPType *actual,
                   const std::vector<std::size_t> &shape, const FPType *expected,
                   std::size_t N, double relativeTolerance,
-                  double absoluteTolerance) {
+                  double absoluteTolerance, bool compareNans) {
   auto it = actual;
   auto end = it + N;
   bool isClose = true;
   unsigned mismatch = 0;
   unsigned mismatchPrinted = 20;
   for (; it != end; ++it, ++expected) {
-    if ((std::isnan(*it) || std::isnan(*expected)) ||
+    bool handleNans = compareNans && std::isnan(*it) && std::isnan(*expected);
+    if ((!handleNans && (std::isnan(*it) || std::isnan(*expected))) ||
         (!checkIsClose(*it, *expected, relativeTolerance) &&
          std::fabs(*expected - *it) > absoluteTolerance)) {
       isClose = false;
@@ -348,11 +349,13 @@ bool checkIsClose(const std::string &name, const FPType *actual,
 
 template bool checkIsClose<float>(const std::string &, const float *,
                                   const std::vector<std::size_t> &,
-                                  const float *, std::size_t, double, double);
+                                  const float *, std::size_t, double, double,
+                                  bool);
 
 template bool checkIsClose<double>(const std::string &, const double *,
                                    const std::vector<std::size_t> &,
-                                   const double *, std::size_t, double, double);
+                                   const double *, std::size_t, double, double,
+                                   bool);
 
 void addGlobalExchangeConstraints(IPUModel &ipuModel) {
   const auto numIPUs = ipuModel.numIPUs;

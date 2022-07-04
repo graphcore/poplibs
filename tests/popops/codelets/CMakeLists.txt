@@ -863,8 +863,30 @@ foreach(ROWS 1 2)
   endforeach()
 endforeach()
 
-
+foreach (COLUMNS 1 2 3 256)
+  foreach(SUPERVISOR 0 1)
+    foreach(QUARTER_FORMAT F143 F152)
+      foreach(SCALE 0 -1)
+        add_multitarget_test(NAME CastTest_quarter_half_binary_${SUPERVISOR}_${QUARTER_FORMAT}_${SCALE}_${COLUMNS}
+          COMMAND CastTest
+            --in-type quarter
+            --out-type half
+            --rows=1
+            --columns=${COLUMNS}
+            --supervisor=${SUPERVISOR}
+            --out-offset=0
+            --fp8-format=${QUARTER_FORMAT}
+            --fp8-scale=${SCALE}
+            --binary-mode
+            LABELS codelet
+            VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
 #Cast<InType, OutType>
+
+
 add_multi_target_test_executable(CastCodeletsTest CastCodeletsTest.cpp)
 
 # Basic tests to verify that all expected vertices are instantiated, using the

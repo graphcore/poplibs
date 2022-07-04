@@ -195,7 +195,7 @@ template <typename FPType>
 bool checkIsClose(const std::string &name, const FPType *actual,
                   const std::vector<std::size_t> &shape, const FPType *expected,
                   std::size_t N, double relativeTolerance,
-                  double absoluteTolerance = 0);
+                  double absoluteTolerance = 0, bool compareNans = false);
 
 template <typename FPType>
 inline bool
