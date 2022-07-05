@@ -1310,7 +1310,7 @@ struct TestOperand {
             std::string rowStr = (row < 0)
                                      ? "in initial padding"
                                      : "past the end of row " + to_string(row);
-            std::cerr << "ovewrite " << rowStr << ", at offset " << i
+            std::cerr << "overwrite " << rowStr << ", at offset " << i
                       << ": expected:" << convertToString(expected)
                       << ";  actual:" << convertToString(actual) << "\n";
             errCount++;

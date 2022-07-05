@@ -530,12 +530,15 @@ std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
   workerCycles.reserve(targetParams.numWorkerContexts);
   // Specific mixed precision half, float version
   if (dataType == HALF && dataBType == FLOAT) {
-    const auto innerLoopCycles = 4;
+    if (operation == ScaledArithmeticOp::SUBTRACT) {
+      supervisorCycles += 1;
+    }
+    const auto innerLoopCycles = 5;
     for (unsigned wid = 0; wid < targetParams.numWorkerContexts; ++wid) {
       std::uint64_t cycles = 16; // constant worker prologue cycles
       const auto numVectors = vectorsPerWorker + (wid < remainingVectors);
       if (numVectors != 0) {
-        cycles += 8 + (innerLoopCycles * (numVectors - 1));
+        cycles += 9 + (innerLoopCycles * (numVectors - 1));
       }
       cycles += 2; // workerID == rem
       if (wid == remainingVectors) {
@@ -547,7 +550,7 @@ std::uint64_t getScaledArithmeticSupervisorCycleEstimate(
           }
           cycles += 2; // check if 1 remains
           if (remainingElems % 2) {
-            cycles += 7; // process final half
+            cycles += 6; // process final half
           }
         }
       }

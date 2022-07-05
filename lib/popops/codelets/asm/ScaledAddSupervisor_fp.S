@@ -30,8 +30,10 @@
 
 // integer variables
 #define dataPtr m1
+#define nElem m2
 #define remM1 m2
 #define final m3
+#define rem   m3
 #define countD2 m4
 #define countD4 m4
 #define dataBPtr m5
@@ -852,7 +854,6 @@ FN_SIZE VERTEX(xminusaxplusby_half).kernel
 #define aA0123  a0:1  //f16v4
 #define aA01    a0    //f16v2
 #define aBScale a2    //f32v1
-#define aTmp    a3
 #define aB0123  a4:7  //f32v4
 #define aB01    a4:5  //f32v2
 #define aB23    a6:7  //f32v2, also used as f16v4
@@ -860,11 +861,10 @@ FN_SIZE VERTEX(xminusaxplusby_half).kernel
 #define aB1     a5    //f32v1
 #define aB01h   a4
 
-FN_WORKER_ENTRY_POINT VERTEX(half_float_half_false) 8 nop
+FN_WORKER_ENTRY_POINT VERTEX(half_float_half_false) 8
   ldz16  $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
   shl    $mscratch, $mscratch, SCALED_PTR128_SHIFTS
-  {ldb16 $aBScale, $mzero, $mscratch, 0
-   or    $aTmp,$azero,FLOAT_1_0}
+  ldb16 $aBScale, $mzero, $mscratch, 0
   {bri 1f
    f16tof32 $aBScale, $aBScale
   }
@@ -874,12 +874,12 @@ FN_EXPORT SUBTRACT_VERTEX(half_float_half_true)
 
   ldz16  $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
   shl    $mscratch, $mscratch, SCALED_PTR128_SHIFTS
-  {ldb16 $aBScale, $mzero, $mscratch, 0
-   or    $aTmp,$azero,FLOAT_NEG_1_0}
-  {bri 1f
+  ldb16 $aBScale, $mzero, $mscratch, 0
    f16tof32 $aBScale, $aBScale
+  {bri 1f
+   f32sub $aBScale, $azero, $aBScale  
   }
-
+  
 // This core handles a = a+b*bScale, where a is half and b and bScale are float.
 // The multiplies are done in fp32 precision to retain accuracy, the add is
 // done in fp16 precision. So a slightly more accurate version is possible which
@@ -890,19 +890,24 @@ FN_EXPORT VERTEX(half_float_float_false)
   // load vertex state
   ldz16 $mscratch, $mvertex_base, $mzero, VERTEX_SCALE_OFFSET/2
   shl   $mscratch, $mscratch, SCALED_PTR128_SHIFTS
-  {ld32  $aBScale, $mzero, $mscratch, 0
-   or    $aTmp,$azero,FLOAT_1_0}
-1:
-  {ldz16 $remM1, $mvertex_base, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
-    f32mul $aBScale, $aBScale, $aTmp}
+  ld32  $aBScale, $mzero, $mscratch, 0
 
-  ld32 $dataPtr, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
-  ld32 $dataBPtr, $mvertex_base, $mzero, VERTEX_DATA_B_OFFSET/4
+1:
+
+  // Clear accumulators
+ {ldz16 $nElem, $mvertex_base, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  // Load scale ready for f32v2axpy
+  uput $TAS, $aBScale}
+  
+ {ld32 $dataPtr, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
+  setzi $a0, ZAACC_BITMASK}
+ {ld32 $dataBPtr, $mvertex_base, $mzero, VERTEX_DATA_B_OFFSET/4
+  uput $FP_CLR, $a0}
 
   get $workerIdM1, $WSR
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
 
-  DIVIDE_BY_WORKER $remM1, $workerIdM1, $mscratch, $countD4, LOG2_HALF_ATOM_SIZE
+  DIVIDE_BY_WORKER $nElem, $workerIdM1, $mscratch, $countD4, LOG2_HALF_ATOM_SIZE
 
   // advance dataptr(halves) by workerId * (workers * 8 bytes)
   // advance dataBptr(floats) by workerId * (workers * 16 bytes)
@@ -912,73 +917,102 @@ FN_EXPORT VERTEX(half_float_float_false)
 
   brz $countD4, .Lhalf_loop_epilogue4
 
-  // Unrolling
-  ld64        $aB23,    $mzero,     $dataBPtr, 1
-  {ld64step   $aB01,    $mzero,     $dataBPtr+=, CTXT_WORKERS*2
-   f32v2mul   $aB23,    $aBScale:B, $aB23
-  }
-  // minus 1 because of the pipeline
+// aux register aliases
+#define aA01f   a0:1
+#define aA0123h             a6:7
+#define aA01h               a6
+#define aA23h                 a7
 
-  add $countD4, $countD4, -1
-  rpt $countD4, (2f-1f)/8-1
+#define aB01f       a2:3
+#define aB0f        a2
+#define aB1f          a3
+#define aB23f           a4:5
+
+#define aTmpfA          a4:5
+#define aTmpf       a2:3
+
+#define aR01f   a0:1
+#define aR0f    a0
+#define aR0123h a0:1
+#define aR01h   a0 
+#define aR23f       a2:3
+#define aR0123f a0:3
+#define aR23h     a1
+
+  // The loop is unrolled by 4 elements.
+ add $countD4, $countD4, -1
+  
+  // warmup
+  # A registers                                                                 // a0 a1 a2 a3 a4 a5 a6 a7
+  ld64            $aA0123h, $mzero,   $dataPtr, 0                               //                   ^^ ^^ # 
+ {ld64step        $aB01f,   $mzero,   $dataBPtr+=, 1                            //       ^^ ^^             # 
+    f16v2tof32    $aTmpfA,  $aA01h}                                             //             ^^ ^^ vv    # 
+ {ld32            $aA01h,   $mzero,   $dataPtr, 2*CTXT_WORKERS                  //                   ^^    #                      
+    f32v2axpy     $azeros,  $aB01f,   $aTmpfA}                                  //       vv vv vv vv       #
+ {ld64step        $aB23f,   $mzero,   $dataBPtr+=, 2*CTXT_WORKERS-1             //             ^^ ^^       # 
+    f16v2tof32    $aTmpf,   $aA23h}                                             //       ^^ ^^          vv # 
+
+ // loop
+ {rpt $countD4, (2f-1f)/8-1
+    f32v2axpy     $aR01f,     $aB23f,   $aTmpf}                                 // ^^ ^^ vv vv vv vv       #
 1:
-  {ld64       $aA0123,  $mzero,     $dataPtr, 0
-   f32v2mul   $aB01,    $aBScale:B, $aB01
-  }
-  {ld64       $aB23,    $mzero,     $dataBPtr, 1
-   f32v4tof16 $aB01,    $aB0123
-  }
-  {ld64step   $aB01,    $mzero,     $dataBPtr+=, CTXT_WORKERS*2
-   f16v4add   $aA0123,  $aA0123,    $aB01
-  }
-  {st64step   $aA0123,  $mzero,     $dataPtr+=, CTXT_WORKERS
-   f32v2mul   $aB23,    $aBScale:B, $aB23
-  }
-2:
-  {ld64       $aA0123,  $mzero,     $dataPtr, 0
-   f32v2mul   $aB01,    $aBScale:B, $aB01
-  }
-  f32v4tof16  $aB01,    $aB0123
-  f16v4add    $aA0123,  $aA0123,    $aB01
-  st64step    $aA0123,  $mzero,     $dataPtr+=, CTXT_WORKERS
-  // All full/4 vectors have now been processed and stored.
+  # A registers                                                                 // a0 a1 a2 a3 a4 a5 a6 a7 
 
+ {ld64step        $aB01f,   $mzero,   $dataBPtr+=, 1                            //       ^^ ^^             #
+    f16v2tof32    $aTmpfA,  $aA01h}                                             //             ^^ ^^ vv    #
+ {ld32            $aA23h,   $mzero,   $dataPtr, 2*CTXT_WORKERS+1                //                      ^^ #                                           
+    f32v2axpy     $aR23f,   $aB01f,   $aTmpfA}                                  //       ++ ++ vv vv       #
+ {ld64step        $aB23f,   $mzero,   $dataBPtr+=, 2*CTXT_WORKERS-1             //             ^^ ^^       #
+    f32v4tof16    $aR0123h, $aR0123f}                                           // ++ ++ vv vv             # 
+ {st64step        $aR0123h, $mzero,   $dataPtr+=, CTXT_WORKERS                  // vv vv                   #  
+    f16v2tof32    $aTmpf,   $aA23h}                                             //       ^^ ^^          vv #   
+ {ld32            $aA01h,   $mzero,   $dataPtr, 2*CTXT_WORKERS                    //                   ^^    #       
+    f32v2axpy     $aR01f,   $aB23f,   $aTmpf}                                   // ^^ ^^ vv vv vv vv       #            
+2:
+  // flush
+    f32v2tof16    $aR01h,   $aR01f                                             // vv vv             ^^                   
+ {and             $rem,     $nElem,   3 // any remainder?
+    f16v2gina     $aR23h,   $azero,   0}                                        //                      ^^             
+  st64step        $aR0123h, $mzero,   $dataPtr+=, CTXT_WORKERS                  //                   vv vv
+  // Early finish for the common case of no remainder
+  brz $rem, .Lhalf_float_float_exit
 
 .Lhalf_loop_epilogue4:
-  // Use the worker which poitns to the remainder to process it
+  // Only here if there are 1, 2 or 3 remaining elements
+  // Use the worker which points to the remainder to process it
   ld32 $mscratch, $mvertex_base, $mzero, VERTEX_DATA_A_OFFSET/4
-  andc $final, $remM1, 3
-  ldb16step $azero, $mzero, $mscratch+=, $final
+  ldb16step $azero, $mzero, $mscratch+=, $nElem
+  andc $mscratch, $mscratch, 0x7 // back to 8B boundary
   cmpeq $mscratch, $mscratch, $dataPtr
   brz $mscratch, .Lhalf_float_float_exit
 
-  // are there at least 2 left?
-  and $mscratch, $remM1, 2
-  brz $mscratch, .Lhalf_final_element
+  and $mscratch, $nElem, 2
+  brz $mscratch, .Lhalf_final_element // If we branch there is exactly 1 element left
 
-  // process next 32bit of result
-  ld64step    $aB01,    $mzero,     $dataBPtr+=, 1
-  {ld32       $aA01,    $mzero,     $dataPtr, 0
-   f32v2mul   $aB01,    $aBScale:B, $aB01
-  }
-  f32v2tof16  $aB01h,   $aB01
-  f16v2add    $aA01,    $aA01,      $aB01h
-  st32step    $aA01,    $mzero,     $dataPtr+=, 1
+  ld32            $aA01h,   $mzero,   $dataPtr, 0                               //             ^^
+ {ld64step        $aB01f,   $mzero,   $dataBPtr+=, 1                            //       ^^ ^^    
+    f16v2tof32    $aA01f,   $aA01h}                                             // ^^ ^^       vv
+    f32v2axpy     $azeros,  $aB01f,   $aA01f                                    // vv vv       vv vv
+    f16v2gina     $aR01h,   $azero,   0                                         // ^^
+  st32step        $aR01h,   $mzero,   $dataPtr+=, 1                             // vv
 
-.Lhalf_final_element:
   // how many left do we have? maximum of 1.
-  and $remM1, $remM1,   0x1
-  brz $remM1, .Lhalf_float_float_exit
-  ld32        $aB0,     $mzero,     $dataBPtr, 0 // [ MShalf  | LShalf]
-  {ld32       $aA01,    $mzero,     $dataPtr, 0  // [ overrun | src]
-   f32mul     $aB0,     $aBScale,   $aB0
-  }
-  f32tof16   $aB01h,   $aB0                      // [ addend | addend ]
-  sort4x16lo  $aTmp,    $azero,     $aA01        // [ value   | 0]
-  f16v2add    $aTmp,    $aTmp,      $aB01h       // [ result  | addend]
-  sort4x16hi  $aTmp,    $aTmp,      $aA01        // [ overrun | result]
-  st32        $aTmp,    $mzero,     $dataPtr, 0
+.Lhalf_final_element:
+  and $nElem, $nElem,   0x1
+  brz $nElem, .Lhalf_float_float_exit
 
+ // Note the subword off-end value may be a NaN so we mustn't do fp operations
+ // on it.
+ {ldb16           $aA01h,   $mzero,   $dataPtr, 0                               //             ^^
+    setzi         $aB1f,    0}                                                  //          ^^    
+ {ld32            $aB0f,    $mzero,   $dataBPtr, 0                              //       ^^
+    f16v2tof32    $aA01f,   $aA01h}                                             // ^^ ^^       vv
+    f32v2axpy     $azeros,  $aB01f,   $aA01f                                    // vv vv vv vv
+ {ldb16           $aA01h,   $mzero,   $dataPtr, 1    // [ pastend | pastend ]   //             ^^
+    f16v2gina     $aR01h,   $azero,   0}             // [result | result ]      // ^^
+
+  sort4x16lo      $aR01h,    $aR01h,  $aA01h     // [ value   | 0]              // ++          vv         
+  st32            $aR01h,    $mzero,  $dataPtr, 0                               // vv
 .Lhalf_float_float_exit:
   exitz $mzero
 
