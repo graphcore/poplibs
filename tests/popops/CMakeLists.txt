@@ -252,6 +252,18 @@ add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
 # Grouped and un-grouped planned MultiSlice/MultiUpdate tests
 add_multi_target_test_executable(PlannedMultiSliceUpdateTest PlannedMultiSliceUpdateTest.cpp)
 
+# Test to split subword writes
+add_multitarget_test(NAME PlannedMultiUpdateAdd_single_half
+  COMMAND PlannedMultiSliceUpdateTest
+  --data-type half
+  --update 1 
+  --shape "{2001, 1}" 
+  --num-indices 901 
+  --tiles-per-ipu 8 
+  --operation ADD
+  VARIANTS ${IPUMODEL_VARIANTS};Sim2)
+
+
 foreach(serialisation 1 2 3)
   foreach(dtype half float quarter)
     foreach(dictSize 16 1024)

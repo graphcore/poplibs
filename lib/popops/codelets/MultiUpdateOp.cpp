@@ -3,7 +3,6 @@
 #include "MultiSliceUpdateCommon.hpp"
 #include "poplar/TileConstants.hpp"
 #include <type_traits>
-
 using namespace poplar;
 
 namespace popops {
@@ -32,40 +31,51 @@ public:
   const unsigned maxElementsPerWorker;
 
   bool compute(unsigned wid) {
-    if (wid == 0) {
-      unsigned restrictedRegionSize = regionSize;
-      if (std::is_same<Type, half>::value && !subwordWritesSupported)
-        restrictedRegionSize &= ~0x1;
+    unsigned restrictedRegionSize = regionSize;
+    if (std::is_same<Type, half>::value && !subwordWritesSupported)
+      restrictedRegionSize &= ~0x1;
 
-      unsigned offsetIndexBegin = 0;
-      unsigned offsetIndexEnd = offsets.size();
-      if (indicesAreSorted) {
-        offsetIndexBegin =
-            lowerBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
-                              offsets.size(), baseOffset);
-        offsetIndexEnd =
-            upperBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
-                              offsets.size(), baseOffset + numBaseElements);
+    constexpr unsigned minAtomSize = 4;
+    constexpr bool hasAtomicWriteGranularity =
+        sizeof(baseT[0]) % minAtomSize == 0;
+    const auto split = multiUpdateOpWorkerDivision(
+        hasAtomicWriteGranularity, indicesAreSorted, baseOffset,
+        baseOffset + numBaseElements, wid, maxElementsPerWorker);
+
+    // This worker has not been assigned any base offsets
+    const unsigned thisWorkerBaseElems = split.offsetEnd - split.offsetBegin;
+    if (thisWorkerBaseElems == 0) {
+      return true;
+    }
+
+    unsigned offsetIndexBegin = 0;
+    unsigned offsetIndexEnd = offsets.size();
+    if (indicesAreSorted) {
+      offsetIndexBegin =
+          lowerBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
+                            offsets.size(), baseOffset);
+      offsetIndexEnd =
+          upperBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
+                            offsets.size(), baseOffset + numBaseElements);
+    }
+
+    for (unsigned o = offsetIndexBegin; o != offsetIndexEnd; ++o) {
+      auto baseIdx = offsets[o];
+
+      // the assembly uses this same logic here but without bounds checks on
+      // baseIdx for speed reasons so assert it here instead.
+      assert(baseIdx < (1 << 31));
+      assert(numBaseElements < (1 << 31));
+      if (baseIdx - split.offsetBegin >= thisWorkerBaseElems) {
+        // this slice is not a part of baseT so we can skip it.
+        continue;
       }
+      baseIdx -= baseOffset;
 
-      for (unsigned o = offsetIndexBegin; o != offsetIndexEnd; ++o) {
-        auto baseIdx = offsets[o];
-
-        // the assembly uses this same logic here but without bounds checks on
-        // baseIdx for speed reasons so assert it here instead.
-        assert(baseIdx < (1 << 31));
-        assert(numBaseElements < (1 << 31));
-        baseIdx -= baseOffset;
-        if (baseIdx >= numBaseElements) {
-          // this slice is not a part of baseT so we can skip it.
-          continue;
-        }
-
-        for (unsigned e = 0; e != restrictedRegionSize; ++e) {
-          const auto dstIndex = baseIdx * restrictedRegionSize + e;
-          baseT[dstIndex] =
-              updateOp(op, baseT[dstIndex], subT[o * restrictedRegionSize + e]);
-        }
+      for (unsigned e = 0; e != restrictedRegionSize; ++e) {
+        const auto dstIndex = baseIdx * restrictedRegionSize + e;
+        baseT[dstIndex] =
+            updateOp(op, baseT[dstIndex], subT[o * restrictedRegionSize + e]);
       }
     }
     return true;
@@ -92,56 +102,66 @@ public:
   const bool indicesAreSorted;     // indices are sorted in increasing order
   const unsigned baseOffset;       // in the slice dimension
   const unsigned numBaseElements;  // in the slice dimension
-  // in the slice dimension (ceil numBaseElements / numWorkers). Required only
-  // by assembler
+  // in the slice dimension (ceil numBaseElements / numWorkers)
   const unsigned maxElementsPerWorker;
   Input<SType> scale;
 
   bool compute(unsigned wid) {
-    if (wid == 0) {
-      // Perform calculation in single precision for half data so that s
-      // stochastic rounding will occur. TODO: T12921 Replace with a mix.
-      // For halves, accumulate in float so that stochastic rounding will take
-      // effect.
-      using ScaleType =
-          std::conditional_t<std::is_same<SType, half>::value, float, SType>;
-      // load scale once
-      const auto scaleL = ScaleType(*scale);
+    // Perform calculation in single precision for half data so that s
+    // stochastic rounding will occur. TODO: T12921 Replace with a mix.
+    // For halves, accumulate in float so that stochastic rounding will take
+    // effect.
+    using ScaleType =
+        std::conditional_t<std::is_same<SType, half>::value, float, SType>;
+    // load scale once
+    const auto scaleL = ScaleType(*scale);
 
-      unsigned restrictedRegionSize = regionSize;
-      if (std::is_same<Type, half>::value && !subwordWritesSupported)
-        restrictedRegionSize &= ~0x1;
+    unsigned restrictedRegionSize = regionSize;
+    if (std::is_same<Type, half>::value && !subwordWritesSupported)
+      restrictedRegionSize &= ~0x1;
 
-      unsigned offsetIndexBegin = 0;
-      unsigned offsetIndexEnd = offsets.size();
-      if (indicesAreSorted) {
-        offsetIndexBegin =
-            lowerBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
-                              offsets.size(), baseOffset);
-        offsetIndexEnd =
-            upperBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
-                              offsets.size(), baseOffset + numBaseElements);
+    // split across base elements or regionSize dimension
+    constexpr unsigned minAtomSize = 4;
+    constexpr bool hasAtomicWriteGranularity =
+        sizeof(baseT[0]) % minAtomSize == 0;
+    const auto split = multiUpdateOpWorkerDivision(
+        hasAtomicWriteGranularity, indicesAreSorted, baseOffset,
+        baseOffset + numBaseElements, wid, maxElementsPerWorker);
+
+    // This worker has not been assigned any base offsets
+    const unsigned thisWorkerBaseElems = split.offsetEnd - split.offsetBegin;
+    if (thisWorkerBaseElems == 0) {
+      return true;
+    }
+
+    unsigned offsetIndexBegin = 0;
+    unsigned offsetIndexEnd = offsets.size();
+    if (indicesAreSorted) {
+      offsetIndexBegin =
+          lowerBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
+                            offsets.size(), baseOffset);
+      offsetIndexEnd =
+          upperBinarySearch(reinterpret_cast<const int *>(&offsets[0]),
+                            offsets.size(), baseOffset + numBaseElements);
+    }
+
+    for (unsigned o = offsetIndexBegin; o != offsetIndexEnd; ++o) {
+      auto baseIdx = offsets[o];
+      // the assembly uses this same logic here but without bounds checks on
+      // baseIdx for speed reasons so assert it here instead.
+      assert(baseIdx < (1 << 31));
+      assert(numBaseElements < (1 << 31));
+      if (baseIdx - split.offsetBegin >= thisWorkerBaseElems) {
+        // this slice is not a part of baseT so we can skip it.
+        continue;
       }
 
-      for (unsigned o = offsetIndexBegin; o != offsetIndexEnd; ++o) {
-        auto baseIdx = offsets[o];
-
-        // the assembly uses this same logic here but without bounds checks on
-        // baseIdx for speed reasons so assert it here instead.
-        assert(baseIdx < (1 << 31));
-        assert(numBaseElements < (1 << 31));
-        baseIdx -= baseOffset;
-        if (baseIdx >= numBaseElements) {
-          // this slice is not a part of baseT so we can skip it.
-          continue;
-        }
-
-        for (unsigned e = 0; e != restrictedRegionSize; ++e) {
-          const Type addend =
-              scaleL * ScaleType(subT[o * restrictedRegionSize + e]);
-          const auto srcDstIndex = baseIdx * restrictedRegionSize + e;
-          baseT[srcDstIndex] = updateOp(op, baseT[srcDstIndex], addend);
-        }
+      baseIdx -= baseOffset;
+      for (unsigned e = 0; e != restrictedRegionSize; ++e) {
+        const Type addend =
+            scaleL * ScaleType(subT[o * restrictedRegionSize + e]);
+        const auto srcDstIndex = baseIdx * restrictedRegionSize + e;
+        baseT[srcDstIndex] = updateOp(op, baseT[srcDstIndex], addend);
       }
     }
     return true;
