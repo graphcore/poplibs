@@ -35,6 +35,11 @@ bool canUseConvPartial1x1Vertex(
     const std::vector<unsigned> &outputFieldShape,
     const ConvParams::OutputTransform &outputTransform);
 
+unsigned getConvUnitWeightHeight(unsigned convInputLoadElems,
+                                 unsigned inChansPerGroup,
+                                 poplar::Target const &target,
+                                 poplar::Type const &weightsType);
+
 Estimates<gccs::popsolver::Variable> constructModel(
     const poplar::Target &target, const std::vector<ConvTransform> &transforms,
     const std::vector<ConvTypes> &types,

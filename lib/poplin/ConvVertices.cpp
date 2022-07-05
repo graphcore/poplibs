@@ -694,11 +694,9 @@ static void createConvPartialAmpVertex(
   const auto &method = boost::get<Plan::Amp>(plan.method);
   const auto &target = graph.getTarget();
 
-  const auto convInputLoadElems = method.convInputLoadElems;
-  const auto convChainLength =
-      target.getConvUnitMaxPipelineDepth(weights.elementType());
-  const auto weightsPerConvUnit = convChainLength * convInputLoadElems;
-  const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
+  const auto convUnitWeightHeight =
+      getConvUnitWeightHeight(method.convInputLoadElems, plan.inChansPerGroup,
+                              target, weights.elementType());
 
   if (convUnitWeightHeight != 1) {
     assert(weights.dim(3) % convUnitWeightHeight == 0);
@@ -885,7 +883,7 @@ static void createConvPartialAmpVertex(
 
   int transformedInStride =
       getTransformedInStride(convUnitWeightHeight, inStrideX, inRowStride,
-                             convInputLoadElems, inChansPerGroup);
+                             method.convInputLoadElems, inChansPerGroup);
 
   unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
   int transformedOutStride = getTransformedOutStride(
@@ -893,7 +891,7 @@ static void createConvPartialAmpVertex(
       plan.types.back().partialType == poplar::FLOAT, flipOut);
 
   int transformedInRowStride = getTransformedInRowStride(
-      inRowStride, convInputLoadElems, inChansPerGroup);
+      inRowStride, method.convInputLoadElems, inChansPerGroup);
 
   // Need to adjust inStride because AMP Nx1 codelet uses different stride
   // strategy compared to AMP 1x1 codelet
@@ -994,7 +992,7 @@ static void createConvPartialAmpVertex(
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
   graph.setInitialValue(v["numInGroups"], numInChanGroups);
-  assert(inChansPerGroup % convInputLoadElems == 0);
+  assert(inChansPerGroup % method.convInputLoadElems == 0);
 
   graph.setInitialValue(v["numConvGroupsM1"], numConvGroupGroups - 1);
 
@@ -1112,12 +1110,10 @@ static void createConvPartialAmpVertices(
   assert(params == params.canonicalize());
   const auto &target = graph.getTarget();
   const auto &method = boost::get<Plan::Amp>(plan.method);
-  const auto convInputLoadElems = method.convInputLoadElems;
-  const auto convChainLength =
-      target.getConvUnitMaxPipelineDepth(weights.elementType());
-  const auto weightsPerConvUnit = convChainLength * convInputLoadElems;
-  assert(weightsPerConvUnit % plan.inChansPerGroup == 0);
-  const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
+
+  const auto convUnitWeightHeight =
+      getConvUnitWeightHeight(method.convInputLoadElems, plan.inChansPerGroup,
+                              target, weights.elementType());
 
   // Apply the input transforms to in and weights if the transforms were
   // deferred to vertex level (for expand dims).
@@ -1188,10 +1184,10 @@ static void createConvPartialAmpVertices(
 
   int transformedInStrideBeforeSplit = getTransformedInStride(
       convUnitWeightHeight, inStrideX, inRowStrideBeforeSplit,
-      convInputLoadElems, inChansPerGroup);
+      method.convInputLoadElems, inChansPerGroup);
 
   int transformedInRowStrideBeforeSplit = getTransformedInRowStride(
-      inRowStrideBeforeSplit, convInputLoadElems, inChansPerGroup);
+      inRowStrideBeforeSplit, method.convInputLoadElems, inChansPerGroup);
 
   // Need to adjust inStride because AMP Nx1 codelet uses different stride
   // strategy comparing to AMP 1x1 codelet

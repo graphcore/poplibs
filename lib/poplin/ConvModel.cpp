@@ -75,6 +75,16 @@ bool canUseConvPartial1x1Vertex(
   return true;
 }
 
+unsigned getConvUnitWeightHeight(unsigned convInputLoadElems,
+                                 unsigned inChansPerGroup,
+                                 poplar::Target const &target,
+                                 poplar::Type const &weightsType) {
+  const auto convChainLength = target.getConvUnitMaxPipelineDepth(weightsType);
+  const auto weightsPerConvUnit = convChainLength * convInputLoadElems;
+  assert(weightsPerConvUnit % inChansPerGroup == 0);
+  return weightsPerConvUnit / inChansPerGroup;
+}
+
 // mapping between ConvSizeVariables and the std::vector<T>
 // that is passed to the callback for an m.call<T> constraint.
 template <typename T> class ConvSizeVariablesVector {
@@ -259,14 +269,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         }
 
         assert(method.convUnits != 0);
-        if (inChansPerGroup != weightsPerConvUnit) {
-          auto numConvUnitsOnIpu =
-              getNumConvUnits(floatActivations, floatPartials, target);
-          assert(numConvUnitsOnIpu % method.convUnits == 0);
-          weightsPerConvUnit /= numConvUnitsOnIpu / method.convUnits;
-          assert(weightsPerConvUnit % inChansPerGroup == 0);
-        }
-        const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
+        const auto convUnitWeightHeight = getConvUnitWeightHeight(
+            method.convInputLoadElems, inChansPerGroup, target, actsType);
 
         return m.call<unsigned>(
             convSizeVarsVector,
