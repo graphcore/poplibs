@@ -169,3 +169,5 @@ add_multitarget_test(NAME determinism_sparse_fc_layer
           --compile-only
   LABELS "python_tool"
   VARIANTS ${SIM_VARIANTS})
+
+add_subdirectory(dependencies)
