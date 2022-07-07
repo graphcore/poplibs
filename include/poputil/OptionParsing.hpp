@@ -14,6 +14,7 @@
 #include <initializer_list>
 #include <limits>
 #include <map>
+#include <optional>
 #include <poplar/StringRef.hpp>
 #include <poplar/exceptions.hpp>
 #include <sstream>

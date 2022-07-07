@@ -7,6 +7,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/print.hpp>

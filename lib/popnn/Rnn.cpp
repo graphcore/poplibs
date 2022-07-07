@@ -6,6 +6,7 @@
 #include <boost/optional.hpp>
 #include <cassert>
 #include <cstdint>
+#include <optional>
 #include <poplibs_support/logging.hpp>
 #include <popnn/Rnn.hpp>
 #include <popops/Cast.hpp>

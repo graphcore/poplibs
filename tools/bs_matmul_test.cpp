@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/resource.h>

@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <popfloat/experimental/CastToGfloat.hpp>
 #include <popfloat/experimental/CastToHalf.hpp>
 #include <popfloat/experimental/codelets.hpp>

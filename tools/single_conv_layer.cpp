@@ -39,6 +39,7 @@
 #include <exception>
 #include <fstream>
 #include <istream>
+#include <optional>
 #include <ostream>
 #include <random>
 

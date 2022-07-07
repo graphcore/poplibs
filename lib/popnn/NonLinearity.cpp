@@ -20,6 +20,7 @@
 #include "poputil/exceptions.hpp"
 #include <cassert>
 #include <cmath>
+#include <optional>
 
 namespace poputil {
 

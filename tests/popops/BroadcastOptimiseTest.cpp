@@ -24,6 +24,7 @@
 #include <boost/program_options.hpp>
 
 #include <exception>
+#include <optional>
 
 using namespace poplar;
 using namespace poplar::program;

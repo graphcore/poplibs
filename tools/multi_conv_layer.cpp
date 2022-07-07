@@ -17,6 +17,7 @@
 #include <poplin/ConvUtil.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
+#include <optional>
 #include <sstream>
 
 struct ConvMetadata {

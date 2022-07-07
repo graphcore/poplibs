@@ -7,6 +7,8 @@
 
 #include "CodeletsTestsCommon.hpp"
 
+#include <optional>
+
 using popops::expr::BinaryOpType;
 
 // A map that, given a BinaryOpType, returns a string with its name

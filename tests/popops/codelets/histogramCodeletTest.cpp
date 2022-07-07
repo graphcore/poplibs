@@ -9,6 +9,7 @@
 #include "poputil/VertexTemplates.hpp"
 #include <boost/program_options.hpp>
 #include <poplibs_test/TempDir.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string.h>
 #include <utility>

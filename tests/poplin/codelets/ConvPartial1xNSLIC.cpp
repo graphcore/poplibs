@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <optional>
 #include <random>
 #include <utility>
 #include <vector>

@@ -28,6 +28,7 @@
 #include <gccs/Algorithm.hpp>
 
 #include <fstream>
+#include <optional>
 
 // Tolerances used when data is not ignored
 #define FLOAT_REL_TOL 0.01

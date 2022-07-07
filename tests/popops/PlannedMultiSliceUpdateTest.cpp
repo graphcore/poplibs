@@ -22,6 +22,7 @@
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
+#include <optional>
 #include <vector>
 
 using namespace poplar;

@@ -17,6 +17,7 @@
 #include <boost/multi_array.hpp>
 
 #include <limits>
+#include <optional>
 
 using namespace poplar;
 using namespace poplar::program;

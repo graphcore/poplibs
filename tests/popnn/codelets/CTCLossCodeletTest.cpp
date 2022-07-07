@@ -23,6 +23,8 @@
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 
+#include <optional>
+
 namespace po = boost::program_options;
 
 using namespace poplar;

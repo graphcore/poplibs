@@ -12,6 +12,7 @@
 #include <poplibs_test/TempDir.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string.h>
 #include <utility>

@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>

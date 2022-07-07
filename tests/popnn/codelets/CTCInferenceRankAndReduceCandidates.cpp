@@ -16,6 +16,8 @@
 
 #include <boost/multi_array.hpp>
 
+#include <optional>
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::ctc;

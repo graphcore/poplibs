@@ -17,6 +17,7 @@
 #include <iostream>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <vector>
 
 using namespace poplar;

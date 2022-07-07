@@ -10,6 +10,8 @@
 
 #include <gccs/Algorithm.hpp>
 
+#include <optional>
+
 using namespace poplar;
 using namespace poputil;
 using namespace poplibs_support;

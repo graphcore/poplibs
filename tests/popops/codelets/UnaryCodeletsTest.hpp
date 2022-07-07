@@ -10,6 +10,7 @@
 #include <poplar/Quarter.hpp>
 #include <poputil/exceptions.hpp>
 
+#include <optional>
 #include <regex>
 #include <sstream>
 #include <tuple>

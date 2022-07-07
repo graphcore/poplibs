@@ -9,6 +9,7 @@
 #include <exception>
 #include <fstream>
 #include <istream>
+#include <optional>
 #include <ostream>
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>

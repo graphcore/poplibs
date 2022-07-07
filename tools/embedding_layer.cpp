@@ -26,6 +26,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <random>
 
 using namespace poplar;

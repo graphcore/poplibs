@@ -10,6 +10,7 @@
 #include "poplin/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include <poplibs_test/TempDir.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string.h>
 

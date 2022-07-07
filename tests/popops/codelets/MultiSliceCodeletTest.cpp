@@ -14,6 +14,7 @@
 
 #include <gccs/Algorithm.hpp>
 
+#include <optional>
 #include <vector>
 
 using namespace poplar;

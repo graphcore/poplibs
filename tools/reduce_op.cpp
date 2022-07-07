@@ -4,6 +4,7 @@
 #include <cmath>
 #include <exception>
 #include <fstream>
+#include <optional>
 #include <random>
 
 #include <poplar/Engine.hpp>

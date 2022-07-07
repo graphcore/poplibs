@@ -15,6 +15,7 @@
 
 #include <gccs/Algorithm.hpp>
 
+#include <optional>
 #include <sstream>
 #include <utility>
 #include <vector>

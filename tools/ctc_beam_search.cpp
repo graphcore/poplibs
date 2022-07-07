@@ -24,6 +24,7 @@
 
 #include <fstream>
 #include <iomanip>
+#include <optional>
 #include <random>
 
 namespace po = boost::program_options;

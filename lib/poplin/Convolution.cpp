@@ -45,6 +45,7 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 using namespace poplar;
 using namespace poplar::program;

@@ -30,6 +30,7 @@
 
 #include <fstream>
 #include <map>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>

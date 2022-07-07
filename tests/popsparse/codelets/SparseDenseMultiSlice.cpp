@@ -9,6 +9,7 @@
 #define HALF_ABS_TOL 1e-5
 
 #include <iostream>
+#include <optional>
 #include <random>
 #include <vector>
 

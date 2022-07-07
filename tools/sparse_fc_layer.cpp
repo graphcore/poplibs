@@ -11,6 +11,7 @@
 #include <exception>
 #include <fstream>
 #include <istream>
+#include <optional>
 #include <ostream>
 #include <poplar/CycleCount.hpp>
 #include <poplar/Engine.hpp>

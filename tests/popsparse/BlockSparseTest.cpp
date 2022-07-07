@@ -11,6 +11,7 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
+#include <optional>
 #include <random>
 #include <vector>
 

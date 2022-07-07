@@ -16,6 +16,7 @@
 
 #include <gccs/Algorithm.hpp>
 
+#include <optional>
 #include <type_traits>
 #include <unordered_map>
 
