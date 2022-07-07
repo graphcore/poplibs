@@ -973,9 +973,9 @@ public:
                 setzi        $a4, 0x3800
               }
           )l"
-        : [lastResults] "=r"(lastResults)
-        : [baseIn] "r"(in), [baseOut] "r"(out), [count] "r"(loopCount),
-          [ctxtWorkers] "r"(stride), [stackPtr] "r"(&stack)
+        : [lastResults] "=r"(lastResults), [baseIn] "+r"(in),
+          [baseOut] "+r"(out), [count] "+r"(loopCount)
+        : [ctxtWorkers] "r"(stride), [stackPtr] "r"(&stack)
         : "$a2:3", "$a4:5", "$a6:7", "$m7", "$m8", "memory");
     return lastResults;
   }
@@ -1120,9 +1120,9 @@ public:
               }
               mov            %[lastResults], $a0:1
           )l"
-        : [bias] "+r"(bias), [lastResults] "=r"(lastResults)
-        : [baseIn] "r"(in), [baseOut] "r"(out), [count] "r"(loopCount),
-          [ctxtWorkers] "r"(stride), [stackPtr] "r"(stack)
+        : [bias] "+r"(bias), [lastResults] "=r"(lastResults), [baseIn] "+r"(in),
+          [baseOut] "+r"(out), [count] "+r"(loopCount)
+        : [ctxtWorkers] "r"(stride), [stackPtr] "r"(stack)
         : "$a0:1", "$a5", "$a6:7", "$m2", "$m4", "$m5", "$m7", "$m8", "memory");
     return lastResults;
   }
