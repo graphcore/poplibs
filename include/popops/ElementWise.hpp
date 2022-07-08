@@ -42,7 +42,8 @@ namespace popops {
  *  inverse standard deviation in half precision. These supplementary functions
  *  make that possible.
  */
-/** Convert variance to inverse standard deviation.
+/** \name varianceToInvStdDev
+ * Convert variance to inverse standard deviation.
  *
  *  \param graph   The graph to update.
  *  \param src     The source tensor.
@@ -76,7 +77,8 @@ varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &src,
                     const poplar::DebugContext &debugContext = {});
 /** @} */
 
-/** Convert inverse standard deviation to variance.
+/** \name invStdDevToVariance
+ * Convert inverse standard deviation to variance.
  *
  *  \param graph   The graph to update.
  *  \param src     The source tensor.
@@ -109,7 +111,8 @@ invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &src,
                     const poplar::DebugContext &debugContext = {});
 /** @} */
 
-/** Map an expression across tensors.
+/** \name map
+ * Map an expression across tensors.
  *
  * **Elementwise Options**
  *
@@ -203,7 +206,8 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
 }
 /** @} */
 
-/** Update the input tensors with the result of map().
+/** \name mapInPlace
+ * Update the input tensors with the result of map().
  *
  * @{
  */
@@ -245,7 +249,8 @@ inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
 }
 /** @} */
 
-/** Write the result of map() to the given output tensor.
+/** \name mapWithOutput
+ * Write the result of map() to the given output tensor.
  *
  * @{
  */
@@ -330,7 +335,6 @@ void outputGeneratedCodelet(const poplar::Target &target,
  *  \returns A tensor where each element is equivalent to the result of
  *           `std::abs(a)`, where \c a is an element of \p A.
  *
- * @{
  */
 inline poplar::Tensor abs(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
@@ -366,7 +370,6 @@ inline void absWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
   mapWithOutput(graph, expr::UnaryOpType::ABSOLUTE, A, out, prog, {di},
                 options);
 }
-/** @} */
 
 /** Compute the arc-sine of each element in \p A.
  *
@@ -1607,7 +1610,8 @@ inline void isFiniteWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
                 options);
 }
 
-/** Check that the host compile-time type \p constType
+/** \name checkTypes
+ * Check that the host compile-time type \p constType
  *  is compatible with the run-time IPU type \p elementType.
  *
  *  \param  elementType The run-time IPU type.
@@ -1645,7 +1649,8 @@ template <> inline void checkTypes<double>(poplar::Type elementType, double) {
 
 // Binary operations
 
-/** Add each element in \p A to the corresponding element in \p B.
+/** \name add
+ * Add each element in \p A to the corresponding element in \p B.
  *
  *  \param graph   The graph to update.
  *  \param A       A tensor of elements.
@@ -1707,7 +1712,8 @@ inline poplar::Tensor add(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of add().
+/** \name addInPlace
+ * Update the input tensor with the result of add().
  *
  * @{
  */
@@ -1734,7 +1740,8 @@ inline void addInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of add() to the given output tensor.
+/** \name addWithOutput
+ * Write the result of add() to the given output tensor.
  *
  * @{
  */
@@ -1779,7 +1786,8 @@ inline void addWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the two argument arctangent of each element in \p A with the
+/** \name atan2
+ * Compute the two argument arctangent of each element in \p A with the
  * corresponding element in \p B.
  *
  *  \param graph   The graph to update.
@@ -1843,7 +1851,8 @@ inline poplar::Tensor atan2(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of atan2().
+/** \name atan2InPlace
+ * Update the input tensor with the result of atan2().
  *
  * @{
  */
@@ -1871,7 +1880,8 @@ inline void atan2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of atan2() to the given output tensor.
+/** \name atan2WithOutput
+ * Write the result of atan2() to the given output tensor.
  *
  * @{
  */
@@ -1917,7 +1927,8 @@ inline void atan2WithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the bitwise AND of each element in \p A with the corresponding
+/** \name bitwiseAnd
+ * Compute the bitwise AND of each element in \p A with the corresponding
  * element in \p B.
  *
  *  \param graph   The graph to update.
@@ -1980,7 +1991,8 @@ inline poplar::Tensor bitwiseAnd(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of bitwiseAnd().
+/** \name bitwiseAndInPlace
+ * Update the input tensor with the result of bitwiseAnd().
  *
  * @{
  */
@@ -2010,7 +2022,8 @@ inline void bitwiseAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of bitwiseAnd() to the given output tensor.
+/** \name bitwiseAndWithOutput
+ * Write the result of bitwiseAnd() to the given output tensor.
  *
  * @{
  */
@@ -2057,7 +2070,8 @@ inline void bitwiseAndWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the bitwise OR of each element in \p A with the corresponding
+/** \name bitwiseOr
+ * Compute the bitwise OR of each element in \p A with the corresponding
  * element in \p B.
  *
  *  \param graph   The graph to update.
@@ -2122,7 +2136,8 @@ inline poplar::Tensor bitwiseOr(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of bitwiseOr().
+/** \name bitwiseOrInPlace
+ * Update the input tensor with the result of bitwiseOr().
  *
  * @{
  */
@@ -2151,7 +2166,8 @@ inline void bitwiseOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of bitwiseOr() to the given output tensor.
+/** \name bitwiseOrWithOutput
+ * Write the result of bitwiseOr() to the given output tensor.
  *
  * @{
  */
@@ -2199,7 +2215,8 @@ inline void bitwiseOrWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the bitwise XOR of each element in \p A with the corresponding
+/** \name bitwiseXor
+ * Compute the bitwise XOR of each element in \p A with the corresponding
  * element in \p B.
  *
  *  \param graph   The graph to update.
@@ -2264,7 +2281,8 @@ inline poplar::Tensor bitwiseXor(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of bitwiseXor().
+/** \name bitwiseXorInPlace
+ * Update the input tensor with the result of bitwiseXor().
  *
  * @{
  */
@@ -2294,7 +2312,8 @@ inline void bitwiseXorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of bitwiseXor() to the given output tensor.
+/** \name bitwiseXorWithOutput
+ * Write the result of bitwiseXor() to the given output tensor.
  *
  * @{
  */
@@ -2342,7 +2361,8 @@ inline void bitwiseXorWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the bitwise XNOR of each element in \p A with the corresponding
+/** \name bitwiseXnor
+ * Compute the bitwise XNOR of each element in \p A with the corresponding
  * element in \p B.
  *
  *  \param graph   The graph to update.
@@ -2408,7 +2428,8 @@ inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const constType A,
 
 /** @} */
 
-/** Update the input tensor with the result of bitwiseXnor().
+/** \name bitwiseXnorInPlace
+ * Update the input tensor with the result of bitwiseXnor().
  *
  * @{
  */
@@ -2439,7 +2460,8 @@ inline void bitwiseXnorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of bitwiseXnor() to the given output tensor.
+/** \name bitwiseXnorWithOutput
+ * Write the result of bitwiseXnor() to the given output tensor.
  *
  * @{
  */
@@ -2488,7 +2510,8 @@ inline void bitwiseXnorWithOutput(poplar::Graph &graph, const constType A,
 
 /** @} */
 
-/** Divide each element in \p A by the corresponding element in \p B.
+/** \name div
+ * Divide each element in \p A by the corresponding element in \p B.
  *
  *  \param graph   The graph to update.
  *  \param A       The tensor of dividends.
@@ -2551,7 +2574,8 @@ inline poplar::Tensor div(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of div().
+/** \name divInPlace
+ * Update the input tensor with the result of div().
  *
  * @{
  */
@@ -2579,7 +2603,8 @@ inline void divInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of div() to the given output tensor.
+/** \name divWithOutput
+ * Write the result of div() to the given output tensor.
  *
  * @{
  */
@@ -2625,7 +2650,8 @@ inline void divWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Check if each element in \p A is equal to the corresponding element in \p B.
+/** \name eq
+ * Check if each element in \p A is equal to the corresponding element in \p B.
  *
  *  \param graph   The graph to update.
  *  \param A       A tensor of elements.
@@ -2688,7 +2714,8 @@ inline poplar::Tensor eq(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of eq().
+/** \name eqInPlace
+ * Update the input tensor with the result of eq().
  *
  * @{
  */
@@ -2715,7 +2742,8 @@ inline void eqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of eq() to the given output tensor.
+/** \name eqWithOutput
+ * Write the result of eq() to the given output tensor.
  *
  * @{
  */
@@ -2761,7 +2789,8 @@ inline void eqWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Check if each element in \p A is greater than or equal to the corresponding
+/** \name gteq
+ * Check if each element in \p A is greater than or equal to the corresponding
  * element in \p B.
  *
  *  \param graph   The graph to update.
@@ -2825,7 +2854,8 @@ inline poplar::Tensor gteq(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of gteq().
+/** \name gteqInPlace
+ * Update the input tensor with the result of gteq().
  *
  * @{
  */
@@ -2855,7 +2885,8 @@ inline void gteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of gteq() to the given output tensor.
+/** \name gteqWithOutput
+ * Write the result of gteq() to the given output tensor.
  *
  * @{
  */
@@ -2901,7 +2932,8 @@ inline void gteqWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Check if each element in \p A is greater than the corresponding element in
+/** \name gt
+ * Check if each element in \p A is greater than the corresponding element in
  * \p B.
  *
  *  \param graph   The graph to update.
@@ -2965,7 +2997,8 @@ inline poplar::Tensor gt(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of gt().
+/** \name gtInPlace
+ * Update the input tensor with the result of gt().
  *
  * @{
  */
@@ -2994,7 +3027,8 @@ inline void gtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of gt() to the given output tensor.
+/** \name gtWithOutput
+ * Write the result of gt() to the given output tensor.
  *
  * @{
  */
@@ -3040,7 +3074,8 @@ inline void gtWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Convert the inverse standard deviation to variance.
+/** \name invStdDevToVariance
+ * Convert the inverse standard deviation to variance.
  *
  *  \param graph   The graph to update.
  *  \param A       The source tensor.
@@ -3105,7 +3140,8 @@ invStdDevToVariance(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of invStdDevToVariance().
+/** \name invStdDevToVarianceInPlace
+ * Update the input tensor with the result of invStdDevToVariance().
  *
  * @{
  */
@@ -3137,7 +3173,8 @@ invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of invStdDevToVariance() to the given output tensor.
+/** \name invStdDevToVarianceWithOutput
+ * Write the result of invStdDevToVariance() to the given output tensor.
  *
  * @{
  */
@@ -3184,7 +3221,8 @@ inline void invStdDevToVarianceWithOutput(
 }
 /** @} */
 
-/** Check if each element in \p A is less than or equal to the corresponding
+/** \name lteq
+ * Check if each element in \p A is less than or equal to the corresponding
  * element in \p B.
  *
  *  \param graph   The graph to update.
@@ -3248,7 +3286,8 @@ inline poplar::Tensor lteq(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of lteq().
+/** \name lteqInPlace
+ * Update the input tensor with the result of lteq().
  *
  * @{
  */
@@ -3278,7 +3317,8 @@ inline void lteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of lteq() to the given output tensor.
+/** \name lteqWithOutput
+ * Write the result of lteq() to the given output tensor.
  *
  * @{
  */
@@ -3324,7 +3364,8 @@ inline void lteqWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the logical AND (`&&`) of each element in \p A with the
+/** \name logicalAnd
+ * Compute the logical AND (`&&`) of each element in \p A with the
  * corresponding element in \p B.
  *
  *  \param graph   The graph to update.
@@ -3389,7 +3430,8 @@ inline poplar::Tensor logicalAnd(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of logicalAnd().
+/** \name logicalAndInPlace
+ * Update the input tensor with the result of logicalAnd().
  *
  * @{
  */
@@ -3419,7 +3461,8 @@ inline void logicalAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of logicalAnd() to the given output tensor.
+/** \name logicalAndWithOutput
+ * Write the result of logicalAnd() to the given output tensor.
  *
  * @{
  */
@@ -3467,7 +3510,8 @@ inline void logicalAndWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the logical OR (`||`) of each element in \p A with the corresponding
+/** \name logicalOr
+ * Compute the logical OR (`||`) of each element in \p A with the corresponding
  * element in \p B.
  *
  *  \param graph   The graph to update.
@@ -3532,7 +3576,8 @@ inline poplar::Tensor logicalOr(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of logicalOr().
+/** \name logicalOrInPlace
+ * Update the input tensor with the result of logicalOr().
  *
  * @{
  */
@@ -3561,7 +3606,8 @@ inline void logicalOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of logicalOr() to the given output tensor.
+/** \name logicalOrWithOutput
+ * Write the result of logicalOr() to the given output tensor.
  *
  * @{
  */
@@ -3609,7 +3655,8 @@ inline void logicalOrWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Check if each element in \p A is less than the corresponding element in \p
+/** \name lt
+ * Check if each element in \p A is less than the corresponding element in \p
  * B.
  *
  *  \param graph   The graph to update.
@@ -3673,7 +3720,8 @@ inline poplar::Tensor lt(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of lt().
+/** \name ltInPlace
+ * Update the input tensor with the result of lt().
  *
  * @{
  */
@@ -3701,7 +3749,8 @@ inline void ltInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of lt() to the given output tensor.
+/** \name ltWithOutput
+ * Write the result of lt() to the given output tensor.
  *
  * @{
  */
@@ -3747,7 +3796,8 @@ inline void ltWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the maximum of each element in \p A with the corresponding element
+/** \name max
+ * Compute the maximum of each element in \p A with the corresponding element
  * in \p B.
  *
  *  \param graph   The graph to update.
@@ -3811,7 +3861,8 @@ inline poplar::Tensor max(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of max().
+/** \name maxInPlace
+ * Update the input tensor with the result of max().
  *
  * @{
  */
@@ -3839,7 +3890,8 @@ inline void maxInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of max() to the given output tensor.
+/** \name maxWithOutput
+ * Write the result of max() to the given output tensor.
  *
  * @{
  */
@@ -3885,7 +3937,8 @@ inline void maxWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the minimum of each element in \p A with the corresponding element
+/** \name min
+ * Compute the minimum of each element in \p A with the corresponding element
  * in \p B.
  *
  *  \param graph   The graph to update.
@@ -3949,7 +4002,8 @@ inline poplar::Tensor min(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of min().
+/** \name minInPlace
+ * Update the input tensor with the result of min().
  *
  * @{
  */
@@ -3977,7 +4031,8 @@ inline void minInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of min() to the given output tensor.
+/** \name minWithOutput
+ * Write the result of min() to the given output tensor.
  *
  * @{
  */
@@ -4023,7 +4078,8 @@ inline void minWithOutoput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Multiply each element in \p A by the corresponding element in \p B.
+/** \name mul
+ * Multiply each element in \p A by the corresponding element in \p B.
  *
  *  \param graph   The graph to update.
  *  \param A       A tensor of elements.
@@ -4086,7 +4142,8 @@ inline poplar::Tensor mul(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of mul().
+/** \name mulInPlace
+ * Update the input tensor with the result of mul().
  *
  * @{
  */
@@ -4114,7 +4171,8 @@ inline void mulInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of mul() to the given output tensor.
+/** \name mulWithg=Output
+ * Write the result of mul() to the given output tensor.
  *
  * @{
  */
@@ -4160,7 +4218,8 @@ inline void mulWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Check if each element in \p A is not equal to the corresponding element in
+/** \name neq
+ * Check if each element in \p A is not equal to the corresponding element in
  * \p B.
  *
  *  \param graph   The graph to update.
@@ -4224,7 +4283,8 @@ inline poplar::Tensor neq(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of neq().
+/** \name neqInPlace
+ * Update the input tensor with the result of neq().
  *
  * @{
  */
@@ -4252,7 +4312,8 @@ inline void neqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of neq() to the given output tensor.
+/** \name neqWithOutput
+ * Write the result of neq() to the given output tensor.
  *
  * @{
  */
@@ -4298,7 +4359,8 @@ inline void neqWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute each element in \p A to the power of the corresponding element in \p
+/** \name pow
+ * Compute each element in \p A to the power of the corresponding element in \p
  * B.
  *
  *  \param graph   The graph to update.
@@ -4361,7 +4423,8 @@ inline poplar::Tensor pow(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of pow().
+/** \name powInPlace
+ * Update the input tensor with the result of pow().
  *
  * @{
  */
@@ -4388,7 +4451,8 @@ inline void powInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of pow() to the given output tensor.
+/** \name powWithOutput
+ * Write the result of pow() to the given output tensor.
  *
  * @{
  */
@@ -4434,7 +4498,8 @@ inline void powWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Compute the remainder of each element in \p A divided by the corresponding
+/** \name rem
+ * Compute the remainder of each element in \p A divided by the corresponding
  * element in \p B.
  *
  *  \param graph   The graph to update.
@@ -4497,7 +4562,8 @@ inline poplar::Tensor rem(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of rem().
+/** \name remInPlace
+ * Update the input tensor with the result of rem().
  *
  * @{
  */
@@ -4525,7 +4591,8 @@ inline void remInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of rem() to the given output tensor.
+/** \name remWithOutput
+ * Write the result of rem() to the given output tensor.
  *
  * @{
  */
@@ -4571,7 +4638,8 @@ inline void remWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Shift the elements of \p A left by the corresponding elements of \p B.
+/** \name shiftLeft
+ * Shift the elements of \p A left by the corresponding elements of \p B.
  *
  *  \param graph   The graph to update.
  *  \param A       The tensor of elements which to left-shift.
@@ -4635,7 +4703,8 @@ inline poplar::Tensor shiftLeft(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of shiftLeft().
+/** \name shiftLeftInPlace
+ * Update the input tensor with the result of shiftLeft().
  *
  * @{
  */
@@ -4664,7 +4733,8 @@ inline void shiftLeftInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of shiftLeft() to the given output tensor.
+/** \name shiftLeftWithOutput
+ * Write the result of shiftLeft() to the given output tensor.
  *
  * @{
  */
@@ -4712,7 +4782,8 @@ inline void shiftLeftWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Shift the elements of \p A right by the corresponding elements of \p B.
+/** \name shiftRight
+ * Shift the elements of \p A right by the corresponding elements of \p B.
  *
  *  \param graph   The graph to update.
  *  \param A       The tensor of elements which to right-shift.
@@ -4777,7 +4848,8 @@ inline poplar::Tensor shiftRight(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of shiftRight().
+/** \name shiftRightInPlace
+ * Update the input tensor with the result of shiftRight().
  *
  * @{
  */
@@ -4807,7 +4879,8 @@ inline void shiftRightInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of shiftRight() to the given output tensor.
+/** \name shiftRightWithOutput
+ * Write the result of shiftRight() to the given output tensor.
  *
  * @{
  */
@@ -4855,7 +4928,8 @@ inline void shiftRightWithOutput(poplar::Graph &graph, const constType A,
                 {di}, options);
 }
 
-/** Shift the elements of \p A right with sign extension by the corresponding
+/** \name shiftRightSignExtend
+ * Shift the elements of \p A right with sign extension by the corresponding
  * elements of \p B.
  *
  *  \param graph   The graph to update.
@@ -4921,7 +4995,8 @@ shiftRightSignExtend(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of shiftRightSignExtend().
+/** \name shiftRightSignExtendInPlace
+ * Update the input tensor with the result of shiftRightSignExtend().
  *
  * @{
  */
@@ -4953,7 +5028,8 @@ shiftRightSignExtendInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of shiftRightSignExtend() to the given output tensor.
+/** \name shiftRightSignExtendWithOutput
+ * Write the result of shiftRightSignExtend() to the given output tensor.
  *
  * @{
  */
@@ -5000,7 +5076,8 @@ inline void shiftRightSignExtendWithOutput(
 }
 /** @} */
 
-/** Subtract the elements of \p B from \p A and return the result in a new
+/** \name sub
+ * Subtract the elements of \p B from \p A and return the result in a new
  * tensor.
  *
  *  \param graph   The graph to update.
@@ -5063,7 +5140,8 @@ inline poplar::Tensor sub(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of sub().
+/** \name subInPlace
+ * Update the input tensor with the result of sub().
  *
  * @{
  */
@@ -5091,7 +5169,8 @@ inline void subInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of sub() to the given output tensor.
+/** \name subWithOutput
+ * Write the result of sub() to the given output tensor.
  *
  * @{
  */
@@ -5137,7 +5216,8 @@ inline void subWithOutput(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Convert variance to inverse standard deviation.
+/** \name varianceToInvStdDev
+ * Convert variance to inverse standard deviation.
  *
  *  \param graph   The graph to update.
  *  \param A       The source tensor.
@@ -5201,7 +5281,8 @@ varianceToInvStdDev(poplar::Graph &graph, const constType A,
 }
 /** @} */
 
-/** Update the input tensor with the result of varianceToInvStdDev().
+/** \name varianceToInvStdDevInPlace
+ * Update the input tensor with the result of varianceToInvStdDev().
  *
  * @{
  */
@@ -5233,7 +5314,8 @@ varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 }
 /** @} */
 
-/** Write the result of varianceToInvStdDev() to the given output tensor.
+/** \name varianceToInvStdDevWithOutput
+ * Write the result of varianceToInvStdDev() to the given output tensor.
  *
  * @{
  */
