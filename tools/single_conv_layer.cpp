@@ -1,4 +1,6 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+#include "src/conv_analysis.hpp"
+
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/print.hpp"
 #include <poplibs_support/TestDevice.hpp>
@@ -25,8 +27,6 @@
 #include <poputil/GraphFunction.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
-
-#include <pva/pva.hpp>
 
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
@@ -60,426 +60,6 @@ using namespace poplin::internal;
 using poplibs_test::Pass;
 
 const OptionFlags defaultEngineOptions;
-
-static bool contains(const std::string &haystack, const std::string &needle) {
-  return haystack.find(needle) != std::string::npos;
-}
-
-static bool r_contains(const std::string &haystack, const std::string &needle) {
-  return haystack.rfind(needle) != std::string::npos;
-}
-
-static void updateDetailedPlanCosts(bool reportPerTile,
-                                    bool reportPerSerialSplit,
-                                    DetailedPlanCosts &costs) {
-  using poplin::PlanCosts;
-  if (!reportPerTile) {
-    costs.apply([&costs](PlanCosts &c) {
-      if (c.cycles != PlanCosts::unknown)
-        c.cycles *= costs.parallelSplit;
-      if (c.memory != PlanCosts::unknown)
-        c.memory *= costs.parallelSplit;
-    });
-  }
-
-  if (reportPerSerialSplit) {
-    // The profiler reports totals across all splits and itemised numbers
-    // as per-serial split.
-    costs.total.cycles /= costs.serialSplit;
-  } else {
-    costs.apply(
-        [&costs](PlanCosts &c) {
-          if (c.cycles != PlanCosts::unknown)
-            c.cycles *= costs.serialSplit;
-        },
-        false);
-  }
-}
-
-// Like DetailedPlanCosts but with a couple of helper methods.
-struct MeasuredPlanCosts : public DetailedPlanCosts {
-  poplin::PlanCosts unknown = {};
-  size_t totalWorkListBytes = 0;
-
-  size_t totalCycles() const noexcept {
-    size_t total = 0;
-    apply([&total](const poplin::PlanCosts &c) { total += c.cycles; }, false);
-    return total;
-  }
-
-  size_t totalMemory() const noexcept {
-    // Memory inside the serial splits is maxed rather than summed
-    // because we assume the temporary memory will be reused.
-    return broadcast.memory + tileLevelTransform.memory + rearrangement.memory +
-           std::max({compute.memory, exchange.memory, transform.memory,
-                     reduction.memory, dynamicSlice.memory,
-                     dynamicUpdate.memory, unknown.memory});
-  }
-
-  template <typename Function>
-  void apply(Function fn, bool includeTotal = true) {
-    DetailedPlanCosts::apply(fn, includeTotal);
-    fn(unknown);
-  }
-  template <typename Function>
-  void apply(Function fn, bool includeTotal = true) const {
-    DetailedPlanCosts::apply(fn, includeTotal);
-    fn(unknown);
-  }
-
-  poplin::PlanCosts toPlanCosts() const noexcept {
-    return {totalCycles(), totalMemory()};
-  }
-
-  poplin::PlanCosts &selectCosts(const std::string &name,
-                                 bool isInsideSerialSplit) noexcept {
-    if (r_contains(name, "PreArrange") || r_contains(name, "preRegroup"))
-      return isInsideSerialSplit ? transform : broadcast;
-    else if (r_contains(name, "weightsRearranged"))
-      return rearrangement;
-    else if (r_contains(name, "tileLevelActs"))
-      return broadcast;
-    else if (r_contains(name, "ExchangePre"))
-      return exchange;
-    else if (r_contains(name, "dynamicSlice"))
-      return dynamicSlice;
-    else if (r_contains(name, "dynamicUpdate"))
-      return dynamicUpdate;
-    else if (r_contains(name, "Reduce"))
-      return reduction;
-    else if (r_contains(name, "Cast"))
-      return outputCast;
-    else if (r_contains(name, "Convolve"))
-      return compute;
-    else if (r_contains(name, "Padding"))
-      return transform;
-    else if (r_contains(name, "Transpose"))
-      return isInsideSerialSplit ? transform : broadcast;
-    else {
-      fmt::print(std::cerr, "Warning: unrecognised program: '{}'\n", name);
-      return unknown;
-    }
-  }
-};
-
-struct MemoryCostProgramVisitor : public pva::ProgramVisitor {
-  MemoryCostProgramVisitor(MeasuredPlanCosts &planCosts,
-                           bool reportPerTile_ = false, size_t activeTiles_ = 1,
-                           bool isInsideSerialSplit_ = false,
-                           bool printVars_ = false)
-      : costs(planCosts), reportPerTile(reportPerTile_),
-        activeTiles(activeTiles_), isInsideSerialSplit(isInsideSerialSplit_),
-        printVars(printVars_) {}
-
-  void visitDoExchange(const pva::DoExchangeProgram &doExchange) override {
-    // Note that this doesn't include control/code bytes per tile to
-    // better match the planner.
-    size_t memory = 0;
-    size_t transformBytes = 0;
-    size_t tileLevelTransformBytes = 0;
-
-    for (auto &var : doExchange.vars()) {
-      auto name = var.name();
-      if (printVars)
-        fmt::print(std::cout, "  var={}, {} B\n", name, var.bytes());
-      // Don't include alwaysLive variables as they exist in all stages
-      // so attributing them to a single stage is a bit unfair, and this
-      // is closer to how the planner views things.
-      if (r_contains(name, "partialReduceOut") || contains(name, "mergedVars"))
-        transformBytes += var.bytes();
-      else if (r_contains(name, "zeroPadding#")) // padding to kernel height
-        tileLevelTransformBytes += var.bytes();
-      else if (contains(name, "message") || !var.alwaysLive()) {
-        memory += var.bytes();
-      }
-    }
-
-    if (reportPerTile) {
-      memory /= activeTiles;
-      transformBytes /= activeTiles;
-      tileLevelTransformBytes /= activeTiles;
-    }
-
-    // This is closer to how the planner reports memory.
-    poplin::PlanCosts *c = nullptr;
-    if (r_contains(doExchange.name(), "tileLevelActs"))
-      c = &costs.broadcast;
-    else
-      c = &costs.exchange;
-
-    // We assume the temporary memory is reused across serial splits.
-    if (isInsideSerialSplit) {
-      c->memory = std::max(c->memory, memory);
-    } else {
-      c->memory += memory;
-    }
-    costs.transform.memory = std::max(costs.transform.memory, transformBytes);
-    costs.tileLevelTransform.memory =
-        std::max(costs.tileLevelTransform.memory, tileLevelTransformBytes);
-  }
-
-  void
-  visitOnTileExecute(const pva::OnTileExecuteProgram &onTileExecute) override {
-    size_t memory = 0;
-    size_t workListBytes = 0;
-
-    // This can be slow because each lowered var is reading from a "file"
-    // on the first attribute access and allocating a new unique_ptr. This
-    // doesn't parallelise nicely with threads due to being disk limited.
-    for (auto &v : onTileExecute.vars()) {
-      auto name = v.name();
-      if (printVars)
-        fmt::print(std::cout, "  var={}, {}B\n", name, v.bytes());
-      if (r_contains(name, "worklist"))
-        workListBytes += v.bytes();
-      else if (r_contains(name, "tileLevelActs"))
-        ; // These variables have already been accounted for in broadcast.
-      else if (r_contains(name, "zeroPadding#") ||
-               r_contains(name, "mergedVars") ||
-               r_contains(name, "partialReduceOut"))
-        ; // These variables have already been accounted for in visitDoExchange.
-      else
-        memory += v.bytes();
-    }
-
-    if (reportPerTile) {
-      memory /= activeTiles;
-      workListBytes /= activeTiles;
-    }
-
-    poplin::PlanCosts &c =
-        costs.selectCosts(onTileExecute.name(), isInsideSerialSplit);
-
-    // We assume the temporary memory is reused across serial splits.
-    if (isInsideSerialSplit) {
-      c.memory = std::max(c.memory, memory);
-    } else {
-      c.memory += memory;
-    }
-
-    costs.totalWorkListBytes += workListBytes;
-  }
-
-private:
-  MeasuredPlanCosts &costs;
-  bool reportPerTile;
-  size_t activeTiles = 1;
-  bool isInsideSerialSplit = false;
-  bool printVars;
-};
-
-static MeasuredPlanCosts
-getActualCosts(const std::string &pass, const std::string &profileDir,
-               size_t parallelSplit, size_t serialSplit, bool printVars = false,
-               bool reportPerTile = false, bool reportPerSerialSplit = false) {
-  using poplin::PlanCosts;
-
-  MeasuredPlanCosts costs;
-  const auto &report = pva::openReport(profileDir + "/profile.pop");
-
-  // Find in the compilation report the Repeat/Sequence that starts the
-  // serial slice (if any).
-  std::unordered_set<size_t> progsInRepeatLoop;
-  progsInRepeatLoop.reserve(32); // inexact but cheap
-  for (auto &prog : report.compilation().programs()) {
-    auto name = prog->name();
-    if (!contains(name, pass)) {
-      continue;
-    }
-
-    if (prog->type() == pva::Program::Type::Repeat) {
-      auto tmp = prog->children();
-      if (tmp.size() == 1 && tmp[0]->type() == pva::Program::Type::Sequence) {
-        auto seq = tmp[0];
-        for (auto &c : seq->children())
-          progsInRepeatLoop.emplace(c->_id());
-      }
-    }
-  }
-
-  auto steps = report.execution().steps();
-
-  // Track the progress of the analysis.
-  ProgressBar progressBar("Analysing: ", steps.size(), !printVars);
-
-  for (const auto &b : steps) {
-    auto prog = b.program();
-    auto name = prog->name();
-    if (printVars)
-      fmt::print(std::cout, "program={}\n", name);
-
-    // Skip any programs not containing the debug names we use for the
-    // various convolutions this tool can perform.
-    if (!contains(name, pass)) {
-      ++progressBar;
-      continue;
-    }
-
-    // The planner doesn't include these so neither do we.
-    if (r_contains(name, "UpdateWeights") ||
-        r_contains(name, "loopIncrement")) {
-      ++progressBar;
-      continue;
-    }
-
-    // Track when we enter the serial splits.
-    bool isInsideSerialSplit =
-        progsInRepeatLoop.find(prog->_id()) != progsInRepeatLoop.end();
-
-    PlanCosts &c = costs.selectCosts(name, isInsideSerialSplit);
-
-    // Compute the number of cycles used. When reporting per tile use the
-    // cycles for the slowest tile as it's likely all other tiles will end
-    // up waiting for it if there is an internal sync after this program.
-    // Note that this may not always be true and could lead to some
-    // inaccuracies.
-    uint64_t activeTiles = 0;
-    if (reportPerTile) {
-      uint64_t maxCycles = 0;
-      for (auto cycles : b.cyclesByTile()) {
-        if (cycles) {
-          maxCycles = std::max(cycles, maxCycles);
-          ++activeTiles;
-        }
-      }
-      c.cycles += maxCycles;
-    } else {
-      uint64_t totalCycles = 0;
-      for (auto cycles : b.cyclesByTile()) {
-        if (cycles) {
-          totalCycles += cycles;
-        }
-        ++activeTiles;
-      }
-      c.cycles += totalCycles;
-    }
-
-    // Record the memory used by the program.
-    MemoryCostProgramVisitor visitor(costs, reportPerTile, activeTiles,
-                                     isInsideSerialSplit, printVars);
-    prog->accept(visitor);
-
-    ++progressBar;
-  }
-
-  // The above sums all serial splits so divide back into the serial splits.
-  // Note that by doing this at the end we avoid some precision loss when
-  // working with small numbers of cycles. Only applicable to stages inside
-  // the serial splits.
-  if (reportPerSerialSplit && serialSplit > 1) {
-    costs.dynamicSlice.cycles /= serialSplit;
-    costs.transform.cycles /= serialSplit;
-    costs.tileLevelTransform.cycles /= serialSplit;
-    costs.exchange.cycles /= serialSplit;
-    costs.compute.cycles /= serialSplit;
-    costs.reduction.cycles /= serialSplit;
-    costs.dynamicUpdate.cycles /= serialSplit;
-    costs.addInPlace.cycles /= serialSplit;
-    costs.totalWorkListBytes /= serialSplit;
-  }
-
-  // Compute the totals.
-  costs.total.cycles = costs.totalCycles();
-  costs.total.memory = costs.totalMemory();
-
-  return costs;
-}
-
-static void compareCosts(const std::string &title,
-                         DetailedPlanCosts const &estimates,
-                         MeasuredPlanCosts const &actual,
-                         bool reportVerbose = false, bool reportPerTile = false,
-                         bool reportPerSerialSplit = false) {
-  using fmt::print;
-  using poplin::PlanCosts;
-  using std::cout;
-
-  // Print out a summary.
-  if (reportPerTile)
-    print(cout, "\n{}: Summary for the average tile (of {} tiles):\n\n", title,
-          estimates.parallelSplit);
-  else
-    print(cout, "\n{}: Summary for {} tiles:\n\n", title,
-          estimates.parallelSplit);
-  auto reportSummary = [](auto name, auto estimate, auto actual) -> bool {
-    print(cout, "{}:\n", name);
-    print(cout, "    measured: {}\n", actual);
-    print(cout, "    estimate: {} ({:.3}% different)\n", estimate,
-          100 * (((double)estimate - actual) / actual));
-    return actual != estimate;
-  };
-  bool reportDetailedCycles =
-      reportSummary("  Cycles", estimates.total.cycles, actual.total.cycles);
-  bool reportDetailedMemory = reportSummary(
-      "  Memory (B)", estimates.total.memory, actual.total.memory);
-  print(cout, "\n");
-
-  // Print out a detailed report.
-  auto printRow = [&](bool cycles, auto category, auto measured_,
-                      auto estimate_) {
-    auto measured = cycles ? measured_.cycles : measured_.memory;
-    auto estimate = cycles ? estimate_.cycles : estimate_.memory;
-    // Skip stages for which the values are identical or uknown.
-    if (!reportVerbose && (measured == 0 || measured == PlanCosts::unknown) &&
-        (estimate == 0 || estimate == PlanCosts::unknown))
-      return;
-    // Compute the percentage difference of the impact on the total. This
-    // tends to be more useful than the difference between the measurement
-    // and the estimate.
-    auto measured_total = cycles ? actual.total.cycles : actual.total.memory;
-    auto estimate_total =
-        cycles ? estimates.total.cycles : estimates.total.memory;
-    auto total_diff = (estimate_total <= measured_total)
-                          ? measured_total - estimate_total
-                          : estimate_total - measured_total;
-    double percentage_diff = NAN;
-    if (measured == 0 && estimate == 0)
-      percentage_diff = 0.0;
-    else if (measured != PlanCosts::unknown && estimate != PlanCosts::unknown)
-      percentage_diff = 100.0 * ((double)estimate - measured) / total_diff;
-    // Print a row of the table.
-    print(cout, " {: <20} | {: >12} | {: >12} | {: > 8.5}\n", category,
-          measured != PlanCosts::unknown ? std::to_string(measured) : "n/a",
-          estimate != PlanCosts::unknown ? std::to_string(estimate) : "n/a",
-          percentage_diff);
-  };
-
-  constexpr PlanCosts unknown_costs = {PlanCosts::unknown, PlanCosts::unknown};
-  for (bool cycles : {true, false}) {
-    bool shouldReport = cycles ? reportDetailedCycles : reportDetailedMemory;
-    if (!shouldReport && !reportVerbose)
-      continue;
-    print(cout, "{} breakdown:\n\n", cycles ? "Cycles" : "Memory");
-    // clang-format off
-    print(cout, " Category             |     Measured |     Estimate | % Impact \n");
-    print(cout, "----------------------+--------------+--------------+----------\n");
-    // clang-format on
-    printRow(cycles, "broadcast", actual.broadcast, estimates.broadcast);
-    printRow(cycles, "rearrangement", actual.rearrangement,
-             estimates.rearrangement);
-    printRow(cycles, "dynamicSlice", actual.dynamicSlice,
-             estimates.dynamicSlice);
-    printRow(cycles, "transform", actual.transform, estimates.transform);
-    printRow(cycles, "exchange", actual.exchange, estimates.exchange);
-    printRow(cycles, "tileLevelTransform", actual.tileLevelTransform,
-             estimates.tileLevelTransform);
-    printRow(cycles, "inputsCast", actual.inputsCast, estimates.inputsCast);
-    printRow(cycles, "compute", actual.compute, estimates.compute);
-    printRow(cycles, "reduction", actual.reduction, estimates.reduction);
-    printRow(cycles, "dynamicUpdate", actual.dynamicUpdate,
-             estimates.dynamicUpdate);
-    printRow(cycles, "addInPlace", actual.addInPlace, estimates.addInPlace);
-    printRow(cycles, "outputCast", actual.outputCast, estimates.outputCast);
-    printRow(cycles, "unknown", actual.unknown, unknown_costs);
-    printRow(cycles, "total", actual.total, estimates.total);
-    print(cout, "\n");
-  }
-
-  if (reportVerbose) {
-    print(cout, "Note 1: Work-lists are excluded from totals.\n");
-    print(cout, "Note 2: This does not handle program overlap.\n");
-  }
-}
 
 static void overloadConstraintsFromFile(const std::string &path,
                                         std::string &s) {
@@ -579,6 +159,7 @@ int main(int argc, char **argv) try {
   poplin::PlanningCache cache;
 
   boost::optional<std::string> profileDir;
+  std::string testPlannerSimulatedExecutionFile;
 
   po::options_description desc("Options");
   // clang-format off
@@ -598,6 +179,9 @@ int main(int argc, char **argv) try {
      "Useful for testing the planner's estimates.")
     ("test-planner-existing-profile", "Use an existing profile. "
      "The profile should be specified using the 'profile-dir' option")
+    ("test-planner-simulated-execution-file",
+     po::value<std::string>(&testPlannerSimulatedExecutionFile),
+     "Read a simulated trace dump of the execution and dump information about what happened.")
     ("test-planner-report-all-tiles",
      "Report the total cycle/memory usage for all tiles.")
     ("test-planner-report-all-serial-splits",
@@ -913,19 +497,28 @@ int main(int argc, char **argv) try {
       std::ifstream in(name);
       if (in) {
         in >> estimates;
-        updateDetailedPlanCosts(testPlannerReportPerTile,
-                                testPlannerReportPerSerialSplit, estimates);
+        amp::updateDetailedPlanCosts(testPlannerReportPerTile,
+                                     testPlannerReportPerSerialSplit,
+                                     estimates);
       } else {
         fmt::print(std::cerr, "Warning: could not find plan estimates at: {}\n",
                    name);
       }
       // Read the profile back and compare the costs.
-      MeasuredPlanCosts actual = getActualCosts(
+      auto actual = amp::getMeasuredCosts(
           phase, *profileDir, estimates.parallelSplit, estimates.serialSplit,
           testPlannerPrintVars, testPlannerReportPerTile,
           testPlannerReportPerSerialSplit);
-      compareCosts(phase, estimates, actual, testPlannerReportVerbose,
-                   testPlannerReportPerTile, testPlannerReportPerSerialSplit);
+      amp::compareCosts(phase, estimates, actual, testPlannerReportVerbose,
+                        testPlannerReportPerTile,
+                        testPlannerReportPerSerialSplit);
+    }
+
+    if (!testPlannerSimulatedExecutionFile.empty()) {
+      unsigned tilesToReportOn = tilesPerIPU ? *tilesPerIPU : 1;
+      amp::getSimulatedCosts(testPlannerSimulatedExecutionFile, tilesToReportOn,
+                             false, testPlannerReportPerTile,
+                             testPlannerReportPerSerialSplit);
     }
 
     return 0;
@@ -1277,8 +870,8 @@ int main(int argc, char **argv) try {
       }
 
       // Canonicalise the estimates based on the options.
-      updateDetailedPlanCosts(testPlannerReportPerTile,
-                              testPlannerReportPerSerialSplit, estimates);
+      amp::updateDetailedPlanCosts(testPlannerReportPerTile,
+                                   testPlannerReportPerSerialSplit, estimates);
     }
   }
 
@@ -1905,13 +1498,20 @@ int main(int argc, char **argv) try {
       // Tally up the cycles and memory used according to the profile.
       std::string actualProfileDir = tempDir ? tempDir->getPath() : *profileDir;
       // Read the profile back and compare the costs.
-      MeasuredPlanCosts actual = getActualCosts(
+      auto actual = amp::getMeasuredCosts(
           phase, actualProfileDir, estimates.parallelSplit,
           estimates.serialSplit, testPlannerPrintVars, testPlannerReportPerTile,
           testPlannerReportPerSerialSplit);
-      compareCosts(phase, estimates, actual, testPlannerReportVerbose,
-                   testPlannerReportPerTile, testPlannerReportPerSerialSplit);
+      amp::compareCosts(phase, estimates, actual, testPlannerReportVerbose,
+                        testPlannerReportPerTile,
+                        testPlannerReportPerSerialSplit);
     }
+  }
+
+  if (!testPlannerSimulatedExecutionFile.empty()) {
+    amp::getSimulatedCosts(
+        testPlannerSimulatedExecutionFile, dev.getTarget().getNumTiles(), false,
+        testPlannerReportPerTile, testPlannerReportPerSerialSplit);
   }
 
   std::cerr << errs.str();
