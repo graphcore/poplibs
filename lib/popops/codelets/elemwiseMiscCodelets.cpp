@@ -720,6 +720,131 @@ template <> struct CastDispatchMultiVertex<quarter, half, true, true> {
   }
 };
 
+template <> struct CastDispatch<half, quarter, true, true> {
+public:
+  static void compute(unsigned numElems, const half *src, quarter *dst,
+                      const MetadataType *metadataSrc,
+                      const MetadataType *metadataDst) {
+    float2 unpackedMetadata;
+
+    auto srcInternal = reinterpret_cast<const half *>(src);
+    auto dstInternal = reinterpret_cast<quarter *>(dst);
+    extractMetadata(metadataDst, &unpackedMetadata);
+
+    constexpr unsigned vectorShift = 2;
+    constexpr unsigned vectorSize = 4;
+    constexpr unsigned remainderMask = 3;
+    unsigned vectors = numElems >> vectorShift;
+    unsigned remainder = numElems & remainderMask;
+    vectors -= (remainder == 0);
+
+    unsigned lastResults;
+    if (unpackedMetadata[0] == 0.f) {
+      lastResults =
+          inLineAssemblerCast<const half *, quarter *, true, 1>::loopCast152(
+              vectors, srcInternal, dstInternal, &unpackedMetadata);
+    } else {
+      lastResults =
+          inLineAssemblerCast<const half *, quarter *, true, 1>::loopCast143(
+              vectors, srcInternal, dstInternal, &unpackedMetadata);
+    }
+
+    const auto remainderOffset = numElems - remainder;
+    switch (remainder) {
+    case 0: // store the last 4 halves due to the lack of remainder
+      *((unsigned *)(dstInternal + numElems - vectorSize)) = lastResults;
+      break;
+    case 3: {
+      quarter val = *((quarter *)(&lastResults) + 2);
+      *(dstInternal + remainderOffset + 2) = val;
+    }
+    case 2: {
+      unsigned short val = *((short *)(&lastResults));
+      *((unsigned short *)(dstInternal + remainderOffset)) = val;
+      break;
+    }
+    default: {
+      quarter val = *((quarter *)(&lastResults));
+      *(dstInternal + remainderOffset) = val;
+      break;
+    }
+    }
+  }
+};
+
+template <> struct CastDispatchMultiVertex<half, quarter, true, true> {
+
+  static void compute(unsigned numElems, unsigned wid, const half *src,
+                      quarter *dst, const MetadataType *metadataSrc,
+                      const MetadataType *metadataDst) {
+    float2 unpackedMetadata;
+
+    constexpr unsigned vectorSize = 4;
+    constexpr unsigned vectorShift = 2;
+    constexpr unsigned remainderMask = 3;
+    const unsigned remainder = numElems & remainderMask;
+    numElems += remainder ? vectorSize - remainder : 0;
+    const int vectorsPerWorker = divideWork(numElems, vectorShift, wid) - 1;
+    const unsigned workerOffset = wid * vectorSize;
+
+    constexpr unsigned stride = vectorSize * CTXT_WORKERS;
+    const auto lastVectorOffset = workerOffset + stride * vectorsPerWorker;
+
+    auto srcInternal = reinterpret_cast<const half *>(src);
+    auto dstInternal = reinterpret_cast<quarter *>(dst);
+    extractMetadata(metadataDst, &unpackedMetadata);
+
+    if (vectorsPerWorker < 0)
+      return;
+
+    unsigned lastResults;
+    if (unpackedMetadata[0] == 0.f) {
+      lastResults =
+          inLineAssemblerCast<const half *, quarter *, true,
+                              CTXT_WORKERS>::loopCast152(vectorsPerWorker,
+                                                         srcInternal +
+                                                             workerOffset,
+                                                         dstInternal +
+                                                             workerOffset,
+                                                         &unpackedMetadata);
+    } else {
+      lastResults =
+          inLineAssemblerCast<const half *, quarter *, true,
+                              CTXT_WORKERS>::loopCast143(vectorsPerWorker,
+                                                         srcInternal +
+                                                             workerOffset,
+                                                         dstInternal +
+                                                             workerOffset,
+                                                         &unpackedMetadata);
+    }
+
+    const auto remainderVectorOffset = numElems - 4;
+    const auto tail = remainder && lastVectorOffset == remainderVectorOffset
+                          ? remainder
+                          : vectorSize;
+
+    switch (tail) {
+    case 4:
+      *((unsigned *)(dstInternal + lastVectorOffset)) = lastResults;
+      break;
+    case 3: {
+      quarter val = *((quarter *)(&lastResults) + 2);
+      *(dstInternal + lastVectorOffset + 2) = val;
+    }
+    case 2: {
+      unsigned short val = *((short *)(&lastResults));
+      *((unsigned short *)(dstInternal + lastVectorOffset)) = val;
+      break;
+    }
+    default: {
+      quarter val = *((quarter *)(&lastResults));
+      *(dstInternal + lastVectorOffset) = val;
+      break;
+    }
+    }
+  }
+};
+
 #endif // __IPU_ARCH_VERSION__ > 2
 
 template <> struct CastDispatch<float, half, true, false> {

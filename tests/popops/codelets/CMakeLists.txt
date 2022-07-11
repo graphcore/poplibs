@@ -881,6 +881,21 @@ foreach (COLUMNS 1 2 3 256)
             LABELS codelet
             VARIANTS ${SIM_VARIANTS};Sim21)
       endforeach()
+      foreach(SCALE 0 1)
+        add_multitarget_test(NAME CastTest_half_quarter_binary_${SUPERVISOR}_${QUARTER_FORMAT}_${SCALE}_${COLUMNS}
+          COMMAND CastTest
+            --in-type half
+            --out-type quarter
+            --rows=1
+            --columns=${COLUMNS}
+            --supervisor=${SUPERVISOR}
+            --out-offset=0
+            --fp8-format-out=${QUARTER_FORMAT}
+            --fp8-scale-out=${SCALE}
+            --binary-mode
+            LABELS codelet
+            VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+      endforeach()
     endforeach()
   endforeach()
 endforeach()
@@ -915,6 +930,18 @@ function(test_cast TEST_TAG SIZES VARIANTS_TO_USE)
                         --align-start 0 2
                 LABELS codelet
                 VARIANTS ${VARIANTS_TO_USE})
+
+  foreach (FP8_FORMAT F143) # TODO T66923: Enable F152 when fixed
+    add_multitarget_test(NAME CastCodeletsTest_from_half_to_quarter_${FP8_FORMAT}_${TEST_TAG}
+                  COMMAND CastCodeletsTest
+                          --data-type half short ushort
+                          --cast quarter
+                          --size ${SIZES}
+                          --fp8-format ${FP8_FORMAT}
+                          --align-start 0 2
+                  LABELS codelet
+                  VARIANTS ${VARIANTS_TO_USE})
+  endforeach()
 
   add_multitarget_test(NAME CastCodeletsTest_from_32_64bit_types_${TEST_TAG}
                 COMMAND CastCodeletsTest

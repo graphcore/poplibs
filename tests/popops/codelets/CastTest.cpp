@@ -61,7 +61,7 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
     // Pick values that are exact for the FP8 format selected.
     // QUART 143 has 3 mantissa bits + 1 lead bit = 4 bits, supports 0..16
     // QUART 152 has 2 mantissa bits + 1 lead bit = 3 bits, supports 0..8
-    if (dataTypeIn == QUARTER && binaryMode) {
+    if (binaryMode) {
       QuarterMetadata metadata(fp8Format, fp8Scale);
       std::vector<unsigned char> quarters(total_elems);
       for (unsigned i = 0; i < total_elems; i++) {
@@ -194,7 +194,17 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   }
   // Check the result, in the outTest array
   // Always check the whole output memory to catch any overwrites
-  const float threshold = binaryMode ? 0.f : 0.05;
+  float threshold = 0.05;
+  if (binaryMode) {
+    if (dataTypeIn == QUARTER)
+      threshold = 0.f;
+    if (dataTypeOut == QUARTER) {
+      if (fp8FormatOut == QuarterMetadata::Format ::F143)
+        threshold = 0.125; // 2^-3
+      else
+        threshold = 0.25; // 2^-2
+    }
+  }
   bool check =
       checkIsClose("CastTest", outHost.data(), {outHost.size()}, outTest.data(),
                    outTest.size(), threshold, threshold, true);
@@ -279,7 +289,7 @@ int main(int argc, char **argv) {
     std::cerr << "error: 'supervisor' option requires 'rows'=1\n";
     return 1;
   }
-  if (binaryMode && inType != QUARTER) {
+  if (binaryMode && inType != QUARTER && outType != QUARTER) {
     std::cerr << "error: 'binary-mode' option requires quarter input type\n";
     return 1;
   }

@@ -852,6 +852,15 @@ static float2 extractMetadataNegScale(const MetadataType *metadata) {
 
 #else
 
+#define ASSIGN_HEX_2_FLOAT(f, h, v)                                            \
+  h = v;                                                                       \
+  f = *((float *)&h);
+
+#define ASSIGN_HEX_2_DOUBLE(f, h, v)                                           \
+  h = v;                                                                       \
+  f[0] = *((float *)&h);                                                       \
+  f[1] = *((float *)&h);
+
 // FP8 -> Half Mk2 Cast
 // It's OK to overprocess because we have to deal with every byte input value of
 // the initial quarter anyway.
@@ -861,13 +870,13 @@ class inLineAssemblerCast<const quarter *, half *, true, stride> {
 public:
   static __attribute__((always_inline)) half4
   loopCast152(int loopCount, const quarter *in, half *out, float2 *metadata) {
+    unsigned hexValue;
     half4 lastResults;
-    float2 stack[5];
-    stack[0][0] = (*metadata)[1];    // scale
-    stack[1][0] = 2.66851606673e+36; // 0x7c007c00 exponent mask
-    stack[1][1] = 2.66851606673e+36; // 0x7c007c00 exponent mask
-    stack[2][0] = 1.04226232351e+34; // 0x78007800 exponent offset
-    stack[2][1] = 1.04226232351e+34; // 0x78007800 exponent offset
+    float2 stack[4];
+
+    stack[0][0] = (*metadata)[1];                        // scale
+    ASSIGN_HEX_2_DOUBLE(stack[1], hexValue, 0x78007800); // exponent offset
+    // stack[2] and stack[3] are used for scratch
 
     // Cast fp8(152) -> half:
     // Shuffle into 16 bit fields abcdefgh => ab00cd00 ef00gh00
@@ -878,38 +887,60 @@ public:
     // Multiply the values by 2^scale
     asm volatile(
         R"l(
-              .equ stackOffsetMtoA6, 6
-              .equ stackOffsetMtoA7, 7
-              .equ stackOffsetMtoA2, 8
-              .equ stackOffsetMtoA3, 9
-              .equ stackOffsetA67, 3
-              .equ stackOffsetA23, 4
-              .equ stackOffsetExpMask, 1
-              .equ stackOffsetExpOff, 2
+              .equ expMask, 0x7c00
+
               .equ stackOffsetScale, 0
+              .equ stackOffsetExpOff, 8
+              .equ stackOffsetA67, 16
+              .equ stackOffsetMtoA6, 16
+              .equ stackOffsetMtoA7, 20
+              .equ stackOffsetA23, 24
+              .equ stackOffsetMtoA2, 24
+              .equ stackOffsetMtoA3, 28
               {
                 ld32step      $m7, $mzero, %[baseIn]+=, %[ctxtWorkers]
-                uput   $FP_CTL, $azero   // disable FP exceptions
+                uput          $FP_CTL, $azero   // disable FP exceptions
               }
-              shuf8x8lo       $m8, $mzero, $m7
-              shuf8x8hi       $m7, $mzero, $m7
-              st32            $m8, %[stackPtr], $mzero, stackOffsetMtoA6
-              st32            $m7, %[stackPtr], $mzero, stackOffsetMtoA7
+              ld32            $a2, %[stackPtr], $mzero, stackOffsetScale/4
+              {
+                shuf8x8lo     $m8, $mzero, $m7
+                f32fromi32    $a2, $a2
+              }
+              {
+                shuf8x8hi     $m7, $mzero, $m7
+                f32tof16      $a2, $a2
+              }
+              {
+                st32          $m8, %[stackPtr], $mzero, stackOffsetMtoA6/4
+                f16v2exp2     $a2, $a2
+              }
+              st32            $a2, %[stackPtr], $mzero, stackOffsetScale/4
+              st32            $m7, %[stackPtr], $mzero, stackOffsetMtoA7/4
               // Shift, preserve all 8 bits, but make 0x8000 -> 0x0800
               // So we can compare without hitting a -0.0 == 0.0 issue
               shr             $m8, $m8, 4
               shr             $m7, $m7, 4
-              st32            $m8, %[stackPtr], $mzero, stackOffsetMtoA2
-              st32            $m7, %[stackPtr], $mzero, stackOffsetMtoA3
-
               {
-                ld64          $a6:7, %[stackPtr], $mzero, stackOffsetA67
+                st32          $m8, %[stackPtr], $mzero, stackOffsetMtoA2/4
+                setzi         $a2, expMask
+              }
+              {
+                st32          $m7, %[stackPtr], $mzero, stackOffsetMtoA3/4
+                sort4x16lo    $a2, $a2, $a2
+              }
+              {
+                ld64          $a6:7, %[stackPtr], $mzero, stackOffsetA67/8
                 setzi         $a4, 0x3800
               }
-              ld64            $a2:3, %[stackPtr], $mzero, stackOffsetExpMask
-              bri             1f
+              {
+                bri           1f
+                mov           $a3, $a2
+              }
             2:
-              st64step        %[lastResults], $mzero, %[baseOut]+=, %[ctxtWorkers]
+              {
+                st64step      %[lastResults], $mzero, %[baseOut]+=, %[ctxtWorkers]
+                mov           $a3, $a2
+              }
             1:
               {
                 ld32step      $m7, $mzero, %[baseIn]+=, %[ctxtWorkers]
@@ -924,53 +955,49 @@ public:
                 f16v4cmpeq    $a2:3, $azeros, $a2:3
               }
               {
-                ld64          $a4:5, %[stackPtr], $mzero, stackOffsetExpOff
+                ld64          $a4:5, %[stackPtr], $mzero, stackOffsetExpOff/8
                 f16v4mul      $a6:7, $a4:BL, $a6:7
               }
               {
-                st32          $m8, %[stackPtr], $mzero, stackOffsetMtoA6
+                st32          $m8, %[stackPtr], $mzero, stackOffsetMtoA6/4
                 or64          %[lastResults],%[lastResults], $a4:5
               }
               {
-                st32          $m7, %[stackPtr], $mzero, stackOffsetMtoA7
+                st32          $m7, %[stackPtr], $mzero, stackOffsetMtoA7/4
                 andc64        $a6:7, $a6:7, $a2:3
               } 
               and64           %[lastResults], %[lastResults], $a2:3
               {
-                ld64          $a2:3, %[stackPtr], $mzero, stackOffsetA23
+                ld64          $a2:3, %[stackPtr], $mzero, stackOffsetA23/8
                 or64          %[lastResults], $a6:7, %[lastResults]
               }
               {
                 shr           $m8, $m8, 4
                 setzi         $a6, 0x0800
               }
-            {
+              {
                 shr           $m7, $m7, 4
                 f16v4cmpeq    $a2:3, $a6:BL, $a2:3
               }
               {
-                ld32         $a2, %[stackPtr], $mzero, stackOffsetScale
-                or64         %[lastResults], $a2:3, %[lastResults]
-              }             
-              {
-                st32         $m8, %[stackPtr], $mzero, stackOffsetMtoA2
-                f32fromi32   $a2, $a2
+                ld32          $a2, %[stackPtr], $mzero, stackOffsetScale/4
+                or64          %[lastResults], $a2:3, %[lastResults]
               }
               {
-                st32         $m7, %[stackPtr], $mzero, stackOffsetMtoA3    
-                f32tof16     $a2, $a2
+                st32          $m8, %[stackPtr], $mzero, stackOffsetMtoA2/4
+                f16v4mul      %[lastResults], $a2:BL, %[lastResults]
               }
               {
-                ld64         $a6:7, %[stackPtr], $mzero, stackOffsetA67
-                f16v2exp2    $a2, $a2
+                st32          $m7, %[stackPtr], $mzero, stackOffsetMtoA3/4
+                setzi         $a2, expMask
               }
               {
-                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetExpMask
-                f16v4mul     %[lastResults], $a2:BL, %[lastResults]
+                ld64          $a6:7, %[stackPtr], $mzero, stackOffsetA67/8
+                sort4x16lo    $a2, $a2, $a2
               }
               {
-                brnzdec      %[count], 2b
-                setzi        $a4, 0x3800
+                brnzdec       %[count], 2b
+                setzi         $a4, 0x3800
               }
           )l"
         : [lastResults] "=r"(lastResults), [baseIn] "+r"(in),
@@ -982,15 +1009,15 @@ public:
 
   static __attribute__((always_inline)) half4
   loopCast143(int loopCount, const quarter *in, half *out, float2 *metadata) {
+    unsigned hexValue;
     half4 lastResults;
     half2 bias = {7.0, 7.0};
     float2 stack[3];
-    stack[0][0] = 2.83326107615e+14;  // 0x5780d780 clampfp16
-    stack[0][1] = -1.18010406225e-38; // 0x80808080 sign mask
-    stack[1][0] = 2.66851606673e+36;  // 0x7c007c00 exponent mask
-    stack[1][1] = 2.66851606673e+36;  // 0x7c007c00 exponent mask
-    stack[2][0] = (*metadata)[1];     // scale
-    stack[2][1] = 6.01853466353e-36;  // -0.0 fp16 class 0x05000005
+
+    ASSIGN_HEX_2_FLOAT(stack[0][0], hexValue, 0x5780d780); // clampfp16
+    ASSIGN_HEX_2_FLOAT(stack[0][1], hexValue, 0x80808080); // sign mask
+    ASSIGN_HEX_2_DOUBLE(stack[1], hexValue, 0x7c007c00);   // exponent mask
+    ASSIGN_HEX_2_FLOAT(stack[2][0], hexValue, 0x05000005); // fp16 class
 
     // Cast fp8(143) -> half:
     // Shuffle into 16 bit fields abcdefgh => ab00cd00 ef00gh00
@@ -1004,34 +1031,33 @@ public:
         R"l(
               .equ mask12L, 0xfff
               .equ mask12U, 0xfff00000
-              .equ maskClassResult ,0xff0000ff
-              .equ cmpClassResult, 0x05000005
+              .equ maskClassResult, 0xff0000ff
 
-              .equ stackOffsetMtoA6, 0
-              .equ stackOffsetMtoA7, 1
-              .equ stackOffsetA67, 0
-              .equ stackOffsetScale, 4
-              .equ stackOffsetSignMask, 1
-              .equ stackOffsetExpMask, 1
+              // Clampfp16 and SignMask are loaded once and then used as a
+              // scratch
               .equ stackOffsetClampfp16, 0
-              .equ stackOffsetFp16MZeroClass, 5
+              .equ stackOffsetMtoA6, 0
+              .equ stackOffsetA67, 0
+              .equ stackOffsetSignMask, 4
+              .equ stackOffsetMtoA7, 4
+              .equ stackOffsetExpMask, 8
+              .equ stackOffsetFp16MZeroClass, 16
 
-              ld32           $a5, %[stackPtr], $mzero, stackOffsetScale
               {
                 ld32step     $m7, $mzero, %[baseIn]+=, %[ctxtWorkers]
-                f32fromi32   $a5, $a5
+                f32fromi32   %[scaleOrClamp], %[scaleOrClamp]
               }
               {
-                ld32         $m2, %[stackPtr], $mzero, stackOffsetSignMask
-                f32tof16     $a5, $a5
+                ld32         $m2, %[stackPtr], $mzero, stackOffsetSignMask/4
+                f32tof16     %[scaleOrClamp], %[scaleOrClamp]
               }
               {
-                ld64         %[lastResults], %[stackPtr], $mzero, stackOffsetExpMask
-                f16v2add     $a5, $a5, %[bias]
+                ld64         %[lastResults], %[stackPtr], $mzero, stackOffsetExpMask/8
+                f16v2add     %[scaleOrClamp], %[scaleOrClamp], %[bias]
               }
               {
-                ld32         $a5, %[stackPtr], $mzero, stackOffsetClampfp16
-                f16v2exp2    %[bias], $a5 // prepare scale
+                ld32         %[scaleOrClamp], %[stackPtr], $mzero, stackOffsetClampfp16/4
+                f16v2exp2    %[bias], %[scaleOrClamp] // prepare scale
               }
               {
                 and          $m4, $m7, $m2
@@ -1046,7 +1072,7 @@ public:
               shr            $m7, $m7, 0x1
               or             $m8, $m8, $m5
               or             $m7, $m7, $m4
-              st32           $m7, %[stackPtr], $mzero, stackOffsetMtoA7
+              st32           $m7, %[stackPtr], $mzero, stackOffsetMtoA7/4
 
               bri            1f
             2:
@@ -1057,11 +1083,11 @@ public:
                 or           $a0, $azero, maskClassResult & mask12L
               }
               { 
-                st32         $m8, %[stackPtr], $mzero, stackOffsetMtoA6
+                st32         $m8, %[stackPtr], $mzero, stackOffsetMtoA6/4
                 or           $a0, $a0, maskClassResult & mask12U
               }
               {
-                ld64         $a6:7, %[stackPtr], $mzero, stackOffsetA67
+                ld64         $a6:7, %[stackPtr], $mzero, stackOffsetA67/8
                 mov          $a1, $a0
               }
               // Produces 0x05 for the value we want in 4 consecutive bytes:
@@ -1083,7 +1109,7 @@ public:
                 and64        $a0:1, $a0:1, $a6:7  //$a1:0xww0000xx $a0:0xyy0000zz
               }
               shuf8x8lo      $m8, $mzero, $m7
-              ld32           $a6, %[stackPtr], $mzero, stackOffsetFp16MZeroClass
+              ld32           $a6, %[stackPtr], $mzero, stackOffsetFp16MZeroClass/4
               {
                 shuf8x8hi    $m7, $mzero, $m7
                 mov          $a7, $a6
@@ -1091,7 +1117,7 @@ public:
               // Reload as it is trampled
               // Compare: any byte left that =0x05 => 0xffff (==nan)
               {
-                ld64         $a6:7, %[stackPtr], $mzero, stackOffsetA67
+                ld64         $a6:7, %[stackPtr], $mzero, stackOffsetA67/8
                 f16v4cmpeq   $a0:1, $a0:1, $a6:7
               }
               {
@@ -1100,7 +1126,7 @@ public:
               }
               {
                 shr          $m7, $m7, 0x1
-                f16v4clamp   $a0:1, $a6:7, $a5
+                f16v4clamp   $a0:1, $a6:7, %[scaleOrClamp]
               }
               {
                 or           $m8, $m8, $m5
@@ -1111,7 +1137,7 @@ public:
                 andc64       $a0:1, %[lastResults], $a0:1
               }
               {
-                st32         $m7, %[stackPtr], $mzero, stackOffsetMtoA7
+                st32         $m7, %[stackPtr], $mzero, stackOffsetMtoA7/4
                 or64         $a0:1, $a6:7, $a0:1
               }
               {
@@ -1121,14 +1147,360 @@ public:
               mov            %[lastResults], $a0:1
           )l"
         : [bias] "+r"(bias), [lastResults] "=r"(lastResults), [baseIn] "+r"(in),
-          [baseOut] "+r"(out), [count] "+r"(loopCount)
+          [baseOut] "+r"(out), [count] "+r"(loopCount),
+          [scaleOrClamp] "+r"((*metadata)[1])
         : [ctxtWorkers] "r"(stride), [stackPtr] "r"(stack)
-        : "$a0:1", "$a5", "$a6:7", "$m2", "$m4", "$m5", "$m7", "$m8", "memory");
+        : "$a0:1", "$a6:7", "$m2", "$m4", "$m5", "$m7", "$m8", "memory");
     return lastResults;
   }
 };
+
+template <unsigned stride>
+class inLineAssemblerCast<const half *, quarter *, true, stride> {
+public:
+  static __attribute__((always_inline)) unsigned loopCast152(unsigned loopCount,
+                                                             const half *in,
+                                                             quarter *out,
+                                                             float2 *metadata) {
+    unsigned lastResults;
+    unsigned hexValue;
+    float2 stack[5];
+
+    ASSIGN_HEX_2_DOUBLE(stack[0], hexValue, 0x7c007c00);   // exp mask
+    ASSIGN_HEX_2_FLOAT(stack[1][0], hexValue, 0x00007800); // fp8 max exp
+    stack[1][1] = (*metadata)[1];                          // scale
+    ASSIGN_HEX_2_DOUBLE(stack[2], hexValue, 0x02000002);   // nan class mask
+    ASSIGN_HEX_2_DOUBLE(stack[3], hexValue, 0x80008000);   // nan fp8
+    ASSIGN_HEX_2_DOUBLE(stack[4], hexValue,
+                        0xff0000ff); // upper lower class mask
+
+    // Cast half -> fp8(152):
+    // Multiply the values by 2^(scale + bias)
+    // Get absolute values and mask only exponent
+    // Limit the exponent values to the maximum
+    // Multiply by 2 using f16v4add
+    // Merge exp with rest bits
+    // Check that the values are not negative zeros (using f16v4class)
+
+    asm volatile(
+        R"l(
+              .equ stackOffsetExpMask, 0
+              .equ stackOffsetMaxExp, 8
+              .equ stackOffsetScale, 12
+              .equ stackOffsetNanClassMask, 16
+              .equ stackOffsetNanFp8, 24
+              .equ stackOffsetUpLowClassMask, 32
+
+              {
+                ld32         $a2, %[stackPtr], $mzero, stackOffsetScale/4
+                uput         $FP_CTL, $azero   // disable FP exceptions
+              }
+              f32fromi32     $a2, $a2
+              f32sub         $a2, $azero, $a2
+              f32tof16       $a2, $a2
+              {
+                ld64step     $a6:7, $mzero, %[baseIn]+=, %[ctxtWorkers]
+                f16v2exp2    $a2, $a2 // prepare scale
+              }
+
+              {
+                ld64         $a0:1, %[stackPtr], $mzero, stackOffsetUpLowClassMask/8
+                f16v4class   $a5, $a6:7
+              }
+              sort4x16lo     $a4, $a5, $a5
+              sort4x16hi     $a5, $a5, $a5
+              { 
+                ld64         $a0:1, %[stackPtr], $mzero, stackOffsetNanClassMask/8
+                and64        $a4:5, $a4:5, $a0:1
+              }
+              {
+                ld64         $a0:1, %[stackPtr], $mzero, stackOffsetNanFp8/8
+                f16v4cmpeq   $a4:5, $a4:5, $a0:1
+              }
+              andc64         $a6:7, $a6:7, $a4:5
+              and64          $a0:1, $a0:1, $a4:5
+              or64           $a6:7, $a6:7, $a0:1
+              {
+                st32         $a2, %[stackPtr], $mzero, stackOffsetScale/4
+                f16v4mul     $a6:7, $a2:BL, $a6:7
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetExpMask/8
+                f16v4absadd  $a0:1, $a6:7, $azeros
+              }
+              f16v4cmple     $a4:5, $a2:BL, $a0:1
+              or64           $a0:1, $a6:7, $a2:3
+              and64          $a0:1, $a0:1, $a4:5
+              f16v4add       $a6:7, $a6:7, $a6:7
+              {
+                bri          1f
+                andc64       $a6:7, $a6:7, $a4:5
+              }
+            2:
+              st32           %[lastResults], $mzero, %[baseOut], 0
+              {
+                ld32step     $azero, $mzero, %[baseOut]+=, %[ctxtWorkers]
+                andc64       $a6:7, $a6:7, $a4:5
+              }
+            1:
+              {
+                ld64step     $a6:7, $mzero, %[baseIn]+=, %[ctxtWorkers]
+                or64         $a0:1, $a6:7, $a0:1
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetUpLowClassMask/8
+                f16v4class   $a5, $a6:7
+              }
+              sort4x16lo     $a4, $a5, $a5
+              sort4x16hi     $a5, $a5, $a5
+              { 
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetNanClassMask/8
+                and64        $a4:5, $a4:5, $a2:3
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetNanFp8/8
+                f16v4cmpeq   $a4:5, $a4:5, $a2:3
+              }
+              andc64         $a6:7, $a6:7, $a4:5
+              and64          $a2:3, $a2:3, $a4:5
+              {
+                ld32         $a2, %[stackPtr], $mzero, stackOffsetScale/4
+                or64         $a6:7, $a6:7, $a2:3
+              }
+              {
+                ld32         $a2, %[stackPtr], $mzero, stackOffsetMaxExp/4
+                f16v4mul     $a6:7, $a2:BL, $a6:7       // Scale values
+              }
+              {
+                atom         $m6, $a0
+                f16v4absadd  $a4:5, $a6:7, $azeros
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetExpMask/8
+                f16v4cmple   $a4:5, $a2:BL, $a4:5
+              }
+              {
+                atom         %[lastResults], $a1
+                or64         $a0:1, $a6:7, $a2:3
+              }
+              {
+                sort8x8hi    %[lastResults], $m6, %[lastResults]
+                and64        $a0:1, $a0:1, $a4:5
+              }
+              {
+                brnzdec      %[count], 2b
+                f16v4add     $a6:7, $a6:7, $a6:7
+              }
+          )l"
+        : [lastResults] "=&r"(lastResults), [baseOut] "+r"(out),
+          [baseIn] "+r"(in), [count] "+r"(loopCount)
+        : [ctxtWorkers] "r"(stride), [stackPtr] "r"(stack)
+        : "$a0:1", "$a2:3", "$a4:5", "$a6:7", "$m6", "memory");
+    return lastResults;
+  }
+
+  static __attribute__((always_inline)) unsigned loopCast143(unsigned loopCount,
+                                                             const half *in,
+                                                             quarter *out,
+                                                             float2 *metadata) {
+    unsigned lastResults;
+    unsigned hexValue;
+    float2 stack[11];
+
+    stack[0][0] = (*metadata)[1];                          // scale
+    ASSIGN_HEX_2_DOUBLE(stack[1], hexValue, 0x00800080);   // fp8 sign mask
+    ASSIGN_HEX_2_FLOAT(stack[2][0], hexValue, 0x47004700); // 7.0 fp16 bias
+    ASSIGN_HEX_2_DOUBLE(stack[3], hexValue, 0x80000080);   // fp8 fp32 sign mask
+    ASSIGN_HEX_2_DOUBLE(stack[4], hexValue, 0x02000002);   // nan class mask
+    ASSIGN_HEX_2_DOUBLE(stack[5], hexValue, 0x80008000);   // nan fp8
+    ASSIGN_HEX_2_DOUBLE(stack[6], hexValue,
+                        0xff0000ff); // upper/lower class mask
+    ASSIGN_HEX_2_DOUBLE(stack[7], hexValue,
+                        0xb000b000); // lowest representable fp8
+    ASSIGN_HEX_2_DOUBLE(stack[8], hexValue, 0x007f007f);  // sign exp mask
+    ASSIGN_HEX_2_DOUBLE(stack[9], hexValue, 0x7c007c00);  // exp mask
+    ASSIGN_HEX_2_DOUBLE(stack[10], hexValue, 0x00400040); // correction
+
+    // Cast half -> fp8(143):
+    // Multiply the values by 2^(scale + bias)
+    // Round values to nearest representable
+    // Check that the values are not nans (using f16v4class)
+    // Split sign and rest bits
+    // Shift and sort the values accordingly and merge to the sign
+
+    asm volatile(
+        R"l(
+              .equ fp16SignMask, 0x00008000
+              .equ f16MantisaDiff, 7
+
+              .equ stackOffsetScale, 0
+              .equ stackOffsetFp8SignMask, 8
+              .equ stackOffsetBias, 16
+              .equ stackOffsetFp832SignMask, 24
+              .equ stackOffsetNanClassMask, 32
+              .equ stackOffsetNanFp8, 40
+              .equ stackOffsetUpLowClassMask, 48
+              .equ stackOffsetLowestFp16, 56
+              .equ stackOffsetSignExpMask, 64
+              .equ stackOffsetExpMask, 72
+              .equ stackOffsetCorrections, 80
+              .equ stackOffsetScratch, 88
+
+              {
+                ld32         $a0, %[stackPtr], $mzero, stackOffsetScale/4
+                uput         $FP_CTL, $azero   // disable FP exceptions
+              }
+              {
+                ld32         $a3, %[stackPtr], $mzero, stackOffsetBias/4
+                f32fromi32   $a0, $a0
+              }
+              f32sub         $a0, $azero, $a0
+              f32tof16       $a0, $a0
+              f16v2sub       $a0, $a0, $a3
+              {
+                ld64step     $a6:7, $mzero, %[baseIn]+=, %[ctxtWorkers]
+                f16v2exp2    $a0, $a0 // prepare scale
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetUpLowClassMask/8
+                f16v4class   $a1, $a6:7
+              }
+              {
+                st32         $a0, %[stackPtr], $mzero, stackOffsetScale/8
+                sort4x16lo   $a0, $a1, $a1
+              }
+              sort4x16hi     $a1, $a1, $a1
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetNanClassMask/8
+                and64        $a0:1, $a0:1, $a2:3
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetNanFp8/8
+                f16v4cmpeq   $a4:5, $a0:1, $a2:3
+              }
+              andc64         $a6:7, $a6:7, $a4:5
+              {
+                ld64         $a0:1, %[stackPtr], $mzero, stackOffsetFp8SignMask/8
+                and64        $a2:3, $a2:3, $a4:5
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetLowestFp16/8
+                or64         $a6:7, $a6:7, $a2:3
+              }
+              f16v4cmpge     $a2:3, $a2:3, $a6:7
+              {
+                ld32         $a2, %[stackPtr], $mzero, stackOffsetScale/4
+                or64         $a4:5, $a2:3, $a4:5
+              }
+              {
+                bri          1f
+                f16v4mul     $a6:7, $a2:BL, $a6:7       // Scale values
+              }
+            2:
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetLowestFp16/8
+                or64         $a6:7, $a6:7, $a2:3
+              }
+              {
+                st32         %[lastResults], $mzero, %[baseOut], 0
+                f16v4cmpge   $a2:3, $a2:3, $a6:7
+              }
+              {
+                ld32         $a2, %[stackPtr], $mzero, stackOffsetScale/4
+                or64         $a4:5, $a2:3, $a4:5
+              }
+              {
+                ld32step     $azero, $mzero, %[baseOut]+=, %[ctxtWorkers]
+                f16v4mul     $a6:7, $a2:BL, $a6:7       // Scale values
+              }
+            1:  
+              {
+                st64         $a4:5, %[stackPtr], $mzero, stackOffsetScratch/8
+                and64        $a0:1, $a6:7, $a0:1
+              }
+              ld64           $a2:3, %[stackPtr], $mzero, stackOffsetSignExpMask/8
+              {
+                ld64         $a4:5, %[stackPtr], $mzero, stackOffsetCorrections/8
+                and64        $a2:3, $a6:7, $a2:3
+              }
+              f16v4cmpeq     $a2:3, $a2:3, $a4:5
+              and64          $a0:1, $a0:1, $a2:3
+              andc64         $a2:3, $a4:5, $a2:3
+              {
+                ld64         $a0:1, %[stackPtr], $mzero, stackOffsetExpMask/8
+                or64         $a2:3, $a2:3, $a0:1
+              }
+              and64          $a0:1, $a6:7, $a0:1
+              or64           $a2:3, $a2:3, $a0:1
+              {
+                ld64         $a4:5, %[stackPtr], $mzero, stackOffsetScratch/8
+                f16v4sub     $a2:3, $a2:3, $a0:1
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetFp832SignMask/8
+                f16v4absadd  $a6:7, $a6:7, $a2:3
+              }
+              {  
+                atom         %[lastResults], $a7
+                mov          $a0:1, $a6:7
+              }
+              {
+                atom         $m6, $a6
+                and64        $a2:3, $a4:5, $a2:3
+              }
+              {
+                shr          $m6, $m6, f16MantisaDiff
+                sort4x16lo   $a7, $a2, $a3
+              }
+              {
+                shr          %[lastResults], %[lastResults], f16MantisaDiff
+                sort4x16hi   $a6, $a2, $a3
+              }
+              {
+                sort8x8lo    $m6, $m6, %[lastResults]
+                or           $a7, $a6, $a7
+              }
+                atom           $m4, $a7
+              {
+                ld64step       $a6:7, $mzero, %[baseIn]+=, %[ctxtWorkers]
+                setzi        $a2, fp16SignMask
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetUpLowClassMask/8
+                f16v4class   $a1, $a6:7
+              }
+              sort4x16lo     $a0, $a1, $a1
+              {  
+                or           %[lastResults], $m6, $m4
+                sort4x16hi     $a1, $a1, $a1
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetNanClassMask/8
+                and64        $a0:1, $a0:1, $a2:3
+              }
+              {
+                ld64         $a2:3, %[stackPtr], $mzero, stackOffsetNanFp8/8
+                f16v4cmpeq   $a4:5, $a0:1, $a2:3
+              }
+              {
+                ld64         $a0:1, %[stackPtr], $mzero, stackOffsetFp8SignMask/8
+                andc64       $a6:7, $a6:7, $a4:5
+              }
+              {
+                brnzdec      %[count], 2b
+                and64        $a2:3, $a2:3, $a4:5
+              }
+          )l"
+        : [lastResults] "=&r"(lastResults), [baseOut] "+r"(out),
+          [baseIn] "+r"(in), [count] "+r"(loopCount)
+        : [ctxtWorkers] "r"(stride), [stackPtr] "r"(stack)
+        : "$a0:1", "$a2:3", "$a4:5", "$a6:7", "$m4", "$m6", "memory");
+    return lastResults;
+  }
+};
+
 // Setting Fp8 metadata:
-// Set the format to 0 if 152, otherwise 0.
+// Set the format to 0 if 152, otherwise -0.
 // Convert the scale value to i32.
 
 static void extractMetadata(const MetadataType *metadata,
@@ -1141,7 +1513,7 @@ static void extractMetadata(const MetadataType *metadata,
             shl       $m1, $m1, 23
             st32      $m1, %[unpackedPtr], $mzero, 0
 
-			      and $m1, $m0, 0x20
+            and $m1, $m0, 0x20
             // 0x7FFFFFE0 mask if scale sign bit is active, else 0x0
             mul       $m2, $m1, %[scaleSignMask]
             shl       $m1, $m1, 0x1a
