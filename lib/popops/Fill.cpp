@@ -121,6 +121,7 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
                            poplar::program::Sequence &, Type,                  \
                            const poplar::DebugContext &)
 
+FILL_EXPLICIT_INSTANTIATIONS(double);
 FILL_EXPLICIT_INSTANTIATIONS(float);
 FILL_EXPLICIT_INSTANTIATIONS(int);
 FILL_EXPLICIT_INSTANTIATIONS(unsigned);

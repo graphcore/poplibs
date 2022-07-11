@@ -373,6 +373,16 @@ add_multitarget_test(
   --shape={268800,1} --num-indices=10400 --compile-only
 )
 
+add_multitarget_test(
+  NAME PlannedMultiUpdateMax_WithLookupSplit
+  COMMAND PlannedMultiSliceUpdateTest
+    --shape={100,1}
+    --num-indices=200
+    --update=true
+    --operation=MAX
+    --tiles-per-ipu=4
+    --plan-constraints={"lookupParallelSplit":4})
+
 add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(RegroupTest RegroupTest.cpp)

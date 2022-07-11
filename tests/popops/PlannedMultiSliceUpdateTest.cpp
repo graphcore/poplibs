@@ -285,10 +285,10 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
   MultiArray<double> expected{hOutShape};
 
   // random integers
-  writeRandomValues(target, dataType, hIn, 0., 1., randomEngine);
+  writeRandomValues(target, dataType, hIn, -1., 1., randomEngine);
   std::transform(hIn.data(), hIn.data() + hIn.numElements(), hIn.data(),
                  [](double x) { return static_cast<int>(x * 16) % 16; });
-  writeRandomValues(target, dataType, hOut, 0., 1., randomEngine);
+  writeRandomValues(target, dataType, hOut, -1., 1., randomEngine);
   std::transform(hOut.data(), hOut.data() + hOut.numElements(), hOut.data(),
                  [](double x) { return static_cast<int>(x * 16) % 16; });
 

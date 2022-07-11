@@ -6,6 +6,7 @@
 #include "ExchangeEstimator.hpp"
 #include "FillModelling.hpp"
 #include "ScaledAddModelling.hpp"
+#include "popops/Fill.hpp"
 #include "reduction/Modelling.hpp"
 
 #include "poplar/Interval.hpp"
@@ -374,6 +375,39 @@ poplar::Type partialTypeToUse(std::optional<poplar::Type> partialType,
                         dataType.toString() + " is not supported");
   }
   return *partialType;
+}
+
+static double getUpdateIdentityValue(boost::optional<Operation> op,
+                                     const Type &dataType) {
+  if (!op) {
+    return 0.0;
+  }
+  switch (*op) {
+  case Operation::ADD:
+    return 0.0;
+    break;
+  case Operation::MAX:
+    // TODO: T54781: numeric_limits for target types would make this
+    // less nasty.
+    if (dataType == UNSIGNED_INT) {
+      return std::numeric_limits<unsigned>::lowest();
+    } else if (dataType == INT) {
+      return std::numeric_limits<int>::lowest();
+    } else if (dataType == FLOAT || dataType == HALF) {
+      // The smallest non-NaN value in a comparison will always be negative
+      // infinity. If the type is HALF and saturation of infinity to
+      // lowest/max representable value then this will still result in the
+      // correct value.
+      return -std::numeric_limits<float>::infinity();
+    } else {
+      throw poplibs_error("Unhandled data type '" + dataType.toString() +
+                          "' in getUpdateIdentityValue");
+    }
+    break;
+  default:
+    throw poplibs_error("Invalid operation type for update " +
+                        std::to_string(static_cast<int>(*op)));
+  }
 }
 
 static Tensor
@@ -1347,7 +1381,9 @@ static void generatePlannedMultiUpdateOp(
 
   if (multipleStages) {
     // Reduce dense partials
-    zero(graph, stage0Output, seq, {dnai, "zeroPartials"});
+    popops::fill(graph, stage0Output, seq,
+                 getUpdateIdentityValue(op, stage0Output.elementType()),
+                 {dnai, "setPartialsToIdentity"});
     seq.add(updateSeq);
 
     const auto cumulativeUpdate =
