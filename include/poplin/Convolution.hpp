@@ -632,17 +632,21 @@ struct DetailedPlanCosts {
   PlanCosts total = {};
 
   template <typename Function>
-  void apply(Function fn, bool includeTotal = true) const {
+  void apply(Function fn, bool includeTotal = true,
+             bool serialSplitOnly = false) const {
     // Call the non-const overload to avoid duplication. Prevent fn from being
     // able to modify state by wrapping it in another lambda that applies const
     // to the reference.
     const_cast<DetailedPlanCosts *>(this)->apply(
-        [&fn](const PlanCosts &c) { fn(c); }, includeTotal);
+        [&fn](const PlanCosts &c) { fn(c); }, includeTotal, serialSplitOnly);
   }
   template <typename Function>
-  void apply(Function fn, bool includeTotal = true) {
-    fn(broadcast);
-    fn(rearrangement);
+  void apply(Function fn, bool includeTotal = true,
+             bool serialSplitOnly = false) {
+    if (!serialSplitOnly) {
+      fn(broadcast);
+      fn(rearrangement);
+    }
     fn(dynamicSlice);
     fn(transform);
     fn(exchange);
@@ -651,8 +655,10 @@ struct DetailedPlanCosts {
     fn(compute);
     fn(reduction);
     fn(dynamicUpdate);
-    fn(addInPlace);
-    fn(outputCast);
+    if (!serialSplitOnly) {
+      fn(addInPlace);
+      fn(outputCast);
+    }
     if (includeTotal)
       fn(total);
   }

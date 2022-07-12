@@ -66,17 +66,18 @@ void updateDetailedPlanCosts(bool reportPerTile, bool reportPerSerialSplit,
     });
   }
 
-  if (reportPerSerialSplit) {
-    // The profiler reports totals across all splits and itemised numbers
-    // as per-serial split.
-    costs.total.cycles /= costs.serialSplit;
-  } else {
+  // The profiler reports totals across all splits and itemised numbers
+  // as per-serial split. Not all programs are inside the serial split
+  // though so take care to only multiple some of the cycles.
+  if (!reportPerSerialSplit) {
+    constexpr bool includeTotal = false;
+    constexpr bool serialSplitOnly = true;
     costs.apply(
         [&costs](PlanCosts &c) {
           if (c.cycles != PlanCosts::unknown)
             c.cycles *= costs.serialSplit;
         },
-        false);
+        includeTotal, serialSplitOnly);
   }
 }
 
@@ -105,7 +106,7 @@ MeasuredPlanCosts::selectCosts(const std::string &name,
   if (r_contains(name, "PreArrange") || r_contains(name, "preRegroup"))
     return isInsideSerialSplit ? transform : broadcast;
   else if (r_contains(name, "weightsRearranged"))
-    return rearrangement;
+    return isInsideSerialSplit ? transform : rearrangement;
   else if (r_contains(name, "tileLevelActs"))
     return broadcast;
   else if (r_contains(name, "ExchangePre"))
@@ -245,16 +246,16 @@ MeasuredPlanCosts getMeasuredCosts(const std::string &pass,
   progsInRepeatLoop.reserve(32); // inexact but cheap
   for (auto &prog : report.compilation().programs()) {
     auto name = prog->name();
-    if (!contains(name, pass)) {
-      continue;
-    }
-
     if (prog->type() == pva::Program::Type::Repeat) {
       auto tmp = prog->children();
       if (tmp.size() == 1 && tmp[0]->type() == pva::Program::Type::Sequence) {
         auto seq = tmp[0];
-        for (auto &c : seq->children())
+        for (auto &c : seq->children()) {
+          if (!contains(c->name(), pass)) {
+            break;
+          }
           progsInRepeatLoop.emplace(c->_id());
+        }
       }
     }
   }
@@ -324,6 +325,10 @@ MeasuredPlanCosts getMeasuredCosts(const std::string &pass,
     ++progressBar;
   }
 
+  // Compute the totals.
+  costs.total.cycles = costs.totalCycles();
+  costs.total.memory = costs.totalMemory();
+
   // The above sums all serial splits so divide back into the serial splits.
   // Note that by doing this at the end we avoid some precision loss when
   // working with small numbers of cycles. Only applicable to stages inside
@@ -339,10 +344,6 @@ MeasuredPlanCosts getMeasuredCosts(const std::string &pass,
     costs.addInPlace.cycles /= serialSplit;
     costs.totalWorkListBytes /= serialSplit;
   }
-
-  // Compute the totals.
-  costs.total.cycles = costs.totalCycles();
-  costs.total.memory = costs.totalMemory();
 
   return costs;
 }
