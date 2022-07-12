@@ -1369,9 +1369,11 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
   }
 
   const auto &convSize = transformedConvSizes[systemLevel];
+  const auto numFieldDims = partitionVars[systemLevel].fieldSplit.size();
   std::vector<popsolver::Variable> outputFieldSizes;
   std::vector<popsolver::Variable> inputFieldSizes;
-  const auto numFieldDims = partitionVars[systemLevel].fieldSplit.size();
+  outputFieldSizes.reserve(numFieldDims);
+  inputFieldSizes.reserve(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     const auto fieldGrainSize = partitionVars[systemLevel].fieldGrainSize[dim];
     auto outputFieldSize = convSize.numFieldGrains[dim];
@@ -1380,14 +1382,10 @@ static TransformEstimates<popsolver::Variable> addTransformCycleEstimate(
           m.product({outputFieldSize, m.addConstant(fieldGrainSize)});
     }
     outputFieldSizes.push_back(outputFieldSize);
-    if (transformedDims[systemLevel].count(dim)) {
-      inputFieldSizes.push_back(outputFieldSize);
-    } else {
-      auto inputFieldSize =
-          getMaxInputRangeSize(m, outputFieldSize, dim, transformedOnceParams,
-                               convSize.kernelSize[dim]);
-      inputFieldSizes.push_back(inputFieldSize);
-    }
+    auto inputFieldSize =
+        getMaxInputRangeSize(m, outputFieldSize, dim, transformedOnceParams,
+                             convSize.kernelSize[dim]);
+    inputFieldSizes.push_back(inputFieldSize);
   }
   const auto numConvGroups =
       m.product({convSize.numConvGroupGrains,
