@@ -167,16 +167,11 @@ static unsigned getInChansPerGroup(const Plan &plan, unsigned level,
     grainSize = plan.partitions[level].inChanGrainSize;
   }
 
-  if (numInChans == 0) {
-    return grainSize;
+  if (numInChans < grainSize) {
+    return std::gcd(numInChans, grainSize);
   }
 
-  // Round down to the nearest factor of the grain size
-  auto chansPerGroup = std::min(numInChans, grainSize);
-  while (chansPerGroup > 1 && grainSize % chansPerGroup != 0) {
-    chansPerGroup -= 1;
-  }
-  return chansPerGroup;
+  return grainSize;
 }
 
 static unsigned getInChansPerSerialSplit(const Partition &partition,
@@ -201,16 +196,11 @@ static unsigned getOutChansPerGroup(const Plan &plan, unsigned level,
     grainSize = plan.partitions[level].outChanGrainSize;
   }
 
-  if (numOutChans == 0) {
-    return grainSize;
+  if (numOutChans < grainSize) {
+    return std::gcd(numOutChans, grainSize);
   }
 
-  // Round down to the nearest factor of the grain size
-  auto chansPerGroup = std::min(numOutChans, grainSize);
-  while (chansPerGroup > 1 && grainSize % chansPerGroup != 0) {
-    chansPerGroup -= 1;
-  }
-  return chansPerGroup;
+  return grainSize;
 }
 
 static unsigned getOutChansPerSerialSplit(const Partition &partition,
