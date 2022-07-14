@@ -247,6 +247,7 @@ struct RegionReduction {
           "Irregular reduction partials have no num outer strides");
     }
   }
+  void convertToIrregularPartials();
 };
 
 inline std::ostream &operator<<(std::ostream &os, const RegionReduction &r) {

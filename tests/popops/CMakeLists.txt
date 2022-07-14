@@ -1056,6 +1056,15 @@ add_multitarget_test(
       "--file=${CMAKE_CURRENT_SOURCE_DIR}/infiles/reduceInT59445.tensor"
       VARIANTS "${IPUMODEL_VARIANTS}")
 
+# A specific case where the random mapping makes an inner and outer factor
+# both !=1 in the first on tile stage.
+add_multitarget_test(
+    NAME reduce_op_innerOuterFactorGT1
+      COMMAND $<TARGET_FILE:reduce_op>
+      --random-mapper=true
+      --seed=6575
+      VARIANTS "${IPUMODEL_VARIANTS}")
+
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})

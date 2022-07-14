@@ -1079,14 +1079,7 @@ splitPartialsByRows(const RegionReduction &reduction_,
   std::vector<RegionReduction> out(rows.size());
   auto reduction = reduction_;
   if (reduction.regularPartials() && reduction.getNumOuterStrides() != 1) {
-    const auto convertToIrregularPartials =
-        [](popops::RegionReduction &region) {
-          const std::vector<RegionReduction> regions = {region};
-          const auto partials = extractPartials(regions);
-          region.partials = IrregularPartials{partials};
-        };
-
-    convertToIrregularPartials(reduction);
+    reduction.convertToIrregularPartials();
     logging::popops::trace("Converting to irregular partials so that we can"
                            " split partials by row.");
   }
@@ -1359,11 +1352,11 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
                (reduction.getNumPartialsElementsPerOuterStride() %
                 firstStageOutputSize) == 0;
       } else {
-          return std::all_of(
-              reduction.getPartials().begin(), reduction.getPartials().end(),
-              [&](const poplar::Tensor &t) {
-                return (t.numElements() % firstStageOutputSize) == 0;
-              });
+        return std::all_of(
+            reduction.getPartials().begin(), reduction.getPartials().end(),
+            [&](const poplar::Tensor &t) {
+              return (t.numElements() % firstStageOutputSize) == 0;
+            });
       }
     }();
     if (partialsAreSuitable) {
@@ -1520,6 +1513,9 @@ std::vector<RegionReduction> connectSmallInnerFactorReductions(
           implementedReductions.back().getStride() = red.getStride();
           implementedReductions.back().getOffset() =
               red.getOffset() + (j * splitWidth);
+          implementedReductions.back().getOuterStride() = red.getOuterStride();
+          implementedReductions.back().getNumOuterStrides() =
+              red.getNumOuterStrides();
         } else {
           IrregularPartials iPartials;
 
@@ -1867,6 +1863,14 @@ std::vector<RegionReduction> connectLargeInnerFactorReductions(
 
 } // anonymous namespace
 
+void RegionReduction::convertToIrregularPartials() {
+  if (regularPartials()) {
+    const std::vector<RegionReduction> regions = {*this};
+    const auto partials = extractPartials(regions);
+    this->partials = IrregularPartials{partials};
+  }
+}
+
 void connectReductions(poplar::Graph &graph, ComputeSetList &css,
                        ReduceParams params, poplar::Type inputType,
                        poplar::Type partialType, poplar::Type outputType,
@@ -2007,14 +2011,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
       if (splits[i] != 1 && remainingReductions[i].regularPartials() &&
           remainingReductions[i].innerFactor != 1 &&
           remainingReductions[i].outerFactor != 1) {
-
-        const auto convertToIrregularPartials =
-            [](popops::RegionReduction &region) {
-              const std::vector<RegionReduction> regions = {region};
-              const auto partials = extractPartials(regions);
-              region.partials = IrregularPartials{partials};
-            };
-        convertToIrregularPartials(remainingReductions[i]);
+        remainingReductions[i].convertToIrregularPartials();
       }
     }
     connectTwoStageReductions(graph, css, reductionComputeSets, params,

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <exception>
 #include <fstream>
+#include <numeric>
 #include <optional>
 #include <random>
 
@@ -47,7 +48,7 @@ namespace br = boost::random;
 #define HALF_ABS_TOL 1e-5
 
 #define MAX_TILES_TO_USE_SIM_TARGET 20
-#define MAX_TILES_TO_USE_DEFAULT 64
+#define MAX_TILES_TO_USE_DEFAULT 256
 #define MAX_IPUS_TO_USE 1
 
 const OptionFlags defaultEngineOptions;
@@ -218,6 +219,11 @@ poplar::Type getRandomTypes(std::mt19937 &gen, popops::Operation op) {
   POPLIB_UNREACHABLE();
 }
 
+// Random grain size
+unsigned getRandomGrainSize(std::mt19937 &gen, unsigned maxGrain) {
+  return br::uniform_int_distribution<>(1, maxGrain)(gen);
+}
+
 bool validateParameters(const po::variables_map &vm) {
   // If a file is specified you cannot set the shape.
   if (vm.count("file") != 0) {
@@ -255,6 +261,23 @@ std::vector<std::size_t> getReducedShape(const std::vector<std::size_t> &shape,
   return reducedShape;
 }
 
+void randomMapper(Graph &graph, const Tensor &t, unsigned grainSize,
+                  unsigned tiles, std::mt19937 &gen) {
+  std::vector<std::vector<Interval>> mapping(tiles);
+  unsigned elemToMap = 0;
+  unsigned tile = 0;
+  while (elemToMap < t.numElements()) {
+    auto toMap = grainSize * br::uniform_int_distribution<>(1, 8)(gen);
+    if (elemToMap + toMap > t.numElements()) {
+      toMap = t.numElements() - elemToMap;
+    }
+    mapping[tile].emplace_back(Interval(elemToMap, elemToMap + toMap));
+    tile = (tile + 1) % tiles;
+    elemToMap += toMap;
+  }
+  graph.setTileMapping(t, mapping);
+}
+
 int main(int argc, char **argv) {
   DeviceType deviceType = DeviceType::IpuModel2;
   // Default input parameters.
@@ -276,9 +299,15 @@ int main(int argc, char **argv) {
   std::vector<std::size_t> shape;
   std::vector<std::size_t> dims;
 
+  unsigned minElementsPerTile = 64;
+  unsigned grainSize = 4;
+  unsigned grainSizeOut = 4;
+  bool randomMapping = false;
+
   unsigned numIPUs = 1;
-  boost::optional<unsigned> tilesPerIPU;
-  boost::optional<std::string> profileDir;
+  boost::optional<unsigned> tilesPerIPU = boost::none;
+  boost::optional<std::string> profileDir = boost::none;
+
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -328,6 +357,14 @@ int main(int argc, char **argv) {
     ("shuffle", po::value(&shuffleString),
       "Dim shuffle to apply to the input tensor with shape initial-shape."
       " e.g. 1,0,2,3")
+    ("grain-size", po::value(&grainSize),
+      "The grain size to use when mapping the input tensor")
+    ("grain-size-out", po::value(&grainSizeOut),
+      "The grain size to use when mapping the output tensor")
+    ("min-elements-per-tile", po::value(&minElementsPerTile),
+      "The minimum elements per tile to use when mapping th input tensor")
+    ("random-mapper", po::value(&randomMapping),
+      "use a random (not linear) mapping algorithm")
     ("options", po::value<std::string>(&optionsString),
       "Options to use for the reduction, specified as a JSON string, "
       "e.g. {\"key\":\"value\"}")
@@ -397,6 +434,9 @@ int main(int argc, char **argv) {
                     ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
                     : createTestDeviceFullSize(deviceType, numIPUs);
   const auto &target = device.getTarget();
+  if (!tilesPerIPU) {
+    tilesPerIPU = target.getTilesPerIPU();
+  }
   Graph graph(target);
   popops::addCodelets(graph);
   Tensor input;
@@ -470,6 +510,18 @@ int main(int argc, char **argv) {
       std::cerr << "Choosing random API.\n";
       computeSetApi = getRandomApi(randomEngine);
     }
+    if (vm.count("grain-size") == 0) {
+      std::cerr << "Choosing random mapping grain size.\n";
+      grainSize = getRandomGrainSize(randomEngine, 8);
+      grainSizeOut = getRandomGrainSize(randomEngine, 8);
+      minElementsPerTile = 1;
+    }
+    if (vm.count("initial-shape") == 0 && vm.count("shuffle") == 0) {
+      initialShape = shape;
+      shuffle.resize(initialShape.size());
+      std::iota(shuffle.begin(), shuffle.end(), 0);
+      std::shuffle(shuffle.begin(), shuffle.end(), randomEngine);
+    }
   }
 
   // Verify the types.
@@ -498,22 +550,27 @@ int main(int argc, char **argv) {
     }
   }
 
-  // TODO: T12990 Some types of testing are not supported yet.
-
-  // Boolean and int not supported because the reference implementation isn't
-  // templated yet.
-  if (op == popops::Operation::LOGICAL_AND ||
-      op == popops::Operation::LOGICAL_OR) {
-    std::cerr << "Testing currently doesn't support boolean ops. Setting to "
-                 "float ADD.\n";
-    op = popops::Operation::ADD;
-    dataType = FLOAT;
-  }
-  if (dataType == INT) {
-    std::cerr << "Int testing not supported yet. Setting to float.\n";
-    dataType = FLOAT;
+  const auto useScaleLogAdd = op == popops::Operation::LOG_ADD && scale != 0.0f;
+  const auto useScaleAddSquareAdd =
+      (op == popops::Operation::ADD || op == popops::Operation::SQUARE_ADD) &&
+      scale != 1.0f;
+  auto useScale = useScaleAddSquareAdd || useScaleLogAdd;
+  if (dataType == INT && useScale) {
+    std::cerr << "Int reduction doesn't use scale, disabling scale.\n";
+    useScale = false;
+    scale = 1.0f;
   }
 
+  if (vm.count("seed") == 0) {
+    if (vm.count("grain-size") == 0) {
+      grainSize = target.getVectorWidth(dataType);
+    }
+    if (vm.count("min-elements-per-tile") == 0) {
+      const auto typeSize = target.getTypeSize(dataType);
+      const auto minBytesPerTile = 128;
+      minElementsPerTile = (minBytesPerTile + typeSize - 1) / typeSize;
+    }
+  }
   // Add the input if we didn't load it from a file.
   if (vm.count("file") == 0) {
     if (initialShape.size() && shuffle.size()) {
@@ -521,12 +578,28 @@ int main(int argc, char **argv) {
           << "Using the initial-shape and shuffle parameters to change the"
              " input tensor layout\n";
       input = graph.addVariable(dataType, initialShape, "input");
-      mapTensorLinearly(graph, input);
+      if (randomMapping) {
+        randomMapper(graph, input, grainSize, *tilesPerIPU, randomEngine);
+      } else {
+        if (*tilesPerIPU == 1) {
+          graph.setTileMapping(input, 0);
+        } else {
+          mapTensorLinearly(graph, input, minElementsPerTile, grainSize);
+        }
+      }
       input = input.dimShuffle(shuffle);
       input = input.reshape(shape);
     } else {
       input = graph.addVariable(dataType, shape, "input");
-      mapTensorLinearly(graph, input);
+      if (randomMapping) {
+        randomMapper(graph, input, grainSize, *tilesPerIPU, randomEngine);
+      } else {
+        if (*tilesPerIPU == 1) {
+          graph.setTileMapping(input, 0);
+        } else {
+          mapTensorLinearly(graph, input, minElementsPerTile, grainSize);
+        }
+      }
     }
   }
 
@@ -558,10 +631,17 @@ int main(int argc, char **argv) {
   for (auto s : shape)
     std::cerr << s << " ";
   std::cerr << "}\n";
+
   std::cerr << "Dims: { ";
   for (auto s : dims)
     std::cerr << s << " ";
   std::cerr << "}\n";
+
+  std::cerr << "Shuffle: { ";
+  for (auto s : shuffle)
+    std::cerr << s << " ";
+  std::cerr << "}\n";
+
   std::cerr << "Op: " << op << "\n";
   std::cerr << "Scale: " << scale << "\n";
   std::cerr << "Update: " << update << "\n";
@@ -571,7 +651,11 @@ int main(int argc, char **argv) {
   std::cerr << "Type: " << dataType.toString() << "\n";
   std::cerr << "API: " << (computeSetApi ? "vector<ComputeSet>" : "Sequence")
             << "\n";
-
+  std::cerr << "Mapping:\n";
+  std::cerr << "  Random mapper:" << randomMapping << "\n";
+  std::cerr << "  In Grain size:" << grainSize << "\n";
+  std::cerr << "  Out Grain size:" << grainSizeOut << "\n";
+  std::cerr << "  Min Elements Per Tile:" << minElementsPerTile << "\n";
   std::cerr << "Generating reduction...\n";
   // Do the reduction
   Sequence prog;
@@ -586,11 +670,6 @@ int main(int argc, char **argv) {
 
   auto rate = graph.addConstant(FLOAT, {}, scale);
   graph.setTileMapping(rate, 0);
-  const auto useScaleLogAdd = op == popops::Operation::LOG_ADD && scale != 0.0f;
-  const auto useScaleAddSquareAdd =
-      (op == popops::Operation::ADD || op == popops::Operation::SQUARE_ADD) &&
-      scale != 1.0f;
-  const auto useScale = useScaleAddSquareAdd || useScaleLogAdd;
   ReduceParams reductionParams;
   if (useScale) {
     reductionParams = {op, update, rate};
@@ -602,7 +681,11 @@ int main(int argc, char **argv) {
     // Make the output.
     auto reducedShape = getReducedShape(input.shape(), dims);
     output = graph.addVariable(input.elementType(), reducedShape, "output");
-    mapTensorLinearly(graph, output);
+    if (*tilesPerIPU == 1) {
+      graph.setTileMapping(output, 0);
+    } else {
+      mapTensorLinearly(graph, output, minElementsPerTile, grainSizeOut);
+    }
 
     if (computeSetApi) {
       std::vector<ComputeSet> css;
