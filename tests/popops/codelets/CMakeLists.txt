@@ -800,7 +800,7 @@ foreach(COLUMNS 1 2 3 4 8 24 48 141)
         --fp8-format-out=F152
         --fp8-scale-out=1
         LABELS codelet
-        VARIANTS Sim21)
+        VARIANTS ;${SIM_VARIANTS};Sim21)
   endforeach()
 endforeach()
 
@@ -820,7 +820,7 @@ foreach(ROWS 1 2)
           --fp8-format-out=F143
           --fp8-scale-out=2
           LABELS codelet
-          VARIANTS Sim21)
+          VARIANTS ${SIM_VARIANTS};Sim21)
     endforeach()
   endforeach()
 endforeach()
@@ -840,7 +840,7 @@ foreach(ROWS 1 2)
           --fp8-format-out=F143
           --fp8-scale-out=2
           LABELS codelet
-          VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+          VARIANTS ${SIM_VARIANTS};Sim21)
   endforeach()
 endforeach()
 
@@ -859,7 +859,7 @@ foreach(ROWS 1 2)
           --fp8-format-out=F143
           --fp8-scale-out=2
           LABELS codelet
-          VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+          VARIANTS ${SIM_VARIANTS};Sim21)
   endforeach()
 endforeach()
 
@@ -879,7 +879,7 @@ foreach (COLUMNS 1 2 3 256)
             --fp8-scale=${SCALE}
             --binary-mode
             LABELS codelet
-            VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+            VARIANTS ${SIM_VARIANTS};Sim21)
       endforeach()
     endforeach()
   endforeach()

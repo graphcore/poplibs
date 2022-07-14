@@ -1,7 +1,7 @@
 add_unit_test(ConvPartial1x1Out
               ConvPartial1x1Out.cpp
               LABELS codelet
-              VARIANTS ${SIM_VARIANTS})
+              VARIANTS ${SIM_VARIANTS};Sim21)
 add_unit_test(OuterProductTest
               OuterProductTest.cpp
               LABELS codelet

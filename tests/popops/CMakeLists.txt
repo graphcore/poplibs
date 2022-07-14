@@ -386,10 +386,10 @@ add_multitarget_test(
 add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(RegroupTest RegroupTest.cpp)
-add_unit_test(DynamicSliceCreation DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
+add_unit_test(DynamicSliceCreation DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS};Sim21;IpuModel21)
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
-              SUITES SingleDim MultiDim LargeBuffer Misc MultiSlice CheckIndexValidation
-              VARIANTS Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS})
+              SUITES SingleDim MultiDim LargeBuffer Misc MultiSlice CheckIndexValidation CheckQuarterMetadata
+              VARIANTS Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Sim21;IpuModel21)
 
 add_unit_test(MultiUpdateTest DynamicSliceTest.cpp
               SUITES Update MultiUpdate  MultiUpdateSingles MultiUpdateMultiples)
@@ -1077,7 +1077,7 @@ add_unit_test(ScatterUpdateTest ScatterUpdateTest.cpp)
 add_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
 add_unit_test(SortTest SortTest.cpp)
 add_unit_test(StdArithmeticTests StdArithmeticTests.cpp
-              VARIANTS  "${IPUMODEL_VARIANTS};Sim21")
+              VARIANTS  "${IPUMODEL_VARIANTS};Sim21;IpuModel21")
 
 # StdOperatorsTests
 macro(add_std_operators_test test)
@@ -1402,6 +1402,15 @@ add_multitarget_test(
                  --shape {180,1}
                  --data-type=half
                  --tiles-per-ipu 30)
+
+add_multitarget_test(
+         NAME embedding_layer_quarter
+         COMMAND embedding_layer
+                 --shape={8,16}
+                 --num-indices=6
+                 --data-type=quarter
+                 --tiles-per-ipu 8
+         VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};IpuModel21;Sim21)
 
 # Histogram
 add_multi_target_test_executable(HistogramTest HistogramTest.cpp)

@@ -926,6 +926,17 @@ add_multitarget_test(
          --plan-constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/json/pc_serial_split_ocx4.json
          --use-create-output=true)
 
+add_multitarget_test(
+ NAME gemm_quarter
+ COMMAND general_matrix_multiply
+         --m 64
+         --k 16
+         --n 48
+         --tiles-per-ipu=16
+         --input-type=quarter
+         --output-type=half
+         VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Sim21;IpuModel21)
+
 # Single conv layer tests
 
 add_multitarget_test(NAME Conv_strides_gt_10bits
@@ -1000,19 +1011,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                     --seed ${n}
                     --binary $<TARGET_FILE:single_conv_layer>
                     --input-type=quarter
-             VARIANTS "IpuModel2"
-            ALLOW_SKIP)
-  endforeach()
-
-  foreach(n RANGE 1 500)
-    add_multitarget_test(
-            NAME conv_random_quarter${n}
-            COMMAND ${PYTHON_EXECUTABLE}
-                    ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
-                    --seed ${n}
-                    --binary $<TARGET_FILE:single_conv_layer>
-                    --input-type=quarter
-             VARIANTS "Sim21;IpuModel21"
+             VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Sim21;IpuModel21"
             ALLOW_SKIP)
   endforeach()
 

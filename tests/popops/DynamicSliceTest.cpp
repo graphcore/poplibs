@@ -1930,9 +1930,8 @@ void checkQuarterMetadata(void) {
   // The resulting multiSliced result should have the same metadata
   auto subT = popops::multiSlice(graph, embedding, ids, {0}, {1}, sequence,
                                  plan, optionFlags, "slice");
-  poplar::ArrayRef<unsigned> offsets = {0};
   auto subTConst =
-      popops::multiSlice(graph, embedding, offsets, 0, sequence, "slice", {});
+      popops::multiSlice(graph, embedding, {1}, 0, sequence, "slice", {});
 
   // A multiupdate should not affect the metadata of the embedding
   auto dummy = popops::multiSlice(graph, embedding, ids, {0}, {1}, sequence,
