@@ -1,12 +1,14 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "ExprOpUtil.hpp"
-#include <boost/range/numeric.hpp>
-#include <cstdint>
-#include <iomanip>
 #include <popops/Expr.hpp>
 #include <poputil/DebugInfo.hpp>
 #include <poputil/exceptions.hpp>
-#include <regex>
+
+#include <boost/algorithm/string/replace.hpp>
+#include <boost/range/numeric.hpp>
+
+#include <cstdint>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -232,13 +234,12 @@ std::string TernaryOp::name(const std::vector<poplar::Tensor> &inputs) const {
 }
 
 std::string Const::name(const std::vector<poplar::Tensor> &) const {
-  // can't have . or - in class names need to remove these from the
-  // string
-  std::regex dotRegex("\\.");
+  // can't have '.', '-', or '+' in class names so remove these
   std::string result = this->printValue();
-  result = std::regex_replace(result, dotRegex, "z");
-  std::regex minusRegex("-");
-  return std::regex_replace(result, minusRegex, "m");
+  boost::replace_all(result, ".", "z");
+  boost::replace_all(result, "-", "m");
+  boost::replace_all(result, "+", "p");
+  return result;
 }
 
 static std::string typeShortName(const poplar::Type &type) {
@@ -251,8 +252,8 @@ static std::string typeShortName(const poplar::Type &type) {
   } else {
     result = type.toString();
   }
-  std::regex spaceRegex(" ");
-  return std::regex_replace(result, spaceRegex, "_");
+  boost::replace_all(result, " ", "_");
+  return result;
 }
 
 std::string Cast::name(const std::vector<poplar::Tensor> &inputs) const {

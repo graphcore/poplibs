@@ -6,13 +6,12 @@
 #include <popops/Expr.hpp>
 #include <popops/ExprOp.hpp>
 
-#include <set>
-#include <unordered_map>
-#include <unordered_set>
-
 #include <queue>
+#include <set>
 #include <stack>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace popops {

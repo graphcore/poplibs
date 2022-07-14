@@ -17,7 +17,6 @@
 
 #include <functional>
 #include <iterator>
-#include <regex>
 #include <string>
 
 /// These macros reduce the amount of boiler plate code when writing perf-

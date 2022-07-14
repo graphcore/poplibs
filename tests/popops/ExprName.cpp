@@ -54,6 +54,9 @@ BOOST_AUTO_TEST_CASE(CheckNames) {
   checkNames(Const(4.0f), ConstHalf(4.0f));
   checkNames(Const(One), Const(OtherOne), true);
   checkNames(Add(_1, Cast(_4, HALF)), Add(_2, Cast(_5, HALF)));
+  checkNames(
+      Mul(Add(_1, popops::expr::Const(std::numeric_limits<float>::max())), _3),
+      Mul(Add(_1, _1), _1));
 }
 
 BOOST_AUTO_TEST_CASE(ConstFloatRoundTrip) {
