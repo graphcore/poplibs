@@ -356,6 +356,15 @@ ReduceAdd_Half_Half:
 
   DIVIDE_BY_WORKER $NUM_ELEMS $WKR_ID $SCRATCH $ELEMS_LOOPS LOG2_24_OVER_3
 
+  // The order of access of the partials pointer is 
+  // [0, NUM_PARTIALS - 1, NUM_PARTIALS - 2, ..., 1]
+  add      $SCRATCH, $NUM_PARTIALS, -1
+  ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=, $SCRATCH
+  // we cannot use a dummy load when incrementing the partials pointer as it
+  // may be out of bounds. Instad we use an add to set the pointer to the
+  // correct position
+  shl      $SCRATCH, $NUM_PARTIALS, 2
+
   // Decrement loop count as we use brnzdec, and skip loop if this worker
   // has no groups of 8 to process
   brnzdec $ELEMS_LOOPS, .Lelems_loop8_hh_1st
@@ -367,22 +376,21 @@ ReduceAdd_Half_Half:
   // the other 5 worker's work: 5 workers with 2x64 bits each = (5*2)
   st64step    $VAL12, $mzero, $OUT_PTR+=,1+(5*2)
 .Lelems_loop8_hh_1st:
-  mov      $SCRATCH, $PARTIALS
-  ld32step $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
-  rpt      $NUM_PARTIALS, (2f-1f)/8 -1
-
+  {rpt      $NUM_PARTIALS, (2f-1f)/8 -1
+   fnop}
 1:
   {ld64     $VAL12, $BASE, $PARTIALS_PTR,0
    fnop}
   {ld64     $VAL34, $BASE, $PARTIALS_PTR, 1
    fnop}
-  {ld32step $PARTIALS_PTR, $MEM_BASE, $SCRATCH+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,-1
    f16v8acc $VAL14}
 2:
   // Store the results from the independent sums of 8 columns found in the loop
   {add         $BASE, $BASE, 16*6
    f16v2gina   $VAL1, $azero, 0}
-  f16v2gina   $VAL2, $azero, 0
+  {add         $PARTIALS, $PARTIALS, $SCRATCH
+   f16v2gina   $VAL2, $azero, 0}
   {st64step    $VAL12, $mzero, $OUT_PTR+=,1
    f16v2gina   $VAL1, $azero, 0}
 
@@ -396,6 +404,7 @@ ReduceAdd_Half_Half:
 
   // Groups of 8 columns complete.  Now 0-7 columns left
 .Lno_loop8_hh:
+
   // As we've dealt with groups of 8, it's simple to find the remaining elements
   // quick exit if none
   and         $SCRATCH, $NUM_ELEMS, 7
@@ -449,20 +458,18 @@ ReduceAdd_Half_Half:
 
   and         $SCRATCH2, $SCRATCH, 2
   brnz        $SCRATCH2, .Lprocess2_hh
-
+ 
 .Lprocess1_hh:
   // base column for the last input
   add         $BASE, $NUM_ELEMS, -1
   shl         $BASE, $BASE, 1
-
-  ld32step    $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
 
   {rpt        $NUM_PARTIALS, (2f-1f)/8 -1
    zero        $VAL1}
 1:
   {ldb16      $VAL3, $BASE, $PARTIALS_PTR, 0
    fnop}
-  {ld32step   $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
+  {ld32step   $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,-1
    f16v2add     $VAL1, $VAL1, $VAL3}
 2:
   ldb16       $VAL2, $BASE, $OUT_PTR_STORE, 1
@@ -477,15 +484,12 @@ ReduceAdd_Half_Half:
   sub         $BASE, $NUM_ELEMS, $SCRATCH
   shl         $BASE, $BASE, 1
 
-  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
-   zero     $VAL1}
-
   {rpt    $NUM_PARTIALS, (2f-1f)/8 -1
-   fnop}
+   zero     $VAL1}
 1:
   {ld32     $VAL3, $BASE, $PARTIALS_PTR, 0
    fnop}
-  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,-1
    f16v2add $VAL1, $VAL1, $VAL3}
 2:
   st32      $VAL1, $BASE, $OUT_PTR_STORE,0
@@ -497,13 +501,12 @@ ReduceAdd_Half_Half:
   sub         $BASE, $NUM_ELEMS, $SCRATCH
   shl         $BASE, $BASE, 1
 
-  ld32step    $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
-
-  rpt   $NUM_PARTIALS, (2f-1f)/8 -1
+  {rpt   $NUM_PARTIALS, (2f-1f)/8 -1
+   fnop}
 1:
   {ld64     $VAL12, $BASE, $PARTIALS_PTR,0
    fnop}
-  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,1
+  {ld32step $PARTIALS_PTR, $MEM_BASE, $PARTIALS+=,-1
    f16v4acc    $VAL12}
 2:
   // Store the results

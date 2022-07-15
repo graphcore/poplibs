@@ -1601,8 +1601,7 @@ inline uint64_t getReduceCycleEstimate(unsigned outSize, unsigned partialsSize,
     cycles += (cyclesPerLoop * partialsSize + (isPartialsFloat ? 7 : 9)) *
               loopsDividedBetweenWorkers;
   } else {
-    cycles += (cyclesPerLoop * partialsSize + (isPartialsFloat ? 6 : 8)) *
-              loopsDividedBetweenWorkers;
+    cycles += (cyclesPerLoop * partialsSize + 6) * loopsDividedBetweenWorkers;
   }
 
   return cycles * numWorkers;
