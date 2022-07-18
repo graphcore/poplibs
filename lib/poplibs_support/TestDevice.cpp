@@ -104,6 +104,10 @@ createTestDevice(const DeviceType deviceType, const unsigned numIPUs,
     // all devices will be for the same target
     auto tilesPerIPU = requestedTilesPerIPU.get_value_or(
         devices.front().getTarget().getTilesPerIPU());
+    if (numIPUs > 1 && tilesPerIPU % 2 != 0) {
+      throw poplar::poplar_error(
+          "Multi-tile devices must have an even number of tiles per IPU");
+    }
     // transform each device into a virtual device if needed.
     for (auto &device : devices) {
       if (tilesPerIPU != device.getTarget().getTilesPerIPU()) {
