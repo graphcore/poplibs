@@ -77,11 +77,11 @@ std::size_t chooseMappingOffset(std::size_t numTiles,
 }
 
 std::vector<std::vector<poplar::Interval>>
-calcLinearTileMapping(const poplar::Graph &graph,
+calcLinearTileMapping(const poplar::Target &target,
                       std::vector<std::size_t> shape,
                       unsigned minElementsPerTile, unsigned grainSize,
                       unsigned offset, bool ascendingOrder) {
-  const auto numTiles = graph.getTarget().getNumTiles();
+  const auto numTiles = target.getNumTiles();
   const auto numElements = std::accumulate(shape.begin(), shape.end(), 1UL,
                                            std::multiplies<std::size_t>());
   std::vector<poplar::Interval> regions = {{0, numElements}};
@@ -102,15 +102,29 @@ calcLinearTileMapping(const poplar::Graph &graph,
 }
 
 std::vector<std::vector<poplar::Interval>>
-calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t,
+calcLinearTileMapping(const poplar::Graph &graph,
+                      std::vector<std::size_t> shape,
+                      unsigned minElementsPerTile, unsigned grainSize,
                       unsigned offset, bool ascendingOrder) {
-  const auto dType = t.elementType();
-  const auto &target = graph.getTarget();
-  const auto typeSize = target.getTypeSize(dType);
-  unsigned grainSize = target.getVectorWidth(dType);
+  return calcLinearTileMapping(graph.getTarget(), shape, minElementsPerTile,
+                               grainSize, offset, ascendingOrder);
+}
+
+std::vector<std::vector<poplar::Interval>> calcLinearTileMapping(
+    const poplar::Target &target, const std::vector<std::size_t> shape,
+    poplar::Type elementType, unsigned offset, bool ascendingOrder) {
+  const auto typeSize = target.getTypeSize(elementType);
+  unsigned grainSize = target.getVectorWidth(elementType);
   const auto minBytesPerTile = 128;
   const auto minElementsPerTile = (minBytesPerTile + typeSize - 1) / typeSize;
-  return calcLinearTileMapping(graph, t.shape(), minElementsPerTile, grainSize,
+  return calcLinearTileMapping(target, shape, minElementsPerTile, grainSize,
+                               offset, ascendingOrder);
+}
+
+std::vector<std::vector<poplar::Interval>>
+calcLinearTileMapping(const poplar::Graph &graph, const poplar::Tensor &t,
+                      unsigned offset, bool ascendingOrder) {
+  return calcLinearTileMapping(graph.getTarget(), t.shape(), t.elementType(),
                                offset, ascendingOrder);
 }
 
