@@ -383,6 +383,14 @@ add_multitarget_test(
     --tiles-per-ipu=4
     --plan-constraints={"lookupParallelSplit":4})
 
+add_multitarget_test(
+  NAME PlannedMultiSlice_WithUnevenLookupSplits
+  COMMAND PlannedMultiSliceUpdateTest
+    --shape={50,100}
+    --num-indices=99
+    --plan-constraints={"lookupSerialSplit":"2","slicedDimSplit":"2","unslicedDimSplit":"2"})
+
+
 add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(RegroupTest RegroupTest.cpp)

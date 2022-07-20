@@ -2859,7 +2859,7 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
           // sizes. Any but not all of them could be zero.
           const auto nCeil0And1 = gccs::alignPrev(ceil0, ceil0And1);
           const auto nCeil0AndRem1 = ceil0 - nCeil0And1;
-          const auto nCeil0 = gccs::floordiv(iElemsPerSerialPass, ceil0);
+          const auto nCeil0 = gccs::floordiv(iElemsThisSerialPass, ceil0);
           const auto nRem0AndCeil1 = gccs::alignPrev(rem0, ceil0And1);
           const auto nRem0And1 = rem0 - nRem0AndCeil1;
 
