@@ -8,6 +8,7 @@
 #ifndef popops_Cast_hpp
 #define popops_Cast_hpp
 
+#include <gccs/CompilerFeatures.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/Program.hpp>
@@ -140,6 +141,7 @@ poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
  * \throw poputil::poplibs_error If either \p input or \p outputType
  * are not either half or float.
  */
+GC_DEPRECATED
 poplar::Tensor
 checkAccuracyWhenCast(poplar::Graph &graph, const poplar::Tensor &input,
                       poplar::Type outputType, double tolerance,

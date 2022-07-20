@@ -63,12 +63,14 @@ class CheckAccuracyWhenCast : public Vertex {
 public:
   const float tolerance;
   Input<InputType> input;
+  Output<bool> output;
 
   CheckAccuracyWhenCast();
 
   bool compute() {
-    return checkAccuracyWhenCastComputeImpl<InputType, OutputType>(*input,
-                                                                   tolerance);
+    *output = checkAccuracyWhenCastComputeImpl<InputType, OutputType>(
+        *input, tolerance);
+    return true;
   }
 };
 

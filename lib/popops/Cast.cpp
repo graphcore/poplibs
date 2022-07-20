@@ -213,10 +213,12 @@ poplar::Tensor checkAccuracyWhenCast(Graph &graph, const Tensor &input,
   graph.setTileMapping(isAccurate, tile);
 
   graph.connect(v["input"], input.reshape({}));
+  graph.connect(v["output"], isAccurate);
+
   graph.setInitialValue(v["tolerance"], tolerance);
   graph.setTileMapping(v, tile);
 
-  prog.add(Execute(cs, isAccurate, {di}));
+  prog.add(Execute(cs, {di}));
   return isAccurate;
 }
 
