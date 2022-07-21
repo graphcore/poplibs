@@ -155,7 +155,7 @@ std::vector<boost::multi_array<double, 3>> combineAndRunConvolution(
   // Allocate host memory for input and weight tensors
   std::vector<multiconv::ConvolutionArgs> convolutionArgs;
   poplar::program::Sequence uploadProg, downloadProg;
-  static std::vector<std::pair<std::string, char *>> tmap;
+  static std::vector<std::pair<std::string, HostMemory>> tmap;
   std::vector<std::unique_ptr<char[]>> rawHostIns, rawHostWeights;
   auto target = device.getTarget();
   for (unsigned i(0); i < convParams.size(); ++i) {

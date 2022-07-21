@@ -83,7 +83,7 @@ runUpdateCodelet(Graph &graph, TestDevice &device, DeviceType deviceType,
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   // Inputs
   auto rawCandidates = createAndConnectCandidates(

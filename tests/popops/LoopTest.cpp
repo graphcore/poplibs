@@ -28,7 +28,7 @@ static std::size_t loopTest(std::size_t begin, std::size_t end,
   poputil::mapTensorLinearly(graph, acc);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostAcc = allocateHostMemoryForTensor(acc, "acc", graph, uploadProg,
                                                 downloadProg, tmap);
 
@@ -76,7 +76,7 @@ static std::size_t forLoopTest(int begin, int end, int step,
   graph.setTileMapping(limit, 0);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   auto prog = Sequence();
   auto loop = Sequence();

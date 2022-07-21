@@ -64,7 +64,7 @@ static bool doTest(const DeviceType &deviceType, const Type &dataType,
   popnn::addCodelets(graph);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   // Allocate the activations, a.k.a the inputs.
   auto activations = graph.addVariable(dataType, {size}, "activations");

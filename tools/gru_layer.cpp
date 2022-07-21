@@ -326,7 +326,7 @@ int main(int argc, char **argv) {
   }
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   Tensor fwdOutputSeq, fwdIntermediates;
   Tensor *fwdIntermediatesPtr =

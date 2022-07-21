@@ -205,7 +205,7 @@ void MultiSliceCodeletTest(const Type &dataType) {
 
   // allocateHostMemoryForTensor
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto input = allocateHostMemoryForTensor(in, "in", graph, uploadProg,
                                            downloadProg, tmap);
   auto output = allocateHostMemoryForTensor(out, "out", graph, uploadProg,

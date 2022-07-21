@@ -344,7 +344,7 @@ int main(int argc, char **argv) try {
                        .dimRoll(2, 0); // Batch size to the front
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   std::unique_ptr<char[]> rawHostIn, rawHostOut, rawHostWeights;
   if (!ignoreData) {
     rawHostIn = allocateHostMemoryForTensor(in, "in", graph, uploadProg,

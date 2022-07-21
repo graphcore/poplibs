@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
   prog.add(Execute(cs));
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   std::unique_ptr<char[]> rawHostXYIn, rawHostXYOut;
   rawHostXYIn = allocateHostMemoryForTensor(xyIn, "xyIn", graph, uploadProg,
                                             downloadProg, tmap);

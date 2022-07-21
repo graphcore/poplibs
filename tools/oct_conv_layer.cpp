@@ -480,7 +480,7 @@ allocateOctHostMemory(Graph &graph, const std::string name,
                       const std::vector<Tensor> &tensors,
                       boost::optional<Sequence &> uploadProg,
                       boost::optional<Sequence &> downloadProg,
-                      std::vector<std::pair<std::string, char *>> &tmap) {
+                      std::vector<std::pair<std::string, HostMemory>> &tmap) {
   std::vector<std::unique_ptr<char[]>> rawHostMem(tensors.size());
   for (unsigned i = 0; i < tensors.size(); ++i) {
     auto prefix = params[i].name;
@@ -1274,7 +1274,7 @@ int main(int argc, char **argv) try {
   }
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostOctConvInput =
       allocateOctHostMemory(graph, "octConvInput", octConvParams, octConvInput,
                             uploadProg, boost::none, tmap);

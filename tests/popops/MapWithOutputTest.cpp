@@ -36,7 +36,7 @@ BOOST_AUTO_TEST_CASE(MapWithOutputConst, *boost::unit_test::disabled()) {
 
   Sequence uploadProg, downloadProg, prog;
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostT1 = allocateHostMemoryForTensor(t1, "t1", graph, uploadProg,
                                                downloadProg, tmap);
 
@@ -69,7 +69,7 @@ BOOST_AUTO_TEST_CASE(MapWithOutputCast) {
 
   Sequence uploadProg, downloadProg, prog;
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostT1 = allocateHostMemoryForTensor(t1, "t1", graph, uploadProg,
                                                downloadProg, tmap);
   auto rawHostT2 = allocateHostMemoryForTensor(t2, "t2", graph, uploadProg,
@@ -109,7 +109,7 @@ BOOST_AUTO_TEST_CASE(MapWithOutputUnary) {
 
   Sequence uploadProg, downloadProg, prog;
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostT1 = allocateHostMemoryForTensor(t1, "t1", graph, uploadProg,
                                                downloadProg, tmap);
   auto rawHostT2 = allocateHostMemoryForTensor(t2, "t2", graph, uploadProg,
@@ -153,7 +153,7 @@ BOOST_AUTO_TEST_CASE(MapWithOutputBinary) {
 
   Sequence uploadProg, downloadProg, prog;
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostT1 = allocateHostMemoryForTensor(t1, "t1", graph, uploadProg,
                                                downloadProg, tmap);
   auto rawHostT2 = allocateHostMemoryForTensor(t2, "t2", graph, uploadProg,
@@ -203,7 +203,7 @@ BOOST_AUTO_TEST_CASE(MapWithOutputTernary) {
 
   Sequence uploadProg, downloadProg, prog;
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostT1 = allocateHostMemoryForTensor(t1, "t1", graph, uploadProg,
                                                downloadProg, tmap);
   auto rawHostT2 = allocateHostMemoryForTensor(t2, "t2", graph, uploadProg,

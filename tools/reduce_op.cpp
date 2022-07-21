@@ -782,7 +782,7 @@ int main(int argc, char **argv) {
   std::cerr << "Running engine...\n";
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   std::unique_ptr<char[]> inputData;
   std::unique_ptr<char[]> outputData;
   if (!ignoreData) {

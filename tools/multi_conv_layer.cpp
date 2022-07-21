@@ -259,7 +259,7 @@ int main(int argc, char **argv) try {
         multiConvOptions, &cache);
   }
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> tmap;
   std::vector<std::unique_ptr<char[]>> rawHostInputs, rawHostWeights,
       rawHostOutputs;
   if (!ignoreData) {

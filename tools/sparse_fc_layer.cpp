@@ -466,7 +466,7 @@ int main(int argc, char **argv) try {
   }
   std::cerr << "Done\n";
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawMetaInfo =
       allocateHostMemoryForTensor(weights.getMetaInfoTensor(), "weights.meta",
                                   graph, uploadProg, downloadProg, tmap);

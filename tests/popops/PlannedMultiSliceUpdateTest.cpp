@@ -147,9 +147,21 @@ multiSlice(const DeviceType &deviceType, const unsigned numIPUs,
     eng.load(d);
     eng.writeTensor("inOffset", rawOffsets.data(),
                     rawOffsets.data() + rawOffsets.size());
-    eng.writeTensor("in", rawHIn.data(), rawHIn.data() + rawHIn.size());
+
+    if (dataType.requiresMetadata()) {
+      eng.writeTensor("in", metadata, rawHIn.data(),
+                      rawHIn.data() + rawHIn.size());
+    } else {
+      eng.writeTensor("in", rawHIn.data(), rawHIn.data() + rawHIn.size());
+    }
     eng.run();
-    eng.readTensor("out", rawHOut.data(), rawHOut.data() + rawHOut.size());
+    if (dataType.requiresMetadata()) {
+      QuarterMetadata md;
+      eng.readTensor("out", md, rawHOut.data(),
+                     rawHOut.data() + rawHOut.size());
+    } else {
+      eng.readTensor("out", rawHOut.data(), rawHOut.data() + rawHOut.size());
+    }
   });
   QuarterMetadata metadataOut;
   if (dataType.requiresMetadata()) {
@@ -330,10 +342,22 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
     }
     eng.writeTensor("inOffset", rawOffsets.data(),
                     rawOffsets.data() + rawOffsets.size());
-    eng.writeTensor("inT", rawOut.data(), rawOut.data() + rawOut.size());
-    eng.writeTensor("inS", rawIn.data(), rawIn.data() + rawIn.size());
+    if (dataType.requiresMetadata()) {
+      eng.writeTensor("inT", metadata, rawOut.data(),
+                      rawOut.data() + rawOut.size());
+      eng.writeTensor("inS", metadata, rawIn.data(),
+                      rawIn.data() + rawIn.size());
+    } else {
+      eng.writeTensor("inT", rawOut.data(), rawOut.data() + rawOut.size());
+      eng.writeTensor("inS", rawIn.data(), rawIn.data() + rawIn.size());
+    }
     eng.run();
-    eng.readTensor("outT", rawOut.data(), rawOut.data() + rawOut.size());
+    if (dataType.requiresMetadata()) {
+      QuarterMetadata md;
+      eng.readTensor("outT", md, rawOut.data(), rawOut.data() + rawOut.size());
+    } else {
+      eng.readTensor("outT", rawOut.data(), rawOut.data() + rawOut.size());
+    }
   });
   QuarterMetadata metadataOut;
   if (dataType.requiresMetadata()) {

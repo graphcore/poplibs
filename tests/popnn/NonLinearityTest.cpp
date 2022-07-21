@@ -271,7 +271,7 @@ BOOST_AUTO_TEST_CASE(
   mapTensorLinearly(graph, deltaF);
   mapTensorLinearly(graph, deltaH);
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   Sequence uploadProg, downloadProg;
 
   auto rawHActF = allocateHostMemoryForTensor(actF, "actF", graph, uploadProg,
@@ -381,7 +381,7 @@ BOOST_AUTO_TEST_CASE(
   mapTensorLinearly(graph, deltaF);
   mapTensorLinearly(graph, deltaH);
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   Sequence uploadProg, downloadProg;
 
   auto rawHActF = allocateHostMemoryForTensor(actF, "actF", graph, uploadProg,

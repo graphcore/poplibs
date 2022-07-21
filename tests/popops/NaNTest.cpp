@@ -76,7 +76,7 @@ static bool hasNaNTest(DeviceType deviceType, const bool introduceNaN,
   }
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   auto rawHostInput = allocateHostMemoryForTensor(
       inputT, "input", graph, uploadProg, downloadProg, tmap);

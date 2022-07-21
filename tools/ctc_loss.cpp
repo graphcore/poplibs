@@ -193,7 +193,7 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
 
   // Write the inputs
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   std::unique_ptr<char[]> rawDataLengths, rawLabelLengths;
   std::vector<std::unique_ptr<char[]>> rawData(batchSize), rawLabels(batchSize);
   rawDataLengths = allocateHostMemoryForTensor(

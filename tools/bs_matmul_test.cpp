@@ -874,7 +874,7 @@ int main(int argc, char **argv) {
   std::vector<std::unique_ptr<char[]>> rhsRawHost(numSteps);
   std::vector<std::unique_ptr<char[]>> inputRawHost(numSteps);
   std::unique_ptr<char[]> outputRawHost;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   const auto &target = device.getTarget();
   Graph graph(target);

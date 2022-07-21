@@ -260,7 +260,7 @@ int main(int argc, char **argv) try {
     mulOutput = fullyConnectedFwd(graph, embeddingMatrix, mulInput, params,
                                   prog, "multiply", matmulOptions, &cache);
   }
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawMetaInfo = allocateHostMemoryForTensor(
       embeddingMatrix.getMetaInfoTensor(), "embedding.meta", graph, uploadProg,
       downloadProg, tmap);

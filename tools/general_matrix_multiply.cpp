@@ -374,7 +374,7 @@ int main(int argc, char **argv) {
     outerProg.add(Copy(matD, matC));
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   auto rawHostMatA = allocateHostMemoryForTensor(
       matA, "matA", graph, uploadProg, downloadProg, tmap);

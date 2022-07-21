@@ -268,7 +268,7 @@ int main(int argc, char **argv) {
   Sequence prog, uploadProg, downloadProg;
 
   std::mt19937 randomEngine;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   OptionFlags sliceOptions;
   if (opts.availableMemoryProportion) {

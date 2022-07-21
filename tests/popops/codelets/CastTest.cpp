@@ -115,7 +115,7 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
 
   // allocateHostMemoryForTensor
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto input = allocateHostMemoryForTensor(in, "in", graph, uploadProg,
                                            boost::none, tmap);
 

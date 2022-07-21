@@ -76,7 +76,7 @@ beamSearchIPU(const std::vector<InputSequence<double>> &inputs,
 
   // Write the inputs
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   std::unique_ptr<char[]> rawDataLengths;
   std::vector<std::unique_ptr<char[]>> rawData(batchSize);
   rawDataLengths = allocateHostMemoryForTensor(

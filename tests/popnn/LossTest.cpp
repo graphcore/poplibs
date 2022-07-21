@@ -191,7 +191,7 @@ static bool lossTest(const LossType lossType, std::size_t batchSize,
                                 VariableMappingMethod::LINEAR, "loss");
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostActivations = allocateHostMemoryForTensor(
       activations, "activations", graph, uploadProg, downloadProg, tmap);
   auto rawHostExpected = allocateHostMemoryForTensor(
@@ -293,7 +293,7 @@ static bool accuracyTest(const Type &fpType, const Type &labelType,
   auto numCorrect = graph.addVariable(
       UNSIGNED_INT, {}, VariableMappingMethod::LINEAR, "numCorrect");
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostActivations = allocateHostMemoryForTensor(
       activations, "activations", graph, uploadProg, downloadProg, tmap);
   auto rawHostExpected = allocateHostMemoryForTensor(
@@ -340,7 +340,7 @@ static bool argMinMaxTest(bool max, const Type &inType, std::size_t batchSize,
                         VariableMappingMethod::LINEAR, "activations");
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostActivations = allocateHostMemoryForTensor(
       activations, "activations", graph, uploadProg, downloadProg, tmap);
 
@@ -412,7 +412,7 @@ static bool maxMinArgMinMaxTest(bool max, const Type &inType,
                         VariableMappingMethod::LINEAR, "activations");
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostActivations = allocateHostMemoryForTensor(
       activations, "activations", graph, uploadProg, downloadProg, tmap);
 
@@ -506,7 +506,7 @@ static bool topKTest(const Type &fpType, std::size_t batchSize,
       fpType, {batchSize, numK}, VariableMappingMethod::LINEAR, "indices");
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostActivations = allocateHostMemoryForTensor(
       activations, "activations", graph, uploadProg, downloadProg, tmap);
 

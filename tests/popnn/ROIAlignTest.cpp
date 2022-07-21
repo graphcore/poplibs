@@ -94,7 +94,7 @@ void checkResult(float scale, bool aligned, unsigned sample,
   popnn::addCodelets(graph);
   poplin::addCodelets(graph);
   poplar::program::Sequence prog, uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> tmap;
 
   poplar::Tensor inputFeatF = graph.addVariable(
       poplar::FLOAT, {batchSize, channel, inputH, inputW}, "inputFeatF");

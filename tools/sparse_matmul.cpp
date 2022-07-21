@@ -208,7 +208,7 @@ int main(int argc, char **argv) try {
       sparseDenseMatMul(graph, lhs, rhs, prog, transposeLHS, transposeRHS,
                         "multiply", matmulOptions, &cache);
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawMetaInfo =
       allocateHostMemoryForTensor(lhs.getMetaInfoTensor(), "lhs.meta", graph,
                                   uploadProg, downloadProg, tmap);

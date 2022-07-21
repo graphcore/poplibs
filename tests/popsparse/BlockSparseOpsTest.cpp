@@ -287,7 +287,7 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   }
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> streamMaps;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> streamMaps;
 
   std::unique_ptr<char[]> bsSoftmaxRawHost =
       poplar_test::allocateHostMemoryForTensor(
@@ -619,7 +619,7 @@ void softmaxGradTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   }
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> streamMaps;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> streamMaps;
 
   std::unique_ptr<char[]> bsSoftmaxGradRawHost =
       poplar_test::allocateHostMemoryForTensor(bsSoftmaxGrad, "bsSoftmaxGrad",

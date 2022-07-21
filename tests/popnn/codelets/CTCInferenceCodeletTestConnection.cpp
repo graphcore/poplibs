@@ -11,13 +11,12 @@ using namespace poplar_test;
 namespace poplibs_test {
 namespace ctc {
 
-CandidateHandles
-createAndConnectCandidates(Graph &graph, const VertexRef &vertex,
-                           const std::string &prefix, const Type &partialsType,
-                           const ArrayRef<std::size_t> &shape,
-                           Sequence &uploadProg, Sequence &downloadProg,
-                           std::vector<std::pair<std::string, char *>> &tmap,
-                           bool includeTotalAndBlank) {
+CandidateHandles createAndConnectCandidates(
+    Graph &graph, const VertexRef &vertex, const std::string &prefix,
+    const Type &partialsType, const ArrayRef<std::size_t> &shape,
+    Sequence &uploadProg, Sequence &downloadProg,
+    std::vector<std::pair<std::string, HostMemory>> &tmap,
+    bool includeTotalAndBlank) {
 
   auto candidateParent =
       graph.addVariable(UNSIGNED_INT, shape, "candidateParent");
@@ -69,7 +68,7 @@ BeamHandles createAndConnectBeamProbs(
     Graph &graph, const VertexRef &vertex, const Type &probsType,
     const ArrayRef<std::size_t> &shape, BeamScalars selectBlank,
     Sequence &uploadProg, Sequence &downloadProg,
-    std::vector<std::pair<std::string, char *>> &tmap) {
+    std::vector<std::pair<std::string, HostMemory>> &tmap) {
   auto lastBeamOutputs =
       graph.addVariable(UNSIGNED_INT, shape, "lastBeamOutputs");
   auto beamProbNonBlank =

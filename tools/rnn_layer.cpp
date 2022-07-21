@@ -323,7 +323,7 @@ int main(int argc, char **argv) {
   std::vector<std::unique_ptr<char[]>> rawHostfeedFwdOutput;
   std::vector<std::unique_ptr<char[]>> rawHostNextAct;
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   if (applyFeedFwdWeights) {
     rawHostPrevAct = allocateHostMemoryForTensor(
         prevAct, "prevAct", graph, uploadProg, downloadProg, tmap);

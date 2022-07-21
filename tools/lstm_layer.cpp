@@ -355,7 +355,7 @@ int main(int argc, char **argv) {
       lstm::createWeights(graph, params, "weights", fwdOptions, &cache);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> tmap;
 
   Tensor fwdOutputSeq, lastCellState, fwdIntermediates;
   Tensor *fwdIntermediatesPtr =

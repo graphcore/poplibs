@@ -83,7 +83,7 @@ std::vector<Candidate<PartialsType>> runMergeCandidatesCodelet(
   graph.setInitialValue(vertex["blankClass"], blankClass);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   // InOut
   auto rawCopyCandidates =

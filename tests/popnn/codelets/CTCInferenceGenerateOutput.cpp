@@ -78,7 +78,7 @@ std::vector<unsigned> runGenerateOutputCodelet(
   graph.setInitialValue(vertex["beamwidth"], beamwidth);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   // Inputs
   std::unique_ptr<char[]> rawBeamAddend, rawBeamParent;

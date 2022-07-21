@@ -355,7 +355,7 @@ gradIPU(const InputSequence<double> &input, unsigned timeStep,
   graph.setTileMapping(vertex, 0);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   std::unique_ptr<char[]> rawProbabilities, rawResult, rawLabels,
       rawInitialAlphaOrBeta, rawPrevTime, rawPrevLabel;
 

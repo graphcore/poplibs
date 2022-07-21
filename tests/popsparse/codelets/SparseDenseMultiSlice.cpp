@@ -349,7 +349,7 @@ int main(int argc, char **argv) try {
   prog.add(Execute(cs));
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   std::unique_ptr<char[]> rawHostOffsets, rawHostSubT;
   std::vector<std::unique_ptr<char[]>> rawHostNZBuckets(numBuckets),
       rawHostMetaInfoBuckets(numBuckets);

@@ -59,7 +59,7 @@ static bool doTest(const DeviceType &deviceType, const Type &activationType,
   graph.setTileMapping(labels, 0);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostActivations = allocateHostMemoryForTensor(
       activations, "activations", graph, uploadProg, downloadProg, tmap);
 

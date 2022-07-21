@@ -92,7 +92,7 @@ static bool encodeTest(std::size_t numIndices, std::size_t length,
   poputil::mapTensorLinearly(graph, indices);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostIndices = allocateHostMemoryForTensor(
       indices, "indices", graph, uploadProg, downloadProg, tmap);
 
@@ -170,7 +170,7 @@ static bool iotaTest(std::int64_t startInteger, std::size_t length,
   }
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostIotaOut = allocateHostMemoryForTensor(
       iotaOut, "iotaOut", graph, uploadProg, downloadProg, tmap);
 

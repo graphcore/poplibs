@@ -73,7 +73,7 @@ executeExpr(const DeviceType &deviceType, const Expr &expression,
   auto bSlices = concat(b.slices(sliceIntervals));
   auto cSlices = concat(c.slices(sliceIntervals));
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   std::unique_ptr<char[]> rawA, rawB, rawC, rawOutOpt, rawOutNoOpt;
   program::Sequence uploadProg, downloadProg;
   rawA =

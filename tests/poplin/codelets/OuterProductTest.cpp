@@ -109,7 +109,7 @@ void OuterProductTest(const Type &dataType) {
 
   // allocateHostMemoryForTensor
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto input_host = allocateHostMemoryForTensor(in, "in", graph, uploadProg,
                                                 downloadProg, tmap);
   auto weight_host = allocateHostMemoryForTensor(

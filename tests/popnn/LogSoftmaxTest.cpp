@@ -50,7 +50,7 @@ void validateLogSoftmax(unsigned batchSize, unsigned numChannels) {
   graph.createHostRead("outF", actF);
   graph.createHostRead("outH", actH);
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   Sequence uploadProg, downloadProg;
 
   auto rawHActF = allocateHostMemoryForTensor(actF, "actF", graph, uploadProg,

@@ -439,7 +439,7 @@ unsigned findDivisor(unsigned n) {
 
 // Used to pass the appropriate streams for upload/download between the setup
 // and running phases.
-using StreamMap = std::vector<std::pair<std::string, char *>>;
+using StreamMap = std::vector<std::pair<std::string, HostMemory>>;
 
 // Various options that are global (not specific for each test)
 struct MiscOptions {

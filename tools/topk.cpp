@@ -274,7 +274,7 @@ int main(int argc, char **argv) try {
   // which will probably just map linearly with some kind of grain size.
   poputil::mapTensorLinearly(graph, in);
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   Sequence prog, uploadProg, downloadProg;
 
   Tensor outIndices;

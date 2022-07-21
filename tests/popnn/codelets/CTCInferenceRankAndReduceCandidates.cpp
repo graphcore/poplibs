@@ -62,7 +62,7 @@ runCodeletCommon(poplar::Graph &graph, poplibs_support::TestDevice &device,
   }
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   auto rawCandidates = createAndConnectCandidates(
       graph, vertex, "candidate", partialsType, {totalCandidates}, uploadProg,

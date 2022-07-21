@@ -107,7 +107,7 @@ void singleTest(const Type &dataType, const LossTransformType &ltType,
 
   // Generate some test data
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto hProbs = allocateHostMemoryForTensor(tProbs, "probs", graph, uploadProg,
                                             downloadProg, tmap);
   auto hExpected = allocateHostMemoryForTensor(tExpected, "expected", graph,

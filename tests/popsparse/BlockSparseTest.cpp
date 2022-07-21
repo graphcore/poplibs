@@ -3,6 +3,7 @@
 #define BOOST_TEST_MODULE BlockSparseTest
 #include <boost/test/unit_test.hpp>
 #include <cstdlib>
+#include <optional>
 #include <poplar/IPUModel.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/MatrixTransforms.hpp>
@@ -11,7 +12,6 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
-#include <optional>
 #include <random>
 #include <vector>
 
@@ -873,7 +873,7 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
                       sparsityB.data());
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> streamMaps;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> streamMaps;
 
   // LHS dense matrix
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
@@ -1005,7 +1005,7 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
                       sparsityB.data());
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> streamMaps;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> streamMaps;
 
   // LHS dense matrix
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
@@ -1143,7 +1143,7 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
   BlockDenseMatrix B(colsB, rowsB, colsInBlockB, rowsInBlockB, needTranspose);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> streamMaps;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> streamMaps;
 
   // LHS dense matrix
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
@@ -1332,7 +1332,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
 
   ///////////////////
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> streamMaps;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> streamMaps;
 
   /////////////////// A * B = C
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
@@ -1582,7 +1582,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
 
   ///////////////////
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> streamMaps;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> streamMaps;
 
   /////////////////// A * B = C
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
@@ -1770,7 +1770,7 @@ void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize,
                         hostB, blocksHostB);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> streamMaps;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> streamMaps;
 
   BSMatMulParams bsParams({rowsA, colsA, colsB},
                           {rowsInBlockA, colsInBlockA, colsInBlockB}, sparsityB,
@@ -1865,7 +1865,7 @@ void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize,
                         colsInBlockA, colsInBlockB);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> streamMaps;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> streamMaps;
 
   BSMatMulParams bsParams({rowsA, colsA, colsB},
                           {rowsInBlockA, colsInBlockA, colsInBlockB}, sparsityC,

@@ -21,7 +21,7 @@ static void TestFunc(poplar::TensorCloneMethod cloneMethod,
 
   Graph graph(device.getTarget());
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   Tensor testInput =
       graph.addVariable(INT, {numElements}, VariableMappingMethod::LINEAR);
   Tensor testResult = graph.clone(testInput);

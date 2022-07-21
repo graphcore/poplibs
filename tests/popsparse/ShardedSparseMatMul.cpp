@@ -153,7 +153,7 @@ int main(int argc, char **argv) {
   // We need the first rhs and the last output but we keep all anyway
   // even if they are not used.
   std::vector<Tensor> rhsMM, outMM;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   std::vector<std::unique_ptr<char[]>> rawMetaInfoMM, rawNzInfoMM;
 
   if (numShards == 1) {

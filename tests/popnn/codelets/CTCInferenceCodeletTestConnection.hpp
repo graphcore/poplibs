@@ -8,6 +8,7 @@
 
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCInference.hpp>
+#include <poplibs_test/Util.hpp>
 
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
@@ -91,7 +92,7 @@ CandidateHandles createAndConnectCandidates(
     const poplar::ArrayRef<std::size_t> &shape,
     poplar::program::Sequence &uploadProg,
     poplar::program::Sequence &downloadProg,
-    std::vector<std::pair<std::string, char *>> &tmap,
+    std::vector<std::pair<std::string, poplar_test::HostMemory>> &tmap,
     bool includeTotalAndBlank = true);
 
 BeamHandles createAndConnectBeamProbs(
@@ -99,7 +100,7 @@ BeamHandles createAndConnectBeamProbs(
     const poplar::Type &probsType, const poplar::ArrayRef<std::size_t> &shape,
     BeamScalars selectBlank, poplar::program::Sequence &uploadProg,
     poplar::program::Sequence &downloadProg,
-    std::vector<std::pair<std::string, char *>> &tmap);
+    std::vector<std::pair<std::string, poplar_test::HostMemory>> &tmap);
 
 } // namespace ctc
 } // namespace poplibs_test

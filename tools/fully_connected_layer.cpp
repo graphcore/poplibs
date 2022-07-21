@@ -347,7 +347,7 @@ int main(int argc, char **argv) {
   }
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostPrevAct = allocateHostMemoryForTensor(
       prevAct, "prevAct", graph, uploadProg, downloadProg, tmap);
   auto rawHostWeights = allocateHostMemoryForTensor(

@@ -222,7 +222,7 @@ static bool reduceAddTest(const DeviceType &deviceType,
     outNames.push_back("out_" + std::to_string(i));
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostPrev = allocateHostMemoryForTensor(
       prev, "prev", graph, uploadProg, downloadProg, tmap);
   auto rawHostIn = allocateHostMemoryForTensor(in, "in", graph, uploadProg,
@@ -311,7 +311,7 @@ static bool reduceOpsTest(const DeviceType &deviceType,
   Tensor out = popops::reduce(graph, in, redVect, operation, prog);
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostIn = allocateHostMemoryForTensor(in, "in", graph, uploadProg,
                                                downloadProg, tmap);
   auto rawHostOut = allocateHostMemoryForTensor(out, "out", graph, uploadProg,

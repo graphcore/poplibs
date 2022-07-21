@@ -257,7 +257,7 @@ int main(int argc, char **argv) try {
                                   &cache);
   }
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> tmap;
   std::unique_ptr<char[]> rawHostInputA, rawHostInputB, rawHostOutput,
       rawHostOutputT;
   if (!ignoreData) {

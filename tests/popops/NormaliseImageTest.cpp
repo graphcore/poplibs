@@ -77,7 +77,7 @@ static bool imageNormaliseTest(DeviceType deviceType, unsigned numTiles,
                                        tScales, {"Normalise"});
 
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   auto rawHostInput = allocateHostMemoryForTensor(
       tIn, "input", graph, uploadProg, downloadProg, tmap);

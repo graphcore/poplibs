@@ -235,7 +235,7 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
   }
 
   // Create host 'transfer' buffers with the right size for the device type
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   Sequence uploadProg, downloadProg;
   std::unique_ptr<char[]> inHostRaw;
   std::unique_ptr<char[]> outHostRaw;

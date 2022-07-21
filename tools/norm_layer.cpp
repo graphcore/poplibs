@@ -333,7 +333,7 @@ static bool normTest(const DeviceType &deviceType,
   normParamUpdate(graph, gammaDelta, betaDelta, learningRate, gamma, beta, prog,
                   "", normType, options);
 
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   Sequence uploadProg, downloadProg;
   auto rawHostActs = allocateHostMemoryForTensor(
       acts, "acts", graph, uploadProg, downloadProg, tmap);

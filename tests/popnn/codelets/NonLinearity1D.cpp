@@ -98,7 +98,7 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
 
   // Generate some test data
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
   auto rawHostActsIn = allocateHostMemoryForTensor(
       acts, "test acts", graph, uploadProg, downloadProg, tmap);
   auto rawHostOut = allocateHostMemoryForTensor(out, "test out", graph,

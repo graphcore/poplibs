@@ -185,7 +185,7 @@ void clampTest(const Type &dataType, const clampFunctionType &funcType) {
 
   // allocateHostMemoryForTensor
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, poplar_test::HostMemory>> tmap;
   auto input1 = allocateHostMemoryForTensor(in1, inputTensorName, graph,
                                             uploadProg, downloadProg, tmap);
   auto input2 = allocateHostMemoryForTensor(in2, "in2", graph, uploadProg,

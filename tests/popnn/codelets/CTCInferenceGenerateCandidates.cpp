@@ -79,7 +79,7 @@ std::vector<Candidate<PartialsType>> runGenerateCandidatesCodelet(
     graph.setInitialValue(vertex["addendSymbol"], classToMakeAddend);
   }
   Sequence uploadProg, downloadProg;
-  std::vector<std::pair<std::string, char *>> tmap;
+  std::vector<std::pair<std::string, HostMemory>> tmap;
 
   CandidateHandles rawCandidates;
   if (testGenerateCopyVertex) {
