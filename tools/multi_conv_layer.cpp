@@ -7,6 +7,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/version.hpp>
 #include <iostream>
+#include <optional>
 #include <poplar/Quarter.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/VectorUtils.hpp>
@@ -17,7 +18,6 @@
 #include <poplin/ConvUtil.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
-#include <optional>
 #include <sstream>
 
 struct ConvMetadata {
@@ -231,8 +231,9 @@ int main(int argc, char **argv) try {
         graph, convolutionArgs, fwdWeights, prog, multiConvOptions, "bwd",
         &cache);
 
-    outs = poplin::multiconv::convolution(graph, convolutionArgs, false, prog,
-                                          "multiConv", multiConvOptions);
+    outs =
+        poplin::multiconv::convolution(graph, convolutionArgs, false, prog,
+                                       "multiConv", multiConvOptions, &cache);
 
     // Use the weights in the arrangement of the Fwd pass
     for (unsigned i = 0; i < params.size(); ++i) {
@@ -253,9 +254,9 @@ int main(int argc, char **argv) try {
           {std::move(input), std::move(weights), params[i], options[i]});
     }
     bool transposeAndFlipWeights = bwdPass ? true : false;
-    outs = poplin::multiconv::convolution(graph, convolutionArgs,
-                                          transposeAndFlipWeights, prog,
-                                          "multiConv", multiConvOptions);
+    outs = poplin::multiconv::convolution(
+        graph, convolutionArgs, transposeAndFlipWeights, prog, "multiConv",
+        multiConvOptions, &cache);
   }
 
   std::vector<std::pair<std::string, char *>> tmap;
