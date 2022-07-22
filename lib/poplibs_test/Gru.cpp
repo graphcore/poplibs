@@ -7,7 +7,7 @@
 #include <poplibs_test/NonLinearity.hpp>
 #include <unordered_map>
 
-//#define DEBUG_TENSOR
+// #define DEBUG_TENSOR
 
 using IndexRange = boost::multi_array_types::index_range;
 using Array1dRef = boost::multi_array_ref<double, 1>;

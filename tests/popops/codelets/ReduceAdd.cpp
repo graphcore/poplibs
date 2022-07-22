@@ -9,8 +9,8 @@
 #include "poplin/Convolution.hpp"
 #include "poplin/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
-#include <poplibs_test/TempDir.hpp>
 #include <optional>
+#include <poplibs_test/TempDir.hpp>
 #include <stdexcept>
 #include <string.h>
 

@@ -7,12 +7,12 @@
 #include <boost/optional.hpp>
 #include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
+#include <optional>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/TempDir.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
-#include <optional>
 #include <stdexcept>
 #include <string.h>
 #include <utility>

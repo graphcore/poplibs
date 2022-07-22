@@ -15,15 +15,29 @@
 #include <ipu_vector_math>
 
 // helper templates to differentiate between scalar and vector types
-template <class T> struct isVectorType { static const bool value = false; };
-template <> struct isVectorType<float2> { static const bool value = true; };
-template <> struct isVectorType<half2> { static const bool value = true; };
-template <> struct isVectorType<half4> { static const bool value = true; };
+template <class T> struct isVectorType {
+  static const bool value = false;
+};
+template <> struct isVectorType<float2> {
+  static const bool value = true;
+};
+template <> struct isVectorType<half2> {
+  static const bool value = true;
+};
+template <> struct isVectorType<half4> {
+  static const bool value = true;
+};
 
 // helper templates for float type
-template <class T> struct isFloatType { static const bool value = false; };
-template <> struct isFloatType<float2> { static const bool value = true; };
-template <> struct isFloatType<float> { static const bool value = true; };
+template <class T> struct isFloatType {
+  static const bool value = false;
+};
+template <> struct isFloatType<float2> {
+  static const bool value = true;
+};
+template <> struct isFloatType<float> {
+  static const bool value = true;
+};
 
 static __attribute__((always_inline)) unsigned getWsr(void) {
   return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;

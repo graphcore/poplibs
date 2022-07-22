@@ -8,8 +8,8 @@
 #include "popops/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include <boost/program_options.hpp>
-#include <poplibs_test/TempDir.hpp>
 #include <optional>
+#include <poplibs_test/TempDir.hpp>
 #include <stdexcept>
 #include <string.h>
 #include <utility>
