@@ -256,10 +256,10 @@ add_multi_target_test_executable(PlannedMultiSliceUpdateTest PlannedMultiSliceUp
 add_multitarget_test(NAME PlannedMultiUpdateAdd_single_half
   COMMAND PlannedMultiSliceUpdateTest
   --data-type half
-  --update 1 
-  --shape "{2001, 1}" 
-  --num-indices 901 
-  --tiles-per-ipu 8 
+  --update 1
+  --shape "{2001, 1}"
+  --num-indices 901
+  --tiles-per-ipu 8
   --operation ADD
   VARIANTS ${IPUMODEL_VARIANTS};Sim2)
 
@@ -391,7 +391,8 @@ add_multitarget_test(
     --plan-constraints={"lookupSerialSplit":"2","slicedDimSplit":"2","unslicedDimSplit":"2"})
 
 
-add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
+# Increase BertSlicing timeout by ~50% to reduce likelyhood of failure on a debug build (T64276).
+add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS} PROPERTIES TIMEOUT 1700)
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(RegroupTest RegroupTest.cpp)
 add_unit_test(DynamicSliceCreation DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS};Sim21;IpuModel21)
