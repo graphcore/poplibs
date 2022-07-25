@@ -23,16 +23,19 @@ public:
   HasNaNOrInf2D();
   IS_EXTERNAL_CODELET(true);
   Vector<Input<Vector<FPType, SPAN, 8>>> in;
+  Output<float> out;
 
   bool compute() {
     constexpr bool checkNaNAndInf = nanOrInf;
     for (unsigned i = 0; i < in.size(); ++i) {
       for (unsigned j = 0; j < in[i].size(); ++j) {
         if (check(float(in[i][j]), checkNaNAndInf)) {
-          return false;
+          *out = 1.0f;
+          return true;
         }
       }
     }
+    *out = 0.0f;
     return true;
   }
 };
@@ -45,6 +48,8 @@ template class HasNaNOrInf2D<half, false>;
 // The second template parameter
 // nanOrInf = true  : Detect if either NaN or Inf is present
 // nanOrInf = false : Detect only NaN
+// This multivertex only writes '1.0' to `outSetIfFound` when NaN/Inf is
+// detected; that Tensor must be zeroed before this vertex is called.
 template <typename FPType, bool nanOrInf>
 class HasNaNOrInf1D : public MultiVertex {
 public:
@@ -54,6 +59,7 @@ public:
   unsigned short sizeIn8BytesPerWorker;
   unsigned char remWorkerId;
   unsigned char remWorkerExtras;
+  InOut<float> outSetIfFound;
   bool compute(unsigned wid) {
     if (wid == 0) {
       unsigned size = sizeIn8BytesPerWorker * numWorkers() + remWorkerId;
@@ -61,7 +67,8 @@ public:
       constexpr bool checkNaNAndInf = nanOrInf;
       for (unsigned i = 0; i < size; ++i) {
         if (check(float(in[i]), checkNaNAndInf)) {
-          return false;
+          *outSetIfFound = 1.0f;
+          return true;
         }
       }
     }

@@ -23,11 +23,13 @@
 #define V_IN_SIZE        4  // ushort/uint for 1D/2D
 #define V_LAST_WORKER    6  // uchar for 1D
 #define V_EXTRAS         7  // uchar for 1D
+#define V_OUT_ADDR       8  // word
 
 // Register aliases    m0
 #define w_inVectors    m1
 #define w_numVectors   m2
 #define w_inPtr        m3
+#define w_outPtr       m3
 #define w_numValues    m4
 #define w_numx8        m5
 #define w_numx4        m6
@@ -39,7 +41,6 @@
 #define w_wkrId        m11
 #define w_tmp          m10
 
-#define fp_ctl_reg     a7
 #define fp_clr_reg     a6
 
 
@@ -51,7 +52,7 @@
 get             $w_wkrId, $WSR
 {
   and             $w_wkrId, $w_wkrId, CSR_W_WSR__CTXTID_M1__MASK
-  uget            $fp_ctl_reg, $FP_CTL
+  fnop
 }
 {
   ld32            $w_inPtr, $mvertex_base, V_IN_ADDR/4
@@ -95,9 +96,13 @@ INNER_LOOP_HALF 1D \CHECK_INF
 INNER_LOOP_FLOAT 1D \CHECK_INF
 .endif
 PROPAGATE_NAN \TYPE \CHECK_INF
-// restore FPCTL
-uput           $FP_CTL, $fp_ctl_reg
-exitz          $w_retVal
+brz            $w_retVal, 1f
+// Store 1 only when the result is true
+{ld32          $w_outPtr, $mvertex_base, V_OUT_ADDR/4
+ or            $a0, $azero, 0x3f800000}  // 1.0f, the result when inf/nan found
+st32           $a0, $w_outPtr, $mzero, 0
+1:
+exitz          $mzero
 FN_SIZE \NAME
 .endm
 
@@ -139,7 +144,7 @@ cmpeq           $w_retVal, $w_retVal, 2
 // Load the vertex state.
 {
   ld32            $w_inVectors, $mvertex_base, $mzero, V_IN_ADDR/4
-  uget            $fp_ctl_reg, $FP_CTL
+  fnop 
 }
 {
   ld32            $w_numVectors, $mvertex_base, $mzero, V_IN_SIZE/4
@@ -335,8 +340,14 @@ LVectorsLoopH_\CHECK_INF\():
 PROPAGATE_NAN half \CHECK_INF
 
 LExitH_2D_\CHECK_INF\():
-uput            $FP_CTL, $fp_ctl_reg
-exitz           $w_retVal
+{ld32           $w_outPtr, $mvertex_base, V_OUT_ADDR/4
+ setzi          $a0, 0}
+ brz            $w_retVal, 1f
+ or             $a0, $azero, 0x3f800000 // 1.0f
+1:
+st32            $a0, $w_outPtr, $mzero, 0
+exitz           $mzero
+
 FN_SIZE \NAME
 .endm
 
@@ -362,8 +373,14 @@ LVectorsLoopF_\CHECK_INF\():
 PROPAGATE_NAN float \CHECK_INF
 
 LExitF_2D_\CHECK_INF\():
-uput            $FP_CTL, $fp_ctl_reg
-exitz           $w_retVal
+{ld32           $w_outPtr, $mvertex_base, V_OUT_ADDR/4
+ setzi          $a0, 0}
+ brz            $w_retVal, 1f
+ or             $a0, $azero, 0x3f800000 // 1.0f
+1:
+st32            $a0, $w_outPtr, $mzero, 0
+exitz           $mzero
+
 FN_SIZE \NAME
 .endm
 

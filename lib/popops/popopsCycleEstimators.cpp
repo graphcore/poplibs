@@ -2442,7 +2442,7 @@ hasNaN1DCyles(const Target &target, const Type &inType,
   unsigned inSize = sizeIn8BytesPerWorker + (remWorkerId > 0);
   inSize = inSize * (8 / target.getTypeSize(inType)) + remWorkerExtras;
   std::uint64_t flops = inSize;
-  return {(15 + hasNanInnerLoopCycles(inType, inSize, hasBothInfOrNaN) +
+  return {(17 + hasNanInnerLoopCycles(inType, inSize, hasBothInfOrNaN) +
            nanCheckCycles(inType, hasBothInfOrNaN)) *
                   target.getNumWorkerContexts() +
               24,
@@ -2480,6 +2480,9 @@ static VertexPerfEstimate hasNan2DCycles(const FieldData &in,
 
   // Nan checking
   cycles += nanCheckCycles(inType, hasBothInfOrNaN);
+
+  // Store result
+  cycles += 2;
   return {cycles * target.getNumWorkerContexts(), flops};
 }
 

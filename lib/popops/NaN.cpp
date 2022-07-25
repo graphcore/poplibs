@@ -3,7 +3,10 @@
 
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
+#include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/Reduce.hpp"
+#include "popops/Zero.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 
@@ -19,7 +22,8 @@ static poplar::Tensor hasNaNOrInf(poplar::Graph &graph,
                                   bool hasNaNOrInf,
                                   poputil::PoplibsOpDebugInfo &di) {
   const auto &dType = src.elementType();
-  const auto cs = graph.addComputeSet({di, "hasNaNOrInf"});
+  const auto csClear = graph.addComputeSet({di, "hasNaNOrInf-clear"});
+  const auto csEval = graph.addComputeSet({di, "hasNaNOrInf-eval"});
 
   auto srcFlat = src.flatten();
   const auto &target = graph.getTarget();
@@ -29,6 +33,17 @@ static poplar::Tensor hasNaNOrInf(poplar::Graph &graph,
   const auto srcFlatTileMap = graph.getTileMapping(srcFlat);
 
   const auto &tileMapping = graph.getTileMapping(srcFlat);
+  unsigned nMappedTiles = 0;
+  for (unsigned tile = 0; tile < tileMapping.size(); ++tile) {
+    if (!tileMapping[tile].empty()) {
+      ++nMappedTiles;
+    }
+  }
+
+  // We generate a Tensor of FLOAT(s) per tile then reduce to a single
+  // value. This avoids the padding insertion and removal that would be
+  // needed if we were to exchange bool values.
+  std::vector<poplar::Tensor> allTileResults;
   for (unsigned tile = 0; tile < tileMapping.size(); ++tile) {
     if (tileMapping[tile].empty()) {
       continue;
@@ -39,6 +54,11 @@ static poplar::Tensor hasNaNOrInf(poplar::Graph &graph,
 
     const std::string vertexNamePrefix = "popops::HasNaNOrInf";
     if (tileContiguousRegions.size() == 1) {
+      auto tileResultT =
+          graph.addVariable(poplar::FLOAT, {1}, {di, "tileHasNaNOrInf"});
+      allTileResults.emplace_back(tileResultT);
+      graph.setTileMapping(tileResultT, tile);
+      zero(graph, tileResultT, tile, csClear);
       const auto vertexName =
           templateVertex(vertexNamePrefix + "1D", dType, hasNaNOrInf);
       // Divide work
@@ -48,10 +68,8 @@ static poplar::Tensor hasNaNOrInf(poplar::Graph &graph,
       const auto numElements = t.numElements();
       const auto numGrains = numElements / grainSize;
       auto extras = numElements - numGrains * grainSize;
-      const auto vertex = graph.addVertex(cs, vertexName,
-                                          {
-                                              {"in", t},
-                                          });
+      const auto vertex = graph.addVertex(
+          csEval, vertexName, {{"in", t}, {"outSetIfFound", tileResultT[0]}});
       graph.setInitialValue(vertex["sizeIn8BytesPerWorker"],
                             numGrains / numWorkers);
       graph.setInitialValue(vertex["remWorkerId"], numGrains % numWorkers);
@@ -62,28 +80,31 @@ static poplar::Tensor hasNaNOrInf(poplar::Graph &graph,
           templateVertex(vertexNamePrefix + "2D", dType, hasNaNOrInf);
       const auto vertexRegions = splitRegionsBetweenWorkers(
           target, tileContiguousRegions, vectorWidth, 2 * vectorWidth);
+      auto tileResultT = graph.addVariable(
+          poplar::FLOAT, {vertexRegions.size()}, {di, "tileHasNaNOrInf"});
+      allTileResults.emplace_back(tileResultT);
+      graph.setTileMapping(tileResultT, tile);
+      auto regionIdx = 0;
       for (const auto &regions : vertexRegions) {
         assert(!regions.empty());
 
-        const auto vertex = graph.addVertex(cs, vertexName,
-                                            {
-                                                {"in", srcFlat.slices(regions)},
-                                            });
+        const auto vertex =
+            graph.addVertex(csEval, vertexName,
+                            {{"in", srcFlat.slices(regions)},
+                             {"out", tileResultT[regionIdx++]}});
         graph.setTileMapping(vertex, tile);
       }
     }
   }
 
-  const auto out = graph.addVariable(poplar::BOOL, {1}, {di});
-  graph.setTileMapping(out, 0);
+  prog.add(poplar::program::Execute(csClear, {di}));
+  prog.add(poplar::program::Execute(csEval, {di}));
 
-  prog.add(poplar::program::Execute(cs, out[0], {di}));
+  const auto max =
+      popops::reduce(graph, concat(allTileResults), poplar::FLOAT, {0},
+                     {popops::Operation::MAX}, prog, {di, "reduce"});
+  const auto out = popops::cast(graph, max, poplar::BOOL, prog, di);
 
-  // TODO: T12949 Improve efficiency. This could be achieved by inverting this
-  // function (ie. change it to `hasNoNaNs`); but a more intuitive solution is
-  // to add support to the Execute program to invert the consensus bit before
-  // writing it to the out tensor.
-  popops::logicalNotInPlace(graph, out, prog, {di, "hasNaN"});
   di.addOutput(out);
   return out;
 }
