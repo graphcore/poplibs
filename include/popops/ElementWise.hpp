@@ -48,7 +48,6 @@ namespace popops {
  *                 poputil::broadcastToMatch()).
  *  \param options A list of flags to pass to the expression evaluator. See
  *                 map() function for details.
- *
  *  \param os      The stream to output generated codelet.
  */
 void outputGeneratedCodelet(const poplar::Target &target,
@@ -261,7 +260,6 @@ inline void mapWithOutput(poplar::Graph &graph, expr::TernaryOpType op,
  *
  *  \returns A tensor where each element is equivalent to the result of
  *           `std::abs(a)`, where \c a is an element of \p A.
- *
  */
 inline poplar::Tensor abs(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
@@ -5095,413 +5093,502 @@ inline void atan2WithOutput(poplar::Graph &graph, const constType A,
 // Statistical.
 
 /** \name invStdDevToVariance
- * Convert the inverse standard deviation to variance.
+ * Convert inverse standard deviation to variance.
  *
- *  \param graph   The graph to update.
- *  \param A       The source tensor.
- *  \param B       The destination tensor.
- *  \param prog    The sequence to extend with the execution of conversion.
- *  \param debugContext Optional debug information.
- *  \param options A list of flags to pass to the expression evaluator.
+ * Each element in the output tensor is the result of
+ * `1 / (invStdDev_value + epsilon)^2`, where \c invStdDev_value is the
+ * corresponding element in \p invStdDev.
  *
- *  \returns       A tensor where each element is the variance.
- *  Each element is the result of
- *  `b = (1 / a) ^ 2`, where \c a and \c b are the corresponding
- *  elements of \p A and \p B tensors respectively, and where \p A
- *  represents the inverse standard deviation and \p B the variance.
+ * \warning If `invStdDev_value + epsilon` is zero then the result will
+ *          be invalid and this operation could generate a divide-by-zero
+ *          floating-point exception (if enabled).
+ *
+ * \param graph     The graph to update.
+ * \param invStdDev A tensor of inverse standard deviation values.
+ * \param epsilon   A (typically small) scalar to add to the variance values,
+ *                  to avoid numerical issues (for example, divide by zero).
+ * \param prog      The sequence of programs to append this conversion
+ *                  operation to.
+ * \param debugContext Optional debug information.
+ * \param options   A list of flags to pass to the expression evaluator.
+ *
+ * \returns         A tensor where each element is the variance.
  *
  * @{
  */
 inline poplar::Tensor
-invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &A,
-                    const poplar::Tensor &B, poplar::program::Sequence &prog,
+invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &invStdDev,
+                    const poplar::Tensor &epsilon,
+                    poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(invStdDev, epsilon, options));
 
-  auto output = map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B,
-                    prog, {di}, options);
+  auto output = map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
+                    invStdDev, epsilon, prog, {di}, options);
   di.addOutput(output);
   return output;
 }
 
 template <typename constType>
 inline poplar::Tensor
-invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &A,
-                    const constType B, poplar::program::Sequence &prog,
+invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &invStdDev,
+                    const constType epsilon, poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(invStdDev, epsilon, options));
 
-  checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
-  graph.setTileMapping(BTensor, 0);
-  auto output = map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A,
-                    BTensor, prog, {di}, options);
+  checkTypes(invStdDev.elementType(), epsilon);
+  const auto epsilonTensor =
+      graph.addConstant(invStdDev.elementType(), {}, epsilon, {di});
+  graph.setTileMapping(epsilonTensor, 0);
+  auto output = map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
+                    invStdDev, epsilonTensor, prog, {di}, options);
   di.addOutput(output);
   return output;
 }
 
 template <typename constType>
 inline poplar::Tensor
-invStdDevToVariance(poplar::Graph &graph, const constType A,
-                    const poplar::Tensor &B, poplar::program::Sequence &prog,
+invStdDevToVariance(poplar::Graph &graph, const constType invStdDev,
+                    const poplar::Tensor &epsilon,
+                    poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(invStdDev, epsilon, options));
 
-  checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
-  graph.setTileMapping(ATensor, 0);
-  auto output = map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, ATensor,
-                    B, prog, {di}, options);
+  checkTypes(epsilon.elementType(), invStdDev);
+  const auto varianceTensor =
+      graph.addConstant(epsilon.elementType(), {}, invStdDev, {di});
+  graph.setTileMapping(varianceTensor, 0);
+  auto output = map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
+                    varianceTensor, epsilon, prog, {di}, options);
   di.addOutput(output);
   return output;
 }
 /** @} */
 
 /** \name invStdDevToVarianceInPlace
- * Update the input tensor with the result of invStdDevToVariance().
+ * Update the \p invStdDev tensor with the result of invStdDevToVariance().
+ * See invStdDevToVariance() for parameter descriptions.
  *
  * @{
  */
-inline void
-invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
-                           const poplar::Tensor &B,
-                           poplar::program::Sequence &prog,
-                           const poplar::DebugContext &debugContext = {},
-                           const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+inline void invStdDevToVarianceInPlace(
+    poplar::Graph &graph, const poplar::Tensor &invStdDev,
+    const poplar::Tensor &epsilon, poplar::program::Sequence &prog,
+    const poplar::DebugContext &debugContext = {},
+    const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(invStdDev, epsilon, options));
 
-  mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B, prog,
-             {di}, options);
+  mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, invStdDev,
+             epsilon, prog, {di}, options);
 }
 
 template <typename constType>
-inline void
-invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
-                           const constType B, poplar::program::Sequence &prog,
-                           const poplar::DebugContext &debugContext = {},
-                           const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+inline void invStdDevToVarianceInPlace(
+    poplar::Graph &graph, const poplar::Tensor &invStdDev,
+    const constType epsilon, poplar::program::Sequence &prog,
+    const poplar::DebugContext &debugContext = {},
+    const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(invStdDev, epsilon, options));
 
-  checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
-  graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, BTensor,
-             prog, {di}, options);
+  checkTypes(invStdDev.elementType(), epsilon);
+  const auto epsilonTensor =
+      graph.addConstant(invStdDev.elementType(), {}, epsilon, {di});
+  graph.setTileMapping(epsilonTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, invStdDev,
+             epsilonTensor, prog, {di}, options);
 }
 /** @} */
 
 /** \name invStdDevToVarianceWithOutput
- * Write the result of invStdDevToVariance() to the given output tensor.
+ * Write the result of invStdDevToVariance() to the given output tensor, \p out.
+ *
+ * \param out The tensor to write the variance to.
+ * See invStdDevToVariance() for the remaining parameter descriptions.
  *
  * @{
  */
 inline void invStdDevToVarianceWithOutput(
-    poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
-    const poplar::Tensor &out, poplar::program::Sequence &prog,
+    poplar::Graph &graph, const poplar::Tensor &invStdDev,
+    const poplar::Tensor &epsilon, const poplar::Tensor &out,
+    poplar::program::Sequence &prog,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, out, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(invStdDev, epsilon, out, options));
 
-  mapWithOutput(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B, out,
-                prog, {di}, options);
-}
-
-template <typename constType>
-inline void
-invStdDevToVarianceWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
-                              const constType B, const poplar::Tensor &out,
-                              poplar::program::Sequence &prog,
-                              const poplar::DebugContext &debugContext = {},
-                              const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, out, options));
-
-  checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
-  graph.setTileMapping(BTensor, 0);
-  mapWithOutput(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, BTensor,
-                out, prog, {di}, options);
+  mapWithOutput(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, invStdDev,
+                epsilon, out, prog, {di}, options);
 }
 
 template <typename constType>
 inline void invStdDevToVarianceWithOutput(
-    poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    const poplar::Tensor &out, poplar::program::Sequence &prog,
+    poplar::Graph &graph, const poplar::Tensor &invStdDev,
+    const constType epsilon, const poplar::Tensor &out,
+    poplar::program::Sequence &prog,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, out, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(invStdDev, epsilon, out, options));
 
-  checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
-  graph.setTileMapping(ATensor, 0);
-  mapWithOutput(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, ATensor, B,
-                out, prog, {di}, options);
+  checkTypes(invStdDev.elementType(), epsilon);
+  const auto epsilonTensor =
+      graph.addConstant(invStdDev.elementType(), {}, epsilon, {di});
+  graph.setTileMapping(epsilonTensor, 0);
+  mapWithOutput(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, invStdDev,
+                epsilonTensor, out, prog, {di}, options);
+}
+
+template <typename constType>
+inline void
+invStdDevToVarianceWithOutput(poplar::Graph &graph, const constType invStdDev,
+                              const poplar::Tensor &epsilon,
+                              const poplar::Tensor &out,
+                              poplar::program::Sequence &prog,
+                              const poplar::DebugContext &debugContext = {},
+                              const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(invStdDev, epsilon, out, options));
+
+  checkTypes(epsilon.elementType(), invStdDev);
+  const auto varianceTensor =
+      graph.addConstant(epsilon.elementType(), {}, invStdDev, {di});
+  graph.setTileMapping(varianceTensor, 0);
+  mapWithOutput(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
+                varianceTensor, epsilon, out, prog, {di}, options);
 }
 /** @} */
 
 /** \name varianceToInvStdDev
  * Convert variance to inverse standard deviation.
  *
- *  \param graph   The graph to update.
- *  \param A       The source tensor.
- *  \param B       The destination tensor.
- *  \param prog    The sequence to extend with the execution of conversion.
- *  \param debugContext Optional debug information.
+ * Each element in the output tensor is the result of
+ * `1 / sqrt(variance_value + epsilon)`, where \c variance_value is the
+ * corresponding element in \p variance.
  *
- *  \returns       A tensor where each element is the inverse of standard
- *  deviation. Each element is the result of
- *  `b = sqrt(1 / a)`, where \c a and \c b are the corresponding
- *  elements of \p A and \p B tensors respectively, and where \p A
- *  represents the variance and \p B the inverse standard deviation.
+ * \warning If `variance_value + epsilon` is zero then the result will
+ *          be invalid and this operation could generate a divide-by-zero
+ *          floating-point exception (if enabled).
+ *
+ * \param graph    The graph to update.
+ * \param variance A tensor of variance values.
+ * \param epsilon  A (typically small) scalar to add to the variance values,
+ *                 to avoid numerical issues (for example, divide by zero).
+ * \param prog     The sequence of programs to append this conversion
+ *                 operation to.
+ * \param debugContext Optional debug information.
+ *
+ * \returns A tensor where each element is the inverse standard deviation.
  *
  * @{
  */
 inline poplar::Tensor
-varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &A,
-                    const poplar::Tensor &B, poplar::program::Sequence &prog,
+varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &variance,
+                    const poplar::Tensor &epsilon,
+                    poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(variance, epsilon, options));
 
-  auto output = map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B,
-                    prog, {di}, options);
+  auto output = map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
+                    variance, epsilon, prog, {di}, options);
   di.addOutput(output);
   return output;
 }
 
 template <typename constType>
 inline poplar::Tensor
-varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &A,
-                    const constType B, poplar::program::Sequence &prog,
+varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &variance,
+                    const constType epsilon, poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(variance, epsilon, options));
 
-  checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
-  graph.setTileMapping(BTensor, 0);
-  auto output = map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A,
-                    BTensor, prog, {di}, options);
+  checkTypes(variance.elementType(), epsilon);
+  const auto epsilonTensor =
+      graph.addConstant(variance.elementType(), {}, epsilon, {di});
+  graph.setTileMapping(epsilonTensor, 0);
+  auto output = map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
+                    variance, epsilonTensor, prog, {di}, options);
   di.addOutput(output);
   return output;
 }
 
 template <typename constType>
 inline poplar::Tensor
-varianceToInvStdDev(poplar::Graph &graph, const constType A,
-                    const poplar::Tensor &B, poplar::program::Sequence &prog,
+varianceToInvStdDev(poplar::Graph &graph, const constType variance,
+                    const poplar::Tensor &epsilon,
+                    poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(variance, epsilon, options));
 
-  checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
-  graph.setTileMapping(ATensor, 0);
-  auto output = map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, ATensor,
-                    B, prog, {di}, options);
+  checkTypes(epsilon.elementType(), variance);
+  const auto varianceTensor =
+      graph.addConstant(epsilon.elementType(), {}, variance, {di});
+  graph.setTileMapping(varianceTensor, 0);
+  auto output = map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
+                    varianceTensor, epsilon, prog, {di}, options);
   di.addOutput(output);
   return output;
 }
 /** @} */
 
 /** \name varianceToInvStdDevInPlace
- * Update the input tensor with the result of varianceToInvStdDev().
+ * Update the \p variance tensor with the result of varianceToInvStdDev().
+ * See varianceToInvStdDev() for parameter descriptions.
  *
  * @{
  */
 inline void
-varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
-                           const poplar::Tensor &B,
+varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &variance,
+                           const poplar::Tensor &epsilon,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(variance, epsilon, options));
 
-  mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B, prog,
-             {di}, options);
+  mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, variance,
+             epsilon, prog, {di}, options);
 }
 
 template <typename constType>
 inline void
-varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
-                           const constType B, poplar::program::Sequence &prog,
+varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &variance,
+                           const constType epsilon,
+                           poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(variance, epsilon, options));
 
-  checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
-  graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, BTensor,
-             prog, {di}, options);
+  checkTypes(variance.elementType(), epsilon);
+  const auto epsilonTensor =
+      graph.addConstant(variance.elementType(), {}, epsilon, {di});
+  graph.setTileMapping(epsilonTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, variance,
+             epsilonTensor, prog, {di}, options);
 }
 /** @} */
 
 /** \name varianceToInvStdDevWithOutput
- * Write the result of varianceToInvStdDev() to the given output tensor.
+ * Write the result of varianceToInvStdDev() to the given output tensor, \p out.
+ *
+ * \param out The tensor to write inverse standard deviation to.
+ * See varianceToInvStdDev() for the remaining parameter descriptions.
  *
  * @{
  */
 inline void varianceToInvStdDevWithOutput(
-    poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
-    const poplar::Tensor &out, poplar::program::Sequence &prog,
+    poplar::Graph &graph, const poplar::Tensor &variance,
+    const poplar::Tensor &epsilon, const poplar::Tensor &out,
+    poplar::program::Sequence &prog,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, out, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(variance, epsilon, out, options));
 
-  mapWithOutput(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B, out,
-                prog, {di}, options);
-}
-
-template <typename constType>
-inline void
-varianceToInvStdDevWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
-                              const constType B, const poplar::Tensor &out,
-                              poplar::program::Sequence &prog,
-                              const poplar::DebugContext &debugContext = {},
-                              const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, out, options));
-
-  checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
-  graph.setTileMapping(BTensor, 0);
-  mapWithOutput(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, BTensor,
-                out, prog, {di}, options);
+  mapWithOutput(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, variance,
+                epsilon, out, prog, {di}, options);
 }
 
 template <typename constType>
 inline void varianceToInvStdDevWithOutput(
-    poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    const poplar::Tensor &out, poplar::program::Sequence &prog,
+    poplar::Graph &graph, const poplar::Tensor &variance,
+    const constType epsilon, const poplar::Tensor &out,
+    poplar::program::Sequence &prog,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, out, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(variance, epsilon, out, options));
 
-  checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
-  graph.setTileMapping(ATensor, 0);
-  mapWithOutput(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, ATensor, B,
-                out, prog, {di}, options);
+  checkTypes(variance.elementType(), epsilon);
+  const auto epsilonTensor =
+      graph.addConstant(variance.elementType(), {}, epsilon, {di});
+  graph.setTileMapping(epsilonTensor, 0);
+  mapWithOutput(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, variance,
+                epsilonTensor, out, prog, {di}, options);
+}
+
+template <typename constType>
+inline void
+varianceToInvStdDevWithOutput(poplar::Graph &graph, const constType variance,
+                              const poplar::Tensor &epsilon,
+                              const poplar::Tensor &out,
+                              poplar::program::Sequence &prog,
+                              const poplar::DebugContext &debugContext = {},
+                              const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(variance, epsilon, out, options));
+
+  checkTypes(epsilon.elementType(), variance);
+  const auto varianceTensor =
+      graph.addConstant(epsilon.elementType(), {}, variance, {di});
+  graph.setTileMapping(varianceTensor, 0);
+  mapWithOutput(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
+                varianceTensor, epsilon, out, prog, {di}, options);
 }
 /** @} */
 
 // Ternary operations
 
-/** Populate the returned tensor with elements from \p A or \p B depending on
- *  the corresponding element of \p C.
+/** Select elements from one of two tensors depending on a tensor of conditions.
  *
- *  That is, for each element in the output compute `c ? a : b`, where \c a,
- *  \c b and \c c are the corresponding elements in the tensors \p A, \p B,
- *  \p C respectively.
+ * For each element in the output compute `condition ? a : b`, where
+ * \c condition, \c a and \c b are the corresponding elements in the
+ * tensors \p conditions, \p A and \p B respectively.
  *
- *  \param graph   The graph to update.
- *  \param A       One of the tensors containing the elements to select from.
- *  \param B       One of the tensors containing the elements to select from.
- *  \param C       The tensor containing the elements to use as predicates.
- *  \param prog    The sequence to extend with the execution of the expression
- *                 evaluation.
- *  \param debugContext Optional debug information.
- *  \param options Element-wise options. See map().
+ * \param graph      The graph to update.
+ * \param A          The first tensor containing the elements to select from.
+ * \param B          The second tensor containing the elements to select from.
+ * \param conditions The tensor containing the elements to use as conditions.
+ *                   When the element is true-like (non-zero) take an element
+ *                   from \p A and when false-like (zero) take an element
+ *                   from \p B.
+ * \param prog       The sequence to extend with the execution of the
+ *                   expression evaluation.
+ * \param debugContext Optional debug information.
+ * \param options Element-wise options. See map().
  *
- *  \returns A tensor containing the elements from \p A where the corresponding
- *           elements in \p C were not equal to zero and containing the elements
- *           from \p B where the corresponding elements in \p C were zero.
+ * \returns A tensor containing the elements from \p A where the corresponding
+ *          elements in \p conditions were non-zero and containing the elements
+ *          from \p B where the corresponding elements in \p conditions were
+ *          zero.
  */
 inline poplar::Tensor select(poplar::Graph &graph, const poplar::Tensor &A,
-                             const poplar::Tensor &B, const poplar::Tensor &C,
+                             const poplar::Tensor &B,
+                             const poplar::Tensor &conditions,
                              poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, options));
-  auto output =
-      map(graph, expr::TernaryOpType::SELECT, A, B, C, prog, {di}, options);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(A, B, conditions, options));
+
+  auto output = map(graph, expr::TernaryOpType::SELECT, A, B, conditions, prog,
+                    {di}, options);
   di.addOutput(output);
   return output;
 }
 
-/** Update the input tensor with the result of select().
+/** Update the \p A input tensor with the result of select().
+ *
+ * See select() for parameter descriptions.
  */
 inline void selectInPlace(poplar::Graph &graph, const poplar::Tensor &A,
-                          const poplar::Tensor &B, const poplar::Tensor &C,
+                          const poplar::Tensor &B,
+                          const poplar::Tensor &conditions,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, options));
-  mapInPlace(graph, expr::TernaryOpType::SELECT, A, B, C, prog, {di}, options);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(A, B, conditions, options));
+
+  mapInPlace(graph, expr::TernaryOpType::SELECT, A, B, conditions, prog, {di},
+             options);
 }
 
-/** Write the result of select() to the given output tensor.
+/** Write the result of select() to the given output tensor, \p out.
+ *
+ * \param out The tensor to write the selected values to.
+ * See select() for the remaining parameter descriptions.
  */
 inline void selectWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
-                             const poplar::Tensor &B, const poplar::Tensor &C,
+                             const poplar::Tensor &B,
+                             const poplar::Tensor &conditions,
                              const poplar::Tensor &out,
                              poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, out, options));
-  mapWithOutput(graph, expr::TernaryOpType::SELECT, A, B, C, out, prog, {di},
-                options);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(A, B, conditions, out, options));
+
+  mapWithOutput(graph, expr::TernaryOpType::SELECT, A, B, conditions, out, prog,
+                {di}, options);
 }
 
-/** Populate the returned tensor with elements from \p A but clamp them such
- * that each element is greater than or equal to the corresponding element in \p
- * B and less than or equal to the corresponding element in \p C.
+/** Clamp all the elements in \p values between \p minimums and \p maximums.
  *
- *  That is, for each element in the returned tensor compute: `min(max(a, b),
- * c)`, where \c a, \c and \c c are the corresponding elements in the tensors
- * \p A, \p B and \p C respectively.
+ * Populate the returned tensor with elements from \p values but clamp them
+ * such that each element is greater than or equal to the corresponding
+ * element in \p minimums and less than or equal to the corresponding
+ * element in \p maximums.
  *
- *  \param graph   The graph to update.
- *  \param A       The tensor containing the elements to clamp.
- *  \param B       The tensor containing the elements to use as minimums.
- *  \param C       The tensor containing the elements to use as maximums.
- *  \param prog    The sequence to extend with the execution of the expression
- *                 evaluation.
- *  \param debugContext Optional debug information.
- *  \param options Element-wise options. See map().
+ * That is, for each element in the returned tensor compute:
+ * `min(max(value, min_value), max_value)`, where \c value, \c min_value and
+ * \c max_value are the corresponding elements in the tensors \p values,
+ * \p minimums and \p maximums respectively.
  *
- *  \returns A tensor containing the elements resulting from the application of
- *           the expression across the tensors.
+ * \param graph    The graph to update.
+ * \param values   The tensor containing the elements to clamp.
+ * \param minimums The tensor containing the elements to use as minimums.
+ * \param maximums The tensor containing the elements to use as maximums.
+ * \param prog     The sequence to extend with the execution of the expression
+ *                  evaluation.
+ * \param debugContext Optional debug information.
+ * \param options Element-wise options. See map().
+ *
+ * \returns A tensor containing the clamped elements of \p values.
  */
-inline poplar::Tensor clamp(poplar::Graph &graph, const poplar::Tensor &A,
-                            const poplar::Tensor &B, const poplar::Tensor &C,
+inline poplar::Tensor clamp(poplar::Graph &graph, const poplar::Tensor &values,
+                            const poplar::Tensor &minimums,
+                            const poplar::Tensor &maximums,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(values, minimums, maximums, options));
 
-  auto output =
-      map(graph, expr::TernaryOpType::CLAMP, A, B, C, prog, {di}, options);
+  auto output = map(graph, expr::TernaryOpType::CLAMP, values, minimums,
+                    maximums, prog, {di}, options);
   di.addOutput(output);
   return output;
 }
 
-/** Update the input tensor with the result of clamp().
+/** Update the \p values input tensor with the result of clamp().
+ *
+ * See clamp() for parameter descriptions.
  */
-inline void clampInPlace(poplar::Graph &graph, const poplar::Tensor &A,
-                         const poplar::Tensor &B, const poplar::Tensor &C,
+inline void clampInPlace(poplar::Graph &graph, const poplar::Tensor &values,
+                         const poplar::Tensor &minimums,
+                         const poplar::Tensor &maximums,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, options));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(values, minimums, maximums, options));
 
-  mapInPlace(graph, expr::TernaryOpType::CLAMP, A, B, C, prog, {di}, options);
+  mapInPlace(graph, expr::TernaryOpType::CLAMP, values, minimums, maximums,
+             prog, {di}, options);
 }
 
-/** Write the result of clamp() to the given output tensor.
+/** Write the result of clamp() to the given output tensor, \p out.
+ *
+ * \param out The tensor to write the clamped values to.
+ * See clamp() for the remaining parameter descriptions.
  */
-inline void clampWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
-                            const poplar::Tensor &B, const poplar::Tensor &C,
+inline void clampWithOutput(poplar::Graph &graph, const poplar::Tensor &values,
+                            const poplar::Tensor &minimums,
+                            const poplar::Tensor &maximums,
                             const poplar::Tensor &out,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, out, options));
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(values, minimums, maximums, out, options));
 
-  mapWithOutput(graph, expr::TernaryOpType::CLAMP, A, B, C, out, prog, {di},
-                options);
+  mapWithOutput(graph, expr::TernaryOpType::CLAMP, values, minimums, maximums,
+                out, prog, {di}, options);
 }
 
 } // end namespace popops
