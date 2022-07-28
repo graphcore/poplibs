@@ -1218,6 +1218,8 @@ add_std_operators_test(BinaryConcat)
 add_std_operators_test(UnaryConcat)
 add_std_operators_test(MultiplyFloatInPlaceConstScalarTest)
 add_std_operators_test(AddHalfConstScalarTest)
+add_std_operators_test(IsInfTest)
+add_std_operators_test(IsNaNTest)
 
 add_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
 

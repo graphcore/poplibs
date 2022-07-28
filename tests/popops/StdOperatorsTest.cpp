@@ -1,4 +1,6 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+#include "popops/ExprOp.hpp"
+#include <functional>
 #define BOOST_TEST_MODULE StdOperatorsTest
 #include <boost/program_options.hpp>
 #include <boost/random.hpp>
@@ -1293,6 +1295,7 @@ void mapTestCastIntToFloat() {
     }
   }
 }
+
 void mapTest() {
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
@@ -1729,6 +1732,45 @@ void unaryConcatTest() {
     for (auto j = 0U; j < 2 * DIM_SIZE; ++j) {
       auto expected = j < DIM_SIZE ? -hIn1[i][j] : -hIn2[i][j - DIM_SIZE];
       CHECK_CLOSE(hOut[i][j], expected);
+    }
+  }
+}
+
+void isXTest(pe::UnaryOpType op, std::function<bool(float)> const &func) {
+  auto device = createTestDevice(deviceType);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  float hIn[DIM_SIZE][DIM_SIZE];
+  setUnaryOpInput(hIn);
+  hIn[0][0] = INFINITY;
+  hIn[1][0] = -INFINITY;
+  hIn[0][1] = NAN;
+  hIn[1][1] = NAN;
+  hIn[0][2] = 0.0f;
+
+  Tensor in = mapUnaryOpTensor(graph, FLOAT);
+
+  auto prog = Sequence();
+  auto out = map(graph, op, {in}, prog);
+  graph.createHostWrite("in", in);
+  graph.createHostRead("out", out);
+
+  bool hOut[DIM_SIZE][DIM_SIZE];
+
+  Engine eng(graph, prog, options);
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", hIn, &hIn[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  });
+
+  /* Check result */
+  for (auto i = 0U; i < DIM_SIZE; ++i) {
+    for (auto j = 0U; j < DIM_SIZE; ++j) {
+      bool res = func(hIn[i][j]);
+      CHECK_CLOSE(hOut[i][j], res);
     }
   }
 }
@@ -2178,6 +2220,10 @@ int main(int argc, char **argv) {
     multiplyFloatInPlaceConstScalarTest();
   } else if (test == "AddHalfConstScalarTest") {
     addHalfConstScalarTest();
+  } else if (test == "IsInfTest") {
+    isXTest(pe::UnaryOpType::IS_INF, [](float x) { return std::isinf(x); });
+  } else if (test == "IsNaNTest") {
+    isXTest(pe::UnaryOpType::IS_NAN, [](float x) { return std::isnan(x); });
   } else {
     throw std::runtime_error("Unknown test '" + test + "'");
   }

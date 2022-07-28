@@ -11,6 +11,7 @@
 #include <poputil/TileMapping.hpp>
 #include <pva/pva.hpp>
 
+#include <limits>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -59,6 +60,16 @@ BOOST_AUTO_TEST_CASE(MapExprScalarFloatConsts) {
   // These do not
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(4.0f)), type), 0);
   BOOST_CHECK_EQUAL(numMapVerticesCreated(Mul(_1, Const(100.0f)), type), 0);
+  BOOST_CHECK_EQUAL(numMapVerticesCreated(IsNaN(_1), type), 0);
+  BOOST_CHECK_EQUAL(
+      numMapVerticesCreated(
+          IsNaN(Mul(_1, Const(std::numeric_limits<float>::quiet_NaN()))), type),
+      0);
+  BOOST_CHECK_EQUAL(numMapVerticesCreated(IsInf(_1), type), 0);
+  BOOST_CHECK_EQUAL(
+      numMapVerticesCreated(
+          IsInf(Mul(_1, Const(std::numeric_limits<float>::infinity()))), type),
+      0);
 }
 
 BOOST_AUTO_TEST_CASE(MapExprScalarHalfConsts) {

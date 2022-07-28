@@ -511,6 +511,8 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::ERF:
   case UnaryOpType::GELU_ERF:
   case UnaryOpType::IS_FINITE:
+  case UnaryOpType::IS_NAN:
+  case UnaryOpType::IS_INF:
   case UnaryOpType::LOGICAL_NOT:
   case UnaryOpType::COUNT_LEADING_ZEROS:
   case UnaryOpType::POPCOUNT:
@@ -552,6 +554,10 @@ poplar::StringRef getUnaryOpAsString(UnaryOpType op, poplar::Type type) {
     return "NAMESPACE::floor";
   case UnaryOpType::IS_FINITE:
     return "isfinite";
+  case UnaryOpType::IS_NAN:
+    return "NAMESPACE::isnan";
+  case UnaryOpType::IS_INF:
+    return "NAMESPACE::isinf";
   case UnaryOpType::LOGARITHM:
     return "NAMESPACE::log";
   case UnaryOpType::LOGARITHM_ONE_PLUS:
