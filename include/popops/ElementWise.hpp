@@ -1,17 +1,34 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+// clang-format off
 /** \file ElementWise.hpp
  *
  *  These functions perform the same operation on each element of one or more
  *  tensors.
  *
- *  Every function has an in-place overload that writes the result of
- *  the function to the first tensor argument of the function.
+ *  Every function has three ways of providing the output:
  *
- *  The functions that perform operations on two tensors also have overloads for
- *  one of the tensors being a constant scalar. These functions perform the same
- *  operation on each element in the remaining tensor using the scalar as the
- *  other side of the operation for all elements.
+ *    - Returning a new output tensor.
+ *    - Writing the output to the first input tensor argument.
+ *      These functions are suffixed with `InPlace` and are useful when you
+ *      don't need the input tensor after the operation as they don't create
+ *      a new live variable for the output.
+ *    - Writing the output to an "out" tensor passed as an argument.
+ *      These functions are suffixed with `WithOutput` and are useful for
+ *      providing your own tile mapping for the output tensor.
+ *
+ *  The functions that perform operations on two tensors support
+ *  [NumPy-style broadcasting](https://numpy.org/doc/stable/user/basics.broadcasting.html)
+ *  of operands, where tensors of different shapes will be broadcast into
+ *  compatible shapes for the operation. These functions also have overloads
+ *  where one of the tensors is a constant scalar, which by taking advantage of
+ *  the broadcasting, performs the same operation on each element in the
+ *  remaining tensor using the scalar as the other side of the operation
+ *  for all elements.
+ *
+ * \sa Refer to the tutorial on [using PopLibs](https://github.com/graphcore/tutorials/tree/master/tutorials/poplar/tut2_operations)
+ *     for a full example of how element-wise operations are used.
  */
+//clang-format on
 
 #ifndef popops_ElementWise_hpp
 #define popops_ElementWise_hpp
