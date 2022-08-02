@@ -44,7 +44,7 @@ public:
   Vector<InOut<Vector<FPType>>> A;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> B;
 
-  bool compute() {
+  void compute() {
     const unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       const unsigned limJ = A[i].size();
@@ -54,7 +54,6 @@ public:
         refOut[j] *= refIn[j];
       }
     }
-    return true;
   }
 };
 
@@ -67,11 +66,10 @@ public:
   Output<Vector<InType>> out;
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     for (auto &x : out) {
       x = in;
     }
-    return true;
   }
 };
 
@@ -143,7 +141,7 @@ public:
   Output<Vector<quarter>> out;
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     // TODO T62077 - when casting, using the intermediate type of half can
     // result in inaccurate results depending on the value of scale.  A direct
     // conversion float to quarter could be created if necessary to improve
@@ -153,7 +151,6 @@ public:
     auto charValue = *(reinterpret_cast<unsigned char *>(&value));
     uchar4 charValue4 = {charValue, charValue, charValue, charValue};
     fillMisaligned(&out[0], out.size(), unsigned(charValue4));
-    return true;
   }
 };
 
@@ -167,7 +164,7 @@ public:
   Output<Vector<quarter>> out;
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     // TODO T62077 - when casting, using the intermediate type of half can
     // result in inaccurate results depending on the value of scale.  A direct
     // conversion float to quarter could be created if necessary to improve
@@ -177,7 +174,6 @@ public:
     for (auto &x : out) {
       x = value;
     }
-    return true;
   }
 };
 
@@ -201,13 +197,12 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     for (auto &row : out) {
       for (auto &x : row) {
         x = in;
       }
     }
-    return true;
   }
 };
 #ifdef __IPU__
@@ -218,7 +213,7 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     auto value = toQuarter(in, unpackMetadata(out.getMetadata()));
     auto charValue = *(reinterpret_cast<unsigned char *>(&value));
     uchar4 charValue4 = {charValue, charValue, charValue, charValue};
@@ -226,7 +221,6 @@ public:
     for (auto &row : out) {
       fillMisaligned(&row[0], row.size(), unsigned(charValue4));
     }
-    return true;
   }
 };
 #else
@@ -237,14 +231,13 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     const auto value = toQuarter(in, unpackMetadata(out.getMetadata()));
     for (auto &row : out) {
       for (auto &x : row) {
         x = value;
       }
     }
-    return true;
   }
 };
 #endif
@@ -910,7 +903,7 @@ public:
   Output<Vector<DstType, ONE_PTR, outAlign>> dst;
   const unsigned numElems;
 
-  bool compute() {
+  void compute() {
     if constexpr (std::is_same<SrcType, quarter>::value ||
                   std::is_same<DstType, quarter>::value) {
       const MetadataType *metadataSrc, *metadataDst;
@@ -926,7 +919,6 @@ public:
       CastDispatch<SrcType, DstType, inlineAsm, false>::compute(
           numElems, &src[0], &dst[0]);
     }
-    return true;
   }
 };
 
@@ -949,7 +941,7 @@ public:
   Output<Vector<DstType, ONE_PTR, outAlign>> dst;
   const unsigned numElems;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if constexpr (std::is_same<SrcType, quarter>::value ||
                   std::is_same<DstType, quarter>::value) {
       const MetadataType *metadataSrc, *metadataDst;
@@ -966,7 +958,6 @@ public:
       CastDispatchMultiVertex<SrcType, DstType, inlineAsm, false>::compute(
           numElems, wid, &src[0], &dst[0]);
     }
-    return true;
   }
 };
 
@@ -986,7 +977,7 @@ public:
   Vector<Input<Vector<SrcType, ONE_PTR, inAlign>>, ONE_PTR> src;
   Vector<Output<Vector<DstType, SPAN, outAlign>>> dst;
 
-  bool compute() {
+  void compute() {
     const unsigned limI = dst.size();
     const MetadataType *metadataSrc, *metadataDst;
     if constexpr (std::is_same<SrcType, quarter>::value ||
@@ -1008,7 +999,6 @@ public:
             dst[i].size(), &src[i][0], &dst[i][0]);
       }
     }
-    return true;
   }
 };
 
@@ -1027,7 +1017,7 @@ public:
       std::is_same<InType, float>::value || std::is_same<InType, half>::value;
   IS_EXTERNAL_CODELET(ext);
 
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
 
       for (unsigned j = 0; j != out[i].size(); ++j) {
@@ -1040,7 +1030,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -1056,13 +1045,12 @@ public:
   Vector<Output<Vector<InType, SPAN, 4>>> out;
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
       for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in3[i][j] ? in1[i][j] : in2[i][j];
       }
     }
-    return true;
   }
 };
 
@@ -1083,7 +1071,7 @@ public:
       std::is_same<InType, float>::value || std::is_same<InType, half>::value;
   IS_EXTERNAL_CODELET(ext);
 
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i < out.size(); ++i) {
       for (unsigned j = 0; j < out[i].size(); ++j) {
         out[i][j] = in1[i][j];
@@ -1095,7 +1083,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -1115,13 +1102,12 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
       for (unsigned j = 0; j != out[i].size(); ++j) {
         out[i][j] = in3[i][j] ? in1 : in2;
       }
     }
-    return true;
   }
 };
 
@@ -1142,14 +1128,13 @@ public:
   Vector<Output<Vector<InType, SPAN>>> out;
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
+  void compute() {
     const auto in = in3 ? in1 : in2;
     for (unsigned i = 0; i < out.size(); ++i) {
       for (unsigned j = 0; j < out[i].size(); ++j) {
         out[i][j] = in[i][j];
       }
     }
-    return true;
   }
 };
 
@@ -1165,7 +1150,7 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2; // lower bound
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in3; // upper bound
 
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i != in1Out.size(); ++i) {
       for (unsigned j = 0; j != in1Out[i].size(); ++j) {
         if (in1Out[i][j] < in2[i][j]) {
@@ -1176,7 +1161,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -1190,7 +1174,7 @@ public:
   Input<InType> in2;
   Input<InType> in3;
 
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i < in1Out.size(); ++i) {
       for (unsigned j = 0; j < in1Out[i].size(); ++j) {
         if (in1Out[i][j] < *in2) {
@@ -1201,7 +1185,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -1215,13 +1198,12 @@ public:
   Vector<Input<Vector<InType, ONE_PTR>>, ONE_PTR> in2;
   Vector<Input<Vector<bool, ONE_PTR>>, ONE_PTR> in3;
 
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i != in1Out.size(); ++i) {
       for (unsigned j = 0; j != in1Out[i].size(); ++j) {
         in1Out[i][j] = in3[i][j] ? in1Out[i][j] : in2[i][j];
       }
     }
-    return true;
   }
 };
 
@@ -1239,7 +1221,7 @@ public:
   Input<bool> in3;
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
+  void compute() {
     if (in3 == false) {
       for (unsigned i = 0; i != in1Out.size(); ++i) {
         for (unsigned j = 0; j != in1Out[i].size(); ++j) {
@@ -1247,7 +1229,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -1266,7 +1247,7 @@ public:
   unsigned short histogramCount;
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
+  void compute() {
     auto condAbs = [](auto d) {
       return isAbsolute ? static_cast<InType>(std::fabs(static_cast<float>(d)))
                         : d;
@@ -1289,7 +1270,6 @@ public:
     }
     // Adjust the last one
     histogram[histogramCount - 1] -= previous;
-    return true;
   }
 };
 
@@ -1312,7 +1292,7 @@ public:
   unsigned short histogramCount;
 
   IS_EXTERNAL_CODELET(true);
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       auto condAbs = [](auto d) {
         return isAbsolute
@@ -1339,7 +1319,6 @@ public:
         histogram[i] = adjusted;
       }
     }
-    return true;
   }
 };
 
@@ -1379,10 +1358,9 @@ public:
   T increment;
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
+  void compute() {
     *count += increment;
     *comparisonResult = static_cast<unsigned>(count != limit);
-    return true;
   }
 };
 template class ForLoopCounter<int>;
@@ -1395,7 +1373,7 @@ template class ForLoopCounter<unsigned short>;
 template <unsigned ALIGN, typename T> class NopAlignVertex : public Vertex {
 public:
   InOut<Vector<T, SPAN, ALIGN>> t;
-  bool compute() { return true; }
+  void compute() {}
 };
 template class NopAlignVertex<8, quarter>;
 template class NopAlignVertex<8, half>;

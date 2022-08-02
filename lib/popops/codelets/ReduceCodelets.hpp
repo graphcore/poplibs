@@ -174,7 +174,7 @@ using ReduceOutputAlign = typename std::conditional<
 
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate, ReductionSpecialisation specialisation>
-static bool computeReduce(
+static void computeReduce(
     ReduceOutputAlign<OutType, isUpdate, specialisation> out,
     poplar::Input<poplar::Vector<unsigned short, PTR_ALIGN32, 4>> numPartials,
     poplar::Input<poplar::VectorList<PartialsType, DELTAN_TYPE, 8, false>>
@@ -223,7 +223,6 @@ static bool computeReduce(
     /* And skip forward in the partials vector to the next reduction. */
     pidx += numPartials_r;
   }
-  return true;
 }
 
 template <typename T, bool isUpdate>
@@ -233,7 +232,7 @@ using StridedReduceOutput =
 
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate, bool opIsLogAdd>
-static bool computeStridedReduce(
+static void computeStridedReduce(
     StridedReduceOutput<poplar::Vector<OutType, PTR_ALIGN32, 4>, isUpdate> out,
     poplar::Input<poplar::Vector<PartialsType, PTR_ALIGN32, 8>> partials,
     unsigned numOutputsM1, unsigned numPartialsM1, unsigned partialsWidth,
@@ -276,8 +275,6 @@ static bool computeStridedReduce(
       out[o] = scaledOut;
     }
   }
-
-  return true;
 }
 
 } // namespace popops

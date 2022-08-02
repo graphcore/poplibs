@@ -25,7 +25,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       if (checkAccuracyWhenCastComputeImpl<float, half>(in2[0], tolerance)) {
         for (unsigned i = 0; i < in1.size(); i++) {
@@ -39,7 +39,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -54,7 +53,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       if (checkAccuracyWhenCastComputeImpl<float, half>(in2[0], tolerance)) {
         for (unsigned i = 0; i < in1Out.size(); i++) {
@@ -67,7 +66,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -84,7 +82,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     if (checkAccuracyWhenCastComputeImpl<float, half>(in2[0], tolerance)) {
       for (unsigned i = 0; i < in1.size(); i++) {
         for (unsigned j = 0; j < in1[i].size(); j++) {
@@ -100,7 +98,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -115,7 +112,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     if (checkAccuracyWhenCastComputeImpl<float, half>(in2[0], tolerance)) {
       for (unsigned i = 0; i < in1Out.size(); i++) {
         for (unsigned j = 0; j < in1Out[i].size(); j++) {
@@ -130,7 +127,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

@@ -23,7 +23,7 @@ using BaseTMetaInfoType =
 
 template <typename FPType, typename BaseTNZType, typename SubTType,
           bool isUpdateAdd>
-static bool computeSlice(Input<Vector<unsigned, ONE_PTR>> &offsets,
+static void computeSlice(Input<Vector<unsigned, ONE_PTR>> &offsets,
                          const unsigned short numOffsets, BaseTNZType &baseTNZ,
                          BaseTMetaInfoType &baseTMetaInfo, SubTType &subT,
                          const unsigned rowsPerPartition,
@@ -104,7 +104,6 @@ static bool computeSlice(Input<Vector<unsigned, ONE_PTR>> &offsets,
              subGroupEntry->offsetToNextSubGroupMetaInfo;
     }
   }
-  return true;
 }
 
 // We have buckets of sparse meta information with NZ values.
@@ -135,7 +134,7 @@ public:
   const unsigned short subColumns; // The number of columns found in subT
   const unsigned short numOffsets;
 
-  bool compute() {
+  void compute() {
     constexpr bool isHalf = std::is_same<FPType, half>::value;
     // Assembler supports column widths that are 32 bit only.  This is
     // beneficial in the poplibs functions too as it avoids copies. Ensure it is
@@ -143,9 +142,9 @@ public:
     assert(!(isHalf && (subColumns % 2)));
     const auto function = computeSlice<FPType, BaseTNZType, SubTType, false>;
 
-    return function(offsets, numOffsets, baseTNZ, baseTMetaInfo, subT,
-                    rowsPerPartition, yPartitionToProcess, blockRows,
-                    blockColumns, subColumns, 1.0f);
+    function(offsets, numOffsets, baseTNZ, baseTMetaInfo, subT,
+             rowsPerPartition, yPartitionToProcess, blockRows, blockColumns,
+             subColumns, 1.0f);
   }
 };
 template class SparseDenseMultiSliceBlock<float, 4>;
@@ -191,14 +190,13 @@ public:
   Input<float> scale;
   const unsigned short numOffsets;
 
-  bool compute() {
+  void compute() {
 
     const auto function = computeSlice<FPType, BaseTNZType, SubTType, true>;
 
-    return function(offsets, numOffsets, baseTNZ, baseTMetaInfo, subT,
-                    rowsPerPartition,
-                    static_cast<MetaInfoType>(*yPartitionToProcess), blockRows,
-                    blockColumns, subColumns, *scale);
+    function(offsets, numOffsets, baseTNZ, baseTMetaInfo, subT,
+             rowsPerPartition, static_cast<MetaInfoType>(*yPartitionToProcess),
+             blockRows, blockColumns, subColumns, *scale);
   }
 };
 template class SparseDenseMultiUpdateAddBlock<float, true>;

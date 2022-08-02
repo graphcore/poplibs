@@ -115,14 +115,13 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssemblyVersion<KeyType>()));
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     const auto numWorkers = worklists.size();
     KeyImpl<KeyType> impl = {&keys[0]};
     if (wid < numWorkers) {
       const WorklistType *worklist = &worklists[wid][0];
       workerCompute(wid, impl, worklist, distanceToChangeOrder);
     }
-    return true;
   }
 };
 
@@ -184,7 +183,7 @@ public:
   IS_EXTERNAL_CODELET(
       (hasAssemblyVersionKeyVal<KeyType, ValueType, valuesAreSecondaryKey>()));
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     const auto numWorkers = worklists.size();
     KeyValImpl<KeyType, ValueType, valuesAreSecondaryKey,
                sortValuesInReverseOrder>
@@ -193,7 +192,6 @@ public:
       const WorklistType *worklist = &worklists[wid][0];
       workerCompute(wid, impl, worklist, distanceToChangeOrder);
     }
-    return true;
   }
 };
 

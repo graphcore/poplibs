@@ -861,13 +861,12 @@ public:
   Vector<Output<Vector<OutputType, ONE_PTR, 8>>, ONE_PTR> out;
   Input<dType> B;
   IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
-  bool compute() {
+  void compute() {
     unsigned limI = data.size();
     for (unsigned i = 0; i < limI; i++) {
       BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
           data[i].size(), &data[i][0], &out[i][0], *B);
     }
-    return true;
   }
 };
 
@@ -879,13 +878,12 @@ public:
   Vector<InOut<Vector<OutputType, SPAN, 8>>> data;
   Input<dType> B;
   IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
-  bool compute() {
+  void compute() {
     unsigned limI = data.size();
     for (unsigned i = 0; i < limI; i++) {
       BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
           data[i].size(), &data[i][0], &data[i][0], *B);
     }
-    return true;
   }
 };
 
@@ -900,7 +898,7 @@ public:
     Vector<inOutType<Vector<half, SPAN, 8>>> data;                             \
     outDef Input<half> B;                                                      \
     IS_EXTERNAL_CODELET(true);                                                 \
-    bool compute() {                                                           \
+    void compute() {                                                           \
       unsigned limI = data.size();                                             \
       for (unsigned i = 0; i < limI; i++) {                                    \
         for (unsigned j = 0; j < data[i].size(); j++) {                        \
@@ -911,7 +909,6 @@ public:
                                             static_cast<float>(*B)));          \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -937,13 +934,12 @@ public:
   Vector<Input<Vector<dType, SPAN, 8>>> data;
   Vector<Output<Vector<OutType, ONE_PTR, 8>>, ONE_PTR> out;
   Vector<Input<dType>, ONE_PTR> B;
-  bool compute() {
+  void compute() {
     unsigned limI = data.size();
     for (unsigned i = 0; i < limI; i++) {
       BroadcastOpDispatch<op, dType, OutType, false, true>::compute(
           data[i].size(), &data[i][0], &out[i][0], B[i]);
     }
-    return true;
   }
 };
 
@@ -952,13 +948,12 @@ class BroadcastScalar2DInPlace : public Vertex {
 public:
   Vector<InOut<Vector<dType, SPAN, 8>>> data;
   Vector<Input<dType>, ONE_PTR> B;
-  bool compute() {
+  void compute() {
     unsigned limI = data.size();
     for (unsigned i = 0; i < limI; i++) {
       BroadcastOpDispatch<op, dType, dType, false, true>::compute(
           data[i].size(), &data[i][0], &data[i][0], B[i]);
     }
-    return true;
   }
 };
 
@@ -979,11 +974,10 @@ public:
   Output<Vector<outT, ONE_PTR, 8>> outInv;
   Input<inT> B;
   IS_EXTERNAL_CODELET(false);
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     BroadcastRelationalOpDualOutputDispatchMultiVertex<
         op, inT, outT, true>::compute(data.size(), wid, &data[0], &out[0],
                                       &outInv[0], *B);
-    return true;
   }
 };
 
@@ -998,10 +992,9 @@ public:
   Output<Vector<OutType, ONE_PTR, 8>> out;
   Input<dType> B;
   IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     BroadcastOpDispatchMultiVertex<op, dType, OutType, false, true>::compute(
         data.size(), wid, &data[0], &out[0], *B);
-    return true;
   }
 };
 
@@ -1011,10 +1004,9 @@ public:
   InOut<Vector<dType, SPAN, 8>> data;
   Input<dType> B;
   IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     BroadcastOpDispatchMultiVertex<op, dType, dType, false, true>::compute(
         data.size(), wid, &data[0], &data[0], *B);
-    return true;
   }
 };
 
@@ -1038,14 +1030,13 @@ INSTANTIATE_SCALAR_RELOP_IN_PLACE(BroadcastScalar1DInPlace);
     inOutType<Vector<half, SPAN, 8>> data;                                     \
     outDef Input<half> B;                                                      \
     IS_EXTERNAL_CODELET(true);                                                 \
-    bool compute(unsigned wid) {                                               \
+    void compute(unsigned wid) {                                               \
       for (unsigned i = wid; i < data.size(); i += numWorkers()) {             \
         outName[i] = static_cast<half>(                                        \
             BinaryOpFn<BinaryOpType::INV_STD_DEV_TO_VARIANCE, float,           \
                        architecture::active>::fn(static_cast<float>(data[i]),  \
                                                  static_cast<float>(*B)));     \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -1065,7 +1056,7 @@ DEF_BROADCAST_1D_DATA_VERTEX_FP(BroadcastScalar1DInPlace, InOut, , data)
     unsigned short columns;                                                    \
     unsigned short rows;                                                       \
     IS_EXTERNAL_CODELET(!allowMisaligned);                                     \
-    bool compute(unsigned wid) {                                               \
+    void compute(unsigned wid) {                                               \
       std::size_t bIndex = 0;                                                  \
       auto bLen = B.size();                                                    \
       for (unsigned i = 0; i < rows; i++) {                                    \
@@ -1078,7 +1069,6 @@ DEF_BROADCAST_1D_DATA_VERTEX_FP(BroadcastScalar1DInPlace, InOut, , data)
           bIndex = 0;                                                          \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -1114,7 +1104,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn1DInPlace);
     unsigned short columns;                                                    \
     unsigned short rows;                                                       \
     IS_EXTERNAL_CODELET(!allowMisaligned);                                     \
-    bool compute(unsigned wid) {                                               \
+    void compute(unsigned wid) {                                               \
       std::size_t bIndex = assignWorkersPairsOfRows ? 2 * wid : wid;           \
       auto bLen = B.size();                                                    \
       unsigned i = bIndex;                                                     \
@@ -1138,7 +1128,6 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumn1DInPlace);
           }                                                                    \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -1160,7 +1149,7 @@ public:
   Vector<Output<Vector<outType, ONE_PTR, 8>>, ONE_PTR> out;
   Input<inType> B;
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
+  void compute() {
     unsigned limI = data.size();
     for (unsigned i = 0; i < limI; i++) {
       for (unsigned j = 0; j < data[i].size(); j++) {
@@ -1169,7 +1158,6 @@ public:
                 static_cast<float>(data[i][j]), static_cast<float>(*B)));
       }
     }
-    return true;
   }
 };
 
@@ -1185,13 +1173,12 @@ public:
   Output<Vector<outType, ONE_PTR, 8>> out;
   Input<inType> B;
   IS_EXTERNAL_CODELET(true);
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     for (unsigned i = wid; i < data.size(); i += numWorkers()) {
       out[i] =
           static_cast<outType>(BinaryOpFn<op, float, architecture::active>::fn(
               static_cast<float>(data[i]), static_cast<float>(*B)));
     }
-    return true;
   }
 };
 template class BroadcastScalar2Types1D<BinaryOpType::INV_STD_DEV_TO_VARIANCE,

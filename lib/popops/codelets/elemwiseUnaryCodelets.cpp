@@ -904,14 +904,13 @@ public:
   Vector<Output<Vector<outputType, SPAN, 8>>> out;
   IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
-  bool compute() {
+  void compute() {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
     unsigned limI = out.size();
     for (unsigned i = 0; i != limI; ++i) {
       popops::UnaryOpDispatch<op, T, outputType, arch>::compute(
           out[i].size(), &in[i][0], &out[i][0]);
     }
-    return true;
   }
 };
 
@@ -925,14 +924,13 @@ public:
   Vector<InOut<Vector<T, SPAN, 8>>> inOut;
   IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
-  bool compute() {
+  void compute() {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
     unsigned limI = inOut.size();
     for (unsigned i = 0; i != limI; ++i) {
       popops::UnaryOpDispatch<op, T, outputType, arch>::compute(
           inOut[i].size(), &inOut[i][0], &inOut[i][0]);
     }
-    return true;
   }
 };
 
@@ -948,7 +946,7 @@ public:
   public:                                                                      \
     InOut<VectorList<T, poplar::VectorListLayout::LAYOUT>> inOut;              \
     IS_EXTERNAL_CODELET(true);                                                 \
-    bool compute() {                                                           \
+    void compute() {                                                           \
       using arch =                                                             \
           typename popops::UnaryOpFn<op, T, architecture::active>::arch;       \
       unsigned limI = inOut.size();                                            \
@@ -956,7 +954,6 @@ public:
         popops::UnaryOpDispatch<op, T, outputType, arch>::compute(             \
             inOut[i].size(), &inOut[i][0], &inOut[i][0]);                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -1194,11 +1191,10 @@ public:
 
   IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
     popops::UnaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(
         out.size(), wid, &in[0], &out[0]);
-    return true;
   }
 };
 
@@ -1215,11 +1211,10 @@ public:
 
   IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
     popops::UnaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(
         inOut.size(), wid, &inOut[0], &inOut[0]);
-    return true;
   }
 };
 
@@ -1239,12 +1234,11 @@ public:
     InOut<Vector<T, PTR_TYPE, 4>> inOut;                                       \
     const unsigned short n;                                                    \
     IS_EXTERNAL_CODELET(true);                                                 \
-    bool compute(unsigned wid) {                                               \
+    void compute(unsigned wid) {                                               \
       using arch =                                                             \
           typename popops::UnaryOpFn<op, T, architecture::active>::arch;       \
       popops::UnaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(    \
           n, wid, &inOut[0], &inOut[0]);                                       \
-      return true;                                                             \
     }                                                                          \
   };
 

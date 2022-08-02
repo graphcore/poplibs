@@ -519,14 +519,13 @@ public:
   Vector<Output<Vector<outputType, SPAN, 8>>> out;
   IS_EXTERNAL_CODELET((isExternal<op, outputType>()));
 
-  bool compute() {
+  void compute() {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
     const unsigned limI = out.size();
     for (unsigned i = 0; i != limI; ++i) {
       BinaryOpDispatch<op, T, outputType, arch>::compute(
           out[i].size(), &in1[i][0], &in2[i][0], &out[i][0]);
     }
-    return true;
   }
 };
 
@@ -541,14 +540,13 @@ public:
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in2;
   IS_EXTERNAL_CODELET((isExternal<op, outputType>()));
 
-  bool compute() {
+  void compute() {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
     const unsigned limI = in1Out.size();
     for (unsigned i = 0; i != limI; ++i) {
       BinaryOpDispatch<op, T, outputType, arch>::compute(
           in1Out[i].size(), &in1Out[i][0], &in2[i][0], &in1Out[i][0]);
     }
-    return true;
   }
 };
 
@@ -791,12 +789,11 @@ public:
   Output<Vector<outputType, SPAN, 8>> out;
 
   IS_EXTERNAL_CODELET((isExternal<op, T>()));
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
 
     popops::BinaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(
         out.size(), wid, &in1[0], &in2[0], &out[0]);
-    return true;
   }
 };
 
@@ -811,12 +808,11 @@ public:
   Input<Vector<T, ONE_PTR, 8>> in2;
 
   IS_EXTERNAL_CODELET((isExternal<op, T>()));
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
 
     popops::BinaryOpDispatchMultiVertex<op, T, outputType, arch>::compute(
         in1Out.size(), wid, &in1Out[0], &in2[0], &in1Out[0]);
-    return true;
   }
 };
 

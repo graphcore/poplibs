@@ -71,14 +71,13 @@ public:
   InputScaleType<ScaleType> scaleB;
   unsigned short size;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     for (unsigned i = 0; i < divideWork(size, 0, wid);
          ++i, idx += CTXT_WORKERS) {
       A[idx] += static_cast<AType>(static_cast<ComputeType>(scaleB[0]) *
                                    static_cast<ComputeType>(B[idx]));
     }
-    return true;
   }
 };
 
@@ -97,7 +96,7 @@ public:
   InputScaleType<ScaleType> scaleB;
   unsigned short size;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     // Where the vertex is used on IPU (for integral types) loading scale
     // avoids re-reading every loop
@@ -106,7 +105,6 @@ public:
          i++, idx += CTXT_WORKERS) {
       A[idx] += static_cast<AType>(scale * static_cast<ComputeType>(B[idx]));
     }
-    return true;
   }
 };
 
@@ -137,7 +135,7 @@ template class ScaledAddSupervisor<half, float, float, false>;
     unsigned short size;                                                       \
     const float tolerance;                                                     \
                                                                                \
-    bool compute(unsigned wid) {                                               \
+    void compute(unsigned wid) {                                               \
       unsigned limI = divideWork(size, 0, wid);                                \
       unsigned idx = wid;                                                      \
       if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB[0],             \
@@ -151,7 +149,6 @@ template class ScaledAddSupervisor<half, float, float, false>;
           A[idx] += static_cast<half>(scaleB[0] * static_cast<float>(B[idx])); \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -178,7 +175,7 @@ public:
   InputBType2D<BType> B;
   Input<ScaleType> scaleB;
 
-  bool compute() {
+  void compute() {
     unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       unsigned limJ = A[i].size();
@@ -189,7 +186,6 @@ public:
                                         static_cast<ComputeType>(refIn[j]));
       }
     }
-    return true;
   }
 };
 
@@ -204,7 +200,7 @@ public:
   InputBType2D<BType> B;
   Input<ScaleType> scaleB;
 
-  bool compute() {
+  void compute() {
     unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       unsigned limJ = A[i].size();
@@ -215,7 +211,6 @@ public:
                                         static_cast<ComputeType>(refIn[j]));
       }
     }
-    return true;
   }
 };
 
@@ -244,7 +239,7 @@ template class ScaledAdd2D<float, half, float, false>;
     Input<float> scaleB;                                                       \
     const float tolerance;                                                     \
                                                                                \
-    bool compute() {                                                           \
+    void compute() {                                                           \
       unsigned limI = A.size();                                                \
       if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB, tolerance)) {  \
         const auto halfScale = static_cast<half>(*scaleB);                     \
@@ -267,7 +262,6 @@ template class ScaledAdd2D<float, half, float, false>;
           }                                                                    \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -294,7 +288,7 @@ public:
   InputScaleType<ScaleType> scaleB;
   unsigned short size;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     // Where the vertex is used on IPU (for integral types) loading scale
     // avoids re-reading every loop
@@ -303,7 +297,6 @@ public:
          i++, idx += CTXT_WORKERS) {
       A[idx] -= scale * static_cast<AType>(B[idx]);
     }
-    return true;
   }
 };
 
@@ -320,7 +313,7 @@ public:
   InputScaleType<AType> scaleB;
   unsigned short size;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     // Where the vertex is used on IPU (for integral types) loading scale
     // avoids re-reading every loop
@@ -329,7 +322,6 @@ public:
          i++, idx += CTXT_WORKERS) {
       A[idx] -= scale * static_cast<AType>(B[idx]);
     }
-    return true;
   }
 };
 
@@ -350,7 +342,7 @@ public:
     unsigned short size;                                                       \
     const float tolerance;                                                     \
                                                                                \
-    bool compute(unsigned wid) {                                               \
+    void compute(unsigned wid) {                                               \
       unsigned limI = divideWork(size, 0, wid);                                \
       unsigned idx = wid;                                                      \
       if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB[0],             \
@@ -364,7 +356,6 @@ public:
           A[idx] -= static_cast<half>(scaleB[0] * static_cast<float>(B[idx])); \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -395,7 +386,7 @@ public:
   InputBType2D<DataType> B;
   Input<ScaleType> scaleB;
 
-  bool compute() {
+  void compute() {
     unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       unsigned limJ = A[i].size();
@@ -405,7 +396,6 @@ public:
         refOut[j] -= *scaleB * refIn[j];
       }
     }
-    return true;
   }
 };
 
@@ -418,7 +408,7 @@ public:
   InputBType2D<DataType> B;
   Input<DataType> scaleB;
 
-  bool compute() {
+  void compute() {
     unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       unsigned limJ = A[i].size();
@@ -428,7 +418,6 @@ public:
         refOut[j] -= *scaleB * refIn[j];
       }
     }
-    return true;
   }
 };
 
@@ -446,7 +435,7 @@ public:
     Input<float> scaleB;                                                       \
     const float tolerance;                                                     \
                                                                                \
-    bool compute() {                                                           \
+    void compute() {                                                           \
       unsigned limI = A.size();                                                \
       if (checkAccuracyWhenCastComputeImpl<float, half>(scaleB, tolerance)) {  \
         const auto halfScale = static_cast<half>(*scaleB);                     \
@@ -469,7 +458,6 @@ public:
           }                                                                    \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -502,13 +490,12 @@ public:
   unsigned short size;
   InputScaleType<DataType> scaleB;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     for (unsigned i = 0; i < divideWork(size, 0, wid);
          ++i, idx += CTXT_WORKERS) {
       A[idx] = scaleA[0] * A[idx] + scaleB[0] * B[idx];
     }
-    return true;
   }
 };
 
@@ -526,13 +513,12 @@ public:
   unsigned short size;
   InputScaleType<DataType> scaleB;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     for (unsigned i = 0; i < divideWork(size, 0, wid);
          ++i, idx += CTXT_WORKERS) {
       A[idx] = scaleA[0] * A[idx] + scaleB[0] * B[idx];
     }
-    return true;
   }
 };
 
@@ -561,7 +547,7 @@ template class aXPlusbYSupervisor<float, float, false>;
     InputScaleType<float> scaleB;                                              \
     float tolerance;                                                           \
                                                                                \
-    bool compute(unsigned wid) {                                               \
+    void compute(unsigned wid) {                                               \
       bool castScalesToHalf = !checkAccuracyWhenCastFloatV2ToHalf(             \
           scaleA[0], scaleB[0], tolerance);                                    \
       unsigned limI = divideWork(size, 0, wid);                                \
@@ -577,7 +563,6 @@ template class aXPlusbYSupervisor<float, float, false>;
                    scaleB[0] * static_cast<float>(B[idx]);                     \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -596,7 +581,7 @@ public:
   Input<DataType> scaleA;
   Input<DataType> scaleB;
 
-  bool compute() {
+  void compute() {
     unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       unsigned limJ = A[i].size();
@@ -606,7 +591,6 @@ public:
         refOut[j] = *scaleA * refOut[j] + *scaleB * refIn[j];
       }
     }
-    return true;
   }
 };
 template <typename DataType>
@@ -620,7 +604,7 @@ public:
   Input<DataType> scaleA;
   Input<DataType> scaleB;
 
-  bool compute() {
+  void compute() {
     unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       unsigned limJ = A[i].size();
@@ -630,7 +614,6 @@ public:
         refOut[j] = *scaleA * refOut[j] + *scaleB * refIn[j];
       }
     }
-    return true;
   }
 };
 
@@ -655,7 +638,7 @@ template class aXPlusbY2D<float, float, false>;
     Input<float> scaleB;                                                       \
     float tolerance;                                                           \
                                                                                \
-    bool compute() {                                                           \
+    void compute() {                                                           \
       bool castScalesToHalf =                                                  \
           !checkAccuracyWhenCastFloatV2ToHalf(*scaleA, *scaleB, tolerance);    \
       unsigned limI = A.size();                                                \
@@ -675,7 +658,6 @@ template class aXPlusbY2D<float, float, false>;
           }                                                                    \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -689,7 +671,7 @@ public:
   Vector<InOut<Vector<FPType>>> A;
   Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR> B;
 
-  bool compute() {
+  void compute() {
     const unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       const unsigned limJ = A[i].size();
@@ -699,7 +681,6 @@ public:
         refOut[j] *= refIn[j];
       }
     }
-    return true;
   }
 };
 
@@ -718,13 +699,12 @@ public:
   unsigned short size;
   InputScaleType<DataType> scaleB;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     for (unsigned i = 0; i < divideWork(size, 0, wid);
          ++i, idx += CTXT_WORKERS) {
       A[idx] = scaleA[0] * A[idx] - scaleB[0] * B[idx];
     }
-    return true;
   }
 };
 
@@ -742,13 +722,12 @@ public:
   unsigned short size;
   InputScaleType<DataType> scaleB;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     for (unsigned i = 0; i < divideWork(size, 0, wid);
          ++i, idx += CTXT_WORKERS) {
       A[idx] = scaleA[0] * A[idx] - scaleB[0] * B[idx];
     }
-    return true;
   }
 };
 
@@ -774,7 +753,7 @@ template class aXMinusbYSupervisor<float, float, false>;
     InputScaleType<float> scaleB;                                              \
     float tolerance;                                                           \
                                                                                \
-    bool compute(unsigned wid) {                                               \
+    void compute(unsigned wid) {                                               \
       bool castScalesToHalf = !checkAccuracyWhenCastFloatV2ToHalf(             \
           scaleA[0], scaleB[0], tolerance);                                    \
                                                                                \
@@ -791,7 +770,6 @@ template class aXMinusbYSupervisor<float, float, false>;
                    scaleB[0] * static_cast<float>(B[idx]);                     \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -811,7 +789,7 @@ public:
   const ScaleType scaleA;
   const ScaleType scaleB;
 
-  bool compute() {
+  void compute() {
     unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       unsigned limJ = A[i].size();
@@ -821,7 +799,6 @@ public:
         refOut[j] = scaleA * refOut[j] - scaleB * refIn[j];
       }
     }
-    return true;
   }
 };
 #define DEF_AXMINUSBY_2D_VERTEX(CONSTRAINTS, IS_CONSTRAINED)                   \
@@ -837,7 +814,7 @@ public:
     Input<DataType> scaleA;                                                    \
     Input<DataType> scaleB;                                                    \
                                                                                \
-    bool compute() {                                                           \
+    void compute() {                                                           \
       unsigned limI = A.size();                                                \
       for (unsigned i = 0; i < limI; ++i) {                                    \
         unsigned limJ = A[i].size();                                           \
@@ -847,7 +824,6 @@ public:
           refOut[j] = *scaleA * refOut[j] - *scaleB * refIn[j];                \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -875,7 +851,7 @@ template class aXMinusbY2D<float, float, false>;
     Input<float> scaleB;                                                       \
     float tolerance;                                                           \
                                                                                \
-    bool compute() {                                                           \
+    void compute() {                                                           \
       bool castScalesToHalf =                                                  \
           !checkAccuracyWhenCastFloatV2ToHalf(*scaleA, *scaleB, tolerance);    \
       unsigned limI = A.size();                                                \
@@ -895,7 +871,6 @@ template class aXMinusbY2D<float, float, false>;
           }                                                                    \
         }                                                                      \
       }                                                                        \
-      return true;                                                             \
     }                                                                          \
   };
 
@@ -918,13 +893,12 @@ public:
   unsigned short size;
   InputScaleType<InType> scaleB;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     for (unsigned i = 0; i < divideWork(size, 0, wid);
          ++i, idx += CTXT_WORKERS) {
       A[idx] = A[idx] - scaleA[0] * A[idx] + scaleB[0] * B[idx];
     }
-    return true;
   }
 };
 
@@ -942,13 +916,12 @@ public:
   unsigned short size;
   InputScaleType<InType> scaleB;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned idx = wid;
     for (unsigned i = 0; i < divideWork(size, 0, wid);
          ++i, idx += CTXT_WORKERS) {
       A[idx] = A[idx] - scaleA[0] * A[idx] + scaleB[0] * B[idx];
     }
-    return true;
   }
 };
 
@@ -967,7 +940,7 @@ public:
   Input<InType> scaleA;
   Input<InType> scaleB;
 
-  bool compute() {
+  void compute() {
     unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       unsigned limJ = A[i].size();
@@ -977,7 +950,6 @@ public:
         refOut[j] = refOut[j] - *scaleA * refOut[j] + *scaleB * refIn[j];
       }
     }
-    return true;
   }
 };
 
@@ -992,7 +964,7 @@ public:
   Input<InType> scaleA;
   Input<InType> scaleB;
 
-  bool compute() {
+  void compute() {
     unsigned limI = A.size();
     for (unsigned i = 0; i < limI; ++i) {
       unsigned limJ = A[i].size();
@@ -1002,7 +974,6 @@ public:
         refOut[j] = refOut[j] - *scaleA * refOut[j] + *scaleB * refIn[j];
       }
     }
-    return true;
   }
 };
 

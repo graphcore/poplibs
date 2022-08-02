@@ -30,7 +30,7 @@ public:
   // by assembler
   const unsigned maxElementsPerWorker;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned restrictedRegionSize = regionSize;
     if (std::is_same<Type, half>::value && !subwordWritesSupported)
       restrictedRegionSize &= ~0x1;
@@ -45,7 +45,7 @@ public:
     // This worker has not been assigned any base offsets
     const unsigned thisWorkerBaseElems = split.offsetEnd - split.offsetBegin;
     if (thisWorkerBaseElems == 0) {
-      return true;
+      return;
     }
 
     unsigned offsetIndexBegin = 0;
@@ -78,7 +78,6 @@ public:
             updateOp(op, baseT[dstIndex], subT[o * restrictedRegionSize + e]);
       }
     }
-    return true;
   }
 };
 
@@ -106,7 +105,7 @@ public:
   const unsigned maxElementsPerWorker;
   Input<SType> scale;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     // Perform calculation in single precision for half data so that s
     // stochastic rounding will occur. TODO: T12921 Replace with a mix.
     // For halves, accumulate in float so that stochastic rounding will take
@@ -131,7 +130,7 @@ public:
     // This worker has not been assigned any base offsets
     const unsigned thisWorkerBaseElems = split.offsetEnd - split.offsetBegin;
     if (thisWorkerBaseElems == 0) {
-      return true;
+      return;
     }
 
     unsigned offsetIndexBegin = 0;
@@ -164,7 +163,6 @@ public:
         baseT[srcDstIndex] = updateOp(op, baseT[srcDstIndex], addend);
       }
     }
-    return true;
   }
 };
 

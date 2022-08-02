@@ -75,10 +75,10 @@ public:
   /* Vector of regions to use as input. */
   Input<VectorList<PartialsType, DELTAN_TYPE, 8, false>> partials;
 
-  bool compute() {
+  void compute() {
     const auto function = computeReduce<ReduceOp, PartialsType, OutType,
                                         isUpdate, specialisation>;
-    return function(out, numPartials, partials, 1.0f);
+    function(out, numPartials, partials, 1.0f);
   }
 };
 
@@ -109,7 +109,7 @@ public:
   ReduceOutput<Vector<OutType, ONE_PTR>> out;
   Input<Vector<PartialsType, PTR_ALIGN64, 8>> partials;
   const ShortType numPartials;
-  bool compute() {
+  void compute() {
     AccType acc = ReduceOp::template init<AccType>();
     for (unsigned p = 0; p < numPartials; ++p)
       ReduceOp::update(acc, static_cast<AccType>(partials[p]));
@@ -119,7 +119,6 @@ public:
     } else {
       out[0] = static_cast<OutType>(acc);
     }
-    return true;
   }
 };
 
@@ -164,7 +163,7 @@ public:
   Input<Vector<PartialsType, PTR_ALIGN32, 8>> partials;
   Input<Vector<ShortType, ONE_PTR>> countsAndStrides;
 
-  bool compute() {
+  void compute() {
     const auto cAndS = reinterpret_cast<const CountsAndStrides<ShortType> *>(
         &countsAndStrides[0]);
 
@@ -172,8 +171,6 @@ public:
         out, partials, cAndS->numOutputsM1, cAndS->numPartialsM1,
         cAndS->partialsWidth, cAndS->numOuterStridesM1, cAndS->outerStride,
         opIsLogAdd ? 0.0f : 1.0f);
-
-    return true;
   }
 };
 
@@ -218,14 +215,13 @@ public:
   Input<Vector<PartialsType, PTR_ALIGN32, 8>> partials;
   Input<Vector<ShortType, ONE_PTR>> countsAndStrides;
 
-  bool compute() {
+  void compute() {
     const auto cAndS = reinterpret_cast<const CountsAndStrides<ShortType> *>(
         &countsAndStrides[0]);
 
     computeStridedReduce<ReduceOp, PartialsType, OutType, isUpdate, opIsLogAdd>(
         out, partials, cAndS->numOutputsM1, cAndS->numPartialsM1,
         cAndS->partialsWidth, 0u, 0u, opIsLogAdd ? 0.0f : 1.0f);
-    return true;
   }
 };
 

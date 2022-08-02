@@ -48,10 +48,10 @@ public:
      and saves space (although at the cost of 3 instructions to unpack) */
   Input<Vector<float, PTR_ALIGN32>> k;
 
-  bool compute() {
+  void compute() {
     const auto function = computeReduce<ReduceOp, PartialsType, OutType,
                                         isUpdate, specialisation>;
-    return function(out, numPartials, partials, k[0]);
+    function(out, numPartials, partials, k[0]);
   }
 };
 
@@ -102,7 +102,7 @@ public:
      and saves space (although at the cost of 3 instructions to unpack) */
   Input<Vector<float, PTR_ALIGN32>> k;
 
-  bool compute() {
+  void compute() {
     const auto cAndS = reinterpret_cast<const CountsAndStrides<ShortType> *>(
         &countsAndStrides[0]);
 
@@ -110,8 +110,6 @@ public:
         out, partials, cAndS->numOutputsM1, cAndS->numPartialsM1,
         cAndS->partialsWidth, cAndS->numOuterStridesM1, cAndS->outerStride,
         k[0]);
-
-    return true;
   }
 };
 
@@ -162,15 +160,13 @@ public:
      and saves space (although at the cost of 3 instructions to unpack) */
   Input<Vector<float, PTR_ALIGN32>> k;
 
-  bool compute() {
+  void compute() {
     const auto cAndS = reinterpret_cast<const CountsAndStrides<ShortType> *>(
         &countsAndStrides[0]);
 
     computeStridedReduce<ReduceOp, PartialsType, OutType, isUpdate, opIsLogAdd>(
         out, partials, cAndS->numOutputsM1, cAndS->numPartialsM1,
         cAndS->partialsWidth, 0u, 0u, k[0]);
-
-    return true;
   }
 };
 // Operation: ReduceAdd
