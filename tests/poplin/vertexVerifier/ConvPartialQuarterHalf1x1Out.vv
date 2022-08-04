@@ -1,0 +1,119 @@
+// *** Base config, no restrictions on addresses
+
+testConfig initialConfig;
+
+in.size = 2
+in[i].size = 32
+in[i]=[0.1, 0.2)
+
+weights.size = 2
+weights[i].size = 512
+weights[i] = [0.1, 0.2)
+
+out.size = 1
+out[i].size = 16
+out[0] = [0.1, 0.2)
+
+worklists.size = 1
+worklists[0].size = 18
+// Worklist entries are outOffset, length-3, inOffset
+// Longest worklist : -2 + 3 Gives: 1
+
+worklists[0]={ 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -2, 0}
+
+inMetadata.size = 1
+inMetadata[0].size = 1
+inMetadata[0] = {0x82}
+
+weightsMetadata.size = 1
+weightsMetadata[0].size = 1
+weightsMetadata[0] = {0x81}
+
+
+numConvGroupsM1 = 0
+numOutGroupsM1=0
+numInGroups=2
+transformedInStride=1
+outChansPerGroup=16
+transformedOutStride=4
+inChansPerGroup=32
+
+// *** Memory restricted test configurations
+
+// *** Length 1 worklist entry, in[] at the end of segment below out[]
+testConfig quarterHalf1x1OutLength1 : initialConfig;
+in[i].size = 32
+out[i].size = 16
+worklists[0]={ 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -2, 0}
+&in[i]=0x7ff90
+&out[i]=0x80000
+
+// *** Length 2 worklist entry, in[] at the end of segment below out[]
+testConfig quarterHalf1x1OutLength2 : initialConfig;
+in[i].size = 64
+out[i].size = 32
+worklists[0]={ 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -1, 0}
+&in[i]=0x7ff50
+&out[i]=0x80000
+
+// *** Length 3 worklist entry, in[] at the end of segment below out[]
+testConfig quarterHalf1x1OutLength3 : initialConfig;
+in[i].size = 96
+out[i].size = 48
+worklists[0]={ 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, 0, 0}
+&in[i]=0x7ff10
+&out[i]=0x80000
+
+// *** Length 4 worklist entry, in[] at the end of segment below out[]
+testConfig quarterHalf1x1OutLength4 : initialConfig;
+in[i].size = 128
+out[i].size = 64
+worklists[0]={ 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, 1, 0}
+&in[i]=0x7fed0
+&out[i]=0x80000
+
+// *** Length 1 worklist entry, out[] at the end of segment below in[]
+testConfig quarterHalf1x1OutLength1OutLower : quarterHalf1x1OutLength1;
+&in[i]=0x88000
+&out[i]=0x87fc8
+
+// *** Length 2 worklist entry, out[] at the end of segment below in[]
+testConfig quarterHalf1x1OutLength2OutLower : quarterHalf1x1OutLength2;
+&in[i]=0x88000
+&out[i]=0x87fa8
+
+// *** Length 3 worklist entry, out[] at the end of segment below in[]
+testConfig quarterHalf1x1OutLength3OutLower : quarterHalf1x1OutLength3;
+&in[i]=0x88000
+&out[i]=0x87f88
+
+// *** Length 4 worklist entry, out[] at the end of segment below in[]
+testConfig quarterHalf1x1OutLength4OutLower : quarterHalf1x1OutLength4;
+&in[i]=0x88000
+&out[i]=0x87f68
+
+// *** Length 1 worklist entry, out[] at the end of segment below in[]
+// *** Larger negative out stride
+testConfig quarterHalf1x1OutNegStrideLength1 : initialConfig;
+in[i].size = 128
+out[i].size = 128
+transformedInStride=5
+transformedOutStride=-28
+
+worklists[0]={0, -2, 16, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0}
+&in[i]=0x7f7d0
+&out[i]=0x80000
+
+// *** Length 2 worklist entry, out[] at the end of segment below in[]
+// *** Larger negative out stride
+testConfig quarterHalf1x1OutNegStrideLength2 : quarterHalf1x1OutNegStrideLength1;
+worklists[0]={4, -1, 16, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0}
+&in[i]=0x7f7d0
+&out[i]=0x80000
+
+// *** Length 3 worklist entry, out[] at the end of segment below in[]
+// *** Larger negative out stride
+testConfig quarterHalf1x1OutNegStrideLength3 : quarterHalf1x1OutNegStrideLength1;
+worklists[0]={8, 0, 16, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0, 0, -3, 0}
+&in[i]=0x7f7d0
+&out[i]=0x80000

@@ -38,8 +38,8 @@ set(POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS "${DEFAULT_ENABLED_IPU_ARCH_TEST_VARI
     "The architectures to run tests for, defaults to all enabled architectures except ipu1 and ipu21")
 message("Enabled test architectures: ${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS}")
 
-# By default we build only ipu2 target with cpp codelets
-set(POPLIBS_ENABLE_CPP_CODELETS_FOR_TARGETS "ipu2" CACHE STRING
+# By default we build ipu2, ipu21 targets with cpp codelets
+set(POPLIBS_ENABLE_CPP_CODELETS_FOR_TARGETS "ipu2;ipu21" CACHE STRING
     "Allows to build CPP codelets for selected targets")
 
 set(CPU_VARIANTS "")

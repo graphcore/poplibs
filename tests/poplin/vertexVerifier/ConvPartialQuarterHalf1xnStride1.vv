@@ -1,0 +1,88 @@
+// *** Base config, no restrictions on addresses
+
+testConfig initialConfig;
+in.size = 1
+in[0].size = 64
+in[i]=[0.1, 0.2)
+
+weights.size = 2
+weights[i].size = 256
+weights[i] = [0.1, 0.2)
+
+out.size = 1
+out[i].size = 40
+out[0] = [0.1, 0.2)
+
+worklists.size = 12
+worklists[i].size = 3
+worklists[i]={ 0,0,0}
+
+outFieldBuffer.size = 1
+outFieldBuffer[0].size=140
+
+inMetadata.size = 1
+inMetadata[0].size = 1
+inMetadata[0] = {0x81}
+
+weightsMetadata.size = 1
+weightsMetadata[i].size = 1
+weightsMetadata[0] = {0x82}
+
+chansPerGroupLog2 = 3
+outPtrLoadOffset = 1
+numSubKernelsM1 = 1
+numConvGroupGroupsM1 = 0
+
+
+// *** Memory restricted test configurations
+// Worklist entries are inOffset, outOffset, length
+
+testConfig outFirstLength1 : initialConfig;
+worklists[11]={ 0,4,1}
+&in[i]=0x88000
+&out[i]=0x87f90
+
+testConfig outFirstLength2 : initialConfig;
+worklists[11]={ 0,3,2}
+&in[i]=0x88000
+&out[i]=0x87f90
+
+testConfig outFirstLength3 : initialConfig;
+worklists[11]={ 0,2,3}
+&in[i]=0x88000
+&out[i]=0x87f90
+
+testConfig outFirstLength4 : initialConfig;
+worklists[11]={ 0,1,4}
+&in[i]=0x88000
+&out[i]=0x87f90
+
+testConfig outFirstLength5 : initialConfig;
+worklists[11]={ 0,0,5}
+&in[i]=0x88000
+&out[i]=0x87f90
+
+testConfig inFirstLength1 : initialConfig;
+worklists[11]={ 4,0,1}
+&in[i]=0x7ffa8
+&out[i]=0x80000
+
+testConfig inFirstLength2 : initialConfig;
+worklists[11]={ 3,0,2}
+&in[i]=0x7ffa8
+&out[i]=0x80000
+
+testConfig inFirstLength3 : initialConfig;
+worklists[11]={ 2,0,3}
+&in[i]=0x7ffa8
+&out[i]=0x80000
+
+testConfig inFirstLength4 : initialConfig;
+worklists[11]={ 1,0,4}
+&in[i]=0x7ffa8
+&out[i]=0x80000
+
+testConfig inFirstLength5 : initialConfig;
+worklists[11]={ 0,0,5}
+&in[i]=0x7ffa8
+&out[i]=0x80000

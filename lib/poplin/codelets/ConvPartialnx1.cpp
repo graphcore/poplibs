@@ -458,7 +458,8 @@ public:
         (unpackedTransformedInStride >> (packedStrideSize - numStrideBits)) -
         (transformedInRowStride * 2);
     workerState.strides =
-        packStrides(inStride, transformedOutStride & strideMask, numStrideBits);
+        packStrides(inStride & strideMask, transformedOutStride & strideMask,
+                    numStrideBits);
     // Zeroing - using a worker function with 64 bit writes, rpt and bundles
     const unsigned numOutGroups = numOutGroupsM1 + 1;
 

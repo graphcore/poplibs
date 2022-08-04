@@ -270,9 +270,7 @@ convQuarterHalfLoop(const quarter *inPtr, half *outPtr, unsigned loops,
             {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1101
              amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P2]}
 
-            // $a0:1 read, $a2:3 dummy read (Can't write $azeros twice)
-            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1100
-             amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P3]}
+             amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P3]
 
             {bri 7f
              amp $a4:5, $azeros, $azeros, %[TAMP_F16V4_E4_P0]}
@@ -297,7 +295,7 @@ convQuarterHalfLoop(const quarter *inPtr, half *outPtr, unsigned loops,
 
             // There are 2 outputs - avoid the stride in the partials load
             // to avoid overreads when we fetch unused partials
-            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1001
+            {ld2x64pace $a0:1, $a2:3, %[triAddr]+=, %[strides], 0b1101
              amp $azeros, $a0:1, $a2:3, %[TAMP_F16V4_E4_P2]}
 
             // $a0:1 read, $a2:3 dummy read (Can't write $azeros twice)
