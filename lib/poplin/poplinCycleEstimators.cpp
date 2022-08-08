@@ -577,7 +577,7 @@ MAKE_PERF_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
 #endif
   std::uint64_t flops = static_cast<std::uint64_t>(out.size()) * chansPerGroup *
                         width * flopsForMultiply();
-  auto cycles = getOuterProductCycleEstimate(isFloat, width, numChans,
+  auto cycles = getOuterProductCycleEstimate(target, isFloat, width, numChans,
                                              chansPerGroup, dataPathWidth);
   return {cycles, convertToTypeFlops(flops, type)};
 }

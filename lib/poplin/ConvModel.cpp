@@ -533,8 +533,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         const auto dataPathWidth = target.getDataPathWidth();
         return m.call<unsigned>(
             convSizeVarsVector,
-            [fieldGrainSize, numContexts, convGroupsPerGroup, outChansPerGroup,
-             inChansPerGroup, floatActivations, outputIsFloat,
+            [&target, fieldGrainSize, numContexts, convGroupsPerGroup,
+             outChansPerGroup, inChansPerGroup, floatActivations, outputIsFloat,
              dataPathWidth](const std::vector<unsigned> &values)
                 -> boost::optional<popsolver::DataType> {
               const auto convSize =
@@ -555,7 +555,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               const auto workerOutWidth =
                   gccs::ceildiv(tileOutWidth, numContexts);
               const auto vertexRuntime = getOuterProductCycleEstimate(
-                  floatActivations || outputIsFloat, workerOutWidth,
+                  target, floatActivations || outputIsFloat, workerOutWidth,
                   convSize.outChanSize * tileNumConvGroups, outChansPerGroup,
                   dataPathWidth);
               return popsolver::DataType{vertexRuntime * numContexts};
