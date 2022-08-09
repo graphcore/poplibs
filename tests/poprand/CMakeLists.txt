@@ -26,6 +26,32 @@ add_multitarget_test(
                  --tiles-per-ipu=2)
 
 add_multitarget_test(
+         NAME random_gen_uniform_int_medium_range
+         COMMAND random_generator
+                 --rand-test=UniformInt
+                 --min-val=-500.0
+                 --max-val=500.0
+                 --percent-error=5.0
+                 --seed=4538342
+                 --seed-modifier=1243547
+                 --in-size=40001
+                 --fp-checking=true
+                 --tiles-per-ipu=2)
+
+add_multitarget_test(
+         NAME random_gen_uniform_int_large_range
+         COMMAND random_generator
+                 --rand-test=UniformInt
+                 --min-val=-500.0
+                 --max-val=2147483647
+                 --percent-error=5.0
+                 --seed=4538342
+                 --seed-modifier=1243547
+                 --in-size=40001
+                 --fp-checking=true
+                 --tiles-per-ipu=2)
+
+add_multitarget_test(
          NAME random_gen_uniform_int_max_range
          COMMAND random_generator
                  --rand-test=UniformInt

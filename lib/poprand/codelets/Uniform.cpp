@@ -12,7 +12,6 @@ public:
   Output<Vector<OutType, SPAN, 8>> out;
   const float offset;
   const float scale;
-  const unsigned int shift;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -57,8 +56,7 @@ public:
   // is the range of the uniform generator. Called scale because it can also
   // be seen as a scale factor for an uniform distribution [0,1) to produce the
   // integer
-  const unsigned int scale;
-  const unsigned int shift;
+  const uint32_t scale;
 
   IS_EXTERNAL_CODELET(true);
 
@@ -74,6 +72,7 @@ public:
       const unsigned bitsPerVal = 32;
       unsigned n = out.size();
       unsigned idx = 0;
+      const uint64_t scale64Bit = scale;
       while (n) {
         const unsigned genSamples = min(n, maxPerCall);
         auto r = next(s);
@@ -81,7 +80,7 @@ public:
           uint64_t rmasked = r & ((1ULL << bitsPerVal) - 1);
           // scale == 0 is the special case where whole range of int is used
           if (scale != 0) {
-            rmasked = ((rmasked >> 8) * scale) >> shift;
+            rmasked = (scale64Bit * rmasked) >> bitsPerVal;
           }
           int64_t res32 = static_cast<int64_t>(rmasked) + offset;
           out[idx] = res32;
