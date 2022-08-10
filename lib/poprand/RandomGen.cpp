@@ -256,20 +256,6 @@ Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
   double scale, offset;
   std::tie(scale, offset) = uniformScaleAndOffset(minVal, maxVal, outType);
 
-  unsigned int shift = 31;
-  if (outType == INT) {
-    unsigned tmpScale = (scale < 1.0) ? 1.0 : scale;
-    shift = 31 - std::log2(tmpScale);
-    int shiftR = (shift < 24) ? (24 - shift) : 0;
-    int shiftL = (shift > 24) ? (shift - 24) : 0;
-
-    tmpScale = scale;
-    tmpScale += (1 << shiftR) - 1;
-    tmpScale >>= shiftR;
-    tmpScale <<= shiftL;
-    scale = (tmpScale < 255) ? tmpScale : 255;
-  }
-
   for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
     const auto thisTileMap = outFlatTileMap[tile];
     if (thisTileMap.empty())
@@ -284,7 +270,6 @@ Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                              {{"out", concat(outFlat.slices(intervals))}});
     graph.setInitialValue(v["scale"], scale);
     graph.setInitialValue(v["offset"], offset);
-    graph.setInitialValue(v["shift"], shift);
     graph.setTileMapping(v, tile);
   }
   prog.add(Execute(cs, {di}));
