@@ -44,23 +44,17 @@
 #define mInSize                m1
 
 #define mRemainder             m2
-#define twoPow24               m2
 
 #define mCount                 m3
 
 #define mModifier              m4
 #define mOutShiftR             m4
-#define mHighRandOut           m4
-#define mHLOut                 m4
 
 #define mWorkerIdx             m5
 #define mRandOut               m5
-#define mLowRandOut            m5
-#define mLHOut                 m5
 
 #define mScale                 m6
 #define nIter                  m6
-#define mLowScale              m6
 
 #define mLastWorker            m7
 #define mOffset                m7
@@ -68,16 +62,13 @@
 
 #define mOutShiftL             m8
 #define maskOut_1              m8
-#define mHighScale             m8
 
 #define mLoadCount             m9
 #define mPrngState             m9
 #define mOutShift              m9
-#define mHHOut                 m9
 
 #define mBaseIn                m10
 #define mWarmUp                m10
-#define mMask                  m10
 
 #define mQuotient              m11
 #define mShiftCorr             m11
@@ -95,7 +86,6 @@
 #define minusAlpha             a2
 #define prngStateV             a2
 #define randOut1_0             a2
-#define twoPowMinus32          a2
 
 #define alpha                  a3
 #define randOut1_1             a3

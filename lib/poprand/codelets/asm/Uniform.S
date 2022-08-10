@@ -116,137 +116,69 @@ DEF_STACK_USAGE 0 poprandUniformInt
 .align 8
 .worker
 poprandUniformIntAligned:
+nop
 poprandUniformInt:
   ld32        $mBaseOut, $mzero, $mvertex_base, VBASE_OUTPUT_BASE_OFFSET
   ld32        $mInSize, $mzero, $mvertex_base, VBASE_OUTPUT_SIZE_OFFSET
   ld32        $mScale, $mvertex_base, $mzero, VBASE_SCALE_OFFSET
-  or          $twoPow24, $mzero, 0x1000000
-// Note that the max range case occurs when scale = 0 and 0 < 2^24 so we continue on after this check
-  cmpult      $twoPow24, $mScale, $twoPow24
-  brz         $twoPow24, .LpoprandUniformLargeRangeInt
-  POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 1
-  {
-    brnz      $mScale, .LpoprandUniformInt24Bit
-    or        $twoPowMinus32, $azero, 0x2f800000
-  }
-  ld64step    $azeros, $mzero, $mBaseOut+=, $mWorkerIdx
+  brz         $mScale, .LpoprandUniformMaxRangeInt
+  POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 0
+  ld32step    $azero, $mzero, $mBaseOut+=, $mWorkerIdx
+  ld32        $mOffset, $mvertex_base, $mzero, VBASE_OFFSET_OFFSET
+  ld32        $mOutShift, $mvertex_base, $mzero, VBASE_SHIFT_OFFSET
+  bri         .LpoprandUniformInt_loop
 .align 8
 .LpoprandUniformMaxRangeInt:
-// Generate random integers in the full range of an int32
+  POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 1
+  ld64step    $randOut1, $mzero, $mBaseOut+=, $mWorkerIdx
   {
     rpt         $mCount, ((.LpoprandUniformMaxRangeInt_end - .LpoprandUniformMaxRangeInt_start)/8) - 1
     urand64     $randOut
   }
 .LpoprandUniformMaxRangeInt_start:
   {
-    st64step    $randOut, $mzero, $mBaseOut+=, CTXT_WORKERS
+    st64step    $randOut, $mzero, $mBaseOut+=, 6
     urand64     $randOut
   }
 .LpoprandUniformMaxRangeInt_end:
-  brz         $mRemainder, .LpoprandUniformMaxRangeInt_epilog
+  brz         $mRemainder, .LpoprandUniformInt_end
   st32step    $randOut_0, $mzero, $mBaseOut+=, 1
-.LpoprandUniformMaxRangeInt_epilog:
-  exitz         $mzero
-.LpoprandUniformInt24Bit:
-// Generate random integers with less than 24 bits of range
   {
-    ld32        $scaleOut, $mvertex_base, $mzero, VBASE_SCALE_OFFSET
-    urand64     $randOut
+    bri         .LpoprandUniformInt_end
+    fnop
   }
+.LpoprandUniformInt_loop:
   {
-    ld32step    $azero, $mzero, $mBaseOut+=, $mWorkerIdx
-    f32fromui32 $randOut_0, $randOut_0
-  }
-  f32fromui32 $randOut_1, $randOut_1
-  f32fromui32 $scaleOut, $scaleOut
-  {
-    ld32        $mOffset, $mvertex_base, $mzero, VBASE_OFFSET_OFFSET
-    f32mul      $scaleOut, $scaleOut, $twoPowMinus32
-  }
-  f32v2mul      $randOut, $scaleOut:B, $randOut
-  f32int        $randOut_0, $randOut_0, 2
-  f32int        $randOut_1, $randOut_1, 2
-  f32toui32     $randOut1_1, $randOut_1
-  {
-    atom        $mRandOut, $randOut1_1
-    f32toui32   $randOut1_0, $randOut_0
-  }
-  add         $mRandOut, $mRandOut, $mOffset
-.align 8
-.LpoprandUniformInt24Bit_loop:
-  {
-    rpt         $mCount, ((.LpoprandUniformInt24Bit_end - .LpoprandUniformInt24Bit_start)/8) - 1
-    urand64     $randOut
-  }
-.LpoprandUniformInt24Bit_start:
-  {
-    st32step      $mRandOut, $mzero, $mBaseOut+=, 1
-    f32fromui32   $randOut_0, $randOut_0
-  }
-  {
-    atom          $mRandOut, $randOut1_0
-    f32fromui32   $randOut_1, $randOut_1
-  }
-  {
-    add           $mRandOut, $mRandOut, $mOffset
-    f32v2mul      $randOut, $scaleOut:B, $randOut
-  }
-  // Note: These 2 rounding instructions are necessary because setting the
-  // rounding mode to negative infinity is not supported by the ipu
-  {
-    nop
-    f32int        $randOut_0, $randOut_0, 2
-  }
-  {
-    nop
-    f32int        $randOut_1, $randOut_1, 2
-  }
-  {
-    st32step      $mRandOut, $mzero, $mBaseOut+=, 2 * CTXT_WORKERS - 1
-    f32toui32     $randOut1_1, $randOut_1
-  }
-  {
-    atom          $mRandOut, $randOut1_1
-    f32toui32     $randOut1_0, $randOut_0
-  }
-  {
-    add           $mRandOut, $mRandOut, $mOffset
-    urand64       $randOut
-  }
-.LpoprandUniformInt24Bit_end:
-  brz           $mRemainder, .LpoprandUniformInt24Bit_epilog
-  st32          $mRandOut, $mzero, $mBaseOut, 1
-.LpoprandUniformInt24Bit_epilog:
-  exitz         $mzero
-.LpoprandUniformLargeRangeInt:
-// Generate random integers with range in [2^24, 2^32)
-  POPRAND_GET_INTERLEAVED_WORK_SPLIT $mInSize $mCount $mRemainder 0
-  setzi     $mMask, 0xFFFF
-  shr       $mHighScale, $mScale, 16
-  and       $mLowScale, $mScale, $mMask
-  ld32step  $azero, $mzero, $mBaseOut+=, $mWorkerIdx
-  ld32      $mOffset, $mvertex_base, $mzero, VBASE_OFFSET_OFFSET
-// Skip to the check at the end of the loop before doing any work to avoid generating an extra element
-  bri       .LpoprandUniformLargeRangeInt_end
-.LpoprandUniformLargeRangeInt_start:
-  atom        $mRandOut, $randOut_0
-  shr         $mHighRandOut, $mRandOut, 16
-  and         $mLowRandOut, $mRandOut, $mMask
-  mul         $mHHOut, $mHighRandOut, $mHighScale
-  mul         $mHLOut, $mHighRandOut, $mLowScale
-  shr         $mHLOut, $mHLOut, 16
-  mul         $mLHOut, $mLowRandOut, $mHighScale
-  shr         $mLHOut, $mLHOut, 16
-  add         $mHHOut, $mHHOut, $mLHOut
-  add         $mHHOut, $mHHOut, $mHLOut
-  add         $mHHOut, $mHHOut, $mOffset
-  st32step  $mHHOut, $mzero, $mBaseOut+=, CTXT_WORKERS
-.LpoprandUniformLargeRangeInt_end:
-  {
-    brnzdec     $mCount, .LpoprandUniformLargeRangeInt_start
+    rpt         $mCount, ((.LpoprandUniformInt_end - .LpoprandUniformInt_start)/8) - 1
     urand32     $randOut_0
   }
-  exitz       $mzero
+.LpoprandUniformInt_start:
+  {
+    atom        $mRandOut, $randOut_0
+    fnop
+  }
+  {
+    shr         $mRandOut, $mRandOut, 8
+    fnop
+  }
+  {
+    mul         $mRandOut, $mRandOut, $mScale
+    fnop
+  }
+  {
+    shr         $mRandOut, $mRandOut, $mOutShift
+    fnop
+  }
+  {
+    add         $mRandOut, $mRandOut, $mOffset
+    fnop
+  }
+  {
+    st32step    $mRandOut, $mzero, $mBaseOut+=, 6
+    urand32     $randOut_0
+  }
+.LpoprandUniformInt_end:
+  exitz         $mzero
 .size poprandUniformInt, .-poprandUniformInt
 
 #endif
