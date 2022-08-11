@@ -70,7 +70,7 @@ public:
   // disable Stochastic Rounding for AMP vertices
   bool disableSRForAMPVertices = false;
   // Allow the planner to try candidates with tile-level expand dim transforms.
-  bool enableTileLevelExpandDims = true;
+  bool enableTileLevelExpandDims = false;
   void parseConvOptions(const poplar::OptionFlags &options);
 
 private:
