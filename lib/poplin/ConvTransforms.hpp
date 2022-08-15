@@ -20,10 +20,6 @@ void swapOperands(ConvParams &params, boost::optional<poplar::Tensor> &acts,
 
 bool expandDimTransformIsViewOnly(const ConvParams &params, unsigned dim);
 
-bool canDeferExpandDimsToVertexLevel(const Plan::Method &method,
-                                     const ConvParams &params, unsigned level,
-                                     poplar::Target const &target);
-
 void expandSpatialDimDoInputTransform(
     unsigned dim, size_t &size, unsigned &truncationLower,
     unsigned &truncationUpper, unsigned &dilation, unsigned &paddingLower,

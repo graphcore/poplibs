@@ -594,7 +594,8 @@ BOOST_AUTO_TEST_CASE(ExpandingWithInputPadding) {
                     /*inputChannels   = */ 8,
                     /*outputChannels  = */ 1,
                     /*numConvGroups   = */ 1};
-  // Padding a non-expanded outer dimension shouldn't cause rearrangement.
+  // Padding a non-expanded outer dimension can cause rearrangement,
+  // and so shouldn't be done at the vertex-level.
   params.inputTransform.paddingLower[0] = 2;
   params.inputTransform.paddingUpper[0] = 1;
   // clang-format off
@@ -604,7 +605,10 @@ BOOST_AUTO_TEST_CASE(ExpandingWithInputPadding) {
                                    25904, 26432,
                                    12700, 12948});
   // clang-format on
-  HostTensor output = convolve<float>(params, makePlanConstraints(8, {1}));
+  TestOptions options;
+  options.shouldHaveExpandDims = false;
+  HostTensor output =
+      convolve<float>(params, makePlanConstraints(8, {1}), options);
   BOOST_TEST(output == expect);
 }
 
@@ -622,6 +626,9 @@ BOOST_AUTO_TEST_CASE(ExpandingWithInputPaddingAndRearrangement) {
   // elements that wouldn't have been aliased shouldn't be broadcast.
   TestOptions options;
   options.allowInputRearrangement = true;
+  // Like above, the vertex-level expansion should be disabled if input padding
+  // is present.
+  options.shouldHaveExpandDims = false;
   // clang-format off
   HostTensor expect({2, 1, 3, 5}, {0, 3096, 6004, 6140, 2964,
                                    0, 3312, 6412, 6548, 3156,
@@ -721,7 +728,7 @@ BOOST_AUTO_TEST_CASE(ExpandingWithManyTransforms) {
   BOOST_TEST(output == expect);
 }
 
-BOOST_AUTO_TEST_CASE(ExpandingWithSomeTransformsAndMoreOutputChannels) {
+BOOST_AUTO_TEST_CASE(ExpandingWithOutputStridingAndMoreOutputChannels) {
   ConvParams params{/*dataType        = */ FLOAT,
                     /*batchSize       = */ 2,
                     /*inputFieldShape = */ {3, 4},
@@ -729,22 +736,15 @@ BOOST_AUTO_TEST_CASE(ExpandingWithSomeTransformsAndMoreOutputChannels) {
                     /*inputChannels   = */ 8,
                     /*outputChannels  = */ 4,
                     /*numConvGroups   = */ 1};
-  params.inputTransform.paddingLower[1] = 1;
   params.outputTransform.stride[0] = 2;
   params.outputTransform.stride[1] = 2;
   // Padding means some rearrangement will happen.
   TestOptions options;
   options.allowInputRearrangement = true;
   // clang-format off
-  HostTensor expect({2, 4, 1, 2}, { 48600,  73592,
-                                   118488, 181880,
-                                   188376, 290168,
-                                   258264, 398456,
+  HostTensor expect({2, 4, 1, 1}, { 72416, 178400, 284384, 390368,
                                    // 2nd batch
-                                   125400, 186488,
-                                   342744, 515960,
-                                   560088, 845432,
-                                   777432, 1.1749e+06});
+                                   185312, 512480, 839648, 1.16682e+06});
   // clang-format on
   HostTensor output =
       convolve<float>(params, makePlanConstraints(8, {0, 1}), options);
@@ -766,6 +766,8 @@ BOOST_AUTO_TEST_CASE(ExpandingBiggerShapeWithSomeTransforms) {
   TestOptions options;
   options.fillStrategy = FillPattern::ALL_ONES;
   options.allowInputRearrangement = true;
+  // The input padding means expand dims should not be present.
+  options.shouldHaveExpandDims = false;
   // clang-format off
   HostTensor expect({2, 1, 3, 3}, {32, 48, 48,
                                    48, 72, 72,
@@ -796,6 +798,8 @@ BOOST_AUTO_TEST_CASE(PopARTMultiConvBwdPassReproducer) {
   // shouldn't be broadcast.
   TestOptions options;
   options.allowInputRearrangement = true;
+  // The input padding means expand dims isn't used.
+  options.shouldHaveExpandDims = false;
   // clang-format off
   HostTensor expect({1, 6, 6}, { 3015,  6012,  8982,  9360,  6183,  3060,
                                  7146, 14517, 22104, 23211, 15660,  7920,

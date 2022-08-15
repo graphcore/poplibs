@@ -570,6 +570,29 @@ static bool expandingDimChangesParams(const ConvParams &params, unsigned dim) {
   return newParams != params;
 }
 
+// Return true if a vertex-level expand dims transform could be used.
+static bool canUseVertexLevelExpandDims(const ConvParams &params,
+                                        const poplar::Target &target) {
+  // Need at least 64-bit alignment of input pointers.
+  const auto sizeOfInput = target.getTypeSize(params.inputType);
+  if (params.inputChannelsPerConvGroup * sizeOfInput < 8)
+    return false;
+
+  // The following transformations can cause additional rearrangement or
+  // broadcasting of the inputs, defeating the point of the vertex-level
+  // expand dims. This can be particularly unfortunate when using serial
+  // splits, because the rearrangement would be per-split. Also the cost
+  // modelling doesn't account for any vertex-level transforms.
+  const auto &inputTransform = params.inputTransform;
+  for (unsigned dim = 0; dim < inputTransform.paddingLower.size(); ++dim)
+    if (inputTransform.paddingLower[dim] != 0 ||
+        inputTransform.paddingUpper[dim] != 0 ||
+        inputTransform.dilation[dim] != 1)
+      return false;
+
+  return true;
+}
+
 // Given a set return the set of all subsets. The set is specified as a
 // vector that is assumed to have no duplicates. The relative order of
 // items in each subset returned by this function matches the relative order
@@ -1104,7 +1127,8 @@ createPlan(const ConvParams &params, const ConvOptions &options,
           // dimensions have been considered for expansion at system-level.
           // This is just to cut down the planner search space.
           std::vector<std::vector<unsigned>> tileLevelExpandDimCandidates;
-          if (transforms[systemLevel].expandDims.empty()) {
+          if (transforms[systemLevel].expandDims.empty() &&
+              canUseVertexLevelExpandDims(params, target)) {
             tileLevelExpandDimCandidates =
                 getExpandDimsCandidates(tileLevel, groupedParams, options);
           } else {
@@ -1126,12 +1150,6 @@ createPlan(const ConvParams &params, const ConvOptions &options,
 
             for (const auto &convVertexType : convVertexTypeCandidates) {
               if (!transforms[tileLevel].expandDims.empty()) {
-                // The cost modelling doesn't include the cost of rearranging
-                // the inputs, which is only accurate in the case we optimise
-                // away the rearrangement with a vertex-level expansion.
-                if (!canDeferExpandDimsToVertexLevel(
-                        convVertexType.method, finalParams, tileLevel, target))
-                  continue;
                 // The nx1 conv partial vertex requires the first dimension of
                 // the weights to be a multiple of n. However if that dimension
                 // gets expanded then it will flatten the weight's dimension to

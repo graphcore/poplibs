@@ -114,42 +114,6 @@ Tensor dilateWithNearestNeighbour(const Tensor &t, unsigned dilationFactor,
       .slice(dilationFactor / 2, newSize + dilationFactor / 2, dim);
 }
 
-/**
- * The expandDims transform can cause a broadcast of the inputs.
- *
- * This broadcast can be avoided in some cases by connecting the input to
- * the ConvPartial vertices such that each slice is contiguous. However
- * this requires transformations of the vertices' worklists and so can
- * only be performed when lowering at the vertex level.
- *
- * \return True if the expand dims transform can be gainfully deferred
- *         to the vertex level, or return false otherwise.
- */
-bool canDeferExpandDimsToVertexLevel(const Plan::Method &method,
-                                     const ConvParams &params, unsigned level,
-                                     Target const &target) {
-  // Only defer tile-level expand dims and not ipu-level.
-  if (level != tileLevel)
-    return false;
-
-  // Not supported on non-AMP vertices.
-  if (boost::get<Plan::Amp>(&method) == nullptr)
-    return false;
-
-  // Need at least 64-bit alignment of input pointers.
-  const auto sizeOfInput = target.getTypeSize(params.inputType);
-  if (params.inputChannelsPerConvGroup * sizeOfInput < 8)
-    return false;
-
-  // The following transformations can cause additional rearrangement
-  // of the inputs and mean the final slices are not contiguous.
-  for (unsigned dim = 0; dim < params.inputFieldShape.size(); ++dim)
-    if (params.inputTransform.dilation[dim] != 1)
-      return false;
-
-  return true;
-}
-
 /** Apply an (unpacked) input transform to an input tensor. */
 void expandSpatialDimDoInputTransform(
     unsigned dim, size_t &size, unsigned &truncationLower,

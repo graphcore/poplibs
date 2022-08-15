@@ -530,6 +530,13 @@ int main(int argc, char **argv) try {
     return 0;
   }
 
+  if (vm.count("test-planner") && vm.count("compile-only")) {
+    std::cerr << "The 'test-planner' and 'compile-only' options cannot be "
+                 "used together; the execution must be profiled when testing "
+                 "the planner.\n";
+    return 1;
+  }
+
   auto &inputFieldSize = inputFieldSizeOption.val;
 
   if (inputLoadWidth && !isIpuModel(deviceType)) {
