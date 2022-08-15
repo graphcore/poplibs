@@ -102,8 +102,8 @@ static std::string getShapeAsString(const std::vector<T> &shape) {
                                          });
 }
 
-static void verifyInputShapes(const CanonicalConvParams &params,
-                              const Tensor &in, const Tensor &weights) {
+static void verifyInputShapesAndTypes(const CanonicalConvParams &params,
+                                      const Tensor &in, const Tensor &weights) {
   const auto numFieldDims = params->getNumFieldDims();
   if (in.rank() != 3 + numFieldDims) {
     throw poputil::poplibs_error(
@@ -152,6 +152,13 @@ static void verifyInputShapes(const CanonicalConvParams &params,
       weights.dim(weights.rank() - 1)) {
     throw poputil::poplibs_error("Kernel input channel size does not match "
                                  "convolution parameters");
+  }
+  if (in.elementType() != weights.elementType()) {
+    throw poputil::poplibs_error(
+        "Convolution/MatMul input types must match.  Tensors were  "
+        " provided with types " +
+        in.elementType().toString() + " and " +
+        weights.elementType().toString());
   }
 }
 
@@ -3059,7 +3066,7 @@ convolutionInternal(Graph &graph, const poplar::Tensor &in_,
   weights = weightsToInternalShape(weights);
   auto in = actsToInternalShape(in_, params->numConvGroups,
                                 params->inputChannelsPerConvGroup);
-  verifyInputShapes(params, in, weights);
+  verifyInputShapesAndTypes(params, in, weights);
 
   const auto createPartialsLevel = getCreatePartialsLevel(plan);
   auto activations = *convolutionImpl(graph, params, plan, 0, in, weights, cpt,

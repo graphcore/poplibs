@@ -48,6 +48,11 @@ void poplin::validateLayerParams(const ConvParams &params,
     }
   }
   if (params.inputType == poplar::QUARTER) {
+    if (params.outputType != poplar::HALF) {
+      throw poputil::poplibs_error("When the input type is quarter, the output"
+                                   " type must be half, not " +
+                                   params.outputType.toString());
+    }
     for (const auto &partialType : partialTypes) {
       logging::poplin::warn(
           "Selecting partial type HALF which is the only valid option where"
