@@ -21,7 +21,7 @@ public:
    */
   Vector<Output<Vector<FPType, ONE_PTR>>, ONE_PTR> act;
 
-  bool compute() {
+  void compute() {
     const unsigned nGroups = dIn.size();
     const unsigned vecLen = dIn[0].size();
 
@@ -30,7 +30,6 @@ public:
         act[gr][el] = dIn[gr][el];
       }
     }
-    return true;
   }
 };
 

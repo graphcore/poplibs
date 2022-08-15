@@ -58,7 +58,7 @@ public:
   const unsigned inSliceSize;
   const unsigned outSliceSize;
 
-  bool compute() {
+  void compute() {
     const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
     const auto numChanGroups = numChanGroupsM1 + 1;
     const auto chansPerGroup = (chansPerGroupDM1 + 1) * scaleFactor;
@@ -118,7 +118,6 @@ public:
               static_cast<float>(out[cg * (initInfo * chansPerGroup) + i]);
       }
     }
-    return true;
   }
 };
 template class MaxPoolingGradientScale<float>;

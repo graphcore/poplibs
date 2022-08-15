@@ -96,7 +96,7 @@ public:
   IS_EXTERNAL_CODELET((hasAssemblyVersion<FPType, AccumType, useShortTypes,
                                           windowWidth, numConvChains>()));
 
-  bool compute() {
+  void compute() {
     constexpr unsigned outFieldBufferOffset = 200u / sizeof(AccumType);
 
     const unsigned chansPerGroup = 1 << chansPerGroupLog2;
@@ -176,7 +176,6 @@ public:
         std::swap(lastOutBuffer, currOutBuffer);
       }
     }
-    return true;
   }
 };
 
@@ -249,7 +248,7 @@ template <typename UnsignedType, unsigned stride, bool implicitZero,
           unsigned numConvUnits>
 class WorkerClass1xN : public Vertex {
 public:
-  static bool compute() { return true; }
+  static void compute() {}
 };
 
 // This needs to be an equivalent statement of the vertex state of the
@@ -273,7 +272,7 @@ public:
   Input<Vector<unsigned, ONE_PTR>> partitionList;
   Input<Vector<unsigned, ONE_PTR>> partitionBase;
 
-  bool compute() {
+  void compute() {
     unsigned deltaNData = *(&partitionList[0] + getWid());
     unsigned workListLength = deltaNData >> DELTAN_OFFSET_BITS;
     unsigned offset = deltaNData - (workListLength << DELTAN_OFFSET_BITS);
@@ -296,7 +295,6 @@ public:
       f8v8hihoSLIC<stride, implicitZero>(inPtr, partialsPtr, outPtr, strides,
                                          loops, outVectorWidth);
     }
-    return true;
   }
 };
 
@@ -361,7 +359,7 @@ public:
   const UnsignedType numSubKernelsM1;
   const UnsignedType numConvGroupGroupsM1;
 
-  __attribute__((target("supervisor"))) bool compute() {
+  __attribute__((target("supervisor"))) void compute() {
     unsigned srStore;
     if constexpr (disableSR) {
       srStore = getFPICTL();
@@ -440,7 +438,6 @@ public:
     if constexpr (disableSR) {
       putFPICTL(srStore);
     }
-    return true;
   }
 };
 

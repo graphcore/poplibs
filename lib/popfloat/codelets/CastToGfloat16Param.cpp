@@ -22,7 +22,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
-  bool compute() {
+  void compute() {
     char4 gfPacked;
 
     std::memcpy(&gfPacked, &gfStruct[0], sizeof(uint32_t));
@@ -251,8 +251,6 @@ public:
       std::memcpy(&param[POPFLOAT_CAST_TO_GP16_PARAM_GF8_SIGN_MASK_OFFSET],
                   &gf8SgnMask, sizeof(gf8SgnMask));
     }
-
-    return true;
   }
 };
 

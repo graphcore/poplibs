@@ -72,7 +72,7 @@ public:
   IS_EXTERNAL_CODELET(
       (hasAssembly<FPType, AccumType, useLimitedVer, convGroupsPerGroup>()));
 
-  bool compute() {
+  void compute() {
     const unsigned numWorkers = CTXT_WORKERS;
     const auto usedContexts = worklists.size();
     const unsigned numConvGroups = numConvGroupsM1 + 1;
@@ -126,7 +126,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

@@ -70,7 +70,7 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssembly<FPType, AccumType, useLimitedVer>()));
 
-  bool compute() {
+  void compute() {
     const unsigned numWorkers = CTXT_WORKERS;
     const unsigned kernelSize = kernelSizeM1 + 1;
     const auto usedContexts = worklists.size() / kernelSize;
@@ -129,7 +129,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 template class ConvPartialHorizontalMac<float, float, true>;

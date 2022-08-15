@@ -15,7 +15,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
       uint32_t seedModifier = 0x900DDEED;
@@ -39,7 +39,6 @@ public:
         n -= genSamples;
       }
     }
-    return true;
   }
 };
 
@@ -60,7 +59,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       uint32_t seed[2] = {0xDEADBEEF, 0xBEEFDEAD};
       uint32_t seedModifier = 0x900DDEED;
@@ -88,7 +87,6 @@ public:
         n -= genSamples;
       }
     }
-    return true;
   }
 };
 

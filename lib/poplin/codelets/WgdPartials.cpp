@@ -29,7 +29,7 @@ public:
    */
   Vector<InOut<Vector<FPType>>> partials;
 
-  bool compute() {
+  void compute() {
 
     const unsigned outChanDepth = partials[0].size();
     const unsigned inpChanDepth = dTf[0].size();
@@ -57,7 +57,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

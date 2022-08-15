@@ -37,7 +37,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     const auto n = 1 + workList[0];
     const auto *lenAndBlockCount = &workList[1];
 
@@ -53,8 +53,6 @@ public:
         }
       }
     }
-
-    return true;
   }
 };
 

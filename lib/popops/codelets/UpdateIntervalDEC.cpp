@@ -29,7 +29,7 @@ public:
   unsigned lastEndCol;
   unsigned rowCount;
 
-  bool compute() {
+  void compute() {
     // For each row spanned by the interval.
     for (unsigned i = 0; i < rowCount; ++i) {
       unsigned startCol = i == 0 ? firstStartCol : 0;
@@ -37,7 +37,6 @@ public:
       decrementParams(&params[rowsStart[i]], indices[i], startCol, endCol,
                       paramsWidth);
     }
-    return true;
   }
 };
 

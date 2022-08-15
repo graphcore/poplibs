@@ -46,7 +46,7 @@ public:
   const unsigned outSliceSize;
   const FPType scale;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
       const auto numChanGroups = numChanGroupsM1 + 1;
@@ -97,7 +97,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

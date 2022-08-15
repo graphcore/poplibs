@@ -21,7 +21,7 @@ public:
 #endif
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i < inGrad.size(); ++i) {
       for (unsigned j = 0; j < inGrad[i].size(); ++j) {
         const auto derivative =
@@ -29,7 +29,6 @@ public:
         inGrad[i][j] = outGrad[i][j] * FPType(derivative);
       }
     }
-    return true;
   }
 };
 

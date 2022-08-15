@@ -32,7 +32,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
-  bool compute() {
+  void compute() {
     uint64_t expMaskV2;
     uint32_t gf16BiasCorr, minNormBits;
     unsigned int gf16AlignSh0, gf16AlignSh1;
@@ -138,7 +138,6 @@ public:
       out[POPFLOAT_GF32_VEC_SIZE * j + 0] = fp32V2[0];
       out[POPFLOAT_GF32_VEC_SIZE * j + 1] = fp32V2[1];
     }
-    return true;
   }
 };
 template class CastGf16ToFloatSupervisor<FormatType::BFLOAT16>;

@@ -43,7 +43,7 @@ public:
    */
   Vector<Output<Vector<FPType, ONE_PTR>>> wTf;
 
-  bool compute() {
+  void compute() {
     const unsigned numOutCols = patchSizeY;
     const unsigned numOutRows = patchSizeX;
     const unsigned nGroups = wTf.size() / (numOutCols * numOutRows);
@@ -103,7 +103,6 @@ public:
         wrTf(gBaseOut, 3, 3, elem) = g[2][2];
       }
     }
-    return true;
   }
 };
 

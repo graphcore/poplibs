@@ -15,7 +15,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) { return true; }
+  void compute(unsigned wid) {}
 };
 
 } // namespace poprand

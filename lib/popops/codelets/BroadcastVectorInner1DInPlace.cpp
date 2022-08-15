@@ -39,14 +39,14 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     const unsigned rowsPerWorkerToAvoidSubWordWrites = 2;
     unsigned numBlocks = rowsPerWorkerToAvoidSubWordWrites *
                          divideWork(bBroadcastFactor + 1, 1, 0);
     unsigned offs = numBlocks * wid;
     if (offs >= bBroadcastFactor) {
       // This worker has no work
-      return true;
+      return;
     }
 
     if (numBlocks * (wid + 1) > bBroadcastFactor) {
@@ -64,7 +64,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

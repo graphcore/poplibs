@@ -110,12 +110,12 @@ public:
                                    numConvUnits, convInputLoadElems>()));
 
   // For assembly codelets, a true SupervisorVertex is used.
-  bool compute();
+  void compute();
 
   // For C++ codelets, a MultiVertex is used.
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid != 0) {
-      return true;
+      return;
     }
     const auto numContexts = CTXT_WORKERS;
 
@@ -243,7 +243,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -287,7 +286,7 @@ INSTANTIATE_WEIGHTS_128(float, float, 16, 4);
 template <typename UnsignedType, unsigned numConvUnits>
 class WorkerClassNx1 : public Vertex {
 public:
-  static bool compute() { return true; }
+  static void compute() {}
 };
 
 // This needs to be an equivalent statement of the vertex state of the
@@ -310,7 +309,7 @@ public:
   Input<Vector<unsigned, ONE_PTR>> partitionList;
   Input<Vector<unsigned, ONE_PTR>> partitionBase;
 
-  bool compute() {
+  void compute() {
     unsigned deltaNData = *(&partitionList[0] + getWid());
     unsigned workListLength = deltaNData >> DELTAN_OFFSET_BITS;
     unsigned offset = deltaNData - (workListLength << DELTAN_OFFSET_BITS);
@@ -327,7 +326,6 @@ public:
       auto inPtr = ld64StepToIncPtr(&inChanPtr[0], *workListPtr++);
       convQuarterHalfLoop<false>(inPtr, outPtr, loops, strides);
     }
-    return true;
   }
 };
 
@@ -352,7 +350,7 @@ public:
   Output<Vector<half, ONE_PTR, 8>> outPtr;
   unsigned zerosInfo;
 
-  bool compute() {
+  void compute() {
     // All workers write the last 2 halves (treated as a float) which won't be
     // covered by the loop.  Only necessary where the number of elements is not
     // a multiple of 4 which the loop will deal with, but executed regardless.
@@ -375,8 +373,6 @@ public:
         : [wrPtr] "+r"(wrPtr)
         : [workerOffset] "r"(wid), [loops] "r"(loops)
         : "$m0", "memory");
-
-    return true;
   }
 };
 
@@ -432,7 +428,7 @@ public:
   const UnsignedType outChansPerGroup;
   const UnsignedType inChansPerGroup;
 
-  __attribute__((target("supervisor"))) bool compute() {
+  __attribute__((target("supervisor"))) void compute() {
     unsigned srStore;
     if constexpr (disableSR) {
       srStore = getFPICTL();
@@ -523,7 +519,6 @@ public:
     if constexpr (disableSR) {
       putFPICTL(srStore);
     }
-    return true;
   }
 };
 

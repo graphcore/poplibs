@@ -37,7 +37,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     const auto numBaseElementsActual = numBaseElements & 0x7fffffffu;
     unsigned elementsPerWorker = (regionSize + numWorkers() - 1) / numWorkers();
     unsigned workerOffset = wid * elementsPerWorker;
@@ -47,7 +47,7 @@ public:
         baseSlice = 0;
     } else {
       if (baseSlice >= numBaseElementsActual)
-        return true;
+        return;
     }
     for (unsigned subSlice = 0; subSlice != numSubElements; ++subSlice) {
       for (unsigned e = 0; e != elementsPerWorker; e++) {
@@ -61,7 +61,6 @@ public:
       if (baseSlice >= numBaseElementsActual)
         baseSlice = 0;
     }
-    return true;
   }
 };
 template class DynamicUpdateSlice1D<float>;

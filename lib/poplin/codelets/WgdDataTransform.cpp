@@ -43,7 +43,7 @@ public:
    */
   Vector<Output<Vector<FPType>>> dTf;
 
-  bool compute() {
+  void compute() {
 
     assert(patchSizeX == 4);
     assert(patchSizeY == 4);
@@ -83,7 +83,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

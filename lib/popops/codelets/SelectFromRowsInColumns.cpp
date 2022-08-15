@@ -60,7 +60,7 @@ public:
   // The width of the original 2D param matrix. Used for in-bounds checks.
   unsigned paramsWidth;
 
-  bool compute() {
+  void compute() {
     // For each contiguous region.
     unsigned columnWidthOffset = 0;
     for (unsigned region = 0; region != params.size(); ++region) {
@@ -93,8 +93,6 @@ public:
       }
       columnWidthOffset += regionWidth;
     }
-
-    return true;
   }
 };
 

@@ -67,10 +67,9 @@ public:
 
   CheckAccuracyWhenCast();
 
-  bool compute() {
+  void compute() {
     *output = checkAccuracyWhenCastComputeImpl<InputType, OutputType>(
         *input, tolerance);
-    return true;
   }
 };
 

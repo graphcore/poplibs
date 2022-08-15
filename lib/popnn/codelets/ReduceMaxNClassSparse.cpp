@@ -40,7 +40,7 @@ public:
 
   unsigned numK;
   IS_EXTERNAL_CODELET(false);
-  bool compute() {
+  void compute() {
     // Create an inplace view of the maxValues array as a min heap.
     MinHeapView<decltype(maxValuesIndices), decltype(activations), unsigned>
         heapView{maxValuesIndices, activations};
@@ -73,8 +73,6 @@ public:
       // subarray of the actual activations.
       maxValuesIndices[i] = labels[maxValuesIndices[i]];
     }
-
-    return true;
   }
 };
 

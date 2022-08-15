@@ -26,7 +26,7 @@ class [[poplar::constraint("elem(*src) != elem(*dst)")]] SequenceSliceCopy
 
 public:
   IS_EXTERNAL_CODELET(false);
-  bool compute() {
+  void compute() {
     const Type *srcPtr = &src[0];
     Type *dstPtr = &dst[0];
     unsigned n = nAtoms;
@@ -39,7 +39,7 @@ public:
         *dstPtr++ = x;
         --n;
         if (n == 0)
-          return true;
+          return;
       }
       unsigned short loopCount = n / 2;
       n &= 1; // There may be an odd element at the end
@@ -64,7 +64,6 @@ public:
       }
       *dstPtr = prev;
     }
-    return true;
   }
 };
 template class SequenceSliceCopy<half>;

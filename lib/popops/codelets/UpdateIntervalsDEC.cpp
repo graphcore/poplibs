@@ -28,7 +28,7 @@ public:
   // The width of the original 2D param matrix. Used for in-bounds checks.
   unsigned paramsWidth;
 
-  bool compute() {
+  void compute() {
     unsigned counter = 0;
     // For each param chunk.
     for (unsigned p = 0; p < params.size(); ++p) {
@@ -42,7 +42,6 @@ public:
         ++counter;
       }
     }
-    return true;
   }
 };
 

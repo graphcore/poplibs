@@ -1134,10 +1134,10 @@ void GenerateCodeletFromMapExpr::generateCodelet(
   // Add the start of the actual compute function.
   if (isMultiVertex) {
     body_stream << R"l(
-            bool compute(unsigned wid) {)l";
+            void compute(unsigned wid) {)l";
   } else {
     body_stream << R"l(
-            bool compute() {)l";
+            void compute() {)l";
   }
 
   // If we are vectorizing we will need a serial section to calculate the
@@ -1179,7 +1179,6 @@ void GenerateCodeletFromMapExpr::generateCodelet(
   stream << R"l(
           }  // End loop
         }// End serial version.
-      return true;
       }
     };
   )l";

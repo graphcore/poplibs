@@ -31,7 +31,7 @@ public:
 
   IS_EXTERNAL_CODELET(!isIntegral<InType>());
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       // nOutputs is the number of workers, and of the pairs of outputs
       // (max+index)
@@ -50,7 +50,6 @@ public:
         minIndex[i] = minI + index;
       }
     }
-    return true;
   }
 };
 

@@ -45,7 +45,7 @@ public:
    */
   Vector<Output<Vector<FPType, ONE_PTR>>, ONE_PTR> dOut;
 
-  bool compute() {
+  void compute() {
 
     const unsigned numInCols = patchSizeY;
     const unsigned numInRows = patchSizeX;
@@ -91,7 +91,6 @@ public:
         wrOut(grOutOff, 1, 1, elem) = c - d - h;
       }
     }
-    return true;
   }
 };
 

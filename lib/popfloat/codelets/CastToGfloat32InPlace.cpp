@@ -32,7 +32,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
-  bool compute() {
+  void compute() {
     uint64_t expMaskV2, sgnMaskV2, nanMaskV2, outManMaskV2, sgnExpMaskV2;
     uint64_t srMaskV2, bit23MaskV2, qnanMaskV2;
     float fpMinNorm, fpMinValue, fpHalfMinValue;
@@ -173,7 +173,6 @@ public:
         inOut[POPFLOAT_GF32_VEC_SIZE * j + idx] = fpOut[idx];
       }
     }
-    return true;
   }
 };
 

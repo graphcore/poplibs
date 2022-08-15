@@ -7,7 +7,7 @@ template <typename ValueType> class HeapSortVertex : public poplar::Vertex {
 public:
   poplar::InOut<poplar::Vector<ValueType>> out;
 
-  bool compute() {
+  void compute() {
     // The index one past the end of the max-heap in `out`.
     std::uint32_t tail = 0;
 
@@ -46,7 +46,6 @@ public:
     }
 
     // `out` is now sorted
-    return true;
   }
 
 private:

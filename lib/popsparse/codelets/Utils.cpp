@@ -29,10 +29,7 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssemblyVersion<BufferIndexUpdate<Type>>()));
 
-  bool compute() {
-    *index = 1 - *index;
-    return true;
-  }
+  void compute() { *index = 1 - *index; }
 };
 
 template class BufferIndexUpdate<unsigned>;
@@ -58,10 +55,9 @@ public:
   Output<OutputType> out;
 
   IS_EXTERNAL_CODELET((hasAssemblyVersion<BitIsSet<StorageType, IndexType>>()));
-  bool compute() {
+  void compute() {
     const auto storageMask = 1u << (index & (sizeof(StorageType) - 1));
     *out = bits[index / sizeof(StorageType)] & storageMask;
-    return true;
   }
 };
 

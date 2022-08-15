@@ -37,7 +37,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       for (unsigned i = 0; i < numElems; ++i) {
         float sum = 0;
@@ -47,7 +47,6 @@ public:
         out[i] = sum;
       }
     }
-    return true;
   }
 };
 
@@ -77,7 +76,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       for (unsigned i = 0; i < numElems; ++i) {
         float sum = float(initialPartial[i]);
@@ -87,7 +86,6 @@ public:
         out[i] = sum;
       }
     }
-    return true;
   }
 };
 

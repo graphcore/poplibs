@@ -52,11 +52,11 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     if (complete) {
       // Guard against overprocessing an input that is smaller than maxT for
       // this batch entry.
-      return true;
+      return;
     }
     const auto logProbsBase =
         &logProbs[(*currentTimestep - 1) * numClassesIncBlank];
@@ -90,7 +90,6 @@ public:
       *candidateBeamProbNonBlank = nonBlankProb;
       *candidateBeamProbTotal = logAdd<PartialsType>(prob, nonBlankProb);
     }
-    return true;
   }
 };
 
@@ -130,11 +129,11 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     if (complete) {
       // Guard against overprocessing an input that is smaller than maxT for
       // this batch entry.
-      return true;
+      return;
     }
     const auto logProbsBase =
         &logProbs[(*currentTimestep - 1) * numClassesIncBlank];
@@ -170,7 +169,6 @@ public:
       extendCandidateBeamProbTotal[outIdx] = extendingBlankProb;
       outIdx++;
     }
-    return true;
   }
 };
 
@@ -263,7 +261,7 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     // Comparison involves tracking backward through the beam history of both
     // candidates in order to generate the output symbol by symbol.  Outputs are
     // compared one by one and conclusions reached:
@@ -277,7 +275,7 @@ public:
       // this batch entry. This vertex could take the longest of all batch
       // merge vertices and therefore slow the process down even when it has
       // finished the work it needs to do.
-      return true;
+      return;
     }
 
     const unsigned parentLhs = *copyCandidateParent;
@@ -294,7 +292,7 @@ public:
     // beam.  The extend candidate with the same addend is the only one that
     // need be compared.
     if (lastBeamOutput >= invalidSymbol) {
-      return true;
+      return;
     }
     const auto i =
         lastBeamOutput > blankClass ? lastBeamOutput - 1 : lastBeamOutput;
@@ -309,7 +307,7 @@ public:
     const auto lengthOffset = beamwidth * ((currentTimestep - 1) & 1);
     const auto currentBeamLength = &beamLength[lengthOffset];
     if (currentBeamLength[parentLhs] != currentBeamLength[parentRhs] + 1) {
-      return true;
+      return;
     }
 
     if (equivalentOutputSequence(&(beamAddend[0]), &(beamParent[0]),
@@ -326,7 +324,6 @@ public:
       *copyCandidateParent = parentRhs;
       *copyCandidateAddend = addendRhs;
     }
-    return true;
   }
 };
 
@@ -358,9 +355,9 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     if (complete) {
-      return true;
+      return;
     }
     // Select a single copy candidate from those attached, the one that was
     // merged if there is one
@@ -381,7 +378,6 @@ public:
     *candidateBeamProbNonBlank = copyCandidateBeamProbNonBlank[i];
     *candidateBeamProbBlank = copyCandidateBeamProbBlank[i];
     *candidateBeamProbTotal = copyCandidateBeamProbTotal[i];
-    return true;
   }
 };
 
@@ -410,9 +406,9 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     if (complete) {
-      return true;
+      return;
     }
     // Where a copy candidate indicates a merge, zero the total probability
     // of the corresponding extend candidate which it was merged with
@@ -429,7 +425,6 @@ public:
         // Don't exit, there could be several merges to pick up
       }
     }
-    return true;
   }
 };
 
@@ -477,9 +472,9 @@ public:
 
   IS_EXTERNAL_CODELET(isExternal());
 
-  bool compute() {
+  void compute() {
     if (complete) {
-      return true;
+      return;
     }
     // Zero the initial content
     for (unsigned i = 0; i < beamwidth; i++) {
@@ -524,8 +519,6 @@ public:
             static_cast<float>(candidateBeamProbTotal[i]);
       }
     }
-
-    return true;
   }
 };
 
@@ -558,7 +551,7 @@ public:
 
   IS_EXTERNAL_CODELET(isExternal());
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       // No complete flag check - There is no downside to running this vertex
       // every time.  It won't be slower than any vertex doing the same job
@@ -587,7 +580,6 @@ public:
       *reducedCandidateBeamProbBlank = static_cast<PartialsType>(probBlank);
       *reducedCandidateBeamProbTotal = static_cast<PartialsType>(probTotal);
     }
-    return true;
   }
 };
 
@@ -674,11 +666,11 @@ public:
   const unsigned beamwidth;
 
   IS_EXTERNAL_CODELET(isExternal());
-  bool compute() {
+  void compute() {
     if (complete) {
       // Early exit here avoids updating beams, probabilities and the count
       // and so nothing will change regardless
-      return true;
+      return;
     }
     *complete = currentTimestep == dataLength;
     const unsigned baseOffset = (*currentTimestep) * beamwidth;
@@ -724,7 +716,6 @@ public:
         beamProbTotal[i] = candidateBeamProbTotal[i];
       }
     }
-    return true;
   }
 };
 
@@ -748,7 +739,7 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     auto traceBackBeamIndex = beam + dataLength * beamwidth;
 
     // Based on the total timesteps processed, extract the current beamLength
@@ -774,7 +765,6 @@ public:
       beamOutput[outIdx] = symbol;
       outIdx--;
     }
-    return true;
   }
 };
 

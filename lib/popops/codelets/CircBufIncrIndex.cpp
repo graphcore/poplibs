@@ -12,10 +12,7 @@ public:
 
   InOut<unsigned> index;
   const unsigned hSize;
-  bool compute() {
-    *index = (*index + 1) % hSize;
-    return true;
-  }
+  void compute() { *index = (*index + 1) % hSize; }
 };
 
 } // namespace popops

@@ -35,7 +35,7 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssemblyVersion<FPType>()));
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       const auto vectorSize = std::is_same<FPType, float>() ? 2 : 4;
       unsigned numExcess = 0;
@@ -49,7 +49,6 @@ public:
         rOut[i] = rIn[indices[i] / sizeAtom];
       }
     }
-    return true;
   }
 };
 

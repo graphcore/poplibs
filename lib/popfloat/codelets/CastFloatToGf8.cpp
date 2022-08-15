@@ -29,7 +29,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
-  bool compute() { return true; }
+  void compute() {}
 };
 
 } // end namespace experimental

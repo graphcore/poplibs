@@ -9,7 +9,7 @@ public:
   poplar::InOut<poplar::Vector<KeyType>> key;
   poplar::InOut<poplar::Vector<ValueType>> value;
 
-  bool compute() {
+  void compute() {
     // The index one past the end of the max-heap in `key` and `value`.
     std::uint32_t tail = 0;
 
@@ -51,7 +51,6 @@ public:
     }
 
     // `key` and `value` are now sorted
-    return true;
   }
 
 private:

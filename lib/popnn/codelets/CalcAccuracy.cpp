@@ -16,7 +16,7 @@ public:
   Input<Vector<LabelType, ONE_PTR>> expected;
   InOut<unsigned> numCorrect;
 
-  bool compute() {
+  void compute() {
     auto count = *numCorrect;
     for (std::size_t i = 0; i < maxPerBatch.size(); ++i) {
       if (expected[i] != MASKED_LABEL_CODE) {
@@ -24,7 +24,6 @@ public:
       }
     }
     *numCorrect = count;
-    return true;
   }
 };
 

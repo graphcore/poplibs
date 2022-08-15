@@ -32,7 +32,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
-  bool compute() {
+  void compute() {
     unsigned int PROP_NAN, EN_DENORM, EN_INF;
     uint64_t halfExpMaskV4, outBitsMaskV4, halfSgnMaskV4;
     uint64_t enNanooInf;
@@ -119,7 +119,6 @@ public:
       std::memcpy(&out[POPFLOAT_GF16_VEC_SIZE * j], &maskOutV4,
                   sizeof(maskOutV4));
     }
-    return true;
   }
 };
 template class CastGf8ToHalfSupervisor<FormatType::MIN_NORM_ALIGN_GF8>;

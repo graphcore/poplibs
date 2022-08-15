@@ -39,7 +39,7 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssemblyVersion<FPType>()));
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       const auto blockSizeZ = std::is_same<FPType, float>() ? 8 : 16;
       const auto numBlocksZ = numZ / blockSizeZ;
@@ -61,7 +61,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

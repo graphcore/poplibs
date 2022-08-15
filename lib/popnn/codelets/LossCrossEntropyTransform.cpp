@@ -31,7 +31,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     float eps =
         std::is_same<FPType, float>() ? EPS_LOG_N_FLOAT : EPS_LOG_N_HALF;
     const FPType scale = *deltasScale / *modelOutputScaling;
@@ -49,7 +49,6 @@ public:
       transformed[i] =
           -expect * (FPType(log(float(actual) + eps)) - logModelOutputScaling);
     }
-    return true;
   }
 };
 

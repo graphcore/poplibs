@@ -37,7 +37,7 @@ public:
   // in the slice dimension (ceil numBaseElements / numWorkers).
   const unsigned maxElementsPerWorker;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     // split across base offsets or regionSize dimension
     constexpr unsigned minAtomSize = 4;
     constexpr bool hasAtomicWriteGranularity =
@@ -50,7 +50,7 @@ public:
     const unsigned thisWorkerBaseElems = split.offsetEnd - split.offsetBegin;
     const unsigned thisWorkerRegionElems = split.regionEnd - split.regionBegin;
     if (thisWorkerBaseElems == 0 || thisWorkerRegionElems == 0) {
-      return true;
+      return;
     }
 
     unsigned offsetIndexBegin = 0;
@@ -81,7 +81,6 @@ public:
         baseT[baseIdx * regionSize + e] = subT[o * regionSize + e];
       }
     }
-    return true;
   }
 };
 

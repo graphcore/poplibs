@@ -99,7 +99,7 @@ public:
 
   IS_EXTERNAL_CODELET((hasAssemblyVersion<FPType, AccumType>()));
 
-  bool compute() {
+  void compute() {
     constexpr auto accumTypeSize = std::is_same<AccumType, float>() ? 4 : 2;
 
     // Zero outputs if requested.
@@ -134,8 +134,6 @@ public:
       rGradIt += subGroupEntry->sparseElementCount;
       metaInfoIt += subGroupEntry->offsetToNextSubGroupMetaInfo;
     }
-
-    return true;
   }
 };
 

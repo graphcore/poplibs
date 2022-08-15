@@ -17,7 +17,7 @@ public:
   Vector<Output<Vector<OutType>>> out;
   Input<Vector<OutType, ONE_PTR>> offsets;
 
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
       auto base = offsets[i];
       auto n = out[i].size();
@@ -25,7 +25,6 @@ public:
         out[i][j] = base + static_cast<OutType>(j);
       }
     }
-    return true;
   }
 };
 

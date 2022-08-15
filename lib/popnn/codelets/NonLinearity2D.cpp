@@ -17,13 +17,12 @@ public:
 #endif
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {
         data[i][j] = FPType(nonlinearity(nlType, float(data[i][j])));
       }
     }
-    return true;
   }
 };
 
@@ -43,13 +42,12 @@ public:
 #endif
 
   IS_EXTERNAL_CODELET(true);
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i < data.size(); ++i) {
       for (unsigned j = 0; j < data[i].size(); ++j) {
         out[i][j] = FPType(nonlinearity(nlType, float(data[i][j])));
       }
     }
-    return true;
   }
 };
 

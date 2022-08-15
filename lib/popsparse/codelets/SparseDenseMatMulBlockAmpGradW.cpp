@@ -85,7 +85,7 @@ public:
   IS_EXTERNAL_CODELET(
       (hasAssemblyVersion<FPType, AccumType, BlockRows, BlockCols>()));
 
-  bool compute() {
+  void compute() {
 
     // Zero outputs if requested.
     const unsigned bytesPerElem = 8;
@@ -134,7 +134,6 @@ public:
       rGradIt += subGroupEntry->offsetToNextSubGroupSparseEntries;
       metaInfoIt += subGroupEntry->offsetToNextSubGroupMetaInfo;
     }
-    return true;
   }
 };
 

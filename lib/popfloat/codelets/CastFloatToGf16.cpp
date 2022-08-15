@@ -32,7 +32,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
-  bool compute() {
+  void compute() {
     uint64_t expMaskV2, sgnMaskV2;
     float fpMinNorm, fpMinValue, fpHalfMinValue;
     unsigned int gf16AlignShr;
@@ -127,7 +127,6 @@ public:
       }
       std::memcpy(&out[POPFLOAT_GF32_VEC_SIZE * j], &gf16Out, sizeof(gf16Out));
     }
-    return true;
   }
 };
 template class CastFloatToGf16Supervisor<FormatType::BFLOAT16>;

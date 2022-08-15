@@ -69,12 +69,12 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     // This vertex may have nothing to process.
     if (validLabel < labelOffset ||
         timestepOutOfRange(timeOffset, timeOffset + maxT, validTime, count)) {
       count++;
-      return true;
+      return;
     }
     auto t = *count - timeOffset;
     count++;
@@ -108,7 +108,7 @@ public:
         *loss = alpha[0];
       }
       // so we are done
-      return true;
+      return;
     }
     // Each loop outputs the result for the symbol and a blank, and consumes 1
     // index from the label[] input.
@@ -158,8 +158,6 @@ public:
     // For use when data is split by label, output this timestep, last label
     // result for use by the next vertex
     alphaPrevLabelOut[0] = alpha[2 * labelLength - 1];
-
-    return true;
   }
 };
 
@@ -203,12 +201,12 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     // This vertex may have nothing to process.
     if (validLabel < labelOffset ||
         timestepOutOfRange(timeOffset, timeOffset + maxT, validTime, count)) {
       count--;
-      return true;
+      return;
     }
     const auto t = *count - timeOffset;
     count--;
@@ -256,7 +254,7 @@ public:
       // cases when this is used later
       betaPrevLabelOut[0] = beta[0];
       betaPrevLabelOut[1] = log::probabilityZero;
-      return true;
+      return;
     }
     unsigned idx = 2 * (labelLength - 1) + 1 + doLastBlank;
     const auto lastSymbol = label[labelLength - 1];
@@ -308,7 +306,6 @@ public:
     // result for use by the next vertex
     betaPrevLabelOut[0] = beta[0];
     betaPrevLabelOut[1] = beta[1];
-    return true;
   }
 };
 
@@ -354,12 +351,12 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     // This vertex may have nothing to process.
     if (validLabel < labelOffset ||
         timestepOutOfRange(timeOffset, timeOffset + maxT, validTime, count)) {
       count--;
-      return true;
+      return;
     }
     const auto t = *count - timeOffset;
     count--;
@@ -417,7 +414,7 @@ public:
       // cases when this is used later
       betaPrevLabelOut[0] = beta[0];
       betaPrevLabelOut[1] = log::probabilityZero;
-      return true;
+      return;
     }
     unsigned idx = 2 * (labelLength - 1) + 1 + doLastBlank;
     const auto lastSymbol = label[labelLength - 1];
@@ -489,7 +486,6 @@ public:
     // result for use by the next vertex
     betaPrevLabelOut[0] = beta[0];
     betaPrevLabelOut[1] = beta[1];
-    return true;
   }
 };
 
@@ -536,12 +532,12 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     // This vertex may have nothing to process.
     if (validLabel < labelOffset ||
         timestepOutOfRange(timeOffset, timeOffset + maxT, validTime, count)) {
       count++;
-      return true;
+      return;
     }
     const auto t = *count - timeOffset;
     count++;
@@ -582,7 +578,7 @@ public:
       grad[blankClass] = logMul(sum, beta[0]);
       // That was the "last blank", there is no part of the label to process
       // so we are done
-      return true;
+      return;
     }
     // Each loop outputs the result for the symbol and a blank, and consumes 1
     // index from the labels[] input.
@@ -660,8 +656,6 @@ public:
     // For use when data is split by label, output this timestep, last label
     // result for use by the next vertex
     alphaPrevLabelOut[0] = alpha[2 * labelLength - 1];
-
-    return true;
   }
 };
 
@@ -689,7 +683,7 @@ public:
   // The label in position labelId of remapLabelsForPost to be generate.
   Output<Vector<LabelType>> remapLabelForPost; // [1]
 
-  bool compute() {
+  void compute() {
     remapLabel[0] = labelId + 1;
     remapLabelForPost[0] = labelsSlice[labelId];
 
@@ -707,7 +701,6 @@ public:
         break;
       }
     }
-    return true;
   }
 };
 

@@ -31,7 +31,7 @@ public:
   // Number of rows spanned by the interval.
   unsigned rowCount;
 
-  bool compute() {
+  void compute() {
     // For each row spanned by the interval.
     for (unsigned r = 0; r < rowCount; ++r) {
       unsigned startCol = r == 0 ? firstStartCol : 0;
@@ -39,7 +39,6 @@ public:
       output[r] = getParam(&params[rowsStart[r]], indices[r], startCol, endCol,
                            paramsWidth);
     }
-    return true;
   }
 };
 

@@ -31,7 +31,7 @@ public:
   OutType inScale;
   unsigned packedNPixels;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     auto nWorkers = numWorkers();
     auto remainder = packedNPixels & 0x7;
     auto nElem = (packedNPixels >> 3) + (wid < remainder);
@@ -60,7 +60,6 @@ public:
       inPtr += (nWorkers - 1) * 3;
     }
 #endif
-    return true;
   }
 };
 

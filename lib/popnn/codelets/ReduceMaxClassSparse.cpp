@@ -26,7 +26,7 @@ public:
   Output<LabelType> maxIndex;
 
   IS_EXTERNAL_CODELET(ext);
-  bool compute() {
+  void compute() {
     LabelType maxI = 0;
     InOutType maxV = activations[0];
     for (std::size_t i = 1; i < activations.size(); ++i) {
@@ -37,7 +37,6 @@ public:
     }
     *maxValue = maxV;
     *maxIndex = labels[maxI];
-    return true;
   }
 };
 

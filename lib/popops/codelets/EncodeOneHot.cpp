@@ -40,7 +40,7 @@ public:
   // handled by this vertex is [offset, offset + sliceLength)
   unsigned offset;
 
-  bool compute() {
+  void compute() {
     unsigned begin = 0;
     for (unsigned i = 0; i < indices.size(); ++i) {
       if ((indices[i] >= offset) && (indices[i] < offset + sliceLength)) {
@@ -51,7 +51,6 @@ public:
       }
       begin += sliceLength;
     }
-    return true;
   }
 };
 

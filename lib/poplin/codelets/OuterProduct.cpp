@@ -27,7 +27,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     const auto width = in.size();
     const auto numChanGroups = out.size();
 
@@ -40,7 +40,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

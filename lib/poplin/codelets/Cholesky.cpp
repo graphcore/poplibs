@@ -31,7 +31,7 @@ public:
   Input<Vector<FloatType>> in;
   Output<Vector<FloatType>> out;
 
-  bool compute() {
+  void compute() {
     assert(dim * dim == in.size());
     assert(in.size() == out.size());
 
@@ -74,8 +74,6 @@ public:
         }
       }
     }
-
-    return true;
   }
 };
 
@@ -86,7 +84,7 @@ public:
   const unsigned dim;
   InOut<Vector<FloatType>> in;
 
-  bool compute() {
+  void compute() {
     assert(dim * dim == in.size());
 
     if (lower) {
@@ -126,8 +124,6 @@ public:
         }
       }
     }
-
-    return true;
   }
 };
 

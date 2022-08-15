@@ -26,7 +26,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
-  bool compute() {
+  void compute() {
     uint32_t param = 0;
     param += enDenorm << POPFLOAT_GF_STRUCT_ENDENORM_BIT_OFFSET;
     param += enInf << POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET;
@@ -40,8 +40,6 @@ public:
 
     std::memcpy(&gfPacked, &packed, sizeof(gfPacked));
     gfStruct[0] = gfPacked;
-
-    return true;
   }
 };
 

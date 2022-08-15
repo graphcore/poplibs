@@ -21,7 +21,7 @@ public:
   const unsigned short numChanGroups;
   const unsigned short chansPerGroup;
 
-  bool compute() {
+  void compute() {
     // Scale output
     for (unsigned ctxt = 0; ctxt != CTXT_WORKERS; ++ctxt) {
       for (unsigned w = 0; w != scaleWorklist[ctxt].size(); w += 3) {
@@ -37,7 +37,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

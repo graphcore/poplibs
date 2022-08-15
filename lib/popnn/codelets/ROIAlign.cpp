@@ -28,7 +28,7 @@ public:
   unsigned int bin_grid_w;
   bool aligned;
 
-  bool compute() {
+  void compute() {
     int index = batch_index[iter];
     T half_pixel = aligned ? (T)0.5 : (T)0.0;
     T align_boundary = aligned ? (T)0.0 : (T)1.0;
@@ -76,7 +76,6 @@ public:
       }
       y_start += bin_size_h;
     }
-    return true;
   }
 };
 
@@ -104,7 +103,7 @@ public:
   unsigned int bin_grid_w;
   bool aligned;
 
-  bool compute() {
+  void compute() {
     T num_grid = bin_grid_h * bin_grid_w;
     int index = batch_index[iter + group];
     T half_pixel = aligned ? (T)0.5 : (T)0.0;
@@ -155,7 +154,6 @@ public:
       }
       y_start += bin_size_h;
     }
-    return true;
   }
 };
 

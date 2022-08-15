@@ -35,7 +35,7 @@ public:
 
   IS_EXTERNAL_CODELET(false);
 
-  bool compute() {
+  void compute() {
     // Work is split between up to N workers based on the divisor
     // and outputs to each maxValue/Index output based on this
     const auto divisor = (1u << divisorLog2);
@@ -106,7 +106,6 @@ public:
         currentPartialBucket[k] += index;
       }
     }
-    return true;
   }
 };
 

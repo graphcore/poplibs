@@ -43,7 +43,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     // Each worker will process a contiguous span from data[offs]
 
     const unsigned rowsPerWorkerToAvoidSubWordWrites = 2;
@@ -52,7 +52,7 @@ public:
     unsigned offs = numBlocks * wid;
     if (offs >= bBroadcastFactor) {
       // This worker has no work
-      return true;
+      return;
     }
 
     if (numBlocks * (wid + 1) > bBroadcastFactor) {
@@ -74,7 +74,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

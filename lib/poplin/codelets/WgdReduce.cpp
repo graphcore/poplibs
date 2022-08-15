@@ -27,7 +27,7 @@ public:
    */
   Vector<Output<Vector<FPType>>> outPartial;
 
-  bool compute() {
+  void compute() {
     const unsigned numOutRows = patchSizeX;
     const unsigned numOutCols = patchSizeY;
     const unsigned numElems = outPartial.size();
@@ -49,7 +49,6 @@ public:
         outPartial[elem][oc] = acc;
       }
     }
-    return true;
   }
 };
 

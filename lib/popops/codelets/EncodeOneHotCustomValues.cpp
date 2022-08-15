@@ -36,7 +36,7 @@ public:
   // This field could be removed as it is sum of the total slice Lengths
   const unsigned outLength;
 
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i < outLength; ++i) {
       out[i] = Off;
     }
@@ -49,7 +49,6 @@ public:
       }
       begin += sliceLength;
     }
-    return true;
   }
 };
 

@@ -22,14 +22,13 @@ public:
   const unsigned short n;
 
   IS_EXTERNAL_CODELET(true);
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       for (unsigned i = 0; i < n; ++i) {
         const auto derivative = nonlinearity_derivative(nlType, float(out[i]));
         inGrad[i] = outGrad[i] * FPType(derivative);
       }
     }
-    return true;
   }
 };
 

@@ -26,7 +26,7 @@ public:
   Output<LabelType> minIndex;
 
   IS_EXTERNAL_CODELET(ext);
-  bool compute() {
+  void compute() {
     LabelType minI = 0;
     InOutType minV = activations[0];
     for (std::size_t i = 1; i < activations.size(); ++i) {
@@ -37,7 +37,6 @@ public:
     }
     *minValue = minV;
     *minIndex = labels[minI];
-    return true;
   }
 };
 

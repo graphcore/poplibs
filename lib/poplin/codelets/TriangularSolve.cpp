@@ -23,7 +23,7 @@ public:
   Input<Vector<FloatType>> b;
   Output<Vector<FloatType, poplar::VectorLayout::SPAN, 8>> x;
 
-  bool compute() {
+  void compute() {
     assert(an != 0);
     assert(a.size() == an * an);
     assert(b.size() == an);
@@ -60,8 +60,6 @@ public:
         --bBase;
       }
     }
-
-    return true;
   }
 };
 

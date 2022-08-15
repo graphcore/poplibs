@@ -35,7 +35,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     const unsigned numBaseElementsActual = numBaseElements & 0x7fffffffu;
     for (unsigned r = 0; r != numRegions; ++r) {
       auto regionSize = baseT[r * numBaseElementsActual].size();
@@ -45,7 +45,7 @@ public:
           baseSlice = 0;
       } else {
         if (baseSlice >= numBaseElementsActual)
-          return true;
+          return;
       }
       unsigned subIdx = r * numSubElements;
 
@@ -60,7 +60,6 @@ public:
           baseSlice -= numBaseElementsActual;
       }
     }
-    return true;
   }
 };
 template class DynamicUpdateSlice2D<float>;

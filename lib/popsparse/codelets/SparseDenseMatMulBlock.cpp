@@ -96,7 +96,7 @@ public:
     }
   }
 
-  bool compute() {
+  void compute() {
     // Zero outputs if requested.
     const unsigned bytesPerElem = 8;
     static_assert((accumTypeSize * BlockRows * BlockCols) % bytesPerElem == 0,
@@ -149,7 +149,6 @@ public:
         metaInfoBucketIter += subGroupEntry->offsetToNextSubGroupMetaInfo;
       }
     }
-    return true;
   }
 };
 

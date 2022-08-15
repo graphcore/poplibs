@@ -91,10 +91,10 @@ public:
                                    numConvUnits, convInputLoadElems>()));
 
   // For assembly codelets, a true SupervisorVertex is used.
-  bool compute();
+  void compute();
 
   // For C++ codelets, a MultiVertex is used.
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     const auto usedContexts = CTXT_WORKERS;
 
     // modify to set actual values used by vertex
@@ -170,7 +170,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 
@@ -213,7 +212,7 @@ INSTANTIATE_WEIGHTS_128(float, float, 16, 4);
 template <typename UnsignedType, bool zeroPartials, unsigned numConvUnits>
 class WorkerClass1x1 : public Vertex {
 public:
-  static bool compute() { return true; }
+  static void compute() {}
 };
 
 // This needs to be an equivalent statement of the vertex state of the
@@ -235,7 +234,7 @@ public:
   unsigned strides;
   Input<Vector<unsigned short, ONE_PTR>> partition;
 
-  bool compute() {
+  void compute() {
     auto partitionOffset = 3 * getWid();
     int loops =
         *reinterpret_cast<const short *>(&partition[partitionOffset + 1]);
@@ -244,7 +243,6 @@ public:
     auto outPtr = ld64StepToIncPtr(&outChanPtr[0], partition[partitionOffset]);
 
     convQuarterHalfLoop<zeroPartials>(inPtr, outPtr, loops, strides);
-    return true;
   }
 };
 
@@ -287,7 +285,7 @@ public:
   const SignedType transformedOutStride;
   const UnsignedType inChansPerGroup;
 
-  __attribute__((target("supervisor"))) bool compute() {
+  __attribute__((target("supervisor"))) void compute() {
     unsigned srStore;
     if constexpr (disableSR) {
       srStore = getFPICTL();
@@ -345,7 +343,6 @@ public:
     if constexpr (disableSR) {
       putFPICTL(srStore);
     }
-    return true;
   }
 };
 

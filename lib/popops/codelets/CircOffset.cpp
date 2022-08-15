@@ -14,13 +14,12 @@ public:
   Output<unsigned> indexOut;
   const unsigned hSize;
   const unsigned offset;
-  bool compute() {
+  void compute() {
     auto updated = *indexIn + offset;
     if (updated >= hSize) {
       updated -= hSize;
     }
     *indexOut = updated;
-    return true;
   }
 };
 

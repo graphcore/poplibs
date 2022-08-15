@@ -30,7 +30,7 @@ public:
   const float scaleVar;
   const float eps;
 
-  bool compute() {
+  void compute() {
     for (unsigned i = 0; i != mean.size(); ++i) {
       for (unsigned j = 0; j != mean[i].size(); ++j) {
         if (stableAlgo) {
@@ -52,7 +52,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

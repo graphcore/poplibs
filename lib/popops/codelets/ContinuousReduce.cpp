@@ -20,7 +20,7 @@ public:
   const ShortType numOutputsM1;
   const ShortType numPartials;
 
-  bool compute() {
+  void compute() {
     for (unsigned o = 0; o < numOutputsM1 + 1; ++o) {
       AccType acc = ReduceOp::template init<AccType>();
       for (unsigned p = 0; p < numPartials; ++p) {
@@ -37,7 +37,6 @@ public:
         out[o] = static_cast<OutType>(acc);
       }
     }
-    return true;
   }
 };
 

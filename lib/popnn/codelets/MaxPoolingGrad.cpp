@@ -46,7 +46,7 @@ public:
   Input<Vector<FPType, PTR_ALIGN64, 8>> fwdActsIn;
   Input<Vector<FPType, PTR_ALIGN64, 8>> fwdActsOut;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
       const auto numChanGroups = numChanGroupsM1 + 1;
@@ -98,7 +98,6 @@ public:
         }
       }
     }
-    return true;
   }
 };
 

@@ -34,7 +34,7 @@ public:
   // (ceil numOffsets / numWorkers).
   const unsigned maxElementsPerWorker;
 
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     unsigned offsetIndexBegin = 0;
     unsigned offsetIndexEnd = offsets.size();
 
@@ -74,7 +74,6 @@ public:
         subT[o * regionSize + e] = baseT[baseIdx * regionSize + e];
       }
     }
-    return true;
   }
 };
 template class MultiSlice<float>;

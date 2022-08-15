@@ -32,7 +32,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
-  bool compute() {
+  void compute() {
     unsigned int gf8AlignShr;
     uint64_t halfExpMaskV4, inValueV4, halfSgnMaskV4;
 
@@ -92,7 +92,6 @@ public:
         std::memcpy(&out[POPFLOAT_GF16_VEC_SIZE * j], &gf8V4, sizeof(gf8V4));
       }
     }
-    return true;
   }
 };
 template class CastHalfToGf8Supervisor<FormatType::MIN_NORM_ALIGN_GF8>;

@@ -25,18 +25,17 @@ public:
   Vector<Input<Vector<FPType, SPAN, 8>>> in;
   Output<float> out;
 
-  bool compute() {
+  void compute() {
     constexpr bool checkNaNAndInf = nanOrInf;
     for (unsigned i = 0; i < in.size(); ++i) {
       for (unsigned j = 0; j < in[i].size(); ++j) {
         if (check(float(in[i][j]), checkNaNAndInf)) {
           *out = 1.0f;
-          return true;
+          return;
         }
       }
     }
     *out = 0.0f;
-    return true;
   }
 };
 
@@ -60,7 +59,7 @@ public:
   unsigned char remWorkerId;
   unsigned char remWorkerExtras;
   InOut<float> outSetIfFound;
-  bool compute(unsigned wid) {
+  void compute(unsigned wid) {
     if (wid == 0) {
       unsigned size = sizeIn8BytesPerWorker * numWorkers() + remWorkerId;
       size = size * (std::is_same<FPType, half>() ? 4 : 2) + remWorkerExtras;
@@ -68,11 +67,10 @@ public:
       for (unsigned i = 0; i < size; ++i) {
         if (check(float(in[i]), checkNaNAndInf)) {
           *outSetIfFound = 1.0f;
-          return true;
+          return;
         }
       }
     }
-    return true;
   }
 };
 

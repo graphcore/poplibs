@@ -22,7 +22,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
-  bool compute() {
+  void compute() {
     char4 gfPacked;
 
     std::memcpy(&gfPacked, &gfStruct[0], sizeof(uint32_t));
@@ -188,7 +188,6 @@ public:
       std::memcpy(&param[POPFLOAT_CAST_TO_GF32_PARAM_PACK_SHR_ALIGN_OFFSET],
                   &gf16AlignSh, sizeof(gf16AlignSh));
     }
-    return true;
   }
 };
 

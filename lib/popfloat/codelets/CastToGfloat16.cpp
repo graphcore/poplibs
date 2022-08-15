@@ -32,7 +32,7 @@ public:
   Vector<uint32_t, COMPACT_PTR, 8> castParam;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
-  bool compute() {
+  void compute() {
     unsigned int gf8AlignShr;
     uint64_t halfExpMaskV4, halfSgnMaskV4, outBitsMaskV4, minDnrmV4;
     short2 gf16CalmpOut;
@@ -166,7 +166,6 @@ public:
       std::memcpy(&out[POPFLOAT_GF16_VEC_SIZE * j], &maskOutV4,
                   sizeof(maskOutV4));
     }
-    return true;
   }
 };
 

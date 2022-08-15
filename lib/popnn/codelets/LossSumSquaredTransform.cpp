@@ -27,7 +27,7 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  bool compute() {
+  void compute() {
     for (std::size_t i = 0; i < size; i++) {
       FPType expect = expected[i];
       FPType actual = probs[i];
@@ -35,7 +35,6 @@ public:
       deltas[i] = delta;
       transformed[i] = FPType(0.5) * delta * delta;
     }
-    return true;
   }
 };
 
