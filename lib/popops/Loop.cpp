@@ -79,7 +79,12 @@ poplar::Tensor addForLoopCounterVertex(poplar::Graph &graph,
   graph.connect(vertex["count"], count.reshape({}));
   graph.connect(vertex["limit"], countLimit.reshape({}));
   graph.connect(vertex["comparisonResult"], predicate);
-  graph.setInitialValue(vertex["increment"], countStep);
+  if (count.elementType() == poplar::UNSIGNED_INT) {
+    graph.setInitialValue(vertex["increment"],
+                          static_cast<unsigned>(countStep));
+  } else {
+    graph.setInitialValue(vertex["increment"], countStep);
+  }
 
   prog.add(poplar::program::Execute(cs));
 
@@ -107,9 +112,15 @@ countedForLoop(poplar::Graph &graph, const poplar::Tensor &count,
   // An initialiser, decremented by 1 step, so that when pre-incremented in the
   // `cond` program the loop body has a count variable visible that counts:
   // initialCount, initialCount + countStep, initialCount +2 * countStep ...
-  auto initialiser = graph.addConstant<unsigned>(
-      count.elementType(), {}, static_cast<unsigned>(initialCount - countStep),
-      di);
+  auto initialiser = [&]() {
+    if (count.elementType() == poplar::UNSIGNED_INT) {
+      return graph.addConstant<unsigned>(count.elementType(), {},
+                                         initialCount - countStep, di);
+    } else {
+      return graph.addConstant<int>(count.elementType(), {},
+                                    initialCount - countStep, di);
+    }
+  }();
   graph.setTileMapping(initialiser, 0);
   prog.add(poplar::program::Copy(initialiser, count));
 

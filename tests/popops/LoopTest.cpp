@@ -72,7 +72,15 @@ static std::size_t forLoopTest(int begin, int end, int step,
   Graph graph(target);
   popops::addCodelets(graph);
 
-  auto limit = graph.addConstant<unsigned>(tensorType, {1}, end, "limit");
+  auto limit = [&]() {
+    if (tensorType == poplar::UNSIGNED_INT) {
+      return graph.addConstant<unsigned>(tensorType, {1},
+                                         static_cast<unsigned>(end), "limit");
+    } else {
+      return graph.addConstant<int>(tensorType, {1}, static_cast<int>(end),
+                                    "limit");
+    }
+  }();
   graph.setTileMapping(limit, 0);
 
   Sequence uploadProg, downloadProg;

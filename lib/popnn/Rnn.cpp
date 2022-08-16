@@ -370,7 +370,7 @@ private:
   Graph &graph;
   std::vector<Tensor> timeStepBegin;
   Tensor one;
-  Tensor minusOne;
+  Tensor uintMax;
 
   // Counter which increments every RNN iteration
   Tensor timeStepCounter;
@@ -434,8 +434,11 @@ RnnState::RnnState(Graph &graph, unsigned seqLen, unsigned numShards,
   one = graph.addConstant(UNSIGNED_INT, {1}, 1, {dnai, "one"});
   graph.setTileMapping(one, 0);
 
-  minusOne = graph.addConstant(UNSIGNED_INT, {1}, -1, {dnai, "minusOne"});
-  graph.setTileMapping(minusOne, 0);
+  uintMax = graph.addConstant(
+      UNSIGNED_INT, {1},
+      graph.getTarget().getTypeLimitsMaxAs<std::uint64_t>(UNSIGNED_INT),
+      {dnai, "uintMax"});
+  graph.setTileMapping(uintMax, 0);
 
   seqLengthExclLast = gccs::ceildiv(seqLen, numShards);
   for (unsigned i = 0; i < numShards; ++i) {
@@ -621,7 +624,7 @@ program::Sequence RnnState::initCounter() {
   if (reverse) {
     prog.add(Copy(timeSteps.max[currIndex], timeStepCounter, false,
                   {dnai, "counterEnd"}));
-    loopContinueFlag = addForLoopCounterVertex(graph, timeStepCounter, minusOne,
+    loopContinueFlag = addForLoopCounterVertex(graph, timeStepCounter, uintMax,
                                                -1, 0, loopLimitCheck[currIndex],
                                                {dnai, "loopCounter"});
     if (timeSteps.min.valid()) {
@@ -631,7 +634,7 @@ program::Sequence RnnState::initCounter() {
               .reshape({});
     }
   } else {
-    prog.add(Copy(minusOne, timeStepCounter, false, {dnai, "counterEnd"}));
+    prog.add(Copy(uintMax, timeStepCounter, false, {dnai, "counterEnd"}));
     loopContinueFlag = addForLoopCounterVertex(
         graph, timeStepCounter, timeSteps.max[currIndex], 1, 0,
         loopLimitCheck[currIndex], {dnai, "loopCounter"});
