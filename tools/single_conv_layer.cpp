@@ -91,17 +91,23 @@ convolve(bool useCreateOutput, poplar::Graph &graph, const poplar::Tensor &in,
          bool transposeAndFlipWeights, poplar::program::Sequence &prog,
          const poplar::DebugContext &debugContext,
          const poplar::OptionFlags &options, poplin::PlanningCache *cache) {
+
+  auto out =
+      poplin::createConvOutput(graph, params, debugContext, options, cache);
   if (useCreateOutput) {
-    auto out =
-        poplin::createConvOutput(graph, params, debugContext, options, cache);
     poplin::convolutionWithOutput(graph, in, weights, out, params,
                                   transposeAndFlipWeights, prog, debugContext,
                                   options, cache);
     return out;
   } else {
-    return poplin::convolution(graph, in, weights, params,
-                               transposeAndFlipWeights, prog, debugContext,
-                               options, cache);
+    auto outResult =
+        poplin::convolution(graph, in, weights, params, transposeAndFlipWeights,
+                            prog, debugContext, options, cache);
+    if (!identicalLayout(graph, out, outResult)) {
+      throw poputil::poplibs_error("Layout of createConvOutput not identical"
+                                   " to that of convolution");
+    }
+    return outResult;
   }
 }
 

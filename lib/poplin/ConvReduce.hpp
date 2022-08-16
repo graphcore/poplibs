@@ -14,12 +14,26 @@ namespace poplin {
 class ConvOptions;
 
 poplar::Tensor
-multiStageGroupedReduce(poplar::Graph &graph, poplar::Tensor partials,
+multiStageGroupedReduce(poplar::Graph &graph, const poplar::Tensor &partials,
                         const poplar::Type &resultType,
                         std::vector<poplar::ComputeSet> &computeSets,
                         const ConvOptions &options, unsigned startTile,
                         bool ascendingMapping,
                         const poplar::DebugNameAndId &dnai);
+
+poplar::Tensor createMultiStageGroupedReduceOutput(
+    poplar::Graph &graph, const poplar::Tensor &partials,
+    const poplar::Type &resultType, const ConvOptions &options,
+    unsigned startTile, bool ascendingMapping,
+    const poplar::DebugNameAndId &dnai);
+
+void multiStageGroupedReduceWithOutput(
+    poplar::Graph &graph, const poplar::Tensor &output,
+    const poplar::Tensor &partials, const poplar::Type &resultType,
+    std::vector<poplar::ComputeSet> &computeSets, const ConvOptions &options,
+    unsigned startTile, bool ascendingMapping,
+    const poplar::DebugNameAndId &dnai);
+
 } // namespace poplin
 
 #endif // ConvReduce_hpp

@@ -137,6 +137,10 @@ struct ConvProgramTree {
   // TODO: T12874 Specialise std::hash for poplar::Type and use an unordered
   // container here.
   std::vector<poplar::Tensor> copyWritten;
+
+  // When using this structure to create an output only, avoid most of the work
+  // by not adding vertices
+  bool createVertices = true;
 };
 
 } // namespace poplin

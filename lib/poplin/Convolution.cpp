@@ -1727,30 +1727,6 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
   return output;
 }
 
-Tensor createConvOutput(poplar::Graph &graph, const ConvParams &params,
-                        const poplar::DebugContext &debugContext,
-                        const poplar::OptionFlags &options,
-                        PlanningCache *cache) {
-  POPLIN_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache),
-                                 "createConvOutput");
-
-  // temporary, sub-optimal implementation before partial creation is decoupled
-  // from the rest of the convolution construction code. See T61567.
-  std::vector<std::size_t> outShape = {params.batchSize,
-                                       params.numConvGroups *
-                                           params.outputChannelsPerConvGroup};
-  const auto &outFieldShape = params.getOutputFieldShape();
-  outShape.insert(std::end(outShape), std::begin(outFieldShape),
-                  std::end(outFieldShape));
-
-  auto out = graph.addVariable(params.outputType, outShape, {di});
-  poputil::mapTensorLinearly(graph, out);
-
-  di.addOutput(out);
-  return out;
-}
-
 static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
                       const poplar::Tensor &out,
                       const boost::optional<Plan> &plan) {
@@ -2441,28 +2417,29 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
         auto sliceRearranged = createSliceMethod(
             graph, serialParams, metadata, level, true, indices,
             {dnai, sliceKind + "Rearranged"}, plan, options);
-        // WriteUndef sliceRearranged as it may be partially written. See
-        // T36794.
-        cpt.transformPreSerial.writeUndef.push_back(sliceRearranged);
-        auto inSliceRearranged = isActs ? &sliceRearranged : nullptr;
-        auto weightsSliceRearranged = isActs ? nullptr : &sliceRearranged;
-        preprocessForSerialSlice(inSliceRearranged, weightsSliceRearranged,
-                                 serialParams, partition);
-        auto &preTranspose = isActs
-                                 ? cpt.transformPreSerial.preTransposeActs
-                                 : cpt.transformPreSerial.preTransposeWeights;
-        auto &transposeCS =
-            isActs ? cpt.transformPreSerial.transposeCSActs.back()
-                   : cpt.transformPreSerial.transposeCSWeights.back();
-        slice = popops::rearrange::regroupIfBeneficial(
-            graph, slice, sliceRearranged, preTranspose, transposeCS,
-            {dnai, sliceKind + "RegroupBeforeSlice"});
+        if (cpt.createVertices) {
+          // WriteUndef sliceRearranged as it may be partially written. See
+          // T36794.
+          cpt.transformPreSerial.writeUndef.push_back(sliceRearranged);
+          auto inSliceRearranged = isActs ? &sliceRearranged : nullptr;
+          auto weightsSliceRearranged = isActs ? nullptr : &sliceRearranged;
+          preprocessForSerialSlice(inSliceRearranged, weightsSliceRearranged,
+                                   serialParams, partition);
+          auto &preTranspose = isActs
+                                   ? cpt.transformPreSerial.preTransposeActs
+                                   : cpt.transformPreSerial.preTransposeWeights;
+          auto &transposeCS =
+              isActs ? cpt.transformPreSerial.transposeCSActs.back()
+                     : cpt.transformPreSerial.transposeCSWeights.back();
+          slice = popops::rearrange::regroupIfBeneficial(
+              graph, slice, sliceRearranged, preTranspose, transposeCS,
+              {dnai, sliceKind + "RegroupBeforeSlice"});
 
-        auto postTranspose = isActs
-                                 ? &cpt.transformPreSerial.postTransposeActs
-                                 : &cpt.transformPreSerial.postTransposeWeights;
-        postTranspose->emplace_back(slice, sliceRearranged, false, dnai);
-
+          auto postTranspose =
+              isActs ? &cpt.transformPreSerial.postTransposeActs
+                     : &cpt.transformPreSerial.postTransposeWeights;
+          postTranspose->emplace_back(slice, sliceRearranged, false, dnai);
+        }
         return sliceRearranged;
       };
 
@@ -2482,34 +2459,42 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       loopCounter = graph.addVariable(UNSIGNED_INT, {1},
                                       {dnai, "loopCounter" + levelSuffix});
       graph.setTileMapping(loopCounter, 0);
-      const auto zeroConstant =
-          graph.addConstant(UNSIGNED_INT, {1}, 0, {dnai, "zero" + levelSuffix});
-      graph.setTileMapping(zeroConstant, 0);
-      cpt.transformPreSerial.postTransposeCtrl.emplace_back(
-          zeroConstant, loopCounter, false, dnai);
-
+      if (cpt.createVertices) {
+        const auto zeroConstant = graph.addConstant(
+            UNSIGNED_INT, {1}, 0, {dnai, "zero" + levelSuffix});
+        graph.setTileMapping(zeroConstant, 0);
+        cpt.transformPreSerial.postTransposeCtrl.emplace_back(
+            zeroConstant, loopCounter, false, dnai);
+      }
       // per iteration slices of output.
       if (numOutChans == outChansPerSerialSplit) {
         weightsSlice = weightsSlice.squeeze({0});
       } else {
-        weightsSlice =
-            popops::dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1},
-                                 cpt.slice,
-                                 {dnai, "weightsSerialSlice" + levelSuffix})
-                .squeeze({0});
+        auto weightsSliceOut = popops::createDynamicSliceOutput(
+            graph, weightsSlice, loopCounter, {0}, {1},
+            {dnai, "weightsSerialSlice" + levelSuffix});
 
-        // If there's output channels not covered by the dynamic slice then add
-        // an extra iteration to the loop which manually copies them into the
-        // slice tensor.
-        if (lastWeightsSplit) {
-          const auto remainingOutChans =
-              lastWeightsSplit->dim(lastWeightsSplit->rank() - 2);
-          const auto dest =
-              weightsSlice.slice(0, remainingOutChans, weightsSlice.rank() - 2);
-          cpt.lastSlice =
-              Sequence{{Copy(*lastWeightsSplit, dest, false,
-                             {dnai, "weightsSerialLastSlice" + levelSuffix})},
-                       {dnai}};
+        if (cpt.createVertices) {
+          popops::dynamicSliceWithOutput(
+              graph, weightsSliceOut, weightsSlice, loopCounter, {0}, {1},
+              cpt.slice, {dnai, "weightsSerialSlice" + levelSuffix});
+          weightsSlice = weightsSliceOut.squeeze({0});
+
+          // If there's output channels not covered by the dynamic slice then
+          // add an extra iteration to the loop which manually copies them into
+          // the slice tensor.
+          if (lastWeightsSplit) {
+            const auto remainingOutChans =
+                lastWeightsSplit->dim(lastWeightsSplit->rank() - 2);
+            const auto dest = weightsSlice.slice(0, remainingOutChans,
+                                                 weightsSlice.rank() - 2);
+            cpt.lastSlice =
+                Sequence{{Copy(*lastWeightsSplit, dest, false,
+                               {dnai, "weightsSerialLastSlice" + levelSuffix})},
+                         {dnai}};
+          }
+        } else { // if(cpt.createVertices)
+          weightsSlice = weightsSliceOut.squeeze({0});
         }
       }
 
@@ -2518,54 +2503,64 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
         inSlice = inSlice.squeeze({0});
         weightsSlice = weightsSlice.squeeze({0});
       } else {
-        inSlice = popops::dynamicSlice(graph, inSlice, loopCounter, {0}, {1},
-                                       cpt.slice,
-                                       {dnai, "inputSerialSlice" + levelSuffix})
-                      .squeeze({0});
-        weightsSlice =
-            popops::dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1},
-                                 cpt.slice,
-                                 {dnai, "weightsSerialSlice" + levelSuffix})
-                .squeeze({0});
+        auto inSliceOut = popops::createDynamicSliceOutput(
+            graph, inSlice, loopCounter, {0}, {1},
+            {dnai, "inputSerialSlice" + levelSuffix});
+        auto weightsSliceOut = popops::createDynamicSliceOutput(
+            graph, weightsSlice, loopCounter, {0}, {1},
+            {dnai, "weightsSerialSlice" + levelSuffix});
+        if (cpt.createVertices) {
+          popops::dynamicSliceWithOutput(
+              graph, inSliceOut, inSlice, loopCounter, {0}, {1}, cpt.slice,
+              {dnai, "inputSerialSlice" + levelSuffix});
+          popops::dynamicSliceWithOutput(
+              graph, weightsSliceOut, weightsSlice, loopCounter, {0}, {1},
+              cpt.slice, {dnai, "weightsSerialSlice" + levelSuffix});
+          inSlice = inSliceOut.squeeze({0});
+          weightsSlice = weightsSliceOut.squeeze({0});
+          // If there's input channels not covered by the dynamic slice then add
+          // an extra iteration to the loop which manually copies them into the
+          // slice tensors.
+          if (lastInputSplit) {
+            assert(lastWeightsSplit);
+            const auto remainingInChans =
+                lastInputSplit->dim(lastInputSplit->rank() - 1);
 
-        // If there's input channels not covered by the dynamic slice then add
-        // an extra iteration to the loop which manually copies them into the
-        // slice tensors.
-        if (lastInputSplit) {
-          assert(lastWeightsSplit);
-          const auto remainingInChans =
-              lastInputSplit->dim(lastInputSplit->rank() - 1);
+            const auto inputDest =
+                inSlice.slice(0, remainingInChans, inSlice.rank() - 1);
+            const auto weightsDest = weightsSlice.slice(
+                0, remainingInChans, weightsSlice.rank() - 1);
 
-          const auto inputDest =
-              inSlice.slice(0, remainingInChans, inSlice.rank() - 1);
-          const auto weightsDest =
-              weightsSlice.slice(0, remainingInChans, weightsSlice.rank() - 1);
+            cpt.lastSlice = Sequence{
+                {
+                    Copy(*lastInputSplit, inputDest, false,
+                         {dnai, "inputSerialLastSlice" + levelSuffix}),
+                    Copy(*lastWeightsSplit, weightsDest, false,
+                         {dnai, "weightsSerialLastSlice" + levelSuffix}),
+                },
+                {dnai}};
 
-          cpt.lastSlice =
-              Sequence{{
-                           Copy(*lastInputSplit, inputDest, false,
-                                {dnai, "inputSerialLastSlice" + levelSuffix}),
-                           Copy(*lastWeightsSplit, weightsDest, false,
-                                {dnai, "weightsSerialLastSlice" + levelSuffix}),
-                       },
-                       {dnai}};
+            // The remaining channels in one of the slices will need clearing
+            // to ensure they don't contribute anything to the output of the
+            // convolution.
+            const auto inPadding = inSlice.slice(
+                remainingInChans, inChansPerSerialSplit, inSlice.rank() - 1);
+            const auto weightsPadding =
+                weightsSlice.slice(remainingInChans, inChansPerSerialSplit,
+                                   weightsSlice.rank() - 1);
 
-          // The remaining channels in one of the slices will need clearing
-          // to ensure they don't contribute anything to the output of the
-          // convolution.
-          const auto inPadding = inSlice.slice(
-              remainingInChans, inChansPerSerialSplit, inSlice.rank() - 1);
-          const auto weightsPadding = weightsSlice.slice(
-              remainingInChans, inChansPerSerialSplit, weightsSlice.rank() - 1);
-
-          // Assume clearing the smaller tensor is the cheapest option.
-          if (product(inPadding.shape()) < product(weightsPadding.shape())) {
-            popops::zero(graph, inPadding, *cpt.lastSlice,
-                         {dnai, "inputSerialLastSlice" + levelSuffix});
-          } else {
-            popops::zero(graph, weightsPadding, *cpt.lastSlice,
-                         {dnai, "weightsSerialLastSlice" + levelSuffix});
+            // Assume clearing the smaller tensor is the cheapest option.
+            if (product(inPadding.shape()) < product(weightsPadding.shape())) {
+              popops::zero(graph, inPadding, *cpt.lastSlice,
+                           {dnai, "inputSerialLastSlice" + levelSuffix});
+            } else {
+              popops::zero(graph, weightsPadding, *cpt.lastSlice,
+                           {dnai, "weightsSerialLastSlice" + levelSuffix});
+            }
           }
+        } else { // if(cpt.createVertices)
+          inSlice = inSliceOut.squeeze({0});
+          weightsSlice = weightsSliceOut.squeeze({0});
         }
       }
     }
@@ -2673,15 +2668,20 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
 
       const poplar::DebugContext debugContext = {dnai, "tileLevelActsCopy"};
 
-      cpt.transformPre[tileLevel].postTransposeActs.emplace_back(
-          inSlice, tileLevelActs, true, debugContext);
+      if (cpt.createVertices) {
+        cpt.transformPre[tileLevel].postTransposeActs.emplace_back(
+            inSlice, tileLevelActs, true, debugContext);
+      }
     }
-
-    calcPartialConvOutput(graph, plan, tile, parallelParams.getParams(),
-                          cpt.transformPre[level].postTransposeWeights,
-                          cpt.copyWritten, cpt.convolveCSGroup, tileLevelActs,
-                          weightsSlice, partials, options.use128BitConvUnitLoad,
-                          options.disableSRForAMPVertices, {dnai});
+    graph.setTileMapping(partials, tile);
+    if (cpt.createVertices) {
+      calcPartialConvOutput(graph, plan, tile, parallelParams.getParams(),
+                            cpt.transformPre[level].postTransposeWeights,
+                            cpt.copyWritten, cpt.convolveCSGroup, tileLevelActs,
+                            weightsSlice, partials,
+                            options.use128BitConvUnitLoad,
+                            options.disableSRForAMPVertices, {dnai});
+    }
     out = partials;
 
     if (level == createPartialsLevel) {
@@ -2788,21 +2788,31 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
           (numInChans != inChansPerSerialSplit) ? partialType : resultType;
       bool ascendingMapping = plan.linearizeTileDirection ==
                               Plan::LinearizeTileDirection::ASCENDING;
-      out = multiStageGroupedReduce(graph, partials, reducedType,
-                                    cpt.reduceOrCastComputeSets[level], options,
-                                    plan.startTile, ascendingMapping, {dnai});
+      out = createMultiStageGroupedReduceOutput(graph, partials, reducedType,
+                                                options, plan.startTile,
+                                                ascendingMapping, {dnai});
+      if (cpt.createVertices) {
+        multiStageGroupedReduceWithOutput(graph, out, partials, reducedType,
+                                          cpt.reduceOrCastComputeSets[level],
+                                          options, plan.startTile,
+                                          ascendingMapping, {dnai});
+      }
       out = unsplitActivationFromGroups(out);
     }
   }
 
   if (out.elementType() != resultType &&
       (level == tileLevel || numInChans == inChansPerSerialSplit)) {
-    if (cpt.reduceOrCastComputeSets[level].empty()) {
-      cpt.reduceOrCastComputeSets[level].push_back(
-          graph.addComputeSet({dnai, "Cast"}));
+    if (cpt.createVertices) {
+      if (cpt.reduceOrCastComputeSets[level].empty()) {
+        cpt.reduceOrCastComputeSets[level].push_back(
+            graph.addComputeSet({dnai, "Cast"}));
+      }
+      out = popops::cast(graph, out, resultType,
+                         cpt.reduceOrCastComputeSets[level][0], {dnai});
+    } else {
+      out = graph.clone(resultType, out, {dnai});
     }
-    out = popops::cast(graph, out, resultType,
-                       cpt.reduceOrCastComputeSets[level][0], {dnai});
   }
 
   // Inverse transform.
@@ -2819,24 +2829,24 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
 
     if (inChansAreSeriallySplit) {
       auto serialOut = graph.clone(out, {dnai, "/serialOut" + levelSuffix});
+      if (cpt.createVertices) {
+        // In the first iteration of the loop over serial input channel splits,
+        // just copy the output to a new clone. In future iterations sum the
+        // result with the result of the first iteration.
+        Sequence firstIterationBody, notFirstIterationBody;
+        firstIterationBody.add(Copy(
+            out, serialOut, false, {dnai, "/serialInChanAccum" + levelSuffix}));
+        popops::addInPlace(graph, serialOut, out, notFirstIterationBody,
+                           {dnai, "/serialInChanAccum" + levelSuffix});
+        cpt.update.add(If(loopCounter.reshape({}), notFirstIterationBody,
+                          firstIterationBody));
 
-      // In the first iteration of the loop over serial input channel splits,
-      // just copy the output to a new clone. In future iterations sum the
-      // result with the result of the first iteration.
-      Sequence firstIterationBody, notFirstIterationBody;
-      firstIterationBody.add(Copy(out, serialOut, false,
-                                  {dnai, "/serialInChanAccum" + levelSuffix}));
-      popops::addInPlace(graph, serialOut, out, notFirstIterationBody,
-                         {dnai, "/serialInChanAccum" + levelSuffix});
-      cpt.update.add(If(loopCounter.reshape({}), notFirstIterationBody,
-                        firstIterationBody));
-
-      // If the loop doesn't cover all serial splits then there will be an
-      // extra slice to be processed afterwards.
-      if (numInChans % inChansPerSerialSplit) {
-        cpt.lastUpdate = notFirstIterationBody;
+        // If the loop doesn't cover all serial splits then there will be an
+        // extra slice to be processed afterwards.
+        if (numInChans % inChansPerSerialSplit) {
+          cpt.lastUpdate = notFirstIterationBody;
+        }
       }
-
       out = serialOut;
     }
 
@@ -2872,50 +2882,57 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       }
 
       // Copy partials computed by the loop to the output tensor.
-      {
-        auto loopOut =
-            serialOut.slice(0, loopOutChanCount, serialOut.rank() - 1);
+      if (cpt.createVertices) {
+        {
+          auto loopOut =
+              serialOut.slice(0, loopOutChanCount, serialOut.rank() - 1);
 
-        loopOut = loopOut.reshapePartial(
-            loopOut.rank() - 1, loopOut.rank(),
-            {partition.outChanSplit.serial, out.dim(out.rank() - 1)});
+          loopOut = loopOut.reshapePartial(
+              loopOut.rank() - 1, loopOut.rank(),
+              {partition.outChanSplit.serial, out.dim(out.rank() - 1)});
 
-        loopOut = loopOut.dimRoll(loopOut.rank() - 2, 0);
+          loopOut = loopOut.dimRoll(loopOut.rank() - 2, 0);
 
-        popops::dynamicUpdate(graph, loopOut, out, loopCounter, {0}, {1},
-                              cpt.update, {dnai, "serialUpdate" + levelSuffix});
-      }
+          popops::dynamicUpdate(graph, loopOut, out, loopCounter, {0}, {1},
+                                cpt.update,
+                                {dnai, "serialUpdate" + levelSuffix});
+        }
 
-      // Copy partials computed after the loop to the output tensor.
-      if (numOutChans > loopOutChanCount) {
-        const auto remainingOutChanCount = numOutChans - loopOutChanCount;
+        // Copy partials computed after the loop to the output tensor.
+        if (numOutChans > loopOutChanCount) {
+          const auto remainingOutChanCount = numOutChans - loopOutChanCount;
 
-        const auto src =
-            out[0].slice(0, remainingOutChanCount, out[0].rank() - 1);
+          const auto src =
+              out[0].slice(0, remainingOutChanCount, out[0].rank() - 1);
 
-        const auto dest = serialOut.slice(loopOutChanCount, numOutChans,
-                                          serialOut.rank() - 1);
+          const auto dest = serialOut.slice(loopOutChanCount, numOutChans,
+                                            serialOut.rank() - 1);
 
-        cpt.lastUpdate =
-            Sequence{{Copy(src, dest, false,
-                           {dnai, "serialUpdateLastSlice" + levelSuffix})},
-                     {dnai}};
+          cpt.lastUpdate =
+              Sequence{{Copy(src, dest, false,
+                             {dnai, "serialUpdateLastSlice" + levelSuffix})},
+                       {dnai}};
+        }
       }
 
       out = serialOut;
 
       // WriteUndef the output as it is Read/Write in each iteration but in the
       // course of the entire loop is completely written.
-      cpt.transformPreSerial.writeUndef.emplace_back(out);
+      if (cpt.createVertices) {
+        cpt.transformPreSerial.writeUndef.emplace_back(out);
+      }
     }
 
     // common code for either serial splits.
-    if (inChansAreSeriallySplit || outChansAreSeriallySplit) {
-      // Increment counter
-      auto loopIncrement = graph.addConstant(UNSIGNED_INT, {}, 1, {dnai});
-      graph.setTileMapping(loopIncrement, 0);
-      popops::addInPlace(graph, loopCounter, loopIncrement, cpt.loopPost,
-                         {dnai, "loopIncrement" + levelSuffix});
+    if (cpt.createVertices) {
+      if (inChansAreSeriallySplit || outChansAreSeriallySplit) {
+        // Increment counter
+        auto loopIncrement = graph.addConstant(UNSIGNED_INT, {}, 1, {dnai});
+        graph.setTileMapping(loopIncrement, 0);
+        popops::addInPlace(graph, loopCounter, loopIncrement, cpt.loopPost,
+                           {dnai, "loopIncrement" + levelSuffix});
+      }
     }
   }
 
@@ -2923,8 +2940,12 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   // level) should be deferred until all the serial splits have executed.
   if ((out.elementType() != resultType) && level != tileLevel &&
       numInChans != inChansPerSerialSplit) {
-    out = popops::cast(graph, out, resultType, cpt.transformPostSerial.castCS,
-                       {dnai});
+    if (cpt.createVertices) {
+      out = popops::cast(graph, out, resultType, cpt.transformPostSerial.castCS,
+                         {dnai});
+    } else {
+      out = graph.clone(resultType, out, {dnai});
+    }
   }
 
   // Inverse transform.
@@ -3151,6 +3172,31 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                   cpt, {di, layerName}, options);
 
   cpt.lower(graph, prog, plan, options.insertTransformsCycleCountProgs, {di});
+  di.addOutput(out);
+  return out;
+}
+
+Tensor createConvOutput(poplar::Graph &graph, const ConvParams &params_,
+                        const poplar::DebugContext &debugContext,
+                        const poplar::OptionFlags &options,
+                        PlanningCache *cache) {
+  POPLIN_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params_, options, cache),
+                                 "createConvOutput");
+
+  const CanonicalConvParams params(params_);
+  const std::string layerName = "Conv_" + convSuffix(params);
+  poplar::ProfileValue::Map pv;
+  di.add("planInfo", pv);
+  const auto plan = getPlan(graph.getTarget(), params, options, cache, &pv);
+
+  auto weights = createWeights(graph, plan, params, {}, {di}, options);
+  auto in = createInput(graph, plan, params, {}, {di}, options);
+
+  ConvProgramTree cpt(graph, plan, {di, layerName});
+  cpt.createVertices = false;
+  auto out = convolutionInternal(graph, in, weights, plan, params, false, cpt,
+                                 {di, layerName}, options);
   di.addOutput(out);
   return out;
 }

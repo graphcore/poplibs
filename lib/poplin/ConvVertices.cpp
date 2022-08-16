@@ -2114,7 +2114,6 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
   auto in = castIfRequired(in_);
   auto weights = castIfRequired(weights_);
 
-  graph.setTileMapping(out, tile);
   in = splitActivationIntoGroups(in, plan.convGroupsPerGroup,
                                  plan.inChansPerGroup);
   weights =

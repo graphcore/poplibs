@@ -2511,6 +2511,20 @@ Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   return output;
 }
 
+Tensor createDynamicSliceOutput(Graph &graph, const Tensor &t,
+                                const Tensor &offset,
+                                const std::vector<std::size_t> &dims,
+                                const std::vector<std::size_t> &sizes,
+                                const DebugContext &debugContext,
+                                const OptionFlags &optionFlags) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, offset, dims, sizes));
+  auto output = dynamicSliceImpl(graph, t, offset, dims, sizes, boost::none,
+                                 optionFlags, {di});
+  di.addOutput(output);
+  return output;
+}
+
 void dynamicSliceWithOutput(
     poplar::Graph &graph, const poplar::Tensor &output, const poplar::Tensor &t,
     const poplar::Tensor &offset, const std::vector<std::size_t> &dims,

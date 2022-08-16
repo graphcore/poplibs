@@ -342,6 +342,27 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, const poplar::Tensor &t,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {});
 
+/** Create a tensor for use with `dynamicSliceWithOutput`.
+ *
+ *  Parameters, allowed options and the return values are the same as
+ * `dynamicSlice` except there is no `prog` parameter.
+ *
+ *  \param graph       The Poplar graph.
+ *  \param t           The source tensor.
+ *  \param offset      A tensor of offsets at which the output is extracted.
+ *  \param dims        The dimensions of \p t to slice.
+ *  \param sizes       The size of the slice in each of the dimensions in
+ *                     \p dims.
+ *  \param options     Option flags
+ *  \param debugContext Optional debug information.
+ *  \returns           The specified subtensor
+ **/
+poplar::Tensor createDynamicSliceOutput(
+    poplar::Graph &graph, const poplar::Tensor &t, const poplar::Tensor &offset,
+    const std::vector<std::size_t> &dims, const std::vector<std::size_t> &sizes,
+    const poplar::DebugContext &debugContext = {},
+    const poplar::OptionFlags &options = {});
+
 /** Slice a tensor based on offsets specified by a tensor.
  *
  *  \p dims gives the dimensions to slice, \p sizes defines the size of the

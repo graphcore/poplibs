@@ -30,8 +30,8 @@ namespace poplin {
 
 static void
 reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
-       bool enableFastReduce, unsigned thisStageRows, Tensor partials,
-       Tensor reduced,
+       bool enableFastReduce, unsigned thisStageRows, const Tensor &partials,
+       const Tensor &reduced,
        const std::vector<std::vector<Interval>> &reduceVertexMapping,
        ComputeSet reduceCS, const DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
@@ -124,19 +124,24 @@ reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
                          maxOutWidth);
 }
 
-static Tensor partialGroupedReduce(
-    Graph &graph, const std::vector<std::vector<unsigned>> &tileGroups,
+static void partialGroupedReduce(
+    Graph &graph, boost::optional<Tensor> &output,
+    const std::vector<std::vector<unsigned>> &tileGroups,
     const std::vector<std::vector<Interval>> &tileGroupRegions,
     std::map<unsigned, unsigned> tileToRow, bool enableFastReduce,
     const Tensor &partials, unsigned outDepth, const Type &resultType,
-    unsigned startTile, bool ascendingMapping, ComputeSet cs,
+    unsigned startTile, bool ascendingMapping, boost::optional<ComputeSet &> cs,
     const DebugNameAndId &dnai) {
   const auto partialsDepth = partials.dim(0);
   assert(partialsDepth >= outDepth);
   auto outDims = partials.shape();
   outDims[0] = outDepth;
+
   Tensor out =
-      graph.addVariable(resultType, outDims, {dnai, "partialReduceOut"});
+      output != boost::none
+          ? output.get()
+          : graph.addVariable(resultType, outDims, {dnai, "partialReduceOut"});
+
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto numTileGroups = tileGroupRegions.size();
@@ -168,72 +173,102 @@ static Tensor partialGroupedReduce(
                                         outSplitRegions[j].end());
       }
     }
-
-    graph.setTileMapping(out[i], outSubMapping);
+    if (!output) {
+      graph.setTileMapping(out[i], outSubMapping);
+    }
     logging::poplin::debug("    Reduction section with Depth {}, Height {}.",
                            end - begin, out[i].numElements());
-    reduce(graph, tileToRow, enableFastReduce, end - begin,
-           partials.slice(begin, end), out[i], outSubMapping, cs, {dnai});
+    if (cs) {
+      reduce(graph, tileToRow, enableFastReduce, end - begin,
+             partials.slice(begin, end), out[i], outSubMapping, *cs, {dnai});
+    }
   }
-  return out;
+  output = out;
 }
 
-static Tensor groupedReduce(
-    Graph &graph, const std::vector<std::vector<unsigned>> &tileGroups,
-    const std::vector<std::vector<Interval>> &tileGroupRegions,
-    std::map<unsigned, unsigned> tileToRow, bool enableFastReduce,
-    const Tensor &partials, const Type &resultType, unsigned startTile,
-    bool ascendingMapping, ComputeSet cs, const DebugNameAndId &dnai) {
-  return partialGroupedReduce(graph, tileGroups, tileGroupRegions, tileToRow,
-                              enableFastReduce, partials, 1, resultType,
-                              startTile, ascendingMapping, cs, dnai)
-      .reshape(partials[0].shape());
+static void
+groupedReduce(Graph &graph, boost::optional<Tensor> &output,
+              const std::vector<std::vector<unsigned>> &tileGroups,
+              const std::vector<std::vector<Interval>> &tileGroupRegions,
+              std::map<unsigned, unsigned> tileToRow, bool enableFastReduce,
+              const Tensor &partials, const Type &resultType,
+              unsigned startTile, bool ascendingMapping,
+              boost::optional<ComputeSet &> cs, const DebugNameAndId &dnai) {
+  bool outputProvided = output != boost::none;
+  if (outputProvided) {
+    // Insert an additional dimension to reduce over, assumed to be present
+    // when passed to partialGroupedReduce
+    output = output.get().expand({0});
+  }
+  partialGroupedReduce(graph, output, tileGroups, tileGroupRegions, tileToRow,
+                       enableFastReduce, partials, 1, resultType, startTile,
+                       ascendingMapping, cs, dnai);
+  if (!outputProvided) {
+    // Having reduced, return the output to the required shape
+    output = output.get().reshape(partials[0].shape());
+  }
 }
 
-static Tensor multiStageGroupedReduce(
-    Graph &graph, const std::vector<std::vector<unsigned>> &tileGroups,
+static void multiStageGroupedReduce(
+    Graph &graph, boost::optional<Tensor> &reduced,
+    const std::vector<std::vector<unsigned>> &tileGroups,
     const std::vector<std::vector<Interval>> &tileGroupRegions,
-    std::map<unsigned, unsigned> tileToRow, Tensor partials,
-    const Type &resultType, std::vector<ComputeSet> &computeSets,
+    std::map<unsigned, unsigned> tileToRow, const Tensor &partials,
+    const Type &resultType,
+    boost::optional<std::vector<ComputeSet> &> computeSets,
     const ConvOptions &options, unsigned startTile, bool ascendingMapping,
     const poplar::DebugNameAndId &dnai) {
   const auto partialsDepth = partials.dim(0);
   auto plan =
       getMultiStageReducePlan(partialsDepth, options.enableMultiStageReduce);
-  for (unsigned i = computeSets.size(); i <= plan.size(); ++i) {
-    computeSets.push_back(
-        graph.addComputeSet({dnai, "Reduce" + std::to_string(i)}));
+  if (computeSets) {
+    for (unsigned i = computeSets.get().size(); i <= plan.size(); ++i) {
+      computeSets.get().push_back(
+          graph.addComputeSet({dnai, "Reduce" + std::to_string(i)}));
+    }
   }
   const auto partialsType = partials.elementType();
   logging::poplin::debug("  Multistage: {} stages", plan.size() + 1);
+  boost::optional<Tensor> partialsToReduce = partials;
   for (unsigned i = 0; i != plan.size(); ++i) {
     logging::poplin::debug("  Stage {}:", i);
     std::string stepDebugPrefix = "";
     if (plan.size() > 1)
       stepDebugPrefix += "Stage" + std::to_string(i);
-    partials = partialGroupedReduce(
-        graph, tileGroups, tileGroupRegions, tileToRow,
-        options.enableFastReduce, partials, plan[i], partialsType, startTile,
-        ascendingMapping, computeSets[i], {dnai, stepDebugPrefix});
+    boost::optional<ComputeSet &> cs;
+    if (computeSets) {
+      cs = computeSets.get()[i];
+    }
+    // Provide an output variable for the partialGroupedReduce function,
+    // which is an optional as in other cases an output tensor would be
+    // provided. partialsToReduce is the output from the last planned stage
+    // (pass of the loop)
+    boost::optional<Tensor> partialsOut;
+    partialGroupedReduce(
+        graph, partialsOut, tileGroups, tileGroupRegions, tileToRow,
+        options.enableFastReduce, partialsToReduce.get(), plan[i], partialsType,
+        startTile, ascendingMapping, cs, {dnai, stepDebugPrefix});
+    partialsToReduce = partialsOut;
   }
   logging::poplin::debug("  Last stage:");
-  auto reduced =
-      groupedReduce(graph, tileGroups, tileGroupRegions, tileToRow,
-                    options.enableFastReduce, partials, resultType, startTile,
-                    ascendingMapping, computeSets[plan.size()], {dnai});
-  return reduced;
+  boost::optional<ComputeSet &> cs;
+  if (computeSets) {
+    cs = computeSets.get()[plan.size()];
+  }
+  groupedReduce(graph, reduced, tileGroups, tileGroupRegions, tileToRow,
+                options.enableFastReduce, partialsToReduce.get(), resultType,
+                startTile, ascendingMapping, cs, {dnai});
 }
 
-Tensor multiStageGroupedReduce(Graph &graph, Tensor partials,
-                               const Type &resultType,
-                               std::vector<ComputeSet> &computeSets,
-                               const ConvOptions &options, unsigned startTile,
-                               bool ascendingMapping,
-                               const DebugNameAndId &dnai) {
+static void multiStageGroupedReduceInternal(
+    Graph &graph, boost::optional<Tensor> &output, const Tensor &partials,
+    const Type &resultType,
+    boost::optional<std::vector<ComputeSet> &> computeSets,
+    const ConvOptions &options, unsigned startTile, bool ascendingMapping,
+    const DebugNameAndId &dnai) {
   const auto numTiles = graph.getTarget().getNumTiles();
   const auto partialsDepth = partials.dim(0);
-  logging::poplin::debug("Creating poplin::reduce vertices, debugStr: {}",
-                         dnai.getPathName());
+
   std::map<unsigned, unsigned> tileToRow;
   // Build a map from the output to the set of tiles that contribute partial
   // sums.
@@ -273,9 +308,55 @@ Tensor multiStageGroupedReduce(Graph &graph, Tensor partials,
     tileGroups.emplace_back(entry.first.begin(), entry.first.end());
     tileGroupRegions.push_back(std::move(entry.second));
   }
-  return multiStageGroupedReduce(graph, tileGroups, tileGroupRegions, tileToRow,
-                                 partials, resultType, computeSets, options,
-                                 startTile, ascendingMapping, {dnai});
+  multiStageGroupedReduce(graph, output, tileGroups, tileGroupRegions,
+                          tileToRow, partials, resultType, computeSets, options,
+                          startTile, ascendingMapping, {dnai});
+}
+
+Tensor multiStageGroupedReduce(Graph &graph, const Tensor &partials,
+                               const Type &resultType,
+                               std::vector<ComputeSet> &computeSets,
+                               const ConvOptions &options, unsigned startTile,
+                               bool ascendingMapping,
+                               const DebugNameAndId &dnai) {
+  logging::poplin::debug("multiStageGroupedReduce: "
+                         "Creating poplin::reduce vertices, debugStr: {}",
+                         dnai.getPathName());
+  boost::optional<Tensor> optOut;
+  multiStageGroupedReduceInternal(graph, optOut, partials, resultType,
+                                  computeSets, options, startTile,
+                                  ascendingMapping, dnai);
+  return optOut.get();
+}
+
+Tensor createMultiStageGroupedReduceOutput(Graph &graph, const Tensor &partials,
+                                           const Type &resultType,
+                                           const ConvOptions &options,
+                                           unsigned startTile,
+                                           bool ascendingMapping,
+                                           const DebugNameAndId &dnai) {
+  logging::poplin::debug("CreateMultiStageGroupedReduceOutput: "
+                         "Creating poplin::reduce output, debugStr: {}",
+                         dnai.getPathName());
+  boost::optional<std::vector<ComputeSet> &> optionalComputeSets;
+  boost::optional<Tensor> optOut;
+  multiStageGroupedReduceInternal(graph, optOut, partials, resultType,
+                                  optionalComputeSets, options, startTile,
+                                  ascendingMapping, dnai);
+  return optOut.get();
+}
+
+void multiStageGroupedReduceWithOutput(
+    Graph &graph, const Tensor &output, const Tensor &partials,
+    const Type &resultType, std::vector<ComputeSet> &computeSets,
+    const ConvOptions &options, unsigned startTile, bool ascendingMapping,
+    const DebugNameAndId &dnai) {
+  logging::poplin::debug("multiStageGroupedReduceWithOutput: Creating "
+                         "poplin::reduce vertices, debugStr: {}",
+                         dnai.getPathName());
+  boost::optional<Tensor> out = output;
+  multiStageGroupedReduceInternal(graph, out, partials, resultType, computeSets,
+                                  options, startTile, ascendingMapping, dnai);
 }
 
 } // namespace poplin
