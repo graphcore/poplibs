@@ -34,13 +34,60 @@ static bool validateRegionSizeForMultiVertex(
   return true;
 }
 
+// This is based on the macros that reference `CastVertexName` in
+// elemwiseMiscCodelets.cpp
+static void validateCastTypes(const Type &srcType, const Type &dstType) {
+  if (srcType == QUARTER || dstType == QUARTER) {
+    // If either type is quarter we can cast to/from a limited range of types
+    const std::array<Type, 5> allowed = {HALF, CHAR, UNSIGNED_CHAR, SIGNED_CHAR,
+                                         QUARTER};
+    auto otherType = srcType == QUARTER ? dstType : srcType;
+    if (std::find(allowed.begin(), allowed.end(), otherType) != allowed.end()) {
+      return;
+    }
+  } else if (srcType == dstType) {
+    // Any type other than QUARTER, a cast to the same type is just a copy
+    // so all combinations are possible
+    return;
+  } else if (dstType == UNSIGNED_LONGLONG || dstType == LONGLONG) {
+    // We can cast to LONG types from other integral types, including just a
+    // copy when the type is another LONG type
+    const std::array<Type, 10> allowed = {
+        SHORT, UNSIGNED_SHORT, BOOL,        UNSIGNED_INT,      INT,
+        CHAR,  UNSIGNED_CHAR,  SIGNED_CHAR, UNSIGNED_LONGLONG, LONGLONG};
+    if (std::find(allowed.begin(), allowed.end(), srcType) != allowed.end()) {
+      return;
+    }
+  } else {
+    // We can cast to/from all of these types
+    const std::array<Type, 10> allowed = {
+        CHAR, SIGNED_CHAR, UNSIGNED_CHAR, FLOAT,          HALF,
+        INT,  SHORT,       UNSIGNED_INT,  UNSIGNED_SHORT, BOOL};
+    bool srcFound =
+        std::find(allowed.begin(), allowed.end(), srcType) != allowed.end();
+    bool dstFound =
+        std::find(allowed.begin(), allowed.end(), dstType) != allowed.end();
+    if (srcFound && dstFound) {
+      return;
+    }
+  }
+  throw poputil::poplibs_error("Casting from " + srcType.toString() + " to " +
+                               dstType.toString() + " is not supported");
+}
+
 static void castImpl(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
-  assert(src.shape() == dst.shape());
+
+  const auto srcType = src.elementType();
+  const auto dstType = dst.elementType();
+  validateCastTypes(srcType, dstType);
+  if (src.shape() != dst.shape()) {
+    throw poplibs_error(
+        "Attempting to cast between tensors with different shapes");
+  }
+
   src = src.flatten();
   dst = dst.flatten();
   graph.reorderToSimplify(&dst, {&src}, false);
-  const auto srcType = src.elementType();
-  const auto dstType = dst.elementType();
 
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getFloatVectorWidth();

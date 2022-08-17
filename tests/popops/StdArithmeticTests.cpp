@@ -1398,6 +1398,29 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter) {
   }
   BOOST_TEST(outMetadata == inMetadata);
 }
+BOOST_AUTO_TEST_CASE(CastCheckThrow) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  auto prog = Sequence();
+
+  // Checks for illegal casts src/dst type combinations
+  auto a = graph.addVariable(QUARTER, {DIM_SIZE}, "a");
+  BOOST_CHECK_THROW(cast(graph, a, FLOAT, prog, "CastToFloat"),
+                    poputil::poplibs_error);
+
+  auto b = graph.addVariable(FLOAT, {DIM_SIZE}, "b");
+  BOOST_CHECK_THROW(cast(graph, b, UNSIGNED_LONG, prog, "CastToULong"),
+                    poputil::poplibs_error);
+
+  // Test for shape mismatch - using compute set API as it includes the
+  // output tensor which intentionally has a different shape to the input
+  auto c = graph.addVariable(HALF, {2 * DIM_SIZE}, "c");
+  auto cs = graph.addComputeSet("castToHalf");
+  BOOST_CHECK_THROW(cast(graph, b, c, cs), poputil::poplibs_error);
+}
 
 BOOST_AUTO_TEST_CASE(
     StdaXMinusbY_float_tensor_and_const,
