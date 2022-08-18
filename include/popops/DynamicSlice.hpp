@@ -832,6 +832,62 @@ SlicePlan plan(const poplar::Graph &graph, const poplar::Type &dataType,
                const std::vector<std::size_t> &numLookups,
                const poplar::OptionFlags &options);
 
+/**
+ * @brief
+ * A complete collection of the parameters required to compute a plan for
+ * slice/update operations.
+ */
+struct SlicePlanningParameters {
+  /** The graph the operation will be added to. */
+  const poplar::Graph &graph;
+  /** The data type of the entries in the embedding matrix
+   *  and the resulting lookups from the matrix. */
+  const poplar::Type dataType;
+  /** The group size. */
+  const std::size_t groupSize = 1;
+  /** Input size of embedding matrix. */
+  const std::size_t numEntries;
+  /** Output size of embedding matrix lookup. */
+  const std::size_t outputSize;
+  /** Vector of numbers of indices which will be looked up in the embedding
+   * matrix. */
+  const std::vector<std::size_t> numLookups;
+  /** Set of option flags controlling how the operation will be implemented. */
+  const poplar::OptionFlags optionFlags;
+
+  SlicePlanningParameters(const poplar::Graph &graph,
+                          const poplar::Type &dataType,
+                          const std::size_t groupSize,
+                          const std::size_t numEntries,
+                          const std::size_t outputSize,
+                          const std::vector<std::size_t> &numLookups,
+                          const poplar::OptionFlags &optionFlags)
+      : graph(graph), dataType(dataType), groupSize(groupSize),
+        numEntries(numEntries), outputSize(outputSize), numLookups(numLookups),
+        optionFlags(optionFlags){};
+  SlicePlanningParameters(const poplar::Graph &graph,
+                          const poplar::Type &dataType,
+                          const std::size_t numEntries,
+                          const std::size_t outputSize,
+                          const std::vector<std::size_t> &numLookups,
+                          const poplar::OptionFlags &optionFlags)
+      : graph(graph), dataType(dataType), numEntries(numEntries),
+        outputSize(outputSize), numLookups(numLookups),
+        optionFlags(optionFlags){};
+};
+
+/** Create multiple plans for implementing a set of operations on an
+ *  embedding matrix. The plans are computed in parallel.
+ *
+ *  \param spds    A vector of parameters to compute slice plans for. For more
+ * information about the individual parameters see \p SlicePlanningParameters
+ * and \p plan.
+ *
+ *  \returns       A vector of slice plans for each
+ * `SlicePlanningParameters` object passed as input.
+ */
+std::vector<SlicePlan>
+planMultiple(const std::vector<SlicePlanningParameters> &spds);
 } // end namespace embedding
 
 } // end namespace popops

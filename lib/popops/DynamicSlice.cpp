@@ -41,6 +41,8 @@
 
 #include <boost/optional.hpp>
 
+#include <tbb/parallel_for.h>
+
 #include <algorithm>
 #include <boost/range/adaptor/reversed.hpp>
 #include <cassert>
@@ -4929,6 +4931,18 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
                const OptionFlags &optionFlags) {
   return planInternal(graph, dataType, groupSize, numEntries, outputSize,
                       numLookups, optionFlags);
+}
+
+std::vector<SlicePlan>
+planMultiple(const std::vector<SlicePlanningParameters> &spds) {
+  std::vector<SlicePlan> slicePlans(spds.size());
+  tbb::parallel_for<std::size_t>(0, spds.size(), [&](std::size_t i) {
+    auto &spd = spds[i];
+    slicePlans[i] =
+        planInternal(spd.graph, spd.dataType, spd.groupSize, spd.numEntries,
+                     spd.outputSize, spd.numLookups, spd.optionFlags);
+  });
+  return slicePlans;
 }
 
 } // end namespace embedding

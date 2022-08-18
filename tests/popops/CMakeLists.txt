@@ -424,7 +424,7 @@ add_unit_test(GatherSimpleTest GatherSimpleTest.cpp VARIANTS ${IPUMODEL_VARIANTS
 add_unit_test(GatherTest GatherTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(HostSliceTensorTest HostSliceTensorTest.cpp VARIANTS ${SIM_VARIANTS})
 add_unit_test(MapExprOptimisations MapExprOptimisations.cpp)
-
+add_unit_test(PlanMultipleCorrectnessTest PlanMultipleCorrectnessTest.cpp)
 
 
 # MapFusionTests
