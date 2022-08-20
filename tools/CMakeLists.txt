@@ -17,7 +17,7 @@ endfunction()
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH $ORIGIN)
 
-add_library(conv_analysis src/conv_analysis.cpp)
+add_library(conv_analysis STATIC src/conv_analysis.cpp)
 target_include_directories(conv_analysis PUBLIC src)
 target_link_libraries(conv_analysis
                       poplibs_support
