@@ -1680,7 +1680,7 @@ runPlanner(const ConvDescription &conv,
 
   // Note validateLayerParams may change the options.
   ConvOptions options = conv.options;
-  validateLayerParams(ccParams.getParams(), target, options);
+  validateLayerParams(ccParams.getParams(), target, options, "Convolution");
 
   const auto availableTileMem =
       target.getBytesPerTile() * options.availableMemoryProportion;
@@ -1868,7 +1868,8 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
     auto fwdOptions =
         getFullyConnectedPassOptions(options, Pass::FC_TRAINING_FWD);
     // Call validateLayerParams() to update the options if necessary.
-    validateLayerParams(fwdParams.getParams(), target, fwdOptions);
+    validateLayerParams(fwdParams.getParams(), target, fwdOptions,
+                        "Convolution");
     const auto fwdPlan = getPlan(target, fwdParams, fwdOptions, cache, pv);
     if (fwdPlan.isJointPlan) {
       if (options.pass == Pass::FC_TRAINING_WU) {

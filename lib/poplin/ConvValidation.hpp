@@ -13,7 +13,8 @@ class ConvOptions;
 // Check the parameters and the options for a layer. The options may be
 // updated as a side effect.
 void validateLayerParams(const ConvParams &params, const poplar::Target &target,
-                         ConvOptions &options);
+                         ConvOptions &options,
+                         const std::string &callingFnName);
 
 } // namespace poplin
 

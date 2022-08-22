@@ -2,6 +2,7 @@
 #include "poplin/MatMul.hpp"
 #include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
+#include "ConvValidation.hpp"
 #include "MatMulInternal.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/StructHelper.hpp"
@@ -392,6 +393,9 @@ static poplar::Tensor matMulImpl(poplar::Graph &graph, const poplar::Tensor &A,
         graph, weightsView.dimShuffle({0, 2, 1, 3}), convParams, prog,
         {dnai, "weightTranspose"}, convOptions, cache);
   }
+  auto convOptionsToValidate = ConvOptions(convOptions);
+  validateLayerParams(convParams, graph.getTarget(), convOptionsToValidate,
+                      "Matrix multiply");
   auto out = poplin::convolution(graph, actsView, weightsView, convParams,
                                  false, prog, {dnai}, convOptions, cache);
   out = matrixFromConvActivations(out, numGroups);
@@ -460,6 +464,9 @@ static void matMulWithOutputImpl(poplar::Graph &graph, const poplar::Tensor &A,
   }
   std::vector<std::size_t> outShape = {out.dim(1), out.dim(0) * out.dim(2), 1};
   auto out_ = out.reshape(outShape);
+  auto convOptionsToValidate = ConvOptions(convOptions);
+  validateLayerParams(convParams, graph.getTarget(), convOptionsToValidate,
+                      "Matrix multiply");
   poplin::convolutionWithOutput(graph, actsView, weightsView, out_, convParams,
                                 false, prog, {dnai}, convOptions, cache);
   out = matrixFromConvActivations(out_, A.dim(0));
@@ -600,6 +607,11 @@ static poplar::Tensor createMatMulInputLHSImpl(
 
   auto convParams = getConvParams(inputType, outputType, aShape, bShape);
   auto convOptions = getConvOptionFlags(options);
+
+  auto convOptionsToValidate = ConvOptions(convOptions);
+  validateLayerParams(convParams, graph.getTarget(), convOptionsToValidate,
+                      "Matrix multiply");
+
   auto convInput =
       poplin::createInput(graph, convParams, {dnai}, convOptions, cache);
   return matrixFromConvActivations(convInput, convParams.numConvGroups);
@@ -612,6 +624,10 @@ poplar::Tensor createMatMulInputRHSImpl(
     const MatMulOptions &options, PlanningCache *cache) {
   auto convParams = getConvParams(inputType, outputType, aShape, bShape);
   const auto convOptions = getConvOptionFlags(options);
+
+  auto convOptionsToValidate = ConvOptions(convOptions);
+  validateLayerParams(convParams, graph.getTarget(), convOptionsToValidate,
+                      "Matrix multiply");
 
   auto convWeights =
       poplin::createWeights(graph, convParams, {dnai}, convOptions, cache);

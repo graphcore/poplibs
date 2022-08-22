@@ -10,7 +10,8 @@ using namespace poplibs_support;
 
 void poplin::validateLayerParams(const ConvParams &params,
                                  const poplar::Target &target,
-                                 ConvOptions &options) {
+                                 ConvOptions &options,
+                                 const std::string &callingFnName) {
   const struct {
     poplar::Type type;
     const char *name;
@@ -24,7 +25,8 @@ void poplin::validateLayerParams(const ConvParams &params,
   for (const auto &entry : typesToCheck) {
     if (entry.type != poplar::HALF && entry.type != poplar::FLOAT &&
         entry.type != poplar::QUARTER) {
-      throw poputil::poplibs_error(std::string("Unsupported ") + entry.name +
+      throw poputil::poplibs_error(std::string("Unsupported ") + callingFnName +
+                                   " " + entry.name +
                                    " (must be float, half or quarter)");
     }
   }
@@ -41,7 +43,8 @@ void poplin::validateLayerParams(const ConvParams &params,
     if (target.getTypeSize(partialType.type) <
         target.getTypeSize(params.outputType)) {
       logging::poplin::warn(
-          "Ignoring {} ({}) which is smaller than the output type ({})",
+          callingFnName +
+              ": Ignoring {} ({}) which is smaller than the output type ({})",
           partialType.name, partialType.type.toString(),
           params.outputType.toString());
       partialType.type = params.outputType;
@@ -49,13 +52,17 @@ void poplin::validateLayerParams(const ConvParams &params,
   }
   if (params.inputType == poplar::QUARTER) {
     if (params.outputType != poplar::HALF) {
-      throw poputil::poplibs_error("When the input type is quarter, the output"
+      throw poputil::poplibs_error("When the input type for a " +
+                                   callingFnName +
+                                   " is quarter, the output"
                                    " type must be half, not " +
                                    params.outputType.toString());
     }
     for (const auto &partialType : partialTypes) {
       logging::poplin::warn(
-          "Selecting partial type HALF which is the only valid option where"
+          "Selecting partial type HALF which is the only valid option for " +
+          callingFnName +
+          " where"
           " the input is of type QUARTER");
       partialType.type = poplar::HALF;
     }

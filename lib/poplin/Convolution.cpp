@@ -3926,7 +3926,7 @@ PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
                                    PlanningCache *cache) {
   ConvOptions options(options_);
   // Note validateLayerParams may change the options.
-  validateLayerParams(params, graph.getTarget(), options);
+  validateLayerParams(params, graph.getTarget(), options, "Convolution");
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   std::size_t cycles, memory;
   std::tie(cycles, memory) =
@@ -3955,7 +3955,7 @@ DetailedPlanCosts reportDetailedPlanEstimatedCosts(
     const poplar::OptionFlags &options_, PlanningCache *cache) {
   ConvOptions options(options_);
   // Note validateLayerParams may change the options.
-  validateLayerParams(params, graph.getTarget(), options);
+  validateLayerParams(params, graph.getTarget(), options, "Convolution");
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   return estimateDetailedConvCost(graph.getTarget(), params, options, cache,
                                   plan);
@@ -3968,7 +3968,7 @@ void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const poplar::OptionFlags &options_, PlanningCache *cache) {
   ConvOptions options(options_);
   // Note validateLayerParams may change the options.
-  validateLayerParams(params, graph.getTarget(), options);
+  validateLayerParams(params, graph.getTarget(), options, "Convolution");
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   if (options.pass != Pass::FC_TRAINING_WU &&
       options.pass != Pass::FC_TRAINING_BWD) {
