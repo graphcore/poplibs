@@ -41,7 +41,7 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
 
     int workerSize = batchSize / nWorker;
     int leftover = batchSize % nWorker;
-    std::vector<int> worklist(nWorker * 3);
+    std::vector<unsigned short> worklist(nWorker * 3);
     int offset = 0;
 
     // Distrubute batchSize between workers as even as possible

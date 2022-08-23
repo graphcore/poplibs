@@ -320,7 +320,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
     transformVertexClass = "popnn::LossCrossEntropyTransform";
     break;
   default:
-    throw poplibs_error("Unknown loss type requested in calcLoss");
+    throw poplibs_error("calcLoss: Unknown loss type requested in calcLoss");
     break;
   }
 
@@ -354,8 +354,18 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
   // transform. This does this explicitly here for such label.
   if (lossType == CROSS_ENTROPY_LOSS && deltas.rank() == 2 &&
       expected.numElements() > 1) {
-    auto maskedLabelCode = graph.addConstant(expected.elementType(), {},
-                                             MASKED_LABEL_CODE, {dnai});
+    auto maskedLabelCode = [&]() {
+      if (expected.elementType() == poplar::INT) {
+        return graph.addConstant(expected.elementType(), {},
+                                 static_cast<int>(MASKED_LABEL_CODE), {dnai});
+      } else if (expected.elementType() == poplar::UNSIGNED_INT) {
+        return graph.addConstant(expected.elementType(), {}, MASKED_LABEL_CODE,
+                                 {dnai});
+      } else {
+        throw poplibs_error("calcLoss: Unexpected 'expected' tensor type, only "
+                            "UNSIGNED_INT or INT are supported");
+      }
+    }();
     graph.setTileMapping(maskedLabelCode, 0);
     auto nonMaskedLabels =
         popops::neq(graph, expected, maskedLabelCode, prog, {dnai});

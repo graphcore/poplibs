@@ -240,7 +240,7 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
 
       // build index tensor
       const auto regionSize = regions.size();
-      std::vector<unsigned> offsets(regionSize);
+      std::vector<T> offsets(regionSize);
       for (unsigned i = 0; i != regionSize; ++i) {
         offsets[i] = regions[i].begin() + startInteger;
       }

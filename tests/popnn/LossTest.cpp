@@ -228,18 +228,16 @@ static bool lossTest(const LossType lossType, std::size_t batchSize,
   getExpected(hostActivations, hostExpected, randomEngine, maskLabels);
   copyLabels(expectedType, hostExpected, rawHostExpected.get());
 
-  auto deltasScale =
-      graph.addConstant(deltas.elementType(), {}, scaleForDeltas);
-  auto tModelOutputScaling =
-      graph.addConstant(deltas.elementType(), {}, modelOutputScaling);
+  auto deltasScale = graph.addConstant(deltas.elementType(), {}, scaleForDeltas,
+                                       "scaleForDeltas");
+  auto tModelOutputScaling = graph.addConstant(
+      deltas.elementType(), {}, modelOutputScaling, "modelOutputScaling");
   graph.setTileMapping(deltasScale, 0);
   graph.setTileMapping(tModelOutputScaling, 0);
   auto prog =
       (lossType == LossType::CROSS_ENTROPY_LOSS && scaling)
-          ?
-          // (modelOutputScaling != 1.0)) ?
-          calcLoss(graph, activations, expected, loss, deltas, deltasScale,
-                   tModelOutputScaling, lossType)
+          ? calcLoss(graph, activations, expected, loss, deltas, deltasScale,
+                     tModelOutputScaling, lossType)
           : calcLoss(graph, activations, expected, loss, deltas, lossType);
 
   Engine engine(graph, Sequence{uploadProg, prog, downloadProg});
@@ -260,7 +258,6 @@ static bool lossTest(const LossType lossType, std::size_t batchSize,
       boost::extents[batchSize][numClasses]);
   boost::multi_array<double, 1> modelLoss(boost::extents[batchSize]);
   bool scaledLoss = (lossType == LossType::CROSS_ENTROPY_LOSS) && scaling;
-  //(modelOutputScaling != 1.0);
   getModelLossAndDeltas(lossType, hostActivations, hostExpected, modelDeltas,
                         modelLoss, fpType, scaledLoss ? scaleForDeltas : 1.0f,
                         scaledLoss ? modelOutputScaling : 1.0f);
