@@ -22,7 +22,7 @@ using CountedLoopBodyType =
  *  The loop count is passed to the body program.
  *
  *  The program is equivalent to:
- *  \code
+ *  \code{.cpp}
  *  for(unsigned i = begin; i != end; i += step){
  *    body;
  *  }
@@ -47,7 +47,7 @@ countedLoop(poplar::Graph &graph, std::size_t begin, std::size_t end,
  *  The loop count is passed to the body program.
  *
  *  The program is equivalent to:
- *  \code
+ *  \code{.cpp}
  *  for(unsigned i = 0; i != count; i += 1){
  *    body;
  *  }
@@ -84,7 +84,7 @@ poplar::Tensor addForLoopCounterVertex(poplar::Graph &graph,
  *  loop program so it can be passed to the body program.
  *
  *  The program is equivalent to:
- *  \code
+ *  \code{.cpp}
  *  for(unsigned count = initialCount; count != countLimit; count += countStep){
  *    body;
  *  }
@@ -118,7 +118,7 @@ countedForLoop(poplar::Graph &graph, const poplar::Tensor &count,
  *  program.
  *
  *  The program is equivalent to:
- *  \code
+ *  \code{.cpp}
  *  for(unsigned count = initialCount; count != countLimit; count += countStep){
  *    body;
  *  }
