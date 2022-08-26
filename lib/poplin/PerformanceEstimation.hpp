@@ -1369,8 +1369,8 @@ inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimateQuarter(
       if (outputStride == 1 && implicitZeroing) {
         if (numFieldElems < loopDecisionThresholdStride1) {
           const auto commonPathAsmCycles = 8u;
-          const std::array<unsigned, loopDecisionThresholdStride1 - 1> cycles =
-              {3, 5, 9, 10};
+          const std::array<unsigned, loopDecisionThresholdStride1> cycles = {
+              0, 3, 5, 9, 10};
           rowCycles += commonPathAsmCycles + cycles[numFieldElems];
         } else {
           rowCycles += 14 + (numFieldElems - loopDecisionThresholdStride1);
@@ -1381,8 +1381,8 @@ inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimateQuarter(
 
         if (numFieldElems < loopDecisionThresholdStride1) {
           const auto commonPathAsmCycles = 2u;
-          const std::array<unsigned, loopDecisionThresholdStride1 - 1> cycles =
-              {8, 10, 13, 13};
+          const std::array<unsigned, loopDecisionThresholdStride1> cycles = {
+              0, 8, 10, 13, 13};
           rowCycles += commonPathAsmCycles + cycles[numFieldElems];
         } else {
           rowCycles += 12 + (numFieldElems - loopDecisionThresholdStride1);
