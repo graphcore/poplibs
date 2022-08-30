@@ -475,46 +475,48 @@ public:
 
     const unsigned ampKernelHeight = ampKernelHeightM1 + 1;
     const unsigned kernelInnerElements = kernelInnerElementsM1 + 1;
+    SET_ADDR(workerFunction,
+             "__runCodelet_poplin__WorkerClassNx1___unsigned_short_16")
+
+    auto outIt = out.begin();
+    auto weightIt = weights.begin() + numOutGroups;
 
     for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
+      weightIt--;
       for (unsigned og = 0; og < numOutGroups; ++og) {
-        workerState.outChanPtr = &out[cg * numOutGroups + og][0];
+        workerState.outChanPtr = reinterpret_cast<half *>(&(*outIt++)[0]);
+        auto inChanIt = in.begin() + cg * numInGroups;
+
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
+          workerState.inChanPtr =
+              reinterpret_cast<const quarter *>(&(*inChanIt++)[0]);
           auto partitionList = reinterpret_cast<unsigned *>(*(wlStatePtr + 1) &
                                                             DELTAN_OFFSET_MASK);
           workerState.partitionList = partitionList;
-          const auto &w = weights[cg * numOutGroups * numInGroups +
-                                  ig * numOutGroups + (numOutGroups - 1 - og)];
-
+          auto weightPtr = &(*weightIt)[0];
           for (unsigned ky = 0; ky <= kernelOuterSizeM1; ++ky) {
             for (unsigned kx = 0; kx < kernelInnerElements; ++kx) {
-
               // Amp kernel height loop extracted out - supervisor function,
               // affecting weight load.
-              const auto weightIndex = ky * ampKernelHeight *
-                                           kernelInnerElements *
-                                           outChansPerGroup * inChansPerGroup +
-                                       kx * outChansPerGroup * inChansPerGroup;
-              SET_ADDR(
-                  workerFunction,
-                  "__runCodelet_poplin__WorkerClassNx1___unsigned_short_16")
               // Don't change weights or workerState until synced
-              __builtin_ipu_put(reinterpret_cast<unsigned>(&w[weightIndex]),
+              __builtin_ipu_put(reinterpret_cast<unsigned>(weightPtr),
                                 CSR_S_CCCSLOAD__INDEX);
+              weightPtr += outChansPerGroup * inChansPerGroup;
               syncWorkers();
               ampLoadWeights<use128BitLoad, numConvUnits>();
-              workerState.inChanPtr = &in[cg * numInGroups + ig][0];
               workerState.partitionList = partitionList;
 
               runAll(workerFunction, &workerState);
               partitionList += CTXT_WORKERS;
-            }
-          }
+            } // kx
+            weightPtr += ampKernelHeightM1 * kernelInnerElements *
+                         outChansPerGroup * inChansPerGroup;
+          } // ky
           // Outer loops can change worker state too, so sync
           syncWorkers();
-        }
-      }
-    }
+        } // ig
+      }   // og
+    }     // cg
     syncWorkers();
     if constexpr (disableSR) {
       putFPICTL(srStore);

@@ -314,24 +314,29 @@ public:
     workerState.strides = packStrides(transformedInStride,
                                       inOutStrides & strideMask, numStrideBits);
 
-    for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
-      for (unsigned og = 0; og < numOutGroups; ++og) {
+    auto outIt = out.begin();
+    auto weightsItBase = weights.begin() + numOutGroups - 1;
+    for (unsigned og = 0; og < numOutGroups; ++og) {
+      auto inIt = in.begin();
+      auto weightsIt = weightsItBase;
+      weightsItBase--;
+      for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
         unsigned *workerFunction;
         SET_ADDR(workerFunction,
                  "__runCodelet_poplin__WorkerClass1x1___unsigned_short_true_16")
         // Don't change weights or workerState until synced
         syncWorkers();
-        workerState.outChanPtr = &out[cg * numOutGroups + og][0];
+        workerState.outChanPtr = reinterpret_cast<half *>(&(*outIt++)[0]);
+
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
-          const auto *w =
-              &weights[cg * numOutGroups * numInGroups + ig * numOutGroups +
-                       (numOutGroups - 1 - og)][0];
           // Don't change weights or workerState until synced
-          __builtin_ipu_put(reinterpret_cast<unsigned>(w),
+          __builtin_ipu_put(reinterpret_cast<unsigned>(&(*weightsIt)[0]),
                             CSR_S_CCCSLOAD__INDEX);
+          weightsIt += numOutGroups;
           syncWorkers();
           ampLoadWeights<use128BitLoad, numConvUnits>();
-          workerState.inChanPtr = &in[cg * numInGroups + ig][0];
+          workerState.inChanPtr =
+              reinterpret_cast<const quarter *>(&(*inIt++)[0]);
           runAll(workerFunction, &workerState);
           SET_ADDR(
               workerFunction,

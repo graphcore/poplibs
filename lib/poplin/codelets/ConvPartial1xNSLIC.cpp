@@ -378,14 +378,8 @@ public:
     constexpr unsigned outFieldBufferOffset = 200u / sizeof(AccumType);
     const unsigned numSubKernels = numSubKernelsM1 + 1;
 
+    auto weightsIter = weights.begin();
     for (unsigned cg = 0; cg <= numConvGroupGroupsM1; ++cg) {
-      // Don't change weights or workerState until synced
-      syncWorkers();
-      workerState.partitionList =
-          reinterpret_cast<unsigned *>(*(wlStatePtr + 1) & DELTAN_OFFSET_MASK) -
-          CTXT_WORKERS;
-
-      workerState.inChanPtr = &in[cg][0];
       // Partials input read / output write alternate between a buffer and
       // the true output.  Pick the starting state, which will result in the
       // final output being written to the true output
@@ -405,10 +399,16 @@ public:
                  "__runCodelet_poplin__WorkerClass1xN___unsigned_short_2_"
                  "true_16");
       }
+      // Don't change weights or workerState until synced
+      syncWorkers();
+      workerState.partitionList =
+          reinterpret_cast<unsigned *>(*(wlStatePtr + 1) & DELTAN_OFFSET_MASK) -
+          CTXT_WORKERS;
+
+      workerState.inChanPtr = &in[cg][0];
       for (unsigned kg = 0; kg < numSubKernels; ++kg) {
-        const auto &w = weights[cg * numSubKernels + kg];
         // Don't change weights or workerState until synced
-        __builtin_ipu_put(reinterpret_cast<unsigned>(&w[0]),
+        __builtin_ipu_put(reinterpret_cast<unsigned>(&(*weightsIter++)[0]),
                           CSR_S_CCCSLOAD__INDEX);
         syncWorkers();
         workerState.outChanPtr = currOutBuffer;
