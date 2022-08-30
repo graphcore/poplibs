@@ -36,7 +36,7 @@ static bool validateRegionSizeForMultiVertex(
 
 // This is based on the macros that reference `CastVertexName` in
 // elemwiseMiscCodelets.cpp
-static void validateCastTypes(const Type &srcType, const Type &dstType) {
+static void validateCastVertexTypes(const Type &srcType, const Type &dstType) {
   if (srcType == QUARTER || dstType == QUARTER) {
     // If either type is quarter we can cast to/from a limited range of types
     const std::array<Type, 5> allowed = {HALF, CHAR, UNSIGNED_CHAR, SIGNED_CHAR,
@@ -44,6 +44,13 @@ static void validateCastTypes(const Type &srcType, const Type &dstType) {
     auto otherType = srcType == QUARTER ? dstType : srcType;
     if (std::find(allowed.begin(), allowed.end(), otherType) != allowed.end()) {
       return;
+    }
+    if (srcType == FLOAT || dstType == FLOAT) {
+      // This error is API specific, make that clear in the message
+      throw poputil::poplibs_error("Casting from " + srcType.toString() +
+                                   " to " + dstType.toString() +
+                                   " is not supported using computeSet APIs."
+                                   " Use a Program API instead.");
     }
   } else if (srcType == dstType) {
     // Any type other than QUARTER, a cast to the same type is just a copy
@@ -79,7 +86,7 @@ static void castImpl(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
 
   const auto srcType = src.elementType();
   const auto dstType = dst.elementType();
-  validateCastTypes(srcType, dstType);
+  validateCastVertexTypes(srcType, dstType);
   if (src.shape() != dst.shape()) {
     throw poplibs_error(
         "Attempting to cast between tensors with different shapes");
@@ -142,6 +149,21 @@ static void castImpl(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   }
 }
 
+static Tensor
+doIntermediateCastIfRequired(Graph &graph, const Tensor &src,
+                             const Type &dstType, ComputeSet &cs,
+                             const poputil::PoplibsOpDebugInfo &di) {
+  // Support cast float to/from quarter using an intermediate half tensor
+  if ((src.elementType() == FLOAT && dstType == QUARTER) ||
+      (src.elementType() == QUARTER && dstType == FLOAT)) {
+    auto intermediate = graph.clone(HALF, src, {di, "castIntermediateHalf"});
+    castImpl(graph, src, intermediate, cs);
+    return intermediate;
+  } else {
+    return src;
+  }
+}
+
 Program cast(Graph &graph, Tensor src, Tensor dst,
              const PoplibsOpDebugInfo &di) {
   // Casting one type into itself, or int<->unsigned, is just a copy.
@@ -159,9 +181,12 @@ Program cast(Graph &graph, Tensor src, Tensor dst,
     logging::popops::trace("Cast is just a copy");
     return Copy(src.reinterpret(dstType), dst, false, {di});
   }
-  auto cs = graph.addComputeSet({di, "Cast1DSingleWorker"});
-  castImpl(graph, src, dst, cs);
-  return Execute(cs, {di});
+  auto cs1 = graph.addComputeSet({di, "Cast"});
+  auto inter =
+      doIntermediateCastIfRequired(graph, src, dst.elementType(), cs1, di);
+  auto cs2 = graph.addComputeSet({di, "Cast"});
+  castImpl(graph, inter, dst, cs2);
+  return Sequence({Execute(cs1), Execute(cs2)}, {di});
 }
 
 Program cast(Graph &graph, Tensor src, Tensor dst,
@@ -234,6 +259,13 @@ Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
   prog.add(cast(graph, src, dst, {di}));
   di.addOutput(dst);
   return dst;
+}
+
+void castWithOutput(Graph &graph, const Tensor &src, const Tensor &dst,
+                    Sequence &prog, const DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dst));
+  prog.add(cast(graph, src, dst, {di}));
 }
 
 poplar::Tensor checkAccuracyWhenCast(Graph &graph, const Tensor &input,

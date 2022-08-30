@@ -54,6 +54,21 @@ poplar::Tensor cast(poplar::Graph &graph, const poplar::Tensor &src,
                     poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {});
 
+/** Cast elements of the specified \p src tensor into the \p dst tensor.
+ *
+ * Note: If `dst.elementType() == src.elementType()`, then the operation is a
+ * copy.
+ *
+ * \param graph         The graph that the operation will be added to.
+ * \param src           Source tensor to cast.
+ * \param dst           The destination tensor to cast into.
+ * \param prog          Program to add the cast operation to.
+ * \param debugContext  Optional debug information.
+ */
+void castWithOutput(poplar::Graph &graph, const poplar::Tensor &src,
+                    const poplar::Tensor &dst, poplar::program::Sequence &prog,
+                    const poplar::DebugContext &debugContext = {});
+
 /** Create a program to copy tensor casting between types (for example,
  * half->float).
  *
