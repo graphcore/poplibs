@@ -63,18 +63,18 @@ castToGfloat16Param:
   and          $mEnInfGF16    , $mFloatStruct         , POPFLOAT_GF_STRUCT_ENINF_MASK
   shr          $mEnInfGF16    , $mEnInfGF16           , POPFLOAT_GF_STRUCT_ENINF_BIT_OFFSET
   cmpeq        $mZeroExp      , $mExpBitsGF16         , 0
-  movz         $mEnInfGF16    , $mZeroExp             , $mzero
+  movnz        $mEnInfGF16    , $mZeroExp             , $mzero
   sub          $mMaxNormExp   , $mMaxNormExp          , $mEnInfGF16
   add          $mManMaskFP16  , $mMaxNormExp          , -POPFLOAT_FP16_EXPONENT_BIAS
-  movz         $mMaxNormExp   , $mZeroExp             , $mConstOne
+  movnz        $mMaxNormExp   , $mZeroExp             , $mConstOne
   sub          $mMaxNormExp   , $mMaxNormExp          , $mExpBiasGF16
   cmpult       $mAlignMinNorm , $mExpBitsGF16         , POPFLOAT_NUM_FP16_EXPONENT_BITS
   or           $mAlignMinNorm , $mAlignMinNorm        , $mEnInfGF16
   sub          $mInScale      , $mExpBiasGF16         , $mManMaskFP16
   add          $mAlignExp     , $mExpBiasGF16         , -POPFLOAT_FP16_EXPONENT_BIAS
-  movz         $mInScale      , $mAlignMinNorm        , $mAlignExp
+  movnz        $mInScale      , $mAlignMinNorm        , $mAlignExp
   sub          $mExpBiasGF16  , $mzero                , $mExpBiasGF16
-  movz         $mMaxNormExp   , $mZeroExp             , $mExpBiasGF16
+  movnz        $mMaxNormExp   , $mZeroExp             , $mExpBiasGF16
   and          $mEnableDnrm   , $mFloatStruct         , POPFLOAT_GF_STRUCT_ENDENORM_MASK
   setzi        $mMinNormExp   , 0x200
   shl          $mMinNormExp   , $mMinNormExp          , $mAlignMinNorm

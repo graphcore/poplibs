@@ -75,7 +75,7 @@
     // nStartBytes = mRegionSize if mRegionSize < nStartBytes
     sub         $nStartBytes, 4, $diff
     cmpult      $mScratch, $mRegionSize, $nStartBytes
-    movz        $nStartBytes, $mScratch, $mRegionSize
+    movnz       $nStartBytes, $mScratch, $mRegionSize
 
     // Make a mask with 1s for the bytes to preserve in $mMemVal
     add         $mask, $mzero, -1   // set MASK to 0xffffffff

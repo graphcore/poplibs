@@ -66,7 +66,7 @@ byte_loop_start:
   {ldz8step $trueVal, $mzero, $in1_ptr+=, 1; fnop}
   {ldz8step $value, $mzero, $in2_ptr+=, 1; fnop}
   {ldz8step $ifVal, $mzero, $in3_ptr+=, 1; fnop}
-  {movz $value, $ifVal, $trueVal; fnop}
+  {movnz $value, $ifVal, $trueVal; fnop}
   {roll8r $values4, $values4, $value; fnop}
 
 byte_loop_end:

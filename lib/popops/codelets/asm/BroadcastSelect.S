@@ -102,7 +102,7 @@ word_column_loop_start:
 word_rpt_start:
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop}
   {mov $value, $in2; fnop}
-  {movz $value, $selector, $in1; fnop}
+  {movnz $value, $selector, $in1; fnop}
   {st32step $value, $mzero, $out_row+=, 1; fnop}
 word_rpt_end:
 #if  CSR_W_REPEAT_COUNT__VALUE__MASK < 0xffffffff
@@ -188,7 +188,7 @@ half_row_loop_start:
 
   mov $value, $in2                          // Put in 'value' the correct
   ldz8step $selector, $mzero, $in3_row+=, 1 // value, based on the boolean
-  movz $value, $selector, $in1              // read from in3_row[]
+  movnz $value, $selector, $in1              // read from in3_row[]
 
   sort4x16lo $values2, $values2, $value  // mix prev half word and 'value'
   st32step $values2, $mzero, $out_row+=, 1
@@ -211,11 +211,11 @@ half_column_loop_start:
 half_rpt_start:
   {mov $values2, $in2; fnop}                        // Put in 'values2' the correct
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop} // value, based on the boolean
-  {movz $values2, $selector, $in1; fnop}            // read from in3_row[]
+  {movnz $values2, $selector, $in1; fnop}            // read from in3_row[]
 
   {mov $value, $in2; fnop}                          // Put in 'value' the correct
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop} // value, based on the boolean
-  {movz $value, $selector, $in1; fnop}              // read from in3_row[]
+  {movnz $value, $selector, $in1; fnop}              // read from in3_row[]
 
   {sort4x16lo $values2, $values2, $value; fnop}     // mix value and values2
   {st32step $values2, $mzero, $out_row+=, 1; fnop}
@@ -233,7 +233,7 @@ half_rpt_end:
 
   mov $value, $in2                    // Put in 'value' the correct
   ldz8 $selector, $mzero, $in3_row, 0 // value, based on the boolean
-  movz $value, $selector, $in1        // read from in3_row[]
+  movnz $value, $selector, $in1        // read from in3_row[]
 
   sort4x16lo $values2, $value, $values2  // mix 'value' with half from mem
   st32 $values2, $mzero, $out_row, 0
@@ -388,7 +388,7 @@ bool_row_loop_start:
 1:
   {mov $value, $in2;fnop}                         // Put in 'value' the correct
   {ldz8step $selector, $mzero, $in3_row+=, 1;fnop}// value, based on the boolean
-  {movz $value, $selector, $in1;fnop}             // read from in3_row[]
+  {movnz $value, $selector, $in1;fnop}             // read from in3_row[]
   {roll8r $values4, $values4, $value; fnop}
 2:
 
@@ -423,22 +423,22 @@ bool_rpt_start:
   // Shift it in 'values4' (from the 'left')
   {mov $value, $in2; fnop}
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop}
-  {movz $value, $selector, $in1; fnop}
+  {movnz $value, $selector, $in1; fnop}
   {roll8r $values4, $values4, $value; fnop}
 
   {mov $value, $in2; fnop}
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop}
-  {movz $value, $selector, $in1; fnop}
+  {movnz $value, $selector, $in1; fnop}
   {roll8r $values4, $values4, $value; fnop}
 
   {mov $value, $in2; fnop}
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop}
-  {movz $value, $selector, $in1; fnop}
+  {movnz $value, $selector, $in1; fnop}
   {roll8r $values4, $values4, $value; fnop}
 
   {mov $value, $in2; fnop}
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop}
-  {movz $value, $selector, $in1; fnop}
+  {movnz $value, $selector, $in1; fnop}
   {roll8r $values4, $values4, $value; fnop}
 
   {st32step $values4, $mzero, $out_row+=, 1; fnop}
@@ -458,7 +458,7 @@ bool_rpt_end:
 10:
   {mov $value, $in2; fnop}
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop}
-  {movz $value, $selector, $in1; fnop}
+  {movnz $value, $selector, $in1; fnop}
   {roll8r $values4, $values4, $value; fnop}
 20:
   ld32 $scratch, $mzero, $out_row, 0  // read whole 4-byte word

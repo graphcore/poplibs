@@ -322,7 +322,7 @@ fill_2d_8bit_continue:
   // START_FILL = OUT_SIZE if OUT_SIZE < N_START_FILL
   sub       $N_START_FILL, 4, $DIFF
   cmpult    $mSCRATCH, $OUT_SIZE, $N_START_FILL
-  movz      $N_START_FILL, $mSCRATCH, $OUT_SIZE
+  movnz     $N_START_FILL, $mSCRATCH, $OUT_SIZE
 
   // Make a mask with 1s for the bytes to use from FILL_VALUE4
   add       $MASK, $mzero, -1   // set MASK to 0xffffffff

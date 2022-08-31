@@ -57,7 +57,7 @@ column_loop_start:
   {ld32step $trueVal, $mzero, $in1_ptr+=, 1; fnop}
   {ld32step $value, $mzero, $in2_ptr+=, 1; fnop}
   {ldz8step $ifVal, $mzero, $in3_ptr+=, 1; fnop}
-  {movz $value, $ifVal, $trueVal; fnop}
+  {movnz $value, $ifVal, $trueVal; fnop}
   {st32step $value, $mzero, $out_ptr+=, 1; fnop}
 
 column_loop_end:

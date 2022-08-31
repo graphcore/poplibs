@@ -95,13 +95,13 @@ VERTEX(float, int):
     fnop }
   { atom $MSCRATCH, $ASCRATCH
     f32\COMPARE_OP $ASCRATCH, $ACT, $MAX }
-  { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
+  { movnz $MAX_PTR, $MSCRATCH, $ACTS_PTR
     f32\MIN_OR_MAX_LOWER $MAX, $ACT, $MAX }
 2:
   // Handle remaining conditional set for the MAX_PTR, MAX is already handled.
   ld32step $azero, $mzero, $ACTS_PTR+=, 1
   atom $MSCRATCH, $ASCRATCH
-  movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
+  movnz $MAX_PTR, $MSCRATCH, $ACTS_PTR
 
   // Calculate the index from $MAX_PTR
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
@@ -179,13 +179,13 @@ VERTEX(half, int):
     fnop }
   { atom $MSCRATCH, $ASCRATCH
     f16v2\COMPARE_OP $ASCRATCH, $ACT, $MAX }
-  { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
+  { movnz $MAX_PTR, $MSCRATCH, $ACTS_PTR
     f16v2\MIN_OR_MAX_LOWER $MAX, $ACT, $MAX }
 2:
   // Handle remaining conditional set for the MAX_PTR, MAX is already handled.
   ldb16step $azero, $mzero, $ACTS_PTR+=, 1
   atom $MSCRATCH, $ASCRATCH
-  movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
+  movnz $MAX_PTR, $MSCRATCH, $ACTS_PTR
 
   // Calculate the index from $MAX_PTR
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET

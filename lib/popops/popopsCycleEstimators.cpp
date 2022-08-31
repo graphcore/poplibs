@@ -1666,7 +1666,7 @@ static std::uint64_t selectCycles(const Target &target, const Type &type,
   unsigned cyclesPerVector = 5;
   unsigned overhead = 6;
   unsigned vectorWidth = 1;
-  // ld in1, ld in2, ld in3, movz, st
+  // ld in1, ld in2, ld in3, movnz, st
   // it may be possible to load on the Aux side but then would
   // depend on bool size. If Aux side is used masks must be created after
   // expanding bools to match the input datum size
@@ -1939,7 +1939,7 @@ static std::uint64_t clampCycles(const Target &target, const Type &type,
     vectorWidth = target.getDataPathWidth() / 16;
     cyclesPerVector = 2;
   } else if (type == INT) {
-    // ld, ld, ld, cmp, movz, cmp, st
+    // ld, ld, ld, cmp, movnz, cmp, st
     cyclesPerVector = 7;
   }
   return overhead + basicOpLoopCycles(numElems, vectorWidth, cyclesPerVector);

@@ -179,7 +179,7 @@ UPDATE_VERTEX_NAME:
   {ld32     $malternate_result, $mbaseM1, $mzero, $mcandidate_parent ;fnop}
   // if(candidateAddend[i] == voidSymbol) {result = malternate_result}
   {cmpeq    $mscratch, $mcandidate_addend, $mvoid_symbol  ;fnop}
-  {movz     $mcandidate_addend, $mscratch, $malternate_result ;fnop}
+  {movnz    $mcandidate_addend, $mscratch, $malternate_result ;fnop}
   // (mbase + mout_ptr) point to the current timestep and increment with the
   // beam being updated as we write the output
   {st32step $mcandidate_addend, $mzero, $mout_ptr+=, 1 ;fnop}
@@ -218,7 +218,7 @@ UPDATE_VERTEX_NAME:
   {add      $mcandidate_parent, $mcandidate_parent, $mbaseM1  ;fnop}
   // if(candidateAddend[i] == voidSymbol) {result = malternate_result}
   {cmpeq    $mscratch, $mcandidate_addend, $mvoid_symbol  ;fnop}
-  {movz     $mcandidate_parent, $mscratch, $malternate_result  ;fnop}
+  {movnz    $mcandidate_parent, $mscratch, $malternate_result  ;fnop}
   {st32step $mcandidate_parent, $mzero, $mout_ptr+=, 1  ;fnop}
  2:
   exitz $mzero
