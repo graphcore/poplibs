@@ -362,6 +362,7 @@ __runCodelet_poplin__OuterProduct___float:
     sub      $CHANS_PG, 1, $CHANS_PG
 
     //If stride back or repeat count are too big then we need the slow version
+#if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFFFFFF)
 #if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
     cmpult    $mSCRATCH2, $RPT_COUNT, (CSR_W_REPEAT_COUNT__VALUE__MASK + 1)
 #else
@@ -370,7 +371,7 @@ __runCodelet_poplin__OuterProduct___float:
     cmpult    $mSCRATCH2, $RPT_COUNT, $mSCRATCH2
 #endif
     brz       $mSCRATCH2, .Lfloat_slower_restore_chans_pg
-
+#endif
     cmpslt    $mSCRATCH2, $CHANS_PG, -512
     brnz      $mSCRATCH2, .Lfloat_slower_restore_chans_pg
 
@@ -436,6 +437,7 @@ __runCodelet_poplin__OuterProduct___half:
 
 
     //If stride back or repeat count are too big then we need the slow version
+#if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFFFFFF)
 #if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
     cmpult    $mSCRATCH2, $RPT_COUNT, (CSR_W_REPEAT_COUNT__VALUE__MASK + 1)
 #else
@@ -444,6 +446,7 @@ __runCodelet_poplin__OuterProduct___half:
     cmpult    $mSCRATCH2, $RPT_COUNT, $mSCRATCH2
 #endif
     brz       $mSCRATCH2, .Lhalf_slower_restore_chans_pg
+#endif
 
     cmpslt    $mSCRATCH2, $CHANS_PG, -512
     brnz      $mSCRATCH2, .Lhalf_slower_restore_chans_pg

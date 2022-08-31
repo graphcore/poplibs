@@ -402,7 +402,7 @@ public:
   }
 };
 
-#if __IPU_ARCH_VERSION__ == 21
+#if __IPU_ARCH_VERSION__ >= 21
 template <unsigned stride>
 class inLineAssemblerCast<const half *, quarter *, true, stride> {
 public:

@@ -60,7 +60,9 @@
 #define in3_row         m5
 #define out_row         m6
 #define nElems          m7
+#if  CSR_W_REPEAT_COUNT__VALUE__MASK < 0xffffffff
 #define nElemsRpt       m8
+#endif
 #define selector        m9
 #define value           m10
 
@@ -88,19 +90,25 @@ word_row_loop_start:
   ld32step $out_row, $mzero, $out+=, 1
   ld32step $nElems, $mzero, $out+=, 1
 
+#if  CSR_W_REPEAT_COUNT__VALUE__MASK < 0xffffffff
 word_column_loop_start:
   // nElems comes from type SPAN, which can be 32 bit, so we need to
   // make sure we don't exceed loop count for RPT
   min $nElemsRpt, $nElems, CSR_W_REPEAT_COUNT__VALUE__MASK
   rpt $nElemsRpt, ((word_rpt_end - word_rpt_start)/8)-1
+#else
+  {rpt $nElems, ((word_rpt_end - word_rpt_start)/8)-1; fnop}
+#endif
 word_rpt_start:
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop}
   {mov $value, $in2; fnop}
   {movz $value, $selector, $in1; fnop}
   {st32step $value, $mzero, $out_row+=, 1; fnop}
 word_rpt_end:
+#if  CSR_W_REPEAT_COUNT__VALUE__MASK < 0xffffffff
   sub $nElems, $nElems, $nElemsRpt
   brnz $nElems, word_column_loop_start
+#endif
 
   brnzdec $nRows, word_row_loop_start
 
@@ -192,10 +200,14 @@ half_row_loop_start:
 
   // Main loop, processing two half words per cycle
   shr $nElems, $nElems, 1
+#if CSR_W_REPEAT_COUNT__VALUE__MASK < 0xffffffff
 half_column_loop_start:
   // make sure we don't exceed loop count for RPT
   min $nElemsRpt, $nElems, CSR_W_REPEAT_COUNT__VALUE__MASK
   rpt $nElemsRpt, ((half_rpt_end - half_rpt_start)/8)-1
+#else
+  {rpt $nElems, ((half_rpt_end - half_rpt_start)/8)-1; fnop}
+#endif
 half_rpt_start:
   {mov $values2, $in2; fnop}                        // Put in 'values2' the correct
   {ldz8step $selector, $mzero, $in3_row+=, 1; fnop} // value, based on the boolean
@@ -208,9 +220,10 @@ half_rpt_start:
   {sort4x16lo $values2, $values2, $value; fnop}     // mix value and values2
   {st32step $values2, $mzero, $out_row+=, 1; fnop}
 half_rpt_end:
+#if CSR_W_REPEAT_COUNT__VALUE__MASK < 0xffffffff
   sub $nElems, $nElems, $nElemsRpt
   brnz $nElems, half_column_loop_start
-
+#endif
   // If there is a 'trail' element we process it.
   // We need to read the half word in memory following where we will write the
   // 'out' value so that we can write back the two together.
@@ -276,7 +289,9 @@ half_end:
 #define leadingOffs          m10
 #define nLeading             m10
 #define nTrail               m11
+#if CSR_W_REPEAT_COUNT__VALUE__MASK < 0xffffffff
 #define nElemsRpt            m11
+#endif
 #define leftovers            m11
 #define leadingBits          m11
 
@@ -393,11 +408,15 @@ bool_row_is_aligned:
 
   // ---  Main loop, processing 4 bytes per cycle
   shr $nElems, $nElems, 2
+#if CSR_W_REPEAT_COUNT__VALUE__MASK < 0xffffffff
 bool_column_loop_start:
   // make sure we don't exceed loop count for RPT
   min $nElemsRpt, $nElems, CSR_W_REPEAT_COUNT__VALUE__MASK
- {rpt $nElemsRpt, ((bool_rpt_end - bool_rpt_start)/8)-1
-  fnop}
+ {rpt $nElemsRpt, ((bool_rpt_end - bool_rpt_start)/8)-1; fnop}
+#else
+ rpt $nElems, ((bool_rpt_end - bool_rpt_start)/8)-1
+#endif
+ 
 bool_rpt_start:
   // Do 4 times:
   // Put in 'value' the correct value, based on the boolean read from in3_row[]
@@ -424,9 +443,10 @@ bool_rpt_start:
 
   {st32step $values4, $mzero, $out_row+=, 1; fnop}
 bool_rpt_end:
+#if CSR_W_REPEAT_COUNT__VALUE__MASK < 0xffffffff
   sub $nElems, $nElems, $nElemsRpt
   brnz $nElems, bool_column_loop_start
-
+#endif
   // If there are 'trail' elements we process them. This is similar to the
   // processing of the leading elements
   ld32 $nTrail, $mworker_base, $mzero, TRAIL_SAVE
