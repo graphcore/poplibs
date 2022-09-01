@@ -268,6 +268,7 @@ foreach(INPUT_SIZE 32 47 512)
         --block-size=${BLOCK_SIZE}
         --sparsity-factor=0.3
         --tiles-per-ipu=24
+        --variable-seed
         --plan-constraints={\"useDense\":\"true\"}
         --single-phase=fwd
     )

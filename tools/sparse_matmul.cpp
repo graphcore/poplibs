@@ -22,9 +22,11 @@
 #include "popsparse/MatMul.hpp"
 #include "popsparse/SparsePartitioner.hpp"
 #include "popsparse/codelets.hpp"
+#include <poplar/CycleCount.hpp>
 
 #include <gccs/Algorithm.hpp>
 
+#include <chrono>
 #include <fstream>
 #include <optional>
 
@@ -101,6 +103,8 @@ int main(int argc, char **argv) try {
      po::value<ShapeOption<std::size_t>>(&weightedAreaBegin)->default_value(weightedAreaBegin),
      "Starting indices of an area of the sparse operand with a different "
      "level of sparsity to the rest")
+    ("variable-seed", "Use a variable seed based on clock, rather than a "
+     "single fixed seed that does not change between runs of this tool")
     ("weighted-area-end",
      po::value<ShapeOption<std::size_t>>(&weightedAreaEnd)->default_value(weightedAreaEnd),
      "Ending indices of an area of the sparse operand with a different "
@@ -131,6 +135,7 @@ int main(int argc, char **argv) try {
 
   bool profile = vm.count("profile");
   bool profilingEnabled = profile || profileDir;
+  bool variableSeed = vm.count("variable-seed");
   bool ignoreData = vm.count("ignore-data");
 
   const std::size_t blockRows = blockSize[0];
@@ -220,6 +225,13 @@ int main(int argc, char **argv) try {
   auto rawOut = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
                                             downloadProg, tmap);
 
+  const auto canUseCycleCountForDevice =
+      isSimulator(deviceType) || isHw(deviceType);
+  if (canUseCycleCountForDevice) {
+    auto cycles = cycleCount(graph, prog, 0, SyncType::INTERNAL, "totalCycles");
+    graph.createHostRead("cycles", cycles);
+  }
+
   Sequence controlProg({std::move(uploadProg), std::move(prog)});
   if (!ignoreData) {
     controlProg.add(downloadProg);
@@ -248,6 +260,14 @@ int main(int argc, char **argv) try {
   attachStreams(engine, tmap);
 
   std::mt19937 randomEngine;
+  if (variableSeed) {
+    using namespace std::chrono;
+    using SeedDurationType = duration<std::mt19937::result_type, std::nano>;
+    const auto now = high_resolution_clock::now();
+    const auto seed =
+        duration_cast<SeedDurationType>(now.time_since_epoch()).count();
+    randomEngine.seed(seed);
+  }
 
   const bool floatingPointCouldRepresentMaxAccum = [&] {
     const auto maxVal = maxContiguousInteger(dataType);
@@ -308,7 +328,23 @@ int main(int argc, char **argv) try {
   copy(target, buckets.metaInfo, UNSIGNED_SHORT, rawMetaInfo.get());
   copy(target, buckets.nzValues, dataType, rawNzInfo.get());
 
-  device.bind([&](const Device &d) { engine.loadAndRun(d); });
+  device.bind([&](const Device &d) {
+    std::uint64_t cyclesBuffer;
+    engine.loadAndRun(d);
+
+    std::cerr << "\nDynamic sparsity: m " << m << ", k " << k << ", n " << n
+              << ", block length " << blockSize << ", nz blocks "
+              << csrMatrix.columnIndices.size() << ", dType " << dataType
+              << ", sparsity " << sparsityFactor;
+    if (canUseCycleCountForDevice) {
+      engine.readTensor("cycles", &cyclesBuffer, &cyclesBuffer + 1);
+      constexpr double freqGHz = 1.85;
+      double tFlops =
+          2 * csrMatrix.nzValues.size() * n * freqGHz * 1.0e9 / cyclesBuffer;
+      std::cerr << ", total cycles: " << cyclesBuffer;
+      std::cerr << ", TFlops/sec @" << freqGHz << "GHz = " << tFlops << "\n";
+    }
+  });
 
   bool matchesModel = true;
   if (!ignoreData) {
