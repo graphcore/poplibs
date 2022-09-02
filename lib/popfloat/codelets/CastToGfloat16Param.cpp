@@ -4,7 +4,7 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <array>
 #include <cmath>
-#include <ipudef.h>
+#include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
@@ -23,6 +23,7 @@ public:
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
   void compute() {
+#ifdef __IPU__
     char4 gfPacked;
 
     std::memcpy(&gfPacked, &gfStruct[0], sizeof(uint32_t));
@@ -251,6 +252,10 @@ public:
       std::memcpy(&param[POPFLOAT_CAST_TO_GP16_PARAM_GF8_SIGN_MASK_OFFSET],
                   &gf8SgnMask, sizeof(gf8SgnMask));
     }
+#else
+    // Not supported on non-ipu targets
+    exit(1);
+#endif // defined(__IPU__)
   }
 };
 

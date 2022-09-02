@@ -4,8 +4,8 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <array>
 #include <cmath>
-#include <ipudef.h>
 #include <popfloat/experimental/GfloatExpr.hpp>
+#include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
@@ -33,6 +33,7 @@ public:
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
   void compute() {
+#ifdef __IPU__
     unsigned int roundMode, gf8AlignShr;
     uint64_t halfExpMaskV4, halfSgnMaskV4, outBitsMaskV4, minDnrmV4;
     short2 gf16CalmpOut;
@@ -164,6 +165,10 @@ public:
       std::memcpy(&out[POPFLOAT_GF16_VEC_SIZE * j], &maskOutV4,
                   sizeof(maskOutV4));
     }
+#else
+    // Not supported on non-ipu targets
+    exit(1);
+#endif // defined(__IPU__)
   }
 };
 

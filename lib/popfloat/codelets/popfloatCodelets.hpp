@@ -2,6 +2,7 @@
 #ifndef popfloat_codelets_vec_h
 #define popfloat_codelets_vec_h
 
+#ifdef __IPU__
 #include "asm/GfloatConst.hpp"
 #include "popfloatUtils.hpp"
 #include <array>
@@ -294,4 +295,6 @@ void gfloat_mantissa_sr(T1 &fpMant, T1 srBits, int masklen) {
 
 } // end namespace experimental
 } // end namespace popfloat
+#endif // defined(__IPU__)
+
 #endif

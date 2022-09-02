@@ -1,13 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#include "popfloatCodelets.hpp"
-#include "popfloatUtils.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
-#include <array>
-#include <cmath>
-#include <ipudef.h>
-#include <popfloat/experimental/GfloatExpr.hpp>
 #include <poplar/Vertex.hpp>
-#include <print.h>
 
 static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
