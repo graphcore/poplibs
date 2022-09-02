@@ -3,7 +3,8 @@
 #define POPFLOAT_UTILS_H
 
 #include "asm/GfloatConst.hpp"
-#include "ipudef.h"
+#include "poplar/HalfFloat.hpp"
+#include "poplar/QuarterFloat.hpp"
 #include <array>
 #include <cmath>
 #include <poplar/IeeeHalf.hpp>
@@ -48,6 +49,7 @@ template <typename T> void constV2copy(T *v2, T val) {
   }
 }
 
+#ifdef __IPU__
 inline uint64_t addF16v4(uint64_t in0, uint16_t in1) {
   short4 outBits;
   uintAsVec<short4, uint64_t, 1>(&outBits, in0);
@@ -598,6 +600,7 @@ inline uint64_t clipF16v4(uint64_t in0, float maxOut) {
 inline float2 clipF32v2(float2 in0, float maxOut) {
   return minF32v2(in0, maxOut);
 }
+#endif // defined(__IPU__)
 
 } // end namespace experimental
 } // end namespace popfloat

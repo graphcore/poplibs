@@ -1,4 +1,4 @@
-add_unit_test(DebugInfoTest DebugInfoTest.cpp)
+add_unit_test(DebugInfoTest DebugInfoTest.cpp VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
   NAME cast_to_gfloat_1_5_10_RZ

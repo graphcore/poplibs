@@ -4,8 +4,8 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <array>
 #include <cmath>
-#include <ipudef.h>
 #include <popfloat/experimental/GfloatExpr.hpp>
+#include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
@@ -33,6 +33,7 @@ public:
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
   void compute() {
+#ifdef __IPU__
     unsigned int PROP_NAN, EN_DENORM, EN_INF;
     uint64_t halfExpMaskV4, outBitsMaskV4, halfSgnMaskV4;
     uint64_t enNanooInf;
@@ -119,6 +120,10 @@ public:
       std::memcpy(&out[POPFLOAT_GF16_VEC_SIZE * j], &maskOutV4,
                   sizeof(maskOutV4));
     }
+#else
+    // Not supported on non-ipu targets
+    exit(1);
+#endif // defined(__IPU__)
   }
 };
 template class CastGf8ToHalfSupervisor<FormatType::MIN_NORM_ALIGN_GF8>;

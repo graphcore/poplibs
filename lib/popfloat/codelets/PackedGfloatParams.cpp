@@ -4,7 +4,7 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <array>
 #include <cmath>
-#include <ipudef.h>
+#include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;

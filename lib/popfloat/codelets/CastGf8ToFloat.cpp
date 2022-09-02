@@ -4,8 +4,8 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <array>
 #include <cmath>
-#include <ipudef.h>
 #include <popfloat/experimental/GfloatExpr.hpp>
+#include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
