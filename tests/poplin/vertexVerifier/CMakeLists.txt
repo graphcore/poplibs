@@ -1,10 +1,10 @@
 include(GNUInstallDirs)
 
 set(GP_OBJECTS "${CMAKE_INSTALL_FULL_LIBDIR}")
-get_target_property(VV_EXECUTABLE vertex_verifier LOCATION)
+get_target_property(VV_EXECUTABLE_IPU21 vertex_verifier_ipu21 LOCATION)
 
 add_test(NAME VVConvPartialQuarterHalf1x1Out
-  COMMAND ${VV_EXECUTABLE}
+  COMMAND ${VV_EXECUTABLE_IPU21}
     --input-file=${GP_OBJECTS}/poplin.gp
     --vertex=poplin::ConvPartial1x1Out<quarter,half,true,false,16,8,false>
     --target=ipu21
@@ -14,7 +14,7 @@ add_test(NAME VVConvPartialQuarterHalf1x1Out
 )
 
 add_test(NAME VVConvPartialQuarterHalfNx1
-  COMMAND ${VV_EXECUTABLE}
+  COMMAND ${VV_EXECUTABLE_IPU21}
     --input-file=${GP_OBJECTS}/poplin.gp
     --vertex=poplin::ConvPartialnx1<quarter,half,true,false,16,8,false>
     --target=ipu21
@@ -24,7 +24,7 @@ add_test(NAME VVConvPartialQuarterHalfNx1
 )
 
 add_test(NAME VVConvPartialQuarterHalf1xNStride1
-  COMMAND ${VV_EXECUTABLE}
+  COMMAND ${VV_EXECUTABLE_IPU21}
     --input-file=${GP_OBJECTS}/poplin.gp
     --vertex=poplin::ConvPartial1xNSLIC<quarter,half,1,true,4,4,8,false>
     --target=ipu21
@@ -34,7 +34,7 @@ add_test(NAME VVConvPartialQuarterHalf1xNStride1
 )
 
 add_test(NAME VVConvPartialQuarterHalf1xNStride2
-  COMMAND ${VV_EXECUTABLE}
+  COMMAND ${VV_EXECUTABLE_IPU21}
     --input-file=${GP_OBJECTS}/poplin.gp
     --vertex=poplin::ConvPartial1xNSLIC<quarter,half,2,true,4,4,8,false>
     --target=ipu21
