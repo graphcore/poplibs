@@ -5,7 +5,7 @@
  *  These functions perform the same operation on each element of one or more
  *  tensors.
  *
- *  Every function has three ways of providing the output:
+ *  Every function has four ways of providing the output:
  *
  *    - Returning a new output tensor.
  *    - Writing the output to the first input tensor argument.
@@ -15,6 +15,7 @@
  *    - Writing the output to an "out" tensor passed as an argument.
  *      These functions are suffixed with `WithOutput` and are useful for
  *      providing your own tile mapping for the output tensor.
+ *    - Performing multiple expressions in one map call.
  *
  *  The functions that perform operations on two tensors support
  *  [NumPy-style broadcasting](https://numpy.org/doc/stable/user/basics.broadcasting.html)
@@ -107,7 +108,7 @@ void outputGeneratedCodelet(const poplar::Target &target,
  */
 /**
  *  \param graph   The graph to update.
- *  \param expr    The expression to map across the tensors. The placeholders
+ *  \param expr    The expression(s) to map across the tensors. The placeholders
  *                 in the expressions will be substituted with corresponding
  *                 elements from the tensors in \p ts.
  *  \param ts      The list of tensors to map the expression across.
@@ -168,6 +169,13 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
   di.addOutput(output);
   return output;
 }
+
+std::vector<poplar::Tensor> map(poplar::Graph &graph,
+                   const std::vector<expr::Any> &exprs,
+                   const std::vector<poplar::Tensor> &ts,
+                   poplar::program::Sequence &prog,
+                   const poplar::DebugContext &debugContext = {},
+                   const poplar::OptionFlags &options = {});
 /** @} */
 
 /** \name mapInPlace
@@ -211,6 +219,12 @@ inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
   mapInPlace(graph, expr::TernaryOp(op, expr::_1, expr::_2, expr::_3),
              {a, b, c}, prog, {di}, options);
 }
+
+void mapInPlace(poplar::Graph &graph,
+                const std::vector<expr::Any> &exprs,
+                const std::vector<poplar::Tensor> &ts, poplar::program::Sequence &prog,
+                const poplar::DebugContext &debugContext = {},
+                const poplar::OptionFlags &options = {});
 /** @} */
 
 /** \name mapWithOutput
@@ -260,6 +274,13 @@ inline void mapWithOutput(poplar::Graph &graph, expr::TernaryOpType op,
                 {a, b, c}, out, prog, {di}, options);
 }
 
+void mapWithOutput(poplar::Graph &graph,
+                  const std::vector<expr::Any> &exprs,
+                  const std::vector<poplar::Tensor> &ts,
+                  const std::vector<poplar::Tensor> &outs,
+                  poplar::program::Sequence &prog,
+                  const poplar::DebugContext &debugContext = {},
+                  const poplar::OptionFlags &options = {});
 /** @} */
 
 // Unary operations

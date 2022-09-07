@@ -86,6 +86,17 @@ class Any {
 public:
   Any(const Expr &expr) : expr(expr.clone()) {}
 
+  Any(const Any &expr) : expr(expr.expr->clone()) {}
+
+  Any(Any &&) = default;
+
+  Any &operator=(const Any &other) {
+    expr = other.expr->clone();
+    return *this;
+  }
+
+  Any &operator=(Any &&other) = default;
+
   operator Expr &() { return *expr; }
   operator const Expr &() const { return *expr; }
   std::string name(const std::vector<poplar::Tensor> &inputs) const {

@@ -17,6 +17,9 @@ namespace poputil {
 template <> poplar::ProfileValue toProfileValue(const popops::expr::Expr &p) {
   return poplar::ProfileValue("<expr::Expr>");
 }
+template <> poplar::ProfileValue toProfileValue(const popops::expr::Any &p) {
+  return poplar::ProfileValue("<popops::expr::Any>");
+}
 } // namespace poputil
 
 namespace popops {

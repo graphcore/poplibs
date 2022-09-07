@@ -2497,6 +2497,24 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
   return map(graph, expr, ts, prog, debugContext, options, nullptr);
 }
 
+std::vector<Tensor> map(Graph &graph, const std::vector<expr::Any> &exprs,
+                        const std::vector<Tensor> &ts, program::Sequence &prog,
+                        const poplar::DebugContext &debugContext,
+                        const OptionFlags &options) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, exprs, options));
+
+  logging::popops::debug("MapMultipleOutsExpression DebugStr:{}", debugContext);
+
+  std::vector<Tensor> outs;
+  outs.reserve(exprs.size());
+  for (unsigned e = 0; e < exprs.size(); e++) {
+    outs.emplace_back(map(graph, exprs[e], ts, prog, di, options));
+  }
+
+  return outs;
+}
+
 void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const std::vector<Tensor> &ts, program::Sequence &prog,
                 const poplar::DebugContext &debugContext,
@@ -2578,6 +2596,62 @@ void mapWithOutput(Graph &graph, const expr::Expr &expr_,
   auto expr = mapPlaceholdersInExpression(
       expr_, [](unsigned index) { return index + 1; });
   mapInPlace(graph, *expr, ts, prog, {di}, options);
+}
+
+void mapInPlace(Graph &graph, const std::vector<expr::Any> &exprs,
+                const std::vector<Tensor> &ts, program::Sequence &prog,
+                const poplar::DebugContext &debugContext,
+                const OptionFlags &options) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, exprs, options));
+
+  logging::popops::debug("MapInPlaceMultipleExpression DebugStr:{}",
+                         debugContext);
+
+  if (ts.size() < exprs.size()) {
+    std::stringstream ss;
+    ss << "mapInPlace requires number of expressions (" << exprs.size()
+       << ") be less or equal to a number of tensors provided (" << ts.size()
+       << ")";
+    throw poplibs_error(ss.str());
+  }
+
+  // Store results into intermediate tensors to guarantee correct inputs for all
+  // expressions. Also that way guarantees that placeholders in the expressions
+  // still matching input tensors in <ts>.
+  std::vector<Tensor> outs;
+  outs.reserve(exprs.size());
+  for (unsigned e = 0; e < exprs.size(); e++) {
+    outs.emplace_back(map(graph, exprs[e], ts, prog, di, options));
+  }
+
+  // Update tensors with new outputs
+  for (unsigned t = 0; t < ts.size(); t++) {
+    prog.add(Copy(outs[t], ts[t], false, {di}));
+  }
+}
+
+void mapWithOutput(Graph &graph, const std::vector<expr::Any> &exprs,
+                   const std::vector<Tensor> &ts,
+                   const std::vector<Tensor> &outs, program::Sequence &prog,
+                   const poplar::DebugContext &debugContext,
+                   const OptionFlags &options) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, exprs, options));
+
+  logging::popops::debug("MapWithOutputMultipleOutsExpression DebugStr:{}",
+                         debugContext);
+  if (exprs.size() != outs.size()) {
+    std::stringstream ss;
+    ss << "mapWithOutput requires vector of output tensors to have the same "
+          "size as expressions vector. Expected "
+       << exprs.size() << " but got " << outs.size();
+    throw poplibs_error(ss.str());
+  }
+
+  for (unsigned e = 0; e < exprs.size(); e++) {
+    mapWithOutput(graph, exprs[e], ts, outs[e], prog, di, options);
+  }
 }
 
 void outputGeneratedCodelet(const poplar::Target &target,
