@@ -1,5 +1,4 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#define __QUARTER_FOR_IPU__
 #include <cassert>
 #include <cmath>
 #include <poplar/AvailableVTypes.h>
