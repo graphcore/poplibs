@@ -1128,7 +1128,7 @@ createPlan(const ConvParams &params, const ConvOptions &options,
           // This is just to cut down the planner search space.
           std::vector<std::vector<unsigned>> tileLevelExpandDimCandidates;
           if (transforms[systemLevel].expandDims.empty() &&
-              canUseVertexLevelExpandDims(params, target)) {
+              canUseVertexLevelExpandDims(groupedParams, target)) {
             tileLevelExpandDimCandidates =
                 getExpandDimsCandidates(tileLevel, groupedParams, options);
           } else {
