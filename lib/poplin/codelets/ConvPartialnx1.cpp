@@ -476,22 +476,21 @@ public:
     const unsigned kernelInnerElements = kernelInnerElementsM1 + 1;
     SET_ADDR(workerFunction,
              "__runCodelet_poplin__WorkerClassNx1___unsigned_short_16")
-
     auto outIt = out.begin();
-    auto weightIt = weights.begin() + numOutGroups;
 
     for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
-      weightIt--;
+      auto weightItBase = weights.begin() + cg * numOutGroups * numInGroups - 1;
       for (unsigned og = 0; og < numOutGroups; ++og) {
         workerState.outChanPtr = reinterpret_cast<half *>(&(*outIt++)[0]);
         auto inChanIt = in.begin() + cg * numInGroups;
-
+        auto weightIt = weightItBase - og;
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
           workerState.inChanPtr =
               reinterpret_cast<const quarter *>(&(*inChanIt++)[0]);
           auto partitionList = reinterpret_cast<unsigned *>(*(wlStatePtr + 1) &
                                                             DELTAN_OFFSET_MASK);
           workerState.partitionList = partitionList;
+          weightIt += numOutGroups;
           auto weightPtr = &(*weightIt)[0];
           for (unsigned ky = 0; ky <= kernelOuterSizeM1; ++ky) {
             for (unsigned kx = 0; kx < kernelInnerElements; ++kx) {

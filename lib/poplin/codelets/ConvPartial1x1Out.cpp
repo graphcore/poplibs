@@ -312,20 +312,22 @@ public:
     // Strides for use with tapack
     workerState.strides = packStrides(transformedInStride,
                                       inOutStrides & strideMask, numStrideBits);
-
-    auto outIt = out.begin();
+    auto outItBase = out.begin();
     auto weightsItBase = weights.begin() + numOutGroups - 1;
     for (unsigned og = 0; og < numOutGroups; ++og) {
       auto inIt = in.begin();
       auto weightsIt = weightsItBase;
       weightsItBase--;
+      auto outIt = outItBase;
+      outItBase++;
       for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
         unsigned *workerFunction;
         SET_ADDR(workerFunction,
                  "__runCodelet_poplin__WorkerClass1x1___unsigned_short_true_16")
         // Don't change weights or workerState until synced
         syncWorkers();
-        workerState.outChanPtr = reinterpret_cast<half *>(&(*outIt++)[0]);
+        workerState.outChanPtr = reinterpret_cast<half *>(&(*outIt)[0]);
+        outIt += numOutGroups;
 
         for (unsigned ig = 0; ig < numInGroups; ++ig) {
           // Don't change weights or workerState until synced

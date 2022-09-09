@@ -1,0 +1,36 @@
+// *** Make sure that the outer loops (convGroups) are used to pick out
+// *** bugs in pointer arithmetic
+testConfig testConvGroups;
+
+in.size = 4
+in[i].size = 128
+in[i]=[0.1, 0.2)
+
+weights.size = 16
+weights[i].size = 512
+weights[i] = [0.1, 0.2)
+
+out.size = 8
+out[i].size = 64
+out[0] = [0.1, 0.2)
+
+worklists.size = 1
+worklists[0].size = 18
+worklists[0]={0, -3, 0, 0, -1, 0, 4, -2, 4, 0, -3, 0, 8, -2, 8, 12, -2, 12}
+
+inMetadata.size = 1
+inMetadata[0].size = 1
+inMetadata[0] = {0x81}
+
+weightsMetadata.size = 1
+weightsMetadata[0].size = 1
+weightsMetadata[0] = {0x82}
+
+numConvGroupsM1 = 1
+numOutGroupsM1 = 3
+numInGroups = 2
+
+transformedInStride=1
+outChansPerGroup=16
+transformedOutStride=4
+inChansPerGroup=32

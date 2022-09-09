@@ -42,3 +42,23 @@ add_test(NAME VVConvPartialQuarterHalf1xNStride2
     --add-overread-zone=each
     --constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/ConvPartialQuarterHalf1xnStride2.vv
 )
+
+#TODO T68928 this test just compares inline asm execution with itself!
+add_test(NAME VVConvPartialQuarterHalf1x1OutConvGroups
+  COMMAND ${VV_EXECUTABLE_IPU21}
+    --input-file=${GP_OBJECTS}/poplin.gp
+    --vertex=poplin::ConvPartial1x1Out<quarter,half,true,false,16,8,false>
+    --target=ipu21
+    --target=ipu21:cpp
+    --constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/ConvPartialQuarterHalf1x1OutConvGroups.vv
+)
+
+#TODO T68928 this test just compares inline asm execution with itself!
+add_test(NAME VVConvPartialQuarterHalfNx1ConvGroups
+  COMMAND ${VV_EXECUTABLE_IPU21}
+    --input-file=${GP_OBJECTS}/poplin.gp
+    --vertex=poplin::ConvPartialnx1<quarter,half,true,false,16,8,false>
+    --target=ipu21
+    --target=ipu21:cpp
+    --constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/ConvPartialQuarterHalfnx1ConvGroups.vv
+)
