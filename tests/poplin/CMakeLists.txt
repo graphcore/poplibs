@@ -1,5 +1,6 @@
 add_subdirectory(codelets)
-add_subdirectory(vertexVerifier)
+# Disabled while the multi-repo API changes are being done:
+#add_subdirectory(vertexVerifier)
 
 add_unit_test(CholeskyTest CholeskyTest.cpp)
 add_unit_test(ConvOptionsTest ConvOptionsTest.cpp)
