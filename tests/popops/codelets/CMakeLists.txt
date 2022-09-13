@@ -265,32 +265,33 @@ runFastSlowPathBinaryTests(short "BITWISE_AND;BITWISE_OR" "short;ushort")
 include(GNUInstallDirs)
 set(GP_OBJECTS "${CMAKE_INSTALL_FULL_LIBDIR}")
 
+# T69136 Re-enable after the multi-repo API change has finished
 # BinaryOps are C++ vertices, and the compiler generates RPT loops
 # for them. This test verifies if this is a case by looking into
 # trace output from vertex verifer.
-set(BinaryOpRptLoopOps "MINIMUM;MAXIMUM")
-set(BinaryOpRptLoopTypes "half;float")
-foreach(OP ${BinaryOpRptLoopOps})
-  foreach(TYPE ${BinaryOpRptLoopTypes})
-    foreach(SIM_VARIANT ${SIM_VARIANTS})
-      string(REPLACE "Sim" "ipu" ARCH "${SIM_VARIANT}")
-      get_target_property(VV_EXECUTABLE "vertex_verifier_${ARCH}" LOCATION)
-      extract_runconfig(SIM_VARIANT TEST_CONFIG)
-      string(JOIN "_" TEST_NAME ${SIM_VARIANT} ${TEST_CONFIG} "BinaryOpRptLoopTest" ${OP} ${TYPE})
-      add_test(NAME ${TEST_NAME}
-        COMMAND ${VV_EXECUTABLE}
-          --input-file=${GP_OBJECTS}/popops.gp
-          --vertex=popops::BinaryOp1D<popops::expr::BinaryOpType::${OP},${TYPE}>
-          --target=${ARCH}
-          --constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/BinaryOpRptLoopTest.vv
-          --trace-mask=0b0000010 # Set to trace only worker 1
-          --trace
-      )
-      set_tests_properties(${TEST_NAME} PROPERTIES
-          PASS_REGULAR_EXPRESSION ".*:[ ]+rpt[ ]+\\$m")
-    endforeach()
-  endforeach()
-endforeach()
+# set(BinaryOpRptLoopOps "MINIMUM;MAXIMUM")
+# set(BinaryOpRptLoopTypes "half;float")
+# foreach(OP ${BinaryOpRptLoopOps})
+#   foreach(TYPE ${BinaryOpRptLoopTypes})
+#     foreach(SIM_VARIANT ${SIM_VARIANTS})
+#       string(REPLACE "Sim" "ipu" ARCH "${SIM_VARIANT}")
+#       get_target_property(VV_EXECUTABLE "vertex_verifier_${ARCH}" LOCATION)
+#       extract_runconfig(SIM_VARIANT TEST_CONFIG)
+#       string(JOIN "_" TEST_NAME ${SIM_VARIANT} ${TEST_CONFIG} "BinaryOpRptLoopTest" ${OP} ${TYPE})
+#       add_test(NAME ${TEST_NAME}
+#         COMMAND ${VV_EXECUTABLE}
+#           --input-file=${GP_OBJECTS}/popops.gp
+#           --vertex=popops::BinaryOp1D<popops::expr::BinaryOpType::${OP},${TYPE}>
+#           --target=${ARCH}
+#           --constraints-file=${CMAKE_CURRENT_SOURCE_DIR}/BinaryOpRptLoopTest.vv
+#           --trace-mask=0b0000010 # Set to trace only worker 1
+#           --trace
+#       )
+#       set_tests_properties(${TEST_NAME} PROPERTIES
+#           PASS_REGULAR_EXPRESSION ".*:[ ]+rpt[ ]+\\$m")
+#     endforeach()
+#   endforeach()
+# endforeach()
 
 # This run tests on all the vertices of the 'ScaledAdd' family, checking for
 # overruns at the end of the data
