@@ -3,7 +3,6 @@
 #define ReductionConnection_hpp
 
 #include "ComputeSetList.hpp"
-#include "Reduction.hpp"
 #include "ReductionVertexDefs.hpp"
 
 #include "popops/Reduce.hpp"

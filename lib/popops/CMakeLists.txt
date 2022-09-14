@@ -103,7 +103,6 @@ add_library(popops SHARED
   reduction/Modelling.cpp
   reduction/Modelling.hpp
   reduction/Reduction.cpp
-  reduction/Reduction.hpp
   reduction/ReductionConnection.cpp
   reduction/ReductionConnection.hpp
   reduction/ReductionIntrospection.cpp
