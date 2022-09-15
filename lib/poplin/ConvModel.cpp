@@ -1628,7 +1628,7 @@ addDynamicSliceEstimate(popsolver::Model &m, const poplar::Target &target,
   const std::vector<popsolver::Variable> vars = {serialSplit, sliceSize};
   return m.call<unsigned>(
       vars,
-      [target,
+      [&target,
        inType](const std::vector<unsigned> &vars) -> popsolver::DataType {
         const auto serialSplit = vars[0];
         const auto sliceSize = vars[1];
@@ -1706,7 +1706,7 @@ addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
                                                  outputsPerTile};
   auto cycles = m.call<unsigned>(
       vars,
-      [target,
+      [&target,
        outputsType](const std::vector<unsigned> &vars) -> popsolver::DataType {
         const auto &inChanSerialSplit = vars[0];
         const auto &outputsPerTile = vars[1];
