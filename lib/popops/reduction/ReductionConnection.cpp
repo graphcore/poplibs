@@ -1152,58 +1152,6 @@ splitPartialsByRows(const RegionReduction &reduction_,
   return out;
 }
 
-std::vector<RegionReduction> applyColumnSplits(const RegionReduction &red,
-                                               unsigned splits) {
-  std::vector<RegionReduction> implementedReductions;
-  if (splits > 1) {
-    const unsigned outWidth = red.output.numElements() / splits;
-    const unsigned reshapeDim1 = outWidth * red.innerFactor * splits;
-    const auto splitWidth = outWidth * red.innerFactor;
-    for (unsigned j = 0; j < splits; j++) {
-      // Add a reduction per split, containing a subset of the columns of
-      // the original reduction
-      implementedReductions.push_back({});
-      implementedReductions.back().output =
-          red.output.slice(j * outWidth, (j + 1) * outWidth);
-      implementedReductions.back().innerFactor = red.innerFactor;
-      implementedReductions.back().outerFactor = red.outerFactor;
-
-      if (red.regularPartials()) {
-        implementedReductions.back().getPartials() = red.getPartials();
-        implementedReductions.back().getStride() = red.getStride();
-        implementedReductions.back().getOffset() =
-            red.getOffset() + (j * splitWidth);
-        implementedReductions.back().getOuterStride() = red.getOuterStride();
-        implementedReductions.back().getNumOuterStrides() =
-            red.getNumOuterStrides();
-      } else {
-        IrregularPartials iPartials;
-        for (unsigned i = 0; i < red.getPartials().size();) {
-          // Concatenate enough partials to slice into the column splits.
-          //  Partials can be smaller than the output if we have a
-          //  problemColumnCount
-          std::vector<poplar::Tensor> toConcat;
-          unsigned concatElems = 0;
-          while (concatElems < reshapeDim1) {
-            toConcat.push_back(red.getPartials()[i].flatten());
-            i++;
-            concatElems += toConcat.back().numElements();
-          }
-          const auto par = concat(toConcat);
-          const auto partial =
-              par.reshape({par.numElements() / reshapeDim1, reshapeDim1});
-          iPartials.data.push_back(
-              partial.slice(j * splitWidth, (j + 1) * splitWidth, 1).flatten());
-        }
-        implementedReductions.back().partials = iPartials;
-      }
-    }
-  } else {
-    // Add reduction to the list to be implemented here, without splitting
-    implementedReductions.emplace_back(std::move(red));
-  }
-  return implementedReductions;
-}
 // Call this function to connect reductions where none of them are two-stage
 // reductions and there may be more reductions than worker contexts.
 // The `assignments` should be the same size as `reductions` and
@@ -1261,12 +1209,11 @@ unsigned findMaxSplits(const unsigned numWorkers,
 // inefficient to implement.
 unsigned getAllowedColumnSplits(const poplar::Graph &graph,
                                 const unsigned splitsToUseWorkers,
-                                const RegionReduction &reduction,
-                                const unsigned factor) {
+                                const RegionReduction &reduction) {
   const unsigned minColumnsToSplit = graph.getTarget().getVectorWidth(
       reduction.getPartials()[0].elementType());
-  const unsigned thisStageOutputSize = reduction.output.numElements() * factor;
-
+  const unsigned thisStageOutputSize =
+      reduction.output.numElements() * reduction.innerFactor;
   unsigned splits = 1;
   for (unsigned i = 2; i <= splitsToUseWorkers; i++) {
     if (reduction.output.numElements() % i == 0 &&
@@ -1279,7 +1226,7 @@ unsigned getAllowedColumnSplits(const poplar::Graph &graph,
 // Split the partials into groups for implementation by each worker.
 // We try to split into rowSplits groups if the number of partials and
 // partials elements means that this is sensible.
-std::pair<unsigned, std::vector<RegionReduction>> splitPartialsIntoRowGroups(
+std::pair<unsigned, std::vector<RegionReduction>> splitPartialsIntoGroups(
     const RegionReduction &reduction, const unsigned firstStageOutputSize,
     const unsigned firstStageFactor, const unsigned rowSplits) {
   // Default for there being no split
@@ -1335,7 +1282,8 @@ bool findSuitableReductions(
 //
 // This principle can be applied for any case where the vector width and
 // column width (output size) don't work well together but we will limit its
-// implementation to a `maxProblemColumnCount`. Example cases:
+// implementation to these cases, as otherwise the 2 stage partials width
+// is large (Usually = vectorWidth * outputWidth):
 // Half (vector width 4), output width 2, so twoStagePartials width = 4
 // Half                   output width 3, so twoStagePartials width = 12
 // Float (vector width 2),output width 3, so twoStagePartials width = 6
@@ -1348,24 +1296,15 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
 
   const auto vectorWidth = graph.getTarget().getVectorWidth(inputType);
 
-  // This algorithm has been shown to be faster for all cases up to and
-  // including this limit, than the resulting method using the DEFAULT vertex
-  const auto maxProblemColumnCount = 7u;
   const auto reductionIsSuitable = [&](const RegionReduction &r) {
-    return r.output.numElements() <= maxProblemColumnCount &&
-           r.output.numElements() != 1 &&
+    return r.output.numElements() < 4 && r.output.numElements() != 1 &&
            (r.output.numElements() % vectorWidth);
   };
 
   const auto outputSize = [&](const RegionReduction &r) {
-    // Search through possible factors to see if they work out exactly
-    for (unsigned i = 1; i < maxProblemColumnCount + 1; i++) {
-      if ((i * r.output.numElements()) % vectorWidth == 0) {
-        return i * r.output.numElements();
-      }
-    }
-    // The product will always work
-    return r.output.numElements() * vectorWidth;
+    return (vectorWidth == 4 && r.output.numElements() == 2)
+               ? 4
+               : r.output.numElements() * vectorWidth;
   };
 
   // As we may often not need to do any of this, check the reductions and exit
@@ -1407,62 +1346,33 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
         // We can't do this unless the original outputsize = stride. Also there
         // must be reducing to do if we increase the effective output size.
         // Plus the whole area must be a multiple of the new outputsize
-
         return reduction.getNumPartialsElementsPerOuterStride() !=
                    firstStageOutputSize &&
                (reduction.output.numElements() == reduction.getStride()) &&
                (reduction.getNumPartialsElementsPerOuterStride() %
-                firstStageOutputSize) == 0 &&
-               reduction.getNumPartialsElements() > firstStageOutputSize;
+                firstStageOutputSize) == 0;
       } else {
-        const auto modulo = reductionUsesInput ? firstStageOutputSize
-                                               : reduction.output.numElements();
-        auto sizesCheck = std::all_of(reduction.getPartials().begin(),
-                                      reduction.getPartials().end(),
-                                      [&](const poplar::Tensor &t) {
-                                        return (t.numElements() % modulo) == 0;
-                                      });
-        // We also need the whole number of partials to be exactly divisible
-        // by the first stage output size
-        std::size_t numPartialsElements = std::accumulate(
-            reduction.getPartials().begin(), reduction.getPartials().end(), 0,
-            [&](std::size_t acc, const poplar::Tensor &partials) {
-              return acc + partials.numElements();
+        return std::all_of(
+            reduction.getPartials().begin(), reduction.getPartials().end(),
+            [&](const poplar::Tensor &t) {
+              return (t.numElements() % firstStageOutputSize) == 0;
             });
-        return sizesCheck &&
-               (numPartialsElements % firstStageOutputSize == 0) &&
-               numPartialsElements > firstStageOutputSize;
       }
     }();
     if (partialsAreSuitable) {
       consumedReductions.emplace_back(std::move(reduction));
       const unsigned firstStageFactor =
           firstStageOutputSize / consumedReductions.back().output.numElements();
-
-      // Divide work.  Column splitting will provide fewer partials for
-      // the 2nd on tile stage so consider that 1st
-      const auto columnSplits =
-          getAllowedColumnSplits(graph, splitsToUseWorkers,
-                                 consumedReductions.back(), firstStageFactor);
-
-      const auto maxRowSplits = columnSplits > 1 ? 1 : splitsToUseWorkers;
-      const auto partialsGrouped = splitPartialsIntoRowGroups(
+      const auto partialsGrouped = splitPartialsIntoGroups(
           consumedReductions.back(), firstStageOutputSize, firstStageFactor,
-          maxRowSplits);
-
-      // Create the output of the 1st stage / partials for the 2nd.  Making a
-      // single variable
-      // improves the efficiency of the copies that are needed in this step
-      auto firstStageOutput = graph.addVariable(
-          partialType, {partialsGrouped.first * firstStageOutputSize},
-          {dnai, "secondStagePartials"});
-      graph.setTileMapping(firstStageOutput, tile);
+          splitsToUseWorkers);
       for (unsigned j = 0; j < partialsGrouped.first; j++) {
-        // Record the output of the 1st stage / partials for the 2nd
-        twoStagePartials[partialsIndex].push_back(firstStageOutput.slice(
-            j * firstStageOutputSize, (j + 1) * firstStageOutputSize));
+        // Create and record the output of the 1st stage / partials for the 2nd
+        twoStagePartials[partialsIndex].push_back(
+            graph.addVariable(partialType, {firstStageOutputSize},
+                              {dnai, "secondStagePartials"}));
+        graph.setTileMapping(twoStagePartials[partialsIndex].back(), tile);
 
-        // Create the reduction
         RegionReduction firstStage;
         firstStage.output = twoStagePartials[partialsIndex].back();
         firstStage.partials = partialsGrouped.second[j].partials;
@@ -1472,15 +1382,10 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
         firstStage.outerFactor =
             partialsGrouped.second[j].outerFactor / firstStageFactor;
 
-        auto splitByColumn = applyColumnSplits(firstStage, columnSplits);
-
-        for (unsigned columnSplit = 0; columnSplit < splitByColumn.size();
-             columnSplit++) {
-          createVertex(graph, {splitByColumn[columnSplit]}, params.op,
-                       inputType, partialType, css.getCs1(reductionComputeSets),
-                       tile, reductionUsesInput, {dnai});
-          remainingWorkers = (remainingWorkers == 0) ? 0 : remainingWorkers - 1;
-        }
+        createVertex(graph, {firstStage}, params.op, inputType, partialType,
+                     css.getCs1(reductionComputeSets), tile, reductionUsesInput,
+                     {dnai});
+        remainingWorkers = (remainingWorkers == 0) ? 0 : remainingWorkers - 1;
       }
       partialsIndex++;
     } else {
@@ -1506,35 +1411,31 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
     secondStageParams.op = Operation::ADD;
   }
   partialsIndex = 0;
-  for (unsigned i = 0; i < consumedReductions.size(); i++) {
-    auto &red = consumedReductions[i];
+  for (auto &red : consumedReductions) {
+    // This covers the cases that we are targeting, a more general statement
+    // would be needed if we target more.
     const unsigned ssReductionFactor =
-        outputSize(red) / red.output.numElements();
+        (red.output.numElements() == 3 && vectorWidth == 4) ? 4 : 2;
     const unsigned ssReductionStride = red.output.numElements();
-    // Deal with pairs of outputs if a half avoids a rearrangement afterward
-    unsigned toCombine = red.output.elementType() == poplar::HALF ? 2 : 1;
-    for (unsigned j = 0; j < red.output.numElements(); j += toCombine) {
-      const unsigned combined =
-          j + toCombine > red.output.numElements() ? 1 : toCombine;
-      // Create the reduction and its output, create the vertex
-      std::vector<RegionReduction> secondStageReduction(combined);
-      for (unsigned i = 0; i < combined; i++) {
-        // Create a vector of partials for each reduction
-        std::vector<poplar::Tensor> partials;
-        for (auto &par : twoStagePartials[partialsIndex]) {
-          for (unsigned k = 0; k < ssReductionFactor; k++) {
-            partials.push_back(par.slice(i + j + ssReductionStride * k,
-                                         i + j + ssReductionStride * k + 1));
-          }
-        }
-        secondStageReduction[i].output = red.output.slice(i + j, i + j + 1);
-        IrregularPartials iPartials = {{concat(partials)}};
-        secondStageReduction[i].partials = iPartials;
-      }
 
-      createVertex(graph, secondStageReduction, secondStageParams, partialType,
-                   outputType, css.getCs2(reductionComputeSets), tile,
-                   reductionUsesInput, {dnai});
+    for (unsigned j = 0; j < red.output.numElements(); j++) {
+      // Create a vector of partials for each reduction
+      std::vector<poplar::Tensor> partials;
+      for (auto &par : twoStagePartials[partialsIndex]) {
+        for (unsigned k = 0; k < ssReductionFactor; k++) {
+          partials.push_back(par.slice(j + ssReductionStride * k,
+                                       j + ssReductionStride * k + 1));
+        }
+      }
+      // Create the reduction and its output, create the vertex
+      RegionReduction secondStageReduction;
+      secondStageReduction.output = red.output.slice(j, j + 1);
+      IrregularPartials iPartials = {{concat(partials)}};
+      secondStageReduction.partials = iPartials;
+
+      createVertex(graph, {secondStageReduction}, secondStageParams,
+                   partialType, outputType, css.getCs2(reductionComputeSets),
+                   tile, reductionUsesInput, {dnai});
     }
     partialsIndex++;
   }
@@ -1591,11 +1492,46 @@ std::vector<RegionReduction> connectSmallInnerFactorReductions(
   std::vector<RegionReduction> implementedReductions;
   for (auto &red : consumedReductions) {
     const auto splitsThisReduction =
-        getAllowedColumnSplits(graph, splitsToUseWorkers, red, red.innerFactor);
+        getAllowedColumnSplits(graph, splitsToUseWorkers, red);
 
-    auto splitReductions = applyColumnSplits(red, splitsThisReduction);
-    for (unsigned i = 0; i < splitReductions.size(); i++) {
-      implementedReductions.push_back(std::move(splitReductions[i]));
+    if (splitsThisReduction > 1) {
+      const unsigned outWidth = red.output.numElements() / splitsThisReduction;
+      const unsigned reshapeDim1 =
+          outWidth * red.innerFactor * splitsThisReduction;
+      const auto splitWidth = outWidth * red.innerFactor;
+      for (unsigned j = 0; j < splitsThisReduction; j++) {
+        // Add a reduction per split, containing a subset of the columns of
+        // the original reduction
+        implementedReductions.push_back({});
+        implementedReductions.back().output =
+            red.output.slice(j * outWidth, (j + 1) * outWidth);
+        implementedReductions.back().innerFactor = red.innerFactor;
+        implementedReductions.back().outerFactor = red.outerFactor;
+
+        if (red.regularPartials()) {
+          implementedReductions.back().getPartials() = red.getPartials();
+          implementedReductions.back().getStride() = red.getStride();
+          implementedReductions.back().getOffset() =
+              red.getOffset() + (j * splitWidth);
+          implementedReductions.back().getOuterStride() = red.getOuterStride();
+          implementedReductions.back().getNumOuterStrides() =
+              red.getNumOuterStrides();
+        } else {
+          IrregularPartials iPartials;
+
+          for (auto &par : red.getPartials()) {
+            const auto partial =
+                par.reshape({par.numElements() / reshapeDim1, reshapeDim1});
+            iPartials.data.push_back(
+                partial.slice(j * splitWidth, (j + 1) * splitWidth, 1)
+                    .flatten());
+          }
+          implementedReductions.back().partials = iPartials;
+        }
+      }
+    } else {
+      // Add reduction to the list to be implemented here, without splitting
+      implementedReductions.emplace_back(std::move(red));
     }
   }
   remainingWorkers = implementedReductions.size() > remainingWorkers
