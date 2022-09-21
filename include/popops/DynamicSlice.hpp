@@ -453,6 +453,8 @@ void dynamicUpdate(poplar::Graph &graph, const poplar::Tensor &t,
  * \p t can be created using \p createSliceableTensor() to ensure efficient
  * mapping.
  *
+ *  \p dims and \p sizes must be size 1.
+ *
  *  ** multiSlice options **
  *    *  `remapOutOfBoundIndices` (true, false) [=false]
  *       Out of bounds indices are mapped to index 0.
@@ -498,6 +500,8 @@ poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
  * create tensors. \p t can be created using \p createGroupedSliceableTensor()
  * to ensure efficient mapping.
  *
+ *  \p dims and \p sizes must be size 1.
+ *
  * see \p multiSlice for informtion on \p options passed to this function in
  * addition to those passed for \p plan.
  *
@@ -535,7 +539,7 @@ poplar::Tensor groupedMultiSlice(poplar::Graph &graph, const poplar::Tensor &t,
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being sliced.
  *  \param offsets     The offsets within \p t to be sliced.
- *  \param dims        The dimension of \p t to be sliced.
+ *  \param dim         The dimension of \p t to be sliced.
  *  \param prog        The program to be extended.
  *  \param debugContext Optional debug information.
  *  \param optionFlags Option flags.
@@ -549,6 +553,8 @@ poplar::Tensor multiSlice(poplar::Graph &graph, const poplar::Tensor &t,
 /** Update multiple slices in a tensor.
  *
  *  See overloads of multiSlice for information on \p options.
+ *
+ *  \p dims and \p sizes must be size 1.
  *
  *  \param graph       The Poplar graph.
  *  \param t           The tensor being updated.
@@ -573,6 +579,8 @@ void multiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
 /** Update multiple slices in a tensor with a group dimension. The tensors \p t
  *  \p s , and \p offsets have group dimension as the first dimension.
  *
+ *  \p dims and \p sizes must be size 1.
+ *
  *  See overloads of multiSlice for information on \p options.
  *
  *  \param graph       The Poplar graph.
@@ -596,6 +604,8 @@ void groupedMultiUpdate(poplar::Graph &graph, const poplar::Tensor &t,
                         const poplar::DebugContext &debugContext = {});
 
 /** Accumulate multiple slices in a tensor
+ *
+ *  \p dims and \p sizes must be size 1.
  *
  *  See overloads of multiSlice for information on \p options.
  *
@@ -629,6 +639,8 @@ void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
  *  tensors \p t, \p s and \p offsets is the group dimension.
  *
  * \p t, \p s must be of the same type
+ *
+ *  \p dims and \p sizes must be size 1.
  *
  *  See overloads of multiSlice for information on \p options.
  *
@@ -687,6 +699,8 @@ void multiUpdateAdd(poplar::Graph &graph, const poplar::Tensor &t,
  * \p t, \p s must have the same element type
  *  offsets[i] >= t.dim(0) are ignored.
  *
+ *  \p dims and \p sizes must be size 1.
+ *
  *  See overloads of multiSlice for information on \p options.
  *
  *  \param graph       The Poplar graph.
@@ -714,6 +728,8 @@ void multiUpdateMax(poplar::Graph &graph, const poplar::Tensor &t,
  *  The tensors \p t, \p s, \p offsets have groups as their first dimension.
  *  The \p offsets tensor contains indices per group which update elements of
  *  the corresponding group.
+ *
+ *  \p dims and \p sizes must be size 1.
  *
  *  See overloads of multiSlice for information on \p options.
  *
