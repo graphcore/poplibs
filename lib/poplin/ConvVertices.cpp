@@ -1088,8 +1088,17 @@ static void createConvPartialAmpVertex(
         packAmpNx1Stride(strideBits, 0, inRowStride, outStride);
   }
 
-  graph.setInitialValue(v["transformedInStride"], transformedInStride);
-  graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
+  if (useConvPartial1x1OutVertex) {
+    // The 1x1 vertex uses a signed stride type.
+    graph.setInitialValue(v["transformedInStride"], transformedInStride);
+    graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
+  } else {
+    // The nx1 vertex uses an unsigned stride type.
+    unsigned long long transformedInStrideU = transformedInStride;
+    unsigned long long transformedOutStrideU = transformedOutStride;
+    graph.setInitialValue(v["transformedInStride"], transformedInStrideU);
+    graph.setInitialValue(v["transformedOutStride"], transformedOutStrideU);
+  }
 
   if (!useConvPartial1x1OutVertex) {
     graph.setInitialValue(v["kernelInnerElementsM1"], kernelInnerElements - 1);

@@ -231,7 +231,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   CODELET_SCALAR_VAL(numInGroups, unsigned);
   CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
   CODELET_SCALAR_VAL(kernelSizeM1, unsigned);
-  CODELET_SCALAR_VAL(transformedOutStride, unsigned);
+  CODELET_SCALAR_VAL(transformedOutStride, int);
   CODELET_SCALAR_VAL(inChansPerGroup, unsigned);
   CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
   CODELET_SCALAR_VAL(zerosInfo, unsigned);
