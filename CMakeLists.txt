@@ -23,7 +23,11 @@ if(NOT DEFINED POPLIBS_ENABLED_IPU_ARCH_NAMES)
 
   execute_process(COMMAND ${POPC_EXECUTABLE} --list-targets
                   OUTPUT_VARIABLE POPC_LIST_TARGETS_OUTPUT
+                  RESULT_VARIABLE CMD_STATUS
                   OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(CMD_STATUS)
+    message(FATAL_ERROR "${POPC_EXECUTABLE} failed: ${CMD_STATUS}")
+  endif()
   string(REPLACE "," ";" TMP "${POPC_LIST_TARGETS_OUTPUT}")
   set(POPLIBS_ENABLED_IPU_ARCH_NAMES "${TMP}" CACHE STRING
       "The architectures to build the poplibs library objects for")
