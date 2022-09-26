@@ -1,6 +1,5 @@
 add_subdirectory(codelets)
-# T69136 Re-enable after the multi-repo API change has finished
-# add_subdirectory(vertexVerifier)
+add_subdirectory(vertexVerifier)
 
 add_unit_test(CholeskyTest CholeskyTest.cpp)
 add_unit_test(ConvOptionsTest ConvOptionsTest.cpp)

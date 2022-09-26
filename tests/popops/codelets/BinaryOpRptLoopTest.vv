@@ -1,11 +1,11 @@
 testConfig default;
 in1.size = 1
 in1[i].size = 20
-in1[i]=[0,65000)
+in1[i]=[0,16.0)
 
 in2.size = 1
 in2[i].size = 20
-in2[i]=[0,65000)
+in2[i]=[0,16.0)
 
 out.size = 1
 out[i].size = 20
