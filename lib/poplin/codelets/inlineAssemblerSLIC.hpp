@@ -3,73 +3,54 @@
 #if __IPU_ARCH_VERSION__ >= 21
 
 template <bool use128BitLoad, unsigned convUnits>
-static __attribute__((always_inline)) void slicLoadWeights(void) {}
+static __attribute__((always_inline)) __attribute__((target("supervisor"))) void
+slicLoadWeights(void) {}
 
 template <> void slicLoadWeights<false, 16>(void) {
-  asm volatile(
-      // Last processing block (closest to the output)
-      // Select using TSLIC_F16V4_1x4_W0
-      R"l(
-             ld64putcs   24     // ch=0
-             ld64putcs   28     // ch=1
-             ld64putcs   24+32  // ch=2
-             ld64putcs   28+32  // ch=3
-      )l"
-      // Select using TSLIC_F16V4_1x4_W1
-      R"l(
-             ld64putcs   25     // ch=4
-             ld64putcs   29     // ch=5
-             ld64putcs   25+32  // ch=6
-             ld64putcs   29+32  // ch=7
-      )l"
-      // 2nd last processing block
-      // Select using TSLIC_F16V4_1x4_W0
-      R"l(
-             ld64putcs   16     // ch=0
-             ld64putcs   20     // ch=1
-             ld64putcs   16+32  // ch=2
-             ld64putcs   20+32  // ch=3
-      )l"
-      // Select using TSLIC_F16V4_1x4_W1
-      R"l(
-             ld64putcs   17     // ch=4
-             ld64putcs   21     // ch=5
-             ld64putcs   17+32  // ch=6
-             ld64putcs   21+32  // ch=7
-      )l"
-      // 3rd last processing block
-      // Select using TSLIC_F16V4_1x4_W0
-      R"l(
-             ld64putcs   8      // ch=0
-             ld64putcs   12     // ch=1
-             ld64putcs   8+32   // ch=2
-             ld64putcs   12+32  // ch=3
-      )l"
-      // Select using TSLIC_F16V4_1x4_W1
-      R"l(
-             ld64putcs   9      // ch=4
-             ld64putcs   13     // ch=5
-             ld64putcs   9+32   // ch=6
-             ld64putcs   13+32  // ch=7
-      )l"
-      // 1st processing block (closest to the input)
-      // Select using TSLIC_F16V4_1x4_W0
-      R"l(
-             ld64putcs   0     // out ch=0
-             ld64putcs   4     // ch=1
-             ld64putcs   0+32  // ch=2
-             ld64putcs   4+32  // ch=3
-      )l"
-      // Select using TSLIC_F16V4_1x4_W1
-      R"l(
-             ld64putcs   1     // ch=4
-             ld64putcs   5     // ch=5
-             ld64putcs   1+32  // ch=6
-             ld64putcs   5+32  // ch=7
-      )l"
-      :
-      :
-      :);
+  // Last processing block (closest to the output)
+  // Select using TSLIC_F16V4_1x4_W0
+  __builtin_ipu_ld64putcs(24);      // ch=0
+  __builtin_ipu_ld64putcs(28);      // ch=1
+  __builtin_ipu_ld64putcs(24 + 32); // ch=2
+  __builtin_ipu_ld64putcs(28 + 32); // ch=3
+                                    // Select using TSLIC_F16V4_1x4_W1
+  __builtin_ipu_ld64putcs(25);      // ch=4
+  __builtin_ipu_ld64putcs(29);      // ch=5
+  __builtin_ipu_ld64putcs(25 + 32); // ch=6
+  __builtin_ipu_ld64putcs(29 + 32); // ch=7
+                                    // 2nd last processing block
+                                    // Select using TSLIC_F16V4_1x4_W0
+  __builtin_ipu_ld64putcs(16);      // ch=0
+  __builtin_ipu_ld64putcs(20);      // ch=1
+  __builtin_ipu_ld64putcs(16 + 32); // ch=2
+  __builtin_ipu_ld64putcs(20 + 32); // ch=3
+                                    // Select using TSLIC_F16V4_1x4_W1
+  __builtin_ipu_ld64putcs(17);      // ch=4
+  __builtin_ipu_ld64putcs(21);      // ch=5
+  __builtin_ipu_ld64putcs(17 + 32); // ch=6
+  __builtin_ipu_ld64putcs(21 + 32); // ch=7
+                                    // 3rd last processing block
+                                    // Select using TSLIC_F16V4_1x4_W0
+  __builtin_ipu_ld64putcs(8);       // ch=0
+  __builtin_ipu_ld64putcs(12);      // ch=1
+  __builtin_ipu_ld64putcs(8 + 32);  // ch=2
+  __builtin_ipu_ld64putcs(12 + 32); // ch=3
+                                    // Select using TSLIC_F16V4_1x4_W1
+  __builtin_ipu_ld64putcs(9);       // ch=4
+  __builtin_ipu_ld64putcs(13);      // ch=5
+  __builtin_ipu_ld64putcs(9 + 32);  // ch=6
+  __builtin_ipu_ld64putcs(13 + 32); // ch=7
+  // 1st processing block (closest to the input)
+  // Select using TSLIC_F16V4_1x4_W0
+  __builtin_ipu_ld64putcs(0);      // out ch=0
+  __builtin_ipu_ld64putcs(4);      // ch=1
+  __builtin_ipu_ld64putcs(0 + 32); // ch=2
+  __builtin_ipu_ld64putcs(4 + 32); // ch=3
+                                   // Select using TSLIC_F16V4_1x4_W1
+  __builtin_ipu_ld64putcs(1);      // ch=4
+  __builtin_ipu_ld64putcs(5);      // ch=5
+  __builtin_ipu_ld64putcs(1 + 32); // ch=6
+  __builtin_ipu_ld64putcs(5 + 32); // ch=7
 }
 
 template <unsigned weightSelection>

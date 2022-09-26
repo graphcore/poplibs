@@ -23,156 +23,146 @@ setFp8Scale(const MetadataType weightsMetadata, const MetadataType inMetadata) {
 }
 
 template <bool use128BitLoad, unsigned convUnits>
-static __attribute__((always_inline)) void ampLoadWeights(void) {}
+static __attribute__((always_inline)) __attribute__((target("supervisor"))) void
+ampLoadWeights(void) {}
 
 template <> void ampLoadWeights<false, 16>(void) {
-  asm volatile(
-      R"l(  // 0th conv unit, 0th out channel
-            ld64putcs    0    // Phase 0
-            ld64putcs    1    // Phase 1
-            ld64putcs    2    // Phase 2
-            ld64putcs    3    // Phase 3
-            // 0th conv unit,  1st out channel
-            ld64putcs    4  // Phase 0
-            ld64putcs    5  // Phase 1
-            ld64putcs    6  // Phase 2
-            ld64putcs    7  // Phase 3
-            // 0th conv unit, 2nd out channel
-            ld64putcs    32  // Phase 0
-            ld64putcs    33  // Phase 1
-            ld64putcs    34  // Phase 2
-            ld64putcs    35  // Phase 3
-            // 0th conv unit, 3rd out channel
-            ld64putcs    32+4  // Phase 0
-            ld64putcs    33+4  // Phase 1
-            ld64putcs    34+4  // Phase 2
-            ld64putcs    35+4  // Phase 3
 
-            // 1st conv unit, 0th out channel
-            ld64putcs    8    // Phase 0
-            ld64putcs    9    // Phase 1
-            ld64putcs    10    // Phase 2
-            ld64putcs    11    // Phase 3
-            // 1st conv unit,  1st out channel
-            ld64putcs    12  // Phase 0
-            ld64putcs    13  // Phase 1
-            ld64putcs    14  // Phase 2
-            ld64putcs    15  // Phase 3
-            // 1st conv unit, 2nd out channel
-            ld64putcs    40  // Phase 0
-            ld64putcs    41  // Phase 1
-            ld64putcs    42  // Phase 2
-            ld64putcs    43  // Phase 3
-            // 1st conv unit, 3rd out channel
-            ld64putcs    44  // Phase 0
-            ld64putcs    45  // Phase 1
-            ld64putcs    46  // Phase 2
-            ld64putcs    47  // Phase 3
+  __builtin_ipu_ld64putcs(0); // Phase 0
+  __builtin_ipu_ld64putcs(1); // Phase 1
+  __builtin_ipu_ld64putcs(2); // Phase 2
+  __builtin_ipu_ld64putcs(3); // Phase 3
+  // 0th conv unit,  1st out channel
+  __builtin_ipu_ld64putcs(4); // Phase 0
+  __builtin_ipu_ld64putcs(5); // Phase 1
+  __builtin_ipu_ld64putcs(6); // Phase 2
+  __builtin_ipu_ld64putcs(7); // Phase 3
+  // 0th conv unit, 2nd out channel
+  __builtin_ipu_ld64putcs(32); // Phase 0
+  __builtin_ipu_ld64putcs(33); // Phase 1
+  __builtin_ipu_ld64putcs(34); // Phase 2
+  __builtin_ipu_ld64putcs(35); // Phase 3
+  // 0th conv unit, 3rd out channel
+  __builtin_ipu_ld64putcs(36); // Phase 0
+  __builtin_ipu_ld64putcs(37); // Phase 1
+  __builtin_ipu_ld64putcs(38); // Phase 2
+  __builtin_ipu_ld64putcs(39); // Phase 3
 
-            // 2nd conv unit, 0th out channel
-            ld64putcs    16    // Phase 0
-            ld64putcs    17    // Phase 1
-            ld64putcs    18    // Phase 2
-            ld64putcs    19    // Phase 3
-            // 2nd conv unit,  1st out channel
-            ld64putcs    20  // Phase 0
-            ld64putcs    21  // Phase 1
-            ld64putcs    22  // Phase 2
-            ld64putcs    23  // Phase 3
-            // 2nd conv unit, 2nd out channel
-            ld64putcs    48  // Phase 0
-            ld64putcs    49  // Phase 1
-            ld64putcs    50  // Phase 2
-            ld64putcs    51  // Phase 3
-            // 2nd conv unit, 3rd out channel
-            ld64putcs    52  // Phase 0
-            ld64putcs    53  // Phase 1
-            ld64putcs    54  // Phase 2
-            ld64putcs    55  // Phase 3
+  // 1st conv unit, 0th out channel
+  __builtin_ipu_ld64putcs(8);  // Phase 0
+  __builtin_ipu_ld64putcs(9);  // Phase 1
+  __builtin_ipu_ld64putcs(10); // Phase 2
+  __builtin_ipu_ld64putcs(11); // Phase 3
+  // 1st conv unit,  1st out channel
+  __builtin_ipu_ld64putcs(12); // Phase 0
+  __builtin_ipu_ld64putcs(13); // Phase 1
+  __builtin_ipu_ld64putcs(14); // Phase 2
+  __builtin_ipu_ld64putcs(15); // Phase 3
+  // 1st conv unit, 2nd out channel
+  __builtin_ipu_ld64putcs(40); // Phase 0
+  __builtin_ipu_ld64putcs(41); // Phase 1
+  __builtin_ipu_ld64putcs(42); // Phase 2
+  __builtin_ipu_ld64putcs(43); // Phase 3
+  // 1st conv unit, 3rd out channel
+  __builtin_ipu_ld64putcs(44); // Phase 0
+  __builtin_ipu_ld64putcs(45); // Phase 1
+  __builtin_ipu_ld64putcs(46); // Phase 2
+  __builtin_ipu_ld64putcs(47); // Phase 3
 
-            // 3rd conv unit, 0th out channel
-            ld64putcs    24    // Phase 0
-            ld64putcs    25    // Phase 1
-            ld64putcs    26    // Phase 2
-            ld64putcs    27    // Phase 3
-            // 3rd conv unit,  1st out channel
-            ld64putcs    28  // Phase 0
-            ld64putcs    29  // Phase 1
-            ld64putcs    30  // Phase 2
-            ld64putcs    31  // Phase 3
-            // 3rd conv unit, 2nd out channel
-            ld64putcs    56  // Phase 0
-            ld64putcs    57  // Phase 1
-            ld64putcs    58  // Phase 2
-            ld64putcs    59  // Phase 3
-            // 3rd conv unit, 3rd out channel
-            ld64putcs    60  // Phase 0
-            ld64putcs    61  // Phase 1
-            ld64putcs    62  // Phase 2
-            ld64putcs    63  // Phase 3
-      )l"
-      :
-      :
-      :);
+  // 2nd conv unit, 0th out channel
+  __builtin_ipu_ld64putcs(16); // Phase 0
+  __builtin_ipu_ld64putcs(17); // Phase 1
+  __builtin_ipu_ld64putcs(18); // Phase 2
+  __builtin_ipu_ld64putcs(19); // Phase 3
+  // 2nd conv unit,  1st out channel
+  __builtin_ipu_ld64putcs(20); // Phase 0
+  __builtin_ipu_ld64putcs(21); // Phase 1
+  __builtin_ipu_ld64putcs(22); // Phase 2
+  __builtin_ipu_ld64putcs(23); // Phase 3
+  // 2nd conv unit, 2nd out channel
+  __builtin_ipu_ld64putcs(48); // Phase 0
+  __builtin_ipu_ld64putcs(49); // Phase 1
+  __builtin_ipu_ld64putcs(50); // Phase 2
+  __builtin_ipu_ld64putcs(51); // Phase 3
+  // 2nd conv unit, 3rd out channel
+  __builtin_ipu_ld64putcs(52); // Phase 0
+  __builtin_ipu_ld64putcs(53); // Phase 1
+  __builtin_ipu_ld64putcs(54); // Phase 2
+  __builtin_ipu_ld64putcs(55); // Phase 3
+
+  // 3rd conv unit, 0th out channel
+  __builtin_ipu_ld64putcs(24); // Phase 0
+  __builtin_ipu_ld64putcs(25); // Phase 1
+  __builtin_ipu_ld64putcs(26); // Phase 2
+  __builtin_ipu_ld64putcs(27); // Phase 3
+  // 3rd conv unit,  1st out channel
+  __builtin_ipu_ld64putcs(28); // Phase 0
+  __builtin_ipu_ld64putcs(29); // Phase 1
+  __builtin_ipu_ld64putcs(30); // Phase 2
+  __builtin_ipu_ld64putcs(31); // Phase 3
+  // 3rd conv unit, 2nd out channel
+  __builtin_ipu_ld64putcs(56); // Phase 0
+  __builtin_ipu_ld64putcs(57); // Phase 1
+  __builtin_ipu_ld64putcs(58); // Phase 2
+  __builtin_ipu_ld64putcs(59); // Phase 3
+  // 3rd conv unit, 3rd out channel
+  __builtin_ipu_ld64putcs(60); // Phase 0
+  __builtin_ipu_ld64putcs(61); // Phase 1
+  __builtin_ipu_ld64putcs(62); // Phase 2
+  __builtin_ipu_ld64putcs(63); // Phase 3
 }
 template <> void ampLoadWeights<true, 16>(void) {
-  asm volatile(
-      R"l(
-            // 0th conv unit, 0th out channel
-            ld128putcs    0    // Phase 0,1
-            ld128putcs    2    // Phase 2,3
-            // 0th conv unit,  1st out channel
-            ld128putcs    4  // Phase 0,1
-            ld128putcs    6  // Phase 2,3
-            // 0th conv unit, 2nd out channel
-            ld128putcs    32  // Phase 0,1
-            ld128putcs    34  // Phase 2,3
-            // 0th conv unit, 3rd out channel
-            ld128putcs    32+4  // Phase 0,1
-            ld128putcs    34+4  // Phase 2,3
+  // 0th conv unit, 0th out channel
+  __builtin_ipu_ld128putcs(0); // Phase 0,1
+  __builtin_ipu_ld128putcs(2); // Phase 2,3
+  // 0th conv unit,  1st out channel
+  __builtin_ipu_ld128putcs(4); // Phase 0,1
+  __builtin_ipu_ld128putcs(6); // Phase 2,3
+  // 0th conv unit, 2nd out channel
+  __builtin_ipu_ld128putcs(32); // Phase 0,1
+  __builtin_ipu_ld128putcs(34); // Phase 2,3
+  // 0th conv unit, 3rd out channel
+  __builtin_ipu_ld128putcs(36); // Phase 0,1
+  __builtin_ipu_ld128putcs(38); // Phase 2,3
 
-            // 1st conv unit, 0th out channel
-            ld128putcs    8    // Phase 0,1
-            ld128putcs    10    // Phase 2,3
-            // 1st conv unit,  1st out channel
-            ld128putcs    12  // Phase 0,1
-            ld128putcs    14  // Phase 2,3
-            // 1st conv unit, 2nd out channel
-            ld128putcs    40  // Phase 0,1
-            ld128putcs    42  // Phase 2,3
-            // 1st conv unit, 3rd out channel
-            ld128putcs    44  // Phase 0,1
-            ld128putcs    46  // Phase 2,3
+  // 1st conv unit, 0th out channel
+  __builtin_ipu_ld128putcs(8);  // Phase 0,1
+  __builtin_ipu_ld128putcs(10); // Phase 2,3
+  // 1st conv unit,  1st out channel
+  __builtin_ipu_ld128putcs(12); // Phase 0,1
+  __builtin_ipu_ld128putcs(14); // Phase 2,3
+  // 1st conv unit, 2nd out channel
+  __builtin_ipu_ld128putcs(40); // Phase 0,1
+  __builtin_ipu_ld128putcs(42); // Phase 2,3
+  // 1st conv unit, 3rd out channel
+  __builtin_ipu_ld128putcs(44); // Phase 0,1
+  __builtin_ipu_ld128putcs(46); // Phase 2,3
 
-            // 2nd conv unit, 0th out channel
-            ld128putcs    16    // Phase 0,1
-            ld128putcs    18    // Phase 2,3
-            // 2nd conv unit,  1st out channel
-            ld128putcs    20  // Phase 0,1
-            ld128putcs    22  // Phase 2,3
-            // 2nd conv unit, 2nd out channel
-            ld128putcs    48  // Phase 0,1
-            ld128putcs    50  // Phase 2,3
-            // 2nd conv unit, 3rd out channel
-            ld128putcs    52  // Phase 0,1
-            ld128putcs    54  // Phase 2,3
+  // 2nd conv unit, 0th out channel
+  __builtin_ipu_ld128putcs(16); // Phase 0,1
+  __builtin_ipu_ld128putcs(18); // Phase 2,3
+  // 2nd conv unit,  1st out channel
+  __builtin_ipu_ld128putcs(20); // Phase 0,1
+  __builtin_ipu_ld128putcs(22); // Phase 2,3
+  // 2nd conv unit, 2nd out channel
+  __builtin_ipu_ld128putcs(48); // Phase 0,1
+  __builtin_ipu_ld128putcs(50); // Phase 2,3
+  // 2nd conv unit, 3rd out channel
+  __builtin_ipu_ld128putcs(52); // Phase 0,1
+  __builtin_ipu_ld128putcs(54); // Phase 2,3
 
-            // 3rd conv unit, 0th out channel
-            ld128putcs    24    // Phase 0,1
-            ld128putcs    26    // Phase 2,3
-            // 3rd conv unit,  1st out channel
-            ld128putcs    28  // Phase 0,1
-            ld128putcs    30  // Phase 2,3
-            // 3rd conv unit, 2nd out channel
-            ld128putcs    56  // Phase 0,1
-            ld128putcs    58  // Phase 2,3
-            // 3rd conv unit, 3rd out channel
-            ld128putcs    60  // Phase 0,1
-            ld128putcs    62  // Phase 2,3
-      )l"
-      :
-      :
-      :);
+  // 3rd conv unit, 0th out channel
+  __builtin_ipu_ld128putcs(24); // Phase 0,1
+  __builtin_ipu_ld128putcs(26); // Phase 2,3
+  // 3rd conv unit,  1st out channel
+  __builtin_ipu_ld128putcs(28); // Phase 0,1
+  __builtin_ipu_ld128putcs(30); // Phase 2,3
+  // 3rd conv unit, 2nd out channel
+  __builtin_ipu_ld128putcs(56); // Phase 0,1
+  __builtin_ipu_ld128putcs(58); // Phase 2,3
+  // 3rd conv unit, 3rd out channel
+  __builtin_ipu_ld128putcs(60); // Phase 0,1
+  __builtin_ipu_ld128putcs(62); // Phase 2,3
 }
 
 template <bool ZeroPartials>
