@@ -9,16 +9,10 @@
 #include <limits>
 
 using namespace poplar;
-#if defined(VECTOR_AVAIL_SCALED_PTR32) &&                                      \
-    defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
-static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::SCALED_PTR32;
-static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::SCALED_PTR64;
-static constexpr auto DELTANLAYOUT = poplar::VectorListLayout::DELTAN;
-#else
+
 static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
 static constexpr auto PTR_ALIGN64 = poplar::VectorLayout::ONE_PTR;
 static constexpr auto DELTANLAYOUT = poplar::VectorListLayout::DELTANELEMENTS;
-#endif
 
 namespace popnn {
 

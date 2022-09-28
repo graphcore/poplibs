@@ -10,15 +10,9 @@ class NonLinearityGrad2D : public Vertex {
 public:
   NonLinearityGrad2D();
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
-  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> outGrad;
-  Vector<Input<Vector<FPType, SCALED_PTR64, 8>>, ONE_PTR> out;
-  Output<VectorList<FPType, DELTAN, 8>> inGrad;
-#else
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> outGrad;
   Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
   Output<VectorList<FPType, DELTANELEMENTS, 8>> inGrad;
-#endif
 
   IS_EXTERNAL_CODELET(true);
   void compute() {

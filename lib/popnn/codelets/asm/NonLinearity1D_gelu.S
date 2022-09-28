@@ -21,13 +21,8 @@
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // Constants
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-#define DATA_PTR_VOFFSET 0
-#define SIZE_VOFFSET 2
-#else
 #define DATA_PTR_VOFFSET 0
 #define SIZE_VOFFSET 4
-#endif
 
 #define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
 #define LOG2_24_OVER_3 3
@@ -60,11 +55,7 @@
 
 // Worker register aliases
 #define WORKER_ID m0
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-#define BASE m1
-#else
 #define BASE mzero
-#endif
 #define DATA_PTR m2
 #define SIZE m3
 #define REM m4
@@ -125,7 +116,7 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
     nop
 HALF_SYMBOL:
 .worker
-    { 
+    {
       ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
       // calls to NonLinearityGELU_half use $ACTS_1 for mix. clear it here
       // so that arithmetic doesn't use rubbish.
@@ -136,16 +127,7 @@ HALF_SYMBOL:
     // $REM = No. of remaining elements between workers
     HALF_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-    // Scaled pointer gives offset in 32-bit units from
-    // TMEM_REGION0_BASE_ADDR
-    //
-    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
-    shl $DATA_PTR, $DATA_PTR, 2
-    setzi $BASE, TMEM_REGION0_BASE_ADDR
-#else
     ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
-#endif
 
     // Clear overflow and NANOO to allow saturation. We can afford this as
     // all the terms in the approximation have the same sign (i.e. x, x^3)
@@ -262,7 +244,7 @@ HALF_SYMBOL:
 .Lhalf_end:
     uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $fpctl_cur
     exitz $mzero
-  
+
 .size HALF_SYMBOL, .-HALF_SYMBOL
 
 DEF_STACK_USAGE 0 FLOAT_SYMBOL
@@ -294,16 +276,7 @@ FLOAT_SYMBOL:
     // $REM = No. of remaining elements between workers
     FLOAT_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-    // Scaled pointer gives offset in 32-bit units from
-    // TMEM_REGION0_BASE_ADDR
-    //
-    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
-    shl $DATA_PTR, $DATA_PTR, 2
-    setzi $BASE, TMEM_REGION0_BASE_ADDR
-#else
     ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
-#endif
 
     // Get worker ID
     get $WORKER_ID, $WSR

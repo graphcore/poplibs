@@ -23,27 +23,15 @@
   __runCodelet_popnn__NonLinearity1DInPlace___float_popnn__NonLinearityType__SWISH
 
 // Constants
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-#define DATA_PTR_VOFFSET 0
-#define INPLACE_SIZE_VOFFSET 2
-// Non inplace
-#define OUT_PTR_VOFFSET 2
-#define SIZE_VOFFSET 4
-#else
 #define DATA_PTR_VOFFSET 0
 #define INPLACE_SIZE_VOFFSET 4
 // Non inplace
 #define OUT_PTR_VOFFSET 4
 #define SIZE_VOFFSET 8
-#endif
 
 // Worker register aliases
 #define WORKER_ID m0
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-#define BASE m1
-#else
 #define BASE mzero
-#endif
 #define DATA_PTR m2
 #define SIZE m3
 #define REM m4
@@ -59,11 +47,7 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
     .align 4
 HALF_SYMBOL:
 .worker
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-    ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/2
-#else
     ld32 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
-#endif
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
     bri HALF_SYMBOL_COMMON
 .size HALF_SYMBOL, .-HALF_SYMBOL
@@ -77,11 +61,7 @@ DEF_STACK_USAGE 0 HALF_SYMBOL_INPLACE
     .align 8
 HALF_SYMBOL_INPLACE:
 .worker
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-    ldz16 $OUT_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
-#else
     ld32 $OUT_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
-#endif
     ldz16 $MSCRATCH, $mvertex_base, $mzero, INPLACE_SIZE_VOFFSET/2
 
 HALF_SYMBOL_COMMON:
@@ -89,18 +69,8 @@ HALF_SYMBOL_COMMON:
     // $REM = No. of remaining elements between workers
     HALF_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-    // Scaled pointer gives offset in 32-bit units from
-    // TMEM_REGION0_BASE_ADDR
-    //
-    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
-    shl $DATA_PTR, $DATA_PTR, 2
-    shl $OUT_PTR, $OUT_PTR, 2
-    setzi $BASE, TMEM_REGION0_BASE_ADDR
-#else
     {ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
      fnop  } // Repeat alignment
-#endif
 
     // Get worker ID
     get $WORKER_ID, $WSR
@@ -204,15 +174,11 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .align 4
 FLOAT_SYMBOL:
     .worker
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-    ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/2
-#else
     ld32 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
-#endif
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
     bri FLOAT_SYMBOL_COMMON
  .size FLOAT_SYMBOL, .-FLOAT_SYMBOL
-   
+
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function
 
@@ -225,11 +191,7 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL_INPLACE
 .align 8
 FLOAT_SYMBOL_INPLACE:
 .worker
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-    ldz16 $OUT_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
-#else
     ld32 $OUT_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
-#endif
     ldz16 $MSCRATCH, $mvertex_base, $mzero, INPLACE_SIZE_VOFFSET/2
 
 FLOAT_SYMBOL_COMMON:
@@ -238,18 +200,8 @@ FLOAT_SYMBOL_COMMON:
     // $REM = No. of remaining elements between workers
     FLOAT_SPLIT_BETWEEN_WORKERS $MSCRATCH $SIZE $REM
 
-#if defined(VECTOR_AVAIL_SCALED_PTR32)
-    // Scaled pointer gives offset in 32-bit units from
-    // TMEM_REGION0_BASE_ADDR
-    //
-    ldz16 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/2
-    shl $DATA_PTR, $DATA_PTR, 2
-    shl $OUT_PTR, $OUT_PTR, 2
-    setzi $BASE, TMEM_REGION0_BASE_ADDR
-#else
     {ld32 $DATA_PTR, $mvertex_base, $mzero, DATA_PTR_VOFFSET/4
     fnop} // Rpt alignment
-#endif
 
     // Get worker ID
     get $WORKER_ID, $WSR

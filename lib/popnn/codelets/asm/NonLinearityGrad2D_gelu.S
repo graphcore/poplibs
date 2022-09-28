@@ -29,17 +29,10 @@
 
 #define PTR64_SHL_BITS 3
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
-#define DELTAN_BASE_PTR_BITS 20
-#define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
-#define DELTAN_OFFSET_BITS 18
-#define DELTAN_OFFSET_MASK ((1 << DELTAN_OFFSET_BITS) - 1)
-#else
 #define DELTAN_BASE_PTR_BITS 24
 #define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
 #define DELTAN_OFFSET_BITS 18
 #define DELTAN_OFFSET_MASK ((1 << DELTAN_OFFSET_BITS) - 1)
-#endif
 
 #define HALF_1_0 0x3C00
 #define HALF_0_5 0x3800
@@ -366,24 +359,10 @@ HALF_SYMBOL:
   ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET/4
 
   // Unpack base pointer and n0
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
-  setzi $MASK, DELTAN_BASE_PTR_MASK
-#else
   ldconst $MASK, DELTAN_BASE_PTR_MASK
-#endif
   and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
   shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
-  // DeltaN table pointer is a ScaledPtr32, gives offset in
-  // 32-bit units from TMEM_REGION0_BASE_ADDR.
-  // Actually added offset to reclaim a register rather than
-  // using extra offset parameters for loads
-  ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET/2
-  shl $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, 2
-  setzi $MSCRATCH, TMEM_REGION0_BASE_ADDR
-  add $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, $MSCRATCH
-#else
   // DeltaN table pointer contains a 24 bit absolute address
   // followed by the upper 8 bits of N0. Combine with the
   // lower N0 bits which has alraedy been loaded from the
@@ -396,7 +375,6 @@ HALF_SYMBOL:
   shr $N0_B, $MSCRATCH, DELTAN_BASE_PTR_BITS
   shl $N0, $N0, 8
   or $N0, $N0, $N0_B
-#endif
 
   setzi $MASK, DELTAN_OFFSET_MASK
 
@@ -428,16 +406,9 @@ HALF_SYMBOL:
 .Lhalf_n0_loop:
   ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
   and $INGRAD_PTR, $MSCRATCH, $MASK
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
-  ldz16step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
-  ldz16step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, PTR64_SHL_BITS
-  shl $OUT_PTR, $OUT_PTR, PTR64_SHL_BITS
-#else
   shl $INGRAD_PTR, $INGRAD_PTR, PTR64_SHL_BITS
   ld32step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
   ld32step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
-#endif
   shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
   shr $N1_64BIT, $N1, 2
 
@@ -506,11 +477,7 @@ FLOAT_SYMBOL:
   ld32 $MSCRATCH, $mvertex_base, $mzero, INGRAD_BASE_AND_N0_VOFFSET/4
 
   // Unpack base pointer and n0
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
-  setzi $MASK, DELTAN_BASE_PTR_MASK
-#else
   ldconst $MASK, DELTAN_BASE_PTR_MASK
-#endif
   // Load constants
   ldconst $ASCRATCH_0, FLOAT_ALPHA_TIMES_BETA
   ldconst $ASCRATCH_1, FLOAT_ALPHA
@@ -522,16 +489,6 @@ FLOAT_SYMBOL:
 
   shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
 
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
-  // DeltaN table pointer is a ScaledPtr32, gives offset in
-  // 32-bit units from TMEM_REGION0_BASE_ADDR.
-  // Actually added offset to reclaim a register rather than
-  // using extra offset parameters for loads
-  ldz16 $INGRAD_DELTAN_PTR, $mvertex_base, $mzero, INGRAD_DELTAN_PTR_VOFFSET/2
-  shl $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, 2
-  setzi $MSCRATCH, TMEM_REGION0_BASE_ADDR
-  add $INGRAD_DELTAN_PTR, $INGRAD_DELTAN_PTR, $MSCRATCH
-#else
   // DeltaN table pointer contains a 24 bit absolute address
   // followed by the upper 8 bits of N0. Combine with the
   // lower N0 bits which has alraedy been loaded from the
@@ -544,7 +501,6 @@ FLOAT_SYMBOL:
   shr $N0_B, $MSCRATCH, DELTAN_BASE_PTR_BITS
   shl $N0, $N0, 8
   or $N0, $N0, $N0_B
-#endif
 
   {
     st64    $ASCRATCH_PAIR, $mworker_base, $mzero, SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA
@@ -580,16 +536,9 @@ FLOAT_SYMBOL:
 .Lfloat_n0_loop:
   ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
   and $INGRAD_PTR, $MSCRATCH, $MASK
-#if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
-  ldz16step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
-  ldz16step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, PTR64_SHL_BITS
-  shl $OUT_PTR, $OUT_PTR, PTR64_SHL_BITS
-#else
   shl $INGRAD_PTR, $INGRAD_PTR, PTR64_SHL_BITS
   ld32step $OUTGRAD_PTR, $mzero, $OUTGRAD_OUTER_PTR+=, 1
   ld32step $OUT_PTR, $mzero, $OUT_OUTER_PTR+=, 1
-#endif
   shr $N1, $MSCRATCH, DELTAN_OFFSET_BITS
   shr $N1_64BIT, $N1, 1
 

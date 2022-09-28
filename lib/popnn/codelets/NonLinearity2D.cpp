@@ -10,11 +10,7 @@ class NonLinearity2DInPlace : public Vertex {
 public:
   NonLinearity2DInPlace();
 
-#if defined(VECTORLIST_AVAIL_DELTAN)
-  InOut<VectorList<FPType, DELTAN>> data;
-#else
   InOut<VectorList<FPType, DELTANELEMENTS>> data;
-#endif
 
   IS_EXTERNAL_CODELET(true);
   void compute() {
@@ -33,13 +29,8 @@ class NonLinearity2D : public Vertex {
 public:
   NonLinearity2D();
 
-#if defined(VECTORLIST_AVAIL_DELTAN)
-  Input<VectorList<FPType, DELTAN, 8>> data;
-  Vector<Output<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
-#else
   Input<VectorList<FPType, DELTANELEMENTS, 8>> data;
   Vector<Output<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> out;
-#endif
 
   IS_EXTERNAL_CODELET(true);
   void compute() {

@@ -21,17 +21,10 @@
 
 
 // Constants
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-#define OUTGRAD_PTR_VOFFSET 0
-#define OUT_PTR_VOFFSET 2
-#define INGRAD_PTR_VOFFSET 4
-#define N_VOFFSET 6
-#else
 #define OUTGRAD_PTR_VOFFSET 0
 #define OUT_PTR_VOFFSET 4
 #define INGRAD_PTR_VOFFSET 8
 #define N_VOFFSET 12
-#endif
 
 // Worker register aliases
 #define WORKER_ID m0
@@ -56,21 +49,12 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
 HALF_SYMBOL:
 .worker
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/2
-  ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/2
-  ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET/2
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
-  shl $OUT_PTR, $OUT_PTR, 3
-  shl $INGRAD_PTR, $INGRAD_PTR, 3
-#else
   ld32 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/4
   ld32 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
   {
     ld32 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET/4
     fnop
   }
-#endif
 
   // $SIZE = No. of 64-bit elements each worker should process
   // $REM = No. of remaining elements between workers
@@ -146,21 +130,12 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL
 FLOAT_SYMBOL:
 .worker
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
-#if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ldz16 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/2
-  ldz16 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/2
-  ldz16 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET/2
-  shl $OUTGRAD_PTR, $OUTGRAD_PTR, 3
-  shl $OUT_PTR, $OUT_PTR, 3
-  shl $INGRAD_PTR, $INGRAD_PTR, 3
-#else
   ld32 $OUTGRAD_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/4
   ld32 $OUT_PTR, $mvertex_base, $mzero, OUT_PTR_VOFFSET/4
   {
     ld32 $INGRAD_PTR, $mvertex_base, $mzero, INGRAD_PTR_VOFFSET/4
     fnop
   }
-#endif
 
   // $SIZE = No. of 64-bit elements each worker should process
   // $REM = No. of remaining elements between workers

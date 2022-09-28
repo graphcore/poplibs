@@ -13,15 +13,6 @@
 #define lossCrossEntropyHalf __runCodelet_popnn__LossCrossEntropyTransform___half
 
 // All offsets are specified in bytes
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-#define PROB_PTR_OFFSET         0
-#define EXPECTED_PTR_OFFSET     2
-#define DELTA_PTR_OFFSET        4
-#define TRANSFORMED_PTR_OFFSET  6
-#define SIZE_OFFSET             8
-#define DELTA_SCALE_OFFSET      12
-#define MODEL_OUT_SCALING_OFFSET 16
-#else
 #define PROB_PTR_OFFSET         0
 #define EXPECTED_PTR_OFFSET     4
 #define DELTA_PTR_OFFSET        8
@@ -29,7 +20,6 @@
 #define SIZE_OFFSET            16
 #define DELTA_SCALE_OFFSET     20
 #define MODEL_OUT_SCALING_OFFSET 24
-#endif
 
 // eps
 #define EPS_FLOAT   0x00800000   // 1.17549435e-38F, min value which is not a denorm
@@ -51,42 +41,22 @@ DEF_STACK_USAGE 0 lossSumSquaredFloat
 #define DELTA_PTR               m2
 #define TRANSFORMED_PTR         m3
 #define SIZE                    m4
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-#define BASE                    m5
-#else
 #define BASE                    mzero
-#endif
 #define PROB                    a0
 #define EXPECTED                a1
 #define DELTA                   a2
 #define TRANSFORMED             a3
 #define CONST_HALF              a4
 
-#ifndef VECTOR_AVAIL_SCALED_PTR32
   nop              // for rpt body alignment
-#endif
 lossSumSquaredFloat:
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  ldz16 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET/2
-  ldz16 $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET/2
-  ldz16 $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET/2
-  ldz16 $TRANSFORMED_PTR, $mvertex_base, $mzero, TRANSFORMED_PTR_OFFSET/2
-#else
   ld32  $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET/4
   ld32  $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET/4
   ld32  $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET/4
   ld32  $TRANSFORMED_PTR, $mvertex_base, $mzero, TRANSFORMED_PTR_OFFSET/4
-#endif
 
   // CONST_HALF = 0x3F000000, where 0x3F000000 represents 0.5 in FP32
   {ldz16 $SIZE, $mvertex_base, $mzero, SIZE_OFFSET/2; or $CONST_HALF, $azero, 0x3F000000}
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  setzi $BASE, TMEM_REGION0_BASE_ADDR
-  shl $PROB_PTR, $PROB_PTR, 2
-  shl $EXPECTED_PTR, $EXPECTED_PTR, 2
-  shl $DELTA_PTR, $DELTA_PTR, 2
-  shl $TRANSFORMED_PTR, $TRANSFORMED_PTR, 2;
-#endif
 
   // Load ahead
   ld32step $PROB, $BASE, $PROB_PTR+=, 1
@@ -127,11 +97,7 @@ DEF_STACK_USAGE 0 lossSumSquaredHalf
 #define DELTA_PTR               m2
 #define TRANSFORMED_PTR         m3
 #define SIZE                    m4
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-#define BASE                    m5
-#else
 #define BASE                    mzero
-#endif
 #define SIZE_D2                 m6
 #define REMAINDER               m7
 #define PROB                    a0
@@ -142,31 +108,15 @@ DEF_STACK_USAGE 0 lossSumSquaredHalf
 #define DELTA_RMW               a5
 #define TRANSFORMED_RMW         a6
 #define ASCRATCH                a7
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-nop                // for rpt body alignment
-#endif
+
 lossSumSquaredHalf:
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  ldz16 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET/2
-  ldz16 $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET/2
-  ldz16 $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET/2
-  ldz16 $TRANSFORMED_PTR, $mvertex_base, $mzero, TRANSFORMED_PTR_OFFSET/2
-#else
   ld32 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET/4
   ld32 $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET/4
   ld32 $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET/4
   ld32 $TRANSFORMED_PTR, $mvertex_base, $mzero, TRANSFORMED_PTR_OFFSET/4
-#endif
 
   // CONST_HALF = [0.5h, 0.5h] in FP16
   {ldz16 $SIZE, $mvertex_base, $mzero, SIZE_OFFSET/2; f16v2sigm $CONST_HALF, $azero}
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  setzi $BASE, TMEM_REGION0_BASE_ADDR
-  shl $PROB_PTR, $PROB_PTR, 2
-  shl $EXPECTED_PTR, $EXPECTED_PTR, 2
-  shl $DELTA_PTR, $DELTA_PTR, 2
-  shl $TRANSFORMED_PTR, $TRANSFORMED_PTR, 2;
-#endif
 
   // Divide size by two - working on two elements at a time
   shr $SIZE_D2, $SIZE, 1
@@ -233,11 +183,7 @@ DEF_STACK_USAGE 0 lossCrossEntropyFloat
 #define DELTA_PTR               m2
 #define TRANSFORMED_PTR         m3
 #define SIZE                    m4
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-#define BASE                    m5
-#else
 #define BASE                    mzero
-#endif
 #define SCALE_PTR               m6
 
 #define PROB                    a0
@@ -248,21 +194,12 @@ DEF_STACK_USAGE 0 lossCrossEntropyFloat
 #define MODEL_OUT_SCALING       a5
 #define EPS                     a6
 #define NEG_LOG_MODEL_OUT_SCALING   a7
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  nop              // for repeat body alignment
-#endif
+
 lossCrossEntropyFloat:
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  ldz16 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET/2
-  ldz16 $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET/2
-  ldz16 $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET/2
-  ldz16 $TRANSFORMED_PTR, $mvertex_base, $mzero, TRANSFORMED_PTR_OFFSET/2
-#else
   ld32 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET/4
   ld32 $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET/4
   ld32 $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET/4
   ld32 $TRANSFORMED_PTR, $mvertex_base, $mzero, TRANSFORMED_PTR_OFFSET/4
-#endif
   ldz16 $SIZE, $mvertex_base, $mzero, SIZE_OFFSET/2
   ld32  $SCALE_PTR, $mvertex_base, $mzero, MODEL_OUT_SCALING_OFFSET/4
 
@@ -271,13 +208,6 @@ lossCrossEntropyFloat:
   ld32 $DELTAS_SCALE, $mzero, $SCALE_PTR, 0;
   f32div $DELTAS_SCALE, $DELTAS_SCALE, $MODEL_OUT_SCALING
 
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  setzi $BASE, TMEM_REGION0_BASE_ADDR
-  shl   $PROB_PTR, $PROB_PTR, 2
-  shl   $EXPECTED_PTR, $EXPECTED_PTR, 2
-  shl   $DELTA_PTR, $DELTA_PTR, 2
-  shl   $TRANSFORMED_PTR, $TRANSFORMED_PTR, 2
-#endif
 
   {ld32step $PROB, $BASE, $PROB_PTR+=, 1
    f32ln  $NEG_LOG_MODEL_OUT_SCALING, $MODEL_OUT_SCALING}
@@ -334,11 +264,7 @@ DEF_STACK_USAGE 0 lossCrossEntropyHalf
 #define DELTA_PTR               m2
 #define TRANSFORMED_PTR         m3
 #define SIZE                    m4
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-#define BASE                    m5
-#else
 #define BASE                    mzero
-#endif
 #define SIZE_D2                 m6
 #define REMAINDER               m7
 #define SCALE_PTR               m8
@@ -358,17 +284,9 @@ DEF_STACK_USAGE 0 lossCrossEntropyHalf
 // This means that there will be a small error in the estimated loss
 // Eg: log(1 + 2^-24) = 0.000000059605 when it should be 0
 
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  nop              // for repeat body alignment
-#endif
 lossCrossEntropyHalf:
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  ldz16 $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET/2
-  ldz16 $TRANSFORMED_PTR, $mvertex_base, $mzero, TRANSFORMED_PTR_OFFSET/2
-#else
   ld32 $DELTA_PTR, $mvertex_base, $mzero, DELTA_PTR_OFFSET/4
   ld32 $TRANSFORMED_PTR, $mvertex_base, $mzero, TRANSFORMED_PTR_OFFSET/4
-#endif
   ldz16 $SIZE, $mvertex_base, $mzero, SIZE_OFFSET/2
   ld32  $SCALE_PTR, $mvertex_base, $mzero, MODEL_OUT_SCALING_OFFSET/4
 
@@ -378,33 +296,15 @@ lossCrossEntropyHalf:
   {ldb16 $aSCRATCH, $mzero, $SCALE_PTR, 0
    f16tof32 $EPS, $MODEL_OUT_SCALING}
 
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  setzi $BASE, TMEM_REGION0_BASE_ADDR
-  {ldz16 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET/2
-   f16tof32 $aSCRATCH, $aSCRATCH}
-  shl   $PROB_PTR, $PROB_PTR, 2
-  {ldz16 $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET/2
-   f32div   $aSCRATCH, $aSCRATCH, $EPS}
-  {shl   $EXPECTED_PTR, $EXPECTED_PTR, 2
-   f32tof16 $aSCRATCH, $aSCRATCH}
-#else
   {ld32 $PROB_PTR, $mvertex_base, $mzero, PROB_PTR_OFFSET/4
    f16tof32 $aSCRATCH, $aSCRATCH}
   {ld32 $EXPECTED_PTR, $mvertex_base, $mzero, EXPECTED_PTR_OFFSET/4
    f32div   $aSCRATCH, $aSCRATCH, $EPS}
   f32tof16 $aSCRATCH, $aSCRATCH
-#endif
 
   // Softmax scale (upper = -log (softmax scale)), (lower = softmax scale)
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  {shl   $DELTA_PTR, $DELTA_PTR, 2
-   f16v2ln  $EPS, $MODEL_OUT_SCALING}
-  {shl   $TRANSFORMED_PTR, $TRANSFORMED_PTR, 2;
-   f16v2sub $EPS, $azero, $EPS}
-#else
   f16v2ln  $EPS, $MODEL_OUT_SCALING
   f16v2sub $EPS, $azero, $EPS
-#endif
 
   // Divide size by two - working on two elements at a time
   {shr $SIZE_D2, $SIZE, 1

@@ -27,21 +27,12 @@
 #define PTR16_SHL_BITS 1
 #define PTR32_SHL_BITS 2
 
-#if defined(VECTORLIST_AVAIL_DELTAN)
-#define DELTAN_BASE_PTR_BITS 20
-#define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
-#define DELTAN_HALF_OFFSET_BITS 18
-#define DELTAN_HALF_OFFSET_MASK ((1 << DELTAN_HALF_OFFSET_BITS) - 1)
-#define DELTAN_FLOAT_OFFSET_BITS 18
-#define DELTAN_FLOAT_OFFSET_MASK ((1 << DELTAN_FLOAT_OFFSET_BITS) - 1)
-#else
 #define DELTAN_BASE_PTR_BITS 24
 #define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
 #define DELTAN_HALF_OFFSET_BITS 20
 #define DELTAN_HALF_OFFSET_MASK ((1 << DELTAN_HALF_OFFSET_BITS) - 1)
 #define DELTAN_FLOAT_OFFSET_BITS 19
 #define DELTAN_FLOAT_OFFSET_MASK ((1 << DELTAN_FLOAT_OFFSET_BITS) - 1)
-#endif
 
 #define HALF_1_0 0x3C00
 #define HALF_0_5 0x3800
@@ -70,11 +61,7 @@
 
 // Worker register aliases
 #define MASK m0
-#if defined(VECTORLIST_AVAIL_DELTAN)
-#define MEMORY_BASE m1
-#else
 #define MEMORY_BASE mzero
-#endif
 #define BASE_PTR m2
 #define N0 m3
 #define N0_B m6
@@ -215,20 +202,12 @@ HALF_SYMBOL:
     }
 
     {
-#if defined(VECTORLIST_AVAIL_DELTAN)
-      ldz16 $DELTAN_PTR, $mvertex_base, $mzero, DELTAN_PTR_VOFFSET/2
-#else
       ld32 $MSCRATCH2, $mvertex_base, $mzero, DELTAN_PTR_VOFFSET/4
-#endif
       mov $RESULTS_1, $azero
     }
 
     // Unpack base pointer and n0
-#if defined(VECTORLIST_AVAIL_DELTAN)
-    setzi $MASK, DELTAN_BASE_PTR_MASK
-#else
     ldconst $MASK, DELTAN_BASE_PTR_MASK
-#endif
     {
       and $BASE_PTR, $MSCRATCH, $MASK
       setzi $ASCRATCH_0, ZAACC_BITMASK
@@ -238,12 +217,6 @@ HALF_SYMBOL:
       uput $FP_CLR, $ASCRATCH_0
     }
 
-#if defined(VECTORLIST_AVAIL_DELTAN)
-    // DeltaN table pointer is a ScaledPtr32, gives offset in
-    // 32-bit units from TMEM_REGION0_BASE_ADDR
-    setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
-    shl $DELTAN_PTR, $DELTAN_PTR, PTR32_SHL_BITS
-#else
     // DeltaN table pointer contains a 24 bit absolute address
     // followed by the upper 8 bits of N0. Combine with the
     // lower N0 bits which has alraedy been loaded from the
@@ -252,7 +225,6 @@ HALF_SYMBOL:
     shr $N0_B, $MSCRATCH2, DELTAN_BASE_PTR_BITS
     shl $N0, $N0, 8
     or $N0, $N0, $N0_B
-#endif
 
     // Load clamp values
     ldconst $CONST_HI_1_0_LO_0_5, (HALF_0_5) | (HALF_1_0 << 16)
@@ -268,9 +240,7 @@ HALF_SYMBOL:
 .Lhalf_n0_loop:
     ld32step $MSCRATCH, $MEMORY_BASE, $DELTAN_PTR+=, 1
     and $DATA_PTR, $MSCRATCH, $MASK
-#if !defined(VECTORLIST_AVAIL_DELTAN)
     shl $DATA_PTR, $DATA_PTR, PTR16_SHL_BITS
-#endif
     shr $N1, $MSCRATCH, DELTAN_HALF_OFFSET_BITS
     // Actually offset DATA_PTR so that below alignment checks
     // take BASE_PTR alignment into account
@@ -354,24 +324,13 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .align 8
 FLOAT_SYMBOL:
     ld32 $MSCRATCH, $mvertex_base, $mzero, BASE_AND_N0_VOFFSET/4
-#if defined(VECTORLIST_AVAIL_DELTAN)
-    ldz16 $DELTAN_PTR, $mvertex_base, $mzero, DELTAN_PTR_VOFFSET/2
-    setzi $MASK, DELTAN_BASE_PTR_MASK
-#else
     ld32 $MSCRATCH2, $mvertex_base, $mzero, DELTAN_PTR_VOFFSET/4
     ldconst $MASK, DELTAN_BASE_PTR_MASK
-#endif
 
     // Unpack base pointer and n0
     and $BASE_PTR, $MSCRATCH, $MASK
     shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
 
-#if defined(VECTORLIST_AVAIL_DELTAN)
-    // DeltaN table pointer is a ScaledPtr32, gives offset in
-    // 32-bit units from TMEM_REGION0_BASE_ADDR
-    setzi $MEMORY_BASE, TMEM_REGION0_BASE_ADDR
-    shl $DELTAN_PTR, $DELTAN_PTR, PTR32_SHL_BITS
-#else
     // DeltaN table pointer contains a 24 bit absolute address
     // followed by the upper 8 bits of N0. Combine with the
     // lower N0 bits which has alraedy been loaded from the
@@ -380,7 +339,6 @@ FLOAT_SYMBOL:
     shr $N0_B, $MSCRATCH2, DELTAN_BASE_PTR_BITS
     shl $N0, $N0, 8
     or $N0, $N0, $N0_B
-#endif
 
     setzi $MASK, DELTAN_FLOAT_OFFSET_MASK
 
@@ -401,9 +359,7 @@ FLOAT_SYMBOL:
 .Lfloat_n0_loop:
     ld32step $MSCRATCH, $MEMORY_BASE, $DELTAN_PTR+=, 1
     and $DATA_PTR, $MSCRATCH, $MASK
-#if !defined(VECTORLIST_AVAIL_DELTAN)
     shl $DATA_PTR, $DATA_PTR, PTR32_SHL_BITS
-#endif
     shr $N1, $MSCRATCH, DELTAN_FLOAT_OFFSET_BITS
     // Actually offset DATA_PTR so that below alignment checks
     // take BASE_PTR alignment into account

@@ -5,13 +5,8 @@
 #define _NonLinearitySwishCommon_S_
 
 // DELTAN
-#if defined(VECTORLIST_AVAIL_DELTAN)
-#define DELTAN_BASE_PTR_BITS 20
-#define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
-#else
 #define DELTAN_BASE_PTR_BITS 24
 #define DELTAN_BASE_PTR_MASK ((1 << DELTAN_BASE_PTR_BITS) - 1)
-#endif
 
 
 // Register aliases
@@ -69,7 +64,7 @@
 
 #-------------------------------------------------------------------------------
 
-// Macro to do innermost loop gor a V4 variant of half. The loop count is 
+// Macro to do innermost loop gor a V4 variant of half. The loop count is
 // assumed to be already subtracted by 1 with LOOP_CNT >= 0
 .macro SwishActivationLoopHalfV4 IN_PTR, OUT_PTR, IO_BASE, LOOP_CNT, STRIDE
 ld64step  $ACTS_PAIR, $\IO_BASE, $\IN_PTR+=, \STRIDE
@@ -77,7 +72,7 @@ ld64step  $ACTS_PAIR, $\IO_BASE, $\IN_PTR+=, \STRIDE
   rpt $\LOOP_CNT, 2
   f16v2sigm $RESULT_0, $ACTS_0
 }
-  { 
+  {
     nop
     f16v2sigm $RESULT_1, $ACTS_1
   }
@@ -96,7 +91,7 @@ st64step $RESULT_PAIR, $\IO_BASE, $\OUT_PTR+=, \STRIDE
 
 #-------------------------------------------------------------------------------
 
-// Macro to compute V2 variant of half. 
+// Macro to compute V2 variant of half.
 // input in ACT
 // output in RESULT
 .macro SwishActivationHalfV2 RESULT, ACT
@@ -106,10 +101,10 @@ f16v2mul $\RESULT, $\RESULT, $\ACT
 
 #-------------------------------------------------------------------------------
 
-// Macro to do innermost loop gor a V2 variant of float. The loop count is 
+// Macro to do innermost loop gor a V2 variant of float. The loop count is
 // assumed to be already subtracted by 1 with LOOP_CNT >= 0
 .macro SwishActivationLoopFloatV2 IN_PTR, OUT_PTR, IO_BASE, LOOP_CNT, STRIDE
-ld64step $ACTS_PAIR, $\IO_BASE, $\IN_PTR+=, \STRIDE  
+ld64step $ACTS_PAIR, $\IO_BASE, $\IN_PTR+=, \STRIDE
 {
   rpt $\LOOP_CNT, 2
   f32sigm $RESULT_0, $ACTS_0
@@ -133,7 +128,7 @@ st64step $RESULT_PAIR, $\IO_BASE, $\OUT_PTR+=, \STRIDE
 
 #-------------------------------------------------------------------------------
 
-// Macro to compute V1 variant of float. 
+// Macro to compute V1 variant of float.
 .macro SwishActivationFloatV1 RESULT, ACT
 // input in ACT
 // output in RESULT
@@ -146,7 +141,7 @@ f32mul $\RESULT, $\RESULT, $\ACT
 // Macro to compute gradient for multiple of 4 halves. All pointers must be
 // aligned at 64-bit
 .macro SwishGradLoopHalfV4 ACTS_PTR, OUTGRAD_PTR, INGRAD_BASE, INGRAD_PTR, ONE, LOOP_CNT, STRIDE
-  ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE 
+  ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE
   {
     rpt $\LOOP_CNT, 6
     f16v2sigm $SIGM_0, $ACTS_0
@@ -172,7 +167,7 @@ f32mul $\RESULT, $\RESULT, $\ACT
       f16v4mul $RESULT_PAIR, $RESULT_PAIR, $SIGM_PAIR
     }
     {
-      ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE  
+      ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE
       f16v4mul $RESULT_PAIR, $RESULT_PAIR, $GRAD_PAIR
     }
     {
@@ -193,10 +188,10 @@ f32mul $\RESULT, $\RESULT, $\ACT
 
 #-------------------------------------------------------------------------------
 
-// Macro to compute V2 variant of half. 
+// Macro to compute V2 variant of half.
 .macro SwishGradHalfV2 RESULT, ACT, SIGM, OUTGRAD, ONE
 f16v2sigm $\SIGM, $\ACT
-f16v2sub $\RESULT, $\ONE, $\SIGM 
+f16v2sub $\RESULT, $\ONE, $\SIGM
 f16v2mul $\RESULT, $\RESULT,  $\ACT
 f16v2add $\RESULT, $\RESULT, $\ONE
 f16v2mul $\RESULT, $\RESULT, $\SIGM
@@ -209,7 +204,7 @@ f16v2mul $\RESULT, $\RESULT, $\OUTGRAD
 // aligned at 64-bit
 .macro SwishGradLoopFloatV2 ACTS_PTR, OUTGRAD_PTR, INGRAD_BASE, INGRAD_PTR, ONE, LOOP_CNT, STRIDE
 
-ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE  
+ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE
 {
   rpt $\LOOP_CNT, 6
   f32sigm  $SIGM_0, $ACTS_0
@@ -228,14 +223,14 @@ ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE
   }
   {
     nop
-    f32v2add $RESULT_PAIR, $\ONE:B, $RESULT_PAIR 
+    f32v2add $RESULT_PAIR, $\ONE:B, $RESULT_PAIR
   }
   {
     ld64step $GRAD_PAIR, $mzero, $\OUTGRAD_PTR+=, \STRIDE
     f32v2mul $RESULT_PAIR, $RESULT_PAIR, $SIGM_PAIR
   }
   {
-    ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE  
+    ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE
     f32v2mul $RESULT_PAIR, $RESULT_PAIR, $GRAD_PAIR
   }
   {
@@ -245,7 +240,7 @@ ld64step $ACTS_PAIR, $mzero, $\ACTS_PTR+=, \STRIDE
 f32sigm $SIGM_1, $ACTS_1
 f32v2sub $RESULT_PAIR, $\ONE:B, $SIGM_PAIR
 f32v2mul $RESULT_PAIR, $RESULT_PAIR, $ACTS_PAIR
-f32v2add $RESULT_PAIR, $\ONE:B, $RESULT_PAIR 
+f32v2add $RESULT_PAIR, $\ONE:B, $RESULT_PAIR
 {
   ld64step $GRAD_PAIR, $mzero, $\OUTGRAD_PTR+=, \STRIDE
   f32v2mul $RESULT_PAIR, $RESULT_PAIR, $SIGM_PAIR
@@ -256,10 +251,10 @@ st64step $RESULT_PAIR, $\INGRAD_BASE, $\INGRAD_PTR+=, \STRIDE
 
 #-------------------------------------------------------------------------------
 
-// Macro to compute V1 variant of float. 
+// Macro to compute V1 variant of float.
 .macro SwishGradFloatV1 RESULT, ACT, SIGM, OUTGRAD, ONE
 f32sigm $\SIGM, $\ACT
-f32sub $\RESULT, $\ONE, $\SIGM 
+f32sub $\RESULT, $\ONE, $\SIGM
 f32mul $\RESULT, $\RESULT, $\ACT
 f32add $\RESULT, $\RESULT, $\ONE
 f32mul $\RESULT, $\RESULT, $\SIGM

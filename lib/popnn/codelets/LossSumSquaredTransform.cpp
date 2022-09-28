@@ -4,14 +4,9 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::SCALED_PTR32;
-#else
 static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
-#endif
 
 using namespace poplar;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
 
 namespace popnn {
 

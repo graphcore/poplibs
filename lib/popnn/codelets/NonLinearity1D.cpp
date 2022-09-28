@@ -12,11 +12,7 @@ class NonLinearity1DInPlace : public MultiVertex {
 public:
   NonLinearity1DInPlace();
 
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  InOut<Vector<FPType, SCALED_PTR32>> data;
-#else
   InOut<Vector<FPType, ONE_PTR>> data;
-#endif
   const unsigned short n;
 
   IS_EXTERNAL_CODELET(true);
@@ -36,13 +32,8 @@ class NonLinearity1D : public MultiVertex {
 public:
   NonLinearity1D();
 
-#ifdef VECTOR_AVAIL_SCALED_PTR32
-  Input<Vector<FPType, SCALED_PTR32, 8>> data;
-  Output<Vector<FPType, SCALED_PTR32, 8>> out;
-#else
   Input<Vector<FPType, ONE_PTR, 8>> data;
   Output<Vector<FPType, ONE_PTR, 8>> out;
-#endif
   const unsigned short n;
 
   IS_EXTERNAL_CODELET(true);

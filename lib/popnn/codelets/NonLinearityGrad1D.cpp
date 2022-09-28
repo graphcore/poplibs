@@ -10,15 +10,9 @@ class NonLinearityGrad1D : public MultiVertex {
 public:
   NonLinearityGrad1D();
 
-#ifdef VECTOR_AVAIL_SCALED_PTR64
-  Input<Vector<FPType, SCALED_PTR64, 8>> outGrad;
-  Input<Vector<FPType, SCALED_PTR64, 8>> out;
-  Output<Vector<FPType, SCALED_PTR64, 8>> inGrad;
-#else
   Input<Vector<FPType, ONE_PTR, 8>> outGrad;
   Input<Vector<FPType, ONE_PTR, 8>> out;
   Output<Vector<FPType, ONE_PTR, 8>> inGrad;
-#endif
   const unsigned short n;
 
   IS_EXTERNAL_CODELET(true);
