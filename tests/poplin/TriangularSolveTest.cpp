@@ -58,8 +58,9 @@ bool deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
                            const std::vector<T> &b,
                            std::vector<std::size_t> b_shape, bool left_side,
                            bool lower, bool unit_diagonal,
-                           std::size_t block_size) {
-  auto device = createTestDevice(TEST_TARGET, 1, Tiles);
+                           std::size_t block_size,
+                           const DeviceType &deviceType) {
+  auto device = createTestDevice(deviceType, 1, Tiles);
   auto &target = device.getTarget();
 
   Graph graph(target);
@@ -135,7 +136,7 @@ bool deviceTriangularSolve(poplar::Type type, const std::vector<T> &a,
   const double absTolerance = type == HALF ? 0.3 : 0.0001;
   const double relTolerance = type == HALF ? 0.01 : 0.001;
   bool matchesModel = poplibs_test::util::checkIsClose(
-      "result", b.data(), {b.size()}, result.data(), b.size(), relTolerance,
+      "result", result.data(), {b.size()}, b.data(), b.size(), relTolerance,
       absTolerance);
   return matchesModel;
 }
@@ -156,12 +157,13 @@ bool deviceTriangularSolveIota(poplar::Type type,
                                std::vector<std::size_t> a_shape,
                                std::vector<std::size_t> b_shape, bool left_side,
                                bool lower, bool unit_diagonal,
-                               std::size_t block_size) {
+                               std::size_t block_size,
+                               const DeviceType &deviceType) {
   auto a = generateIota<T>(a_shape);
   auto b = generateIota<T>(b_shape);
   return deviceTriangularSolve<T, Tiles>(type, a, a_shape, b, b_shape,
                                          left_side, lower, unit_diagonal,
-                                         block_size);
+                                         block_size, deviceType);
 }
 
 } // namespace
@@ -169,13 +171,14 @@ bool deviceTriangularSolveIota(poplar::Type type,
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel2;
+  DeviceType deviceType = TEST_TARGET;
   poplar::Type type = poplar::HALF;
   bool left_side = false;
   bool lower = false;
   bool unit_diagonal = false;
   bool block_solver = false;
   unsigned k = 1;
+  unsigned n = 32;
 
   po::options_description desc("Options");
   // clang-format off
@@ -188,6 +191,7 @@ int main(int argc, char **argv) {
     ("unit-diagonal", po::value<bool>(&unit_diagonal)->required())
     ("block-solver", po::value<bool>(&block_solver)->required())
     ("k", po::value<unsigned>(&k)->required())
+    ("n", po::value<unsigned>(&n)->required())
     ;
   // clang-format on
 
@@ -204,13 +208,13 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  static constexpr std::size_t n = 5;
-  std::size_t block_size = block_solver ? 3 : n;
+  std::size_t block_size = block_solver ? 4 : n;
   using Shape = std::vector<std::size_t>;
   auto bShape = left_side ? Shape{1, 2, n, std::size_t(k)}
                           : Shape{1, 2, std::size_t(k), n};
   bool success = deviceTriangularSolveIota<float>(
-      type, {1, 2, n, n}, bShape, left_side, lower, unit_diagonal, block_size);
+      type, {1, 2, n, n}, bShape, left_side, lower, unit_diagonal, block_size,
+      deviceType);
   if (!success) {
     std::cerr << "Test failed\n";
     return 1;

@@ -722,6 +722,51 @@ MAKE_PERF_ESTIMATOR_NAME(TriangularSolve)(const VertexIntrospector &vertex,
   return {cycles, convertToTypeFlops(flops, type)};
 }
 
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TriangularSolveMultiWorker)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    bool lower) {
+  CODELET_FIELD(a);
+  CODELET_FIELD(b);
+  CODELET_FIELD(x);
+  CODELET_SCALAR_VAL(an, unsigned short);
+
+  const auto numWorkers = target.getNumWorkerContexts();
+  const bool half = type == poplar::HALF;
+
+  const unsigned supervisorOutsideLoop = lower ? 21 : 42;
+  const unsigned supervisorSingleIter = lower ? 9 : 6;
+  constexpr unsigned columnsPerWorker = 4;
+  const unsigned supervisorNumIters = an / columnsPerWorker;
+
+  const unsigned numWorkerCalls = supervisorNumIters;
+  unsigned workerLoopSingleIter, workerOutsideLoop;
+  if (lower) {
+    workerLoopSingleIter = half ? 17 : 11;
+    workerOutsideLoop = half ? 112 : 74;
+  } else {
+    workerLoopSingleIter = half ? 17 : 10;
+    workerOutsideLoop = half ? 145 : 99;
+  }
+
+  const unsigned numElemsPerIter = half ? 2 : 1;
+  constexpr unsigned workerElemsBeforeLoop = 4;
+  const double workerAvgIters = static_cast<float>(an - workerElemsBeforeLoop) /
+                                (numWorkers * numElemsPerIter) / 2;
+  const double workerAvgLoopCycles = workerLoopSingleIter * workerAvgIters;
+
+  const std::uint64_t workersCycles =
+      (workerAvgLoopCycles + workerOutsideLoop) * numWorkerCalls * numWorkers;
+  const std::uint64_t cycles = workersCycles +
+                               supervisorSingleIter * supervisorNumIters +
+                               supervisorOutsideLoop;
+
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(an * (an - 1) / 2) * flopsForMultiply() +
+      an * flopsForAdd();
+
+  return {cycles, convertToTypeFlops(flops, type)};
+}
+
 poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, FLOAT, false),
@@ -985,6 +1030,11 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, HALF, true),
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, HALF, false),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolveMultiWorker, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolveMultiWorker, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolveMultiWorker, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolveMultiWorker, HALF, false),
 
       CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poplin::experimental,
                                      PartialSquareElements),

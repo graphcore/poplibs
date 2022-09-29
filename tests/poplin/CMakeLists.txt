@@ -38,15 +38,18 @@ foreach(DATA_TYPE half float)
       foreach(UNIT_DIAGONAL false true)
         foreach(BLOCK_SOLVER false true)
           foreach(K 1 2 3 8)
-            add_multitarget_test(NAME TriangularSolveTest_${DATA_TYPE}_${LEFT_SIDE}_${LOWER_TRIANGLE}_${UNIT_DIAGONAL}_${BLOCK_SOLVER}_${K}
-              COMMAND TriangularSolveTest
-                --type=${DATA_TYPE}
-                --left-side=${LEFT_SIDE}
-                --lower=${LOWER_TRIANGLE}
-                --unit-diagonal=${UNIT_DIAGONAL}
-                --block-solver=${BLOCK_SOLVER}
-                --k=${K}
-            )
+            foreach(N 5 8)
+              add_multitarget_test(NAME TriangularSolveTest_${DATA_TYPE}_${LEFT_SIDE}_${LOWER_TRIANGLE}_${UNIT_DIAGONAL}_${BLOCK_SOLVER}_${K}_${N}
+                COMMAND TriangularSolveTest
+                  --type=${DATA_TYPE}
+                  --left-side=${LEFT_SIDE}
+                  --lower=${LOWER_TRIANGLE}
+                  --unit-diagonal=${UNIT_DIAGONAL}
+                  --block-solver=${BLOCK_SOLVER}
+                  --k=${K}
+                  --n=${N}
+              )
+            endforeach()
           endforeach()
         endforeach()
       endforeach()

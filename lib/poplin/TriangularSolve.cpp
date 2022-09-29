@@ -296,12 +296,22 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
       auto totalBatches = a.dim(0);
       auto an = a.dim(2), bn = b.dim(2);
 
+      constexpr int multiWorkerSIMD = 4;
+      const bool useMultiWorkerVertex = an % multiWorkerSIMD == 0;
+      const auto vertexType =
+          useMultiWorkerVertex
+              ? poputil::templateVertex("poplin::TriangularSolveMultiWorker",
+                                        a.elementType(), params.lower)
+              : poputil::templateVertex("poplin::TriangularSolve",
+                                        a.elementType(), params.lower);
       auto cs = graph.addComputeSet({dnai, "triangularSolve"});
       auto x = params.x.slice({0, bTopPos, bLeftPos},
                               {totalBatches, bTopPos + an, bLeftPos + bn});
 
       for (std::size_t i = 0; i < totalBatches; ++i) {
-        auto aSlice = a.slice({i, 0, 0}, {i + 1, an, an});
+        auto aSlice = a.slice(i, i + 1, 0);
+        auto bSlice = b.slice(i, i + 1, 0);
+        auto xSlice = x.slice(i, i + 1, 0);
         auto mappings = graph.getTileMapping(aSlice);
         std::size_t best = 0;
         std::size_t bestElements = 0;
@@ -320,13 +330,18 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
         if (bestElements == 0)
           throw poputil::poplibs_error("invalid tile mapping in direct solver");
 
-        auto v = graph.addVertex(
-            cs,
-            poputil::templateVertex("poplin::TriangularSolve", a.elementType(),
-                                    params.lower),
-            {{"a", aSlice.reshape({an * an})},
-             {"b", b.slice({i, 0, 0}, {i + 1, an, bn}).reshape({an * bn})},
-             {"x", x.slice({i, 0, 0}, {i + 1, an, bn}).reshape({an * bn})}});
+        if (useMultiWorkerVertex) {
+          poplar::Tensor bSliceCp = graph.addVariable(
+              bSlice.elementType(), bSlice.shape(), {dnai, "bCopy"});
+          graph.setTileMapping(bSliceCp, 0);
+          prog.add(poplar::program::Copy(bSlice, bSliceCp));
+          bSlice = bSliceCp;
+        }
+
+        auto v = graph.addVertex(cs, vertexType,
+                                 {{"a", aSlice.flatten()},
+                                  {"b", bSlice.flatten()},
+                                  {"x", xSlice.flatten()}});
         graph.setInitialValue(v["an"], an);
         graph.setTileMapping(v, best);
       }
