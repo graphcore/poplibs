@@ -3,6 +3,7 @@
 // Test for the Cast vertex
 //
 #include <poplar/Engine.hpp>
+#include <poplar/MetadataCreation.hpp>
 #include <poplar/Quarter.hpp>
 #include <poplar/TypeConversion.hpp>
 #include <poplibs_support/TestDevice.hpp>
@@ -106,7 +107,7 @@ bool doTest(const DeviceType &deviceType, Type &dataTypeIn, Type &dataTypeOut,
   Tensor metadataOut;
   if (dataTypeOut.requiresMetadata()) {
     metadataOut =
-        createVariableMetadataTensor(graph, fp8FormatOut, fp8ScaleOut);
+        poplar::createVariableMetadataTensor(graph, fp8FormatOut, fp8ScaleOut);
     graph.setTileMapping(metadataOut, 0);
   }
   auto out = graph.addVariable(dataTypeOut, metadataOut,

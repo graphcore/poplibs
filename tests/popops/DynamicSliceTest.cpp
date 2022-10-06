@@ -9,6 +9,7 @@
 #include <numeric>
 #include <poplar/Engine.hpp>
 #include <poplar/Interval.hpp>
+#include <poplar/MetadataCreation.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Quarter.hpp>
 #include <poplibs_support/TestDevice.hpp>
@@ -1921,8 +1922,8 @@ void checkQuarterMetadata(void) {
   graph.createHostWrite("ids", ids);
 
   // Create an input tensor with an associated metadata value to check
-  auto embeddingMetadata =
-      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, 1);
+  auto embeddingMetadata = poplar::createConstantMetadataTensor(
+      graph, QuarterMetadata::Format::F143, 1);
   auto embedding = popops::createSliceableTensor(graph, QUARTER, tShape, {0},
                                                  {1}, plan, {}, "embedding");
   Sequence sequence;
@@ -1938,7 +1939,7 @@ void checkQuarterMetadata(void) {
                                   plan, optionFlags, "slice");
   // copy new metadata here, so as to leave the original value of metadata in
   // embedding intact for test.
-  sequence.add(Copy(poputil::createConstantMetadataTensor(
+  sequence.add(Copy(poplar::createConstantMetadataTensor(
                         graph, QuarterMetadata::Format::F143, 3),
                     dummy.getMetadata()));
   popops::multiUpdate(graph, embedding, dummy, ids, {0}, {1}, sequence, plan,

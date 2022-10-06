@@ -199,12 +199,41 @@ poplar::Tensor factorDims(const poplar::Tensor &t,
 poplar::Tensor unfactorDims(const poplar::Tensor &t, unsigned numDims,
                             unsigned startDim = 0);
 
-// Create metadata for use with FP8 data types
+/** \deprecated
+ *  **deprecated** Use poplar::createConstantMetadataTensor() instead
+ *
+ *  Create a QUARTER_METADATA tensor for use with tensors with
+ *   data type = QUARTER
+ *
+ * \param graph      The graph that the tensor will be added to.
+ * \param fp8Format  The format (F143 or F152) to write to the output
+ *                   QUARTER_METADATA tensor.
+ * \param fp8Scale   The value of the scale which will be written to the
+ *                   output QUARTER_METADATA tensor.
+ *
+ * \returns          A constant tensor of type QUARTER_METADATA initialised
+ *                   with the format and scale provided.
+ */
 poplar::Tensor
 createConstantMetadataTensor(poplar::Graph &graph,
                              poplar::QuarterMetadata::Format fp8Format,
                              int fp8Scale);
 
+/** \deprecated
+ *  **deprecated** Use poplar::createVariableMetadataTensor() instead
+ *
+ *  Create a QUARTER_METADATA tensor for use with tensors with
+ *  data type = QUARTER
+ *
+ * \param graph      The graph that the tensor will be added to.
+ * \param fp8Format  The format (F143 or F152) to write to the output
+ *                   QUARTER_METADATA tensor.
+ * \param fp8Scale   The value of the scale which will be written to the
+ *                   output QUARTER_METADATA tensor.
+ *
+ * \returns          A variable tensor of type QUARTER_METADATA initialised
+ *                   with the format and scale provided.
+ */
 poplar::Tensor
 createVariableMetadataTensor(poplar::Graph &graph,
                              poplar::QuarterMetadata::Format fp8Format,

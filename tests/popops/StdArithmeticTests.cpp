@@ -12,6 +12,7 @@
 #include <poplar/CSRFunctions.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplar/MetadataCreation.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Quarter.hpp>
 #include <poplar/TypeConversion.hpp>
@@ -1111,7 +1112,7 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterWithOutputCS) {
   }
   auto in = graph.addVariable(HALF, {DIM_SIZE}, "in");
   const auto outMetadata = QuarterMetadata(QuarterMetadata::Format::F143, -1);
-  auto metadataTensor = createVariableMetadataTensor(
+  auto metadataTensor = poplar::createVariableMetadataTensor(
       graph, outMetadata.getFormat(), outMetadata.getScale());
   auto out = graph.addVariable(QUARTER, metadataTensor, {DIM_SIZE}, "out");
   mapTensorLinearly(graph, in);
@@ -1172,7 +1173,7 @@ void testCastToQuarter(const Type &inType) {
   auto prog = Sequence();
 
   const auto outMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 1);
-  auto metadataTensor = createVariableMetadataTensor(
+  auto metadataTensor = poplar::createVariableMetadataTensor(
       graph, outMetadata.getFormat(), outMetadata.getScale());
   auto out = cast(graph, in, QUARTER, metadataTensor, prog);
 
@@ -1223,8 +1224,15 @@ void testCastWithOutput(const Type &inType, const Type &outType) {
     hIn[i] = (float)(i % modulo);
   }
   auto in = graph.addVariable(inType, {DIM_SIZE}, "in");
-  auto metadataTensor = createConstantMetadataTensor(
-      graph, metadata.getFormat(), metadata.getScale());
+
+  auto scaleTensor =
+      graph.addConstant<signed char>(SIGNED_CHAR, {}, metadata.getScale());
+  graph.setTileMapping(scaleTensor, 0);
+
+  auto prog = Sequence();
+  auto metadataTensor = poplar::createVariableMetadataTensor(
+      graph, metadata.getFormat(), scaleTensor, prog);
+
   auto out = outType.requiresMetadata()
                  ? graph.addVariable(outType, metadataTensor, {DIM_SIZE}, "out")
                  : graph.addVariable(outType, {DIM_SIZE}, "out");
@@ -1232,7 +1240,6 @@ void testCastWithOutput(const Type &inType, const Type &outType) {
   mapTensorLinearly(graph, out);
   graph.createHostWrite("in", in);
 
-  auto prog = Sequence();
   castWithOutput(graph, in, out, prog);
 
   graph.createHostRead("out", out);
@@ -1359,8 +1366,8 @@ BOOST_AUTO_TEST_CASE(CastCharQuarterChar) {
 
   auto prog = Sequence();
 
-  poplar::Tensor metadata =
-      createConstantMetadataTensor(graph, QuarterMetadata::Format::F143, -1);
+  poplar::Tensor metadata = poplar::createConstantMetadataTensor(
+      graph, QuarterMetadata::Format::F143, -1);
   poplar::Tensor inter = cast(graph, in, QUARTER, metadata, prog, "castToFP8");
   poplar::Tensor out = cast(graph, inter, CHAR, prog, "castToChar");
   graph.createHostRead("out", out);
@@ -1402,11 +1409,11 @@ BOOST_AUTO_TEST_CASE(CastQuarterQuarter) {
   graph.createHostWrite("in", in);
 
   auto prog = Sequence();
-  auto metadata1 =
-      createConstantMetadataTensor(graph, QuarterMetadata::Format::F152, -1);
+  auto metadata1 = poplar::createConstantMetadataTensor(
+      graph, QuarterMetadata::Format::F152, -1);
   auto inter = cast(graph, in, QUARTER, metadata1, prog, "castToQUART143");
-  auto metadata0 = createConstantMetadataTensor(graph, inMetadata.getFormat(),
-                                                inMetadata.getScale());
+  auto metadata0 = poplar::createConstantMetadataTensor(
+      graph, inMetadata.getFormat(), inMetadata.getScale());
   auto out = cast(graph, inter, QUARTER, metadata0, prog, "castToQUART152");
   graph.createHostRead("out", out);
 

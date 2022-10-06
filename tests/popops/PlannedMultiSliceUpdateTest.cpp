@@ -8,6 +8,7 @@
 #include <numeric>
 #include <poplar/Engine.hpp>
 #include <poplar/Interval.hpp>
+#include <poplar/MetadataCreation.hpp>
 #include <poplar/Program.hpp>
 #include <poplar_test/Util.hpp>
 #include <poplibs_support/MultiArray.hpp>
@@ -244,8 +245,8 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
       createHostIndices(target, randomEngine, numIndices, D, groupSize);
   Sequence prog;
   if (dataType.requiresMetadata()) {
-    auto metadata =
-        createConstantMetadataTensor(graph, QuarterMetadata::Format::F152, 1);
+    auto metadata = poplar::createConstantMetadataTensor(
+        graph, QuarterMetadata::Format::F152, 1);
     prog.add(Copy(metadata, t.getMetadata()));
   }
   Tensor offset =
