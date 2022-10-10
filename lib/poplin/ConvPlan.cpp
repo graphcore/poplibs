@@ -52,7 +52,7 @@ using namespace fmt::literals;
 namespace poplin {
 
 bool operator<(const Partition &a, const Partition &b) {
-  constexpr static auto helper = poplibs_support::makeStructHelper(
+  constexpr static auto helper = gccs::makeStructHelper(
       &Partition::fieldSplit, &Partition::batchSplit, &Partition::outChanSplit,
       &Partition::kernelSplit, &Partition::inChanSplit,
       &Partition::convGroupSplit, &Partition::fieldAxisGrainSize,
@@ -86,7 +86,7 @@ std::ostream &operator<<(std::ostream &os, const Partition &p) {
 }
 
 bool operator<(const ConvTransform &a, const ConvTransform &b) {
-  constexpr static auto helper = poplibs_support::makeStructHelper(
+  constexpr static auto helper = gccs::makeStructHelper(
       &ConvTransform::extraFieldDims, &ConvTransform::dilatePostConv,
       &ConvTransform::swapOperands, &ConvTransform::expandDims,
       &ConvTransform::outChanFlattenDims, &ConvTransform::flattenDims,
@@ -96,7 +96,7 @@ bool operator<(const ConvTransform &a, const ConvTransform &b) {
 }
 
 bool operator==(const ConvTransform &a, const ConvTransform &b) {
-  constexpr static auto helper = poplibs_support::makeStructHelper(
+  constexpr static auto helper = gccs::makeStructHelper(
       &ConvTransform::extraFieldDims, &ConvTransform::dilatePostConv,
       &ConvTransform::swapOperands, &ConvTransform::expandDims,
       &ConvTransform::outChanFlattenDims, &ConvTransform::flattenDims,
@@ -128,8 +128,8 @@ std::ostream &operator<<(std::ostream &os, const ConvTransform &t) {
 }
 
 bool operator<(const ConvTypes &a, const ConvTypes &b) {
-  constexpr static auto helper = poplibs_support::makeStructHelper(
-      &ConvTypes::partialType, &ConvTypes::resultType);
+  constexpr static auto helper =
+      gccs::makeStructHelper(&ConvTypes::partialType, &ConvTypes::resultType);
 
   return helper.lt(a, b);
 }
@@ -236,7 +236,7 @@ std::ostream &operator<<(std::ostream &os, Plan::LinearizeTileDirection d) {
 }
 
 bool operator<(const Plan &a, const Plan &b) {
-  constexpr static auto helper = poplibs_support::makeStructHelper(
+  constexpr static auto helper = gccs::makeStructHelper(
       &Plan::transforms, &Plan::partitions, &Plan::types,
       &Plan::convGroupsPerGroup, &Plan::inChansPerGroup,
       &Plan::partialChansPerGroup, &Plan::method, &Plan::linearizeTileOrder,

@@ -3,7 +3,7 @@
 #define poplin_internal_ConvOptions_hpp
 
 #include "poplibs_support/PlanConstraints.hpp"
-#include "poplibs_support/StructHelper.hpp"
+#include <gccs/StructHelper.hpp>
 #include <poplar/Target.hpp>
 #include <poplar/Type.hpp>
 #include <string>
@@ -74,7 +74,7 @@ public:
   void parseConvOptions(const poplar::OptionFlags &options);
 
 private:
-  static constexpr auto helper = poplibs_support::makeStructHelper(
+  static constexpr auto helper = gccs::makeStructHelper(
       &ConvOptions::availableMemoryProportion, &ConvOptions::pass,
       &ConvOptions::partialsType, &ConvOptions::interTilePartialsType,
       &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,

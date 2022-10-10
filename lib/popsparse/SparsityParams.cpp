@@ -2,9 +2,8 @@
 #include "popsparse/SparsityParams.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
+#include <gccs/StructHelper.hpp>
 #include <tuple>
-
-#include "poplibs_support/StructHelper.hpp"
 
 namespace poputil {
 
@@ -80,9 +79,9 @@ std::ostream &operator<<(std::ostream &os, const SparsityParams &p) {
   return os;
 }
 
-static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
-    &SparsityParams::type, &SparsityParams::structure,
-    &SparsityParams::blockDimensions);
+static constexpr auto comparisonHelper =
+    gccs::makeStructHelper(&SparsityParams::type, &SparsityParams::structure,
+                           &SparsityParams::blockDimensions);
 
 bool operator<(const SparsityParams &a, const SparsityParams &b) {
   return comparisonHelper.lt(a, b);

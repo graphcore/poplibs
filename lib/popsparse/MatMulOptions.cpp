@@ -4,7 +4,7 @@
 
 #include <poputil/OptionParsing.hpp>
 
-#include "poplibs_support/StructHelper.hpp"
+#include <gccs/StructHelper.hpp>
 
 using namespace poplar;
 using namespace poplibs;
@@ -12,7 +12,7 @@ using namespace poplibs;
 namespace popsparse {
 namespace dynamic {
 
-static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
+static constexpr auto comparisonHelper = gccs::makeStructHelper(
     &MatMulOptions::availableMemoryProportion,
     &MatMulOptions::metaInfoBucketOversizeProportion,
     &MatMulOptions::partialsType, &MatMulOptions::sharedBuckets,

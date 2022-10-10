@@ -5,7 +5,6 @@
 #include "ConvValidation.hpp"
 #include "MatMulInternal.hpp"
 #include "poplibs_support/Compiler.hpp"
-#include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/Tracepoint.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvPreplan.hpp"
@@ -32,7 +31,7 @@ poplar::ProfileValue toProfileValue(const poplin::matmul::PlanningCache &t) {
 namespace poplin {
 
 bool operator<(const MatMulParams &a, const MatMulParams &b) {
-  const auto helper = poplibs_support::makeStructHelper(
+  const auto helper = gccs::makeStructHelper(
       &MatMulParams::inputType, &MatMulParams::outputType,
       &MatMulParams::aShape, &MatMulParams::bShape);
   return helper.lt(a, b);
@@ -78,9 +77,7 @@ struct MatMulOptions {
   bool gatherOutput = false;
   bool disableSRForAMPVertices = false;
   bool operator<(const MatMulOptions &other) const {
-    using poplibs_support::makeStructHelper;
-
-    auto helper = makeStructHelper(
+    auto helper = gccs::makeStructHelper(
         &MatMulOptions::partialsType, &MatMulOptions::fullyConnectedPass,
         &MatMulOptions::planConstraints,
         &MatMulOptions::availableMemoryProportion,

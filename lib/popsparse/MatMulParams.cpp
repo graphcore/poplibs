@@ -2,11 +2,12 @@
 
 #include "popsparse/MatMulParams.hpp"
 
-#include "poplibs_support/StructHelper.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 
 #include "FullyConnectedUtils.hpp"
+
+#include <gccs/StructHelper.hpp>
 
 namespace poputil {
 template <>
@@ -70,7 +71,7 @@ std::size_t MatMulParams::getNumNonZeroValues() const {
 }
 
 bool operator<(const MatMulParams &a, const MatMulParams &b) {
-  static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
+  static constexpr auto comparisonHelper = gccs::makeStructHelper(
       &MatMulParams::sparsityParams, &MatMulParams::nzRatio,
       &MatMulParams::groups, &MatMulParams::m, &MatMulParams::k,
       &MatMulParams::n);
@@ -78,7 +79,7 @@ bool operator<(const MatMulParams &a, const MatMulParams &b) {
 }
 
 bool operator==(const MatMulParams &a, const MatMulParams &b) {
-  static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
+  static constexpr auto comparisonHelper = gccs::makeStructHelper(
       &MatMulParams::sparsityParams, &MatMulParams::nzRatio,
       &MatMulParams::groups, &MatMulParams::m, &MatMulParams::k,
       &MatMulParams::n);

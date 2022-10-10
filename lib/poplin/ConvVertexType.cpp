@@ -810,7 +810,7 @@ getConvVertexTypeCandidates(const poplar::Target &target,
   return convVertexTypeCandidates;
 }
 
-static constexpr StructHelper vertexTypeHelper(
+static constexpr gccs::StructHelper vertexTypeHelper(
     &ConvVertexType::method, &ConvVertexType::inputType,
     &ConvVertexType::partialType, &ConvVertexType::convGroupsPerGroup,
     &ConvVertexType::inChansPerGroup, &ConvVertexType::partialChansPerGroup);

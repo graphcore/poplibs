@@ -3,7 +3,7 @@
 
 #include <poputil/OptionParsing.hpp>
 
-#include "poplibs_support/StructHelper.hpp"
+#include <gccs/StructHelper.hpp>
 
 #include <map>
 #include <string>
@@ -144,7 +144,7 @@ Options parseOptionFlags(const OptionFlags &flags) {
   return options;
 }
 
-static constexpr auto optionsHelper = poplibs_support::makeStructHelper(
+static constexpr auto optionsHelper = gccs::makeStructHelper(
     &Options::availableMemoryProportion,
     &Options::metaInfoBucketOversizeProportion, &Options::doGradAPass,
     &Options::doGradWPass, &Options::partialsType, &Options::sharedBuckets,

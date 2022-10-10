@@ -8,6 +8,7 @@
 
 #include <poplar/Target.hpp>
 
+#include <gccs/StructHelper.hpp>
 #include <gccs/popsolver/Model.hpp>
 
 #include <vector>
@@ -77,7 +78,7 @@ template <typename T> struct TransformEstimates {
 template <typename T>
 inline bool operator<(const ExchangeEstimates<T> &a,
                       const ExchangeEstimates<T> &b) {
-  constexpr static auto helper = poplibs_support::makeStructHelper(
+  constexpr static auto helper = gccs::makeStructHelper(
       &ExchangeEstimates<T>::inputExchangeCycles,
       &ExchangeEstimates<T>::weightExchangeCycles,
       &ExchangeEstimates<T>::reduceFirstStageExchangeCycles,
@@ -89,16 +90,16 @@ inline bool operator<(const ExchangeEstimates<T> &a,
 template <typename T>
 inline bool operator<(const TransformEstimates<T> &a,
                       const TransformEstimates<T> &b) {
-  constexpr static auto helper = poplibs_support::makeStructHelper(
-      &TransformEstimates<T>::inputsCopyCycles,
-      &TransformEstimates<T>::inputsExchangeCycles,
-      &TransformEstimates<T>::inputsTempBytes,
-      &TransformEstimates<T>::weightsCopyCycles,
-      &TransformEstimates<T>::weightsExchangeCycles,
-      &TransformEstimates<T>::weightsTempBytes,
-      &TransformEstimates<T>::outputCopyCycles,
-      &TransformEstimates<T>::outputExchangeCycles,
-      &TransformEstimates<T>::outputTempBytes);
+  constexpr static auto helper =
+      gccs::makeStructHelper(&TransformEstimates<T>::inputsCopyCycles,
+                             &TransformEstimates<T>::inputsExchangeCycles,
+                             &TransformEstimates<T>::inputsTempBytes,
+                             &TransformEstimates<T>::weightsCopyCycles,
+                             &TransformEstimates<T>::weightsExchangeCycles,
+                             &TransformEstimates<T>::weightsTempBytes,
+                             &TransformEstimates<T>::outputCopyCycles,
+                             &TransformEstimates<T>::outputExchangeCycles,
+                             &TransformEstimates<T>::outputTempBytes);
 
   return helper.lt(a, b);
 }
@@ -181,7 +182,7 @@ inline bool operator==(const Cost &a, const Cost &b) {
 inline bool operator!=(const Cost &a, const Cost &b) { return !(a == b); }
 
 inline bool operator<(const Cost &a, const Cost &b) {
-  constexpr static auto helper = poplibs_support::makeStructHelper(
+  constexpr static auto helper = gccs::makeStructHelper(
       &Cost::totalTiles, &Cost::totalCycles, &Cost::totalTempBytes,
       &Cost::totalPerStepCycleDiff);
 
@@ -277,7 +278,7 @@ struct ConvDescription {
   ConvDescription(ConvDescription &&) = default;
 
   bool operator<(const ConvDescription &other) const {
-    constexpr static auto helper = poplibs_support::makeStructHelper(
+    constexpr static auto helper = gccs::makeStructHelper(
         &ConvDescription::target, &ConvDescription::params,
         &ConvDescription::options, &ConvDescription::referenceCost,
         &ConvDescription::referencePlan, &ConvDescription::minimizeForTiles,

@@ -2,11 +2,12 @@
 #include <popsparse/FullyConnectedParams.hpp>
 #include <tuple>
 
-#include "poplibs_support/StructHelper.hpp"
 #include <poputil/DebugInfo.hpp>
 #include <poputil/exceptions.hpp>
 
 #include "FullyConnectedUtils.hpp"
+
+#include <gccs/StructHelper.hpp>
 
 namespace poputil {
 template <>
@@ -89,7 +90,7 @@ std::ostream &operator<<(std::ostream &os, const FullyConnectedParams &p) {
 bool operator<(const FullyConnectedParams &a, const FullyConnectedParams &b) {
   // A bit awkward but this isn't a struct really and hence the members are not
   // public. Still shorter than writing out in full.
-  static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
+  static constexpr auto comparisonHelper = gccs::makeStructHelper(
       &FullyConnectedParams::sparsityParams, &FullyConnectedParams::nzRatio,
       &FullyConnectedParams::batchSize,
       &FullyConnectedParams::inputChannelsPerGroup,
@@ -98,7 +99,7 @@ bool operator<(const FullyConnectedParams &a, const FullyConnectedParams &b) {
 }
 
 bool operator==(const FullyConnectedParams &a, const FullyConnectedParams &b) {
-  static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
+  static constexpr auto comparisonHelper = gccs::makeStructHelper(
       &FullyConnectedParams::sparsityParams, &FullyConnectedParams::nzRatio,
       &FullyConnectedParams::batchSize,
       &FullyConnectedParams::inputChannelsPerGroup,

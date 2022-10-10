@@ -1,7 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplin/ConvParams.hpp"
 #include "ConvUtilInternal.hpp"
-#include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/print.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poputil/DebugInfo.hpp"
@@ -10,6 +9,7 @@
 #include <boost/functional/hash.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include <gccs/StructHelper.hpp>
 #include <spdlog/fmt/fmt.h>
 #include <unordered_map>
 
@@ -66,7 +66,7 @@ namespace poplin {
 using InputTransform = ConvParams::InputTransform;
 using OutputTransform = ConvParams::OutputTransform;
 
-static constexpr auto inputTransformHelper = poplibs_support::makeStructHelper(
+static constexpr auto inputTransformHelper = gccs::makeStructHelper(
     &InputTransform::truncationLower, &InputTransform::truncationUpper,
     &InputTransform::dilation, &InputTransform::paddingLower,
     &InputTransform::paddingUpper, &InputTransform::flip);
@@ -83,7 +83,7 @@ bool operator!=(const InputTransform &a, const InputTransform &b) {
   return !(a == b);
 }
 
-static constexpr auto outputTransformHelper = poplibs_support::makeStructHelper(
+static constexpr auto outputTransformHelper = gccs::makeStructHelper(
     &OutputTransform::truncationLower, &OutputTransform::truncationUpper,
     &OutputTransform::stride, &OutputTransform::paddingLower,
     &OutputTransform::paddingUpper);
@@ -100,7 +100,7 @@ bool operator!=(const OutputTransform &a, const OutputTransform &b) {
   return !(a == b);
 }
 
-static constexpr auto convParamsHelper = poplibs_support::makeStructHelper(
+static constexpr auto convParamsHelper = gccs::makeStructHelper(
     &ConvParams::inputType, &ConvParams::outputType, &ConvParams::batchSize,
     &ConvParams::inputFieldShape, &ConvParams::kernelShape,
     &ConvParams::inputChannelsPerConvGroup,

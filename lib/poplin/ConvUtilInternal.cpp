@@ -1,13 +1,14 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "ConvUtilInternal.hpp"
 
-#include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "popops/Rearrange.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
+
+#include <gccs/StructHelper.hpp>
 
 #include <boost/icl/interval_map.hpp>
 
@@ -581,7 +582,7 @@ convertToConvOptions(
   return convertToConvOptionsImpl<float>(graph, args);
 }
 
-static constexpr auto allButNumConvGroups = poplibs_support::makeStructHelper(
+static constexpr auto allButNumConvGroups = gccs::makeStructHelper(
     &ConvParams::inputType, &ConvParams::outputType, &ConvParams::batchSize,
     &ConvParams::inputFieldShape, &ConvParams::kernelShape,
     &ConvParams::inputChannelsPerConvGroup,
