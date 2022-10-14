@@ -44,6 +44,7 @@ add_library(poplin SHARED
   PlanningCache.hpp
   PlanningObjective.hpp
   poplinCycleEstimators.cpp
+  QRFactorization.cpp
   TriangularSolve.cpp
   Winograd.cpp
   Winograd.hpp
@@ -56,6 +57,7 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MeshGrid.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/Norms.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplin/experimental/QRFactorization.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/TriangularSolve.hpp
 )
 
@@ -135,6 +137,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialnx1.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/InverseStdDeviation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/OuterProduct.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/QRFactorization.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceAdd.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TriangularSolve.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdConvComplete.cpp

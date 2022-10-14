@@ -6,6 +6,8 @@
 
 #include <cassert>
 
+#define DIV_UP(a, b) (a + b - 1) / b
+
 using namespace poplar;
 using namespace poplibs_support;
 
@@ -604,6 +606,97 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceAdd)(
   return {cycles, convertToTypeFlops(flops, partialsType)};
 }
 
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(PartialSquareElements)(
+    const VertexIntrospector &vertex, const Target &target) {
+  CODELET_FIELD(rowToProcess);
+  CODELET_SCALAR_VAL(offset, unsigned);
+  CODELET_FIELD(padding);
+
+  constexpr unsigned nWorkers = 6;
+  const auto nelems = rowToProcess.size();
+  const unsigned padd = 16; // avg of default padding
+  const unsigned skipped =
+      std::max(std::min((int)(padd - offset), (int)nelems), 0);
+  const auto toCompute = nelems - skipped;
+  const auto skippedPerWorker = DIV_UP(skipped, nWorkers);
+  const auto toComputePerWorker = DIV_UP(toCompute, nWorkers);
+
+  std::uint64_t cycles =
+      nWorkers * (34 + 2 * skippedPerWorker + 6 + toComputePerWorker * 5 + 1);
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(toCompute) * flopsForMultiply();
+
+  return {cycles, flops};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Householder)(const VertexIntrospector &vertex,
+                                      const Target &target) {
+  CODELET_FIELD(v);
+  CODELET_FIELD(dotProduct);
+  CODELET_SCALAR_VAL(offset, unsigned);
+  CODELET_FIELD(padding);
+  CODELET_FIELD(diagonalValue);
+
+  constexpr unsigned nWorkers = 6;
+  const auto nelems = v.size();
+  const unsigned padd = 16; // avg of default padding
+  const unsigned skipped = std::max((int)(padd - offset), 0);
+  const auto toCompute = nelems - skipped;
+  const auto skippedPerWorker = DIV_UP(skipped, nWorkers);
+  const auto toComputePerWorker = DIV_UP(toCompute, nWorkers);
+
+  std::uint64_t cycles =
+      nWorkers * (37 + 4 * skippedPerWorker + 9 + toComputePerWorker * 5 + 1);
+  std::uint64_t flops = static_cast<std::uint64_t>(toCompute) * flopsForDiv() +
+                        3 * flopsForSqrt();
+
+  return {cycles, flops};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Update)(const VertexIntrospector &vertex,
+                                 const Target &target) {
+  CODELET_FIELD(v);
+  CODELET_FIELD(AQRows);
+  CODELET_FIELD(padding);
+
+  constexpr unsigned nWorkers = 6;
+  const auto nelems = v.size();
+  constexpr unsigned padd = 16; // avg of default padding
+  const auto toCompute = nelems - padd;
+  const auto toComputePerWorker = DIV_UP(nelems - padd, nWorkers);
+  const auto rowsPerWorker = DIV_UP(AQRows.size(), nWorkers);
+
+  std::uint64_t cycles = 72 +
+                         nWorkers *
+                             ((41 + 3 * toComputePerWorker + 3) +
+                              (29 + 4 * toComputePerWorker + 3)) *
+                             rowsPerWorker +
+                         8;
+  std::uint64_t flops = static_cast<std::uint64_t>(toCompute) * 2 *
+                        (flopsForDiv() + flopsForAdd());
+
+  return {cycles, flops};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(RowCopy)(const VertexIntrospector &vertex,
+                                  const Target &target) {
+  CODELET_FIELD(copiedRow);
+  CODELET_FIELD(diagonalValueVector);
+  CODELET_FIELD(A);
+  CODELET_FIELD(padding);
+
+  constexpr unsigned nWorkers = 6;
+  const auto nelemsPerWorker = DIV_UP(A.size(), nWorkers);
+
+  std::uint64_t cycles = nWorkers * (16 + 7 * nelemsPerWorker + 16);
+  std::uint64_t flops = 0;
+
+  return {cycles, flops};
+}
+
 VertexPerfEstimate
 MAKE_PERF_ESTIMATOR_NAME(TriangularSolve)(const VertexIntrospector &vertex,
                                           const Target &target,
@@ -892,6 +985,13 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, HALF, true),
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, HALF, false),
+
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poplin::experimental,
+                                     PartialSquareElements),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poplin::experimental, Householder),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poplin::experimental, Update),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poplin::experimental, RowCopy),
+
   };
 }
 

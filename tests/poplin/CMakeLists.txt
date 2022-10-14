@@ -13,6 +13,23 @@ add_unit_test(MultiConvolutionTest MultiConvolutionTest.cpp)
 add_unit_test(RangeTest RangeTest.cpp)
 add_unit_test(WinogradConvolution WinogradConv.cpp VARIANTS ${TimesOutOnSim})
 
+add_multi_target_test_executable(QRFactorizationTest QRFactorizationTest.cpp)
+foreach(M 8 16)
+  foreach(N 4 8)
+    add_multitarget_test(NAME QRFactorizationTest_${M}_${N}
+      COMMAND QRFactorizationTest
+        --m=${M}
+        --n=${N}
+    )
+  endforeach()
+endforeach()
+
+add_multitarget_test(NAME QRFactorizationTest_128_128
+COMMAND QRFactorizationTest
+  --m=128
+  --n=128
+VARIANTS "Hw")
+
 # Triangular solver tests
 add_multi_target_test_executable(TriangularSolveTest TriangularSolveTest.cpp)
 foreach(DATA_TYPE half float)
