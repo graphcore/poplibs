@@ -120,4 +120,76 @@ template <typename T> struct BlockMetaInfo {
   };
 };
 
+// Meta-info for static element-sparse codelets only
+template <typename T> struct StaticMetaInfo {
+  // Per-worker entry
+  struct WorkListEntry {
+    // Number of rows of Q assigned to worker
+    T numRows;
+    // Offset into meta info for first output entry
+    T metaInfoOffsetOutputEntry;
+    // Offset into sparse NZ
+    T sparseOffset;
+    // number in Z assigned to worker
+    T numZ;
+    // offset into Z assigned to worker
+    T offsetZ;
+    // Start row assigned to the worker
+    T rowOffset;
+  };
+  struct OutputEntry {
+    // Number of blocks for this index in X (minus 1).
+    T numYm1;
+  };
+  struct InputEntry {
+    // Offset to Y index in elements of S.
+    // S has layout {Z,Y} in row major order.
+    T offsetYInS;
+  };
+};
+
+// Meta-info for static block-sparse codelets only
+template <typename T> struct StaticBlockMetaInfo {
+  // Per-worker entry
+  struct WorkListEntry {
+    // offset into Z assigned to worker
+    T offsetZ;
+    // number in Z assigned to worker
+    T numZ;
+  };
+  struct Output {
+    // total number of X indices
+    T numXm1;
+  };
+  struct OutputEntry {
+    // Offset to X index in Q in elements of Q
+    // Q has layout {Z,X} in row major order.
+    // in multiples of 8 bytes
+    T offsetXInQ;
+    // Number of blocks for this index in X (minus 1).
+    T numYm1;
+  };
+  struct InputEntry {
+    // Offset to Y index in elements of S.
+    // S has layout {Z,Y} in row major order.
+    // in multiples of 8 bytes
+    T offsetYInS;
+  };
+};
+
+namespace static_ {
+namespace block {
+// convert to implementation offset
+static inline unsigned convertToImplOffset(unsigned typeSize, unsigned offset) {
+  return offset * typeSize / 8;
+}
+
+// convert from implementation offset
+static inline unsigned convertFromImplOffset(unsigned typeSize,
+                                             unsigned offset) {
+  return offset * 8 / typeSize;
+}
+} // namespace block
+} // namespace static_
+
 } // namespace popsparse

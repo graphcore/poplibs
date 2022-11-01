@@ -8,6 +8,9 @@
 // Stuff that needs storing in the cache
 #include "FullyConnectedOptions.hpp"
 #include "FullyConnectedPlan.hpp"
+#include "MatMulOptions.hpp"
+#include "StaticMatMulPartitioner.hpp"
+#include "popsparse/MatMulParams.hpp"
 #include <poplin/MatMul.hpp>
 #include <popsparse/FullyConnectedParams.hpp>
 
@@ -46,6 +49,43 @@ public:
 };
 
 } // end namespace dynamic
+
+namespace static_ {
+class PlanningCacheImpl {
+public:
+  struct Key {
+    MatMulParams params;
+    MatMulOptions options;
+    // The row and column indices of the static matrix representation obtained
+    // after canocialisation of a CSR matrix
+    unsigned blockLength;
+    std::vector<std::size_t> rowIndices;
+    std::vector<std::size_t> columnIndices;
+    Key(MatMulParams params, MatMulOptions options, unsigned blockLength,
+        std::vector<std::size_t> rowIndices,
+        std::vector<std::size_t> columnIndices)
+        : params(std::move(params)), options(std::move(options)),
+          blockLength(blockLength), rowIndices(std::move(rowIndices)),
+          columnIndices(std::move(columnIndices)) {}
+    Key() = default;
+    bool operator<(const Key &other) const {
+      return std::tie(params, options, blockLength, rowIndices, columnIndices) <
+             std::tie(other.params, other.options, other.blockLength,
+                      other.rowIndices, other.columnIndices);
+    }
+    bool operator==(const Key &other) const {
+      return std::tie(params, options, blockLength, rowIndices,
+                      columnIndices) ==
+             std::tie(other.params, other.options, other.blockLength,
+                      other.rowIndices, other.columnIndices);
+    }
+    bool operator!=(const Key &other) const { return !(*this == other); }
+  };
+
+  std::map<Key, Partition> plans;
+};
+} // end namespace static_
+
 } // end namespace popsparse
 
 #endif // popsparse_PlanningCacheImpl_hpp

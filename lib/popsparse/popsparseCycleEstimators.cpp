@@ -69,6 +69,18 @@ MAKE_PERF_ESTIMATOR_NAME(BlockTransposeGradW)(const VertexIntrospector &vertex,
                                       numXOrYBlocks, numZ, numWorkers);
 }
 
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(StaticSparseDenseElementWise)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const Type &accumType) {
+  return 0;
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(StaticSparseDenseMatMulBlock)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const Type &accType, unsigned blockRows, unsigned blockCols) {
+  return 0;
+}
+
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMultiSliceElementWise)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fpType) {
@@ -253,8 +265,22 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             false),
       CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMultiUpdateAddBlock, FLOAT,
                             false),
-
-  };
+      CYCLE_ESTIMATOR_ENTRY(popsparse, StaticSparseDenseElementWise, HALF,
+                            HALF),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, StaticSparseDenseElementWise, FLOAT,
+                            FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, StaticSparseDenseMatMulBlock, HALF, HALF,
+                            4U, 4U),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, StaticSparseDenseMatMulBlock, FLOAT,
+                            FLOAT, 4U, 4U),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, StaticSparseDenseMatMulBlock, HALF, HALF,
+                            8U, 8U),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, StaticSparseDenseMatMulBlock, FLOAT,
+                            FLOAT, 8U, 8U),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, StaticSparseDenseMatMulBlock, HALF, HALF,
+                            16U, 16U),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, StaticSparseDenseMatMulBlock, FLOAT,
+                            FLOAT, 16U, 16U)};
 }
 
 } // end namespace popsparse

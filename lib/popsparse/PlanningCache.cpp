@@ -10,6 +10,12 @@ poplar::ProfileValue
 toProfileValue(const popsparse::dynamic::PlanningCache &t) {
   return poplar::ProfileValue("<popsparse::dynamic::PlanningCache>");
 }
+
+template <>
+poplar::ProfileValue
+toProfileValue(const popsparse::static_::PlanningCache &t) {
+  return poplar::ProfileValue("<popsparse::static_::PlanningCache>");
+}
 } // namespace poputil
 
 namespace popsparse {
@@ -23,4 +29,10 @@ PlanningCache::PlanningCache(poplin::PlanningCache *planningCache)
 PlanningCache::~PlanningCache() = default;
 
 } // end namespace dynamic
+
+namespace static_ {
+PlanningCache::PlanningCache() : impl(new PlanningCacheImpl()) {}
+PlanningCache::~PlanningCache() = default;
+} // end namespace static_
+
 } // end namespace popsparse

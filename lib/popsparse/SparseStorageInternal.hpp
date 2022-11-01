@@ -50,6 +50,8 @@ public:
   }
 };
 
+namespace dynamic {
+
 // Non zero information in a row. Contains the row number and a vector of
 // non zero column value pairs in that row.
 struct RowPositionValues {
@@ -134,6 +136,28 @@ struct PNBucket {
   }
 };
 
+// Given a tile, return the information for every row containing non-zero values
+// in it.
+// Each row is a vector of <column index, non-zero value> which meets the
+// tile boundaries. The rows and columns within the tile are offsets within
+// the tile and their absolute positions can be obtained from the tile
+// information stored as part of the partition.
+//
+// \param  csr        The internal CSR representation of the sparse matrix.
+// \param  blockSizeX The block size in the X dimension for the matrix the
+//                    internal CSR representation refers to.
+// \param  blockSizeY The block size in the Y dimension for the matrix the
+//                    internal CSR representation refers to.
+// \param  tile       The row and column intervals for the tile
+//
+// A vector for each row in the row interval range containing (column, value)
+// pairs.
+std::vector<RowPositionValues>
+getPositionValuePairsPerRow(const CSRInternal &csr, std::size_t blockSizeX,
+                            std::size_t blockSizeY, const Tile &tile);
+
+} // namespace dynamic
+
 static inline void validateBlockSizes(std::size_t numRows,
                                       std::size_t numColumns,
                                       std::size_t rowBlockSize,
@@ -217,8 +241,8 @@ CSCMatrix<T> csrToCSC(std::size_t numRows, std::size_t numColumns,
   std::for_each(columnIndices.begin(), columnIndices.end(),
                 [=](std::size_t &x) { x *= blockSize; });
 
-  return CSCMatrix<T>(std::move(nzValues), std::move(columnIndices),
-                      std::move(rowIndices),
+  return CSCMatrix<T>(numRows, numColumns, std::move(nzValues),
+                      std::move(columnIndices), std::move(rowIndices),
                       {csr.getNumRowsInBlock(), csr.getNumColumnsInBlock()});
 }
 
@@ -278,8 +302,8 @@ CSRMatrix<T> cscToCSR(std::size_t numRows, std::size_t numColumns,
                    {input.getNumColumnsInBlock(), input.getNumRowsInBlock()});
   auto cscMatrix = csrToCSC<T>(numColumns, numRows, csrMatrix);
   return CSRMatrix<T>(
-      std::move(cscMatrix.nzValues), std::move(cscMatrix.rowIndices),
-      std::move(cscMatrix.columnIndices),
+      numRows, numColumns, std::move(cscMatrix.nzValues),
+      std::move(cscMatrix.rowIndices), std::move(cscMatrix.columnIndices),
       {cscMatrix.getNumRowsInBlock(), cscMatrix.getNumColumnsInBlock()});
 }
 
@@ -295,29 +319,10 @@ CSRMatrix<T> csrTranspose(std::size_t numRows, std::size_t numColumns,
   auto output = csrToCSC(numRows, numColumns, input);
   // convert to CSC matrix
   return CSRMatrix<T>(
-      output.nzValues, output.rowIndices, output.columnIndices,
+      numColumns, numRows, std::move(output.nzValues),
+      std::move(output.rowIndices), std::move(output.columnIndices),
       {output.getNumColumnsInBlock(), output.getNumRowsInBlock()});
 }
-
-// Given a tile, return the information for every row containing non-zero values
-// in it.
-// Each row is a vector of <column index, non-zero value> which meets the
-// tile boundaries. The rows and columns within the tile are offsets within
-// the tile and their absolute positions can be obtained from the tile
-// information stored as part of the partition.
-//
-// \param  csr        The internal CSR representation of the sparse matrix.
-// \param  blockSizeX The block size in the X dimension for the matrix the
-//                    internal CSR representation refers to.
-// \param  blockSizeY The block size in the Y dimension for the matrix the
-//                    internal CSR representation refers to.
-// \param  tile       The row and column intervals for the tile
-//
-// A vector for each row in the row interval range containing (column, value)
-// pairs.
-std::vector<RowPositionValues>
-getPositionValuePairsPerRow(const CSRInternal &csr, std::size_t blockSizeX,
-                            std::size_t blockSizeY, const Tile &tile);
 
 // Convert from a COO representation of a matrix of dimension
 // [numRows x numColumns] to a CSR representation. Duplicate entries are not
@@ -375,7 +380,7 @@ CSRMatrix<T> cooToCSR(std::size_t numRows, std::size_t numColumns,
   }
 
   auto csrMatrix =
-      CSRMatrix<T>(nzValues, columnIndices, rowIndices,
+      CSRMatrix<T>(numRows, numColumns, nzValues, columnIndices, rowIndices,
                    {coo.getNumRowsInBlock(), coo.getNumColumnsInBlock()});
   canonicalizeCSR(csrMatrix);
   return csrMatrix;

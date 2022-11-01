@@ -282,7 +282,7 @@ BOOST_AUTO_TEST_CASE(GetRowPositionTest) {
   const auto tile =
       popsparse::Tile(poplar::Interval(0, 2), poplar::Interval(0, 4));
   const std::size_t blockSizeX = 1, blockSizeY = 1;
-  const auto rowInfo = popsparse::getPositionValuePairsPerRow(
+  const auto rowInfo = popsparse::dynamic::getPositionValuePairsPerRow(
       csrRefS, blockSizeX, blockSizeY, tile);
 
   const std::vector<std::vector<std::pair<double, std::size_t>>> expectedInfo =

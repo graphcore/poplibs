@@ -157,6 +157,13 @@ if (TARGET popsparse)
                         poplibs_test
                         Boost::program_options)
 
+  add_tool(static_sparse_matmul static_sparse_matmul.cpp)
+  target_link_libraries(static_sparse_matmul
+                        poplibs_support
+                        poplibs_test
+                        spdlog::spdlog_header_only
+                        Boost::program_options)
+
   add_tool(sparse_embedding_tied_matmul sparse_embedding_tied_matmul.cpp)
   target_link_libraries(sparse_embedding_tied_matmul
                         poplibs_support

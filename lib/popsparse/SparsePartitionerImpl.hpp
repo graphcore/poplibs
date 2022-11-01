@@ -5,19 +5,25 @@
 #ifndef _poplibs_popsparse_SparsePartitionerImpl_hpp_
 #define _poplibs_popsparse_SparsePartitionerImpl_hpp_
 
+#include "MatMulOptions.hpp"
 #include "SparsePartitionerOptions.hpp"
 #include "SparseStorageInternal.hpp"
+#include "StaticMatMulPartitioner.hpp"
 #include "poplar/DebugContext.hpp"
 #include "poplar/Interval.hpp"
 #include "poplar/OptionFlags.hpp"
 #include "poplar/Target.hpp"
 #include "poplar/Type.hpp"
+#include "popsparse/MatMulParams.hpp"
+#include "popsparse/PlanningCache.hpp"
 #include "popsparse/SparseStorageFormats.hpp"
 #include <array>
 #include <string>
 #include <vector>
 
 namespace popsparse {
+
+namespace dynamic {
 
 template <typename T> struct PNBucketsImpl {
   // Buckets with offset in nz values
@@ -256,6 +262,57 @@ public:
 // Fixed metainfo overhead in number of elements
 std::size_t fixedMetaInfoCost(bool useBlockMetaInfoFormat,
                               std::size_t numWorkers, bool gradWEnabled);
+} // namespace dynamic
+
+namespace static_ {
+
+class PartitionerImpl {
+  MatMulParams params;
+  poplar::Type inputType;
+  const poplar::Target &target;
+  MatMulOptions options;
+  PlanningCache *cache;
+
+  // the canonical banded COO structurr
+  std::vector<std::size_t> rowIndices;
+  std::vector<std::size_t> columnIndices;
+  std::size_t numRows;
+  std::size_t numColumns;
+  std::size_t blockLength;
+
+public:
+  PartitionerImpl(const MatMulParams &params, const poplar::Type &inputType,
+                  const poplar::Target &target,
+                  const poplar::OptionFlags &optionFlags = {},
+                  PlanningCache *cache = nullptr)
+      : params(params), inputType(inputType), target(target),
+        options(parseMatMulOptionFlags(optionFlags)), cache(cache) {}
+
+  // convert from matrix representation to NZ values with an internal COO
+  // structure. The NZ values can be obtained repeatedly as long as the
+  // sparsity representation of the matrix is the same for each call.
+  template <typename T>
+  std::vector<T> getBandedNZValues(const CSCMatrix<T> &matrix,
+                                   const std::string &name);
+  template <typename T>
+  std::vector<T> getBandedNZValues(const CSRMatrix<T> &matrix,
+                                   const std::string &name);
+  template <typename T>
+  std::vector<T> getBandedNZValues(const COOMatrix<T> &matrix,
+                                   const std::string &name);
+
+  // Convert NZ values with a COO structure into a sparse matrix representation.
+  template <typename T>
+  COOMatrix<T> bandedNZValuesToCOO(const std::vector<T> &nzValues,
+                                   const std::string &name) const;
+  template <typename T>
+  CSRMatrix<T> bandedNZValuesToCSR(const std::vector<T> &nzValues,
+                                   const std::string &name) const;
+  template <typename T>
+  CSCMatrix<T> bandedNZValuesToCSC(const std::vector<T> &nzValues,
+                                   const std::string &name) const;
+};
+} // namespace static_
 
 } // namespace popsparse
 #endif // _poplibs_popsparse_SparsePartitionerImpl_hpp_

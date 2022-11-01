@@ -111,4 +111,73 @@ template class Partitioner<double>;
 template class Partitioner<float>;
 
 } // namespace dynamic
+
+namespace static_ {
+
+template <typename T>
+Partitioner<T>::Partitioner(const MatMulParams &params,
+                            const poplar::Type &dataType,
+                            const poplar::Target &target,
+                            const poplar::OptionFlags &optionFlags,
+                            PlanningCache *cache, std::string name_) {
+  name = std::move(name_);
+  logging::popsparse::info("Creating partitioner for {}: type {}, params {} ",
+                           name, dataType, params);
+
+  impl.reset(new PartitionerImpl(params, dataType, target, optionFlags, cache));
+}
+
+template <typename T> Partitioner<T>::~Partitioner() {}
+
+template <typename T>
+SparsityDataImpl<T>
+Partitioner<T>::createSparsityDataImpl(const CSCMatrix<T> &matrix) const {
+  logging::popsparse::info("Creating sparsity implementation for CSC matrix:{}",
+                           name);
+  auto nz = impl->getBandedNZValues(matrix, name);
+  return SparsityDataImpl<T>(std::move(nz));
+}
+
+template <typename T>
+SparsityDataImpl<T>
+Partitioner<T>::createSparsityDataImpl(const CSRMatrix<T> &matrix) const {
+  logging::popsparse::info("Creating sparsity implementation for CSR matrix:{}",
+                           name);
+  auto nz = impl->getBandedNZValues(matrix, name);
+  return SparsityDataImpl<T>(std::move(nz));
+}
+
+template <typename T>
+SparsityDataImpl<T>
+Partitioner<T>::createSparsityDataImpl(const COOMatrix<T> &matrix) const {
+  logging::popsparse::info("Creating sparsity implementation for COO matrix:{}",
+                           name);
+  auto nz = impl->getBandedNZValues(matrix, name);
+  return SparsityDataImpl<T>(std::move(nz));
+}
+
+template <typename T>
+COOMatrix<T> Partitioner<T>::sparsityDataImplToCOOMatrix(
+    const SparsityDataImpl<T> &data) const {
+  return impl->bandedNZValuesToCOO(data.nzValues, name);
+}
+
+template <typename T>
+CSRMatrix<T> Partitioner<T>::sparsityDataImplToCSRMatrix(
+    const SparsityDataImpl<T> &data) const {
+  return impl->bandedNZValuesToCSR(data.nzValues, name);
+}
+
+template <typename T>
+CSCMatrix<T> Partitioner<T>::sparsityDataImplToCSCMatrix(
+    const SparsityDataImpl<T> &data) const {
+  return impl->bandedNZValuesToCSC(data.nzValues, name);
+}
+
+// instantiation of supported types
+template class Partitioner<float>;
+template class Partitioner<double>;
+
+} // namespace static_
+
 } // namespace popsparse

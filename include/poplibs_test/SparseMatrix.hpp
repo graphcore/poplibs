@@ -3,10 +3,11 @@
 #ifndef poplibs_test_SparseMatrix_hpp
 #define poplibs_test_SparseMatrix_hpp
 
+#include "poplibs_support/VectorUtils.hpp"
+#include "poplibs_test/Util.hpp"
 #include <boost/multi_array.hpp>
 #include <boost/random.hpp>
-
-#include "poplibs_support/VectorUtils.hpp"
+#include <gccs/Algorithm.hpp>
 
 #include <queue>
 #include <vector>
@@ -82,6 +83,54 @@ std::tuple<double, double> calculateWeightedVsRemainingSparsityFactor(
       (totalExpectedElems - weightedElemsInWeightedArea) /
       double(matrixArea - weightedArea);
   return std::make_tuple(weightedThreshold, remainingThreshold);
+}
+
+// Given sparsity and weighting, determine if a bipolar distribution could
+// be used in the matrix multiplication
+bool floatingPointCouldRepresentMaxAccum(
+    const std::vector<std::size_t> &dimensions,
+    const std::vector<std::size_t> &blockDimensions,
+    const std::vector<std::size_t> &weightedAreaBegin,
+    const std::vector<std::size_t> &weightedAreaEnd, const poplar::Type &type,
+    double sparsityFactor, double weightedAreaWeighting) {
+  const auto maxVal = poplibs_test::util::maxContiguousInteger(type);
+  double weightedThreshold, remainingThreshold;
+  std::tie(weightedThreshold, remainingThreshold) =
+      poplibs_test::sparse::calculateWeightedVsRemainingSparsityFactor(
+          {dimensions[0] / blockDimensions[0],
+           dimensions[1] / blockDimensions[1]},
+          sparsityFactor,
+          {weightedAreaBegin[0] / blockDimensions[0],
+           weightedAreaBegin[1] / blockDimensions[1]},
+          {weightedAreaEnd[0] / blockDimensions[0],
+           weightedAreaEnd[1] / blockDimensions[1]},
+          weightedAreaWeighting);
+
+  const auto numWeightedK = (weightedAreaEnd[1] - weightedAreaBegin[1]);
+  const auto numWeightedM = (weightedAreaEnd[0] - weightedAreaBegin[0]);
+  std::size_t maxK = numWeightedK * weightedThreshold +
+                     (dimensions[1] - numWeightedK) * remainingThreshold;
+  std::size_t maxM = numWeightedM * weightedThreshold +
+                     (dimensions[0] - numWeightedM) * remainingThreshold;
+  maxM = gccs::alignPrev(maxM, blockDimensions[0]);
+  maxK = gccs::alignPrev(maxK, blockDimensions[1]);
+
+  const auto getOpsPerOutputElementEstimate =
+      [&](const bool lhsTransposed) -> int {
+    const auto numAccumulations = lhsTransposed ? maxM : maxK;
+    return numAccumulations;
+  };
+  // We use a modifier to account for the unlikeliness of picking all positive
+  // or negative 1s which would actually get us to the max precisely
+  // represented integer.
+  constexpr int modifier = 10;
+  // We use another modifier to account for the chance that sparsity is not
+  // perfectly evenly spread in this instant.
+  constexpr double wiggleRoom = 1.3;
+  if (wiggleRoom * getOpsPerOutputElementEstimate(false) > maxVal * modifier) {
+    return false;
+  }
+  return true;
 }
 
 // Build CSR matrix

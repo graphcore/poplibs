@@ -6,6 +6,7 @@
 #ifndef _poplibs_popsparse_SparseStorageFormats_hpp_
 #define _poplibs_popsparse_SparseStorageFormats_hpp_
 
+#include <array>
 #include <vector>
 
 namespace popsparse {
@@ -36,6 +37,12 @@ protected:
 /// case of element sparsity is treated as a special case with block size equal
 /// to  {number of rows in block, number of columns in block} = {1, 1}.
 template <typename T> struct COOMatrix : Block {
+  /// Number of rows in the dense matrix the COO represents
+  std::size_t numRows = 0;
+
+  /// Number of columns in the dense matrix the COO represents
+  std::size_t numColumns = 0;
+
   /// The non-zero values of the sparse matrix.
   std::vector<T> nzValues;
 
@@ -54,11 +61,30 @@ template <typename T> struct COOMatrix : Block {
     Block::blockDimensions = blockDimensions;
   }
 
+  COOMatrix(std::size_t numRows, std::size_t numColumns,
+            const std::vector<T> &nzValues,
+            const std::vector<std::size_t> &columnIndices,
+            const std::vector<std::size_t> &rowIndices,
+            const std::array<std::size_t, 2> &blockDimensions = {1, 1})
+      : numRows(numRows), numColumns(numColumns), nzValues(nzValues),
+        columnIndices(columnIndices), rowIndices(rowIndices) {
+    Block::blockDimensions = blockDimensions;
+  }
+
   COOMatrix(std::vector<T> &&nzValues, std::vector<std::size_t> &&columnIndices,
             std::vector<std::size_t> &&rowIndices,
             const std::array<std::size_t, 2> &blockDimensions = {1, 1})
       : nzValues(nzValues), columnIndices(columnIndices),
         rowIndices(rowIndices) {
+    Block::blockDimensions = blockDimensions;
+  }
+
+  COOMatrix(std::size_t numRows, std::size_t numColumns,
+            std::vector<T> &&nzValues, std::vector<std::size_t> &&columnIndices,
+            std::vector<std::size_t> &&rowIndices,
+            const std::array<std::size_t, 2> &blockDimensions = {1, 1})
+      : numRows(numRows), numColumns(numColumns), nzValues(nzValues),
+        columnIndices(columnIndices), rowIndices(rowIndices) {
     Block::blockDimensions = blockDimensions;
   }
 
@@ -74,6 +100,7 @@ template <typename T> struct COOMatrix : Block {
   COOMatrix(const std::array<std::size_t, 2> &blockDimensions = {1, 1}) {
     Block::blockDimensions = blockDimensions;
   }
+
   COOMatrix(const COOMatrix &) = default;
 };
 
@@ -83,6 +110,12 @@ template <typename T> struct COOMatrix : Block {
 /// The case of element sparsity is treated as a special case with block size
 /// equal to {number of rows in block, number of columns in block} = {1, 1}.
 template <typename T> struct CSCMatrix : Block {
+  /// Number of rows in the dense matrix the CSC represents
+  std::size_t numRows = 0;
+
+  /// Number of columns in the dense matrix the CSC represents
+  std::size_t numColumns = 0;
+
   /// The non-zero values of the sparse matrix. The number of values is always
   /// an integer multiple of the block size.
   std::vector<T> nzValues;
@@ -105,11 +138,30 @@ template <typename T> struct CSCMatrix : Block {
     Block::blockDimensions = blockDimensions;
   }
 
+  CSCMatrix(std::size_t numRows, std::size_t numColumns,
+            const std::vector<T> &nzValues,
+            const std::vector<std::size_t> &columnIndices,
+            const std::vector<std::size_t> &rowIndices,
+            const std::array<std::size_t, 2> &blockDimensions = {1, 1})
+      : numRows(numRows), numColumns(numColumns), nzValues(nzValues),
+        columnIndices(columnIndices), rowIndices(rowIndices) {
+    Block::blockDimensions = blockDimensions;
+  }
+
   CSCMatrix(std::vector<T> &&nzValues, std::vector<std::size_t> &&columnIndices,
             std::vector<std::size_t> &&rowIndices,
             const std::array<std::size_t, 2> &blockDimensions = {1, 1})
       : nzValues(nzValues), columnIndices(columnIndices),
         rowIndices(rowIndices) {
+    Block::blockDimensions = blockDimensions;
+  }
+
+  CSCMatrix(std::size_t numRows, std::size_t numColumns,
+            std::vector<T> &&nzValues, std::vector<std::size_t> &&columnIndices,
+            std::vector<std::size_t> &&rowIndices,
+            const std::array<std::size_t, 2> &blockDimensions = {1, 1})
+      : numRows(numRows), numColumns(numColumns), nzValues(nzValues),
+        columnIndices(columnIndices), rowIndices(rowIndices) {
     Block::blockDimensions = blockDimensions;
   }
 
@@ -125,6 +177,7 @@ template <typename T> struct CSCMatrix : Block {
   CSCMatrix(const std::array<std::size_t, 2> &blockDimensions_ = {1, 1}) {
     Block::blockDimensions = blockDimensions_;
   }
+
   CSCMatrix(const CSCMatrix &) = default;
 };
 
@@ -134,6 +187,12 @@ template <typename T> struct CSCMatrix : Block {
 /// The case of element sparsity is treated as a special case with block size
 /// equal to  {number of rows in block, number of columns in block} = {1, 1}.
 template <typename T> struct CSRMatrix : Block {
+  /// Number of rows in the dense matrix the CSR represents
+  std::size_t numRows = 0;
+
+  /// Number of columns in the dense matrix the CSR represents
+  std::size_t numColumns = 0;
+
   /// The non-zero values of the sparse matrix.
   std::vector<T> nzValues;
 
@@ -154,11 +213,30 @@ template <typename T> struct CSRMatrix : Block {
     Block::blockDimensions = blockDimensions;
   }
 
+  CSRMatrix(std::size_t numRows, std::size_t numColumns,
+            const std::vector<T> &nzValues,
+            const std::vector<std::size_t> &columnIndices,
+            const std::vector<std::size_t> &rowIndices,
+            const std::array<std::size_t, 2> &blockDimensions = {1, 1})
+      : numRows(numRows), numColumns(numColumns), nzValues(nzValues),
+        columnIndices(columnIndices), rowIndices(rowIndices) {
+    Block::blockDimensions = blockDimensions;
+  }
+
   CSRMatrix(std::vector<T> &&nzValues, std::vector<std::size_t> &&columnIndices,
             std::vector<std::size_t> &&rowIndices,
             const std::array<std::size_t, 2> &blockDimensions = {1, 1})
       : nzValues(nzValues), columnIndices(columnIndices),
         rowIndices(rowIndices) {
+    Block::blockDimensions = blockDimensions;
+  }
+
+  CSRMatrix(std::size_t numRows, std::size_t numColumns,
+            std::vector<T> &&nzValues, std::vector<std::size_t> &&columnIndices,
+            std::vector<std::size_t> &&rowIndices,
+            const std::array<std::size_t, 2> &blockDimensions = {1, 1})
+      : numRows(numRows), numColumns(numColumns), nzValues(nzValues),
+        columnIndices(columnIndices), rowIndices(rowIndices) {
     Block::blockDimensions = blockDimensions;
   }
 
@@ -174,6 +252,7 @@ template <typename T> struct CSRMatrix : Block {
   CSRMatrix(const std::array<std::size_t, 2> &blockDimensions_ = {1, 1}) {
     Block::blockDimensions = blockDimensions_;
   }
+
   CSRMatrix(const CSRMatrix &) = default;
 };
 

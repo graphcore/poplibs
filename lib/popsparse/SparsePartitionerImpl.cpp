@@ -17,72 +17,18 @@
 #include <unordered_map>
 
 using namespace poplibs_support;
+// Here only to account for sizes
+using MetaInfoType = unsigned short;
+using MI = popsparse::MetaInfo<MetaInfoType>;
+using BMI = popsparse::BlockMetaInfo<MetaInfoType>;
+using namespace popsparse::fullyconnected;
 
-namespace popsparse {
+// to compute number of elements
+#define miElems(x) (sizeof(x) / sizeof(MetaInfoType))
 
-using namespace dynamic;
-using namespace fullyconnected;
-
-std::vector<RowPositionValues>
-getPositionValuePairsPerRow(const CSRInternal &csr, std::size_t blockSizeX,
-                            std::size_t blockSizeY, const Tile &tile) {
-  const auto startRow = tile.getRows().begin();
-  const auto endRow = tile.getRows().end();
-  const auto startColumn = tile.getColumns().begin();
-  const auto endColumn = tile.getColumns().end();
-
-  if (startRow % blockSizeX) {
-    throw poputil::poplibs_error(
-        "Start row in tile is not divisible by the row block size");
-  }
-
-  if (endRow % blockSizeX) {
-    throw poputil::poplibs_error(
-        "End row in tile is not divisible by the row block size");
-  }
-
-  if (startRow >= (csr.rowIndices.size() - 1) * blockSizeX) {
-    throw poputil::poplibs_error("Start row in tile doesn't match information "
-                                 "in CSR");
-  }
-
-  if (endRow > (csr.rowIndices.size() - 1) * blockSizeX) {
-    throw poputil::poplibs_error("End row in tile doesn't match information "
-                                 "in CSR");
-  }
-
-  std::vector<RowPositionValues> rowValuePairs;
-  const auto blockSize = blockSizeX * blockSizeY;
-  std::size_t numBlocksInTile = 0;
-  for (auto row = startRow; row != endRow; row += blockSizeX) {
-    std::vector<std::pair<std::size_t, ValueType>> valuePairs;
-    const auto rowIdx = row / blockSizeX;
-    for (auto internalNzIdx = csr.rowIndices[rowIdx] / blockSize;
-         internalNzIdx != csr.rowIndices[rowIdx + 1] / blockSize;
-         ++internalNzIdx) {
-      // This can be optimised if the columns are always sorted in increasing
-      // order.
-      if (csr.columnIndices[internalNzIdx] >= startColumn &&
-          csr.columnIndices[internalNzIdx] < endColumn) {
-        valuePairs.emplace_back(csr.columnIndices[internalNzIdx] - startColumn,
-                                csr.nzValues[internalNzIdx]);
-        ++numBlocksInTile;
-      }
-    }
-    if (!valuePairs.empty()) {
-      rowValuePairs.emplace_back(
-          RowPositionValues(row - startRow, std::move(valuePairs)));
-    }
-  }
-  logging::popsparse::debug("    - total elems/blocks {}", numBlocksInTile);
-  return rowValuePairs;
-}
-
-// Virtual mapping of tile to PN
-std::size_t getPNId(const std::vector<std::size_t> &xyz,
-                    const std::vector<std::size_t> &numXYZ) {
-  return xyz[0] * numXYZ[1] * numXYZ[2] + xyz[1] * numXYZ[2] + xyz[2];
-}
+namespace {
+using namespace popsparse;
+using namespace popsparse::dynamic;
 
 // get tile index from pnId
 std::tuple<std::size_t, std::size_t, std::size_t>
@@ -91,104 +37,6 @@ getTileIndexFromPnId(std::size_t pnId, const std::vector<std::size_t> &numXYZ) {
   const auto y = (pnId / numXYZ[2]) % numXYZ[1];
   const auto x = pnId / (numXYZ[1] * numXYZ[2]);
   return std::make_tuple(x, y, z);
-}
-
-// Here only to account for sizes
-using MetaInfoType = unsigned short;
-using MI = popsparse::MetaInfo<MetaInfoType>;
-using BMI = popsparse::BlockMetaInfo<MetaInfoType>;
-
-// to compute number of elements
-#define miElems(x) (sizeof(x) / sizeof(MetaInfoType))
-
-PartitionerImpl::PartitionerImpl(
-    const std::vector<std::size_t> &dimensions,
-    const std::vector<std::size_t> &grainSizes,
-    const std::array<std::size_t, 2> &blockDimensions_,
-    const std::vector<std::size_t> &xSplits_,
-    const std::vector<std::size_t> &ySplits_,
-    const std::vector<std::size_t> &zSplits_,
-    std::size_t metaInfoBucketElements_,
-    std::size_t metaInfoBucketElementsGradA_,
-    std::size_t nzElementsBucketElements_, std::size_t numWorkerContexts_,
-    std::size_t bucketsPerZ_, bool useBlockMetaInfoFormat_, bool includeGradA_,
-    bool includeGradW_, bool sharedBuckets_, const poplar::Type &dataType_,
-    const poplar::Type &accumType_, const PartitionerOptions &options,
-    bool useDense)
-    : useDense(useDense) {
-
-  auto verifySplit = [](std::size_t dimension, const std::vector<size_t> &split,
-                        const std::string &str) {
-    // entries are less then numX and numY?
-    if (split.size() > dimension) {
-      throw poputil::poplibs_error("There must be at most as many splits as "
-                                   "the dimension " +
-                                   str);
-    }
-    std::for_each(split.begin(), split.end(), [&](std::size_t dim) {
-      if (dim >= dimension) {
-        throw poputil::poplibs_error("An element in a split must be less than "
-                                     "the dimension " +
-                                     str);
-      }
-    });
-  };
-
-  verifySplit(dimensions.at(0), xSplits_, "X");
-  verifySplit(dimensions.at(1), ySplits_, "Y");
-  verifySplit(dimensions.at(2), zSplits_, "Z");
-
-  numX = dimensions.at(0);
-  numY = dimensions.at(1);
-  numZ = dimensions.at(2);
-
-  grainX = grainSizes.at(0);
-  grainY = grainSizes.at(1);
-  grainZ = grainSizes.at(2);
-
-  blockDimensions = blockDimensions_;
-
-  xSplits = xSplits_;
-  ySplits = ySplits_;
-  zSplits = zSplits_;
-
-  std::sort(xSplits.begin(), xSplits.end());
-  std::sort(ySplits.begin(), ySplits.end());
-  std::sort(zSplits.begin(), zSplits.end());
-
-  // keep meta info size in elements
-  metaInfoBucketElements = metaInfoBucketElements_;
-  metaInfoBucketElementsGradA = metaInfoBucketElementsGradA_;
-  nzElemsBucketBlocks = nzElementsBucketElements_ / (grainX * grainY);
-  numWorkerContexts = numWorkerContexts_;
-  bucketsPerZ = bucketsPerZ_;
-  useBlockMetaInfoFormat = useBlockMetaInfoFormat_;
-  if (grainX * grainY > 1 && !useBlockMetaInfoFormat) {
-    throw poputil::poplibs_error("Non block meta-info format does not support "
-                                 "block size greater than 1x1");
-  }
-  gradWEnabled = includeGradW_;
-  gradAEnabled = includeGradA_;
-  sharedBuckets = sharedBuckets_;
-  dataType = dataType_;
-  accumType = accumType_;
-  optimiseForSpeed = options.optimiseForSpeed;
-  forceBucketSpills = options.forceBucketSpills;
-  useActualWorkerSplitCosts = options.useActualWorkerSplitCosts;
-
-  logging::popsparse::debug(
-      "Created partitioner for sparse matrix mult [X,Y] x [Y,Z]: ");
-  logging::popsparse::debug("  --X = {}, Y = {}, Z = {}", numX, numY, numZ);
-  logging::popsparse::debug("  --Split X : {}", xSplits);
-  logging::popsparse::debug("  --Split Y : {}", ySplits);
-  logging::popsparse::debug("  --Split Z : {}", zSplits);
-  logging::popsparse::debug("  --Buckets per Z dimension : {}", bucketsPerZ_);
-  logging::popsparse::debug("  --Meta-info bucket size in elems (fwd) : {}",
-                            metaInfoBucketElements);
-  logging::popsparse::debug("  --Meta-info bucket size in elems (grad-a) : {}",
-                            metaInfoBucketElementsGradA);
-  logging::popsparse::debug("  --NZ bucket size in elements : {}",
-                            nzElementsBucketElements_);
 }
 
 // Number of non-zero values in a partition
@@ -249,6 +97,12 @@ TilePartition csrMatrixToTilePartition(const CSRInternal &csrMatrix,
     }
   }
   return TilePartition(tileIndex, tile, tileInfo);
+}
+
+// Virtual mapping of tile to PN
+std::size_t getPNId(const std::vector<std::size_t> &xyz,
+                    const std::vector<std::size_t> &numXYZ) {
+  return xyz[0] * numXYZ[1] * numXYZ[2] + xyz[1] * numXYZ[2] + xyz[2];
 }
 
 std::vector<TilePartition> static getTilePartition(
@@ -335,14 +189,6 @@ std::vector<TilePartition> static getTilePartition(
   return tilePartitions;
 }
 
-// creates tile partitions based purely on tiling of the matrix. The tiling is
-// done given the splits the planner decides to split the matrix.
-std::vector<TilePartition>
-PartitionerImpl::getTilePartitions(const CSRInternal &matrix) const {
-  return getTilePartition(matrix, numX, numY, numZ, grainX, grainY, xSplits,
-                          ySplits, zSplits, bucketsPerZ);
-}
-
 // find amount of information kept on tile which is a sub-tile of the
 // partition
 std::size_t numMetaInfoElementsForWorker(const TilePartition &partition,
@@ -362,25 +208,6 @@ std::size_t numMetaInfoElementsForWorker(const TilePartition &partition,
     }
   }
   return numElements;
-}
-
-// Fixed cost for meta info subgroup
-std::size_t fixedMetaInfoCost(bool useBlockMetaInfoFormat,
-                              std::size_t numWorkers, bool gradWEnabled) {
-  std::size_t metaInfoCost = 0;
-  if (useBlockMetaInfoFormat) {
-    metaInfoCost += miElems(BMI::SubGroupEntry);
-    if (gradWEnabled) {
-      metaInfoCost += miElems(BMI::GradWWorkerEntry) * numWorkers;
-    }
-  } else {
-    metaInfoCost +=
-        miElems(MI::SubGroupEntry) + miElems(MI::WorkerEntry) * numWorkers;
-    if (gradWEnabled) {
-      metaInfoCost += miElems(MI::GradWWorkerEntry) * numWorkers + 1;
-    }
-  }
-  return metaInfoCost;
 }
 
 std::pair<std::size_t, std::size_t>
@@ -446,10 +273,10 @@ sizesForTilePartition(const TilePartition &partition, std::size_t numZGrains,
 }
 
 // Get the number of grains of Z in a tile
-static std::size_t getNumZGrains(const TileIndex &tileIndex,
-                                 const std::vector<std::size_t> &zSplits,
-                                 std::size_t numZ, std::size_t bucketsPerZ,
-                                 std::size_t grainSizeZ) {
+std::size_t getNumZGrains(const TileIndex &tileIndex,
+                          const std::vector<std::size_t> &zSplits,
+                          std::size_t numZ, std::size_t bucketsPerZ,
+                          std::size_t grainSizeZ) {
   const auto zIndex = std::get<2>(tileIndex) / bucketsPerZ;
   const auto zBegin = zSplits.at(zIndex);
   const auto zEnd =
@@ -536,7 +363,7 @@ findPartitionsToRemove(const std::vector<std::size_t> &rowWeights,
 }
 
 // Removes rows until target is reached
-static TilePartition
+TilePartition
 removeRows(PNBucket &bucket, const std::vector<std::size_t> &zSplits,
            std::size_t numZ, std::size_t grainSizeZ, std::size_t numWorkers,
            std::size_t metaInfoElementsTarget, std::size_t nzElementsTarget,
@@ -619,27 +446,6 @@ removeIntervals(TilePartition &tilePartition,
                        std::move(rowPositionValues));
 }
 
-static std::vector<PNBucket>
-createBucketsForPN(const std::vector<TilePartition> &tilePartitions,
-                   const std::vector<std::size_t> &zSplits, std::size_t numZ,
-                   std::size_t grainSizeZ, bool useWorkerSplits,
-                   std::size_t numWorkers, std::size_t bucketsPerZ,
-                   bool useBlockMetaInfoFormat, bool includeGradW) {
-  const auto numPNs = tilePartitions.size();
-  std::vector<PNBucket> buckets(tilePartitions.size());
-  // The initial buckets contain one tile partition
-  for (std::size_t p = 0; p != numPNs; ++p) {
-    if (!tilePartitions[p].empty()) {
-      buckets[p].subGroups.push_back(tilePartitions[p]);
-      // fill in size information
-      fillBucketSizes(buckets[p], zSplits, numZ, grainSizeZ, useWorkerSplits,
-                      numWorkers, bucketsPerZ, useBlockMetaInfoFormat,
-                      includeGradW, "create-" + std::to_string(p));
-    }
-  }
-  return buckets;
-}
-
 void dumpBucketStatus(const std::vector<PNBucket> &mainBuckets,
                       const std::vector<PNBucket> &overflowBuckets = {}) {
   const auto numBuckets = mainBuckets.size();
@@ -667,7 +473,28 @@ void dumpBucketStatus(const std::vector<PNBucket> &mainBuckets,
   }
 }
 
-static std::size_t countNonEmpty(const std::vector<PNBucket> &bucket) {
+std::vector<PNBucket>
+createBucketsForPN(const std::vector<TilePartition> &tilePartitions,
+                   const std::vector<std::size_t> &zSplits, std::size_t numZ,
+                   std::size_t grainSizeZ, bool useWorkerSplits,
+                   std::size_t numWorkers, std::size_t bucketsPerZ,
+                   bool useBlockMetaInfoFormat, bool includeGradW) {
+  const auto numPNs = tilePartitions.size();
+  std::vector<PNBucket> buckets(tilePartitions.size());
+  // The initial buckets contain one tile partition
+  for (std::size_t p = 0; p != numPNs; ++p) {
+    if (!tilePartitions[p].empty()) {
+      buckets[p].subGroups.push_back(tilePartitions[p]);
+      // fill in size information
+      fillBucketSizes(buckets[p], zSplits, numZ, grainSizeZ, useWorkerSplits,
+                      numWorkers, bucketsPerZ, useBlockMetaInfoFormat,
+                      includeGradW, "create-" + std::to_string(p));
+    }
+  }
+  return buckets;
+}
+
+std::size_t countNonEmpty(const std::vector<PNBucket> &bucket) {
   return std::accumulate(
       bucket.begin(), bucket.end(), (std::size_t)0,
       [](std::size_t prior, const PNBucket &b) -> std::size_t {
@@ -692,239 +519,9 @@ static void logBucket(const PNBucket &b, const std::string &str) {
   }
 }
 
-void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
-
-  const auto numBuckets = pnBuckets.size();
-
-  // log new parition info
-  logging::popsparse::trace("Before rebalancing ... ");
-  dumpBucketStatus(pnBuckets);
-
-  auto overflown = [&](const PNBucket &bucket) {
-    return (bucket.metaInfoElements > metaInfoBucketElements - 1 ||
-            bucket.numNzElements > nzElemsBucketBlocks);
-  };
-
-  // The overflow is kept in this
-  std::vector<PNBucket> overflowBuckets(numBuckets);
-
-  // First determine the number of elements overflow and strip off rows
-  for (std::size_t p = 0; p != numBuckets; ++p) {
-    auto &bucket = pnBuckets[p];
-
-    if (overflown(bucket) || forceBucketSpills) {
-      // remove rows from partition given a target to remove
-      logging::popsparse::trace(
-          "  Attempting to remove rows from pn {} : sizes {} {}", p,
-          bucket.metaInfoElements, bucket.numNzElements);
-      const auto metaInfoElems =
-          forceBucketSpills ? 0 : metaInfoBucketElements - 1;
-      const auto nzInfoElems = forceBucketSpills ? 0 : nzElemsBucketBlocks;
-
-      auto tp = removeRows(bucket, zSplits, numZ, grainZ, numWorkerContexts,
-                           metaInfoElems, nzInfoElems, bucketsPerZ,
-                           useBlockMetaInfoFormat, useActualWorkerSplitCosts,
-                           gradWEnabled);
-      overflowBuckets[p].subGroups.push_back(tp);
-      fillBucketSizes(overflowBuckets[p], zSplits, numZ, grainZ,
-                      useActualWorkerSplitCosts, numWorkerContexts, bucketsPerZ,
-                      useBlockMetaInfoFormat, gradWEnabled,
-                      " : overflow bucket for pn " + std::to_string(p));
-    }
-  }
-
-  // log new parition info
-  logging::popsparse::trace("After partitioning to overflown buckets ... ");
-  dumpBucketStatus(pnBuckets, overflowBuckets);
-
-  auto fits = [&](const PNBucket &target, const PNBucket &cand) {
-    return (target.metaInfoElements + cand.metaInfoElements <=
-            metaInfoBucketElements - 1) &&
-           (target.numNzElements + cand.numNzElements <= nzElemsBucketBlocks);
-  };
-
-  auto rebalance = [&](std::size_t pnRange, bool splitColumns) {
-    if (std::all_of(overflowBuckets.begin(), overflowBuckets.end(),
-                    [](const PNBucket &b) { return b.empty(); })) {
-      return;
-    }
-
-    std::vector<std::size_t> ovfOrder(numBuckets);
-    std::iota(ovfOrder.begin(), ovfOrder.end(), 0);
-
-    // Sort entries within range such that the biggest buckets are allocated
-    // first
-    assert(numBuckets % pnRange == 0);
-    for (std::size_t i = 0; i != numBuckets / pnRange; ++i) {
-      std::sort(ovfOrder.begin() + i * pnRange,
-                ovfOrder.begin() + (i + 1) * pnRange,
-                [&](std::size_t a, std::size_t b) {
-                  return overflowBuckets[a] > overflowBuckets[b];
-                });
-    }
-
-    // Go through candidates list to fill
-    for (std::size_t x = 0; x != xSplits.size(); ++x) {
-      for (std::size_t y = 0; y != ySplits.size(); ++y) {
-        for (std::size_t z = 0; z != zSplits.size() * bucketsPerZ; ++z) {
-          std::size_t ovfPN = getPNId(
-              {
-                  x,
-                  y,
-                  z,
-              },
-              {xSplits.size(), ySplits.size(), zSplits.size() * bucketsPerZ});
-          std::size_t pnStart = ovfPN / pnRange * pnRange;
-          std::size_t pnEnd = pnStart + pnRange;
-
-          // selected first entry in the sorted list belonging to the range
-          const auto thisPN = ovfOrder[ovfPN];
-          auto &ovfBucket = overflowBuckets[thisPN];
-
-          if (ovfBucket.empty()) {
-            continue;
-          }
-
-          logging::popsparse::trace(
-              "  ===== overflow for PN {} : sizes {} {} ===", thisPN,
-              ovfBucket.metaInfoElements, ovfBucket.numNzElements);
-          logging::popsparse::trace("   - checking range [{} {})", pnStart,
-                                    pnEnd);
-
-          // PN buckets in range sorted in increasing order of size as we
-          // want the largest sized to be allocated in the largest gap first
-          std::vector<std::size_t> pnOrder(pnRange);
-          std::iota(pnOrder.begin(), pnOrder.end(), 0);
-          std::sort(pnOrder.begin(), pnOrder.end(),
-                    [&](std::size_t a, std::size_t b) {
-                      return pnBuckets[pnStart + a] < pnBuckets[pnStart + b];
-                    });
-
-          // look into sorted list of PNs to fill in
-          for (std::size_t i = 0; i != pnRange; ++i) {
-            // order in the same direction as buckets are cycled. Ideally
-            // we need some common definition that ties actual implementation
-            // and what is done here.
-            auto pn =
-                pnStart + (optimiseForSpeed
-                               ? (thisPN - pnStart + pnRange - i) % pnRange
-                               : pnOrder[i]);
-
-            // Move the maximum if buckets spills are forced
-            if (forceBucketSpills) {
-              pn = pnStart + (thisPN - pnStart + i) % pnRange;
-            }
-
-            // We remove whole rows to create overflow buckets as rows of large
-            // size are efficient due to lower processing overheads. But when
-            // rebalancing we can split rows. So we could add to the same PN
-            if (pn == thisPN && forceBucketSpills) {
-              continue;
-            }
-            auto &bucket = pnBuckets[pn];
-            logBucket(bucket, "Before PN " + std::to_string(pn));
-            logBucket(ovfBucket,
-                      " Before Overflow PN  " + std::to_string(thisPN));
-            if (fits(bucket, overflowBuckets[thisPN])) {
-              bucket.move(ovfBucket);
-              logging::popsparse::trace("   *+++* : moved {} -> {}", thisPN,
-                                        pn);
-              logBucket(bucket, "After PN " + std::to_string(pn));
-              logBucket(ovfBucket,
-                        " After Overflow PN " + std::to_string(thisPN));
-              break;
-            } else {
-              const auto available = std::make_pair(
-                  metaInfoBucketElements - 1 - bucket.metaInfoElements,
-                  nzElemsBucketBlocks - bucket.numNzElements);
-              std::vector<std::pair<std::size_t, std::size_t>> intervals;
-              std::size_t rowsInSg = ovfBucket.subGroups[0].tileInfo.size();
-              std::vector<std::size_t> rowWeights;
-              rowWeights.resize(rowsInSg);
-              for (std::size_t row = 0; row != rowsInSg; ++row) {
-                rowWeights[row] =
-                    ovfBucket.subGroups[0].tileInfo[row].positionValues.size();
-              }
-              intervals = findPartitionsToRemove(
-                  rowWeights, available, useBlockMetaInfoFormat,
-                  numWorkerContexts, gradWEnabled, splitColumns);
-              if (intervals.empty()) {
-                continue;
-              }
-              auto removedPartition =
-                  removeIntervals(ovfBucket.subGroups[0], intervals);
-              bucket.subGroups.push_back(std::move(removedPartition));
-            }
-            fillBucketSizes(bucket, zSplits, numZ, grainZ,
-                            useActualWorkerSplitCosts, numWorkerContexts,
-                            bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled,
-                            " : add to pn bucket" + std::to_string(pn));
-            fillBucketSizes(overflowBuckets[thisPN], zSplits, numZ, grainZ,
-                            useActualWorkerSplitCosts, numWorkerContexts,
-                            bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled,
-                            " : after overflow rows removed " +
-                                std::to_string(thisPN));
-            logging::popsparse::trace("   *+* : rows PNs {} -> {}", thisPN, pn);
-            logBucket(bucket, "After PN " + std::to_string(pn));
-            logBucket(overflowBuckets[thisPN],
-                      " After Overflow PN " + std::to_string(thisPN));
-            // All information in overflow has been allocated
-            if (ovfBucket.empty()) {
-              break;
-            }
-          }
-        }
-      }
-    }
-  };
-
-  std::vector<std::size_t> pnRanges = {
-      zSplits.size() * bucketsPerZ,
-      zSplits.size() * bucketsPerZ * ySplits.size(),
-      zSplits.size() * bucketsPerZ * ySplits.size() * xSplits.size()};
-  if (forceBucketSpills) {
-    std::swap(pnRanges[1], pnRanges[2]);
-  }
-  logging::popsparse::info("Rebalance:");
-
-  for (std::size_t pnRange : pnRanges) {
-    for (bool splitColumns : {false, true}) {
-      // rebalance
-      logging::popsparse::info("    : range {}, split cols ? {} non empty ? {}",
-                               pnRange, splitColumns,
-                               countNonEmpty(overflowBuckets));
-      rebalance(pnRange, splitColumns);
-    }
-  }
-
-  logging::popsparse::info("After rebalancing : non empty {}",
-                           countNonEmpty(overflowBuckets));
-
-  for (auto it = pnBuckets.begin(); it != pnBuckets.end(); ++it) {
-    logging::popsparse::debug(" bucket size for PN {} : mi : {} nz : {}",
-                              std::distance(pnBuckets.begin(), it),
-                              it->metaInfoElements, it->numNzElements);
-  }
-
-  dumpBucketStatus(pnBuckets, overflowBuckets);
-  if (countNonEmpty(overflowBuckets)) {
-    std::size_t maxMetaInfo = 0;
-    std::size_t maxNzValues = 0;
-    std::for_each(overflowBuckets.begin(), overflowBuckets.end(),
-                  [&](const PNBucket &b) {
-                    maxMetaInfo = std::max(maxMetaInfo, b.metaInfoElements);
-                    maxNzValues = std::max(maxNzValues, b.numNzElements);
-                  });
-    logging::popsparse::warn("overflow metainfo {}/{}, nz values {}/{}",
-                             maxMetaInfo, metaInfoBucketElements, maxNzValues,
-                             nzElemsBucketBlocks);
-    throw poputil::poplibs_error("Overflow in buckets");
-  }
-}
-
-static std::size_t formSubgroupId(const TileIndex &tileIndex,
-                                  const std::vector<std::size_t> &numSplits,
-                                  bool gradA) {
+std::size_t formSubgroupId(const TileIndex &tileIndex,
+                           const std::vector<std::size_t> &numSplits,
+                           bool gradA) {
   auto rowGroupIndex = std::get<0>(tileIndex);
   auto subRowGroupIndex = std::get<1>(tileIndex);
   auto numRowGroups = numSplits[0];
@@ -1030,56 +627,22 @@ findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
 }
 
 // Check that matrix dimensions match with which partitioner was construted
-static void
-checkBlockDimensionsMatch(std::array<std::size_t, 2> matrixDimensions,
-                          std::array<std::size_t, 2> originalDimensions) {
+void checkBlockDimensionsMatch(std::array<std::size_t, 2> matrixDimensions,
+                               std::array<std::size_t, 2> originalDimensions) {
   if (matrixDimensions != originalDimensions) {
     throw poputil::poplibs_error("Block dimensions of matrix do not match "
                                  "ones with which partitioner was created");
   }
 }
 
-template <typename T>
-PNBucketsImpl<T> PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_,
-                                                bool checkDims) const {
-  logging::popsparse::trace("Partitioner called with CSR representation");
-  if (checkDims) {
-    checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
-  }
-  validateCSR(numX, numY, matrix_.getBlockDimensions(), matrix_.nzValues.size(),
-              matrix_.rowIndices, matrix_.columnIndices);
-  std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
-  const auto &matrixNewBlockSize =
-      matrix_.getBlockDimensions() != grainsXAndY
-          ? changeCSRBlockSize(matrix_, grainsXAndY)
-          : matrix_;
-
-  if (matrixNewBlockSize.getNumRowsInBlock() != grainX ||
-      matrixNewBlockSize.getNumColumnsInBlock() != grainY) {
-    throw poputil::poplibs_error(
-        "Number of rows/columns in block does not match grain sizes "
-        "partitioner was created with");
-  }
-  if (matrixNewBlockSize.rowIndices.size() != (numX / grainX) + 1) {
-    throw poputil::poplibs_error(
-        "Number of row indices must match number of matrix rows");
-  }
-
-  if (matrixNewBlockSize.nzValues.size() / matrixNewBlockSize.getBlockSize() !=
-      matrixNewBlockSize.columnIndices.size()) {
-    throw poputil::poplibs_error(
-        "Number of column indices must match number of non zero values");
-  }
-  return this->createBucketsNoErrorCheck(matrix_, matrixNewBlockSize);
-}
-
 template <typename ValueType, typename IndexType>
-static void
-csrToDenseMatrixImpl(boost::multi_array_ref<ValueType, 2> &mat,
-                     const ValueType *nzValues, const IndexType *columnIndices,
-                     const IndexType *rowIndices,
-                     const std::size_t numNonZeroValues,
-                     const std::size_t blockRows, const std::size_t blockCols) {
+void csrToDenseMatrixImpl(boost::multi_array_ref<ValueType, 2> &mat,
+                          const ValueType *nzValues,
+                          const IndexType *columnIndices,
+                          const IndexType *rowIndices,
+                          const std::size_t numNonZeroValues,
+                          const std::size_t blockRows,
+                          const std::size_t blockCols) {
   const std::size_t numRows = mat.shape()[1];
   const std::size_t numColumns = mat.shape()[0];
   (void)numColumns;
@@ -1103,101 +666,6 @@ csrToDenseMatrixImpl(boost::multi_array_ref<ValueType, 2> &mat,
     }
   }
   assert(i * blockArea == numNonZeroValues);
-}
-
-template <typename T>
-std::vector<T>
-PartitionerImpl::createDenseBuckets(const CSRMatrix<T> &matrix_) const {
-  std::vector<T> result(this->numX * this->numY);
-  boost::multi_array_ref<T, 2> view(result.data(),
-                                    boost::extents[this->numY][this->numX]);
-  csrToDenseMatrixImpl(view, matrix_.nzValues.data(),
-                       matrix_.columnIndices.data(), matrix_.rowIndices.data(),
-                       matrix_.nzValues.size(), this->blockDimensions[0],
-                       this->blockDimensions[1]);
-
-  return result;
-}
-
-template <typename T>
-PNBucketsImpl<T> PartitionerImpl::createBucketsNoErrorCheck(
-    const CSRMatrix<T> &matrix_, const CSRMatrix<T> &matrixNewBlockSize) const {
-
-  // TODO: Avoid this copy, or at least do it in the internal format.
-  auto matrix = matrixNewBlockSize;
-  canonicalizeCSR(matrix);
-
-  // Translate original matrix with typed data to a generic matrix with
-  // std::size_t indices into actual data.
-  std::vector<ValueType> nzOffsets;
-  nzOffsets.resize(matrix.columnIndices.size());
-  std::iota(nzOffsets.begin(), nzOffsets.end(), 0);
-  auto csrInternal = CSRInternal(std::move(nzOffsets), matrix.columnIndices,
-                                 matrix.rowIndices);
-  auto tilePartitions = getTilePartitions(std::move(csrInternal));
-  auto pnBuckets = createBucketsForPN(
-      tilePartitions, zSplits, numZ, grainZ, useActualWorkerSplitCosts,
-      numWorkerContexts, bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled);
-  balanceBuckets(pnBuckets);
-  return {pnBuckets,
-          this->useDense ? this->createDenseBuckets(matrix_) : matrix.nzValues};
-}
-
-template <typename T>
-PNBucketsImpl<T>
-PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
-  logging::popsparse::trace("Partitioner called with CSC representation");
-  checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
-  validateCSC(numX, numY, matrix_.getBlockDimensions(), matrix_.nzValues.size(),
-              matrix_.rowIndices, matrix_.columnIndices);
-  std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
-  const auto &matrix = matrix_.getBlockDimensions() != grainsXAndY
-                           ? changeCSCBlockSize(matrix_, grainsXAndY)
-                           : matrix_;
-
-  if (matrix.getNumRowsInBlock() != grainX ||
-      matrix.getNumColumnsInBlock() != grainY) {
-    throw poputil::poplibs_error(
-        "Number of rows/columns in block does not match grain sizes "
-        "partitioner was created with");
-  }
-  if (matrix.columnIndices.size() != (numY / grainY) + 1) {
-    throw poputil::poplibs_error(
-        "Number of column indices must match number of matrix columns");
-  }
-
-  if (matrix.nzValues.size() / matrix.getBlockSize() !=
-      matrix.rowIndices.size()) {
-    throw poputil::poplibs_error(
-        "Number of row indices must match number of non zero values");
-  }
-
-  // TODO: Transposing this full typed matrix with block size is
-  // not as efficient as creating an internal CSC matrix and
-  // bucketing this. This is just convenient for the timebeing.
-  return createBuckets(cscToCSR(numX, numY, matrix), false);
-}
-
-template <typename T>
-PNBucketsImpl<T>
-PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
-  logging::popsparse::trace("Partitioner called with COO representation");
-  checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
-  validateCOO(numX, numY, matrix_.getBlockDimensions(), matrix_.nzValues.size(),
-              matrix_.rowIndices, matrix_.columnIndices);
-  std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
-  const auto &matrix = matrix_.getBlockDimensions() != grainsXAndY
-                           ? changeCOOBlockSize(matrix_, grainsXAndY)
-                           : matrix_;
-
-  if (matrix.nzValues.size() / matrix.getBlockSize() !=
-          matrix.rowIndices.size() ||
-      matrix.nzValues.size() / matrix.getBlockSize() !=
-          matrix.columnIndices.size()) {
-    throw poputil::poplibs_error("Number of non-zero values, row indices, and "
-                                 "column indices must be equal");
-  }
-  return createBuckets(cooToCSR(numX, numY, matrix), false);
 }
 
 template <typename T>
@@ -1526,6 +994,543 @@ static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
   group.resize(metaInfoBucketElements);
   nzBucket.resize(nzElemsBucketBlocks * blockSize);
   return std::make_pair(group, nzBucket);
+}
+
+} // unnamed namespace
+
+namespace popsparse {
+
+namespace dynamic {
+
+std::vector<RowPositionValues>
+getPositionValuePairsPerRow(const CSRInternal &csr, std::size_t blockSizeX,
+                            std::size_t blockSizeY, const Tile &tile) {
+  const auto startRow = tile.getRows().begin();
+  const auto endRow = tile.getRows().end();
+  const auto startColumn = tile.getColumns().begin();
+  const auto endColumn = tile.getColumns().end();
+
+  if (startRow % blockSizeX) {
+    throw poputil::poplibs_error(
+        "Start row in tile is not divisible by the row block size");
+  }
+
+  if (endRow % blockSizeX) {
+    throw poputil::poplibs_error(
+        "End row in tile is not divisible by the row block size");
+  }
+
+  if (startRow >= (csr.rowIndices.size() - 1) * blockSizeX) {
+    throw poputil::poplibs_error("Start row in tile doesn't match information "
+                                 "in CSR");
+  }
+
+  if (endRow > (csr.rowIndices.size() - 1) * blockSizeX) {
+    throw poputil::poplibs_error("End row in tile doesn't match information "
+                                 "in CSR");
+  }
+
+  std::vector<RowPositionValues> rowValuePairs;
+  const auto blockSize = blockSizeX * blockSizeY;
+  std::size_t numBlocksInTile = 0;
+  for (auto row = startRow; row != endRow; row += blockSizeX) {
+    std::vector<std::pair<std::size_t, ValueType>> valuePairs;
+    const auto rowIdx = row / blockSizeX;
+    for (auto internalNzIdx = csr.rowIndices[rowIdx] / blockSize;
+         internalNzIdx != csr.rowIndices[rowIdx + 1] / blockSize;
+         ++internalNzIdx) {
+      // This can be optimised if the columns are always sorted in increasing
+      // order.
+      if (csr.columnIndices[internalNzIdx] >= startColumn &&
+          csr.columnIndices[internalNzIdx] < endColumn) {
+        valuePairs.emplace_back(csr.columnIndices[internalNzIdx] - startColumn,
+                                csr.nzValues[internalNzIdx]);
+        ++numBlocksInTile;
+      }
+    }
+    if (!valuePairs.empty()) {
+      rowValuePairs.emplace_back(
+          RowPositionValues(row - startRow, std::move(valuePairs)));
+    }
+  }
+  logging::popsparse::debug("    - total elems/blocks {}", numBlocksInTile);
+  return rowValuePairs;
+}
+
+PartitionerImpl::PartitionerImpl(
+    const std::vector<std::size_t> &dimensions,
+    const std::vector<std::size_t> &grainSizes,
+    const std::array<std::size_t, 2> &blockDimensions_,
+    const std::vector<std::size_t> &xSplits_,
+    const std::vector<std::size_t> &ySplits_,
+    const std::vector<std::size_t> &zSplits_,
+    std::size_t metaInfoBucketElements_,
+    std::size_t metaInfoBucketElementsGradA_,
+    std::size_t nzElementsBucketElements_, std::size_t numWorkerContexts_,
+    std::size_t bucketsPerZ_, bool useBlockMetaInfoFormat_, bool includeGradA_,
+    bool includeGradW_, bool sharedBuckets_, const poplar::Type &dataType_,
+    const poplar::Type &accumType_, const PartitionerOptions &options,
+    bool useDense)
+    : useDense(useDense) {
+
+  auto verifySplit = [](std::size_t dimension, const std::vector<size_t> &split,
+                        const std::string &str) {
+    // entries are less then numX and numY?
+    if (split.size() > dimension) {
+      throw poputil::poplibs_error("There must be at most as many splits as "
+                                   "the dimension " +
+                                   str);
+    }
+    std::for_each(split.begin(), split.end(), [&](std::size_t dim) {
+      if (dim >= dimension) {
+        throw poputil::poplibs_error("An element in a split must be less than "
+                                     "the dimension " +
+                                     str);
+      }
+    });
+  };
+
+  verifySplit(dimensions.at(0), xSplits_, "X");
+  verifySplit(dimensions.at(1), ySplits_, "Y");
+  verifySplit(dimensions.at(2), zSplits_, "Z");
+
+  numX = dimensions.at(0);
+  numY = dimensions.at(1);
+  numZ = dimensions.at(2);
+
+  grainX = grainSizes.at(0);
+  grainY = grainSizes.at(1);
+  grainZ = grainSizes.at(2);
+
+  blockDimensions = blockDimensions_;
+
+  xSplits = xSplits_;
+  ySplits = ySplits_;
+  zSplits = zSplits_;
+
+  std::sort(xSplits.begin(), xSplits.end());
+  std::sort(ySplits.begin(), ySplits.end());
+  std::sort(zSplits.begin(), zSplits.end());
+
+  // keep meta info size in elements
+  metaInfoBucketElements = metaInfoBucketElements_;
+  metaInfoBucketElementsGradA = metaInfoBucketElementsGradA_;
+  nzElemsBucketBlocks = nzElementsBucketElements_ / (grainX * grainY);
+  numWorkerContexts = numWorkerContexts_;
+  bucketsPerZ = bucketsPerZ_;
+  useBlockMetaInfoFormat = useBlockMetaInfoFormat_;
+  if (grainX * grainY > 1 && !useBlockMetaInfoFormat) {
+    throw poputil::poplibs_error("Non block meta-info format does not support "
+                                 "block size greater than 1x1");
+  }
+  gradWEnabled = includeGradW_;
+  gradAEnabled = includeGradA_;
+  sharedBuckets = sharedBuckets_;
+  dataType = dataType_;
+  accumType = accumType_;
+  optimiseForSpeed = options.optimiseForSpeed;
+  forceBucketSpills = options.forceBucketSpills;
+  useActualWorkerSplitCosts = options.useActualWorkerSplitCosts;
+
+  logging::popsparse::debug(
+      "Created partitioner for sparse matrix mult [X,Y] x [Y,Z]: ");
+  logging::popsparse::debug("  --X = {}, Y = {}, Z = {}", numX, numY, numZ);
+  logging::popsparse::debug("  --Split X : {}", xSplits);
+  logging::popsparse::debug("  --Split Y : {}", ySplits);
+  logging::popsparse::debug("  --Split Z : {}", zSplits);
+  logging::popsparse::debug("  --Buckets per Z dimension : {}", bucketsPerZ_);
+  logging::popsparse::debug("  --Meta-info bucket size in elems (fwd) : {}",
+                            metaInfoBucketElements);
+  logging::popsparse::debug("  --Meta-info bucket size in elems (grad-a) : {}",
+                            metaInfoBucketElementsGradA);
+  logging::popsparse::debug("  --NZ bucket size in elements : {}",
+                            nzElementsBucketElements_);
+}
+
+// creates tile partitions based purely on tiling of the matrix. The tiling is
+// done given the splits the planner decides to split the matrix.
+std::vector<TilePartition>
+PartitionerImpl::getTilePartitions(const CSRInternal &matrix) const {
+  return getTilePartition(matrix, numX, numY, numZ, grainX, grainY, xSplits,
+                          ySplits, zSplits, bucketsPerZ);
+}
+
+// Fixed cost for meta info subgroup
+std::size_t fixedMetaInfoCost(bool useBlockMetaInfoFormat,
+                              std::size_t numWorkers, bool gradWEnabled) {
+  std::size_t metaInfoCost = 0;
+  if (useBlockMetaInfoFormat) {
+    metaInfoCost += miElems(BMI::SubGroupEntry);
+    if (gradWEnabled) {
+      metaInfoCost += miElems(BMI::GradWWorkerEntry) * numWorkers;
+    }
+  } else {
+    metaInfoCost +=
+        miElems(MI::SubGroupEntry) + miElems(MI::WorkerEntry) * numWorkers;
+    if (gradWEnabled) {
+      metaInfoCost += miElems(MI::GradWWorkerEntry) * numWorkers + 1;
+    }
+  }
+  return metaInfoCost;
+}
+
+void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
+
+  const auto numBuckets = pnBuckets.size();
+
+  // log new parition info
+  logging::popsparse::trace("Before rebalancing ... ");
+  dumpBucketStatus(pnBuckets);
+
+  auto overflown = [&](const PNBucket &bucket) {
+    return (bucket.metaInfoElements > metaInfoBucketElements - 1 ||
+            bucket.numNzElements > nzElemsBucketBlocks);
+  };
+
+  // The overflow is kept in this
+  std::vector<PNBucket> overflowBuckets(numBuckets);
+
+  // First determine the number of elements overflow and strip off rows
+  for (std::size_t p = 0; p != numBuckets; ++p) {
+    auto &bucket = pnBuckets[p];
+
+    if (overflown(bucket) || forceBucketSpills) {
+      // remove rows from partition given a target to remove
+      logging::popsparse::trace(
+          "  Attempting to remove rows from pn {} : sizes {} {}", p,
+          bucket.metaInfoElements, bucket.numNzElements);
+      const auto metaInfoElems =
+          forceBucketSpills ? 0 : metaInfoBucketElements - 1;
+      const auto nzInfoElems = forceBucketSpills ? 0 : nzElemsBucketBlocks;
+
+      auto tp = removeRows(bucket, zSplits, numZ, grainZ, numWorkerContexts,
+                           metaInfoElems, nzInfoElems, bucketsPerZ,
+                           useBlockMetaInfoFormat, useActualWorkerSplitCosts,
+                           gradWEnabled);
+      overflowBuckets[p].subGroups.push_back(tp);
+      fillBucketSizes(overflowBuckets[p], zSplits, numZ, grainZ,
+                      useActualWorkerSplitCosts, numWorkerContexts, bucketsPerZ,
+                      useBlockMetaInfoFormat, gradWEnabled,
+                      " : overflow bucket for pn " + std::to_string(p));
+    }
+  }
+
+  // log new parition info
+  logging::popsparse::trace("After partitioning to overflown buckets ... ");
+  dumpBucketStatus(pnBuckets, overflowBuckets);
+
+  auto fits = [&](const PNBucket &target, const PNBucket &cand) {
+    return (target.metaInfoElements + cand.metaInfoElements <=
+            metaInfoBucketElements - 1) &&
+           (target.numNzElements + cand.numNzElements <= nzElemsBucketBlocks);
+  };
+
+  auto rebalance = [&](std::size_t pnRange, bool splitColumns) {
+    if (std::all_of(overflowBuckets.begin(), overflowBuckets.end(),
+                    [](const PNBucket &b) { return b.empty(); })) {
+      return;
+    }
+
+    std::vector<std::size_t> ovfOrder(numBuckets);
+    std::iota(ovfOrder.begin(), ovfOrder.end(), 0);
+
+    // Sort entries within range such that the biggest buckets are allocated
+    // first
+    assert(numBuckets % pnRange == 0);
+    for (std::size_t i = 0; i != numBuckets / pnRange; ++i) {
+      std::sort(ovfOrder.begin() + i * pnRange,
+                ovfOrder.begin() + (i + 1) * pnRange,
+                [&](std::size_t a, std::size_t b) {
+                  return overflowBuckets[a] > overflowBuckets[b];
+                });
+    }
+
+    // Go through candidates list to fill
+    for (std::size_t x = 0; x != xSplits.size(); ++x) {
+      for (std::size_t y = 0; y != ySplits.size(); ++y) {
+        for (std::size_t z = 0; z != zSplits.size() * bucketsPerZ; ++z) {
+          std::size_t ovfPN = getPNId(
+              {
+                  x,
+                  y,
+                  z,
+              },
+              {xSplits.size(), ySplits.size(), zSplits.size() * bucketsPerZ});
+          std::size_t pnStart = ovfPN / pnRange * pnRange;
+          std::size_t pnEnd = pnStart + pnRange;
+
+          // selected first entry in the sorted list belonging to the range
+          const auto thisPN = ovfOrder[ovfPN];
+          auto &ovfBucket = overflowBuckets[thisPN];
+
+          if (ovfBucket.empty()) {
+            continue;
+          }
+
+          logging::popsparse::trace(
+              "  ===== overflow for PN {} : sizes {} {} ===", thisPN,
+              ovfBucket.metaInfoElements, ovfBucket.numNzElements);
+          logging::popsparse::trace("   - checking range [{} {})", pnStart,
+                                    pnEnd);
+
+          // PN buckets in range sorted in increasing order of size as we
+          // want the largest sized to be allocated in the largest gap first
+          std::vector<std::size_t> pnOrder(pnRange);
+          std::iota(pnOrder.begin(), pnOrder.end(), 0);
+          std::sort(pnOrder.begin(), pnOrder.end(),
+                    [&](std::size_t a, std::size_t b) {
+                      return pnBuckets[pnStart + a] < pnBuckets[pnStart + b];
+                    });
+
+          // look into sorted list of PNs to fill in
+          for (std::size_t i = 0; i != pnRange; ++i) {
+            // order in the same direction as buckets are cycled. Ideally
+            // we need some common definition that ties actual implementation
+            // and what is done here.
+            auto pn =
+                pnStart + (optimiseForSpeed
+                               ? (thisPN - pnStart + pnRange - i) % pnRange
+                               : pnOrder[i]);
+
+            // Move the maximum if buckets spills are forced
+            if (forceBucketSpills) {
+              pn = pnStart + (thisPN - pnStart + i) % pnRange;
+            }
+
+            // We remove whole rows to create overflow buckets as rows of large
+            // size are efficient due to lower processing overheads. But when
+            // rebalancing we can split rows. So we could add to the same PN
+            if (pn == thisPN && forceBucketSpills) {
+              continue;
+            }
+            auto &bucket = pnBuckets[pn];
+            logBucket(bucket, "Before PN " + std::to_string(pn));
+            logBucket(ovfBucket,
+                      " Before Overflow PN  " + std::to_string(thisPN));
+            if (fits(bucket, overflowBuckets[thisPN])) {
+              bucket.move(ovfBucket);
+              logging::popsparse::trace("   *+++* : moved {} -> {}", thisPN,
+                                        pn);
+              logBucket(bucket, "After PN " + std::to_string(pn));
+              logBucket(ovfBucket,
+                        " After Overflow PN " + std::to_string(thisPN));
+              break;
+            } else {
+              const auto available = std::make_pair(
+                  metaInfoBucketElements - 1 - bucket.metaInfoElements,
+                  nzElemsBucketBlocks - bucket.numNzElements);
+              std::vector<std::pair<std::size_t, std::size_t>> intervals;
+              std::size_t rowsInSg = ovfBucket.subGroups[0].tileInfo.size();
+              std::vector<std::size_t> rowWeights;
+              rowWeights.resize(rowsInSg);
+              for (std::size_t row = 0; row != rowsInSg; ++row) {
+                rowWeights[row] =
+                    ovfBucket.subGroups[0].tileInfo[row].positionValues.size();
+              }
+              intervals = findPartitionsToRemove(
+                  rowWeights, available, useBlockMetaInfoFormat,
+                  numWorkerContexts, gradWEnabled, splitColumns);
+              if (intervals.empty()) {
+                continue;
+              }
+              auto removedPartition =
+                  removeIntervals(ovfBucket.subGroups[0], intervals);
+              bucket.subGroups.push_back(std::move(removedPartition));
+            }
+            fillBucketSizes(bucket, zSplits, numZ, grainZ,
+                            useActualWorkerSplitCosts, numWorkerContexts,
+                            bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled,
+                            " : add to pn bucket" + std::to_string(pn));
+            fillBucketSizes(overflowBuckets[thisPN], zSplits, numZ, grainZ,
+                            useActualWorkerSplitCosts, numWorkerContexts,
+                            bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled,
+                            " : after overflow rows removed " +
+                                std::to_string(thisPN));
+            logging::popsparse::trace("   *+* : rows PNs {} -> {}", thisPN, pn);
+            logBucket(bucket, "After PN " + std::to_string(pn));
+            logBucket(overflowBuckets[thisPN],
+                      " After Overflow PN " + std::to_string(thisPN));
+            // All information in overflow has been allocated
+            if (ovfBucket.empty()) {
+              break;
+            }
+          }
+        }
+      }
+    }
+  };
+
+  std::vector<std::size_t> pnRanges = {
+      zSplits.size() * bucketsPerZ,
+      zSplits.size() * bucketsPerZ * ySplits.size(),
+      zSplits.size() * bucketsPerZ * ySplits.size() * xSplits.size()};
+  if (forceBucketSpills) {
+    std::swap(pnRanges[1], pnRanges[2]);
+  }
+  logging::popsparse::info("Rebalance:");
+
+  for (std::size_t pnRange : pnRanges) {
+    for (bool splitColumns : {false, true}) {
+      // rebalance
+      logging::popsparse::info("    : range {}, split cols ? {} non empty ? {}",
+                               pnRange, splitColumns,
+                               countNonEmpty(overflowBuckets));
+      rebalance(pnRange, splitColumns);
+    }
+  }
+
+  logging::popsparse::info("After rebalancing : non empty {}",
+                           countNonEmpty(overflowBuckets));
+
+  for (auto it = pnBuckets.begin(); it != pnBuckets.end(); ++it) {
+    logging::popsparse::debug(" bucket size for PN {} : mi : {} nz : {}",
+                              std::distance(pnBuckets.begin(), it),
+                              it->metaInfoElements, it->numNzElements);
+  }
+
+  dumpBucketStatus(pnBuckets, overflowBuckets);
+  if (countNonEmpty(overflowBuckets)) {
+    std::size_t maxMetaInfo = 0;
+    std::size_t maxNzValues = 0;
+    std::for_each(overflowBuckets.begin(), overflowBuckets.end(),
+                  [&](const PNBucket &b) {
+                    maxMetaInfo = std::max(maxMetaInfo, b.metaInfoElements);
+                    maxNzValues = std::max(maxNzValues, b.numNzElements);
+                  });
+    logging::popsparse::warn("overflow metainfo {}/{}, nz values {}/{}",
+                             maxMetaInfo, metaInfoBucketElements, maxNzValues,
+                             nzElemsBucketBlocks);
+    throw poputil::poplibs_error("Overflow in buckets");
+  }
+}
+
+template <typename T>
+PNBucketsImpl<T> PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_,
+                                                bool checkDims) const {
+  logging::popsparse::trace("Partitioner called with CSR representation");
+  if (checkDims) {
+    checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  }
+  validateCSR(numX, numY, matrix_.getBlockDimensions(), matrix_.nzValues.size(),
+              matrix_.rowIndices, matrix_.columnIndices);
+  std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
+  const auto &matrixNewBlockSize =
+      matrix_.getBlockDimensions() != grainsXAndY
+          ? changeCSRBlockSize(matrix_, grainsXAndY)
+          : matrix_;
+
+  if (matrixNewBlockSize.getNumRowsInBlock() != grainX ||
+      matrixNewBlockSize.getNumColumnsInBlock() != grainY) {
+    throw poputil::poplibs_error(
+        "Number of rows/columns in block does not match grain sizes "
+        "partitioner was created with");
+  }
+  if (matrixNewBlockSize.rowIndices.size() != (numX / grainX) + 1) {
+    throw poputil::poplibs_error(
+        "Number of row indices must match number of matrix rows");
+  }
+
+  if (matrixNewBlockSize.nzValues.size() / matrixNewBlockSize.getBlockSize() !=
+      matrixNewBlockSize.columnIndices.size()) {
+    throw poputil::poplibs_error(
+        "Number of column indices must match number of non zero values");
+  }
+  return this->createBucketsNoErrorCheck(matrix_, matrixNewBlockSize);
+}
+
+template <typename T>
+std::vector<T>
+PartitionerImpl::createDenseBuckets(const CSRMatrix<T> &matrix_) const {
+  std::vector<T> result(this->numX * this->numY);
+  boost::multi_array_ref<T, 2> view(result.data(),
+                                    boost::extents[this->numY][this->numX]);
+  csrToDenseMatrixImpl(view, matrix_.nzValues.data(),
+                       matrix_.columnIndices.data(), matrix_.rowIndices.data(),
+                       matrix_.nzValues.size(), this->blockDimensions[0],
+                       this->blockDimensions[1]);
+
+  return result;
+}
+
+template <typename T>
+PNBucketsImpl<T> PartitionerImpl::createBucketsNoErrorCheck(
+    const CSRMatrix<T> &matrix_, const CSRMatrix<T> &matrixNewBlockSize) const {
+
+  // TODO: Avoid this copy, or at least do it in the internal format.
+  auto matrix = matrixNewBlockSize;
+  canonicalizeCSR(matrix);
+
+  // Translate original matrix with typed data to a generic matrix with
+  // std::size_t indices into actual data.
+  std::vector<ValueType> nzOffsets;
+  nzOffsets.resize(matrix.columnIndices.size());
+  std::iota(nzOffsets.begin(), nzOffsets.end(), 0);
+  auto csrInternal = CSRInternal(std::move(nzOffsets), matrix.columnIndices,
+                                 matrix.rowIndices);
+  auto tilePartitions = getTilePartitions(std::move(csrInternal));
+  auto pnBuckets = createBucketsForPN(
+      tilePartitions, zSplits, numZ, grainZ, useActualWorkerSplitCosts,
+      numWorkerContexts, bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled);
+  balanceBuckets(pnBuckets);
+  return {pnBuckets,
+          this->useDense ? this->createDenseBuckets(matrix_) : matrix.nzValues};
+}
+
+template <typename T>
+PNBucketsImpl<T>
+PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
+  logging::popsparse::trace("Partitioner called with CSC representation");
+  checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  validateCSC(numX, numY, matrix_.getBlockDimensions(), matrix_.nzValues.size(),
+              matrix_.rowIndices, matrix_.columnIndices);
+  std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
+  const auto &matrix = matrix_.getBlockDimensions() != grainsXAndY
+                           ? changeCSCBlockSize(matrix_, grainsXAndY)
+                           : matrix_;
+
+  if (matrix.getNumRowsInBlock() != grainX ||
+      matrix.getNumColumnsInBlock() != grainY) {
+    throw poputil::poplibs_error(
+        "Number of rows/columns in block does not match grain sizes "
+        "partitioner was created with");
+  }
+  if (matrix.columnIndices.size() != (numY / grainY) + 1) {
+    throw poputil::poplibs_error(
+        "Number of column indices must match number of matrix columns");
+  }
+
+  if (matrix.nzValues.size() / matrix.getBlockSize() !=
+      matrix.rowIndices.size()) {
+    throw poputil::poplibs_error(
+        "Number of row indices must match number of non zero values");
+  }
+
+  // TODO: Transposing this full typed matrix with block size is
+  // not as efficient as creating an internal CSC matrix and
+  // bucketing this. This is just convenient for the timebeing.
+  return createBuckets(cscToCSR(numX, numY, matrix), false);
+}
+
+template <typename T>
+PNBucketsImpl<T>
+PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
+  logging::popsparse::trace("Partitioner called with COO representation");
+  checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  validateCOO(numX, numY, matrix_.getBlockDimensions(), matrix_.nzValues.size(),
+              matrix_.rowIndices, matrix_.columnIndices);
+  std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
+  const auto &matrix = matrix_.getBlockDimensions() != grainsXAndY
+                           ? changeCOOBlockSize(matrix_, grainsXAndY)
+                           : matrix_;
+
+  if (matrix.nzValues.size() / matrix.getBlockSize() !=
+          matrix.rowIndices.size() ||
+      matrix.nzValues.size() / matrix.getBlockSize() !=
+          matrix.columnIndices.size()) {
+    throw poputil::poplibs_error("Number of non-zero values, row indices, and "
+                                 "column indices must be equal");
+  }
+  return createBuckets(cooToCSR(numX, numY, matrix), false);
 }
 
 template <typename T>
@@ -2027,4 +2032,5 @@ template std::pair<std::vector<std::size_t>, std::vector<float>>
 PartitionerImpl::bucketImplAllPasses<float>(
     const PNBucketsImpl<float> &, const poplar::DebugNameAndId &) const;
 
+} // namespace dynamic
 } // namespace popsparse

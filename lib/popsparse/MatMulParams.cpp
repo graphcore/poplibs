@@ -21,6 +21,18 @@ poplar::ProfileValue toProfileValue(const popsparse::dynamic::MatMulParams &t) {
   v.insert({"n", toProfileValue(t.getN())});
   return v;
 }
+
+template <>
+poplar::ProfileValue toProfileValue(const popsparse::static_::MatMulParams &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"groups", toProfileValue(t.getNumGroups())});
+  v.insert({"m", toProfileValue(t.getM())});
+  v.insert({"k", toProfileValue(t.getK())});
+  v.insert({"n", toProfileValue(t.getN())});
+  v.insert({"transposed", toProfileValue(t.isTransposed())});
+  return v;
+}
+
 } // namespace poputil
 
 namespace popsparse {
@@ -98,4 +110,62 @@ std::ostream &operator<<(std::ostream &os, const MatMulParams &p) {
 }
 
 } // end namespace dynamic
+
+namespace static_ {
+
+MatMulParams MatMulParams::createForSparseDense(std::size_t groups,
+                                                std::size_t m, std::size_t k,
+                                                std::size_t n) {
+  MatMulParams p;
+  p.groups = groups;
+  p.m = m;
+  p.k = k;
+  p.n = n;
+  p.transposed = false;
+  return p;
+}
+
+MatMulParams MatMulParams::createForDenseSparse(std::size_t groups,
+                                                std::size_t n, std::size_t k,
+                                                std::size_t m) {
+  MatMulParams p;
+  p.groups = groups;
+  p.m = m;
+  p.k = k;
+  p.n = n;
+  p.transposed = true;
+  return p;
+}
+
+bool operator<(const MatMulParams &a, const MatMulParams &b) {
+  static constexpr auto comparisonHelper = gccs::makeStructHelper(
+      &MatMulParams::groups, &MatMulParams::m, &MatMulParams::k,
+      &MatMulParams::n, &MatMulParams::transposed);
+  return comparisonHelper.lt(a, b);
+}
+
+bool operator==(const MatMulParams &a, const MatMulParams &b) {
+  static constexpr auto comparisonHelper = gccs::makeStructHelper(
+      &MatMulParams::groups, &MatMulParams::m, &MatMulParams::k,
+      &MatMulParams::n, &MatMulParams::transposed);
+  return comparisonHelper.eq(a, b);
+}
+
+bool operator!=(const MatMulParams &a, const MatMulParams &b) {
+  return !(a == b);
+}
+
+std::ostream &operator<<(std::ostream &os, const MatMulParams &p) {
+  if (p.isTransposed()) {
+    os << "{ dense [" << p.getN() << "," << p.getK() << "] * [" << p.getK()
+       << "," << p.getM() << "] sparse }";
+  } else {
+    os << "{ sparse [" << p.getM() << "," << p.getK() << "] * [" << p.getK()
+       << "," << p.getN() << "] dense }";
+  }
+  return os;
+}
+
+} // end namespace static_
+
 } // end namespace popsparse

@@ -4,6 +4,7 @@
 #include "../lib/popsparse/SparseStorageInternal.hpp"
 #include "poplar/Type.hpp"
 #include "poplibs_support/logging.hpp"
+#include "poplibs_test/SparseMatrix.hpp"
 #include "poplibs_test/Util.hpp"
 #include "poputil/exceptions.hpp"
 
@@ -11,8 +12,8 @@
 
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
-#include <boost/random.hpp>
 #include <cmath>
+#include <random>
 
 using namespace poplibs_support;
 using namespace poplibs_test::util;
@@ -25,49 +26,29 @@ const poplar::Type dataType = poplar::FLOAT;
 const poplar::Type accumType = poplar::FLOAT;
 
 // Build CSR matrix
-static popsparse::CSRMatrix<double>
+static popsparse::CSRMatrix<float>
 buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor,
                const std::array<std::size_t, 2> &blockDimensions = {1, 1}) {
-  boost::multi_array<double, 2> matrix(
-      boost::extents[dimensions[0]][dimensions[1]]);
-  logging::popsparse::debug("Dimension in CSR Matrix generation {}",
-                            dimensions);
 
   assert(dimensions[0] % blockDimensions[0] == 0 &&
          dimensions[1] % blockDimensions[1] == 0);
-
-  std::vector<double> nzValues;
-  std::vector<std::size_t> columnIndices;
-  std::vector<std::size_t> rowIndices;
-
-  boost::random::mt19937 rng;
-  auto randUniform = boost::random::uniform_real_distribution<float>(0, 1.0);
-  auto randNormal = boost::random::normal_distribution<float>(0, 1.0);
-
-  std::size_t numNzRowElements = 0;
-  rowIndices.push_back(0);
-  for (std::size_t row = 0; row != dimensions[0]; row += blockDimensions[0]) {
-    for (std::size_t col = 0; col != dimensions[1]; col += blockDimensions[1]) {
-      if (randUniform(rng) < sparsityFactor) {
-        for (std::size_t i = 0; i < blockDimensions[0] * blockDimensions[1];
-             ++i) {
-          nzValues.push_back(randNormal(rng));
-        }
-        numNzRowElements += blockDimensions[0] * blockDimensions[1];
-        columnIndices.push_back(col);
-      }
-    }
-    rowIndices.push_back(numNzRowElements);
-  }
-
+  logging::popsparse::debug("Dimension in CSR Matrix generation {}",
+                            dimensions);
+  using EType = float;
+  std::mt19937 randomEngine;
+  auto [nzValues, columnIndices, rowIndices] =
+      poplibs_test::sparse::buildCSRMatrix<EType, std::size_t>(
+          randomEngine, dimensions, {blockDimensions[0], blockDimensions[1]},
+          sparsityFactor, {0, 0}, {0, 0}, 0, false);
   logging::popsparse::debug("NZ Values {} : {}", nzValues.size(), nzValues);
   logging::popsparse::debug("Columns Indices {} : {}", columnIndices.size(),
                             columnIndices);
   logging::popsparse::debug("Row Indices {} : {}", rowIndices.size(),
                             rowIndices);
 
-  return popsparse::CSRMatrix<double>(nzValues, columnIndices, rowIndices,
-                                      blockDimensions);
+  return popsparse::CSRMatrix<EType>(
+      dimensions[0], dimensions[1], std::move(nzValues),
+      std::move(columnIndices), std::move(rowIndices), blockDimensions);
 }
 
 template <class T>
@@ -111,7 +92,7 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   const bool sharedBuckets = true;
   // TODO: Test partitioner options
   const popsparse::PartitionerOptions options;
-  popsparse::PartitionerImpl partitioner(
+  popsparse::dynamic::PartitionerImpl partitioner(
       dimensions, grainSizes, {grainSizes.at(0), grainSizes.at(1)}, xSplits,
       ySplits, zSplits, metaInfoBucketSize, metaInfoBucketSizeGradA,
       nzElementsBucketSize, 6, bucketsPerZ, useBlockMetaInfo, includeGradA,
@@ -355,8 +336,8 @@ int main(int argc, char **argv) {
                                   (matShape[1] / blockShape[1]);
   auto nzBucketSize = nzBlocksPerfectlyUniform * blockSize * (1 + excess);
   auto metaInfoBucketSize =
-      (popsparse::fixedMetaInfoCost(useBlockMetaInfoFormat, numWorkers,
-                                    includeGradW) *
+      (popsparse::dynamic::fixedMetaInfoCost(useBlockMetaInfoFormat, numWorkers,
+                                             includeGradW) *
            3.0 +
        (matShape[0] / blockShape[0]) * 2.0 + nzBlocksPerfectlyUniform) *
       (1 + excess);

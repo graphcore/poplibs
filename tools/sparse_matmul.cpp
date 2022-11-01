@@ -269,45 +269,11 @@ int main(int argc, char **argv) try {
     randomEngine.seed(seed);
   }
 
-  const bool floatingPointCouldRepresentMaxAccum = [&] {
-    const auto maxVal = maxContiguousInteger(dataType);
+  bool useBipolarDistribution =
+      poplibs_test::sparse::floatingPointCouldRepresentMaxAccum(
+          {m, k}, {blockRows, blockCols}, weightedAreaBegin, weightedAreaEnd,
+          dataType, sparsityFactor, weightedAreaWeighting);
 
-    double weightedThreshold, remainingThreshold;
-    std::tie(weightedThreshold, remainingThreshold) =
-        poplibs_test::sparse::calculateWeightedVsRemainingSparsityFactor(
-            {params.getM() / blockRows, params.getK() / blockCols},
-            sparsityFactor,
-            {weightedAreaBegin[0] / blockRows,
-             weightedAreaBegin[1] / blockCols},
-            {weightedAreaEnd[0] / blockRows, weightedAreaEnd[1] / blockCols},
-            weightedAreaWeighting);
-    const auto numWeightedK = (weightedAreaEnd[1] - weightedAreaBegin[1]);
-    const auto numWeightedM = (weightedAreaEnd[0] - weightedAreaBegin[0]);
-    std::size_t maxK = numWeightedK * weightedThreshold +
-                       (params.getK() - numWeightedK) * remainingThreshold;
-    std::size_t maxM = numWeightedM * weightedThreshold +
-                       (params.getM() - numWeightedM) * remainingThreshold;
-    maxM = gccs::alignPrev(maxM, blockRows);
-    maxK = gccs::alignPrev(maxK, blockCols);
-    const auto getOpsPerOutputElementEstimate =
-        [&](const bool lhsTransposed) -> int {
-      const auto numAccumulations = lhsTransposed ? maxM : maxK;
-      return numAccumulations;
-    };
-    // We use a modifier to account for the unlikeliness of picking all positive
-    // or negative 1s which would actually get us to the max precisely
-    // represented integer.
-    constexpr int modifier = 10;
-    // We use another modifier to account for the chance that sparsity is not
-    // perfectly evenly spread in this instant.
-    constexpr double wiggleRoom = 1.3;
-    if (wiggleRoom * getOpsPerOutputElementEstimate(transposeLHS) >
-        maxVal * modifier) {
-      return false;
-    }
-    return true;
-  }();
-  bool useBipolarDistribution = floatingPointCouldRepresentMaxAccum;
   std::array<std::size_t, 2> blockDims = {blockRows, blockCols};
   CSRMatrix<EType> csrMatrix(blockDims);
   std::tie(csrMatrix.nzValues, csrMatrix.columnIndices, csrMatrix.rowIndices) =

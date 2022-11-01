@@ -53,6 +53,9 @@ add_library(popsparse SHARED
   SparseFormatsValidate.cpp
   SparseFormatsValidate.hpp
   SparsityParams.cpp
+  StaticMatMul.cpp
+  StaticMatMulPartitioner.cpp
+  StaticMatMulPartitioner.hpp
   SparseTensor.cpp
   SparsePartitioner.cpp
   SparsePartitionerImpl.cpp
@@ -100,6 +103,8 @@ target_include_directories(popsparse
 add_gp_library(
   NAME popsparse
   CPP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/StaticSparseDenseElementWise.cpp  
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/StaticSparseDenseMatMulBlock.cpp  
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulElementWise.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulElementWiseTranspose.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulGradWElementWise.cpp
@@ -114,9 +119,15 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseGather.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Utils.cpp
 
-
-
   ASM_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/StaticSparseDenseElementWise_half_half.S  
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/StaticSparseDenseElementWise_float_float.S  
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/StaticBlock4x4SparseDenseMatMul_half_half.S  
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/StaticBlock8x8SparseDenseMatMul_half_half.S  
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/StaticBlock16x16SparseDenseMatMul_half_half.S  
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/StaticBlock4x4SparseDenseMatMul_float_float.S     
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/StaticBlock8x8SparseDenseMatMul_float_float.S     
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/StaticBlock16x8SparseDenseMatMul_float_float.S     
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulElementWise_half_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulElementWise_float_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseGatherElementWise.S
@@ -174,6 +185,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BlockTransposeGradW_float.S
 
   HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/StaticBlockSparseDenseMatMul.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradAElementWise.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulElementWise.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulTranspElementWise.h.S

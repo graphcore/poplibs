@@ -351,6 +351,36 @@ foreach(BLOCK_SIZE 1 4 8)
   endforeach()
 endforeach()
 
+
+add_test_executable(StaticSparsePartitionerTest StaticSparsePartitionerTest.cpp)
+foreach(BLOCK_LENGTH 1 4 8 16)
+  foreach(BATCH_SIZE 1 8)
+    foreach(TYPE half float)
+      foreach(REP csr coo csc)
+        add_test(NAME StaticSparsePartitionerTest_${BLOCK_LENGTH}_128x112x${BATCH_SIZE}_${REP}_${TYPE}
+                  COMMAND StaticSparsePartitionerTest
+                    --matmul-shape {128,112,${BATCH}}
+                    --tiles-per-ipu 4
+                    --block-length=${BLOCK_LENGTH}
+                    --sparsity-level=0.5
+                    --sparse-representation=${REP}
+                    --data-type=${TYPE}
+                )
+        add_test(NAME StaticSparsePartitionerTest_${BLOCK_LENGTH}_32x512x${BATCH_SIZE}_${REP}_${TYPE}
+                COMMAND StaticSparsePartitionerTest
+                  --matmul-shape {32,512,${BATCH}}
+                  --tiles-per-ipu 4
+                  --block-length=${BLOCK_LENGTH}
+                  --sparsity-level=0.1
+                  --sparse-representation=${REP}
+                  --data-type=${TYPE}
+              )
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+
 # Sparse embedding (elementwise sparsity)
 foreach(DATA_TYPE float half)
   foreach(ROWS 4 67 126)
@@ -430,3 +460,87 @@ foreach(DATA_TYPE float half)
     endforeach()
   endforeach()
 endforeach()
+
+
+foreach(DATA_TYPE half float)
+  # Tests specifically covering block-sparsity
+  foreach(BLOCK_SIZE 1 4 8 16)
+    add_multitarget_test(
+      NAME static_sparse_matmul_${DATA_TYPE}_${BLOCK_SIZE}x${BLOCK_SIZE}_${BLOCK_SIZE}_sparsity1_batch1
+      COMMAND static_sparse_matmul
+          --data-type=${DATA_TYPE}
+          --m ${BLOCK_SIZE}
+          --k ${BLOCK_SIZE}
+          --n 1
+          --block-length ${BLOCK_SIZE}
+          --sparsity-factor=1
+          --tiles-per-ipu=4
+        VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+
+    add_multitarget_test(
+        NAME static_sparse_matmul_${DATA_TYPE}_${BLOCK_SIZE}x${BLOCK_SIZE}__${BLOCK_SIZE}_sparsity1_batch4
+        COMMAND static_sparse_matmul
+          --data-type=${DATA_TYPE}
+          --m 64
+          --k 64
+          --n 32
+          --block-length=${BLOCK_SIZE}
+          --sparsity-factor=1
+          --tiles-per-ipu=4
+        VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+
+    add_multitarget_test(
+        NAME static_sparse_matmul_${DATA_TYPE}_${BLOCK_SIZE}x${BLOCK_SIZE}__${BLOCK_SIZE}_sparsity0p01
+        COMMAND static_sparse_matmul
+          --data-type=${DATA_TYPE}
+          --m 512
+          --k 64
+          --n 8
+          --block-length ${BLOCK_SIZE}
+          --sparsity-factor=0.01
+          --tiles-per-ipu=4
+        VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+
+
+    add_multitarget_test(
+        NAME static_sparse_matmul_${DATA_TYPE}_${BLOCK_SIZE}x${BLOCK_SIZE}__${BLOCK_SIZE}_sparsity0p1_batch13
+        COMMAND static_sparse_matmul
+          --data-type=${DATA_TYPE}
+          --m 512
+          --k 64
+          --n 13
+          --block-length ${BLOCK_SIZE}
+          --sparsity-factor=0.1
+          --tiles-per-ipu=4
+        VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+  endforeach()
+endforeach()
+
+
+add_multitarget_test(
+  NAME static_sparse_matmul_half_half_512x8__7_sparsity0p1_options
+    COMMAND static_sparse_matmul
+      --data-type=half
+      --m 512
+      --k 8
+      --n 7
+      --block-length 4
+      --sparsity-factor=0.1
+      --verbose
+      --available-memory-proportion=0.45
+      --tiles-per-ipu=4
+    VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+
+
+add_multitarget_test(
+  NAME static_sparse_matmul_half_half_512x8__8_sparsity_allzeros
+    COMMAND static_sparse_matmul
+      --data-type=half
+      --m 512
+      --k 8
+      --n 7
+      --block-length 4
+      --sparsity-factor=0.0001
+      --verbose
+      --tiles-per-ipu=4
+    VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")

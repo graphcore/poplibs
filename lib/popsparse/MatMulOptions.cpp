@@ -71,4 +71,51 @@ MatMulOptions parseMatMulOptionFlags(const OptionFlags &flags) {
 }
 
 } // end namespace dynamic
+
+namespace static_ {
+
+static constexpr auto comparisonHelper = gccs::makeStructHelper(
+    &MatMulOptions::availableMemoryProportion, &MatMulOptions::numBands,
+    &MatMulOptions::nSplit, &MatMulOptions::verboseLogging);
+
+bool operator<(const MatMulOptions &a, const MatMulOptions &b) {
+  return comparisonHelper.lt(a, b);
+}
+
+bool operator==(const MatMulOptions &a, const MatMulOptions &b) {
+  return comparisonHelper.eq(a, b);
+}
+
+bool operator!=(const MatMulOptions &a, const MatMulOptions &b) {
+  return !(a == b);
+}
+
+std::ostream &operator<<(std::ostream &os, const MatMulOptions &o) {
+  os << "{numBands=" << (o.numBands ? std::to_string(o.numBands) : "none")
+     << ", nSplit=" << (o.nSplit ? std::to_string(o.nSplit) : "none")
+     << ", availableMemoryProportion=" << o.availableMemoryProportion
+     << ", verbose logging=" << (o.verboseLogging ? "true" : "false") << "}";
+  return os;
+}
+
+MatMulOptions parseMatMulOptionFlags(const OptionFlags &optionFlags) {
+  static std::map<std::string, poplar::Type> partialsTypeMap{
+      {"half", poplar::HALF}, {"float", poplar::FLOAT}};
+
+  MatMulOptions options;
+  using namespace poplibs;
+  const poplibs::OptionSpec spec{
+      {"numBands", OptionHandler::createWithInteger(options.numBands)},
+      {"nSplit", OptionHandler::createWithInteger(options.nSplit)},
+      {"verboseLogging", OptionHandler::createWithBool(options.verboseLogging)},
+      {"availableMemoryProportion",
+       OptionHandler::createWithDouble(options.availableMemoryProportion)}};
+
+  for (const auto &entry : optionFlags) {
+    spec.parse(entry.first, entry.second);
+  }
+  return options;
+}
+
+} // end namespace static_
 } // end namespace popsparse

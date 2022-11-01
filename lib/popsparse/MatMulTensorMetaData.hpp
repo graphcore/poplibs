@@ -26,8 +26,24 @@ public:
     return std::make_unique<MatMulTensorMetaData>(fc, mmParams, mmOptions);
   }
 };
-
 } // end namespace dynamic
+
+namespace static_ {
+class MatMulTensorMetaData : public poputil::TensorMetaDataBase {
+public:
+  // Planning cache uniquely identifies the structure of the sparse matrix
+  PlanningCacheImpl::Key planningKey;
+
+  MatMulTensorMetaData(PlanningCacheImpl::Key key)
+      : planningKey(std::move(key)) {}
+  virtual ~MatMulTensorMetaData() {}
+  virtual std::unique_ptr<poputil::TensorMetaDataBase>
+  clone() const override final {
+    return std::make_unique<MatMulTensorMetaData>(planningKey);
+  }
+};
+} // end namespace static_
+
 } // end namespace popsparse
 
 #endif // popsparse_FullyConnectedTensorMetaData_hpp
