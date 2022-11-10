@@ -70,8 +70,9 @@ bool readHeaderFromMaskFile(const std::string &fileName,
   cin >> numRowsInFile >> numColumnsInFile;
   if (numColumns) {
     if (*numColumns / blockLength != numColumnsInFile) {
-      std::cerr << "Columns in sparsity file do not match command line "
-                << "options\n";
+      std::cerr << "Columns in sparsity file (" << numColumnsInFile
+                << ") do not match command line "
+                << "options (" << *numColumns / blockLength << ")\n";
       return false;
     }
   }
@@ -79,7 +80,9 @@ bool readHeaderFromMaskFile(const std::string &fileName,
 
   if (numRows) {
     if (*numRows / blockLength != numRowsInFile) {
-      std::cerr << "Rows in sparsity file do not match command line options\n";
+      std::cerr << "Rows in sparsity file (" << numRowsInFile
+                << ") do not match command line options ("
+                << *numRows / blockLength << ")\n";
       return false;
     }
   }
@@ -129,6 +132,36 @@ bool createCSRMatrixFromMaskFile(const std::string &fileName,
   return true;
 }
 
+bool writeMaskFileFromCSRMatrix(const std::string &fileName,
+                                const CSRMatrix<EType> &csrMatrix) {
+  std::ofstream out(fileName);
+  if (!out) {
+    std::cerr << "Cannot open sparsity mask output file " << fileName << "\n";
+    return false;
+  }
+
+  const auto blockLength = csrMatrix.getBlockDimensions()[0];
+  out << csrMatrix.numRows / blockLength << ' '
+      << csrMatrix.numColumns / blockLength << ' ';
+
+  // Output mask entry for every entry in the matrix
+  for (std::size_t r = 0; r != csrMatrix.rowIndices.size() - 1; ++r) {
+    auto columnIt = csrMatrix.columnIndices.begin() + csrMatrix.rowIndices[r];
+    for (std::size_t c = 0; c != csrMatrix.numColumns; ++c) {
+      unsigned val = 0;
+      if (columnIt != csrMatrix.columnIndices.end()) {
+        if (c == *columnIt / blockLength) {
+          val = 1;
+          columnIt++;
+        }
+      }
+      out << val << ' ';
+    }
+  }
+
+  return true;
+}
+
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
@@ -148,6 +181,7 @@ int main(int argc, char **argv) try {
   bool doDenseSparse = false;
   unsigned blockLength = 1;
   std::string sparsityFileName = "";
+  std::string outputSparsityFileName = "";
 
   weightedAreaBegin.val = weightedAreaEnd.val = {0, 0};
   double weightedAreaWeighting = 1.0;
@@ -215,6 +249,9 @@ int main(int argc, char **argv) try {
       po::value<std::string>(&sparsityFileName)->default_value(sparsityFileName)
       , "The file name for the sparsity mask (first line is row column "
       "followed by row major ordering of 0/1")
+    ("output-sparsity-matrix-file",
+      po::value<std::string>(&outputSparsityFileName)->default_value(outputSparsityFileName),
+      "The file name to output the sparsity mask to")
   ;
   // clang-format on
 
@@ -242,7 +279,8 @@ int main(int argc, char **argv) try {
   const auto maskFileUsed = !sparsityFileName.empty();
 
   if (maskFileUsed) {
-    if (!readHeaderFromMaskFile(sparsityFileName, m, k, blockLength)) {
+    if (!readHeaderFromMaskFile(sparsityFileName, doDenseSparse ? k : m,
+                                doDenseSparse ? m : k, blockLength)) {
       return 1;
     }
   } else {
@@ -335,6 +373,12 @@ int main(int argc, char **argv) try {
             randomEngine, {numSparseRows, numSparseColumns},
             {blockLength, blockLength}, sparsityFactor, weightedAreaBegin,
             weightedAreaEnd, weightedAreaWeighting, useBipolarDistribution);
+  }
+
+  if (!outputSparsityFileName.empty()) {
+    if (!writeMaskFileFromCSRMatrix(outputSparsityFileName, csrMatrix)) {
+      return 1;
+    }
   }
 
   poplar::OptionFlags sparseOptionFlags;

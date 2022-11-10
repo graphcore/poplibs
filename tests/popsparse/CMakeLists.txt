@@ -544,3 +544,16 @@ add_multitarget_test(
       --verbose
       --tiles-per-ipu=4
     VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
+
+# Note: This test reproduced the issue T71209
+add_multitarget_test(
+  NAME static_sparse_matmul_half_half_52x129x1__1_nonuniform
+  COMMAND static_sparse_matmul
+    --data-type float
+    --m 52
+    --k 129
+    --n 1
+    --do-dense-sparse 1
+    --sparsity-factor 0.2
+    --tiles-per-ipu=1
+    --sparsity-matrix-file=${CMAKE_CURRENT_SOURCE_DIR}/static_sparse_T71209_mask.txt)

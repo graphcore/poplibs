@@ -109,7 +109,9 @@ MatMulOptions parseMatMulOptionFlags(const OptionFlags &optionFlags) {
       {"nSplit", OptionHandler::createWithInteger(options.nSplit)},
       {"verboseLogging", OptionHandler::createWithBool(options.verboseLogging)},
       {"availableMemoryProportion",
-       OptionHandler::createWithDouble(options.availableMemoryProportion)}};
+       OptionHandler::createWithDouble(options.availableMemoryProportion)},
+      {"enablePreprocessing",
+       OptionHandler::createWithBool(options.enablePreprocessing)}};
 
   for (const auto &entry : optionFlags) {
     spec.parse(entry.first, entry.second);

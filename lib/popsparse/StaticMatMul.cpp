@@ -339,18 +339,18 @@ void checkParamsAndCSRConsistency(const static_::MatMulParams &params,
   }
 }
 
-// Convert a CSR matrix to COO where column indices are renumbered according to
-// the permutations in the plan and non-zero blocks are ordered in the result as
-// follows:
+// Convert a CSR matrix to COO where column indices are reordered and renumbered
+// according to the permutations in the plan and non-zero blocks are ordered in
+// the result as follows:
+//
 //   1. All non-zero blocks for a column band/row
 //   2. All rows for a column band
 //   3. All column bands
 //
-// Additionally if `needNZValues` is set, non-zero blocks for a single column
-// band/row pair are sorted by the permuted column ordering, and nzValues are
-// copied to the result. For FLOAT type and block size 16, each non-zero 16x16
-// block is split into a left 16x8 and right 16x8 because of the codelets used
-// for that specific case.
+// Additionally if `needNZValues` is set, nzValues are copied to the result and
+// reordered according to the permutations in the plan. For FLOAT type and block
+// size 16, each non-zero 16x16 block is split into a left 16x8 and right 16x8
+// because of the codelets used for that specific case.
 template <typename T>
 COOMatrix<T> convertToPartitionedCOO(const CSRMatrix<T> &fullMatrix,
                                      const Plan &plan, const Target &target,
@@ -384,16 +384,14 @@ COOMatrix<T> convertToPartitionedCOO(const CSRMatrix<T> &fullMatrix,
     std::iota(sortedIndices.begin(), sortedIndices.end(),
               fullMatrix.rowIndices[r] / blockArea);
 
-    if (needNZValues) {
-      std::stable_sort(
-          sortedIndices.begin(), sortedIndices.end(),
-          [&](unsigned a, unsigned b) {
-            return inverseColumnPermutations[fullMatrix.columnIndices[a] /
-                                             blockLength] <
-                   inverseColumnPermutations[fullMatrix.columnIndices[b] /
-                                             blockLength];
-          });
-    }
+    std::stable_sort(
+        sortedIndices.begin(), sortedIndices.end(),
+        [&](unsigned a, unsigned b) {
+          return inverseColumnPermutations[fullMatrix.columnIndices[a] /
+                                           blockLength] <
+                 inverseColumnPermutations[fullMatrix.columnIndices[b] /
+                                           blockLength];
+        });
 
     unsigned baseIndex = csr.rowIndices[rp] / blockArea;
     for (unsigned b = 0; b != blocksInRow; ++b) {
