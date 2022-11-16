@@ -1,18 +1,18 @@
 // *** Base config, no restrictions on addresses
 
-testConfig initialConfig;
+testConfig convPartialQuarterHalfnx1;
 
 in.size = 1
 in[i].size = 384
-in[i]=[0.1, 0.2)
+in[i]=[1,5)
 
 weights.size = 2
 weights[i].size = 2048
-weights[i] = [0.1, 0.2)
+weights[i] = [1,5)
 
 out.size = 1
 out[i].size = 96
-out[i] = [0.1, 0.2)
+out[i] = [2,5)
 
 // No-op worklist
 // Worklist entries are outOffset, length-3, inOffset
@@ -22,11 +22,11 @@ worklists[i]={0, -3, 0}
 
 inMetadata.size = 1
 inMetadata[0].size = 1
-inMetadata[0] = {0x81}
+inMetadata[0] = {0x8a}
 
 weightsMetadata.size = 1
 weightsMetadata[0].size = 1
-weightsMetadata[0] = {0x82}
+weightsMetadata[0] = {0x8a}
 
 zerosInfo=96
 numConvGroupsM1 = 0
@@ -39,67 +39,43 @@ transformedOutStride=1
 inChansPerGroup=32
 ampKernelHeightM1=0
 kernelInnerElementsM1=0
-kernelOuterSizeM1=3
+kernelOuterSizeM1=1
 
 
 // The reason to do the tests below is to check for overread with
 // a negative OUTPUT stride
 
 // *** Length 1 worklist entry, in[] in the segment below out[]
-testConfig quarterHalfnx1Length1 : initialConfig;
-transformedOutStride=-7
+testConfig quarterHalfnx1Length1 : convPartialQuarterHalfnx1;
+transformedOutStride=0x7f9 //1,-7
 worklists[0]={0, -2, 0}
 &in[i]=0x7fe00
 &out[i]=0x80000
 
 // *** Length 2 worklist entry, in[] in the segment below out[]
-testConfig quarterHalfnx1Length2 : initialConfig;
-transformedOutStride=-7
+testConfig quarterHalfnx1Length2 : convPartialQuarterHalfnx1;
+transformedOutStride=0x7f9
 worklists[0]={ 4, -1, 0}
 &in[i]=0x7fe00
 &out[i]=0x80000
 
 // *** Length 3 worklist entry, in[] in the segment below out[]
-testConfig quarterHalfnx1Length3 : initialConfig;
-transformedOutStride=-7
+testConfig quarterHalfnx1Length3 : convPartialQuarterHalfnx1;
+transformedOutStride=0x7f9
 worklists[0]={ 8, 0, 0}
 &in[i]=0x7fe00
 &out[i]=0x80000
 
 // *** Length 4 worklist entry, in[] in the segment below out[]
-testConfig quarterHalfnx1Length4 : initialConfig;
-transformedOutStride=-7
+testConfig quarterHalfnx1Length4 : convPartialQuarterHalfnx1;
+transformedOutStride=0x7f9
 worklists[0]={ 12, 1, 0}
 &in[i]=0x7fe00
 &out[i]=0x80000
 
-// The reason to do the tests below is to check for overread with
-// a negative INPUT stride
-
-// *** Length 1 worklist entry, out[] in the segment below in[]
-testConfig quarterHalfnx1Length1OutLower : initialConfig;
-worklists[0]={ 0,-2,0}
-transformedInRowStride=5
-&in[i]=0x88000
-&out[i]=0x80000
-
-// *** Length 2 worklist entry, out[] in the segment below in[]
-testConfig quarterHalfnx1Length2OutLower : initialConfig;
-worklists[0]={ 0,-1,4}
-transformedInRowStride=5
-&in[i]=0x88000
-&out[i]=0x80000
-
-// *** Length 3 worklist entry, out[] in the segment below in[]
-testConfig quarterHalfnx1Length3OutLower : initialConfig;
-worklists[0]={ 0,0,8}
-transformedInRowStride=5
-&in[i]=0x88000
-&out[i]=0x80000
-
-// *** Length 4 worklist entry, out[] in the segment below in[]
-testConfig quarterHalfnx1Length4OutLower : initialConfig;
-worklists[0]={ 0,1,12}
-transformedInRowStride=5
-&in[i]=0x88000
+// *** Length 5 worklist entry, in[] in the segment below out[]
+testConfig quarterHalfnx1Length5 : convPartialQuarterHalfnx1;
+transformedOutStride=0x7f9
+worklists[0]={ 16, 2, 0}
+&in[i]=0x7fe00
 &out[i]=0x80000

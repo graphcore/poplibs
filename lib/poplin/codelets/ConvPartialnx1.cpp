@@ -278,9 +278,8 @@ INSTANTIATE_WEIGHTS_128(half, half, 16, 8);
 INSTANTIATE_WEIGHTS_128(half, float, 16, 8);
 INSTANTIATE_WEIGHTS_128(float, float, 16, 4);
 
-#ifdef __IPU__
-
-#if __IPU_ARCH_VERSION__ >= 21
+#if defined(__IPU__) && __IPU_ARCH_VERSION__ >= 21 &&                          \
+    !defined(POPLIBS_DISABLE_ASM_CODELETS)
 
 template <typename UnsignedType, unsigned numConvUnits>
 class WorkerClassNx1 : public Vertex {
@@ -292,21 +291,35 @@ public:
 // WorkerClassNx1 vertex.  The supervisor contructs this struct, and the
 // worker accesses the same thing, as if it is a vertex state
 struct WorkerStateNx1 {
-  const quarter *inChanPtr;
-  const quarter *metadataUnused; // The vertex state quarter input adds this ptr
   half *outChanPtr;
-  unsigned strides;
+  // See the detailed comment about striding and inputs A,B,C,D in the
+  // convQuarterHalfLoopnx1 function
+  unsigned strideAC;
+  unsigned stridesZ_OutM3_AB;
+  unsigned stridesZ_Out_BA;
+  unsigned stridesOutM1_3_BA;
+  unsigned stridesZ_OutM1_X;
   const unsigned *partitionList;
   const unsigned *partitionBase;
+  // Putting this last means that if we use this for other input types the
+  // absence/presence of metadata won't affect other allocations
+  const quarter *inChanPtr;
+  const quarter *metadataUnused; // The vertex state quarter input adds this ptr
 };
 
 template <> class WorkerClassNx1<unsigned short, 16> : public Vertex {
 public:
-  Input<Vector<quarter, ONE_PTR, 8>> inChanPtr;
   InOut<Vector<half, ONE_PTR, 8>> outChanPtr;
-  unsigned strides;
+  // See the detailed comment about striding and inputs A,B,C,D in the
+  // convQuarterHalfLoopnx1 function
+  unsigned strideAC;
+  unsigned stridesZ_OutM3_AB;
+  unsigned stridesZ_Out_BA;
+  unsigned stridesOutM1_3_BA;
+  unsigned stridesZ_OutM1_X;
   Input<Vector<unsigned, ONE_PTR>> partitionList;
   Input<Vector<unsigned, ONE_PTR>> partitionBase;
+  Input<Vector<quarter, ONE_PTR, 8>> inChanPtr;
 
   void compute() {
     unsigned deltaNData = *(&partitionList[0] + getWid());
@@ -316,14 +329,15 @@ public:
         reinterpret_cast<const unsigned short *>(&partitionBase[0]);
     workListPtr += offset;
 
-    constexpr auto outputVectorWidth = 4;
     const unsigned short *workListEndPtr = workListPtr + workListLength;
 
     while (workListPtr < workListEndPtr) {
       auto outPtr = ld64StepToIncPtr(&outChanPtr[0], *workListPtr++);
       int loops = *reinterpret_cast<const short *>(workListPtr++);
       auto inPtr = ld64StepToIncPtr(&inChanPtr[0], *workListPtr++);
-      convQuarterHalfLoop<false>(inPtr, outPtr, loops, strides);
+      convQuarterHalfLoopnx1(inPtr, outPtr, loops, strideAC, stridesZ_OutM3_AB,
+                             stridesZ_Out_BA, stridesOutM1_3_BA,
+                             stridesZ_OutM1_X);
     }
   }
 };
@@ -446,15 +460,27 @@ public:
     // A small amount of manipulation on the passed strides.
     // This could be avoided by packing differently for this vertex but this
     // way it's compatible with others
-    constexpr auto packedStrideSize = 32;
-    auto unpackedTransformedInStride =
-        transformedInStride << (packedStrideSize - 2 * numStrideBits);
-    auto inStride =
-        (unpackedTransformedInStride >> (packedStrideSize - numStrideBits)) -
-        (transformedInRowStride * 2);
-    workerState.strides =
-        packStrides(inStride & strideMask, transformedOutStride & strideMask,
-                    numStrideBits);
+    int strideAB = extractSignExtendedStride(transformedOutStride, 1);
+    int outStrideM3 = extractSignExtendedStride(transformedOutStride, 0);
+
+    unsigned strideBA = (transformedInStride >> numStrideBits) & strideMask;
+    workerState.strideAC = strideAB + transformedInRowStride;
+
+    workerState.stridesZ_OutM1_X =
+        packStrides(0, (outStrideM3 + 2) & strideMask);
+    workerState.stridesZ_OutM3_AB =
+        packStrides(strideAB & strideMask, outStrideM3 & strideMask);
+
+    workerState.stridesZ_Out_BA =
+        packStrides(strideBA, (outStrideM3 + 3) & strideMask);
+    workerState.stridesOutM1_3_BA =
+        packStrides(strideBA, 3, (outStrideM3 + 2) & strideMask);
+
+    constexpr auto CCSRRegBytes = 8;
+    auto weightStride = (ampKernelHeightM1 == 1 ? 2 : 1) *
+                        (kernelInnerElementsM1 + 1) * outChansPerGroup *
+                        CCSRRegBytes;
+
     // Zeroing - using a worker function with 64 bit writes, rpt and bundles
     const unsigned numOutGroups = numOutGroupsM1 + 1;
 
@@ -478,6 +504,15 @@ public:
              "__runCodelet_poplin__WorkerClassNx1___unsigned_short_16")
     auto outIt = out.begin();
 
+    void (*weightLoadFunction)(unsigned, unsigned);
+    if (ampKernelHeightM1 == 0) {
+      weightLoadFunction = &ampLoadWeights<0, use128BitLoad, numConvUnits>;
+    } else if (ampKernelHeightM1 == 1) {
+      weightLoadFunction = &ampLoadWeights<1, use128BitLoad, numConvUnits>;
+    } else {
+      weightLoadFunction = &ampLoadWeights<3, use128BitLoad, numConvUnits>;
+    }
+
     for (unsigned cg = 0; cg <= numConvGroupsM1; ++cg) {
       auto weightItBase = weights.begin() + cg * numOutGroups * numInGroups - 1;
       for (unsigned og = 0; og < numOutGroups; ++og) {
@@ -499,12 +534,13 @@ public:
               // Don't change weights or workerState until synced
               __builtin_ipu_put(reinterpret_cast<unsigned>(weightPtr),
                                 CSR_S_CCCSLOAD__INDEX);
-              weightPtr += outChansPerGroup * inChansPerGroup;
               syncWorkers();
-              ampLoadWeights<use128BitLoad, numConvUnits>();
+              weightLoadFunction(reinterpret_cast<unsigned>(weightPtr),
+                                 weightStride);
               workerState.partitionList = partitionList;
 
               runAll(workerFunction, &workerState);
+              weightPtr += outChansPerGroup * inChansPerGroup;
               partitionList += CTXT_WORKERS;
             } // kx
             weightPtr += ampKernelHeightM1 * kernelInnerElements *
@@ -522,8 +558,7 @@ public:
   }
 };
 
-#endif // __IPU_ARCH_VERSION__
-#endif // __IPU__
+#endif // __IPU__ , __IPU_ARCH_VERSION__ POPLIBS_DISABLE_ASM_CODELETS
 
 INSTANTIATE_WEIGHTS_128(quarter, half, 16, 8);
 

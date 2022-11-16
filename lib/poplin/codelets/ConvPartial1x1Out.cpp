@@ -205,9 +205,9 @@ INSTANTIATE_WEIGHTS_128(half, half, 16, 8);
 INSTANTIATE_WEIGHTS_128(half, float, 16, 8);
 INSTANTIATE_WEIGHTS_128(float, float, 16, 4);
 
-#ifdef __IPU__
+#if defined(__IPU__) && __IPU_ARCH_VERSION__ >= 21 &&                          \
+    !defined(POPLIBS_DISABLE_ASM_CODELETS)
 
-#if __IPU_ARCH_VERSION__ >= 21
 template <typename UnsignedType, bool zeroPartials, unsigned numConvUnits>
 class WorkerClass1x1 : public Vertex {
 public:
@@ -310,8 +310,8 @@ public:
     static constexpr unsigned strideMask = (1 << numStrideBits) - 1;
 
     // Strides for use with tapack
-    workerState.strides = packStrides(transformedInStride,
-                                      inOutStrides & strideMask, numStrideBits);
+    workerState.strides =
+        packStrides(transformedInStride, inOutStrides & strideMask);
     auto outItBase = out.begin();
     auto weightsItBase = weights.begin() + numOutGroups - 1;
     for (unsigned og = 0; og < numOutGroups; ++og) {
@@ -335,7 +335,7 @@ public:
                             CSR_S_CCCSLOAD__INDEX);
           weightsIt += numOutGroups;
           syncWorkers();
-          ampLoadWeights<use128BitLoad, numConvUnits>();
+          ampLoadWeights<0, use128BitLoad, numConvUnits>();
           workerState.inChanPtr =
               reinterpret_cast<const quarter *>(&(*inIt++)[0]);
           runAll(workerFunction, &workerState);
@@ -352,8 +352,7 @@ public:
   }
 };
 
-#endif // __IPU_ARCH_VERSION__
-#endif // __IPU__
+#endif // __IPU__, __IPU_ARCH_VERSION__, POPLIBS_DISABLE_ASM_CODELETS
 
 INSTANTIATE_WEIGHTS_128(quarter, half, 16, 8);
 

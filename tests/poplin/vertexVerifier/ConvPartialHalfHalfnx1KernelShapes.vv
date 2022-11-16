@@ -1,0 +1,102 @@
+// *** Base config
+
+testConfig convPartialHalfHalfnx1KernelShapes;
+
+in.size = 2
+
+in[i].size = 4096
+in[i]=[1,5)
+
+weights.size = 2
+weights[i].size = 4096
+weights[i] = [1,5)
+
+out.size = 1
+out[i].size = 119
+out[i] = [0.1, 0.2)
+
+inMetadata.size = 1
+inMetadata[0].size = 1
+inMetadata[0] = {0x8a}
+
+weightsMetadata.size = 1
+weightsMetadata[0].size = 1
+weightsMetadata[0] = {0x8a}
+
+
+// No-op worklist
+// Worklist entries are outOffset, length-3, inOffset
+worklists.size = 84
+worklists[i].size = 6
+worklists[i]={0, -3, 0,0, -3, 0}
+
+transformedInStride= 3148803
+transformedOutStride= 1025
+zerosInfo= 224
+numOutGroupsM1= 0
+numInGroups= 2
+kernelOuterSizeM1= 1
+kernelInnerElementsM1= 3
+numConvGroupsM1= 0
+ampKernelHeightM1= 0
+transformedInRowStride= 1
+outChansPerGroup= 16
+inChansPerGroup= 16
+
+// Test kernel height 1
+testConfig height1 : convPartialHalfHalfnx1KernelShapes;
+worklists.size = 48
+worklists[i].size = 6
+worklists[0][1]=(-2,-1,0,1,2)
+
+
+transformedInStride= 3148803
+transformedOutStride= 1025
+zerosInfo= 224
+numOutGroupsM1= 0
+numInGroups= 2
+kernelOuterSizeM1= 1
+kernelInnerElementsM1= 3
+numConvGroupsM1= 0
+ampKernelHeightM1= 0
+transformedInRowStride= 1
+outChansPerGroup= 16
+inChansPerGroup= 16
+
+// Test kernel height 2
+testConfig height2 : convPartialHalfHalfnx1KernelShapes;
+worklists.size = 84
+worklists[i].size = 3
+worklists[0][1]=(-2,-1,0,1,2)
+
+transformedInStride= 3146755
+transformedOutStride= 1025
+zerosInfo= 15872
+numOutGroupsM1= 0
+numInGroups= 1
+kernelOuterSizeM1= 0
+kernelInnerElementsM1= 0
+numConvGroupsM1= 0
+ampKernelHeightM1= 1
+transformedInRowStride= 63
+outChansPerGroup= 16
+inChansPerGroup= 8
+
+// Test kernel height 4
+testConfig height4 : convPartialHalfHalfnx1KernelShapes;
+worklists.size = 84
+worklists[i].size = 3
+worklists[0][1]=(-2,-1,0,1,2)
+
+transformedInStride= 4162563
+transformedOutStride= 32769
+zerosInfo= 5408
+numOutGroupsM1= 0
+numInGroups= 1
+kernelOuterSizeM1= 1
+kernelInnerElementsM1= 6
+numConvGroupsM1= 0
+ampKernelHeightM1= 3
+transformedInRowStride= 32
+outChansPerGroup= 16
+inChansPerGroup= 4

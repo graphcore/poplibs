@@ -3,11 +3,11 @@
 testConfig initialConfig;
 in.size = 1
 in[0].size = 128
-in[i]=[0.1, 0.2)
+in[i]=[1, 5)
 
 weights.size = 2
 weights[i].size = 256
-weights[i] = [0.1, 0.2)
+weights[i] = [1, 5)
 
 out.size = 1
 out[i].size = 40
@@ -38,51 +38,51 @@ numConvGroupGroupsM1 = 0
 // Worklist entries are inOffset, outOffset, length
 
 testConfig outFirstLength1 : initialConfig;
-worklists[11]={ 0,4,1}
+worklists[0]={ 0,4,1}
 &in[i]=0x88000
 &out[i]=0x87f90
 
 testConfig outFirstLength2 : initialConfig;
-worklists[11]={ 0,3,2}
+worklists[0]={ 0,3,2}
 &in[i]=0x88000
 &out[i]=0x87f90
 
 testConfig outFirstLength3 : initialConfig;
-worklists[11]={ 0,2,3}
+worklists[0]={ 0,2,3}
 &in[i]=0x88000
 &out[i]=0x87f90
 
 testConfig outFirstLength4 : initialConfig;
-worklists[11]={ 0,1,4}
+worklists[0]={ 0,1,4}
 &in[i]=0x88000
 &out[i]=0x87f90
 
 testConfig outFirstLength5 : initialConfig;
-worklists[11]={ 0,0,5}
+worklists[0]={ 0,0,5}
 &in[i]=0x88000
 &out[i]=0x87f90
 
 testConfig inFirstLength1 : initialConfig;
-worklists[11]={ 12,0,1}
+worklists[0]={ 12,0,1}
 &in[i]=0x7ff68
 &out[i]=0x80000
 
 testConfig inFirstLength2 : initialConfig;
-worklists[11]={ 10,0,2}
+worklists[0]={ 10,0,2}
 &in[i]=0x7ff68
 &out[i]=0x80000
 
 testConfig inFirstLength3 : initialConfig;
-worklists[11]={ 8,0,3}
+worklists[0]={ 8,0,3}
 &in[i]=0x7ff68
 &out[i]=0x80000
 
 testConfig inFirstLength4 : initialConfig;
-worklists[11]={ 6,0,4}
+worklists[0]={ 6,0,4}
 &in[i]=0x7ff68
 &out[i]=0x80000
 
 testConfig inFirstLength5 : initialConfig;
-worklists[11]={ 4,0,5}
+worklists[0]={ 4,0,5}
 &in[i]=0x7ff68
 &out[i]=0x80000

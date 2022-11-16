@@ -4,27 +4,27 @@ testConfig testConvGroups;
 
 in.size = 4
 in[i].size = 128
-in[i]=[0.1, 0.2)
+in[i]=[1,5)
 
 weights.size = 16
 weights[i].size = 512
-weights[i] = [0.1, 0.2)
+weights[i] = [1,5)
 
 out.size = 8
-out[i].size = 64
+out[i].size = 80
 out[0] = [0.1, 0.2)
 
 worklists.size = 1
 worklists[0].size = 18
-worklists[0]={0, -3, 0, 0, -1, 0, 4, -2, 4, 0, -3, 0, 8, -2, 8, 12, -2, 12}
+worklists[0]={0, -3, 0, 0, -1, 0, 8, -2, 8, 0, -3, 0, 12, -2, 12, 16, -2, 16}
 
 inMetadata.size = 1
 inMetadata[0].size = 1
-inMetadata[0] = {0x81}
+inMetadata[0] = {0x8a}
 
 weightsMetadata.size = 1
 weightsMetadata[0].size = 1
-weightsMetadata[0] = {0x82}
+weightsMetadata[0] = {0x8a}
 
 numConvGroupsM1 = 1
 numOutGroupsM1 = 3

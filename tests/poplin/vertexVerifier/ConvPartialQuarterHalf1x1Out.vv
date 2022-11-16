@@ -8,11 +8,11 @@ in[i]=[0.1, 0.2)
 
 weights.size = 2
 weights[i].size = 512
-weights[i] = [0.1, 0.2)
+weights[i] = [1, 5)
 
 out.size = 1
 out[i].size = 16
-out[0] = [0.1, 0.2)
+out[0] = [1, 5)
 
 worklists.size = 1
 worklists[0].size = 18

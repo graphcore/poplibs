@@ -1,0 +1,150 @@
+// *** Base config
+
+testConfig convPartialQuarterHalfnx1KernelShapes;
+
+in.size = 2
+
+in[i].size = 4096
+in[i]=[0,5)
+
+weights.size = 2
+weights[i].size = 4096
+weights[i] = [1,5)
+
+out.size = 1
+out[i].size = 256
+out[i] = [0.1, 0.2)
+
+inMetadata.size = 1
+inMetadata[0].size = 1
+inMetadata[0] = {0x8a}
+
+weightsMetadata.size = 1
+weightsMetadata[0].size = 1
+weightsMetadata[0] = {0x8a}
+
+
+// No-op worklist
+// Worklist entries are outOffset, length-3, inOffset
+worklists.size = 84
+worklists[i].size = 6
+worklists[i]={0, -3, 0,0, -3, 0}
+
+transformedInStride= 3148803
+transformedOutStride= 1025
+zerosInfo= 224
+numOutGroupsM1= 0
+numInGroups= 2
+kernelOuterSizeM1= 1
+kernelInnerElementsM1= 3
+numConvGroupsM1= 0
+ampKernelHeightM1= 0
+transformedInRowStride= 1
+outChansPerGroup= 16
+inChansPerGroup= 16
+
+// // Test kernel height 1
+testConfig height1 : convPartialQuarterHalfnx1KernelShapes;
+worklists.size = 48
+worklists[i].size = 6
+worklists[0][1]=(-2,-1,0,1,2)
+
+transformedInStride= 3148803
+transformedOutStride= 1025
+zerosInfo= 224
+numOutGroupsM1= 0
+numInGroups= 2
+kernelOuterSizeM1= 1
+kernelInnerElementsM1= 3
+numConvGroupsM1= 0
+ampKernelHeightM1= 0
+transformedInRowStride= 1
+outChansPerGroup= 16
+inChansPerGroup= 32
+
+// Test kernel height 2
+testConfig height2 : convPartialQuarterHalfnx1KernelShapes;
+worklists.size = 84
+worklists[i].size = 3
+worklists[0][1]=-2    // Produces 4 channel groups
+worklists[1]={4,-1,0} // Output Start 4, Produces 8
+worklists[2]={12,0,0} // Output Start 4+8 =12 Produces 12
+worklists[3]={24,1,0} // Output Start 12+12=24 Produces 16
+worklists[4]={40,2,0} // Output Start 24+16=40 Produces 20
+//                       Total 60 * 4 =240 elements
+
+transformedInStride= 3146755
+transformedOutStride= 1025
+zerosInfo= 15872
+numOutGroupsM1= 0
+numInGroups= 2
+kernelOuterSizeM1= 0
+kernelInnerElementsM1= 0
+numConvGroupsM1= 0
+ampKernelHeightM1= 1
+transformedInRowStride= 63
+outChansPerGroup= 16
+inChansPerGroup= 16
+
+// Test kernel height 4
+testConfig height4 : convPartialQuarterHalfnx1KernelShapes;
+worklists.size = 84
+worklists[i].size = 3
+worklists[0][1]=-2
+worklists[1]={4,-1,0}
+worklists[2]={12,0,0}
+worklists[3]={24,1,0}
+worklists[4]={40,2,0}
+
+transformedInStride= 4162563
+transformedOutStride= 32769
+zerosInfo= 5408
+numOutGroupsM1= 0
+numInGroups= 1
+kernelOuterSizeM1= 1
+kernelInnerElementsM1= 6
+numConvGroupsM1= 0
+ampKernelHeightM1= 3
+transformedInRowStride= 32
+outChansPerGroup= 16
+inChansPerGroup= 8
+
+// Test -ve row strides (kernel height is 4)
+testConfig negRowStrides : convPartialQuarterHalfnx1KernelShapes;
+worklists.size = 18
+worklists[i].size = 6
+worklists[0] ={0, -2, 0,0,-3,0}
+
+transformedInStride= 3149827
+transformedOutStride= 1045505
+zerosInfo= 144
+numOutGroupsM1= 0
+numInGroups= 1
+kernelOuterSizeM1= 0
+kernelInnerElementsM1= 0
+numConvGroupsM1= 0
+ampKernelHeightM1= 1
+transformedInRowStride= 39
+ampKernelHeightM1= 3
+transformedInRowStride= -3
+outChansPerGroup= 16
+inChansPerGroup= 8
+
+// Test kernel height 2 and kernelInnerElementsM1 != 0 for weight load stride
+testConfig innerElementsM1 : convPartialQuarterHalfnx1KernelShapes;
+worklists.size = 12
+worklists[i].size = 6
+worklists[1]={ 0, -2, 0, 0, -3, 0}
+
+transformedInStride=3146755
+transformedOutStride= 1025
+zerosInfo= 192
+numOutGroupsM1= 0
+numInGroups= 1
+kernelOuterSizeM1= 0
+kernelInnerElementsM1= 1
+numConvGroupsM1= 0
+ampKernelHeightM1= 1
+transformedInRowStride= 7
+outChansPerGroup= 16
+inChansPerGroup= 16

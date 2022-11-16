@@ -5,11 +5,11 @@ testConfig testConvGroups;
 
 in.size = 2
 in[i].size = 672
-in[i]=[0.1, 0.2)
+in[i]=[1,5)
 
 weights.size = 4
 weights[i].size = 1536
-weights[i] = [0.1, 0.2)
+weights[i] = [1,5)
 
 out.size = 4
 out[i].size = 784
@@ -20,32 +20,32 @@ worklists.size = 18
 worklists[i].size = 6
 
 worklists[0]={12,0,0,0,-3,0}
-worklists[1]={40,0,12,60,65534,32}
-worklists[2]={68,65535,24,88,65534,44}
-worklists[3]={96,65535,36,120,65535,52}
-worklists[4]={124,65534,48,148,65535,64}
-worklists[5]={152,65534,60,180,0,72}
+worklists[1]={40,0,12,60,-2,32}
+worklists[2]={68,-1,24,88,-2,44}
+worklists[3]={96,-1,36,120,-1,52}
+worklists[4]={124,-2,48,148,-1,64}
+worklists[5]={152,-2,60,180,0,72}
 worklists[6]={16,0,0,0,-3,0}
-worklists[7]={44,0,12,64,65534,32}
-worklists[8]={72,65535,24,92,65534,44}
-worklists[9]={100,65535,36,124,65535,52}
-worklists[10]={128,65534,48,152,65535,64}
-worklists[11]={156,65534,60,184,0,72}
+worklists[7]={44,0,12,64,-2,32}
+worklists[8]={72,-1,24,92,-2,44}
+worklists[9]={100,-1,36,124,-1,52}
+worklists[10]={128,-2,48,152,-1,64}
+worklists[11]={156,-2,60,184,0,72}
 worklists[12]={20,0,0,0,-3,0}
-worklists[13]={48,0,12,68,65534,32}
-worklists[14]={76,65535,24,96,65534,44}
-worklists[15]={104,65535,36,128,65535,52}
-worklists[16]={132,65534,48,156,65535,64}
-worklists[17]={160,65534,60,188,0,72}
+worklists[13]={48,0,12,68,-2,32}
+worklists[14]={76,-1,24,96,-2,44}
+worklists[15]={104,-1,36,128,-1,52}
+worklists[16]={132,-2,48,156,-1,64}
+worklists[17]={160,-2,60,188,0,72}
 
 
 inMetadata.size = 1
 inMetadata[0].size = 1
-inMetadata[0] = {0x81}
+inMetadata[0] = {0x8a}
 
 weightsMetadata.size = 1
 weightsMetadata[0].size = 1
-weightsMetadata[0] = {0x82}
+weightsMetadata[0] = {0x8a}
 
 zerosInfo=784
 numConvGroupsM1 = 1

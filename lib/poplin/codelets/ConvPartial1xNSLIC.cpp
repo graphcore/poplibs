@@ -178,9 +178,8 @@ public:
   }
 };
 
-#ifdef __IPU__
-
-#if __IPU_ARCH_VERSION__ >= 21
+#if defined(__IPU__) && __IPU_ARCH_VERSION__ >= 21 &&                          \
+    !defined(POPLIBS_DISABLE_ASM_CODELETS)
 
 template <unsigned stride, bool implicitZero>
 static __attribute__((always_inline)) __attribute__((aligned(8))) void
@@ -440,9 +439,7 @@ public:
   }
 };
 
-#endif
-
-#endif
+#endif // __IPU__, __IPU_ARCH_VERSION__, POPLIBS_DISABLE_ASM_CODELETS
 
 template class ConvPartial1xNSLIC<half, float, 1, false, 4, 2, 4, false>;
 template class ConvPartial1xNSLIC<half, float, 1, true, 4, 2, 4, false>;

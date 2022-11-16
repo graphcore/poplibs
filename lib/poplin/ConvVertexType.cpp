@@ -53,11 +53,12 @@ bool canUseConvolutionInstruction(const poplar::Type &actsType,
   if (usedWeightsPerConvUnit % inChansPerGroup != 0) {
     return false;
   }
-  if (actsType == poplar::QUARTER)
-    if (outChansPerGroup != numConvUnitsRequired ||
-        usedWeightsPerConvUnit != inChansPerGroup) {
-      return false;
-    }
+  if (actsType == poplar::QUARTER && outChansPerGroup != numConvUnitsRequired) {
+    // The extra `outChansPerGroup != numConvUnitsRequired` is required as the
+    // vertex (C++/inlineAsm) has no outer loop to allow outChansPerGroup to be
+    // a multiple of the number of conv units.
+    return false;
+  }
   // Output channels grouping shall be great or equal to number of engines
   if ((outChansPerGroup % numConvUnitsRequired) != 0) {
     return false;
