@@ -1153,62 +1153,6 @@ BOOST_AUTO_TEST_CASE(CastHalfQuarterWithOutputCS) {
   BOOST_TEST(resultMetadata == outMetadata);
 }
 
-void testCastToQuarter(const Type &inType) {
-  auto device = createTestDevice(TEST_TARGET);
-  auto target = device.getTarget();
-
-  Graph graph(target);
-  popops::addCodelets(graph);
-
-  // Choose a small numeric range which is supported by the FP8 type
-  const unsigned modulo = 10;
-  std::vector<float> hIn(DIM_SIZE);
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    hIn[i] = (float)(i % modulo);
-  }
-  auto in = graph.addVariable(inType, {DIM_SIZE}, "in");
-  mapTensorLinearly(graph, in);
-  graph.createHostWrite("in", in);
-
-  auto prog = Sequence();
-
-  const auto outMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 1);
-  auto metadataTensor = poplar::createVariableMetadataTensor(
-      graph, outMetadata.getFormat(), outMetadata.getScale());
-  auto out = cast(graph, in, QUARTER, metadataTensor, prog);
-
-  graph.createHostRead("out", out);
-  QuarterMetadata resultMetadata;
-
-  std::vector<char> rawIn(target.getTypeSize(inType) * DIM_SIZE);
-  std::vector<char> rawOut(target.getTypeSize(QUARTER) * DIM_SIZE);
-
-  poplar::convertToDeviceType(inType, hIn, rawIn.data());
-
-  Engine eng(graph, Sequence{prog});
-  device.bind([&](const Device &d) {
-    eng.load(d);
-    eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
-    eng.run();
-    eng.readTensor("out", resultMetadata, rawOut.data(),
-                   rawOut.data() + rawOut.size());
-  });
-
-  std::vector<float> hOut(DIM_SIZE);
-  poplar::convertFromDeviceType(QUARTER, resultMetadata, rawOut.data(),
-                                gccs::ArrayRef(hOut));
-
-  /* Check result */
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hOut[i] == hIn[i]);
-  }
-  BOOST_TEST(resultMetadata == outMetadata);
-}
-
-BOOST_AUTO_TEST_CASE(CastHalfQuarter) { testCastToQuarter(HALF); }
-
-BOOST_AUTO_TEST_CASE(CastFloatQuarter) { testCastToQuarter(FLOAT); }
-
 void testCastWithOutput(const Type &inType, const Type &outType) {
   auto device = createTestDevice(TEST_TARGET);
   auto target = device.getTarget();
@@ -1298,55 +1242,6 @@ BOOST_AUTO_TEST_CASE(CastFloatQuarterWithOutput) {
 BOOST_AUTO_TEST_CASE(CastFloatHalfWithOutput) {
   testCastWithOutput(FLOAT, HALF);
 }
-
-void testCastQuarterToType(const Type &outType) {
-  auto device = createTestDevice(TEST_TARGET);
-  auto target = device.getTarget();
-
-  Graph graph(target);
-  popops::addCodelets(graph);
-
-  // Choose a small numeric range which is supported by the FP8 type
-  const auto inMetadata = QuarterMetadata(QuarterMetadata::Format::F143, 0);
-  const unsigned modulo = 10;
-  std::vector<float> hIn(DIM_SIZE);
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    hIn[i] = (float)(i % modulo);
-  }
-  auto in = graph.addVariable(QUARTER, {DIM_SIZE}, "in");
-  mapTensorLinearly(graph, in);
-  graph.createHostWrite("in", in);
-
-  auto prog = Sequence();
-
-  poplar::Tensor out =
-      cast(graph, in, outType, prog, "castTo" + outType.toString());
-  graph.createHostRead("out", out);
-  std::vector<char> rawIn(target.getTypeSize(QUARTER) * DIM_SIZE);
-  std::vector<char> rawOut(target.getTypeSize(outType) * DIM_SIZE);
-
-  poplar::convertToDeviceType(QUARTER, inMetadata, gccs::ArrayRef(hIn),
-                              rawIn.data());
-
-  Engine eng(graph, Sequence{prog});
-  device.bind([&](const Device &d) {
-    eng.load(d);
-    eng.writeTensor("in", inMetadata, rawIn.data(),
-                    rawIn.data() + rawIn.size());
-    eng.run();
-    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
-  });
-  std::vector<float> hOut(DIM_SIZE);
-  poplar::convertFromDeviceType(outType, rawOut.data(), gccs::ArrayRef(hOut));
-  /* Check result */
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    BOOST_TEST(hOut[i] == hIn[i]);
-  }
-}
-
-BOOST_AUTO_TEST_CASE(CastQuarterHalf) { testCastQuarterToType(HALF); }
-
-BOOST_AUTO_TEST_CASE(CastQuarterFloat) { testCastQuarterToType(FLOAT); }
 
 BOOST_AUTO_TEST_CASE(CastCharQuarterChar) {
   auto device = createTestDevice(TEST_TARGET);
@@ -1451,13 +1346,8 @@ BOOST_AUTO_TEST_CASE(CastCheckThrow) {
   popops::addCodelets(graph);
 
   auto prog = Sequence();
-  auto csFloat = graph.addComputeSet("CastToFloat");
 
   // Checks for illegal casts src/dst type combinations
-  auto a = graph.addVariable(QUARTER, {DIM_SIZE}, "a");
-  BOOST_CHECK_THROW(cast(graph, a, FLOAT, csFloat, "CastToFloat"),
-                    poputil::poplibs_error);
-
   auto b = graph.addVariable(FLOAT, {DIM_SIZE}, "b");
   BOOST_CHECK_THROW(cast(graph, b, UNSIGNED_LONG, prog, "CastToULong"),
                     poputil::poplibs_error);

@@ -1098,6 +1098,8 @@ add_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
 add_unit_test(SortTest SortTest.cpp)
 add_unit_test(StdArithmeticTests StdArithmeticTests.cpp
               VARIANTS  "${IPUMODEL_VARIANTS};Sim21;IpuModel21")
+add_unit_test(QuarterTypeArithmeticTests QuarterTypeArithmeticTests.cpp
+              VARIANTS  "${IPUMODEL_VARIANTS};Sim21;")
 
 # StdOperatorsTests
 macro(add_std_operators_test test)

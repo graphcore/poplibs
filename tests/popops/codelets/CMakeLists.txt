@@ -813,6 +813,20 @@ foreach(COLUMNS 1 2 3 4 8 24 48 141)
         LABELS codelet
         VARIANTS ;${SIM_VARIANTS};Sim21)
   endforeach()
+  add_multitarget_test(NAME CastTest_quarter_1_float_${COLUMNS}_Supervisor
+    COMMAND CastTest
+      --in-type float
+      --out-type quarter
+      --rows=1
+      --columns=${COLUMNS}
+      --supervisor=1
+      --out-offset=0
+      --fp8-format=F152
+      --fp8-scale=1
+      --fp8-format-out=F152
+      --fp8-scale-out=1
+      LABELS codelet
+      VARIANTS Sim21)
 endforeach()
 
 foreach(ROWS 1 2)
@@ -833,6 +847,20 @@ foreach(ROWS 1 2)
           LABELS codelet
           VARIANTS ${SIM_VARIANTS};Sim21)
     endforeach()
+    add_multitarget_test(NAME CastTest_quarter_float_${ROWS}_${COLUMNS}_Worker
+      COMMAND CastTest
+        --in-type float
+        --out-type quarter
+        --rows=${ROWS}
+        --columns=${COLUMNS}
+        --supervisor=0
+        --out-offset=0
+        --fp8-format=F143
+        --fp8-scale=2
+        --fp8-format-out=F143
+        --fp8-scale-out=2
+        LABELS codelet
+        VARIANTS Sim21)
   endforeach()
 endforeach()
 
@@ -853,6 +881,20 @@ foreach(ROWS 1 2)
           LABELS codelet
           VARIANTS ${SIM_VARIANTS};Sim21)
   endforeach()
+  add_multitarget_test(NAME CastTest_quarter_float_quarter_${ROWS}_100_Worker
+      COMMAND CastTest
+        --in-type float
+        --out-type quarter
+        --rows=${ROWS}
+        --columns=100
+        --supervisor=0
+        --out-offset=0
+        --fp8-format=F143
+        --fp8-scale=2
+        --fp8-format-out=F143
+        --fp8-scale-out=2
+        LABELS codelet
+        VARIANTS Sim21)
 endforeach()
 
 foreach(ROWS 1 2)
@@ -872,6 +914,20 @@ foreach(ROWS 1 2)
           LABELS codelet
           VARIANTS ${SIM_VARIANTS};Sim21)
   endforeach()
+  add_multitarget_test(NAME CastTest_quarter_float_${ROWS}_100_Worker
+      COMMAND CastTest
+        --in-type quarter
+        --out-type float
+        --rows=${ROWS}
+        --columns=100
+        --supervisor=0
+        --out-offset=0
+        --fp8-format=F143
+        --fp8-scale=2
+        --fp8-format-out=F143
+        --fp8-scale-out=2
+        LABELS codelet
+        VARIANTS Sim21)
 endforeach()
 
 foreach (COLUMNS 1 2 3 256)

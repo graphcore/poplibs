@@ -36,7 +36,8 @@ static bool validateRegionSizeForMultiVertex(
 
 // This is based on the macros that reference `CastVertexName` in
 // elemwiseMiscCodelets.cpp
-static void validateCastVertexTypes(const Type &srcType, const Type &dstType) {
+static void validateCastVertexTypes(const Type &srcType, const Type &dstType,
+                                    bool supportFloat) {
   if (srcType == QUARTER || dstType == QUARTER) {
     // If either type is quarter we can cast to/from a limited range of types
     const std::array<Type, 5> allowed = {HALF, CHAR, UNSIGNED_CHAR, SIGNED_CHAR,
@@ -46,6 +47,9 @@ static void validateCastVertexTypes(const Type &srcType, const Type &dstType) {
       return;
     }
     if (srcType == FLOAT || dstType == FLOAT) {
+      if (supportFloat) {
+        return;
+      }
       // This error is API specific, make that clear in the message
       throw poputil::poplibs_error("Casting from " + srcType.toString() +
                                    " to " + dstType.toString() +
@@ -86,7 +90,8 @@ static void castImpl(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
 
   const auto srcType = src.elementType();
   const auto dstType = dst.elementType();
-  validateCastVertexTypes(srcType, dstType);
+  validateCastVertexTypes(
+      srcType, dstType, graph.getTarget().getNumConvUnits(QUARTER, HALF) != 0);
   if (src.shape() != dst.shape()) {
     throw poplibs_error(
         "Attempting to cast between tensors with different shapes");
@@ -156,9 +161,13 @@ doIntermediateCastIfRequired(Graph &graph, const Tensor &src,
   // Support cast float to/from quarter using an intermediate half tensor
   if ((src.elementType() == FLOAT && dstType == QUARTER) ||
       (src.elementType() == QUARTER && dstType == FLOAT)) {
-    auto intermediate = graph.clone(HALF, src, {di, "castIntermediateHalf"});
-    castImpl(graph, src, intermediate, cs);
-    return intermediate;
+    if (graph.getTarget().getNumConvUnits(QUARTER, HALF) != 0) {
+      return src;
+    } else {
+      auto intermediate = graph.clone(HALF, src, {di, "castIntermediateHalf"});
+      castImpl(graph, src, intermediate, cs);
+      return intermediate;
+    }
   } else {
     return src;
   }

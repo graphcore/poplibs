@@ -9,9 +9,11 @@ enum class TemplateInstructions {
   f32toi32,
   f32toui32,
   f32v4tof16,
+  f32v4tof8Pseudo,
   f16v8tof8,
   f16v2tof32,
-  f8v4tof16
+  f8v4tof16,
+  f8v8tof32Pseudo
 };
 
 // Optimized pipelined processing for multiple of 4 elements
@@ -146,28 +148,31 @@ castHalfUCharSCharLoop(const half *inPtr, T *outPtr, unsigned loopCount,
       : "$m0", "$m1", "$a0:1", "$a2:3", "$a4:5", "memory");
 }
 // Optimized pipelined processing for multiple of 4 elements
-// FLOAT => HALF or HALF => QUARTER
+// FLOAT => HALF or HALF => QUARTER or FLOAT => QUARTER
 template <typename SrcType, typename DstType, TemplateInstructions instruction,
           unsigned stride>
 static __attribute__((always_inline)) void
-castFpDemoteLoop(const SrcType *inPtr, DstType *outPtr, unsigned loopCount) {
-  if constexpr (instruction == TemplateInstructions::f32v4tof16) {
-    asm volatile(
-        R"l(.macro cast OPERANDS:vararg
+castFpDemoteLoop(const SrcType *inPtr, DstType *outPtr, unsigned loopCount,
+                 float *scale = nullptr) {
+  if constexpr (instruction == TemplateInstructions::f32v4tof16 ||
+                instruction == TemplateInstructions::f16v8tof8) {
+    if constexpr (instruction == TemplateInstructions::f32v4tof16) {
+      asm volatile(
+          R"l(.macro cast OPERANDS:vararg
             f32v4tof16 \OPERANDS
          .endm
         )l" ::
-            :);
-  } else if constexpr (instruction == TemplateInstructions::f16v8tof8) {
-    asm volatile(
-        R"l(.macro cast OPERANDS:vararg
+              :);
+    } else if constexpr (instruction == TemplateInstructions::f16v8tof8) {
+      asm volatile(
+          R"l(.macro cast OPERANDS:vararg
             f16v8tof8 \OPERANDS
          .endm
         )l" ::
-            :);
-  }
-  asm volatile(
-      R"l(
+              :);
+    }
+    asm volatile(
+        R"l(
           brnzdec   %[loopCount], 3f
           bri       4f
         .align 8
@@ -193,63 +198,218 @@ castFpDemoteLoop(const SrcType *inPtr, DstType *outPtr, unsigned loopCount) {
         // Remove the macro so it can be redefined later
         .purgem cast
     )l"
-      : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
-      : [STRIDE] "i"(stride)
-      : "$m0", "$m1", "$m2", "$a0:1", "$a2:3", "memory");
+        :
+        [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
+        : [STRIDE] "i"(stride)
+        : "$m0", "$m1", "$m2", "$a0:1", "$a2:3", "memory");
+  } else if constexpr (instruction == TemplateInstructions::f32v4tof8Pseudo) {
+    float2 stack[4];
+    uint32_t *stackValues = (uint32_t *)(&stack[0]);
+
+    // Note that the constants in `stackValues[2]` and `stackValues[3]` with
+    // value 0x00040000 are used as arbitrary but valid fp16 inputs to
+    // `f16v8tof8`. This is in addition to their use to mask the lowest bits
+    // of the fp32 mantissa.
+    stackValues[0] = 0x00008000; // Mantissa Bit 15
+    stackValues[1] = 0x00008000; // Mantissa Bit 15
+    stackValues[2] = 0x00007fff; // Lower 15 mantissa bit mask
+    stackValues[3] = 0x00007fff; // Lower 15 mantissa bit mask
+    stack[2][0] = *scale;
+
+    // See the comments in `inLineAssemblerCast<const float *, quarter *, true,
+    // stride>::singleCast()` for the implementation principles.
+    asm volatile(
+        R"l(
+            .equ stackOffsetMantissaBit15, 0
+            .equ stackOffsetLower15BitMask, 8
+            .equ stackOffsetScale, 16
+            .equ stackOffsetFirst2xFloat, 24
+
+            brnzdec   %[loopCount], 3f
+            bri       4f
+          .align 8
+            nop
+          3:
+            ld32 $a6, %[stack], $mzero, stackOffsetScale/4
+            ld64 $a2:3, %[stack], $mzero, stackOffsetLower15BitMask/8
+            ld64step $a0:1, $mzero, %[inPtr]+=,1
+            f32v2mul $a0:1, $a6:B, $a0:1
+            andc64 $a4:5, $a0:1, $a2:3
+            {ld64 $a2:3, %[stack], $mzero, stackOffsetMantissaBit15/8
+              f32v2cmpne $a0:1, $a0:1, $a4:5}
+            {ld64step $a0:1, $mzero, %[inPtr]+=,2*%[STRIDE] -1
+              and64 $a2:3, $a0:1, $a2:3}
+            {ld64 $a2:3, %[stack], $mzero, stackOffsetLower15BitMask/8
+              or64 $a4:5, $a4:5, $a2:3}
+            f32v2mul $a0:1, $a6:B, $a0:1
+            {ld64 $a2:3, %[stack], $mzero, stackOffsetMantissaBit15/8
+              andc64 $a6:7, $a0:1, $a2:3}
+            {st64 $a4:5, %[stack], $mzero, stackOffsetFirst2xFloat/8
+              f32v2cmpne $a0:1, $a0:1, $a6:7}
+            and64 $a4:5, $a0:1, $a2:3
+            {ld64 $a4:5, %[stack], $mzero, stackOffsetFirst2xFloat/8
+              or64 $a6:7, $a6:7, $a4:5}
+            {ld32 $a6, %[stack], $mzero, stackOffsetScale/4
+              f32v4tof16 $a0:1, $a4:7}
+            {ld64 $a2:3, %[stack], $mzero, stackOffsetLower15BitMask/8
+              f16v8tof8 $a4:5, $aq0}
+
+            // Noted that $a2 and $a3 are each loaded with 0x00008000
+            // which is interpreted in the following command as 2 valid half
+            // values represented by 0x0000 and 0x8000.
+            {rpt %[loopCount], (2f-1f)/8 -1
+              fnop}
+          1:
+              {ld64step $a0:1, $mzero, %[inPtr]+=,1
+                fnop}
+              {st32step $a4, $mzero, %[outPtr]+=, %[STRIDE]
+                f32v2mul $a0:1, $a6:B, $a0:1}
+              {ld32 $a6, %[stack], $mzero, stackOffsetScale/4
+                andc64 $a4:5, $a0:1, $a2:3}
+              {ld64 $a2:3, %[stack], $mzero, stackOffsetMantissaBit15/8
+                f32v2cmpne $a0:1, $a0:1, $a4:5}
+              {ld64step $a0:1, $mzero, %[inPtr]+=,2*%[STRIDE] -1
+                and64 $a2:3, $a0:1, $a2:3}
+              {ld64 $a2:3, %[stack], $mzero, stackOffsetLower15BitMask/8
+                or64 $a4:5, $a4:5, $a2:3}
+              {nop
+                f32v2mul $a0:1, $a6:B, $a0:1}
+              {ld64 $a2:3, %[stack], $mzero, stackOffsetMantissaBit15/8
+                andc64 $a6:7, $a0:1, $a2:3}
+              {st64 $a4:5, %[stack], $mzero, stackOffsetFirst2xFloat/8
+                f32v2cmpne $a0:1, $a0:1, $a6:7}
+              {nop
+                and64 $a4:5, $a0:1, $a2:3}
+              {ld64 $a4:5, %[stack], $mzero, stackOffsetFirst2xFloat/8
+                or64 $a6:7, $a6:7, $a4:5}
+              {ld32 $a6, %[stack], $mzero, stackOffsetScale/4
+                f32v4tof16 $a0:1, $a4:7}
+
+              // Noted that $a2 and $a3 are each loaded with 0x00008000
+              // which is interpreted in the following command as 2 valid half
+              // values represented by 0x0000 and 0x8000.
+              {ld64 $a2:3, %[stack], $mzero, stackOffsetLower15BitMask/8
+                f16v8tof8 $a4:5, $aq0}
+          2:
+              st32step $a4, $mzero, %[outPtr]+=, 0
+          4:
+      )l"
+        :
+        [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
+        : [STRIDE] "i"(stride), [stack] "r"(stack)
+        : "$a0:1", "$a2:3", "$a4:5", "$a6:7", "memory");
+  }
 }
 
 // Optimized pipelined processing for multiple of 4 elements
-// HALF => FLOAT or QUARTER => HALF
+// HALF => FLOAT or QUARTER => HALF or QUARTER => FLOAT
 template <typename SrcType, typename DstType, TemplateInstructions instruction,
           unsigned stride>
 static __attribute__((always_inline)) void
-castFpPromoteLoop(const SrcType *inPtr, DstType *outPtr, unsigned loopCount) {
-  if constexpr (instruction == TemplateInstructions::f16v2tof32) {
+castFpPromoteLoop(const SrcType *inPtr, DstType *outPtr, unsigned loopCount,
+                  float *scale = nullptr) {
+  if constexpr (instruction == TemplateInstructions::f16v2tof32 ||
+                instruction == TemplateInstructions::f8v4tof16) {
+    if constexpr (instruction == TemplateInstructions::f16v2tof32) {
+      asm volatile(
+          R"l(.macro cast OPERANDS:vararg
+              f16v2tof32 \OPERANDS
+          .endm
+          )l" ::
+              :);
+    } else if constexpr (instruction == TemplateInstructions::f8v4tof16) {
+      asm volatile(
+          R"l(.macro cast OPERANDS:vararg
+              f8v4tof16 \OPERANDS
+          .endm
+          )l" ::
+              :);
+    }
     asm volatile(
-        R"l(.macro cast OPERANDS:vararg
-            f16v2tof32 \OPERANDS
-         .endm
-        )l" ::
-            :);
-  } else if constexpr (instruction == TemplateInstructions::f8v4tof16) {
-    asm volatile(
-        R"l(.macro cast OPERANDS:vararg
-            f8v4tof16 \OPERANDS
-         .endm
-        )l" ::
-            :);
-  }
-  asm volatile(
-      R"l(
-        brnzdec   %[loopCount], 3f
-            bri       4f
-        .align 8
-        3:
-          ld64step $a0:1, $mzero, %[inPtr]+=, %[STRIDE]
-          tapack $m0:1, %[inPtr], $mzero, %[outPtr]
-          mul $m2, %[loopCount], 16* %[STRIDE]
-          add %[inPtr], %[outPtr], $m2
-          ld64step $azeros, $mzero, %[outPtr]+=,1
-          setzi $m2, 2* %[STRIDE]  | ( %[STRIDE] <<10)
-          {rpt %[loopCount], (2f-1f)/8 -1;
-           cast $a2:3, $a0}
-        1:
-          {ldst64pace $a0:1, $a2:3, $m0:1+=, $m2, 6
-            cast $a2:3, $a1}
-          {st64step $a2:3, $mzero, %[outPtr]+=,2* %[STRIDE]
+        R"l(
+          brnzdec   %[loopCount], 3f
+              bri       4f
+          .align 8
+          3:
+            ld64step $a0:1, $mzero, %[inPtr]+=, %[STRIDE]
+            tapack $m0:1, %[inPtr], $mzero, %[outPtr]
+            mul $m2, %[loopCount], 16* %[STRIDE]
+            add %[inPtr], %[outPtr], $m2
+            ld64step $azeros, $mzero, %[outPtr]+=,1
+            setzi $m2, 2* %[STRIDE]  | ( %[STRIDE] <<10)
+            {rpt %[loopCount], (2f-1f)/8 -1;
             cast $a2:3, $a0}
-        2:
-          {st64step $a2:3, $mzero, %[inPtr]+=,1
-            cast $a0:1, $a1}
-          st64step $a0:1, $mzero, %[inPtr]+=, %[STRIDE]
-        4:
+          1:
+            {ldst64pace $a0:1, $a2:3, $m0:1+=, $m2, 6
+              cast $a2:3, $a1}
+            {st64step $a2:3, $mzero, %[outPtr]+=,2* %[STRIDE]
+              cast $a2:3, $a0}
+          2:
+            {st64step $a2:3, $mzero, %[inPtr]+=,1
+              cast $a0:1, $a1}
+            st64step $a0:1, $mzero, %[inPtr]+=, %[STRIDE]
+          4:
 
-        // remove the macro so it can be redefined later
-        .purgem cast
-    )l"
-      : [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
-      : [STRIDE] "i"(stride)
-      : "$m0", "$m1", "$m2", "$a0:1", "$a2:3", "memory");
+          // remove the macro so it can be redefined later
+          .purgem cast
+      )l"
+        :
+        [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
+        : [STRIDE] "i"(stride)
+        : "$m0", "$m1", "$m2", "$a0:1", "$a2:3", "memory");
+  } else if constexpr (instruction == TemplateInstructions::f8v8tof32Pseudo) {
+    // See the comments in `inLineAssemblerCast<const quarter *, float *, true,
+    // stride>::singleCast()` for the implementation principles.
+    asm volatile(
+        R"l(
+          brnzdec   %[loopCount], 3f
+              bri       4f
+          .align 8
+          3:
+            ld64step $a0:1, $mzero, %[inPtr]+=, %[STRIDE]
+            f8v4tof16 $a2:3, $a0
+            f16v2tof32 $a4:5, $a2
+            f32v2mul $a4:5, %[scale]:B, $a4:5
+            {st64step $a4:5, $mzero, %[outPtr]+=, 1
+              f16v2tof32 $a4:5, $a3}
+            {rpt %[loopCount], (2f-1f)/8 -1;
+              f32v2mul $a4:5, %[scale]:B, $a4:5}
+          1:{ld64step $a0:1, $mzero, %[inPtr]+=, %[STRIDE]
+              f8v4tof16 $a2:3, $a1}
+            {st64step $a4:5, $mzero, %[outPtr]+=, 1
+              f16v2tof32 $a4:5, $a2}
+            {nop
+              f32v2mul $a4:5, %[scale]:B, $a4:5}
+            {st64step $a4:5, $mzero, %[outPtr]+=, 1
+              f16v2tof32 $a4:5, $a3}
+            {nop
+              f32v2mul $a4:5, %[scale]:B, $a4:5}
+            {st64step $a4:5, $mzero, %[outPtr]+=, 1
+              f8v4tof16 $a2:3, $a0}
+            {nop
+              f16v2tof32 $a4:5, $a2}
+            {ld64step $azeros, $mzero, %[outPtr]+=, 4* %[STRIDE]-4
+              f32v2mul $a4:5, %[scale]:B, $a4:5}
+            {st64step $a4:5, $mzero, %[outPtr]+=, 1
+              f16v2tof32 $a4:5, $a3}
+            {nop
+              f32v2mul $a4:5, %[scale]:B, $a4:5}
+          2:
+            {st64step $a4:5, $mzero, %[outPtr]+=, 1
+              f8v4tof16 $a2:3, $a1}
+            f16v2tof32 $a4:5, $a2
+            f32v2mul $a4:5, %[scale]:B, $a4:5
+            {st64step $a4:5, $mzero, %[outPtr]+=, 1
+              f16v2tof32 $a4:5, $a3}
+            f32v2mul $a4:5, %[scale]:B, $a4:5
+            st64step $a4:5, $mzero, %[outPtr]+=, 0
+          4:
+      )l"
+        :
+        [loopCount] "+r"(loopCount), [inPtr] "+r"(inPtr), [outPtr] "+r"(outPtr)
+        : [STRIDE] "i"(stride), [scale] "r"(*scale)
+        : "$m0", "$m1", "$m2", "$a0:1", "$a2:3", "$a4:5", "memory");
+  }
 }
 template <typename SrcType, typename DstType, bool charToFPType,
           unsigned stride>
@@ -452,6 +612,156 @@ public:
            float2 metadata0, float2 metadata1) {
     castFpPromoteLoop<quarter, half, TemplateInstructions::f8v4tof16, stride>(
         inPtr, outPtr, loopCount);
+    return;
+  }
+};
+
+template <unsigned stride>
+class inLineAssemblerCast<const float *, quarter *, true, stride> {
+public:
+  static __attribute__((always_inline)) quarter
+  singleCast(const float *in, float2 metadata0, float2 metadata1) {
+    quarter result;
+    float negScale1 = metadata1[1];
+
+    // Accurate float to quarter cast, rounding to nearest, ties to even.
+    // ------------------------------------------------------------------
+    // In the following explanation quarter-f143 format is used without loss of
+    // generality. The same principle should apply to quarter-f152. Machine
+    // instructions do not exist to directly convert from float to quarter,
+    // but can be done in the following steps.
+    //  1. Scale float by pow(2.0f, -metadataScale)
+    //  2. convert from float to half, taking rounding into account.
+    //  3. convert from half to quarter (either f143 or f152 format) with unit
+    //     metadata scale.
+    //
+    // The following table shows some example conversions of float to half and
+    // followed by conversion to quarter-f143. Notice that some half numbers are
+    // equidistant from the two adjacent quarter values. This condition is
+    // called a tie. For example 8.5 is exactly equidistant from quarter values
+    // 0x58 and 0x59. When a tie occurs the value is rounded to the nearest even
+    // quarter number, 0x58 in this case.
+    //
+    //  Value         float         half        f143
+    //  7.0           0x40e00000    0x4700      0x56
+    //  7.25          0x40e80000    0x4740      0x56
+    //  7.5           0x40f00000    0x4780      0x57
+    //  7.75          0x40f80000    0x47c0      0x58
+    //  8.0           0x41000000    0x4800      0x58
+    //  8.5           0x41080000    0x4840      0x58
+    //  9.0           0x41100000    0x4880      0x59
+    //  9.5           0x41180000    0x4900      0x5a
+    //
+    // Consider the value 8.503906250 that is slightly higher than 8.5 with
+    // the 11th significant mantissa bit set. This value should be rounded
+    // to the nearest quarter-f143 value 0x59. However converting to an
+    // intermediate type half would arrive at 0x58 as explained below.
+    //
+    // The half format has 10 mantissa bits, so 8.503906250 which has the 11th
+    // mantissa bit set (and all lesser significant bits zero) happens to be
+    // equidistant from the two adjacent half values and so on casting to
+    // half it wil get rounded to the even half value, 0x4840 in this case.
+    // This value converts to 0x58.
+    //
+    //  Value        float        half       f143-actual f143-expected
+    //  8.503906250  0x41081000   0x4840     0x58        0x59
+    //
+    // The above example shows that rounding must be suppressed when casting
+    // from float to half in step 2. This can be done by masking the least
+    // significant 13 bits of the float value. However this could lead to
+    // a float value with non-zero least significant 13 bits falsely appear
+    // to be a tie between two adjacent quarter values. This can be avoided
+    // by ensuring that bit 10 is non-zero if the least significant 13 bits
+    // are non-zero.
+    //
+    // When a floating point value casts to a Half denorm value there is a loss
+    // of 2 bits of precision.
+    //  - The implicit leading 1 bit of the float number in the normal range.
+    //  - The half bias is short by 1 bit compard to quarter-f152.
+    // Due to the abvoe considerations a 15 bit mask is used (instead of 13).
+    float mantissaBit15 = 4.5917748079e-41;
+    float lowest15BitMask = mantissaBit15 - 1e-45f;
+    asm volatile(
+        R"l(
+              // Scale fp32 value by multiplying by pow(2.0f, -scale)
+              f32mul $a1, %[in], %[scale]
+
+              // Clear lowest significant bits.
+              andc $a2, $a1, %[lowest15BitMask]
+
+              // Set bit 10 if the lowest significant 15 bits are non-zero.
+              f32cmpne $a3, $a1, $a2
+              and $a3, %[mantissaBit15], $a3
+              or $a1, $a2, $a3
+
+              // Cast to half here. Since the least significant bits are
+              // cleared the IPU should not do any rounding. Bit 15 contains
+              // the information about whether any of the lowest bits were
+              // non-zero. This information will help the following
+              // half->quarter casting instruction from falsely detecting a tie
+              // in the distance between the scaled fp32 value and the two
+              // nearest quarter representations, as explained in the comment
+              // preceding the asm block.
+              f32tof16 $a1, $a1
+              f16v2tof8 $a0, $a1
+              atom %[result], $a0
+        )l"
+        : [result] "=r"(result)
+        : [scale] "r"(negScale1), [in] "r"(*in),
+          [mantissaBit15] "r"(mantissaBit15),
+          [lowest15BitMask] "r"(lowest15BitMask)
+        : "$a0", "$a1", "$a2", "$a3");
+    return result;
+  }
+
+  static __attribute__((always_inline)) void
+  loopBody(unsigned loopCount, const float *inPtr, quarter *outPtr,
+           float2 metadata0, float2 metadata1) {
+    float scale = metadata1[1];
+    castFpDemoteLoop<float, quarter, TemplateInstructions::f32v4tof8Pseudo,
+                     stride>(inPtr, outPtr, loopCount, &scale);
+    return;
+  }
+};
+
+template <unsigned stride>
+class inLineAssemblerCast<const quarter *, float *, true, stride> {
+public:
+  static __attribute__((always_inline)) float
+  singleCast(const quarter *in, float2 metadata0, float2 metadata1) {
+    float scale0 = metadata0[1];
+    float result;
+    // Accurate quarter to float cast.
+    // -------------------------------
+    // Machine instructions do not exist to directly convert from quarter to
+    // float, but can be done in the following steps.
+    //  1. convert from quarter to half (either f143 or f152 format) with unit
+    //     metadata scale. The range of quarter is a subset of the range of
+    //     half as shown below.
+    //       half ~ [2^-24, 2^15]
+    //       quarter f143 ~ [2^-10, 2^7]
+    //       quarter f152 ~ [2^-17, 2^15]
+    //  2. convert from half to float.
+    //  3. Scale float by pow(2.0f, metadataScale)
+    asm volatile(
+        R"l(  ldb8 $a0, $mzero, %[in], 0
+              f8v2tof16 $a1, $a0
+              f16tof32 $a1, $a1
+              f32mul %[result], $a1, %[scale]
+        )l"
+        : [result] "=r"(result)
+        : [scale] "r"(scale0), [in] "r"(in)
+        : "$a0", "$a1");
+
+    return result;
+  }
+
+  static __attribute__((always_inline)) void
+  loopBody(unsigned loopCount, const quarter *inPtr, float *outPtr,
+           float2 metadata0, float2 metadata1) {
+    float scale = metadata0[1];
+    castFpPromoteLoop<quarter, float, TemplateInstructions::f8v8tof32Pseudo,
+                      stride>(inPtr, outPtr, loopCount, &scale);
     return;
   }
 };
@@ -798,8 +1108,8 @@ static __attribute__((always_inline)) float ldb8(const unsigned char *address) {
 }
 
 static __attribute__((always_inline)) void
-setFp8Config(const MetadataType *metadata) {
-  float temp = ldb8(metadata);
+setFp8Config(const MetadataType &metadata) {
+  float temp = ldb8(&metadata);
   __builtin_ipu_uput(temp, CSR_W_FP_SCL__INDEX & CSR_UPPER_MASK);
   temp = __builtin_ipu_andc_f32(temp, 2.0f);
   temp = __builtin_ipu_cmplt(temp, 0.0f);
@@ -807,8 +1117,8 @@ setFp8Config(const MetadataType *metadata) {
 }
 
 static __attribute__((always_inline)) void
-setFp8ConfigNegScale(const MetadataType *metadata) {
-  auto scale = ldb8(metadata);
+setFp8ConfigNegScale(const MetadataType &metadata) {
+  auto scale = ldb8(&metadata);
   // The value 2.0f = 0x40000000 so andc is an and with 0xbfffffff
   // This just makes sure that the exponent is not all 1's
   auto format = __builtin_ipu_cmplt(__builtin_ipu_andc_f32(scale, 2.0f), 0.0f);
@@ -826,6 +1136,12 @@ setFp8ConfigNegScale(const MetadataType *metadata) {
       :
       : "$a0");
   __builtin_ipu_uput(scale, CSR_W_FP_SCL__INDEX & CSR_UPPER_MASK);
+}
+static __attribute__((always_inline)) float
+getScaleFloat(const MetadataType metadata) {
+  signed char scaleExp =
+      (metadata & 0x20) ? (metadata | 0xc0) : (metadata & 0x3f);
+  return static_cast<float>(scaleExp);
 }
 
 static float2 extractMetadata(const MetadataType *metadata) {
@@ -965,7 +1281,7 @@ public:
               {
                 st32          $m7, %[stackPtr], $mzero, stackOffsetMtoA7/4
                 andc64        $a6:7, $a6:7, $a2:3
-              } 
+              }
               and64           %[lastResults], %[lastResults], $a2:3
               {
                 ld64          $a2:3, %[stackPtr], $mzero, stackOffsetA23/8
@@ -1082,7 +1398,7 @@ public:
                 ld32step     $m7, $mzero, %[baseIn]+=, %[ctxtWorkers]
                 or           $a0, $azero, maskClassResult & mask12L
               }
-              { 
+              {
                 st32         $m8, %[stackPtr], $mzero, stackOffsetMtoA6/4
                 or           $a0, $a0, maskClassResult & mask12U
               }
@@ -1209,7 +1525,7 @@ public:
               }
               sort4x16lo     $a4, $a5, $a5
               sort4x16hi     $a5, $a5, $a5
-              { 
+              {
                 ld64         $a0:1, %[stackPtr], $mzero, stackOffsetNanClassMask/8
                 and64        $a4:5, $a4:5, $a0:1
               }
@@ -1253,7 +1569,7 @@ public:
               }
               sort4x16lo     $a4, $a5, $a5
               sort4x16hi     $a5, $a5, $a5
-              { 
+              {
                 ld64         $a2:3, %[stackPtr], $mzero, stackOffsetNanClassMask/8
                 and64        $a4:5, $a4:5, $a2:3
               }
@@ -1413,7 +1729,7 @@ public:
                 ld32step     $azero, $mzero, %[baseOut]+=, %[ctxtWorkers]
                 f16v4mul     $a6:7, $a2:BL, $a6:7       // Scale values
               }
-            1:  
+            1:
               {
                 st64         $a4:5, %[stackPtr], $mzero, stackOffsetScratch/8
                 and64        $a0:1, $a6:7, $a0:1
@@ -1440,7 +1756,7 @@ public:
                 ld64         $a2:3, %[stackPtr], $mzero, stackOffsetFp832SignMask/8
                 f16v4absadd  $a6:7, $a6:7, $a2:3
               }
-              {  
+              {
                 atom         %[lastResults], $a7
                 mov          $a0:1, $a6:7
               }
@@ -1470,7 +1786,7 @@ public:
                 f16v4class   $a1, $a6:7
               }
               sort4x16lo     $a0, $a1, $a1
-              {  
+              {
                 or           %[lastResults], $m6, $m4
                 sort4x16hi     $a1, $a1, $a1
               }
@@ -1508,7 +1824,7 @@ static void extractMetadata(const MetadataType *metadata,
   uint32_t scaleSignMask = 0x3FFFFFF;
   asm volatile(
       R"l(  ldz8      $m0,  %[metadata], $mzero, 0
-            
+
             and       $m1, $m0, 0x80
             shl       $m1, $m1, 23
             st32      $m1, %[unpackedPtr], $mzero, 0

@@ -298,6 +298,8 @@ template class Fill2d<long long>;
   template class CastVertexName<unsigned char, unsigned long long>;
 
 #define INSTANTIATE_CAST_QUARTER(CastVertexName)                               \
+  template class CastVertexName<float, quarter>;                               \
+  template class CastVertexName<quarter, float>;                               \
   template class CastVertexName<half, quarter>;                                \
   template class CastVertexName<quarter, half>;                                \
   template class CastVertexName<char, quarter>;                                \
@@ -428,11 +430,11 @@ DstType cast(SrcType src, quarter_metadata metadataSrc,
              quarter_metadata metadataDst) {
   if constexpr (std::is_same<SrcType, quarter>::value &&
                 std::is_same<DstType, quarter>::value) {
-    return toQuarter(toHalf(src, metadataSrc), metadataDst);
+    return toQuarter(toFloat(src, metadataSrc), metadataDst);
   } else if constexpr (std::is_same<SrcType, quarter>::value) {
-    return static_cast<DstType>(toHalf(src, metadataSrc));
+    return static_cast<DstType>(toFloat(src, metadataSrc));
   } else if constexpr (std::is_same<DstType, quarter>::value) {
-    return toQuarter(static_cast<half>(src), metadataDst);
+    return toQuarter(static_cast<float>(src), metadataDst);
   }
 }
 
@@ -516,16 +518,35 @@ struct CastDispatch<SrcType, DstType, true, true> {
 public:
   static constexpr auto fp8ToFp8 = std::is_same<SrcType, quarter>::value &&
                                    std::is_same<DstType, quarter>::value;
+  static constexpr auto floatToFp8 =
+      std::is_same<SrcType, float>() && std::is_same<DstType, quarter>();
   static void compute(unsigned numElems, const SrcType *src, DstType *dst,
                       const MetadataType *metadataSrc,
                       const MetadataType *metadataDst) {
+    constexpr unsigned elemsPerLoopDivisorShift =
+        (__IPU_ARCH_VERSION__ >= 21 && floatToFp8) ? 2 : 3;
+    constexpr unsigned elemsPerLoop = 1 << elemsPerLoopDivisorShift;
+    constexpr unsigned elemsPerLoopM1 = elemsPerLoop - 1;
+
     float2 metadata0, metadata1;
     if constexpr (!fp8ToFp8) {
       // Setup the Fp8 config once for the codelet
       if constexpr (std::is_same<SrcType, quarter>::value) {
-        setFp8Config(metadataSrc);
+        if constexpr (std::is_same<DstType, float>::value) {
+          // Clear scale and retain the format bit (bit 7)
+          setFp8Config(*metadataSrc & 0x80);
+          metadata0[1] = __builtin_ipu_exp2(getScaleFloat(*metadataSrc));
+        } else {
+          setFp8Config(*metadataSrc);
+        }
       } else {
-        setFp8ConfigNegScale(metadataDst);
+        if constexpr (std::is_same<SrcType, float>::value) {
+          // Clear scale and retain the format bit (bit 7)
+          setFp8Config(*metadataDst & 0x80);
+          metadata1[1] = __builtin_ipu_exp2(-getScaleFloat(*metadataDst));
+        } else {
+          setFp8ConfigNegScale(*metadataDst);
+        }
       }
     } else {
       // We need to keep changing these so extract the bitfield
@@ -535,11 +556,11 @@ public:
     auto srcInternal = reinterpret_cast<const SrcTypeInternal *>(src);
     auto dstInternal = reinterpret_cast<DstTypeInternal *>(dst);
     inLineAssemblerCast<const SrcTypeInternal *, DstTypeInternal *, true,
-                        1>::loopBody(numElems / 8, srcInternal, dstInternal,
-                                     metadata0, metadata1);
-    srcInternal += numElems & (~7);
-    dstInternal += numElems & (~7);
-    for (unsigned i = 0; i < (numElems & 7); i++) {
+                        1>::loopBody(numElems / elemsPerLoop, srcInternal,
+                                     dstInternal, metadata0, metadata1);
+    srcInternal += numElems & (~elemsPerLoopM1);
+    dstInternal += numElems & (~elemsPerLoopM1);
+    for (unsigned i = 0; i < (numElems & elemsPerLoopM1); i++) {
       *dstInternal++ =
           inLineAssemblerCast<const SrcTypeInternal *, DstTypeInternal *, true,
                               1>::singleCast(srcInternal, metadata0, metadata1);
@@ -560,18 +581,36 @@ struct CastDispatchMultiVertex<SrcType, DstType, true, true> {
 public:
   static constexpr auto fp8ToFp8 = std::is_same<SrcType, quarter>::value &&
                                    std::is_same<DstType, quarter>::value;
+  static constexpr auto floatToFp8 =
+      std::is_same<SrcType, float>() && std::is_same<DstType, quarter>();
   static void compute(unsigned numElems, unsigned wid, const SrcType *src,
                       DstType *dst, const MetadataType *metadataSrc,
                       const MetadataType *metadataDst) {
 
-    constexpr unsigned elemsPerLoop = 8;
+    constexpr unsigned elemsPerLoopDivisorShift =
+        (__IPU_ARCH_VERSION__ >= 21 && floatToFp8) ? 2 : 3;
+    constexpr unsigned elemsPerLoop = 1 << elemsPerLoopDivisorShift;
+    constexpr unsigned elemsPerLoopM1 = elemsPerLoop - 1;
+
     float2 metadata0, metadata1;
     if constexpr (!fp8ToFp8) {
       // Setup the Fp8 config once for the codelet
       if constexpr (std::is_same<SrcType, quarter>::value) {
-        setFp8Config(metadataSrc);
+        if constexpr (std::is_same<DstType, float>::value) {
+          // Clear scale and retain the format bit (bit 7)
+          setFp8Config(*metadataSrc & 0x80);
+          metadata0[1] = __builtin_ipu_exp2(getScaleFloat(*metadataSrc));
+        } else {
+          setFp8Config(*metadataSrc);
+        }
       } else {
-        setFp8ConfigNegScale(metadataDst);
+        if constexpr (std::is_same<SrcType, float>::value) {
+          // Clear scale and retain the format bit (bit 7)
+          setFp8Config(*metadataDst & 0x80);
+          metadata1[1] = __builtin_ipu_exp2(-getScaleFloat(*metadataDst));
+        } else {
+          setFp8ConfigNegScale(*metadataDst);
+        }
       }
     } else {
       // We need to keep changing these so extract the bitfield
@@ -582,14 +621,15 @@ public:
     auto dstInternal = reinterpret_cast<DstTypeInternal *>(dst);
     inLineAssemblerCast<
         const SrcTypeInternal *, DstTypeInternal *, true,
-        CTXT_WORKERS>::loopBody(divideWork(numElems, 3, wid),
+        CTXT_WORKERS>::loopBody(divideWork(numElems, elemsPerLoopDivisorShift,
+                                           wid),
                                 &srcInternal[wid * elemsPerLoop],
                                 &dstInternal[wid * elemsPerLoop], metadata0,
                                 metadata1);
     if (wid == CTXT_WORKERS - 1) {
-      srcInternal += numElems & (~7);
-      dstInternal += numElems & (~7);
-      for (unsigned i = 0; i < (numElems & 7); i++) {
+      srcInternal += numElems & (~elemsPerLoopM1);
+      dstInternal += numElems & (~elemsPerLoopM1);
+      for (unsigned i = 0; i < (numElems & elemsPerLoopM1); i++) {
         *dstInternal++ =
             inLineAssemblerCast<const SrcTypeInternal *, DstTypeInternal *,
                                 true, CTXT_WORKERS>::singleCast(srcInternal,
