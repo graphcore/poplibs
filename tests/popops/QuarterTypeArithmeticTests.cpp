@@ -2,6 +2,7 @@
 #define BOOST_TEST_MODULE QuarterTypeArithmeticTests
 
 #include <cmath>
+#include <poplar/CSRFunctions.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/MetadataCreation.hpp>
 #include <poplar/TypeConversion.hpp>
@@ -12,6 +13,8 @@
 #include <vector>
 
 #include <gccs/Algorithm.hpp>
+
+#include <iomanip>
 
 #define QUARTER_METADATA_SCALE_BIAS_MIN -32
 #define QUARTER_METADATA_SCALE_BIAS_MAX 31
@@ -139,6 +142,12 @@ static std::vector<float> testCastToQuarter(const Type &inType,
   graph.createHostWrite("in", in);
 
   auto prog = Sequence();
+
+  poplar::setFloatingPointBehaviour(graph, prog,
+                                    {/*inv*/ false,
+                                     /*div0*/ true, /*oflo*/ false,
+                                     /*esr*/ false, /*nanoo*/ false});
+
   auto metadataTensor = poplar::createVariableMetadataTensor(
       graph, metadata.getFormat(), metadata.getScale());
   auto out = cast(graph, in, QUARTER, metadataTensor, prog);
@@ -191,6 +200,77 @@ static std::vector<float> testCastToQuarter(const Type &inType,
   return hOut;
 }
 
+static std::vector<float>
+testCastToQuarter(const Type &inType, const QuarterMetadata &metadata,
+                  const std::vector<float> &hIn,
+                  const std::vector<unsigned short> &halfIn,
+                  bool checkResults = true) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto target = device.getTarget();
+
+  Graph graph(target);
+  popops::addCodelets(graph);
+
+  unsigned numElements = hIn.size();
+  auto in = graph.addVariable(inType, {numElements}, "in");
+  mapTensorLinearly(graph, in);
+  graph.createHostWrite("in", in);
+
+  auto prog = Sequence();
+
+  poplar::setFloatingPointBehaviour(graph, prog,
+                                    {/*inv*/ false,
+                                     /*div0*/ true, /*oflo*/ false,
+                                     /*esr*/ false, /*nanoo*/ true});
+
+  auto metadataTensor = poplar::createVariableMetadataTensor(
+      graph, metadata.getFormat(), metadata.getScale());
+  auto out = cast(graph, in, QUARTER, metadataTensor, prog);
+
+  graph.createHostRead("out", out);
+  QuarterMetadata resultMetadata;
+
+  // Create reference quarter data
+  auto rawQuarter = [&](const QuarterMetadata &md,
+                        const std::vector<float> &in) {
+    std::vector<char> quartData(target.getTypeSize(QUARTER) * in.size());
+    poplar::convertToDeviceType(QUARTER, md, gccs::ArrayRef(in),
+                                quartData.data());
+    return quartData;
+  };
+  auto quartData = rawQuarter(metadata, hIn);
+
+  std::vector<char> rawIn(target.getTypeSize(inType) * numElements);
+  std::vector<char> rawOut(target.getTypeSize(QUARTER) * numElements);
+
+  std::memcpy(&rawIn[0], &halfIn[0], target.getTypeSize(inType) * numElements);
+  Engine eng(graph, Sequence{prog});
+  device.bind([&](const Device &d) {
+    eng.load(d);
+    eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
+    eng.run();
+    eng.readTensor("out", resultMetadata, rawOut.data(),
+                   rawOut.data() + rawOut.size());
+  });
+
+  std::vector<float> hOut(numElements);
+  poplar::convertFromDeviceType(QUARTER, resultMetadata, rawOut.data(),
+                                gccs::ArrayRef(hOut));
+  std::vector<float> hOutExp(numElements);
+  poplar::convertFromDeviceType(QUARTER, resultMetadata, quartData.data(),
+                                gccs::ArrayRef(hOutExp));
+  /* Check result */
+  if (checkResults) {
+    for (auto i = 0U; i < numElements; ++i) {
+      auto result = 0xff & unsigned(rawOut[i]);
+      auto expected = 0xff & unsigned(quartData[i]);
+      BOOST_TEST(result == expected);
+    }
+    BOOST_TEST(resultMetadata == metadata);
+  }
+  return hOut;
+}
+
 BOOST_AUTO_TEST_CASE(CastFloatNaNToQuarterF143) {
   testCastToQuarter(FLOAT, QuarterMetadata(QuarterMetadata::Format::F143, 1),
                     {std::nanf("0")});
@@ -221,8 +301,6 @@ static void floatSweepTest(const Type &otherType,
                            const std::vector<unsigned> &mantissaBits) {
   unsigned floatExponentBitPos = 23;
   unsigned floatBias = 127;
-  unsigned quarterExponentBit =
-      metadata.getFormat() == QuarterMetadata::Format::F143 ? 3u : 4u;
   int quarterBias =
       metadata.getFormat() == QuarterMetadata::Format::F143 ? 8 : 16;
 
@@ -245,10 +323,6 @@ static void floatSweepTest(const Type &otherType,
 
     int exponent = 0;
     for (auto it = exponentBits.rbegin(); it != exponentBits.rend(); ++it) {
-      if (*it > quarterExponentBit) {
-        std::cerr << "Exponent bit " << *it << " exceeds the " << metadata
-                  << " exponent range." << std::endl;
-      }
       exponent |= ((i >> bit) & 1) << *it;
       bit++;
     }
@@ -265,29 +339,35 @@ static void floatSweepTest(const Type &otherType,
   testCastToQuarter(otherType, metadata, testInput);
 }
 
-BOOST_AUTO_TEST_CASE(CastHalfToQuarterF143Sweep,
-                     *boost::unit_test::precondition(enableIfIpu21())) {
+// Sweep across a range of binary values
+static void halfQuarterSweepTest(const Type &otherType,
+                                 const QuarterMetadata &metadata,
+                                 unsigned halfBegin, unsigned numElements = 1) {
+  std::vector<unsigned short> halfData(numElements);
+  std::iota(halfData.begin(), halfData.end(), halfBegin);
+  std::vector<float> testInput(numElements);
+  poplar::convertFromDeviceType(HALF, halfData.data(),
+                                gccs::ArrayRef(testInput));
+  testCastToQuarter(otherType, metadata, testInput, halfData);
+}
+
+BOOST_AUTO_TEST_CASE(CastHalfToQuarterF143Sweep) {
   // Half range is [2^-24, 2^15]
   // Quarter F143 range without scaling is [2^-10, 2^7]
   // The scale range that keeps Quarter representable in Half is [2^-14, 2^8]
-  floatSweepTest(HALF, QuarterMetadata(QuarterMetadata::Format::F143, -14),
-                 {3, 1, 0}, {9, 4, 1, 0});
-  floatSweepTest(HALF, QuarterMetadata(QuarterMetadata::Format::F143, 8),
-                 {3, 2, 0}, {9, 4, 1, 0});
+  halfQuarterSweepTest(HALF, QuarterMetadata(QuarterMetadata::Format::F143, 0),
+                       0, 65536);
 }
 
 BOOST_AUTO_TEST_CASE(CastHalfToQuarterF152Sweep) {
   // Half range is [2^-24, 2^15]
   // Quarter F152 range without scaling is [2^-10, 2^7]
   // The scale range that keeps Quarter representable in Half is [2^-14, 2^8]
-  floatSweepTest(HALF, QuarterMetadata(QuarterMetadata::Format::F152, -7),
-                 {4, 3, 0}, {9, 4, 1, 0});
-  floatSweepTest(HALF, QuarterMetadata(QuarterMetadata::Format::F152, 0),
-                 {4, 2, 0}, {9, 4, 1, 0});
+  halfQuarterSweepTest(HALF, QuarterMetadata(QuarterMetadata::Format::F152, 0),
+                       0, 65536);
 }
 
-BOOST_AUTO_TEST_CASE(CastFloatToQuarterF143Sweep,
-                     *boost::unit_test::precondition(enableIfIpu21())) {
+BOOST_AUTO_TEST_CASE(CastFloatToQuarterF143Sweep) {
   floatSweepTest(FLOAT,
                  QuarterMetadata(QuarterMetadata::Format::F143,
                                  QUARTER_METADATA_SCALE_BIAS_MIN),
@@ -298,8 +378,7 @@ BOOST_AUTO_TEST_CASE(CastFloatToQuarterF143Sweep,
                  {3, 2, 0}, {22, 21, 20, 19, 12, 0});
 }
 
-BOOST_AUTO_TEST_CASE(CastFloatToQuarterF152Sweep,
-                     *boost::unit_test::precondition(enableIfIpu21())) {
+BOOST_AUTO_TEST_CASE(CastFloatToQuarterF152Sweep) {
   floatSweepTest(FLOAT,
                  QuarterMetadata(QuarterMetadata::Format::F152,
                                  QUARTER_METADATA_SCALE_BIAS_MIN),
@@ -341,16 +420,14 @@ static void testFloatToQuarterRounding(const QuarterMetadata &metadata) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(RoundingFloatToQuarterF143,
-                     *boost::unit_test::precondition(enableIfIpu21())) {
+BOOST_AUTO_TEST_CASE(RoundingFloatToQuarterF143) {
   testFloatToQuarterRounding(QuarterMetadata(QuarterMetadata::Format::F143,
                                              QUARTER_METADATA_SCALE_BIAS_MIN));
   testFloatToQuarterRounding(QuarterMetadata(QuarterMetadata::Format::F143,
                                              QUARTER_METADATA_SCALE_BIAS_MAX));
 }
 
-BOOST_AUTO_TEST_CASE(RoundingFloatToQuarterF152,
-                     *boost::unit_test::precondition(enableIfIpu21())) {
+BOOST_AUTO_TEST_CASE(RoundingFloatToQuarterF152) {
   testFloatToQuarterRounding(QuarterMetadata(QuarterMetadata::Format::F152,
                                              QUARTER_METADATA_SCALE_BIAS_MIN));
   testFloatToQuarterRounding(QuarterMetadata(QuarterMetadata::Format::F152,

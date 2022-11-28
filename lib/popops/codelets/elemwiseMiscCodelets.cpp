@@ -759,6 +759,8 @@ template <> struct CastDispatchMultiVertex<quarter, half, true, true> {
   }
 };
 
+// TODO: Enable after T71257 fix
+#if 0
 template <> struct CastDispatch<half, quarter, true, true> {
 public:
   static void compute(unsigned numElems, const half *src, quarter *dst,
@@ -883,7 +885,7 @@ template <> struct CastDispatchMultiVertex<half, quarter, true, true> {
     }
   }
 };
-
+#endif
 #endif // __IPU_ARCH_VERSION__ > 2
 
 template <> struct CastDispatch<float, half, true, false> {
