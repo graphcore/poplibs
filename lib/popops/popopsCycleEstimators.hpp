@@ -145,6 +145,10 @@ inline const UnaryOpPerfTable unaryOpPerfInfo = {
     {{UnaryOpType::EXPONENT_MINUS_ONE, FLOAT}, {4, false}},
     {{UnaryOpType::EXPONENT_MINUS_ONE, HALF}, {5, true}},
 
+    {{UnaryOpType::EXPONENT2, FLOAT}, {6, false, 2}},
+    // Use f16v2exp2
+    {{UnaryOpType::EXPONENT2, HALF}, {4, false, 4}},
+
     // Use mul with 1.0 and use correct rounding mode
     {{UnaryOpType::FLOOR, FLOAT}, {2, true}},
     {{UnaryOpType::FLOOR, HALF}, {2, true}},
@@ -247,6 +251,10 @@ inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
     {{UnaryOpType::EXPONENT, HALF}, {4, false, 4}},
     {{UnaryOpType::EXPONENT_MINUS_ONE, FLOAT}, {4, false}},
     {{UnaryOpType::EXPONENT_MINUS_ONE, HALF}, {5, true}},
+
+    {{UnaryOpType::EXPONENT2, FLOAT}, {6, false, 2}},
+    // Use f16v2exp
+    {{UnaryOpType::EXPONENT2, HALF}, {4, false, 4}},
 
     // Use mul with 1.0 and use correct rounding mode
     {{UnaryOpType::FLOOR, FLOAT}, {2, true}},

@@ -27,6 +27,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "EXPONENT";
   case UnaryOpType::EXPONENT_MINUS_ONE:
     return "EXPONENT_MINUS_ONE";
+  case UnaryOpType::EXPONENT2:
+    return "EXPONENT2";
   case UnaryOpType::FLOOR:
     return "FLOOR";
   case UnaryOpType::INVERSE:
@@ -164,6 +166,8 @@ std::string debugName(expr::UnaryOpType op) {
     return "Exponent";
   case UnaryOpType::EXPONENT_MINUS_ONE:
     return "ExponentMinusOne";
+  case UnaryOpType::EXPONENT2:
+    return "Exponent2";
   case UnaryOpType::FLOOR:
     return "Floor";
   case UnaryOpType::INVERSE:
@@ -491,6 +495,7 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::COS:
   case UnaryOpType::EXPONENT:
   case UnaryOpType::EXPONENT_MINUS_ONE:
+  case UnaryOpType::EXPONENT2:
   case UnaryOpType::FLOOR:
   case UnaryOpType::LOGARITHM:
   case UnaryOpType::LOGARITHM_ONE_PLUS:
@@ -550,6 +555,8 @@ poplar::StringRef getUnaryOpAsString(UnaryOpType op, poplar::Type type) {
     return "NAMESPACE::exp";
   case UnaryOpType::EXPONENT_MINUS_ONE:
     return "NAMESPACE::expm1";
+  case UnaryOpType::EXPONENT2:
+    return "NAMESPACE::exp2";
   case UnaryOpType::FLOOR:
     return "NAMESPACE::floor";
   case UnaryOpType::IS_FINITE:

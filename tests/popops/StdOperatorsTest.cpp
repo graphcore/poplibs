@@ -1922,6 +1922,11 @@ int main(int argc, char **argv) {
       double res = std::expm1(static_cast<double>(x));
       return res;
     });
+  } else if (test == "Exponent2") {
+    unaryOpTest<float, float>(popops::exp2, [](float x) -> float {
+      double res = std::exp2(static_cast<double>(x));
+      return res;
+    });
   } else if (test == "Floor") {
     unaryOpTest<float, double>(popops::floor, [](float x) -> double {
       double res = std::floor(static_cast<double>(x));

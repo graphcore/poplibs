@@ -7,6 +7,7 @@ enum class TemplateInstructions {
   f16v4sub,
   // f16v2 instructions
   f16v2exp,
+  f16v2exp2,
   f16v2ln,
   // f32v2 instructions
   f32v2absadd,
@@ -17,6 +18,7 @@ enum class TemplateInstructions {
   f32sqrt,
   f32oorx,
   f32exp,
+  f32exp2,
   f32ln
 };
 
@@ -29,6 +31,10 @@ static __attribute__((always_inline)) void selectInstruction() {
   } else if constexpr (instruction == TemplateInstructions::f16v2exp) {
     asm volatile(R"l( .macro instruction OPERANDS:vararg
                       f16v2exp \OPERANDS; .endm;)l" ::
+                     :);
+  } else if constexpr (instruction == TemplateInstructions::f16v2exp2) {
+    asm volatile(R"l( .macro instruction OPERANDS:vararg
+                      f16v2exp2 \OPERANDS; .endm;)l" ::
                      :);
   } else if constexpr (instruction == TemplateInstructions::f16v2ln) {
     asm volatile(R"l( .macro instruction OPERANDS:vararg
@@ -61,6 +67,10 @@ static __attribute__((always_inline)) void selectInstruction() {
   } else if constexpr (instruction == TemplateInstructions::f32exp) {
     asm volatile(R"l( .macro instruction OPERANDS:vararg
                       f32exp \OPERANDS; .endm; )l" ::
+                     :);
+  } else if constexpr (instruction == TemplateInstructions::f32exp2) {
+    asm volatile(R"l( .macro instruction OPERANDS:vararg
+                      f32exp2 \OPERANDS; .endm; )l" ::
                      :);
   } else if constexpr (instruction == TemplateInstructions::f32ln) {
     asm volatile(R"l( .macro instruction OPERANDS:vararg
@@ -206,6 +216,9 @@ public:
     } else if constexpr (op == popops::expr::UnaryOpType::EXPONENT) {
       return unaryLoop2Instruction<half4, TemplateInstructions::f16v2exp,
                                    stride>(loopCount, inPtr, outPtr);
+    } else if constexpr (op == popops::expr::UnaryOpType::EXPONENT2) {
+      return unaryLoop2Instruction<half4, TemplateInstructions::f16v2exp2,
+                                   stride>(loopCount, inPtr, outPtr);
     } else if constexpr (op == popops::expr::UnaryOpType::LOGARITHM) {
       return unaryLoop2Instruction<half4, TemplateInstructions::f16v2ln,
                                    stride>(loopCount, inPtr, outPtr);
@@ -240,6 +253,9 @@ public:
                                    stride>(loopCount, inPtr, outPtr);
     } else if constexpr (op == popops::expr::UnaryOpType::EXPONENT) {
       return unaryLoop2Instruction<float2, TemplateInstructions::f32exp,
+                                   stride>(loopCount, inPtr, outPtr);
+    } else if constexpr (op == popops::expr::UnaryOpType::EXPONENT2) {
+      return unaryLoop2Instruction<float2, TemplateInstructions::f32exp2,
                                    stride>(loopCount, inPtr, outPtr);
     } else if constexpr (op == popops::expr::UnaryOpType::LOGARITHM) {
       return unaryLoop2Instruction<float2, TemplateInstructions::f32ln, stride>(

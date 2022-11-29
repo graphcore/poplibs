@@ -346,6 +346,7 @@ constexpr bool hasInlineAssemblerInnerLoopImpl() {
   constexpr bool opMatch =
       (op == expr::UnaryOpType::ABSOLUTE) ||
       (op == expr::UnaryOpType::EXPONENT) ||
+      (op == expr::UnaryOpType::EXPONENT2) ||
       (op == expr::UnaryOpType::INVERSE) ||
       (op == expr::UnaryOpType::LOGARITHM) ||
       (op == expr::UnaryOpType::NEGATE) || (op == expr::UnaryOpType::SQRT) ||
@@ -435,6 +436,7 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::COUNT_LEADING_ZEROS,
                    return x ? __builtin_clz(x) : 32;)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT, exp)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT_MINUS_ONE, expm1)
+DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::EXPONENT2, exp2)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::FLOOR, floor)
 
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::INVERSE, return 1 / x;)
@@ -1265,6 +1267,7 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ERF, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::GELU_ERF, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::EXPONENT2, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::IS_FINITE, float, half)
@@ -1301,6 +1304,7 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ERF, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::GELU_ERF, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT_MINUS_ONE, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::EXPONENT2, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::IS_FINITE, float, half)
@@ -1339,6 +1343,7 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::GELU_ERF, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT_MINUS_ONE, float,
                half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::EXPONENT2, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::LOGARITHM, float, half)
@@ -1376,6 +1381,7 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::GELU_ERF, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT_MINUS_ONE, float,
                half)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::EXPONENT2, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::FLOOR, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::INVERSE, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::LOGARITHM, float, half)

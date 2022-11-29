@@ -265,7 +265,8 @@ static void floatSweepTest(const Type &otherType,
   testCastToQuarter(otherType, metadata, testInput);
 }
 
-BOOST_AUTO_TEST_CASE(CastHalfToQuarterF143Sweep) {
+BOOST_AUTO_TEST_CASE(CastHalfToQuarterF143Sweep,
+                     *boost::unit_test::precondition(enableIfIpu21())) {
   // Half range is [2^-24, 2^15]
   // Quarter F143 range without scaling is [2^-10, 2^7]
   // The scale range that keeps Quarter representable in Half is [2^-14, 2^8]
@@ -285,7 +286,8 @@ BOOST_AUTO_TEST_CASE(CastHalfToQuarterF152Sweep) {
                  {4, 2, 0}, {9, 4, 1, 0});
 }
 
-BOOST_AUTO_TEST_CASE(CastFloatToQuarterF143Sweep) {
+BOOST_AUTO_TEST_CASE(CastFloatToQuarterF143Sweep,
+                     *boost::unit_test::precondition(enableIfIpu21())) {
   floatSweepTest(FLOAT,
                  QuarterMetadata(QuarterMetadata::Format::F143,
                                  QUARTER_METADATA_SCALE_BIAS_MIN),
@@ -296,7 +298,8 @@ BOOST_AUTO_TEST_CASE(CastFloatToQuarterF143Sweep) {
                  {3, 2, 0}, {22, 21, 20, 19, 12, 0});
 }
 
-BOOST_AUTO_TEST_CASE(CastFloatToQuarterF152Sweep) {
+BOOST_AUTO_TEST_CASE(CastFloatToQuarterF152Sweep,
+                     *boost::unit_test::precondition(enableIfIpu21())) {
   floatSweepTest(FLOAT,
                  QuarterMetadata(QuarterMetadata::Format::F152,
                                  QUARTER_METADATA_SCALE_BIAS_MIN),
@@ -338,14 +341,16 @@ static void testFloatToQuarterRounding(const QuarterMetadata &metadata) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(RoundingFloatToQuarterF143) {
+BOOST_AUTO_TEST_CASE(RoundingFloatToQuarterF143,
+                     *boost::unit_test::precondition(enableIfIpu21())) {
   testFloatToQuarterRounding(QuarterMetadata(QuarterMetadata::Format::F143,
                                              QUARTER_METADATA_SCALE_BIAS_MIN));
   testFloatToQuarterRounding(QuarterMetadata(QuarterMetadata::Format::F143,
                                              QUARTER_METADATA_SCALE_BIAS_MAX));
 }
 
-BOOST_AUTO_TEST_CASE(RoundingFloatToQuarterF152) {
+BOOST_AUTO_TEST_CASE(RoundingFloatToQuarterF152,
+                     *boost::unit_test::precondition(enableIfIpu21())) {
   testFloatToQuarterRounding(QuarterMetadata(QuarterMetadata::Format::F152,
                                              QUARTER_METADATA_SCALE_BIAS_MIN));
   testFloatToQuarterRounding(QuarterMetadata(QuarterMetadata::Format::F152,

@@ -971,6 +971,50 @@ inline void expWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
                 options);
 }
 
+/** Compute the power of 2 for each element in \p A.
+ *
+ *  \param graph   The graph to update.
+ *  \param A       A tensor of elements.
+ *  \param prog    The sequence to extend with the execution of the expression
+ *                 evaluation.
+ *  \param debugContext Optional debug information
+ *  \param options Element-wise options. See map().
+ *
+ *  \returns A tensor where each element is equivalent to the result of
+ *           `std::exp2(a)`, where \c a is an element of \p A.
+ */
+inline poplar::Tensor exp2(poplar::Graph &graph, const poplar::Tensor &A,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext = {},
+                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  auto output = map(graph, expr::UnaryOpType::EXPONENT2, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
+}
+
+/** Update the input tensor with the result of exp2().
+ */
+inline void exp2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                        poplar::program::Sequence &prog,
+                        const poplar::DebugContext &debugContext = {},
+                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  mapInPlace(graph, expr::UnaryOpType::EXPONENT2, A, prog, {di}, options);
+}
+
+/** Write the result of exp2() to the given output tensor.
+ */
+inline void exp2WithOutput(poplar::Graph &graph, const poplar::Tensor &A,
+                           const poplar::Tensor &out,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext = {},
+                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, out, options));
+  mapWithOutput(graph, expr::UnaryOpType::EXPONENT2, A, out, prog, {di},
+                options);
+}
+
 /** Compute the exponential of each element in \p A minus one.
  *
  *  \param graph   The graph to update.

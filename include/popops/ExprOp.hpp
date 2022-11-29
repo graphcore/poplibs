@@ -55,6 +55,7 @@ enum class UnaryOpType {
   ERF,
   EXPONENT,
   EXPONENT_MINUS_ONE,
+  EXPONENT2,
   FLOOR,
   GELU_ERF,
   INVERSE,
