@@ -433,3 +433,26 @@ BOOST_AUTO_TEST_CASE(RoundingFloatToQuarterF152) {
   testFloatToQuarterRounding(QuarterMetadata(QuarterMetadata::Format::F152,
                                              QUARTER_METADATA_SCALE_BIAS_MAX));
 }
+
+// Test Random float values that are prone to rounding errors. The values are
+// chosen such that a cast from float to half would cause rounding in such a
+// way that would affect the 3 most significant mantissa bits if the half is
+// then cast to quarter-F143.
+BOOST_AUTO_TEST_CASE(CastFloatPrecisionToQuarterF143) {
+  testCastToQuarter(FLOAT, QuarterMetadata(QuarterMetadata::Format::F143, 0),
+                    {0.968608438969, 0.593695938587, 0.718697071075439453125000,
+                     0.148397162556648254394531, 0.484317153692245483398437,
+                     0.148416265845, 0.00927624944597,
+                     0.359309315681457519531250, 0.8435215950012207031250000});
+}
+
+// Test Random float values that are prone to rounding errors. The values are
+// chosen such that a cast from float to half would cause rounding in such a
+// way that would affect the 2 most significant mantissa bits if the half is
+// then cast to quarter-F152.
+BOOST_AUTO_TEST_CASE(CastFloatPrecisionToQuarterF152) {
+  testCastToQuarter(FLOAT, QuarterMetadata(QuarterMetadata::Format::F152, 0),
+                    {0.687358438969, 0.937445938587, 0.687447071075,
+                     0.171834662557, 0.468692153692, 0.687415063381,
+                     0.010741093196, 0.343684315681, 0.937271595001});
+}

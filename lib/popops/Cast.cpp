@@ -248,7 +248,9 @@ static Program castFloatToQuarter(Graph &graph, Tensor src, Tensor dst,
       pe::Cast(pe::Cast(pe::BitwiseAnd(pe::_1, pe::Const(0x00007fff)), BOOL),
                UNSIGNED_INT),
       {f32.reinterpret(UNSIGNED_INT)}, prog, {di});
-  mapInPlace(graph, pe::BitwiseOr(pe::_1, pe::Shl(pe::_2, pe::Const(15))),
+  mapInPlace(graph,
+             pe::BitwiseOr(pe::BitwiseAnd(pe::_1, pe::Const(0xffff8000)),
+                           pe::Shl(pe::_2, pe::Const(15))),
              {f32.reinterpret(UNSIGNED_INT), nonZeroLSBs}, prog, {di});
   auto half = cast(graph, f32, HALF, prog, {di});
   auto quart = cast(graph, half, QUARTER, mdUnitScale, prog, {di});
