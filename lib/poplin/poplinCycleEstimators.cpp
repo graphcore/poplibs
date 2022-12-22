@@ -13,10 +13,8 @@ using namespace poplibs_support;
 
 namespace poplin {
 
-VertexPerfEstimate
-MAKE_PERF_ESTIMATOR_NAME(TriangularInverse)(const VertexIntrospector &vertex,
-                                            const Target &target,
-                                            const Type &type, bool lower) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TriangularInverseWithTranspose)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_SCALAR_VAL(dim, unsigned);
 
   std::uint64_t iLoop = dim;
@@ -29,11 +27,9 @@ MAKE_PERF_ESTIMATOR_NAME(TriangularInverse)(const VertexIntrospector &vertex,
   bool half = type == poplar::HALF;
   std::uint64_t cycles;
   if (half) {
-    cycles = lower ? 7 * dim * dim * dim + 387 * dim * dim / 2 + 272 * dim - 120
-                   : 7 * dim * dim * dim + 123 * dim * dim + 269 * dim - 24;
+    cycles = 7 * dim * dim * dim + 123 * dim * dim + 269 * dim - 24;
   } else {
-    cycles = lower ? 6 * dim * dim * dim + 264 * dim * dim + 78 * dim - 120
-                   : 6 * dim * dim * dim + 51 * dim * dim + 213 * dim + 12;
+    cycles = 6 * dim * dim * dim + 51 * dim * dim + 213 * dim + 12;
   }
 
   return {cycles, convertToTypeFlops(flops, type)};
@@ -769,10 +765,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TriangularSolveMultiWorker)(
 
 poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
   return {
-      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, FLOAT, false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, FLOAT, true),
-      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, HALF, false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverseWithTranspose, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverseWithTranspose, HALF),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, Cholesky, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, Cholesky, FLOAT, true),

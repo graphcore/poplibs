@@ -35,7 +35,7 @@ class PlanningCache;
 std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
 getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
                                    const std::vector<std::size_t> &shape,
-                                   bool lower, poplar::OptionFlags options);
+                                   poplar::OptionFlags options);
 
 /**
  * Create a tensor that is used as the input for the Cholesky factoriser.

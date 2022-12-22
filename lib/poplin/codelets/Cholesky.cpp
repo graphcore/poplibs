@@ -23,57 +23,46 @@ using namespace poplar;
 
 namespace poplin {
 
-template <class FloatType, bool lower> class TriangularInverse : Vertex {
+template <class FloatType> class TriangularInverseWithTranspose : MultiVertex {
 public:
-  TriangularInverse();
+  TriangularInverseWithTranspose();
 
   const unsigned dim;
+  const unsigned colBegin;
+  const unsigned colCnt;
   Input<Vector<FloatType>> in;
-  Output<Vector<FloatType>> out;
+  InOut<Vector<FloatType>> out;
 
-  void compute() {
+  void computeInvColBased(size_t col) {
+
+    for (std::size_t i = 0, index = (col - colBegin) * dim; i < col;
+         ++i, index += 1) {
+      out[index] = 0;
+    }
+    const size_t oBase = (col - colBegin) * dim + col;
+    for (std::size_t i = 0, iBase = col * dim + col; i < dim - col;
+         ++i, iBase += dim) {
+      const auto *sumSrc1 = &in[iBase];
+      const auto *sumSrc2 = &out[oBase];
+      auto d = FloatType(1) / in[iBase + i];
+      if (i > 0) {
+        const auto sum = Dot<FloatType, false>::compute(sumSrc1, sumSrc2, i);
+        d = -d * sum;
+      }
+      out[oBase + i] = d;
+    }
+  }
+
+  bool compute(unsigned wid) {
     assert(dim * dim == in.size());
     assert(in.size() == out.size());
 
-    if (lower) {
-      std::size_t iBase = 0;
-      for (std::size_t i = 0; i < dim; ++i, iBase += dim) {
-        auto d = FloatType(1) / in[iBase + i];
-        out[iBase + i] = d;
-
-        for (std::size_t j = 0; j < i; ++j) {
-          FloatType sum = 0;
-          std::size_t kBase = j * dim;
-          for (std::size_t k = j; k < i; ++k, kBase += dim) {
-            sum += in[iBase + k] * out[kBase + j];
-          }
-          out[iBase + j] = -d * sum;
-        }
-        for (std::size_t j = i + 1; j < dim; ++j) {
-          out[iBase + j] = 0;
-        }
-      }
-    } else {
-      std::size_t iBase = 0;
-      for (std::size_t i = 0; i < dim; ++i, iBase += dim) {
-        auto d = FloatType(1) / in[iBase + i];
-        out[iBase + i] = d;
-
-        std::size_t jBase = 0;
-        for (std::size_t j = 0; j < i; ++j, jBase += dim) {
-          FloatType sum = 0;
-          std::size_t kBase = j * dim;
-          for (std::size_t k = j; k < i; ++k, kBase += dim) {
-            sum += in[kBase + i] * out[jBase + k];
-          }
-          out[jBase + i] = -d * sum;
-        }
-        jBase += dim;
-        for (std::size_t j = i + 1; j < dim; ++j, jBase += dim) {
-          out[jBase + i] = 0;
-        }
-      }
+    for (size_t col = colBegin + wid; col < colBegin + colCnt;
+         col += CTXT_WORKERS) {
+      computeInvColBased(col);
     }
+
+    return true;
   }
 };
 
@@ -88,8 +77,9 @@ public:
     assert(dim * dim == in.size());
 
     if (lower) {
-      std::size_t iBase = 0;
-      for (std::size_t i = 0; i < dim; ++i, iBase += dim) {
+      in[0] = NAMESPACE::sqrt(in[0]);
+      std::size_t iBase = dim;
+      for (std::size_t i = 1; i < dim; ++i, iBase += dim) {
         std::size_t kBase = 0;
         for (std::size_t k = 0; k <= i; ++k, kBase += dim) {
           const auto *sumSrc1 = &in[iBase];
@@ -127,10 +117,8 @@ public:
   }
 };
 
-template class TriangularInverse<float, false>;
-template class TriangularInverse<float, true>;
-template class TriangularInverse<half, false>;
-template class TriangularInverse<half, true>;
+template class TriangularInverseWithTranspose<float>;
+template class TriangularInverseWithTranspose<half>;
 
 template class Cholesky<float, false>;
 template class Cholesky<float, true>;
