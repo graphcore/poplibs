@@ -50,7 +50,7 @@ std::vector<float> createTriMat(std::size_t numBatches, std::size_t N,
 } // namespace
 
 BOOST_DATA_TEST_CASE(CholeskyTest,
-                     bud::make({20, 32}) * bud::make({16}) * bud::make({1, 2}) *
+                     bud::make({20, 32}) * bud::make({8}) * bud::make({1, 2}) *
                          bud::make({true, false}),
                      N_, blockSize_, numBatches_, lower_) {
   std::size_t N = N_;
@@ -62,7 +62,7 @@ BOOST_DATA_TEST_CASE(CholeskyTest,
             << ", blockSize = " << blockSize << ", numBatches = " << numBatches
             << std::endl;
 
-  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  auto device = createTestDevice(TEST_TARGET, 1, DeviceTypeDefaultTiles);
   auto &target = device.getTarget();
 
   Graph graph(target);
