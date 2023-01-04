@@ -218,7 +218,7 @@ int main(int argc, char **argv) try {
       matmulOptPairs;
   if (runCholesky) {
     matmulOptPairs = poplin::getCholeskyMatMulPrePlanParameters(
-        dataType, inputAShape, options);
+        dataType, inputAShape, lower, options);
   } else {
     matmulOptPairs = poplin::getTriangularSolveMatMulPrePlanParameters(
         dataType, dataType, inputAShape, inputBShape, leftSide, lower, options);

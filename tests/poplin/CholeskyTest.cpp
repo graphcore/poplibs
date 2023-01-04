@@ -8,7 +8,6 @@
 #include <boost/test/data/test_case.hpp>
 #include <boost/test/unit_test.hpp>
 
-#include <poplar/CycleCount.hpp>
 #include <poplar/Engine.hpp>
 #include <poplin/Cholesky.hpp>
 #include <poplin/ConvPreplan.hpp>
@@ -51,7 +50,7 @@ std::vector<float> createTriMat(std::size_t numBatches, std::size_t N,
 } // namespace
 
 BOOST_DATA_TEST_CASE(CholeskyTest,
-                     bud::make({20, 32}) * bud::make({8}) * bud::make({1, 2}) *
+                     bud::make({20, 32}) * bud::make({16}) * bud::make({1, 2}) *
                          bud::make({true, false}),
                      N_, blockSize_, numBatches_, lower_) {
   std::size_t N = N_;
@@ -63,7 +62,7 @@ BOOST_DATA_TEST_CASE(CholeskyTest,
             << ", blockSize = " << blockSize << ", numBatches = " << numBatches
             << std::endl;
 
-  auto device = createTestDevice(TEST_TARGET, 1, DeviceTypeDefaultTiles);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto &target = device.getTarget();
 
   Graph graph(target);
@@ -86,8 +85,8 @@ BOOST_DATA_TEST_CASE(CholeskyTest,
   graph.createHostRead("A", A);
 
   poplar::OptionFlags options{{"blockSize", std::to_string(blockSize)}};
-  auto matmulOptPairs =
-      getCholeskyMatMulPrePlanParameters(A.elementType(), A.shape(), options);
+  auto matmulOptPairs = getCholeskyMatMulPrePlanParameters(
+      A.elementType(), A.shape(), lower, options);
 
   std::set<MatMulPlanParams> params;
   for (auto &pair : matmulOptPairs)
@@ -115,6 +114,7 @@ BOOST_DATA_TEST_CASE(CholeskyTest,
           : poplin::matMulGrouped(graph, poplin::transposeGroupedMatrix(T2), T2,
                                   prog, T2.elementType());
   graph.createHostRead("A2", A2);
+
   Engine eng(graph, prog);
   device.bind([&](const Device &d) {
     eng.load(d);
