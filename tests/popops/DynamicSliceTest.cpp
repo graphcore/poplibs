@@ -2,6 +2,7 @@
 #define BOOST_TEST_MODULE DynamicSliceTest
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
+#include <boost/test/data/test_case.hpp>
 #include <boost/test/framework.hpp>
 #include <boost/test/unit_test.hpp>
 #include <cassert>
@@ -34,6 +35,14 @@ using namespace poplibs_support;
 using namespace poplibs_test::util;
 using namespace poplar_test;
 using poplibs_support::toString;
+
+// Values based on those from reduction tests
+static constexpr double FLOAT_REL_TOL = 1e-05;
+// TODO: Decrease HALF_REL_TOL when T72317 will be fixed and there be a
+// possibility to calculate more accurate reference.
+static constexpr double HALF_REL_TOL = 1e-03;
+static constexpr double FLOAT_ABS_TOL = 1e-8;
+static constexpr double HALF_ABS_TOL = 1e-6;
 
 constexpr bool useDSMapper = true;
 
@@ -1083,6 +1092,7 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   const bool updateOp = op != boost::none;
   const bool opUsesScale = updateOp && *op == popops::Operation::ADD;
 
+  const bool isHalfMul = dType == HALF && op == popops::Operation::MUL;
   const Type scaleTensorType =
       dType == HALF && useFloatScalingForHalf ? FLOAT : dType;
 
@@ -1110,6 +1120,8 @@ void multiupdate(const std::vector<uint32_t> &indicies,
     sliceOptions.set({{"operationForUpdate", "add"}});
   } else if (*op == Operation::MAX) {
     sliceOptions.set({{"operationForUpdate", "max"}});
+  } else if (*op == Operation::MUL) {
+    sliceOptions.set({{"operationForUpdate", "mul"}});
   }
 
   sliceOptions.set("remapOutOfBoundIndices",
@@ -1164,7 +1176,13 @@ void multiupdate(const std::vector<uint32_t> &indicies,
       multiUpdateMax(graph, t, s, offset, sliceDims, sliceSizes, prog, plan,
                      sliceOptions, "MultisliceTest");
 
-    } else {
+    } else if (*op == popops::Operation::MUL) {
+      BOOST_CHECK(dynamic);
+      multiUpdateMul(graph, t, s, offset, sliceDims, sliceSizes, prog, plan,
+                     sliceOptions, "MultisliceTest");
+    }
+
+    else {
       std::cerr << "\n Unsupported op in multiUpdateOp\n";
       BOOST_CHECK(false);
     }
@@ -1182,9 +1200,9 @@ void multiupdate(const std::vector<uint32_t> &indicies,
     graph.createHostWrite("scale", scale, true);
   std::vector<float> hIn(s.numElements());
   // This to get value in range for the addition
-  const float outBaseValue = 100.0f;
+  const float outBaseValue = isHalfMul ? 50.00f : 100.00f;
 
-  auto updateSlices = [&](std::vector<float> &h) {
+  const auto updateSlices = [&](auto &h) {
     const unsigned numElements = h.size();
     // Most tests use index 0 and 1. Change those entries such that unsliced
     // dimension has at most 16 unique entries where possible. This tests that
@@ -1197,10 +1215,20 @@ void multiupdate(const std::vector<uint32_t> &indicies,
   std::vector<float> hOut(t.numElements(), outBaseValue);
   updateSlices(hOut);
 
-  // This test checks halves - some of these entries will be >maxHalf so the
-  // test may fail if large offsets are indexed
-  for (unsigned i = 0; i != hIn.size(); ++i)
-    hIn[i] = i + 1.0f;
+  if (isHalfMul) {
+    // Limit generated values in orderd to avoid exceeding maxHalf during
+    // multiplication
+    std::generate(hIn.begin(), hIn.end(), [i = 0]() mutable {
+      const auto ret = i++ % 16;
+      if (ret == 0)
+        return 1.0f;
+      return static_cast<float>(ret);
+    });
+  } else {
+    // This test checks halves - some of these entries will be >maxHalf so the
+    // test may fail if large offsets are indexed
+    std::iota(hIn.begin(), hIn.end(), 0);
+  }
 
   auto target = device.getTarget();
   std::vector<char> rawIn(target.getTypeSize(dType) * hIn.size());
@@ -1240,8 +1268,12 @@ void multiupdate(const std::vector<uint32_t> &indicies,
       BOOST_TEST_MESSAGE("MUpdate Output[" << outIdx << "] = " << e);
     outIdx++;
   }
+
   std::vector<float> expected(t.numElements(), outBaseValue);
   updateSlices(expected);
+  boost::multi_array_ref<float, 2> expectedView(expected.data(),
+                                                boost::extents[D][E]);
+
   for (unsigned i = 0; i != indicies.size(); ++i) {
     auto d = indicies[i];
     if (remapOutOfBoundIndices && d >= D)
@@ -1250,24 +1282,41 @@ void multiupdate(const std::vector<uint32_t> &indicies,
       continue;
     for (unsigned elem = 0; elem != E; ++elem) {
       if (!updateOp) {
-        expected[d * E + elem] = hIn[i * E + elem];
+        expectedView[d][elem] = hIn[i * E + elem];
       } else {
         if (*op == popops::Operation::ADD) {
-          expected[d * E + elem] += updateScaling * hIn[i * E + elem];
+          expectedView[d][elem] += updateScaling * hIn[i * E + elem];
         } else if (*op == popops::Operation::MAX) {
-          expected[d * E + elem] =
-              std::max(expected[d * E + elem], hIn[i * E + elem]);
+          expectedView[d][elem] =
+              std::max(expectedView[d][elem], hIn[i * E + elem]);
+        } else if (*op == popops::Operation::MUL) {
+          expectedView[d][elem] *= hIn[i * E + elem];
         }
       }
     }
   }
-  for (unsigned i = 0; i != expected.size(); ++i)
-    BOOST_CHECK_EQUAL(hOut[i], expected[i]);
+
+  const boost::multi_array_ref<float, 2> hOutView(hOut.data(),
+                                                  boost::extents[D][E]);
+  const double absTolerance = dType == HALF ? HALF_ABS_TOL : FLOAT_ABS_TOL;
+  const double relTolerance = dType == HALF ? HALF_REL_TOL : FLOAT_REL_TOL;
+
+  BOOST_TEST(
+      checkIsClose("hOut", hOutView, expectedView, relTolerance, absTolerance));
 
   std::stringstream ss;
   eng.printProfileSummary(ss, profileOptions);
   BOOST_TEST_MESSAGE(ss.str());
 }
+
+static constexpr popops::Operation operations[] = {popops::Operation::MAX,
+                                                   popops::Operation::MUL};
+
+static const auto opsDataset = boost::unit_test::data::make(operations);
+
+static const poplar::Type data_types[] = {HALF, FLOAT, INT, UNSIGNED_INT};
+
+static const auto dtypeDataset = boost::unit_test::data::make(data_types);
 
 BOOST_AUTO_TEST_SUITE(MultiUpdate)
 
@@ -1365,9 +1414,8 @@ BOOST_AUTO_TEST_CASE(MultiUpdate2Plan) {
 }
 
 // test the fast vertex
-BOOST_AUTO_TEST_CASE(MultiUpdate10Plan) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
-              Operation::MAX);
+BOOST_DATA_TEST_CASE(MultiUpdate10Plan, opsDataset *dtypeDataset, op, dtype) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, op, dtype);
 }
 
 // test the looping multiupdate
@@ -1437,51 +1485,30 @@ BOOST_AUTO_TEST_CASE(MultiUpdateAddHalfScaleUnsliced8_10Multiples) {
 
 BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_SUITE(MultiUpdateMaxHalf)
-BOOST_AUTO_TEST_CASE(MultiUpdateMaxHalf_10Singles) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
-              popops::Operation::MAX, HALF, 0.5);
+BOOST_AUTO_TEST_SUITE(MultiUpdateReduce)
+BOOST_DATA_TEST_CASE(MultiUpdateReduce_10S, opsDataset *dtypeDataset, op,
+                     dtype) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false, op, dtype,
+              0.5);
 }
 
-BOOST_AUTO_TEST_CASE(MultiUpdateMaxHalf_10Multiples) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
-              popops::Operation::MAX, HALF, 0.5, 64);
+BOOST_DATA_TEST_CASE(MultiUpdateReduce_10Multiples, opsDataset *dtypeDataset,
+                     op, dtype) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false, op, dtype,
+              0.5, 64);
 }
 
 // test the fast vertex with multiple updates per tile
-BOOST_AUTO_TEST_CASE(MultiUpdateMaxHalf_10Multiples_AsEmbedding) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
-              popops::Operation::MAX, HALF, 0.5, 64);
+BOOST_DATA_TEST_CASE(MultiUpdateReduce_10Multiples_AsEmbedding,
+                     opsDataset *dtypeDataset, op, dtype) {
+  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true, op, dtype,
+              0.5, 64);
 }
 
-BOOST_AUTO_TEST_CASE(MultiUpdateMax5Half) {
-  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, popops::Operation::MAX,
-              HALF);
+BOOST_DATA_TEST_CASE(MultiUpdateReduce5, opsDataset *dtypeDataset, op, dtype) {
+  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, op, dtype);
 }
 
-BOOST_AUTO_TEST_SUITE_END()
-
-BOOST_AUTO_TEST_SUITE(MultiUpdateMaxFloat)
-
-BOOST_AUTO_TEST_CASE(MultiUpdateMaxFloat_10Singles) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
-              popops::Operation::MAX, FLOAT, 0.5);
-}
-
-BOOST_AUTO_TEST_CASE(MultiUpdateMaxFloat_10Multiples) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, false,
-              popops::Operation::MAX, FLOAT, 0.5, 64);
-}
-
-BOOST_AUTO_TEST_CASE(MultiUpdateMaxFloat_10Multiples_AsEmbedding) {
-  multiupdate({2, 1, 2, 1, 80, 70, 60, 50, 40, 30}, {10, 1}, true,
-              popops::Operation::MAX, FLOAT, 0.5, 64);
-}
-
-BOOST_AUTO_TEST_CASE(MultiUpdateMax5Float) {
-  multiupdate({100, 0, 50, 48, 49}, {5, 1}, false, popops::Operation::MAX,
-              FLOAT);
-}
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(MultiUpdateMultiples)

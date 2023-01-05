@@ -300,7 +300,7 @@ foreach(serialisation 1 2 3)
             endif()
 
           if(NOT(dtype STREQUAL quarter))
-            foreach(OPERATION MAX ADD)
+            foreach(OPERATION MAX ADD MUL)
               add_multitarget_test(
               NAME PlannedGroupedMultiUpdateOpTest_${dtype}_D_${dictSize}_I_${numIndices}_G_${groupSize}_S_${serialisation}_${OPERATION}
                 COMMAND PlannedMultiSliceUpdateTest
@@ -407,7 +407,7 @@ add_unit_test(MultiUpdatePlanTest DynamicSliceTest.cpp
               SUITES MultiUpdatePlanLookupParallelSplit MultiUpdatePlan VARIANTS IpuModel2)
 
 add_unit_test(MultiUpdateTestMax DynamicSliceTest.cpp
-              SUITES MultiUpdateMaxHalf MultiUpdateMaxFloat VARIANTS Hw;Sim2;IpuModel2)
+              SUITES MultiUpdateReduce VARIANTS Hw;Sim2;IpuModel2)
 
 add_unit_test(MultiUpdateAddHalfScaleTest DynamicSliceTest.cpp
               SUITES MultiUpdateAddHalfScale VARIANTS Hw;Sim2;IpuModel2)

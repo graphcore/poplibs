@@ -20,6 +20,8 @@ template <typename T> T updateOp(Operation op, T x, T y) {
   switch (op) {
   case popops::Operation::ADD:
     return x + y;
+  case popops::Operation::MUL:
+    return x * y;
   case popops::Operation::MAX:
     return x > y ? x : y;
   default:

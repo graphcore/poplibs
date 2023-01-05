@@ -3211,6 +3211,14 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, UNSIGNED_INT, false,
                             Operation::MAX),
 
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, HALF, true, Operation::MUL),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, HALF, false, Operation::MUL),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, FLOAT, false,
+                            Operation::MUL),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, INT, false, Operation::MUL),
+      CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateOp, UNSIGNED_INT, false,
+                            Operation::MUL),
+
       CYCLE_ESTIMATOR_ENTRY(popops, SequenceSlice, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, SequenceSlice, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, SequenceSlice, INT),

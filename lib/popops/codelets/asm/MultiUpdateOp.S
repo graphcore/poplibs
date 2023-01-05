@@ -75,6 +75,36 @@
 #define SCALED_CODELET_NAME(type, scaleType) __runCodelet_popops__ScaledMultiUpdateOp___##type##_##scaleType##_false_popops__Operation__\OPTYPE\()
 #define UNSCALED_CODELET_NAME(type) __runCodelet_popops__MultiUpdateOp___##type##_false_popops__Operation__\OPTYPE\()
 
+.macro elementwise OPTYPE TYPE Dst0 Src0 Src1
+
+.ifc \OPTYPE, MAX
+  .ifc \TYPE, float
+    f32max \Dst0, \Src0, \Src1
+  .else
+    f16v2max \Dst0, \Src0, \Src1
+  .endif // .if \TYPE, float
+.else
+.ifc \OPTYPE, MUL
+  .ifc \TYPE, float
+    f32mul \Dst0, \Src0, \Src1
+  .else
+    f16v2mul \Dst0, \Src0, \Src1
+  .endif // .if \TYPE, float
+.else
+.error "Unsupported multiUpdate \OPTYPE operation"
+.endif // .if \OPTYPE, MUL
+.endif // .if \OPTYPE, MAX
+
+.endm
+
+.macro f32elementwise OPTYPE Dst0 Src0 Src1
+  elementwise \OPTYPE, float, \Dst0, \Src0, \Src1
+.endm
+
+.macro f16elementwise OPTYPE Dst0 Src0 Src1
+  elementwise \OPTYPE, half, \Dst0, \Src0, \Src1
+.endm
+
 // Code to perform binary search
 .macro BINARY_SEARCH_AND_UPDATE_OFFSETS LABEL1, LABEL2
   // Do a binary search over the sorted entries. The lowest entry greater than
@@ -237,14 +267,13 @@ FN_WORKER_ENTRY_POINT UNSCALED_CODELET_NAME(float) 8 NOP_FOR_RPT
 .endif
 
 .else // .ifc \SCALED, true
-.ifc \OPTYPE, MAX
     {
       ld32 $a0, $baseTPtr, $baseIdx, 0
       fnop
     }
     {
       rpt $regionSizeM1, (2f-1f)/8-1
-      f32max $a2, $a0, $a1
+      f32elementwise \OPTYPE, $a2, $a0, $a1
     }
 1:
   {
@@ -257,12 +286,9 @@ FN_WORKER_ENTRY_POINT UNSCALED_CODELET_NAME(float) 8 NOP_FOR_RPT
   }
   {
     st32step $a2, $baseTPtr, $baseIdx+=, 1
-    f32max $a2, $a0, $a1
+    f32elementwise \OPTYPE, $a2, $a0, $a1
   }
 2:
-.else
-.error "Non scaled variant of multiUpdate only supported for operation type MAX"
-.endif // .if \OPTYPE, MAX
 .endif
   // process the final element
   st32 $a2, $baseTPtr, $baseIdx, 0
@@ -597,14 +623,10 @@ FN_WORKER_ENTRY_POINT UNSCALED_CODELET_NAME(half) 8 NOP_FOR_RPT
 .else // .ifc \OPTYPE, ADD
 .error "Scaled variant of multiUpdateOp is only supported for operand type ADD"
 .endif // .ifc \OPTYPE, ADD
-
 .else // .ifc \SCALED, true
-
-.ifc \OPTYPE, MAX
-
   {
     rpt $regionSizeM1, (2f-1f)/8-1
-    f16v2max $a4, $a0, $a2
+    f16elementwise \OPTYPE, $a4, $a0, $a2
   }
 1:
   {
@@ -617,13 +639,9 @@ FN_WORKER_ENTRY_POINT UNSCALED_CODELET_NAME(half) 8 NOP_FOR_RPT
   }
   {
     st32step $a4, $baseTPtr, $baseIdx+=, 1
-    f16v2max $a4, $a0, $a2
+    f16elementwise \OPTYPE, $a4, $a0, $a2
   }
 2:
-
-.else // .ifc \OPTYPE, MAX
-.error "Non-scaled variant of multiUpdateOp is only supported for operand type MAX"
-.endif // .ifc \OPTYPE, MAX
 
 .endif // .ifc \SCALED, true
 
@@ -720,5 +738,8 @@ CODELET_FUNCTION_HALF ADD true float
 
 CODELET_FUNCTION_FLOAT MAX false
 CODELET_FUNCTION_HALF MAX false none
+
+CODELET_FUNCTION_FLOAT MUL false
+CODELET_FUNCTION_HALF MUL false none
 
 #endif // __IPU__

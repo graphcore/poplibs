@@ -87,6 +87,12 @@ template class MultiUpdateOp<float, false, Operation::MAX>;
 template class MultiUpdateOp<int, false, Operation::MAX>;
 template class MultiUpdateOp<unsigned, false, Operation::MAX>;
 
+template class MultiUpdateOp<half, true, Operation::MUL>;
+template class MultiUpdateOp<half, false, Operation::MUL>;
+template class MultiUpdateOp<float, false, Operation::MUL>;
+template class MultiUpdateOp<int, false, Operation::MUL>;
+template class MultiUpdateOp<unsigned, false, Operation::MUL>;
+
 template <typename Type, typename SType, bool subwordWritesSupported,
           Operation op>
 class ScaledMultiUpdateOp : public MultiVertex {

@@ -753,6 +753,65 @@ void groupedMultiUpdateMax(
     const SlicePlan &plan, const poplar::OptionFlags &options,
     const poplar::DebugContext &debugContext = {});
 
+/** Perform tensor product over multiple slices in a tensor
+ *
+ * \p t, \p s must have the same element type
+ *  offsets[i] >= t.dim(0) are ignored.
+ *
+ *  \p dims and \p sizes must be size 1.
+ *
+ *  See overloads of multiSlice for information on \p options.
+ *
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being updated (must be rank 2).
+ *  \param s           The slices to perform product over.
+ *  \param offsets     The offsets within \p t to compute product over.
+ *  \param dims        The dimensions of \p t to compute product over
+ *                     (must be rank 1).
+ *  \param sizes       The size of the update in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
+ *  \param plan        Plan describing how the operation will be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ */
+void multiUpdateMul(poplar::Graph &graph, const poplar::Tensor &t,
+                    const poplar::Tensor &s, const poplar::Tensor &offsets,
+                    const std::vector<std::size_t> &dims,
+                    const std::vector<std::size_t> &sizes,
+                    poplar::program::Sequence &prog, const SlicePlan &plan,
+                    const poplar::OptionFlags &options,
+                    const poplar::DebugContext &debugContext = {});
+
+/** Perform tensor product over multiple slices in a tensor with a group
+ *  dimension. The tensors \p t, \p s, \p offsets have groups as their first
+ *  dimension. The \p offsets tensor contains indices per group which update
+ *  elements of the corresponding group.
+ *
+ *  \p dims and \p sizes must be size 1.
+ *
+ *  See overloads of multiSlice for information on \p options.
+ *
+ *  \param graph       The Poplar graph.
+ *  \param t           The tensor being updated (must be rank 2).
+ *  \param s           The slices to perform product over.
+ *  \param offsets     The offsets within \p t to compute product over.
+ *  \param dims        The dimensions of each group of \p t to compute product
+ *                     over (must be rank 1).
+ *  \param sizes       The size of the update in each of the dimensions in
+ *                     \p dims.
+ *  \param prog        The program to be extended.
+ *  \param plan        Plan describing how the operation will be implemented.
+ *  \param options     Flags controlling how the operation will be implemented.
+ *  \param debugContext Optional debug information.
+ */
+void groupedMultiUpdateMul(
+    poplar::Graph &graph, const poplar::Tensor &t, const poplar::Tensor &s,
+    const poplar::Tensor &offsets, const std::vector<std::size_t> &dims,
+    const std::vector<std::size_t> &sizes, poplar::program::Sequence &prog,
+    const SlicePlan &plan, const poplar::OptionFlags &options,
+    const poplar::DebugContext &debugContext = {});
+
 namespace embedding {
 
 /** Create a plan for implementing a set of operations on an
@@ -772,13 +831,14 @@ namespace embedding {
  *       operation. An error is thrown if set to false and `usedForSlice` is
  *       set to false.
  *
- *     * `operationForUpdate` ("none", "add", "max") [="add"]
+ *     * `operationForUpdate` ("none", "add", "max", "mul") [="add"]
  *
  *       Only applicable when `usedForUpdate` = true. Is the type of operation
  *       used in multi-update.
  *         Set to "none" for multiUpdate
  *                "add" for multiUpdateAdd
  *                "max" for multiUpdateMax
+ *                "mul" for multiUpdateMul
  *
  *     * `availableMemoryProportion` Decimal between 0 and 1 (inclusive) [=0.6]
  *

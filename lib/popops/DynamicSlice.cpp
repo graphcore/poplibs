@@ -43,6 +43,9 @@
 
 #include <tbb/parallel_for.h>
 
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/fmt/ostr.h>
+
 #include <algorithm>
 #include <boost/range/adaptor/reversed.hpp>
 #include <cassert>
@@ -318,9 +321,10 @@ static SliceOptions parseSliceOptions(const OptionFlags &optionFlags_) {
       {"usedForSlice", OptionHandler::createWithBool(options.usedForSlice)},
       {"usedForUpdate", OptionHandler::createWithBool(options.usedForUpdate)},
       {"operationForUpdate",
-       createOptionalEnumHandler(
-           options.opForUpdate,
-           {{"add", Operation::ADD}, {"max", Operation::MAX}})},
+       createOptionalEnumHandler(options.opForUpdate,
+                                 {{"add", Operation::ADD},
+                                  {"max", Operation::MAX},
+                                  {"mul", Operation::MUL}})},
       {"partialType", createOptionalEnumHandler(
                           options.partialType,
                           {{"half", poplar::HALF}, {"float", poplar::FLOAT}})},
@@ -387,6 +391,9 @@ static double getUpdateIdentityValue(boost::optional<Operation> op,
   switch (*op) {
   case Operation::ADD:
     return 0.0;
+    break;
+  case Operation::MUL:
+    return 1.0;
     break;
   case Operation::MAX:
     // TODO: T54781: numeric_limits for target types would make this
@@ -1426,6 +1433,8 @@ static void generatePlannedMultiUpdateOp(
                   {dnai, "Add"});
     } else if (*op == Operation::MAX) {
       maxInPlace(graph, addDst, cumulativeUpdate, seq, {dnai, "Max"});
+    } else if (*op == Operation::MUL) {
+      mulInPlace(graph, addDst, cumulativeUpdate, seq, {dnai, "Mul"});
     } else {
       const std::string opName = asString(*op);
       throw poplibs_error("Unsupported multiUpdate operation" + opName);
@@ -3914,6 +3923,34 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &s_,
   }
 }
 
+static std::string getFuncOpSuffix(Operation op) {
+
+  std::string op_str = fmt::format("{}", op);
+  std::transform(op_str.begin() + 1, op_str.end(), op_str.begin() + 1,
+                 [](unsigned char c) { return std::tolower(c); });
+
+  return op_str;
+}
+
+static void multiUpdateReduce(Graph &graph, const Tensor &t,
+                              const Tensor &sMulti, const Tensor &offset,
+                              const std::vector<std::size_t> &dims,
+                              const std::vector<std::size_t> &sizes,
+                              Sequence &prog, const Operation op,
+                              const SlicePlan &plan, const OptionFlags &options,
+                              const poplar::DebugContext &debugContext) {
+  POPOPS_TRACEPOINT();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
+  if (t.elementType() == QUARTER) {
+    throw poplibs_error(fmt::format("multiUpdate{} does not support data of "
+                                    "type quarter",
+                                    getFuncOpSuffix(op)));
+  }
+  multiUpdateOp(graph, t.expand({0}), sMulti.expand({0}), offset.expand({0}),
+                boost::none, dims, sizes, prog, plan, op, false, options, {di});
+}
+
 // This is derived from multiUpdate, but a max of s is and t is done rather than
 // replacing it. Currently only a single dimension may be sliced
 void multiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,
@@ -3921,16 +3958,50 @@ void multiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,
                     const std::vector<std::size_t> &sizes, Sequence &prog,
                     const SlicePlan &plan, const OptionFlags &options,
                     const poplar::DebugContext &debugContext) {
+
+  multiUpdateReduce(graph, t, sMulti, offset, dims, sizes, prog, Operation::MAX,
+                    plan, options, debugContext);
+}
+
+void multiUpdateMul(Graph &graph, const Tensor &t, const Tensor &sMulti,
+                    const Tensor &offset, const std::vector<std::size_t> &dims,
+                    const std::vector<std::size_t> &sizes, Sequence &prog,
+                    const SlicePlan &plan, const OptionFlags &options,
+                    const poplar::DebugContext &debugContext) {
+
+  multiUpdateReduce(graph, t, sMulti, offset, dims, sizes, prog, Operation::MUL,
+                    plan, options, debugContext);
+}
+
+static void groupedMultiUpdateReduce(
+    Graph &graph, const Tensor &t, const Tensor &sMulti, const Tensor &offset,
+    const std::vector<std::size_t> &dims, const std::vector<std::size_t> &sizes,
+    Sequence &prog, const Operation op, const SlicePlan &plan,
+    const OptionFlags &options, const poplar::DebugContext &debugContext) {
   POPOPS_TRACEPOINT();
   poputil::PoplibsOpDebugInfo di(
       debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
   if (t.elementType() == QUARTER) {
-    throw poplibs_error("multiUpdateMax does not support data of type "
-                        "quarter");
+    throw poplibs_error(fmt::format("groupedMultiUpdate{} does not support "
+                                    "data of type quarter",
+                                    getFuncOpSuffix(op)));
   }
-  multiUpdateOp(graph, t.expand({0}), sMulti.expand({0}), offset.expand({0}),
-                boost::none, dims, sizes, prog, plan, Operation::MAX, false,
-                options, {di});
+  if (plan.getImpl().isNull) {
+    throw poplibs_error(fmt::format("{}: groupedMultiUpdate{} must have a "
+                                    "valid plan",
+                                    debugContext.getPathName(),
+                                    getFuncOpSuffix(op)));
+  }
+  if (plan.getImpl().groupSize != t.dim(0)) {
+    throw poputil::poplibs_error(fmt::format("groupedMultiUpdate{}: group size "
+                                             "passed does not match the plan",
+                                             getFuncOpSuffix(op)));
+  }
+  validateGroupDims(
+      {t, sMulti, offset}, {"base", "slice", "offset"},
+      {di, fmt::format("groupedMultiUpdate{}", getFuncOpSuffix(op))});
+  multiUpdateOp(graph, t, sMulti, offset, boost::none, dims, sizes, prog, plan,
+                op, true, options, {di});
 }
 
 // This is derived from multiUpdate, but a max of s is and t is done rather than
@@ -3942,25 +4013,21 @@ void groupedMultiUpdateMax(Graph &graph, const Tensor &t, const Tensor &sMulti,
                            Sequence &prog, const SlicePlan &plan,
                            const OptionFlags &options,
                            const poplar::DebugContext &debugContext) {
-  POPOPS_TRACEPOINT();
-  poputil::PoplibsOpDebugInfo di(
-      debugContext, DI_ARGS(t, sMulti, offset, dims, sizes, plan, options));
-  if (t.elementType() == QUARTER) {
-    throw poplibs_error("groupedMultiUpdateMax does not support data of type "
-                        "quarter");
-  }
-  if (plan.getImpl().isNull) {
-    throw poplibs_error(debugContext.getPathName() + ": groupedMultiUpdateMax "
-                                                     "must have a valid plan");
-  }
-  if (plan.getImpl().groupSize != t.dim(0)) {
-    throw poputil::poplibs_error("groupedMultiUpdateMax: group size "
-                                 "passed does not match the plan");
-  }
-  validateGroupDims({t, sMulti, offset}, {"base", "slice", "offset"},
-                    {di, "groupedMultiUpdateMax"});
-  multiUpdateOp(graph, t, sMulti, offset, boost::none, dims, sizes, prog, plan,
-                Operation::MAX, true, options, {di});
+
+  groupedMultiUpdateReduce(graph, t, sMulti, offset, dims, sizes, prog,
+                           Operation::MAX, plan, options, debugContext);
+}
+
+void groupedMultiUpdateMul(Graph &graph, const Tensor &t, const Tensor &sMulti,
+                           const Tensor &offset,
+                           const std::vector<std::size_t> &dims,
+                           const std::vector<std::size_t> &sizes,
+                           Sequence &prog, const SlicePlan &plan,
+                           const OptionFlags &options,
+                           const poplar::DebugContext &debugContext) {
+
+  groupedMultiUpdateReduce(graph, t, sMulti, offset, dims, sizes, prog,
+                           Operation::MUL, plan, options, debugContext);
 }
 
 namespace embedding {
@@ -4479,9 +4546,11 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     // When `mLookupsAreSplit` the indices and updates are rearranged onto the
     // tile, the updates are cast to FLOAT and then accumulated
     // with a FLOAT copy of the base tensor.
-    const auto mNeedsCast = m.addConstant(partialType != dataType ? 1u : 0u);
+    const bool needsCast = partialType != dataType;
+
     const auto mUpdatesCastTempBytesPerGroupPerTile =
-        m.product({mNeedsCast, mOutputElemsPerGroupPerTile, mBytesPerPartial});
+        needsCast ? m.product({mOutputElemsPerGroupPerTile, mBytesPerPartial})
+                  : m.addConstant(0u);
     // Temp bytes needed if the updates are multi-cast to tiles.
     const auto mUpdatesTempBytesPerGroupPerTile = m.product(
         {mDictIsSplit, mLookupsPerGroupPerTile, mUnslicedGrainsPerGroupPerTile,
@@ -4509,15 +4578,16 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                    m.addConstant(2u)});
 
     e.updateCastSlicesCycles =
-        modelContiguousCast(
-            target, dataType, FLOAT, m,
-            m.product({mGroupSizePerTile, mOutputElemsPerGroupPerTile}),
-            "update.0.castSlices")
-            .cycles;
-    e.updateCastSlicesCycles =
-        m.product({mNeedsCast, e.updateCastSlicesCycles});
+        needsCast
+            ? modelContiguousCast(
+                  target, dataType, FLOAT, m,
+                  m.product({mGroupSizePerTile, mOutputElemsPerGroupPerTile}),
+                  "update.0.castSlices")
+                  .cycles
+            : m.addConstant(0u);
+
     e.updateZeroPartialsCycles =
-        modelContiguousFill(target, FLOAT, m, mPartialElemsPerTile,
+        modelContiguousFill(target, partialType, m, mPartialElemsPerTile,
                             "update.0.zeroPartials")
             .cycles;
     e.updateZeroPartialsCycles =
@@ -4531,16 +4601,15 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
     {
       e.updateFirstStageComputeCycles = m.call<unsigned>(
           {mUnslicedElemsPerGroupPerTile, mLookupsPerGroupPerTile, mNumEntries,
-           mDictEntriesPerGroupPerTile, mNeedsCast, mGroupSizePerTile},
+           mDictEntriesPerGroupPerTile, mGroupSizePerTile},
           [&target, &options, operation, offsetsPerDictEntry, useOrderingInfo,
-           &dataType, subWordWritesRequired,
+           &dataType, subWordWritesRequired, needsCast,
            trySingleRegionOptimisation](const std::vector<unsigned> &values) {
             const auto elemsPerSlice = values[0];
             const auto numOffsets = values[1];
             const auto numDictEntries = values[2];
             const auto maxDictEntriesPerTile = values[3];
-            const auto needsCast = values[4];
-            const auto groupSizePerTile = values[5];
+            const auto groupSizePerTile = values[4];
 
             const MultiUpdateOpTargetParameters targetMultiUpdateOpParams{
                 target, needsCast ? FLOAT : dataType};
@@ -4625,7 +4694,7 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                                 mBaseElemsStoragePerTile, "update.1.castBase")
                 .cycles;
         e.updateCastBasePreCycles =
-            m.product({mNeedsCast, e.updateCastBasePreCycles});
+            m.product({m.addConstant(needsCast), e.updateCastBasePreCycles});
         // NOTE: Optimistically assuming fast path - this is not forced
         // but a runtime check opportunistically selects the fast path if
         // inputs are in different memory elements.
@@ -4643,8 +4712,8 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                                 "update.1.castBaseBack")
                 .cycles;
         e.updateCastBasePostCycles =
-            m.product({mNeedsCast, e.updateCastBasePostCycles});
-      } else if (*operation == Operation::MAX) {
+            m.product({m.addConstant(needsCast), e.updateCastBasePostCycles});
+      } else if (operation == Operation::MAX || operation == Operation::MUL) {
         // estimate a maxInPlace.
         // TODO: use modelled estimates that are general for other operations
         // (T45159)

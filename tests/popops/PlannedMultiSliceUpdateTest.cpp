@@ -4,6 +4,7 @@
 #include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <cassert>
+#include <functional>
 #include <iostream>
 #include <numeric>
 #include <poplar/Engine.hpp>
@@ -34,6 +35,14 @@ using namespace popops;
 using namespace poplibs_support;
 using namespace poplibs_test::util;
 using poplibs_support::toString;
+
+// Values based on those from reduction tests
+static constexpr double FLOAT_REL_TOL = 1e-05;
+// TODO: Decrease HALF_REL_TOL when T72317 will be fixed and there be a
+// possibility to calculate more accurate reference.
+static constexpr double HALF_REL_TOL = 0.1;
+static constexpr double FLOAT_ABS_TOL = 1e-8;
+static constexpr double HALF_ABS_TOL = 1e-5;
 
 MultiArray<unsigned int> createHostIndices(const Target &target,
                                            std::mt19937 &randomEngine,
@@ -203,7 +212,6 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
   const bool useFloatScalingForHalf = false;
   const Type scaleTensorType =
       dataType == HALF && useFloatScalingForHalf ? FLOAT : dataType;
-
   const unsigned D = baseShape.at(0);
   const unsigned E = baseShape.at(1);
   const auto grouped = groupSize_ != boost::none;
@@ -276,7 +284,13 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
           ? groupedMultiUpdateMax(graph, t, s, offset, sliceDims, sliceSizes,
                                   prog, plan, sliceOptions, "MultiUpdateTest")
           : multiUpdateMax(graph, t, s, offset, sliceDims, sliceSizes, prog,
-                           plan, sliceOptions, "MultUpdateTest");
+                           plan, sliceOptions, "MultiUpdateTest");
+    } else if (*op == popops::Operation::MUL) {
+      grouped
+          ? groupedMultiUpdateMul(graph, t, s, offset, sliceDims, sliceSizes,
+                                  prog, plan, sliceOptions, "MultiUpdateTest")
+          : multiUpdateMul(graph, t, s, offset, sliceDims, sliceSizes, prog,
+                           plan, sliceOptions, "MultiUpdateTest");
     } else {
       std::cerr << "\n Unsupported op in multiUpdateOp\n";
       return 0;
@@ -299,11 +313,39 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
 
   // random integers
   writeRandomValues(target, dataType, hIn, -1., 1., randomEngine);
+
+  std::function<double(double)> transformOp = nullptr;
+
+  // Limit generated values in orderd to avoid exceeding dataType limits during
+  // multiplication
+  if (op == popops::Operation::MUL) {
+    if (dataType == HALF || dataType == FLOAT) {
+      transformOp = [&](double x) -> double {
+        const auto ret = static_cast<int>(x * 4) % 4;
+        if (ret == 0)
+          return 0.5;
+        return ret * 0.5;
+      };
+    } else {
+      transformOp = [&](double x) -> double {
+        const auto ret = static_cast<int>(x * 8) % 8;
+        if (ret == 0)
+          return 1.0;
+        return ret;
+      };
+    }
+  } else {
+    transformOp = [&](double x) -> double {
+      return static_cast<int>(x * 16) % 16;
+      ;
+    };
+  }
+
   std::transform(hIn.data(), hIn.data() + hIn.numElements(), hIn.data(),
-                 [](double x) { return static_cast<int>(x * 16) % 16; });
+                 transformOp);
   writeRandomValues(target, dataType, hOut, -1., 1., randomEngine);
   std::transform(hOut.data(), hOut.data() + hOut.numElements(), hOut.data(),
-                 [](double x) { return static_cast<int>(x * 16) % 16; });
+                 transformOp);
 
   // copy base to expected
   std::copy(hOut.data(), hOut.data() + hOut.numElements(), expected.data());
@@ -380,6 +422,8 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
           } else if (*op == popops::Operation::MAX) {
             expected[g][d][elem] =
                 std::max(expected[g][d][elem], hIn[g][i][elem]);
+          } else if (*op == popops::Operation::MUL) {
+            expected[g][d][elem] *= hIn[g][i][elem];
           }
         }
       }
@@ -387,19 +431,11 @@ multiUpdate(const DeviceType &deviceType, const unsigned numIPUs,
   }
 
   // validate
-  bool matches = true;
-  for (unsigned g = 0; g != groupSize; ++g) {
-    for (unsigned d = 0; d != D; ++d) {
-      for (unsigned elem = 0; elem != E; ++elem) {
-        if (expected[g][d][elem] != hOut[g][d][elem]) {
-          matches = false;
-          std::cerr << "Mismatch at [" << g << "][" << d;
-          std::cerr << "][" << elem << "] : " << expected[g][d][elem];
-          std::cerr << "(exp) " << hOut[g][d][elem] << "(actual)\n";
-        }
-      }
-    }
-  }
+  const double absTolerance = dataType == HALF ? HALF_ABS_TOL : FLOAT_ABS_TOL;
+  const double relTolerance = dataType == HALF ? HALF_REL_TOL : FLOAT_REL_TOL;
+  bool matches =
+      checkIsClose("hOut", hOut, expected, relTolerance, absTolerance);
+
   if (dataType.requiresMetadata() && metadata != metadataOut) {
     matches = false;
   }
@@ -503,8 +539,8 @@ int main(int argc, char **argv) {
      "used to index/update the base matrix")
     ("operation", po::value<boost::optional<Operation>>(&opts.operation)
                   ->default_value(boost::none),
-      "The operation to perform (ADD, MAX) when update = true Defaults to a "
-      "plain update")
+      "The operation to perform (ADD, MAX, MUL) when update = true Defaults to "
+      "a plain update")
     ("scale",
      po::value<double>(&opts.scale)->default_value(opts.scale),
      "Scale applied for update when the operation is ADD")
@@ -571,6 +607,8 @@ int main(int argc, char **argv) {
       opName = "none";
     } else if (*opts.operation == Operation::MAX) {
       opName = "max";
+    } else if (*opts.operation == Operation::MUL) {
+      opName = "mul";
     } else if (*opts.operation == Operation::ADD) {
       opName = "add";
     } else {
