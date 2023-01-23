@@ -134,8 +134,8 @@ void matMulWithOutput(poplar::Graph &graph, const poplar::Tensor &A_,
  *
  *  \param out             Stream to write report to.
  *  \param graph           The Poplar graph.
- *  \param inputType       Element type of input tensors.
- *  \param outputType      Element type of output tensor.
+ *  \param inputType       Element type of the input tensors.
+ *  \param outputType      Element type of the output tensor.
  *  \param aShape          Shape of input tensor A.
  *  \param bShape          Shape of input tensor B.
  *  \param options         The structure describing options on how the
@@ -167,7 +167,7 @@ void matMulReportPlan(std::ostream &out, const poplar::Graph &graph,
  *  \param prog            A reference to a program sequence which will
  *                         be appended with the code to perform the
  *                         multiplication.
- *  \param outputType      Data type to be used for the returned tensor.
+ *  \param outputType      Element type of the returned tensor.
  *  \param debugContext    Optional debug information.
  *  \param options         The structure describing options on how the
  *                         grouped multiplication should be implemented. See
@@ -199,14 +199,15 @@ void matMulGroupedWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
  *
  *  \param out             Stream to write report to.
  *  \param graph           The Poplar graph.
- *  \param inputType       Element type of input tensors.
- *  \param outputType      Element type of output tensor.
+ *  \param inputType       Element type of the input tensors.
+ *  \param outputType      Element type of the output tensor.
  *  \param aShape          Shape of input tensor A.
  *  \param bShape          Shape of input tensor B.
  *  \param options         The structure describing options on how the
  *                         multiplication should be implemented.
  *  \param cache           Optional pointer to a planning cache to use.
  */
+
 void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,
                              const poplar::Type &inputType,
                              const poplar::Type &outputType,
@@ -221,7 +222,7 @@ void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,
  *  constant scalar.
  *
  *  \param graph           The Poplar graph.
- *  \param C               The matrix to add to. This
+ *  \param C               The tensor to add to. This
  *                         2D tensor must be already mapped to tiles.
  *  \param k               The constant or a single element tensor to multiply
  *                         the result of the multiplication. If \p k is a
@@ -265,7 +266,7 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C,
  *  dimension of the matrices is the group dimension with value equal to G.
  *
  *  \param graph           The Poplar graph.
- *  \param C               The matrix to add to. This
+ *  \param C               The tensor to add to. This
  *                         3D tensor must be already mapped to tiles.
  *  \param k               The constant or a single element tensor to multiply
  *                         the result of the multiplication. If \p k is a
@@ -300,7 +301,7 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
                       const poplar::OptionFlags &options = {},
                       PlanningCache *cache = nullptr);
 
-/** Create a tensor that is used as the left operand of matrix multiplication.
+/** Create a tensor to be used as the left operand of a matrix multiplication.
  *
  * The types of the input and and output tensors are specified separately.
  * This will create a 2D tensor in the graph. The ordering and tile mapping
@@ -308,17 +309,17 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
  * tensor as the left argument efficient.
  *
  * \param graph           The Poplar graph.
- * \param inputType       The input data type.
- * \param outputType      The data type of the returned tensor.
- * \param aShape          The shape of the required matrix.
- * \param bShape          The shape of the matrix that the required matrix will
+ * \param inputType       Element type of the input tensors.
+ * \param outputType      Element type of the output tensor.
+ * \param aShape          The shape of the tensor to be created.
+ * \param bShape          The shape of the tensor that the created tensor will
  *                        be multiplied by.
  * \param debugContext    Debug information.
  * \param options         The implementation options of the multiplication. See
  *                        matMul().
  * \param cache           Optional pointer to a planning cache to use.
  *
- * \returns               A matrix of type \p type and shape \p aShape. The
+ * \returns               A tensor of type \p type and shape \p aShape. The
  *                        tensor will have been mapped to tiles.
  */
 poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
@@ -330,7 +331,7 @@ poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
                                     const poplar::OptionFlags &options = {},
                                     PlanningCache *cache = nullptr);
 
-/** Create a tensor that is used as the left operand of matrix multiplication.
+/** Create a tensor to be used as the left operand of a matrix multiplication.
  *
  * The type of both input and output tensors is specified by \p dataType.
  * This will create a 2D tensor in the graph. The ordering and tile mapping
@@ -338,16 +339,16 @@ poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
  * tensor as the left argument efficient.
  *
  * \param graph           The Poplar graph.
- * \param dataType        The data type of both the input and output tensors.
- * \param aShape          The shape of the required matrix.
- * \param bShape          The shape of the matrix that the required matrix will
+ * \param dataType        The element type of both the input and output tensors.
+ * \param aShape          The shape of the tensor to be created.
+ * \param bShape          The shape of the tensor that the created tensor will
  *                        be multiplied by.
  * \param debugContext    Debug information.
  * \param options         The implementation options of the multiplication. See
  *                        matMul().
  * \param cache           Optional pointer to a planning cache to use.
  *
- * \returns               A matrix of type \p type and shape \p aShape. The
+ * \returns               A tensor of type \p type and shape \p aShape. The
  *                        tensor will have been mapped to tiles.
  */
 poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
@@ -359,28 +360,29 @@ poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
                                     PlanningCache *cache = nullptr);
 
 /**
- * Create a tensor that is used as the left operand of a grouped matrix
+ * Create a tensor to be used as the left operand of a grouped matrix
  * multiplication.
  *
  * This will create a 3D tensor in the graph. The ordering and tile mapping of
  * the tensor will be set to make a grouped matrix multiplication with this
  * tensor as the left argument efficient.
  *
- * The first dimension of the required matrix and the matrix it multiplies by
+ * The first dimension of the output tensor and the tensor it is multiplied by
  * must the number of groups.
  *
  * \param graph           The Poplar graph.
- * \param type            The data type of the required matrix.
- * \param aShape          The grouped shape [g, r, c] of the required matrix.
- * \param bShape          The grouped shape [g, r, c] of the matrix that the
- *                        required matrix will be multiplied by.
+ * \param inputType       Element type of the input tensors.
+ * \param outputType      Element type of the output tensor.
+ * \param aShape          The grouped shape [g, r, c] of the created tensor.
+ * \param bShape          The grouped shape [g, r, c] of the tensor that the
+ *                        created tensor will be multiplied by.
  * \param debugContext    Debug information.
  * \param options         The implementation options of the multiplication. See
  *                        matMul().
  * \param cache           Optional pointer to a planning cache to use.
  *
- * \returns               A matrix of type \p type and grouped shape \p aShape.
- *                        The tensor will have been mapped to tiles.
+ * \returns               A tensor of type \p outputType and grouped shape
+ *                        \p aShape. The tensor will have been mapped to tiles.
  */
 poplar::Tensor createMatMulGroupedInputLHS(
     poplar::Graph &graph, const poplar::Type &inputType,
@@ -390,24 +392,24 @@ poplar::Tensor createMatMulGroupedInputLHS(
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 /**
- * Create a tensor that is used as the right operand of matrix multiplication.
+ * Create a tensor to be used as the right operand of a matrix multiplication.
  *
  * This will create a 2D tensor in the graph. The ordering and tile mapping
  * of the tensor will be set to make a matrix multiplication with this
  * tensor as the right argument efficient.
  *
  * \param graph           The Poplar graph.
- * \param inputType       The input data type.
- * \param outputType      The data type of the returned tensor.
- * \param aShape          The shape of the matrix that the required matrix will
- *                        be multiplied by.
- * \param bShape          The shape of the required matrix.
+ * \param inputType       Element type of the input tensors.
+ * \param outputType      Element type of the output tensor.
+ * \param aShape          The shape of the tensor that the tensor to be created
+ *                        will be multiplied by.
+ * \param bShape          The shape of the created tensor.
  * \param debugContext    Debug information.
  * \param options         The implementation options of the multiplication. See
  *                        matMul().
  * \param cache           Optional pointer to a planning cache to use.
  *
- * \returns               A matrix of type \p type and shape \p bShape. The
+ * \returns               A tensor of type \p type and shape \p bShape. The
  *                        tensor will have been mapped to tiles.
  */
 poplar::Tensor createMatMulInputRHS(poplar::Graph &graph,
@@ -420,8 +422,10 @@ poplar::Tensor createMatMulInputRHS(poplar::Graph &graph,
                                     PlanningCache *cache = nullptr);
 
 /**
- * Overloaded function for when inputType == outputType (represented by the
- * dataType parameter).
+ * Create a tensor to be used as the right operand of a matrix multiplication.
+ *
+ * Overloaded function for when the input type and output type are the same
+ * (represented by the \p dataType parameter).
  */
 poplar::Tensor createMatMulInputRHS(poplar::Graph &graph,
                                     const poplar::Type &dataType,
@@ -432,24 +436,23 @@ poplar::Tensor createMatMulInputRHS(poplar::Graph &graph,
                                     PlanningCache *cache = nullptr);
 
 /**
- * Create a tensor that is used as the output operand of matrix multiplication.
+ * Create a tensor to be used as the output operand of a matrix multiplication.
  *
  * This will create a 2D tensor in the graph. The ordering and tile mapping
  * of the tensor will be set to make a matrix multiplication with this
  * tensor as the output argument efficient.
  *
  * \param graph           The Poplar graph.
- * \param inputType       The input data type.
- * \param outputType      The data type of the returned tensor.
- * \param aShape          The shape of the matrix that the required matrix will
- *                        be multiplied by.
- * \param bShape          The shape of the required matrix.
+ * \param inputType       Element type of the input tensor.
+ * \param outputType      Element type of the output tensor.
+ * \param aShape          The shape of the left-hand input to the matmul.
+ * \param bShape          The shape of the right-hand input to the matmul.
  * \param debugContext    Debug information.
  * \param options         The implementation options of the multiplication. See
  *                        matMul().
  * \param cache           Optional pointer to a planning cache to use.
  *
- * \returns               A matrix of type \p type and shape
+ * \returns               A tensor of type \p type and shape
  *                        [ \p aShape[0], \p bShape[1] ]. The
  *                        tensor will have been mapped to tiles.
  */
@@ -463,8 +466,10 @@ poplar::Tensor createMatMulOutput(poplar::Graph &graph,
                                   PlanningCache *cache = nullptr);
 
 /**
- * Overloaded function for when inputType == outputType (represented by the
- * dataType parameter).
+ * Create a tensor to be used as the output operand of a matrix multiplication.
+ *
+ * Overloaded function for when the input type and output type are the same
+ * (represented by the \p dataType parameter).
  */
 poplar::Tensor createMatMulOutput(poplar::Graph &graph,
                                   const poplar::Type &dataType,
@@ -475,27 +480,28 @@ poplar::Tensor createMatMulOutput(poplar::Graph &graph,
                                   PlanningCache *cache = nullptr);
 
 /**
- * Create a tensor that is used as the right operand of grouped matrix
+ * Create a tensor to be used as the right operand of a grouped matrix
  * multiplication.
  *
  * This will create a 3D tensor in the graph. The ordering and tile mapping of
  * the tensor will be set to make a grouped matrix multiplication with this
  * tensor as the right argument efficient.
  *
- * The first dimension of the required matrix and the matrix it multiplies by
+ * The first dimension of the tensor to be created and the tensor it multiplies
  * must the number of groups.
  *
  * \param graph           The Poplar graph.
- * \param type            The data type of the required matrix.
- * \param aShape          The grouped shape [g, r, c] of the matrix that the
- *                        required matrix will be multiplied by.
- * \param bShape          The grouped shape [g, r, c] of the required matrix.
+ * \param inputType       Element type of the input tensor.
+ * \param outputType      Element type of the output tensor.
+ * \param aShape          The grouped shape [g, r, c] of the tensor that the
+ *                        tensor to be created will be multiplied by.
+ * \param bShape          The grouped shape [g, r, c] of the created tensor.
  * \param debugContext    Debug information.
  * \param options         The implementation options of the multiplication. See
  *                        matMul().
  * \param cache           Optional pointer to planning cache to use.
  *
- * \returns               A matrix of type \p type and grouped shape \p bShape.
+ * \returns               A tensor of type \p type and grouped shape \p bShape.
  *                        The tensor will have been mapped to tiles.
  */
 poplar::Tensor createMatMulGroupedInputRHS(
@@ -506,27 +512,28 @@ poplar::Tensor createMatMulGroupedInputRHS(
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 /**
- * Create a tensor that is used as the output operand of grouped matrix
+ * Create a tensor to be used as the output operand of a grouped matrix
  * multiplication (with output).
  *
  * This will create a 3D tensor in the graph. The ordering and tile mapping of
  * the tensor will be set to make a grouped matrix multiplication with this
  * tensor as the output argument efficient.
  *
- * The first dimension of the required matrix and the matrix it multiplies by
+ * The first dimension of the tensor to be created and the tensor it multiplies
  * must the number of groups.
  *
  * \param graph           The Poplar graph.
- * \param type            The data type of the required matrix.
- * \param aShape          The grouped shape [g, r, c] of the matrix that the
- *                        required matrix will be multiplied by.
- * \param bShape          The grouped shape [g, r, c] of the required matrix.
+ * \param inputType       Element type of the input tensor.
+ * \param outputType      Element type of the output tensor.
+ * \param aShape          The grouped shape [g, r, c] of the tensor that the
+ *                        tensor to be created will be multiplied by.
+ * \param bShape          The grouped shape [g, r, c] of the created tensor.
  * \param debugContext    Debug information.
  * \param options         The implementation options of the multiplication. See
  *                        matMul().
  * \param cache           Optional pointer to planning cache to use.
  *
- * \returns               A matrix of type \p type and grouped shape
+ * \returns               A tensor of type \p type and grouped shape
  *                        [ \p aShape[g], \p aShape[r], \p bShape[c] ].
  *                        The tensor will have been mapped to tiles.
  */
@@ -536,13 +543,16 @@ poplar::Tensor createMatMulGroupedOutput(
     const std::vector<std::size_t> &bShape,
     const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
-/** Pre-arrange right-hand side input.
+
+/**
+ *  Pre-arrange a matrix to be used as the right input of a matrix
+ *  multiplication with explicitly defined output type.
  *
  *  Re-arrange memory for RHS operand to an upcoming matmul operation.
  *  This allows the rearrangement of the memory of a tensor that would
  *  otherwise be rearranged as part of the matmul operation for efficiency.
  *
- *  Use this function and the matMul*() functions with the
+ *  Use this function and the `matMul*()` functions with the
  *  `inputRHSIsPreArranged` option flag to do any re-arrangement necessary
  *  once and then re-use that input multiple times.
  *
@@ -556,9 +566,9 @@ poplar::Tensor createMatMulGroupedOutput(
  *                        be appended with the code to perform the
  *                        arrangement.
  *  \param outputType     Optional via overloaded function. Element type of
- *                        returned tensor. The default is \p B.elementType()
+ *                        output tensor. The default is \p B.elementType()
  *                        if omitted.
- *  \param debugContext    Optional debug information.
+ *  \param debugContext   Optional debug information.
  *  \param options        Flags describing options for how the multiplication
  *                        should be implemented. See matMul().
  *  \param cache          Optional pointer to planning cache to use.
@@ -566,7 +576,6 @@ poplar::Tensor createMatMulGroupedOutput(
  *  \returns              New tensor holding the rearranged input. This tensor
  *                        has the same shape as the given tensor.
  */
-/** Pre-arrange input with explicitly defined output type. */
 poplar::Tensor preArrangeMatMulInputRHS(
     poplar::Graph &graph, const std::vector<std::size_t> &aShape,
     const poplar::Tensor &B, poplar::program::Sequence &prog,
@@ -574,14 +583,18 @@ poplar::Tensor preArrangeMatMulInputRHS(
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
-/** Pre-arrange input where the output type is the same as \p B. */
+/**
+ * Pre-arrange a matrix to be used as the right input of a matrix
+ * multiplication, where the output type is the same as \p B. */
 poplar::Tensor preArrangeMatMulInputRHS(
     poplar::Graph &graph, const std::vector<std::size_t> &aShape,
     const poplar::Tensor &B, poplar::program::Sequence &prog,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
-/** Pre-arrange grouped input with explicitly defined output type. */
+/**
+ * Pre-arrange a matrix to be used as the right input of a matrix
+ * multiplication, with explicitly defined output type. */
 poplar::Tensor preArrangeMatMulGroupedInputRHS(
     poplar::Graph &graph, const std::vector<std::size_t> &aShape,
     const poplar::Tensor &B, poplar::program::Sequence &prog,
