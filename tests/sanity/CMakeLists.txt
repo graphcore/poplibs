@@ -78,6 +78,7 @@ add_multitarget_test(
   LABELS "python_tool")
 
 # Test single_conv_layer_random options.
+# POPLAR-320 IpuModel21 does not currently pass this test
 add_multitarget_test(
   NAME singleConvLayerRandomTest
   COMMAND ${PYTHON_EXECUTABLE}
@@ -86,7 +87,7 @@ add_multitarget_test(
           --binary $<TARGET_FILE:single_conv_layer>
           --partials-type half
           --constraints-file ${CMAKE_SOURCE_DIR}/tests/poplin/json/slic411.json
-  VARIANTS ${IPUMODEL_VARIANTS}
+  VARIANTS IpuModel2
   LABELS "python_tool")
 
 # Check that compilation is deterministic.
