@@ -257,11 +257,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
 
   bool floatActivations = fpType == FLOAT;
   bool floatPartials = accumType == FLOAT;
-  uint64_t zeroCycles = getZeroSupervisorVertexCycleEstimate(
-      tZeroWorkList, numOutGroups * numConvGroups, dataPathWidth,
-      numWorkerContexts, floatPartials);
+  uint64_t zeroCycles =
+      zerosInfo == 0 ? 0
+                     : getZeroSupervisorVertexCycleEstimate(
+                           tZeroWorkList, numOutGroups * numConvGroups,
+                           dataPathWidth, numWorkerContexts, floatPartials);
   if (numInGroups * inChansPerGroup == 0) {
-    return zeroCycles + convHorizontalMacOverhead(floatActivations);
+    return zeroCycles + convHorizontalMacOverhead(floatActivations, false);
   }
 
   std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
@@ -291,7 +293,82 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
                        workerPartitions, numConvGroups, numInGroups,
                        numOutGroups, kernelSize, inChansPerGroup,
                        outChansPerGroup, numWorkerContexts, actsVectorWidth,
-                       floatActivations, floatPartials);
+                       floatActivations, floatPartials, false);
+  return {cycles, convertToTypeFlops(flops, fpType)};
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac1x1)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const Type &accumType, bool useLimitedVer) {
+  // Non-limited versions of HMAC have same cycle counts as the limited ones.
+  (void)useLimitedVer;
+  CODELET_VECTOR_VALS(worklists, unsigned);
+  CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
+  CODELET_SCALAR_VAL(numInGroups, unsigned);
+  CODELET_SCALAR_VAL(transformedOutStride, int);
+  CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
+  CODELET_SCALAR_VAL(inChansPerGroup, unsigned);
+  CODELET_SCALAR_VAL(outChansPerGroup, unsigned);
+  CODELET_SCALAR_VAL(zerosInfo, unsigned);
+  CODELET_FIELD(out);
+  CODELET_FIELD(in);
+  CODELET_FIELD(weights);
+  const auto numConvGroups = numConvGroupsM1 + 1;
+  const auto numOutGroups = numOutGroupsM1 + 1;
+  const auto outStride = transformedOutStride / outChansPerGroup + 1;
+
+  assert(numConvGroups * numOutGroups * numInGroups == weights.size());
+  assert(out.size() == numOutGroups * numConvGroups);
+  assert(in.size() == numInGroups * numConvGroups);
+
+  const auto dataPathWidth = target.getDataPathWidth();
+  const auto numWorkerContexts = target.getNumWorkerContexts();
+  const auto actsVectorWidth = target.getVectorWidth(fpType);
+
+  std::vector<unsigned> tZeroWorkList;
+  for (unsigned i = 0; i != numWorkerContexts; ++i) {
+    tZeroWorkList.push_back((zerosInfo + numWorkerContexts - 1) /
+                            numWorkerContexts);
+  }
+
+  bool floatActivations = fpType == FLOAT;
+  bool floatPartials = accumType == FLOAT;
+  uint64_t zeroCycles = getZeroSupervisorVertexCycleEstimate(
+      tZeroWorkList, numOutGroups * numConvGroups, dataPathWidth,
+      numWorkerContexts, floatPartials);
+  if (numInGroups * inChansPerGroup == 0) {
+    return zeroCycles + convHorizontalMacOverhead(floatActivations, true);
+  }
+
+  // find max work to bt done per worker
+  std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
+  assert(worklists.size() / 3 <= target.getNumWorkerContexts());
+  unsigned totalFieldPos = 0;
+  workerPartitions.reserve(target.getNumWorkerContexts());
+  for (unsigned context = 0; context != target.getNumWorkerContexts();
+       ++context) {
+    // The number of elements minus 3 is the second element in the work list
+    int numFieldElems;
+    if (useLimitedVer) {
+      numFieldElems = static_cast<short>(worklists[3 * context + 1]);
+    } else {
+      numFieldElems = static_cast<int>(worklists[3 * context + 1]);
+    }
+    numFieldElems = (numFieldElems + outStride - 1) / outStride;
+    totalFieldPos += numFieldElems;
+    workerPartitions.emplace_back();
+    workerPartitions.back().emplace_back();
+    workerPartitions.back().back().push_back(numFieldElems);
+  }
+  std::uint64_t flops = static_cast<std::uint64_t>(numConvGroups) *
+                        numInGroups * numOutGroups * inChansPerGroup *
+                        outChansPerGroup * totalFieldPos * flopsForMAC();
+  std::uint64_t cycles =
+      zeroCycles + getConvPartialHorizontalMacSupervisorCycleEstimate(
+                       workerPartitions, numConvGroups, numInGroups,
+                       numOutGroups, 1, inChansPerGroup, outChansPerGroup,
+                       numWorkerContexts, actsVectorWidth, floatActivations,
+                       floatPartials, true);
   return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
@@ -820,7 +897,10 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             false),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, HALF,
                             false),
-
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, FLOAT,
+                            true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac1x1, HALF, FLOAT,
+                            true),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, true,
                             4),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, false,

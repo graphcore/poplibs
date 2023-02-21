@@ -99,6 +99,7 @@ set(IPU1_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_half_half_8.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_half_half_16.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac1x1_half_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_half.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_half_non_limited.S
@@ -133,6 +134,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1x1Out.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1xNSLIC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialHorizontalMac.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialHorizontalMac1x1.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialVerticalMac.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialnx1.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/InverseStdDeviation.cpp
@@ -160,6 +162,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/inlineAssemblerSLICStride2.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_common.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_sr_ctrl.h.S    
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_common.h.S
 )
 
 install(TARGETS poplin

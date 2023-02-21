@@ -35,6 +35,16 @@ bool canUseConvPartial1x1Vertex(
     const std::vector<unsigned> &outputFieldShape,
     const ConvParams::OutputTransform &outputTransform);
 
+/// The same conditions as \r canUseConvPartial1x1Vertex must be except
+/// except that conv unit weight height is not checked for.
+bool canUseHorizontalMac1x1Vertex(
+    unsigned inputChannels, unsigned batchSize,
+    const std::vector<unsigned> &transformedInputDilation,
+    const std::vector<unsigned> &transformedOutputStride,
+    const std::vector<unsigned> &tileKernelShape,
+    const std::vector<unsigned> &outputFieldShape,
+    const ConvParams::OutputTransform &outputTransform);
+
 unsigned getConvUnitWeightHeight(unsigned convInputLoadElems,
                                  unsigned inChansPerGroup,
                                  poplar::Target const &target,

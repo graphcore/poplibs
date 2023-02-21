@@ -47,14 +47,14 @@ getMaxInputRangeSize(popsolver::Model &m,
       });
 }
 
-bool canUseConvPartial1x1Vertex(
-    unsigned convUnitWeightHeight, unsigned inputChannels, unsigned batchSize,
-    const std::vector<unsigned> &transformedInputDilation,
-    const std::vector<unsigned> &transformedOutputStride,
-    const std::vector<unsigned> &tileKernelShape,
-    const std::vector<unsigned> &outputFieldShape,
-    const ConvParams::OutputTransform &outputTransform) {
-  if (convUnitWeightHeight != 1 || inputChannels == 0 || batchSize != 1)
+static bool
+canUse1x1Vertex(unsigned inputChannels, unsigned batchSize,
+                const std::vector<unsigned> &transformedInputDilation,
+                const std::vector<unsigned> &transformedOutputStride,
+                const std::vector<unsigned> &tileKernelShape,
+                const std::vector<unsigned> &outputFieldShape,
+                const ConvParams::OutputTransform &outputTransform) {
+  if (inputChannels == 0 || batchSize != 1)
     return false;
 
   if (product(tileKernelShape) != 1)
@@ -73,6 +73,31 @@ bool canUseConvPartial1x1Vertex(
       return false;
 
   return true;
+}
+
+bool canUseConvPartial1x1Vertex(
+    unsigned convUnitWeightHeight, unsigned inputChannels, unsigned batchSize,
+    const std::vector<unsigned> &transformedInputDilation,
+    const std::vector<unsigned> &transformedOutputStride,
+    const std::vector<unsigned> &tileKernelShape,
+    const std::vector<unsigned> &outputFieldShape,
+    const ConvParams::OutputTransform &outputTransform) {
+  return convUnitWeightHeight == 1 &&
+         canUse1x1Vertex(inputChannels, batchSize, transformedInputDilation,
+                         transformedOutputStride, tileKernelShape,
+                         outputFieldShape, outputTransform);
+}
+
+bool canUseHorizontalMac1x1Vertex(
+    unsigned inputChannels, unsigned batchSize,
+    const std::vector<unsigned> &transformedInputDilation,
+    const std::vector<unsigned> &transformedOutputStride,
+    const std::vector<unsigned> &tileKernelShape,
+    const std::vector<unsigned> &outputFieldShape,
+    const ConvParams::OutputTransform &outputTransform) {
+  return canUse1x1Vertex(inputChannels, batchSize, transformedInputDilation,
+                         transformedOutputStride, tileKernelShape,
+                         outputFieldShape, outputTransform);
 }
 
 unsigned getConvUnitWeightHeight(unsigned convInputLoadElems,
@@ -422,8 +447,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         return m.call<unsigned>(
             convSizeVarsVector,
             [&target, fieldGrainSize, inChansPerGroup, convGroupsPerGroup,
-             outChansPerGroup, transformedInputDilation, cache, outputStrideX,
-             actsType, floatActivations, floatPartials](
+             outChansPerGroup, transformedInputDilation,
+             transformedOutputStride, cache, outputStrideX, actsType,
+             floatActivations, floatPartials, params](
                 const std::vector<unsigned> &values) -> popsolver::DataType {
               const auto convSize =
                   makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
@@ -448,26 +474,42 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                                            transformedInputDilation[dim];
                 numActiveOutRows *= dimActiveRows;
               }
+              const bool use1x1Implementation =
+                  canUseHorizontalMac1x1Vertex(
+                      params.inputChannelsPerConvGroup, params.batchSize,
+                      transformedInputDilation, transformedOutputStride,
+                      convSize.kernelSize, convSize.fieldSize,
+                      params.outputTransform) &&
+                  horizontalMacHas1x1Specialisation(floatActivations,
+                                                    floatPartials);
 
               const unsigned actsVectorWidth = target.getVectorWidth(actsType);
               const auto tileKernelWidth = convSize.kernelSize.back();
               const auto tileOutWidth = convSize.fieldSize.back();
-              const auto zeroCycles = estimateZeroSupervisorCycles(
-                  (numActiveOutRows * tileOutWidth), tileNumOutGroups,
-                  tileNumConvGroups, outChansPerGroup,
-                  target.getDataPathWidth(), target.getNumWorkerContexts());
+              const auto usesNonZeroing1x1Implementaton =
+                  use1x1Implementation && tileNumInGroups == 1 &&
+                  outChansPerGroup == 1;
+              const auto zeroCycles =
+                  usesNonZeroing1x1Implementaton
+                      ? 0
+                      : estimateZeroSupervisorCycles(
+                            (numActiveOutRows * tileOutWidth), tileNumOutGroups,
+                            tileNumConvGroups, outChansPerGroup,
+                            target.getDataPathWidth(),
+                            target.getNumWorkerContexts());
               const auto innerLoopCycles =
                   cache->mEstimateConvPartialHorizontalMacInnerLoopCycles(
                       numActiveOutRows, tileOutWidth, outputStrideX,
                       tileKernelElements / tileKernelWidth, tileKernelWidth,
                       target.getNumWorkerContexts(), actsVectorWidth,
                       floatActivations, floatPartials, inChansPerGroup,
-                      outChansPerGroup, target.getDataPathWidth());
+                      outChansPerGroup, target.getDataPathWidth(),
+                      use1x1Implementation);
               auto cycles = popsolver::DataType{
                   getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
                       innerLoopCycles, tileNumConvGroups, tileNumInGroups,
                       tileNumOutGroups, target.getNumWorkerContexts(),
-                      floatActivations, floatPartials) +
+                      floatActivations, floatPartials, use1x1Implementation) +
                   zeroCycles};
               return cycles;
             },

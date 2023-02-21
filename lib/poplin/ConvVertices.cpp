@@ -12,9 +12,8 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
-#include <poplibs_support/Visitor.hpp>
-
 #include <gccs/Algorithm.hpp>
+#include <poplibs_support/Visitor.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -1680,7 +1679,7 @@ static void createConvPartialHorizontalMacVertex(
   // Limits for field and worklist elements
   const auto unsignedMax = std::numeric_limits<unsigned short>::max();
   bool useLimitedVer = method.useLimitedVersion;
-  const auto zerosInfo = outWindow[0].numElements();
+  auto zerosInfo = outWindow[0].numElements();
 
   const auto doubleWordWrites =
       zerosInfo / (8 / target.getTypeSize(outWindow[0].elementType()));
@@ -1723,11 +1722,26 @@ static void createConvPartialHorizontalMacVertex(
       useLimitedVer = false;
   }
 
+  const auto use1x1Specialisation =
+      canUseHorizontalMac1x1Vertex(
+          inChansPerGroup * numInChanGroups, params.getBatchSize(),
+          params.inputTransform.dilation, params.outputTransform.stride,
+          convertVecToUnsigned(params.kernelShape),
+          convertVecToUnsigned(params.getOutputFieldShape()),
+          params.outputTransform) &&
+      horizontalMacHas1x1Specialisation(
+          in.elementType() == FLOAT, plan.types.back().partialType == FLOAT) &&
+      useLimitedVer;
+
+  std::string vertexName = use1x1Specialisation
+                               ? "poplin::ConvPartialHorizontalMac1x1"
+                               : "poplin::ConvPartialHorizontalMac";
+
   const auto worklistEntryType = useLimitedVer ? UNSIGNED_SHORT : UNSIGNED_INT;
-  auto v = graph.addVertex(
-      fwdCS, templateVertex("poplin::ConvPartialHorizontalMac",
-                            in.elementType(), plan.types.back().partialType,
-                            useLimitedVer ? "true" : "false"));
+  auto v =
+      graph.addVertex(fwdCS, templateVertex(vertexName, in.elementType(),
+                                            plan.types.back().partialType,
+                                            useLimitedVer ? "true" : "false"));
   graph.connect(v["in"], inWindow);
   graph.connect(v["out"], outWindow);
   graph.connect(v["weights"],
@@ -1737,16 +1751,40 @@ static void createConvPartialHorizontalMacVertex(
   graph.setInitialValue(v["inChansPerGroup"], inChansPerGroup);
   graph.setInitialValue(v["numOutGroupsM1"], numOutChanGroups - 1);
   graph.setInitialValue(v["numInGroups"], numInChanGroups);
-  graph.setInitialValue(v["kernelSizeM1"], numKernelFieldElems - 1);
   graph.setInitialValue(v["transformedInStride"], transformedInStride);
   graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
   graph.setInitialValue(v["numConvGroupsM1"], numConvGroupGroups - 1);
-  graph.setFieldSize(v["worklists"], worklists.size());
-  for (unsigned i = 0; i < worklists.size(); ++i) {
-    auto t = graph.addConstant(worklistEntryType, {worklists[i].sizeInValues()},
-                               worklists[i].dataAsValues(), {dnai, "worklist"});
-    graph.setTileMapping(t, 0);
-    graph.connect(v["worklists"][i], t);
+  if (use1x1Specialisation) {
+    assert(worklists.size() == contextsPerVertex);
+
+    WorkList worklist1D(contextsPerVertex);
+    for (size_t i = 0; i < worklist1D.size(); ++i) {
+      assert(worklists[i].size() <= 1);
+      if (!worklists[i].empty())
+        worklist1D[i] = worklists[i][0];
+    }
+    auto t = graph.addConstant(worklistEntryType, {worklist1D.sizeInValues()},
+                               worklist1D.dataAsValues(), {dnai, "worklists"});
+    graph.setTileMapping(t, tile);
+    graph.connect(v["worklists"], t);
+
+    // A special path to avoid zeroing exists in the specialisation
+    // if  more than one channel is not accumulated. This is
+    // signalled as no outputs to zero
+    if (numInChanGroups * outChansPerGroup == 1 && 
+        (inChansPerGroup % target.getVectorWidth(in.elementType()) == 0))  {
+      zerosInfo = 0;
+    }
+  } else {
+    graph.setInitialValue(v["kernelSizeM1"], numKernelFieldElems - 1);
+    graph.setFieldSize(v["worklists"], worklists.size());
+    for (unsigned i = 0; i < worklists.size(); ++i) {
+      auto t =
+          graph.addConstant(worklistEntryType, {worklists[i].sizeInValues()},
+                            worklists[i].dataAsValues(), {dnai, "worklist"});
+      graph.setTileMapping(t, 0);
+      graph.connect(v["worklists"][i], t);
+    }
   }
   graph.setInitialValue(v["zerosInfo"], zerosInfo);
   graph.setTileMapping(v, tile);

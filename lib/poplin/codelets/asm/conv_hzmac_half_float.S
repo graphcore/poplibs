@@ -8,11 +8,9 @@
 #include "poplar/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 #include "conv_partial_zero_output_stack.h"
+#include "conv_hzmac_common.h.S"
 
 #define conv_hzmac_sup_half_float __runCodelet_poplin__ConvPartialHorizontalMac___half_float_true
-
-// =============================================================================
-
 
 // =============================================================================
 
@@ -27,237 +25,96 @@
 
 // =============================================================================
 
-// Supervisor vertex state: offsets and the number must match vertex field
-// ordering and sizes
-#if defined(VECTORLIST_AVAIL_DELTAN)
-#define SUP_INCHAN_VECTORS              0    // word
-#define SUP_WEIGHTS_VECTORS             4    // word
-#define SUP_OUTCHAN_VECTORS             8    // word
-#define SUP_ZERO_INFO                   12   // word
-#define SUP_PARTITION_TABLES            16   // VectorList::DELTA
-#define SUP_NUM_OUTCHAN_M1              22   // short
-#define SUP_INSTRIDE                    24   // word
-#define SUP_OUTSTRIDE                   28   // word
-#define SUP_NUM_INCHAN                  32   // short
-#define SUP_NUM_KERNEL_M1               34   // short (K-1)
-#define SUP_NUM_CONVGROUPS_M1           36   // short
-#define SUP_NUM_OUTCHANS_PER_GROUP      38   // short
-#define SUP_NUM_INCHANS_PER_GROUP       40   // short
 
-#else
-#define SUP_INCHAN_VECTORS              0    // word
-#define SUP_WEIGHTS_VECTORS             4    // word
-#define SUP_OUTCHAN_VECTORS             8    // word
-#define SUP_ZERO_INFO                   12   // word
-#define SUP_PARTITION_TABLES            16   // VectorList::DeltaNElements
-#define SUP_NUM_OUTCHAN_M1              24   // short
-#define SUP_INSTRIDE                    28   // word
-#define SUP_OUTSTRIDE                   32   // word
-#define SUP_NUM_INCHAN                  36   // short
-#define SUP_NUM_KERNEL_M1               38   // short (K-1)
-#define SUP_NUM_CONVGROUPS_M1           40   // short
-#define SUP_NUM_OUTCHANS_PER_GROUP      42   // short
-#define SUP_NUM_INCHANS_PER_GROUP       44   // short
-#endif
-
-// Worklist partition fields: must match the order of entries in worklists
-#define PARTITION_NUM_ELEMS             2    // half
-#define PARTITION_INOFFSET              4    // half
-
-// DeltaN decoding constants
-#if defined(VECTORLIST_AVAIL_DELTAN)
-#define SCALED_PTR32_SHL         2
-#define DELTAN_DELTAS_COUNT_BITS 12
-#define DELTAN_OFFSET_BITS       18
-#define DELTAN_COUNT_BITS        14
-#define ELEM_TO_BYTES_CONV       0
-#else
-#define DELTAN_DELTAS_COUNT_BITS 8
-#define DELTAN_OFFSET_BITS       20
-#define DELTAN_COUNT_BITS        (32 - DELTAN_OFFSET_BITS)
-#define ELEM_TO_BYTES_CONV       (21 - DELTAN_OFFSET_BITS)
-#endif
-
-// =============================================================================
-
-// Vertex state shared between workers
-// The supervisor sets up a common state for workers to use
-// Allocate codelet specific worker stack after zero output worker (WKR_ZERO_OUTPUT_STACK)
-#define WKR_INSTRIDE                    WKR_ZERO_OUTPUT_STACK
-#define WKR_OUTSTRIDE                   (WKR_INSTRIDE + 4)
-#define WKR_INCHAN_PTR                  (WKR_OUTSTRIDE + 4)
-#define WKR_PARTITION_PTR               (WKR_INCHAN_PTR + 4)
-#define WKR_OUTCHANS_PER_GROUP_IN_BYTES (WKR_PARTITION_PTR + 4)
-#define WKR_PARTITION_BASE              (WKR_OUTCHANS_PER_GROUP_IN_BYTES + 4)
-#define WKR_INCHANS_PER_GROUP_IN_BYTES  (WKR_PARTITION_BASE + 4)
-#define WKR_OCG_COUNT                   (WKR_INCHANS_PER_GROUP_IN_BYTES + 4)
-#define WKR_ICG_COUNT                   (WKR_OCG_COUNT + 4)
-#define WKR_WEIGHTS_PTR                 (WKR_ICG_COUNT + 4)
-#define WKR_STATE_SIZE                  (WKR_WEIGHTS_PTR + 4) // bytes
-
-// =============================================================================
-
-
-// Non loop overhead:
-//      zero Partitions:         7
-//      non-zero partitions:     16
-//
-// Loop performance:
-//   With input channels per group % 4 == 0:
-//     partition loop: 19 + num_fp * (7 + outChansPerGroup * (7 + inChansPerGroup/4))
-//   Otherwise:
-//     partition loop: 19 + num_fp * (7 + outChansPerGroup * (7 + 2*(inChansPerGroup/2 - 1)))
-
-
-.section ".text.convHorizMacFlattened", "ax"
-.type convHorizMacFlattened, @function
+.section ".text.convHorizMacFlattened_half_float", "ax"
+.type convHorizMacFlattened_half_float, @function
 .align 8
 .worker
-convHorizMacFlattened:
-// worker register mapping
-#define wkr_id_v                       m0
-#define instride_v                     m0
-#define partition_table_v              m1
-#define partition_struct_v             m1
-#define partition_v                    m1
-#define out_addr_v                     m1
-#define num_partitions_v               m2
-#define num_fp_v                       m3
-#define outstride_v                    m4
-#define in_offset_v                    m5
-#define out_offset_v                   m5
-#define out_chans_per_group_x4         m6
-#define ocg_count_v                    m6
-#define partition_base_v               m7
-#define icg_count_v                    m7
-#define in_chans_per_group_x2          m7
-#define fp_clr_reg                     a0
-#define in_addr_v                      m8
-#define weights_ptr_v                  m9
-#define tripacked_addr                 m8:9
-#define inchan_ptr_v                   m10
-#define outchan_ptr_v                  m11
+convHorizMacFlattened_half_float:
 
-// This is in the worker stack
-#define WKR_STACK_PARTITIONS_PTR        0
-#define WKR_STACK_INADDR                4
+PREPARE_FOR_PARTITION_LOOP convHorizMacFlattened_half_float
 
-get           $wkr_id_v, $WSR
-and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
-
-ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
-ld32          $partition_struct_v, $partition_table_v, $wkr_id_v
-
-// extract offset and delta: upper X bits gives number of partitions
-// lower Y bits give offset to common base for the vector list
-// For DeltaN: X = 18, Y = 14
-// For DeltaNElements: X and Y are based on memory alignment used
-shr           $num_partitions_v, $partition_struct_v, DELTAN_OFFSET_BITS
-// exit if no work to be done for worker
-brz           $num_partitions_v, L_Conv_end
-shl           $partition_v, $partition_struct_v, DELTAN_COUNT_BITS
-// Offset needs to be converted from elements to bytes.
-// Hence shift rigth is less by ELEM_TO_BYTES_CONV
-shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
-ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
-add           $partition_v, $partition_v, $partition_base_v
-
-ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
-ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
-
-// Compensate for extra load in the loops. This could be done in the supervisor
-ld32          $instride_v, $mvertex_base, WKR_INSTRIDE/4
-add           $instride_v, $instride_v, -1
-ld32          $outstride_v, $mvertex_base, WKR_OUTSTRIDE/4
-
-// This following approximates num_partitions/3 - 1 for values
-// [3:3:2^14-1]. The case of zero is handled above
-{
-  mul           $num_partitions_v, $num_partitions_v, 21845
-  setzi         $fp_clr_reg, 1 << CSR_W_FP_CLR__ZAACC__SHIFT
-}
-
-// clear accumulator: only required once because we always feed zeros
-// with gina instruction
-{
-  shr           $num_partitions_v, $num_partitions_v, 16
-  uput          $FP_CLR, $fp_clr_reg
-}
-
-PartitionLoop:
-  ldz16         $num_fp_v, $partition_v, PARTITION_NUM_ELEMS/2
-
-  ld32          $in_chans_per_group_x2, $mvertex_base, WKR_INCHANS_PER_GROUP_IN_BYTES/4
-  ld32          $out_chans_per_group_x4, $mvertex_base, WKR_OUTCHANS_PER_GROUP_IN_BYTES/4
-
-  // form input address
-  ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
-  mul           $in_offset_v, $in_offset_v, $in_chans_per_group_x2
-  add           $in_addr_v, $inchan_ptr_v, $in_offset_v
-
-  // form output address
-  // Note this relies on the fact that out offset is the first entry in the
-  // partition. This allows us to wind the pointer to the next partition
-  ldz16step     $out_offset_v, $mzero, $partition_v+=, 3
-  st32          $partition_v, $mworker_base, WKR_STACK_PARTITIONS_PTR/4
-  brz           $num_fp_v, L_Partition_end
-  add           $num_fp_v, $num_fp_v, -1
-
-  st32          $in_addr_v, $mworker_base, WKR_STACK_INADDR/4
-  mul           $out_offset_v, $out_offset_v, $out_chans_per_group_x4
-  add           $out_addr_v, $outchan_ptr_v, $out_offset_v
-
-  and           $in_chans_per_group_x2, $in_chans_per_group_x2, 0x7
-  brnz          $in_chans_per_group_x2, LProcessTwoInputsFp
-
-  // Process a vector of 4 input channels at a time.
-  // Optim: We could still use this for input channels > 4 by doing residual
-  //        channels. This would require checks on stride as well.
-  ld32          $icg_count_v, $mvertex_base, WKR_ICG_COUNT/4
-
+LPartitionLoop:
+  PARTITION_LOOP_SETUP
 
 LProcessFourInputsFpLoop:
     ld32          $weights_ptr_v, $mvertex_base, WKR_WEIGHTS_PTR/4
     ld32          $ocg_count_v, $mvertex_base, WKR_OCG_COUNT/4
     ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
-
-LProcessFourInputsOcgLoop:
     {
-      rpt $icg_count_v, (LProcessFourInputsIcgLoopEnd - LProcessFourInputsIcgLoopBegin)/8 - 1
+      rpt $icg_count_v, (2f - 1f)/8 - 1
       fnop
     }
-LProcessFourInputsIcgLoopBegin:
-        {
-          ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
-          f16v4cmac     $a0:1, $a2:3
-        }
-LProcessFourInputsIcgLoopEnd:
-      {
-        // reset source pointer back to start for the next output channel
-        ld32           $in_addr_v, $mworker_base, WKR_STACK_INADDR/4
-        f16v4cmac      $a0:1, $a2:3
-      }
-      {
-        // load previous partial
-        ld32          $a6, $mzero, $out_addr_v, 0
-        f32v2gina     $a4:5, $azeros, 0
-      }
+1:
       {
         ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
-        f32add          $a4, $a4, $a5
+        f16v4cmac     $a0:1, $a2:3
       }
-      f32add          $a4, $a4, $a6
-      st32step        $a4, $mzero, $out_addr_v+=, 1
-      brnzdec         $ocg_count_v, LProcessFourInputsOcgLoop
+2:
+    {
+      // reset source pointer back to start for the next output channel
+      ld32          $in_addr_v, $mworker_base, WKR_STACK_INADDR/4
+      f16v4cmac     $a0:1, $a2:3
+    }
+    {
+      // load previous partial
+      ld32          $a6, $mzero, $out_addr_v, 0
+      f32v2gina     $a4:5, $azeros, 0
+    }
+    {
+      ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
+      f32add        $a4, $a4, $a5
+    }
+    {
+      brnzdec       $ocg_count_v, LProcessFourInputsOcgLoop
+      f32add        $a7, $a4, $a6
+    }
 
-    ld32step        $azero, $mzero, $out_addr_v+=, $outstride_v
+    st32step        $a7, $mzero, $out_addr_v+=, $outstride_v
     ld64step        $azeros, $mzero, $in_addr_v+=, $instride_v
     st32            $in_addr_v, $mzero, $mworker_base, WKR_STACK_INADDR/4
     brnzdec         $num_fp_v, LProcessFourInputsFpLoop
+  brnz            $num_partitions_v, LPartitionLoop
+exitz         $mzero
 
-  ld32          $partition_v, $mworker_base, WKR_STACK_PARTITIONS_PTR/4
-  brnzdec       $num_partitions_v, PartitionLoop
-  exitz         $mzero
+
+LProcessFourInputsOcgLoop:
+    {
+      rpt $icg_count_v, (2f - 1f)/8 - 1
+      fnop
+    }
+1:
+      {
+        ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
+        f16v4cmac     $a0:1, $a2:3
+      }
+2:
+    {
+      // reset source pointer back to start for the next output channel
+      ld32           $in_addr_v, $mworker_base, WKR_STACK_INADDR/4
+      f16v4cmac      $a0:1, $a2:3
+    }
+    {
+      st32step        $a7, $mzero, $out_addr_v+=, 1
+      // load previous partial
+      f32v2gina       $a4:5, $azeros, 0
+    }
+    {
+      ld32            $a6, $mzero, $out_addr_v, 0
+      f32add          $a4, $a4, $a5
+    }
+    {
+      ld2x64pace      $a0:1, $a2:3, $tripacked_addr+=, $mzero, 0b0000
+      f32add          $a7, $a4, $a6
+    }
+    brnzdec         $ocg_count_v, LProcessFourInputsOcgLoop
+
+  st32step        $a7, $mzero, $out_addr_v+=, $outstride_v
+  ld64step        $azeros, $mzero, $in_addr_v+=, $instride_v
+  st32            $in_addr_v, $mzero, $mworker_base, WKR_STACK_INADDR/4
+  brnzdec         $num_fp_v, LProcessFourInputsFpLoop
+brnz            $num_partitions_v, LPartitionLoop
+exitz         $mzero
 
 
 // Process a vector of 2 input channels at a time
@@ -271,9 +128,11 @@ LProcessTwoInputsFpLoop:
 
 LProcessTwoInputsOcgLoop:
       ld32step      $a1, $mzero, $weights_ptr_v+=, 1
-
-      rpt $icg_count_v, (LProcessTwoInputsLoopEnd - LProcessTwoInputsLoopBegin)/8 - 1
-LProcessTwoInputsLoopBegin:
+      {
+        rpt $icg_count_v, (2f - 1f)/8 - 1
+        fnop
+      }
+1:
         {
           ld32step      $a0, $mzero, $in_addr_v+=, 1
           f16v2cmac     $a0, $a1
@@ -282,7 +141,7 @@ LProcessTwoInputsLoopBegin:
           ld32step      $a1, $mzero, $weights_ptr_v+=, 1
           fnop
         }
-LProcessTwoInputsLoopEnd:
+2:
       {
         // load previous partial
         ld32          $a6, $mzero, $out_addr_v, 0
@@ -300,33 +159,23 @@ LProcessTwoInputsLoopEnd:
       brnzdec         $ocg_count_v, LProcessTwoInputsOcgLoop
 
     ld32step        $azero, $mzero, $out_addr_v+=, $outstride_v
+    add             $out_addr_v, $out_addr_v, -4
     ld32step        $azero, $mzero, $in_addr_v+=, $instride_v
     st32            $in_addr_v, $mzero, $mworker_base, WKR_STACK_INADDR/4
     brnzdec         $num_fp_v, LProcessTwoInputsFpLoop
 
-L_Partition_end:
-  ld32            $partition_v, $mworker_base, WKR_STACK_PARTITIONS_PTR/4
-  brnzdec         $num_partitions_v, PartitionLoop
+LPartitionEnd:
+  brnz            $num_partitions_v, LPartitionLoop
 
-L_Conv_end:
+LConvEnd:
 exitz         $mzero
 
-.size convHorizMacFlattened, . - convHorizMacFlattened
+.size convHorizMacFlattened_half_float, . - convHorizMacFlattened_half_float
 
 
 // =============================================================================
-
-
 // =============================================================================
 
-// Performance:
-// 63 + numConvGroups * (23 + numInChanGroups
-//                       * (15 + numOutChanGroups
-//                         * (10 + KernelElems
-//                           * (16 + innerLoopCycles)))
-//
-// Where innerLoopCycles are vertex cycles
-//
 
 // STACK VARIABLES for supervisor
 #define STACK_BASE                      WKR_STATE_SIZE
@@ -444,7 +293,7 @@ ld32          $partition_ptr_s, $sup_base, (SUP_PARTITION_TABLES + 4)/4
 #endif
 
 shr           $icg_count_s, $inchans_per_group_s, 1
-st32          $outstride_s, $wkr_base, WKR_OUTSTRIDE/4
+add           $outstride_s, $outstride_s, 1
 nop
 nop
 brnz          $temp_2_s, IcgNotMult4
@@ -463,6 +312,7 @@ shl           $partition_ptr_s, $partition_ptr_s, DELTAN_DELTAS_COUNT_BITS
 // weight pointer increment per kernel element = inChansPerGroup * outChansPerGroup
 mul           $weights_ptr_h_incr, $inchans_per_group_s, $outchans_per_group_s
 shr           $instride_s, $instride_s, 1
+st32          $outstride_s, $wkr_base, WKR_OUTSTRIDE/4
 add           $icg_count_s, $icg_count_s, -1
 
 
@@ -476,7 +326,8 @@ or            $partition_ptr_s, $partition_ptr_s, (TMEM_REGION0_BASE_ADDR << 13)
 nop           // keep nop for 6 instructions pipeline
 #endif
 mul           $outchans_per_group_s, $outchans_per_group_s, SIZEOF_OUT_ATOM
-st32          $instride_s, $wkr_base, WKR_INSTRIDE/4
+add           $instride_s, $instride_s, -1
+
 st32          $icg_count_s, $wkr_base, WKR_ICG_COUNT/4
 st32          $inchans_per_group_s, $wkr_base, WKR_INCHANS_PER_GROUP_IN_BYTES/4
 st32          $ocg_count_s, $mzero, $wkr_base, WKR_OCG_COUNT/4
@@ -488,10 +339,11 @@ shr           $partition_ptr_s, $partition_ptr_s, DELTAN_DELTAS_COUNT_BITS
 st32          $outchans_per_group_s, $mzero, $wkr_base, WKR_OUTCHANS_PER_GROUP_IN_BYTES/4
 
 ldz16         $convgroup_count_s, $sup_base, SUP_NUM_CONVGROUPS_M1/2
+st32          $instride_s, $wkr_base, WKR_INSTRIDE/4
 ldz16         $inchan_count_s, $sup_base, SUP_NUM_INCHAN/2
 ld32          $inchan_vectors_s, $sup_base, SUP_INCHAN_VECTORS/4
 ld32          $outchan_vectors_s, $sup_base, SUP_OUTCHAN_VECTORS/4
-setzi         $wkr_function_s, convHorizMacFlattened
+setzi         $wkr_function_s, convHorizMacFlattened_half_float
 st32          $partition_ptr_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
 ld32          $weights_vectors_s, $sup_base, SUP_WEIGHTS_VECTORS/4
 add           $inchan_count_s, $inchan_count_s, -1
@@ -532,6 +384,7 @@ KLoop:
         st32          $outchan_ptr_s, $wkr_base, WKR_OUTCHAN_PTR/4
         ld32          $outchan_count_s, $sp, (STACK_BASE + STACK_OUTCHAN_COUNT)/4
         runall        $wkr_function_s, $wkr_base, 0
+        setzi         $wkr_function_s, convHorizMacFlattened_half_float_retained
         // NUM_CONTEXTS(6) * SIZEOF_UINTPTR(4)
         add           $partition_ptr_s,$partition_ptr_s, 6 * 4
         ldz16step     $mzero, $mzero, $weights_ptr_s+=, $weights_ptr_h_incr

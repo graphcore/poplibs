@@ -22,8 +22,23 @@
 
 using namespace poplibs_support;
 
-inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations) {
-  return floatActivations ? 58 : 63;
+inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations,
+                                                      bool use1x1) {
+  return (floatActivations ? 58 : 65) - use1x1 * 10;
+}
+
+inline static bool horizontalMacHas1x1Specialisation(bool floatActivations,
+                                                     bool floatPartials) {
+  return floatPartials && !floatActivations;
+}
+
+inline static std::uint64_t
+convHzmacWorkerRetentionSavings(bool floatActivations,
+                                bool use1x1Implementation) {
+  if (use1x1Implementation) {
+    return 15;
+  }
+  return floatActivations ? 0 : 6;
 }
 
 inline static std::uint64_t convNx1Overhead() { return 109; }
@@ -90,10 +105,12 @@ inline std::uint64_t getDenseDotProductCycles(unsigned activationsVectorWidth,
       // Due to the same above limitation, we cannot simultaneously load
       // weights with activations during pipeline warmup so add a cycle
       // for this for each output channel.
+
       const unsigned additionalCycles =
           currWidth < actsPer64Bits ? numOutChans : 0;
+      // Float activations take one cycle more
       return innerCycles + additionalCycles +
-             (size / currWidth) * cyclesPerWidth;
+             (size / currWidth) * cyclesPerWidth - !floatActivations;
     }
   }
   // This should be unreachable.
@@ -116,8 +133,9 @@ bool allEqual(InputIterator begin, InputIterator end) {
 inline std::uint64_t getConvPartialHorizontalMacCycleEstimate(
     bool floatActivations, bool floatPartials, unsigned activationsVectorWidth,
     unsigned numInChans, unsigned numOutChans,
-    const std::vector<unsigned> &convSizes) {
-  uint64_t cycles = 16;
+    const std::vector<unsigned> &convSizes, bool use1x1Implementation) {
+  uint64_t cycles = 16 - convHzmacWorkerRetentionSavings(floatActivations,
+                                                         use1x1Implementation);
   for (auto convSize : convSizes) {
     if (convSize == 0) {
       cycles += 7;
@@ -125,11 +143,19 @@ inline std::uint64_t getConvPartialHorizontalMacCycleEstimate(
       if (!floatPartials) {
         numOutChans /= 2; // Processing two channels inside inner loop
       }
-      cycles += 19;
-      cycles += convSize *
-                (7 + numOutChans * getDenseDotProductCycles(
-                                       activationsVectorWidth, floatActivations,
-                                       floatPartials, numInChans));
+      cycles += use1x1Implementation ? 13 : 19;
+      if (use1x1Implementation && numOutChans == 1) {
+        cycles += 1; // preload weights ptr
+        cycles += convSize * (2 + getDenseDotProductCycles(
+                                      activationsVectorWidth, floatActivations,
+                                      floatPartials, numInChans));
+
+      } else {
+        cycles += convSize * (7 + numOutChans * getDenseDotProductCycles(
+                                                    activationsVectorWidth,
+                                                    floatActivations,
+                                                    floatPartials, numInChans));
+      }
     }
   }
   return cycles;
@@ -157,8 +183,11 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
     unsigned kernelSize, unsigned numInChansPerGroup,
     unsigned numOutChansPerGroup, unsigned numWorkerContexts,
-    unsigned activationsVectorWidth, bool floatActivations,
-    bool floatPartials) {
+    unsigned activationsVectorWidth, bool floatActivations, bool floatPartials,
+    bool use1x1Specialisation) {
+  const auto use1x1Implementation =
+      kernelSize == 1 &&
+      horizontalMacHas1x1Specialisation(floatActivations, floatPartials);
   unsigned usedContexts = workerPartitions.size();
   uint64_t cycles = 0;
   uint64_t maxWorkerCycles = 0;
@@ -170,8 +199,8 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
     for (auto k = 0U; k != kernelSize; ++k) {
       thisWorkerCycles += getConvPartialHorizontalMacCycleEstimate(
           floatActivations, floatPartials, activationsVectorWidth,
-          numInChansPerGroup, numOutChansPerGroup,
-          workerPartitions[context][k]);
+          numInChansPerGroup, numOutChansPerGroup, workerPartitions[context][k],
+          use1x1Implementation);
     }
     const unsigned workerNonLoopOverhead = 16;
     thisWorkerCycles += workerNonLoopOverhead;
@@ -188,10 +217,12 @@ inline std::uint64_t
 getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
     std::uint64_t innerLoopCycles, unsigned numConvGroups, unsigned numInGroups,
     unsigned numOutGroups, unsigned numWorkers, bool floatActivations,
-    bool floatPartials) {
+    bool floatPartials, bool use1x1Specialisation) {
   uint64_t cycles = innerLoopCycles;
-  return convHorizontalMacOverhead(floatActivations) +
+  return convHorizontalMacOverhead(floatActivations, use1x1Specialisation) +
          numWorkers * zeroPartialsRetentionSavings(floatPartials) +
+         numWorkers * convHzmacWorkerRetentionSavings(floatPartials,
+                                                      use1x1Specialisation) +
          numConvGroups *
              (23 + numInGroups * (15 + numOutGroups * (10 + cycles)));
 }
@@ -201,16 +232,16 @@ inline std::uint64_t getConvPartialHorizontalMacSupervisorCycleEstimate(
     unsigned numConvGroups, unsigned numInGroups, unsigned numOutGroups,
     unsigned kernelSize, unsigned numInChansPerGroup,
     unsigned numOutChansPerGroup, unsigned numWorkerContexts,
-    unsigned activationsVectorWidth, bool floatActivations,
-    bool floatPartials) {
+    unsigned activationsVectorWidth, bool floatActivations, bool floatPartials,
+    bool use1x1Specialisation) {
   auto innerLoopCycles =
       getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
           workerPartitions, kernelSize, numInChansPerGroup, numOutChansPerGroup,
           numWorkerContexts, activationsVectorWidth, floatActivations,
-          floatPartials);
+          floatPartials, use1x1Specialisation);
   auto cycles = getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
       innerLoopCycles, numConvGroups, numInGroups, numOutGroups,
-      numWorkerContexts, floatActivations, floatPartials);
+      numWorkerContexts, floatActivations, floatPartials, use1x1Specialisation);
   return cycles;
 }
 
@@ -1903,8 +1934,8 @@ inline std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
     unsigned numOutRows, unsigned tileOutWidth, unsigned outputStrideX,
     unsigned tileKernelHeight, unsigned tileKernelWidth, unsigned numWorkers,
     unsigned activationsVectorWidth, bool floatActivations, bool floatPartials,
-    unsigned inChansPerGroup, unsigned outChansPerGroup,
-    unsigned dataPathWidth) {
+    unsigned inChansPerGroup, unsigned outChansPerGroup, unsigned dataPathWidth,
+    bool use1x1Implementation) {
   unsigned rowSplitFactor = numWorkers / std::gcd(numWorkers, numOutRows);
   unsigned numPartRows = numOutRows * rowSplitFactor;
   const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
@@ -1931,7 +1962,8 @@ inline std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
   }
   return getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
       workerPartitions, kernelSize, inChansPerGroup, outChansPerGroup,
-      numWorkers, activationsVectorWidth, floatActivations, floatPartials);
+      numWorkers, activationsVectorWidth, floatActivations, floatPartials,
+      use1x1Implementation);
 }
 
 inline std::uint64_t estimateConvPartialVerticalMacInnerLoopCycles(
