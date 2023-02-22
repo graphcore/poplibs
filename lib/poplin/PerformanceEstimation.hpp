@@ -185,9 +185,6 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
     unsigned numOutChansPerGroup, unsigned numWorkerContexts,
     unsigned activationsVectorWidth, bool floatActivations, bool floatPartials,
     bool use1x1Specialisation) {
-  const auto use1x1Implementation =
-      kernelSize == 1 &&
-      horizontalMacHas1x1Specialisation(floatActivations, floatPartials);
   unsigned usedContexts = workerPartitions.size();
   uint64_t cycles = 0;
   uint64_t maxWorkerCycles = 0;
@@ -200,7 +197,7 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
       thisWorkerCycles += getConvPartialHorizontalMacCycleEstimate(
           floatActivations, floatPartials, activationsVectorWidth,
           numInChansPerGroup, numOutChansPerGroup, workerPartitions[context][k],
-          use1x1Implementation);
+          use1x1Specialisation);
     }
     const unsigned workerNonLoopOverhead = 16;
     thisWorkerCycles += workerNonLoopOverhead;

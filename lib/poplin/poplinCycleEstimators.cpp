@@ -897,8 +897,6 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             false),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, HALF,
                             false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, FLOAT,
-                            true),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac1x1, HALF, FLOAT,
                             true),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, true,
