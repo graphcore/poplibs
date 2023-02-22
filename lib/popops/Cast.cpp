@@ -22,6 +22,10 @@ namespace popops {
 constexpr unsigned maxDivisibleValue = (UINT_MAX / 0xAAAB) - 5;
 constexpr unsigned elementsPerLoop = 4;
 
+// Number of cycles overhead in a MultiVertex fpor work division over
+// a single worker launch.
+constexpr unsigned multiVertexCyclesForWorkDivision = 6;
+
 static bool validateRegionSizeForMultiVertex(
     const std::vector<std::vector<Interval>> &intervals, unsigned maxRepeatSize,
     unsigned numWorkers) {
@@ -34,6 +38,17 @@ static bool validateRegionSizeForMultiVertex(
     return false;
   }
   return true;
+}
+
+// For single regions, it may be beneficial to select a single worker over a
+// multivertex because of the overhead in dividing work.
+// The cycles cost to cast is a simplistic model of assuming the
+// cycles it takes for loading/storing the larger of the src/dst types.
+static bool useSingleWorkerOverMultiVertex(unsigned numElems,
+                                           unsigned srcElemsPerVector,
+                                           unsigned dstElemsPerVector) {
+  const auto elemsPerVector = std::min(srcElemsPerVector, dstElemsPerVector);
+  return numElems <= elemsPerVector * multiVertexCyclesForWorkDivision;
 }
 
 // This is based on the macros that reference `CastVertexName` in
@@ -109,10 +124,15 @@ static void castImpl(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
     if (tileContiguousRegions.size() == 1 &&
         validateRegionSizeForMultiVertex(tileContiguousRegions, maxElemsForRpt,
                                          numWorkers)) {
-      VertexRef v;
-      v = graph.addVertex(cs,
-                          templateVertex("popops::Cast1D", srcType, dstType));
       const auto numElems = intervalSequenceNumElements(tileContiguousRegions);
+      const auto vertexName = useSingleWorkerOverMultiVertex(
+                                  numElems, target.getVectorWidth(srcType),
+                                  target.getVectorWidth(dstType))
+                                  ? "popops::Cast1DSingleWorker"
+                                  : "popops::Cast1D";
+      auto v =
+          graph.addVertex(cs, templateVertex(vertexName, srcType, dstType));
+
       graph.connect(v["src"], concat(src.slices(tileContiguousRegions)));
       graph.connect(v["dst"], concat(dst.slices(tileContiguousRegions)));
       graph.setInitialValue(v["numElems"], numElems);
