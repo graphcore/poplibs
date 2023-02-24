@@ -4586,8 +4586,9 @@ constructModel(popsolver::Model &m, const Target &target, const Type &dataType,
                   .cycles
             : m.addConstant(0u);
 
+    // TODO: POPLAR-368 Investigate why using partialType causes SDK regressions
     e.updateZeroPartialsCycles =
-        modelContiguousFill(target, partialType, m, mPartialElemsPerTile,
+        modelContiguousFill(target, FLOAT, m, mPartialElemsPerTile,
                             "update.0.zeroPartials")
             .cycles;
     e.updateZeroPartialsCycles =
