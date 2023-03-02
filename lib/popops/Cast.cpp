@@ -107,7 +107,6 @@ static void castImpl(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   graph.reorderToSimplify(&dst, {&src}, false);
 
   const auto &target = graph.getTarget();
-  const auto vectorWidth = target.getFloatVectorWidth();
   std::vector<std::vector<Interval>> mapping = graph.getTileMapping(dst);
   const auto numTiles = target.getNumTiles();
 
@@ -138,6 +137,8 @@ static void castImpl(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
       graph.setInitialValue(v["numElems"], numElems);
       graph.setTileMapping(v, tile);
     } else {
+      const auto vectorWidth = std::max(target.getVectorWidth(srcType),
+                                        target.getVectorWidth(dstType));
       auto vertexRegions =
           splitRegionsBetweenWorkers(target, tileContiguousRegions, vectorWidth,
                                      2 * vectorWidth, UINT_MAX, maxElemsForRpt);
