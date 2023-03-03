@@ -85,9 +85,11 @@ endif()
 if (DEFINED ENV{POPLAR_SDK_ENABLED})
   set(ENABLED_TEST_VARIANTS "NoTarget;${CPU_VARIANTS};${IPUMODEL_VARIANTS}" CACHE STRING
       "Generate tests for these devices and variants")
+  set(enable_vv_tests FALSE)
 else()
   set(ENABLED_TEST_VARIANTS "NoTarget;${CPU_VARIANTS};${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS};IpuModel21;Sim21" CACHE STRING
       "Generate tests for these devices and variants")
+  set(enable_vv_tests TRUE)
 endif()
 
 message("Default test variants: ${DEFAULT_TEST_VARIANTS}")
