@@ -1,5 +1,7 @@
 add_subdirectory(codelets)
-add_subdirectory(vertexVerifier)
+if(enable_vv_tests)
+  add_subdirectory(vertexVerifier)
+endif()
 
 add_unit_test(CholeskyTest CholeskyTest.cpp)
 add_unit_test(ConvOptionsTest ConvOptionsTest.cpp)
