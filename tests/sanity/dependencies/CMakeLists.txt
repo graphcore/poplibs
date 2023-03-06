@@ -4,9 +4,11 @@ set(poplib_libraries "poplibs_support;poputil;popops;poprand;popfloat;poplin;pop
 # CMake deals with cyclic dependencies as long as we are upfront with dependencies
 set(arg_string "")
 foreach (lib IN LISTS poplib_libraries)
-    get_target_property(deps_semi_colon_sep ${lib} LINK_LIBRARIES)
-    string(REPLACE "-" "" deps_semi_colon_sep "${deps_semi_colon_sep}") # So python isn't confused
-    string(APPEND arg_string "-d;${lib};${deps_semi_colon_sep};")
+    if(TARGET ${lib})
+        get_target_property(deps_semi_colon_sep ${lib} LINK_LIBRARIES)
+        string(REPLACE "-" "" deps_semi_colon_sep "${deps_semi_colon_sep}") # So python isn't confused
+        string(APPEND arg_string "-d;${lib};${deps_semi_colon_sep};")
+    endif()
 endforeach()
 
 add_test(
