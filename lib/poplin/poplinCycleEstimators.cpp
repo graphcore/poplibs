@@ -840,6 +840,223 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TriangularSolveMultiWorker)(
   return {cycles, convertToTypeFlops(flops, type)};
 }
 
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(LUDCoreVertex)(const VertexIntrospector &vertex,
+                                        const Target &target, unsigned align) {
+  CODELET_SCALAR_VAL(depth, int);
+
+  std::uint64_t flops = 0;
+
+  unsigned cycles = 0;
+  int rpt = ceil(depth / target.getNumWorkerContexts());
+
+  if (align == 4) {
+    cycles += 5;
+    for (int i = 0; i < depth; i++) {
+      cycles += 5;
+      for (int y = i + 1; y < rpt; y++) {
+        cycles += 16;
+        flops += flopsForMAC();
+        for (int x = i + 1; x < depth; x++) {
+          // Loop level 2 and 3
+          cycles += 7;
+          flops += flopsForMAC();
+        }
+      }
+    }
+  }
+
+  if (align == 8) {
+    cycles += 5;
+    for (int i = 0; i < depth; i++) {
+      cycles += 5;
+      for (int y = i + 1; y < rpt; y++) {
+        cycles += 22;
+        flops += flopsForMAC();
+        for (int x = i + 1; x < depth; x += 2) {
+          // Loop level 2 and 3
+          cycles += 3;
+          flops += 2 * flopsForMAC();
+        }
+      }
+    }
+  }
+
+  return {cycles, convertToTypeFlops(flops, poplar::FLOAT)};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(LUDRowVertex)(const VertexIntrospector &vertex,
+                                       const Target &target, unsigned align) {
+
+  CODELET_SCALAR_VAL(depth, int);
+  CODELET_SCALAR_VAL(width, int);
+
+  std::uint64_t flops = 0;
+
+  unsigned cycles = 0;
+  int rpt = ceil(depth / target.getNumWorkerContexts());
+
+  if (align == 4) {
+    cycles += 5;
+    for (int i = 0; i < depth; i++) {
+      cycles += 5;
+      for (int y = i + 1; y < rpt; y++) {
+        cycles += 16;
+        for (int x = 0; x < width; x++) {
+          cycles += 7;
+          flops += flopsForMAC();
+        }
+      }
+    }
+  }
+
+  if (align == 8) {
+    cycles += 5;
+    for (int i = 0; i < depth; i++) {
+      cycles += 10;
+      for (int y = i + 1; y < rpt; y++) {
+        cycles += 22;
+        for (int x = 0; x < width; x += 2) {
+          cycles += 3;
+          flops += 2 * flopsForMAC();
+        }
+      }
+    }
+  }
+
+  return {cycles, convertToTypeFlops(flops, poplar::FLOAT)};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(LUDColVertex)(const VertexIntrospector &vertex,
+                                       const Target &target, unsigned align) {
+
+  CODELET_SCALAR_VAL(depth, int);
+  CODELET_SCALAR_VAL(height, int);
+
+  std::uint64_t flops = 0;
+
+  unsigned cycles = 0;
+  int rpt = ceil(height / target.getNumWorkerContexts());
+
+  if (align == 4) {
+    cycles += 5;
+    for (int i = 0; i < depth; i++) {
+      cycles += 5;
+      for (int y = 0; y < rpt; y++) {
+        cycles += 16;
+        flops += flopsForMAC();
+        for (int x = i + 1; x < depth; x++) {
+          cycles += 7;
+          flops += flopsForMAC();
+        }
+      }
+    }
+  }
+
+  if (align == 8) {
+    cycles += 5;
+    for (int i = 0; i < depth; i++) {
+      cycles += 10;
+      for (int y = i + 1; y < rpt; y++) {
+        cycles += 22;
+        flops += flopsForMAC();
+        for (int x = i + 1; x < depth; x += 2) {
+          cycles += 3;
+          flops += 2 * flopsForMAC();
+        }
+      }
+    }
+  }
+
+  return {cycles, convertToTypeFlops(flops, poplar::FLOAT)};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(LUDBlockVertex)(const VertexIntrospector &vertex,
+                                         const Target &target, unsigned align) {
+
+  CODELET_SCALAR_VAL(depth, int);
+  CODELET_SCALAR_VAL(height, int);
+  CODELET_SCALAR_VAL(width, int);
+
+  std::uint64_t flops = 0;
+
+  unsigned cycles = 0;
+  int rpt = ceil(height / target.getNumWorkerContexts());
+
+  if (align == 4) {
+    cycles += 5;
+    for (int i = 0; i < depth; i++) {
+      cycles += 5;
+      for (int y = 0; y < rpt; y++) {
+        cycles += 8;
+        for (int x = 0; x < width; x++) {
+          cycles += 7;
+          flops += flopsForMAC();
+        }
+      }
+    }
+  }
+
+  if (align == 8) {
+    cycles += 5;
+    for (int i = 0; i < depth; i++) {
+      cycles += 10;
+      for (int y = i + 1; y < rpt; y++) {
+        cycles += 28;
+        for (int x = 0; x < width; x += 2) {
+          cycles += 2;
+          flops += 2 * flopsForMAC();
+        }
+      }
+    }
+  }
+
+  return {cycles, convertToTypeFlops(flops, poplar::FLOAT)};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(LUDCoreSplitVertex)(const VertexIntrospector &vertex,
+                                             const Target &target) {
+
+  CODELET_SCALAR_VAL(height, int);
+  CODELET_SCALAR_VAL(width, int);
+
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(height * width * 2 * flopsForAdd());
+  unsigned cycles = 0;
+  int rpt = ceil(height / target.getNumWorkerContexts());
+  for (int j = 0; j < rpt; j++) {
+    cycles += 25;
+    for (int i = 0; i < width; i++) {
+      cycles += 8;
+    }
+  }
+  return {cycles, convertToTypeFlops(flops, poplar::FLOAT)};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(LUDBlockSplitVertex)(const VertexIntrospector &vertex,
+                                              const Target &target) {
+
+  CODELET_SCALAR_VAL(height, int);
+  CODELET_SCALAR_VAL(width, int);
+
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(height * width * 2 * flopsForAdd());
+  unsigned cycles = 0;
+  int rpt = ceil(height / target.getNumWorkerContexts());
+  for (int j = 0; j < rpt; j++) {
+    cycles += 12;
+    for (int i = 0; i < width; i++) {
+      cycles += 4;
+    }
+  }
+  return {cycles, convertToTypeFlops(flops, poplar::FLOAT)};
+}
+
 poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverseWithTranspose, FLOAT),
@@ -1107,6 +1324,17 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolveMultiWorker, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolveMultiWorker, HALF, true),
       CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolveMultiWorker, HALF, false),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin::experimental, LUDCoreVertex, 4),
+      CYCLE_ESTIMATOR_ENTRY(poplin::experimental, LUDCoreVertex, 8),
+      CYCLE_ESTIMATOR_ENTRY(poplin::experimental, LUDRowVertex, 4),
+      CYCLE_ESTIMATOR_ENTRY(poplin::experimental, LUDRowVertex, 8),
+      CYCLE_ESTIMATOR_ENTRY(poplin::experimental, LUDColVertex, 4),
+      CYCLE_ESTIMATOR_ENTRY(poplin::experimental, LUDColVertex, 8),
+      CYCLE_ESTIMATOR_ENTRY(poplin::experimental, LUDBlockVertex, 4),
+      CYCLE_ESTIMATOR_ENTRY(poplin::experimental, LUDBlockVertex, 8),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poplin::experimental, LUDCoreSplitVertex),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poplin::experimental, LUDBlockSplitVertex),
 
       CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poplin::experimental,
                                      PartialSquareElements),

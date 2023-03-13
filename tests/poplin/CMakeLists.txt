@@ -16,6 +16,31 @@ add_unit_test(MultiConvolutionTest MultiConvolutionTest.cpp)
 add_unit_test(RangeTest RangeTest.cpp)
 add_unit_test(WinogradConvolution WinogradConv.cpp VARIANTS ${TimesOutOnSim})
 
+add_multi_target_test_executable(LuFactorizationTest LuFactorizationTest.cpp)
+foreach(DATA_TYPE float half)
+  foreach(N 2 8 16)
+    foreach(M 2 8 16)
+      add_multitarget_test(NAME LuFactorizationTest_${DATA_TYPE}_${M}_${N}
+        COMMAND LuFactorizationTest
+        --data-type=${DATA_TYPE}
+        --height=${M}
+        --width=${N}
+      VARIANTS "Sim2")
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(N 128 256)
+  foreach(M 128 256)
+    add_multitarget_test(NAME LuFactorizationTest_float_${M}_${N}
+      COMMAND LuFactorizationTest
+      --data-type=float
+      --height=${M}
+      --width=${N}
+      VARIANTS "Hw")
+  endforeach()
+endforeach()
+
 add_multi_target_test_executable(QRFactorizationTest QRFactorizationTest.cpp)
 foreach(M 8 16)
   foreach(N 4 8)
