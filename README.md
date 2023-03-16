@@ -22,7 +22,7 @@ For more information, refer to the [Poplar and PopLibs API Reference](https://do
 
 The following description is for building PopLibs from the source on the GitHub repository.
 
-Note that only Ubuntu 18.04 is supported for building PopLibs externally.
+Note that only Ubuntu 20.04 is supported for building PopLibs externally.
 
 ## Build Requirements
 
@@ -32,18 +32,14 @@ In order to build PopLibs, you must download and install the Poplar SDK.
 Please see the Getting Started guides available at https://docs.graphcore.ai/ for details.
 
 The Poplar SDK version must match the version specified in the name of the PopLibs branch.
-For example, `release-1.3` requires Poplar SDK 1.3.x.
+For example, `sdk-release-3.2` requires Poplar SDK 3.2.x.
 
-These instructions are for Poplar SDK 1.3 and later.
+These instructions are for Poplar SDK 3.2 and later.
 
-### CMake Version 3.12.0 or later
+### CMake Version 3.16.0 or later
 
-PopLibs requires CMake 3.12.0 or later. The package manager in Ubuntu 18.04 will install CMake 3.10.
-If you see errors about your CMake version you may need to uninstall the apt version using:
-
-    $ sudo apt-get remove cmake
-
-Then install a recent version using pip:
+PopLibs requires CMake 3.12.0 or later. The package manager in Ubuntu 20.04 will install CMake 3.16.
+You can install a recent version using pip:
 
     $ pip3 install cmake
 
@@ -77,7 +73,7 @@ The sparsity support in PopLibs (popsparse) comes in two flavours: static and dy
 
 Acquire Zoltan from https://github.com/sandialabs/Zoltan/releases/tag/v3.83 then build and install it as follows:
 
-On Ubuntu 18.04:
+On Ubuntu 20.04:
 
     $ tar xvf v3.83.tar.gz
     $ cd Zoltan-3.83
@@ -93,13 +89,13 @@ You will use the install path later when configuring the PopLibs build.
 
 Python 3 is an optional dependency. If installed, additional convolution unit tests will become available.
 
-Ubuntu 18.04 ships with Python 3 already installed.
+Ubuntu 20.04 ships with Python 3 already installed.
 
 ### Ninja Version 1.8.2 (optional)
 
 These instructions use Ninja to build PopLibs. However, you may choose to use an alternative build system.
 
-On Ubuntu 18.04:
+On Ubuntu 20.04:
 
     $ apt install ninja-build
 
@@ -109,8 +105,6 @@ Source the Poplar enable script:
 
     $ . <poplar_sdk_directory>/poplar-<platform><version>/enable.sh
 
-Note: from Poplar SDK 1.3 there is no additional enable script for the drivers.
-
 Create `build` and `install` directories within your PopLibs source directory:
 
     $ mkdir build install
@@ -118,12 +112,10 @@ Create `build` and `install` directories within your PopLibs source directory:
 
 Run cmake then build with Ninja:
 
-    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBOOST_ROOT=<absolute path Boost was installed to> -GNinja -DCMAKE_PREFIX_PATH=<absolute path Spdlog was installed to>
+    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -GNinja -DCMAKE_PREFIX_PATH="<absolute path Boost was installed to>;<absolute path Spdlog was installed to>"
     $ ninja
 
-Note: if you intend to use the popsparse library you will need to have Zoltan installed as described in [Build Requirements](#build-requirements) then tell cmake where to find it by adding the following to the cmake command above:
-
-    -DZOLTAN_ROOT=<path Zoltan was installed to>
+Note: if you intend to use the popsparse library you will need to have Zoltan installed as described in [Build Requirements](#build-requirements) then tell cmake where to find it by adding `path Zoltan was installed to` in `-DCMAKE_PREFIX_PATH` to the cmake command above.
 
 Note: CMake warnings similar to the following can be ignored:
 
