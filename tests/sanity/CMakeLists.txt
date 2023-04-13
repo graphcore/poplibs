@@ -39,7 +39,9 @@ endfunction()
 add_unit_test(WrongSyncZone
               HangTest.cpp
               VARIANTS Hw
-              LABELS multicard;CE_reproducers)
+              LABELS multicard;CE_reproducers
+              PROPERTIES
+                RUN_SERIAL TRUE)
 
 add_unit_test(ConsistentExecutableTest
               ConsistentExecutableTest.cpp
