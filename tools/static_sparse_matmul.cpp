@@ -247,8 +247,13 @@ int main(int argc, char **argv) try {
     ("verbose", "Do trace level logging")     
     ("sparsity-matrix-file",
       po::value<std::string>(&sparsityFileName)->default_value(sparsityFileName)
-      , "The file name for the sparsity mask (first line is row column "
-      "followed by row major ordering of 0/1")
+      , "The file name for the sparsity mask. The first line should be the number of "
+      "rows followed by the number of columns. Each subsequent line represents a row "
+      "of the mask, with \"1\" representing a non-zero entry and \"0\" representing a zero, "
+      "separated by spaces.\n\nAn example contents of the "
+      "mask file for a 4x4 matrix with 4 non-zero entries. The non-zero entries are "
+      "added by the tool:\n"
+      "4 4\n1 0 0 0\n0 1 0 0\n0 0 0 1\n0 0 0 1")
     ("output-sparsity-matrix-file",
       po::value<std::string>(&outputSparsityFileName)->default_value(outputSparsityFileName),
       "The file name to output the sparsity mask to")
