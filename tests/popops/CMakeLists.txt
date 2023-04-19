@@ -426,8 +426,8 @@ add_unit_test(HostSliceTensorTest HostSliceTensorTest.cpp VARIANTS ${SIM_VARIANT
 add_unit_test(MapExprOptimisations MapExprOptimisations.cpp)
 add_unit_test(PlanMultipleCorrectnessTest PlanMultipleCorrectnessTest.cpp)
 add_unit_test(MapMultipleOuts MapMultipleOuts.cpp)
+add_unit_test(SplineBasisTest SplineBasisTest.cpp)
 add_unit_test(SplineWeightingTests SplineWeightingTest.cpp)
-
 
 
 # MapFusionTests

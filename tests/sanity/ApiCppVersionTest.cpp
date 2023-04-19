@@ -76,6 +76,7 @@
 #include <popops/SequenceSlice.hpp>
 #include <popops/Sort.hpp>
 #include <popops/SortOrder.hpp>
+#include <popops/SplineBasis.hpp>
 #include <popops/SplineWeighting.hpp>
 #include <popops/TopK.hpp>
 #include <popops/UpdateScalarInRows.hpp>

@@ -58,6 +58,7 @@ add_library(popops SHARED
   Sort.cpp
   SortOrder.cpp
   SparseUtils.cpp
+  SplineBasis.cpp
   SplineWeighting.cpp
   TopK.cpp
   UpdateScalarInRows.cpp
@@ -89,6 +90,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/SequenceSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/SortOrder.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/SplineBasis.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/SplineWeighting.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/TopK.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
@@ -237,6 +239,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromIntervals.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromRowsInColumns.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SeqSlice.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SplineBasis.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SplineWeighting.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateColumnsDEC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalDEC.cpp

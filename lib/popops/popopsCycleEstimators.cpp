@@ -2831,6 +2831,19 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
   return ScalarMultiply2DEstimator(sizes, true);
 }
 
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(SplineBasis)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &inputType, int degree) {
+  CODELET_FIELD(basis);
+  unsigned outputSize = 0;
+  for (unsigned i = 0; i < basis.size(); i++) {
+    outputSize += basis[i].size();
+  }
+  // Very rough estimation. To be updated when assembly vertex is created.
+  return 30 * outputSize * (inputType == FLOAT ? 2 : 1);
+}
+
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SplineWeighting)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(input);
@@ -3424,6 +3437,13 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             UNSIGNED_INT, true, true),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT, INT,
                             true, true),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, SplineBasis, FLOAT, 1),
+      CYCLE_ESTIMATOR_ENTRY(popops, SplineBasis, FLOAT, 2),
+      CYCLE_ESTIMATOR_ENTRY(popops, SplineBasis, FLOAT, 3),
+      CYCLE_ESTIMATOR_ENTRY(popops, SplineBasis, HALF, 1),
+      CYCLE_ESTIMATOR_ENTRY(popops, SplineBasis, HALF, 2),
+      CYCLE_ESTIMATOR_ENTRY(popops, SplineBasis, HALF, 3),
 
       CYCLE_ESTIMATOR_ENTRY(popops, SplineWeighting, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, SplineWeighting, HALF),
