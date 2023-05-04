@@ -35,6 +35,10 @@ using namespace poplibs_support;
       CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::TANH),    \
       CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::GELU),   \
       CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::GELU),    \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT,                                   \
+                            popnn::NonLinearityType::GELU_ERF),                \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF,                                    \
+                            popnn::NonLinearityType::GELU_ERF),                \
       CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::SWISH),  \
       CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::SWISH)
 
@@ -42,7 +46,8 @@ namespace popnn {
 
 static std::uint64_t nonlinearityFlops(const NonLinearityType &nlType) {
   // assume single flop for all non-linearities other than GELU
-  if (nlType == NonLinearityType::GELU) {
+  if (nlType == NonLinearityType::GELU ||
+      nlType == NonLinearityType::GELU_ERF) {
     return 8;
   } else if (nlType == NonLinearityType::SWISH) {
     return 2;
@@ -53,6 +58,8 @@ static std::uint64_t nonlinearityFlops(const NonLinearityType &nlType) {
 static std::uint64_t nonlinearityGradFlops(const NonLinearityType &nlType) {
   switch (nlType) {
   case NonLinearityType::GELU:
+    return 15;
+  case NonLinearityType::GELU_ERF:
     return 15;
   case NonLinearityType::SWISH:
     return 5;

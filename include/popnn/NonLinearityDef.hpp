@@ -28,6 +28,9 @@ enum class NonLinearityType {
   /// distribution. Phi(x) is approximated as:
   ///  * Phi(x) = 0.5 * (1 + (tanh(x * 0.7978845608 * (1 + 0.044715 * x * x))))
   GELU,
+  /// Gaussian Error Linear Unit:
+  /// More precise version that uses erf instead of tanh
+  GELU_ERF,
   // SWISH:
   // * y = x / (1 + e^(-x))
   SWISH,

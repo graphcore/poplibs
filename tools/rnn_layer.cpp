@@ -70,6 +70,8 @@ const char *asString(const popnn::NonLinearityType &type) {
     return "softmax (scaled, stable)";
   case popnn::NonLinearityType::GELU:
     return "gelu";
+  case popnn::NonLinearityType::GELU_ERF:
+    return "gelu erf (precise)";
   case popnn::NonLinearityType::SWISH:
     return "swish";
   }
@@ -91,6 +93,8 @@ std::istream &operator>>(std::istream &in, NonLinearityType &type) {
     type = NonLinearityType::SIGMOID;
   else if (token == "tanh")
     type = NonLinearityType::TANH;
+  else if (token == "gelu_erf")
+    type = NonLinearityType::GELU_ERF;
   else
     throw poplibs_test::poplibs_test_error("Unsupported nonlinearity <" +
                                            token + ">");

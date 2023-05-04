@@ -42,6 +42,8 @@ std::optional<popnn::NonLinearityType> popnnNLType(UnaryOpType op) {
     return popnn::NonLinearityType::SIGMOID;
   case UnaryOpType::RELU:
     return popnn::NonLinearityType::RELU;
+  case UnaryOpType::GELU_ERF:
+    return popnn::NonLinearityType::GELU_ERF;
   default:
     return std::nullopt;
   }

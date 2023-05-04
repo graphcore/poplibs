@@ -15,7 +15,7 @@ public:
   Output<Vector<FPType, ONE_PTR, 8>> inGrad;
   const unsigned short n;
 
-  IS_EXTERNAL_CODELET(true);
+  IS_EXTERNAL_CODELET(nlType != NonLinearityType::GELU_ERF);
   void compute(unsigned wid) {
     if (wid == 0) {
       for (unsigned i = 0; i < n; ++i) {

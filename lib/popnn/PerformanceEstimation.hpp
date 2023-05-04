@@ -31,9 +31,13 @@ inline uint64_t getNonLinearityOpCycles(popnn::NonLinearityType nlType,
     opCycles = (isFloat ? 5 : 1) * (isVector ? 2 : 1);
     break;
   case popnn::NonLinearityType::GELU:
-    // TODO: T12914 These are just placeholders. Change these when the
-    // nonlinearity is coded in assembly.
+    // TODO: These values should be verified
     opCycles = isFloat ? 10 : 5;
+    break;
+  case popnn::NonLinearityType::GELU_ERF:
+    // TODO: These are just placeholders. Change these when the
+    // geluErf is coded in assembly.
+    opCycles = isFloat ? 30 : 15;
     break;
   case popnn::NonLinearityType::SWISH:
     if (isFloat) {
@@ -65,9 +69,13 @@ inline uint64_t getNonLinearityGradOpCycles(popnn::NonLinearityType nlType,
     opCycles = 3;
     break;
   case popnn::NonLinearityType::GELU:
-    // TODO: T12914 These are just placeholders. Change these when the
-    // nonlinearity is coded in assembly.
+    // TODO: These values should be verified
     opCycles = isFloat ? 10 : 5;
+    break;
+  case popnn::NonLinearityType::GELU_ERF:
+    // TODO: These are just placeholders. Change these when the
+    // geluErf is coded in assembly.
+    opCycles = isFloat ? 30 : 15;
     break;
   case popnn::NonLinearityType::SWISH:
     if (isFloat) {

@@ -936,9 +936,9 @@ public:
   }
 };
 
-// The *in-place* vertices for the 3 non-linearity operators TANH, SIGMOID, RELU
-// have their vertex state fields defined differently from the rest of the
-// operators, so require separate templates.
+// The *in-place* vertices for the 3 non-linearity operators TANH, SIGMOID,
+// RELU, GELU_ERF have their vertex state fields defined differently from the
+// rest of the operators, so require separate templates.
 #define DEFINE_UNARY_OP_NL_2D(op, LAYOUT)                                      \
   template <typename T> class UnaryOp2DInPlace<op, T> : public Vertex {        \
     typedef typename UnaryOpOutputType<op, T>::type outputType;                \
@@ -947,7 +947,7 @@ public:
                                                                                \
   public:                                                                      \
     InOut<VectorList<T, poplar::VectorListLayout::LAYOUT>> inOut;              \
-    IS_EXTERNAL_CODELET(true);                                                 \
+    IS_EXTERNAL_CODELET((isExternal<op, T>()));                                \
     void compute() {                                                           \
       using arch =                                                             \
           typename popops::UnaryOpFn<op, T, architecture::active>::arch;       \
@@ -963,10 +963,12 @@ public:
 DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::TANH, DELTAN)
 DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::SIGMOID, DELTAN)
 DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::RELU, DELTAN)
+DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::GELU_ERF, DELTAN)
 #else
 DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::TANH, DELTANELEMENTS)
 DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::SIGMOID, DELTANELEMENTS)
 DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::RELU, DELTANELEMENTS)
+DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::GELU_ERF, DELTANELEMENTS)
 #endif
 
 //******************************************************************************
@@ -1220,9 +1222,9 @@ public:
   }
 };
 
-// The *in-place* vertices for the 3 non-linearity operators TANH, SIGMOID, RELU
-// have their vertex state fields defined differently from the rest of the
-// operators, so require separate templates.
+// The *in-place* vertices for the 3 non-linearity operators TANH, SIGMOID,
+// RELU, GELU_ERF have their vertex state fields defined differently from the
+// rest of the operators, so require separate templates.
 #define DEFINE_UNARY_OP_NL_SV(op, PTR_TYPE)                                    \
   template <typename T> class UnaryOp1DInPlace<op, T> : public MultiVertex {   \
     typedef typename UnaryOpOutputType<op, T>::type outputType;                \
@@ -1235,7 +1237,7 @@ public:
     UnaryOp1DInPlace();                                                        \
     InOut<Vector<T, PTR_TYPE, 4>> inOut;                                       \
     const unsigned short n;                                                    \
-    IS_EXTERNAL_CODELET(true);                                                 \
+    IS_EXTERNAL_CODELET((isExternal<op, T>()));                                \
     void compute(unsigned wid) {                                               \
       using arch =                                                             \
           typename popops::UnaryOpFn<op, T, architecture::active>::arch;       \
@@ -1248,10 +1250,12 @@ public:
 DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::TANH, SCALED_PTR32)
 DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::SIGMOID, SCALED_PTR32)
 DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, SCALED_PTR32)
+DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::GELU_ERF, SCALED_PTR32)
 #else
 DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::TANH, ONE_PTR)
 DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::SIGMOID, ONE_PTR)
 DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, ONE_PTR)
+DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::GELU_ERF, ONE_PTR)
 #endif
 
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ABSOLUTE, float, half, int,

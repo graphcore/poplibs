@@ -37,6 +37,8 @@ poplar::ProfileValue toProfileValue(const popnn::NonLinearityType &t) {
     return poplar::ProfileValue("TANH");
   case popnn::NonLinearityType::GELU:
     return poplar::ProfileValue("GELU");
+  case popnn::NonLinearityType::GELU_ERF:
+    return poplar::ProfileValue("GELU_ERF");
   case popnn::NonLinearityType::SOFTMAX:
     return poplar::ProfileValue("SOFTMAX");
   case popnn::NonLinearityType::SOFTMAX_STABLE:
@@ -240,6 +242,9 @@ std::optional<expr::UnaryOpType> isPopops(NonLinearityType nl) {
     break;
   case NonLinearityType::RELU:
     unaryOp = expr::UnaryOpType::RELU;
+    break;
+  case NonLinearityType::GELU_ERF:
+    unaryOp = expr::UnaryOpType::GELU_ERF;
     break;
   default:;
   }

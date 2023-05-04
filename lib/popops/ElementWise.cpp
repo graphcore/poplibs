@@ -280,7 +280,7 @@ bool haveOuterVectorBroadcastVertexForOp(BinaryOpType op, bool inPlace,
 
 bool unaryUsesNonLinearityVertex(UnaryOpType op) {
   return (op == UnaryOpType::TANH || op == UnaryOpType::RELU ||
-          op == UnaryOpType::SIGMOID);
+          op == UnaryOpType::GELU_ERF || op == UnaryOpType::SIGMOID);
 }
 
 unsigned getUnaryOpVectorWidth(UnaryOpType op, const Tensor &in,

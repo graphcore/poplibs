@@ -321,7 +321,7 @@ static void setupTest(const Target &target, bool isIpuModel, Graph &graph,
   // The in place vertices for these operators have an additional field
   if (!vertex.is2D && vertex.inPlace &&
       (vertex.op == UnaryOpType::RELU || vertex.op == UnaryOpType::SIGMOID ||
-       vertex.op == UnaryOpType::TANH)) {
+       vertex.op == UnaryOpType::GELU_ERF || vertex.op == UnaryOpType::TANH)) {
     graph.setInitialValue(v["n"], sizes[0]);
   }
 }

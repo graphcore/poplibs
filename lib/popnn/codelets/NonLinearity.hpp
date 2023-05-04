@@ -26,6 +26,8 @@ static constexpr auto DELTANELEMENTS = poplar::VectorListLayout::DELTANELEMENTS;
   template class v<half, popnn::NonLinearityType::TANH>;                       \
   template class v<float, popnn::NonLinearityType::GELU>;                      \
   template class v<half, popnn::NonLinearityType::GELU>;                       \
+  template class v<float, popnn::NonLinearityType::GELU_ERF>;                  \
+  template class v<half, popnn::NonLinearityType::GELU_ERF>;                   \
   template class v<float, popnn::NonLinearityType::SWISH>;                     \
   template class v<half, popnn::NonLinearityType::SWISH>;
 
@@ -83,6 +85,12 @@ static float gelu_gradient(float x) {
   return 0.5f * g;
 }
 
+static constexpr float gelu_erf_gradient(float x) {
+  constexpr float twoDivByDqrtOfPi = 1.1283791670955126f; // 2 / sqrt(PI)
+  const float y = x * 0.7071067811865475f;                // x * 1/sqrt(2)
+  return 0.5f * (1.0f + erf(y) + y * twoDivByDqrtOfPi * exp(-y * y));
+}
+
 static float nonlinearity(popnn::NonLinearityType t, float x) {
   switch (t) {
   case popnn::NonLinearityType::SIGMOID:
@@ -93,6 +101,8 @@ static float nonlinearity(popnn::NonLinearityType t, float x) {
     return tanh(x);
   case popnn::NonLinearityType::GELU:
     return 0.5f * x * (1 + cdfFactorForNormalDist(x));
+  case popnn::NonLinearityType::GELU_ERF:
+    return 0.5f * x * (1 + erf(x * 0.7071067811865475f));
   case popnn::NonLinearityType::SWISH:
     return swish(x);
   case popnn::NonLinearityType::HARD_SIGMOID:
@@ -115,6 +125,8 @@ static float nonlinearity_derivative(popnn::NonLinearityType t,
     return tanh_derivative(activation);
   case popnn::NonLinearityType::GELU:
     return gelu_gradient(activation);
+  case popnn::NonLinearityType::GELU_ERF:
+    return gelu_erf_gradient(activation);
   case popnn::NonLinearityType::SWISH:
     return swish_derivative(activation);
   case popnn::NonLinearityType::HARD_SIGMOID:

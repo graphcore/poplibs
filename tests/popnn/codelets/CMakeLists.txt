@@ -13,7 +13,7 @@ foreach(NL_VERTEX 1D 2D)
                              --fwd-inplace=true
                             LABELS codelet
                             VARIANTS Cpu;${SIM_VARIANTS})
-      if(NL_TYPE STREQUAL "swish") 
+      if(NL_TYPE STREQUAL "swish")
             add_multitarget_test(NAME ${VARIANT_NAME}_NonInPlace
                            COMMAND ${TEST_EXECUTABLE}
                              --data-type=${DATA_TYPE}
@@ -26,12 +26,12 @@ foreach(NL_VERTEX 1D 2D)
   endforeach()
 endforeach()
 
-# For tanh, relu and sigmoid the fwd non-linearity is implemented as a unary op
+# For tanh, relu, gelu_erf and sigmoid the fwd non-linearity is implemented as a unary op
 # So only test the bwd (grad) variant here
 foreach(NL_VERTEX 1D 2D)
   set(TEST_EXECUTABLE "NonLinearity${NL_VERTEX}")
   foreach(DATA_TYPE half float)
-    foreach(NL_TYPE tanh relu sigmoid)
+    foreach(NL_TYPE tanh relu gelu_erf sigmoid)
       set(VARIANT_NAME "NonLinearity${NL_VERTEX}_${DATA_TYPE}_${NL_TYPE}")
       add_multitarget_test(NAME ${VARIANT_NAME}
                            COMMAND ${TEST_EXECUTABLE}
