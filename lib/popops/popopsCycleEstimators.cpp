@@ -2831,6 +2831,21 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScalarMultiply2DInplace)(
   return ScalarMultiply2DEstimator(sizes, true);
 }
 
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SplineWeighting)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  CODELET_FIELD(input);
+  CODELET_FIELD(basis);
+  CODELET_FIELD(output);
+  const auto numChannels = input.getSizeAtIndex(1);
+  const auto numSplines = basis.getSizeAtIndex(1);
+  unsigned outputSize = 0;
+  for (unsigned i = 0; i < output.size(); i++) {
+    outputSize += output[i].size();
+  }
+  // Very rough estimation. To be updated when assembly codelet is created.
+  return 15 * numChannels * numSplines * outputSize * (type == FLOAT ? 2 : 1);
+}
+
 #define BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(vertexName)                        \
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                    \
                         BinaryOpType::VARIANCE_TO_INV_STD_DEV, FLOAT, HALF),   \
@@ -3409,6 +3424,9 @@ poputil::internal::PerfEstimatorTable makePerfFunctionTable() {
                             UNSIGNED_INT, true, true),
       CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, INT, INT,
                             true, true),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, SplineWeighting, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, SplineWeighting, HALF),
   };
 
   for (const auto &entry : unaryOpPerfInfo) {
