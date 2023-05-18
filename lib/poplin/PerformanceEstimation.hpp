@@ -360,7 +360,7 @@ inline std::uint64_t getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
     unsigned numInGroups, bool floatPartials) {
   const auto supOverheadCycles = 61;
   const auto wkrCoreVMACInit = 14;
-  const auto wkrStateRetentionInit = 25 + floatPartials ? 1 : 0;
+  const auto wkrStateRetentionInit = 25 + floatPartials;
   auto outerLoopCycles = 32 + numInGroups * (24 + innerLoopCycles);
   return supOverheadCycles + wkrCoreVMACInit + wkrStateRetentionInit +
          (zeroInitInnerCycles + outerLoopCycles + reductionInnerCycles) *
