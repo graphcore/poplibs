@@ -66,6 +66,7 @@ enum class UnaryOpType {
   LOGARITHM_ONE_PLUS,
   LOGICAL_NOT,
   NEGATE,
+  NEARBY_INT,
   POPCOUNT,
   RELU,
   SIGNUM,

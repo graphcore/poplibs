@@ -89,8 +89,9 @@ function(test_elementwise TEST_TAG TYPE SIZE)
                                            COUNT_LEADING_ZEROS ERF EXPONENT
                                            EXPONENT_MINUS_ONE FLOOR GELU_ERF
                                            INVERSE LOGARITHM LOGARITHM_ONE_PLUS
-                                           LOGICAL_NOT NEGATE POPCOUNT RELU SQUARE
-                                           SIGNUM TANH ROUND RSQRT SQRT SIGMOID
+                                           LOGICAL_NOT NEARBY_INT NEGATE
+                                           POPCOUNT RELU SQUARE SIGNUM TANH
+                                           ROUND RSQRT SQRT SIGMOID
                                --size ${SIZE}
                        LABELS codelet
                        VARIANTS ${SIM_VARIANTS})

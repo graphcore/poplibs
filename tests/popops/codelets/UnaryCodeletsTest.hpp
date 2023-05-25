@@ -46,6 +46,7 @@ const std::map<UnaryOpType, const std::string> unaryOpToString = {
     ONE_OP(LOGARITHM_ONE_PLUS),
     ONE_OP(LOGICAL_NOT),
     ONE_OP(NEGATE),
+    ONE_OP(NEARBY_INT),
     ONE_OP(POPCOUNT),
     ONE_OP(RELU),
     ONE_OP(SIGNUM),
@@ -208,6 +209,7 @@ void performOp(UnaryOpType op, float a, float &result) {
   ONE_OP(LOGARITHM, std::log(a));
   ONE_OP(LOGARITHM_ONE_PLUS, std::log1p(a));
   ONE_OP(NEGATE, -a);
+  ONE_OP(NEARBY_INT, std::nearbyint(a));
   ONE_OP(RELU, a > 0 ? a : 0);
   ONE_OP(RSQRT, 1.0 / std::sqrt(a));
   ONE_OP(ROUND, std::round(a))

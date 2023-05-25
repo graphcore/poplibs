@@ -47,6 +47,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "LOGICAL_NOT";
   case UnaryOpType::NEGATE:
     return "NEGATE";
+  case UnaryOpType::NEARBY_INT:
+    return "NEARBY_INT";
   case UnaryOpType::POPCOUNT:
     return "POPCOUNT";
   case UnaryOpType::RELU:
@@ -186,6 +188,8 @@ std::string debugName(expr::UnaryOpType op) {
     return "LogicalNot";
   case UnaryOpType::NEGATE:
     return "Negate";
+  case UnaryOpType::NEARBY_INT:
+    return "NearbyInt";
   case UnaryOpType::POPCOUNT:
     return "Popcount";
   case UnaryOpType::RELU:
@@ -503,6 +507,7 @@ bool supportsVectorization(UnaryOpType op) {
   case UnaryOpType::SIN:
   case UnaryOpType::TAN:
   case UnaryOpType::TANH:
+  case UnaryOpType::NEARBY_INT:
   case UnaryOpType::ROUND:
   case UnaryOpType::TRUNC:
   case UnaryOpType::SQRT:
@@ -573,6 +578,8 @@ poplar::StringRef getUnaryOpAsString(UnaryOpType op, poplar::Type type) {
     return "!";
   case UnaryOpType::NEGATE:
     return "-";
+  case UnaryOpType::NEARBY_INT:
+    return "NAMESPACE::nearbyint";
   case UnaryOpType::SIN:
     return "NAMESPACE::sin";
   case UnaryOpType::TAN:

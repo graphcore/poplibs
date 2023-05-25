@@ -181,6 +181,8 @@ inline const UnaryOpPerfTable unaryOpPerfInfo = {
 
     {{UnaryOpType::POPCOUNT, INT}, {1, false}},
     {{UnaryOpType::POPCOUNT, UNSIGNED_INT}, {1, false}},
+    {{UnaryOpType::NEARBY_INT, FLOAT}, {2, true}},
+    {{UnaryOpType::NEARBY_INT, HALF}, {2, true}},
     {{UnaryOpType::ROUND, FLOAT}, {2, true}},
     {{UnaryOpType::ROUND, HALF}, {2, true}},
     {{UnaryOpType::SIGNUM, FLOAT}, {5, true}},
@@ -270,6 +272,8 @@ inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
     {{UnaryOpType::NEGATE, LONGLONG}, {5, false}},
     {{UnaryOpType::POPCOUNT, INT}, {1, false}},
     {{UnaryOpType::POPCOUNT, UNSIGNED_INT}, {1, false}},
+    {{UnaryOpType::NEARBY_INT, FLOAT}, {2, true}},
+    {{UnaryOpType::NEARBY_INT, HALF}, {2, true}},
     {{UnaryOpType::ROUND, FLOAT}, {2, true}},
     {{UnaryOpType::ROUND, HALF}, {2, true}},
     {{UnaryOpType::SIGNUM, FLOAT}, {5, true}},

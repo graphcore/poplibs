@@ -879,6 +879,53 @@ inline void roundWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
   mapWithOutput(graph, expr::UnaryOpType::ROUND, A, out, prog, {di}, options);
 }
 
+/** Rounds each element in \p A to an integer value in floating-point format.
+ *
+ *  \param graph   The graph to update.
+ *  \param A       A tensor of elements.
+ *  \param prog    The sequence to extend with the execution of the expression
+ *                 evaluation.
+ *  \param debugContext Optional debug information
+ *  \param options Element-wise options. See map().
+ *
+ *  \returns A tensor where each element is equivalent to the result of
+ *           `std::nearbyint(a)`, where \c a is an element of \p A.
+ */
+inline poplar::Tensor nearbyint(poplar::Graph &graph, const poplar::Tensor &A,
+                            poplar::program::Sequence &prog,
+                            const poplar::DebugContext &debugContext = {},
+                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::NEARBY_INT, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
+}
+
+/** Update the input tensor with the result of nearbyint().
+ */
+inline void nearbyintInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         poplar::program::Sequence &prog,
+                         const poplar::DebugContext &debugContext = {},
+                         const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::NEARBY_INT, A, prog, {di}, options);
+}
+
+/** Write the result of nearbyint() to the given output tensor.
+ */
+inline void nearbyintWithOutput(poplar::Graph &graph, const poplar::Tensor &A,
+                            const poplar::Tensor &out,
+                            poplar::program::Sequence &prog,
+                            const poplar::DebugContext &debugContext = {},
+                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, out, options));
+
+  mapWithOutput(graph, expr::UnaryOpType::NEARBY_INT, A, out, prog, {di}, options);
+}
+
+
 //   Power functions.
 
 /** Compute the cube-root for each element in \p A.

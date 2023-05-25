@@ -2016,6 +2016,9 @@ int main(int argc, char **argv) {
     binaryOpTest<bool, bool, bool>(
         static_cast<BinaryOpFnPtr_t>(popops::neq),
         [](bool x, bool y) -> bool { return x != y; });
+  } else if (test == "NearbyIntFloat") {
+    unaryOpTest<float, double>(
+        popops::nearbyint, [](float x) -> double { return std::nearbyint(x); });
   } else if (test == "NegateFloat") {
     unaryOpTest<float, double>(popops::neg,
                                [](float x) -> double { return -x; });

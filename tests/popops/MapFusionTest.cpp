@@ -487,6 +487,8 @@ int main(int argc, char **argv) {
     // Not can generate memcopies as it uses booleans so we skip the report
     // stage of this.
     CHECK((mapTest<10, bool>(pe::Not(pe::_1), false)));
+  } else if (test == "NearbyInt") {
+    CHECK((mapTest<10, float>(pe::NearbyInt(pe::_1))));
   }
 
   //
