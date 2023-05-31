@@ -136,13 +136,14 @@ inline std::uint64_t getConvPartialHorizontalMacCycleEstimate(
     const std::vector<unsigned> &convSizes, bool use1x1Implementation) {
   uint64_t cycles = 16 - convHzmacWorkerRetentionSavings(floatActivations,
                                                          use1x1Implementation);
+  if (!floatPartials) {
+    // Processing two channels inside inner loop.
+    numOutChans = (numOutChans + 1) / 2;
+  }
   for (auto convSize : convSizes) {
     if (convSize == 0) {
       cycles += 7;
     } else {
-      if (!floatPartials) {
-        numOutChans /= 2; // Processing two channels inside inner loop
-      }
       cycles += use1x1Implementation ? 13 : 19;
       if (use1x1Implementation && numOutChans == 1) {
         cycles += 1; // preload weights ptr
