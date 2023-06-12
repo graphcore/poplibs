@@ -27,6 +27,9 @@ static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::SCALED_PTR32;
 static constexpr auto PTR_ALIGN32 = poplar::VectorLayout::ONE_PTR;
 #endif
 
+#define NANOO_BIT 20
+#define NANOO_MASK (1 << NANOO_BIT)
+
 using namespace poplar;
 
 namespace popops {
@@ -34,6 +37,7 @@ namespace popops {
 #ifdef __IPU__
 #include "inlineAssembler.hpp"
 #include "inlineAssemblerCast.hpp"
+#include <ipu_builtins.h>
 #endif
 
 template <typename FPType>
@@ -427,15 +431,27 @@ public:
 
 template <typename SrcType, typename DstType>
 DstType cast(SrcType src, quarter_metadata metadataSrc,
-             quarter_metadata metadataDst) {
+             quarter_metadata metadataDst, bool nanoo) {
   if constexpr (std::is_same<SrcType, quarter>::value &&
                 std::is_same<DstType, quarter>::value) {
-    return toQuarter(toFloat(src, metadataSrc), metadataDst);
+    return toQuarter(toFloat(src, metadataSrc), metadataDst, nanoo);
   } else if constexpr (std::is_same<SrcType, quarter>::value) {
     return static_cast<DstType>(toFloat(src, metadataSrc));
   } else if constexpr (std::is_same<DstType, quarter>::value) {
-    return toQuarter(static_cast<float>(src), metadataDst);
+    return toQuarter(static_cast<float>(src), metadataDst, nanoo);
   }
+}
+
+// Get the state of the nanoo bit in the FP_CTL register.
+// IpuModel targets don't have this so we have to pick a behaviour for the cast
+// which is nanoo = true;
+// Return in an unsigned as managing 8 bit types can be slow
+static __attribute__((always_inline)) unsigned getNanoo() {
+#ifdef __IPU__
+  return __builtin_ipu_uget(CSR_W_FP_CTL__INDEX & CSR_UPPER_MASK) & NANOO_MASK;
+#else
+  return 1u;
+#endif
 }
 
 template <typename SrcType, typename DstType>
@@ -444,6 +460,7 @@ public:
   static void compute(unsigned numElems, const SrcType *src, DstType *dst,
                       const MetadataType *metadataSrc,
                       const MetadataType *metadataDst) {
+    auto nanoo = getNanoo();
     quarter_metadata metadata0, metadata1;
     if constexpr (std::is_same<SrcType, quarter>::value) {
       metadata0 = unpackMetadata(metadataSrc);
@@ -453,13 +470,13 @@ public:
     }
     constexpr unsigned elemsPerLoop = 4;
     for (unsigned i = 0; i < numElems / elemsPerLoop; ++i) {
-      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
-      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
-      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
-      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1, nanoo);
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1, nanoo);
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1, nanoo);
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1, nanoo);
     }
     for (unsigned i = 0; i < (numElems & 3); i++) {
-      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1);
+      *dst++ = cast<SrcType, DstType>(*src++, metadata0, metadata1, nanoo);
     }
   }
 };
@@ -473,7 +490,7 @@ public:
     constexpr unsigned elemsPerLoop = 4;
     const SrcType *loopSrc = &src[wid * elemsPerLoop];
     DstType *loopDst = &dst[wid * elemsPerLoop];
-
+    auto nanoo = getNanoo();
     quarter_metadata metadata0, metadata1;
     if constexpr (std::is_same<SrcType, quarter>::value) {
       metadata0 = unpackMetadata(metadataSrc);
@@ -482,18 +499,22 @@ public:
       metadata1 = unpackMetadata(metadataDst);
     }
     for (unsigned i = 0; i < divideWork(numElems, 2, wid); ++i) {
-      *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);
-      *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);
-      *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);
-      *loopDst++ = cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1);
+      *loopDst++ =
+          cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1, nanoo);
+      *loopDst++ =
+          cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1, nanoo);
+      *loopDst++ =
+          cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1, nanoo);
+      *loopDst++ =
+          cast<SrcType, DstType>(*loopSrc++, metadata0, metadata1, nanoo);
       loopDst += elemsPerLoop * CTXT_WORKERS - elemsPerLoop;
       loopSrc += elemsPerLoop * CTXT_WORKERS - elemsPerLoop;
     }
     if (wid == CTXT_WORKERS - 1 && numElems & 3) {
       const unsigned offset = numElems & ~3;
       for (unsigned i = 0; i < (numElems & 3); i++) {
-        dst[offset + i] =
-            cast<SrcType, DstType>(src[offset + i], metadata0, metadata1);
+        dst[offset + i] = cast<SrcType, DstType>(src[offset + i], metadata0,
+                                                 metadata1, nanoo);
       }
     }
   }
