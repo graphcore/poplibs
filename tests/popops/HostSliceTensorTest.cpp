@@ -14,6 +14,27 @@ constexpr unsigned packetBytesPerTile = 1024;
 constexpr unsigned floatBytes = 4;
 constexpr unsigned floatsPerPacket = packetBytesPerTile / floatBytes;
 
+static unsigned getStartTile(const std::vector<std::vector<Interval>> &ans,
+                            const bool print = false /*for debugging*/) {
+  unsigned index = 0;
+  if (print) {
+    std::cout << "Printin start tile\n";
+  }
+  for (unsigned i = 0; i < ans.size(); ++i) {
+    if (!ans[i].empty()) {
+      index = i;
+      if (print) {
+        std::cout << i;
+      }
+      break;
+    }
+  }
+  if (print) {
+    std::cout << std::endl;
+  }
+  return index;
+}
+
 static unsigned getNumTiles(const std::vector<std::vector<Interval>> &ans,
                             const bool print = false /*for debugging*/) {
   unsigned count = 0;
@@ -111,4 +132,18 @@ BOOST_AUTO_TEST_CASE(Basic) {
   std::vector<size_t> expected = {4, 8, floatsPerPacket};
   BOOST_CHECK(t6.shape() == expected);
   BOOST_CHECK_EQUAL(getNumTiles(m6), 32);
+
+  // with offset
+  auto offset = (target.getTypeSize(FLOAT) * (t6.numElements() - 1)) +
+                (packetBytesPerTile * tilesPerIpu);
+  auto t7 = createHostTransferableTensor(graph, FLOAT, {1, floatsPerPacket},
+                                         false, offset);
+  auto m7 = graph.getTileMapping(t7);
+  BOOST_CHECK_EQUAL(getNumTiles(m7), 1);
+  BOOST_CHECK_EQUAL(getStartTile(m7), (getStartTile(m6) + 32) % tilesPerIpu);
+
+  auto t8 = createHostTransferableTensor(graph, FLOAT, {1, floatsPerPacket * tilesPerIpu},
+                                         false, packetBytesPerTile);
+  auto m8 = graph.getTileMapping(t8);
+  BOOST_CHECK_EQUAL(getNumTiles(m8), tilesPerIpu);
 }
