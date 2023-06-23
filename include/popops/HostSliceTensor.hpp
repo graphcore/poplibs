@@ -36,6 +36,25 @@ struct IndicesAndTensor {
 /// \param isRead If true, the tensor will be read by the host. If false,
 ///               the tensor data will be written to the host. If \p isRead is
 ///               true, tile imbalance is likely to be greater.
+/// \return Two tensors: the indices, which will have size shape[0] and the
+///         tensor that will be written to.
+IndicesAndTensor
+createHostSliceableTensor(poplar::Graph &graph, const poplar::Type &type,
+                          const std::vector<size_t> &shape, const bool isRead,
+                          const poplar::DebugContext &debugContext = {});
+
+/// Create a Tensor that is well laid out for a host exchange copy
+/// and at the same time create the index tensor for the copy.
+/// The shape must be size 2, dim(1) must be the size of the datastream
+/// or remote buffer, if using a copy from a remote buffer with multiple
+/// slice indices dim(0) must be num slice indices, other wise dim(0) is 1.
+///
+/// \param graph  The Poplar graph to add the tensor to.
+/// \param type   The element type of the tensor created.
+/// \param shape  The hape of created tensor.
+/// \param isRead If true, the tensor will be read by the host. If false,
+///               the tensor data will be written to the host. If \p isRead is
+///               true, tile imbalance is likely to be greater.
 /// \param offset The bytes already assumed to have been packetized. The first
 ///               tile used = (offset / bytes per packet).
 /// \return Two tensors: the indices, which will have size shape[0] and the
@@ -43,7 +62,7 @@ struct IndicesAndTensor {
 IndicesAndTensor
 createHostSliceableTensor(poplar::Graph &graph, const poplar::Type &type,
                           const std::vector<size_t> &shape, const bool isRead,
-                          const size_t offset = 0,
+                          const size_t offset,
                           const poplar::DebugContext &debugContext = {});
 
 /// Create a tensor that is well laid out for a host exchange copy.

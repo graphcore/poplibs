@@ -250,6 +250,13 @@ createHostSliceableTensor(poplar::Graph &graph, const poplar::Type &type,
   return {indices, result};
 }
 
+IndicesAndTensor
+createHostSliceableTensor(poplar::Graph &graph, const poplar::Type &type,
+                          const std::vector<size_t> &shape, const bool isRead,
+                          const poplar::DebugContext &debugContext) {
+  return createHostSliceableTensor(graph, type, shape, isRead, 0, debugContext);
+}
+
 poplar::Tensor
 createHostTransferableTensor(poplar::Graph &graph, const poplar::Type &type,
                              const std::vector<size_t> &shape, bool isRead,
